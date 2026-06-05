@@ -1,0 +1,25 @@
+# Binding orchestration spine and FLIP timing
+
+The framework binding (`@wardic/solid`, and the contract future bindings follow) drives animation through a fixed spine: Recognizers produce booleans/samples → the binding assembles an **Override stack** and resolves it (`resolveOverrides`) to a reactive target → that target drives a primitive → frames are projected into a signal that JSX reads (the reactive render path of ADR-0002). The primitive under the target is chosen by *declared intent*, not inferred:
+
+- **Default — `spring` + Retarget.** Gesture/variant target changes are the *discrete* regime (CONTEXT's three regimes). The binding runs one settling primitive at a time; on each target change it caches the last Frame as a **Snapshot** and reseeds a fresh primitive toward the new target, carrying velocity across the seam. Settling means the fiber stops at rest (no idle ticking; scales to many elements) and emits `done` (so presence / `onSettle` / sequencing work). This is the binding's Retarget responsibility from ADR-0001 made concrete.
+- **Active drag — direct-set.** While a drag is held the value follows the pointer 1:1 (the Drag sample's `offset`), with no spring under it.
+- **Release — `decay` (Fling).** On `phase: "end"`, hand off per-axis to `decay` seeded from the sample's `velocity`.
+- **`chase` — opt-in only.** Continuous-follow with spring lag (cursor followers, magnetic buttons, smooth scroll-linked motion) is selected by `transition.type: "chase"` / a `follow` API. It is never auto-selected.
+
+FLIP timing follows the same "binding owns timing" seam (ADR-0004): core's `flip(from, to)` is pure, and the binding captures the before/after. Because Solid has no central commit phase, the Solid binding uses the **retained-Measurement** model — it keeps each tracked element's last layout `Measurement`, and on a layout-affecting change measures the new bounds *after* the DOM settles, then FLIPs the delta. The "before" is the Measurement left from the prior settled state, not a synchronous pre-mutation snapshot. Measuring a mid-flight element's *layout* box requires resetting the FLIP transform before `getBoundingClientRect` — a DOM-env/binding detail `flip` never sees.
+
+## Considered Options
+
+- **`chase` as the default spine** (follow a reactive resolved target for everything). Rejected: `chase` never settles, so every animated element keeps ticking at rest and never emits `done` — a per-element cost across a whole page and a break for presence/sequencing. The common case (hover/tap/drag/fling) never actually needs spring-lag follow: drag is direct-set and release is `decay`.
+- **True automatic Hybrid** (the spine detects continuous-vs-discrete and switches `chase`↔`spring` at runtime). Rejected: reliable auto-detection of "is this change continuous?" is fragile; a wrong guess yields jank or stuck ticking. The only case that genuinely wants both on one value (magnetic hover) is better served by letting the user *declare* `chase` for that property.
+- **React-style synchronous pre-mutation snapshot for FLIP** (uniform across bindings). Rejected: Solid's push-based reactivity has no natural pre-commit hook; emulating one is fragile. Retained-Measurement fits Solid without it.
+
+## Consequences
+
+- The binding implements the Snapshot-cache + reseed machinery once; this is the documented Retarget duty, not new scope.
+- **Drag composes with the Override stack by per-key ownership.** An active drag *claims* the positional keys (`x`/`y`) and direct-sets them on pointer events; the Override stack (including `whileDrag`) drives all other keys through the spring. The binding excludes the claimed keys from the resolved target so the spring never fights the drag, and both sources write their owned keys into one pre-`project` value-map per frame (the ADR-0006 flush gate). On release the claimed keys hand to the `decay` Fling while `whileDrag` deactivation springs the rest back. `resolveOverrides` stays drag-agnostic — the direct-vs-sprung distinction is a binding drive-mechanism concern, never part of the pure merge. A `whileDrag` that names a drag-claimed key is ignored for that key (drag wins).
+- `transition.type` becomes the selector over core primitives (`spring`/`tween`/`keyframes`/`chase`), with `decay` reserved for the Fling. A wrong/absent type falls back to the settling default.
+- Continuous-follow is an explicit, declarative feature — discoverable and predictable — rather than an emergent runtime behaviour.
+- Retained-Measurement FLIP shares ADR-0003's boundary: the first post-mount frame may flash because the "to" box is only knowable after layout.
+- This spine is the contract a future `@wardic/react` / `@wardic/native` binding re-implements over the *same* core recognizers and primitives; only the reactive bridge (frames → the framework's reactive cell) and the FLIP capture hook differ per framework.
