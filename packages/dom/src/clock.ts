@@ -74,8 +74,17 @@ const make = Effect.gen(function* () {
   // scope. When the last `ticks` subscriber leaves, the RcRef releases, the
   // forked fiber is interrupted, and `nextFrame`'s finalizer cancels the
   // outstanding frame — so no rAF runs with zero subscribers.
+  //
+  // Reset `lastTime` on every acquire (the 0 -> 1 ref-count transition). The
+  // closure variable outlives the forked loop, so without this a subscriber that
+  // arrives after an idle gap would compute its first dt against the STALE last
+  // timestamp — a huge spurious delta that lurches every spring forward a frame.
+  // Resetting makes the first frame after a (re)subscribe a clean dt = 0, exactly
+  // like the first-ever frame.
   const rafRef = yield* RcRef.make({
-    acquire: Effect.forkScoped(Effect.forever(Effect.flatMap(nextFrame, tick))).pipe(Effect.asVoid),
+    acquire: Effect.sync(() => {
+      lastTime = undefined
+    }).pipe(Effect.andThen(Effect.forkScoped(Effect.forever(Effect.flatMap(nextFrame, tick))).pipe(Effect.asVoid))),
   })
 
   // Subscribing acquires the (shared, ref-counted) rAF driver, then reads dt

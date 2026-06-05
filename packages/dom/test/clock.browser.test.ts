@@ -160,16 +160,28 @@ describe("ClockDomLive", () => {
       expect(rafSpy.mock.calls.length).toBe(beforeCount)
     }).pipe(Effect.provide(TestLayer)))
 
-  it.effect("re-subscribing after teardown re-acquires the rAF loop", () =>
+  it.effect("re-subscribing after teardown re-acquires the rAF loop AND resets dt (no idle-gap jump)", () =>
     Effect.gen(function* () {
       const a = yield* subscribeTicks
       expect(rafSpy).toHaveBeenCalledTimes(1)
+      // Advance so `lastTime` holds a real timestamp before teardown.
+      fireFrame(0)
+      yield* flush
+      fireFrame(1000) // dt = 1.0s; lastTime = 1000
+      yield* flush
       yield* a.close
-      expect(cafSpy).toHaveBeenCalledTimes(1)
 
-      const b = yield* subscribeTicks
-      expect(rafSpy).toHaveBeenCalledTimes(2)
+      // Re-subscribe after an "idle gap": the next frame's timestamp is far ahead.
+      // Without the acquire-time reset this first dt would be (10000-1000)/1000 = 9s
+      // — a spurious lurch. The reset makes it a clean dt = 0. (Ref-count teardown
+      // itself is covered by the dedicated test above.)
+      const b = yield* subscribeTicks // re-acquires the loop (it receives the tick below)
+      fireFrame(10000)
+      yield* flush
+      const dts = yield* b.received
+      expect(dts.length).toBe(1)
+      expect(dts[0]).toBeCloseTo(0, 6) // clean first-frame dt, not a 9s idle-gap jump
+
       yield* b.close
-      expect(cafSpy).toHaveBeenCalledTimes(2)
     }).pipe(Effect.provide(TestLayer)))
 })
