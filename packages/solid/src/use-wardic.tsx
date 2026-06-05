@@ -291,8 +291,13 @@ export interface WardicConfig {
 export interface WardUserProps {
   /** The user's ref callback — invoked alongside ward's internal ref. */
   readonly ref?: (el: HTMLElement) => void
-  /** The user's static style — ward's animated keys merge ON TOP. */
-  readonly style?: JSX.CSSProperties
+  /**
+   * The user's style — ward's animated keys merge ON TOP. May be a LIVE getter
+   * (the `wardic.*` element layer passes one so a reactive `style` prop is
+   * tracked, not frozen at setup), hence `| undefined` to allow a getter that
+   * yields no style yet. Reactivity flows via the getter, not a `MaybeAccessor`.
+   */
+  readonly style?: JSX.CSSProperties | undefined
 }
 
 /** Spreadable props the {@link useWardic} `ward` callable returns. */

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal, type JSX } from "solid-js"
 import { create, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
-import { until } from "./browser-helpers.ts"
+import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -240,5 +240,67 @@ describe("wardic.div — tracked-value motion props (Solid prop reactivity)", ()
     const sawMid = await animatesTo(el!, 1)
     expect(sawMid).toBe(true)
     expect(opacityOf(el!)).toBeCloseTo(1, 1)
+  })
+})
+
+describe("wardic.div — reactive user `style` prop (non-animated keys)", () => {
+  it("tracks a reactive `style` prop on a non-animated key and re-applies it on change", async () => {
+    let el: HTMLDivElement | undefined
+    let setLeft: (v: number) => void = () => {}
+    render(() => {
+      const [left, setLeftSig] = createSignal(10)
+      setLeft = setLeftSig
+      return (
+        <WardicProvider env={DomLive}>
+          <wardic.div
+            ref={(node: HTMLDivElement) => (el = node)}
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            // `left` is NOT an animated key — it lives only in the user style. A
+            // reactive read here must be tracked (was frozen at setup before the fix).
+            style={{ position: "absolute", left: `${left()}px` }}
+          >
+            x
+          </wardic.div>
+        </WardicProvider>
+      )
+    })
+    await raf()
+    expect(el!.style.left).toBe("10px")
+    expect(el!.style.position).toBe("absolute")
+
+    setLeft(120)
+    await raf()
+    expect(el!.style.left).toBe("120px") // reactive user style tracked + re-applied
+    expect(el!.style.position).toBe("absolute") // other user keys preserved
+  })
+
+  it("a reactive user key coexists with the animated key (animated wins, user key tracked)", async () => {
+    let el: HTMLDivElement | undefined
+    let setLeft: (v: number) => void = () => {}
+    render(() => {
+      const [left, setLeftSig] = createSignal(0)
+      setLeft = setLeftSig
+      return (
+        <WardicProvider env={DomLive}>
+          <wardic.div
+            ref={(node: HTMLDivElement) => (el = node)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            style={{ position: "absolute", left: `${left()}px` }}
+          >
+            x
+          </wardic.div>
+        </WardicProvider>
+      )
+    })
+    // opacity (animated) climbs while left (user style) is independently reactive.
+    await until(() => Number(el!.style.opacity) > 0.3)
+    setLeft(80)
+    await raf()
+    expect(el!.style.left).toBe("80px")
+    await until(() => Number(el!.style.opacity) >= 0.99)
+    expect(Number(el!.style.opacity)).toBeCloseTo(1, 1) // animated key unaffected
+    expect(el!.style.left).toBe("80px") // user key still applied after settle
   })
 })

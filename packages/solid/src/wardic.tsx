@@ -318,14 +318,22 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
     const ward = useWardic(motionToConfig(motion))
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the
-    // user's ref and ward's internal ref, and merges the user's static style
-    // with ward's animated style (animated keys win — Option A). Keys are only
-    // set when defined (exactOptionalPropertyTypes: no explicit `undefined`).
-    const userProps: { -readonly [K in keyof WardUserProps]: WardUserProps[K] } = {}
+    // user's ref and ward's internal ref, and merges the user's style with ward's
+    // animated style (animated keys win — Option A).
+    //
+    // `style` is threaded as a LIVE GETTER, not a value read once at setup:
+    // `refStyle.style` is a reactive `splitProps` getter, so a reactive user
+    // `style` prop (e.g. `style={{ left: pos() }}` on a non-animated key) is
+    // tracked by ward()'s reactive style getter and re-merged on change. Reading
+    // it into a `const` here would freeze it at its initial value. `ref` is wired
+    // once at mount (refs don't change), so it stays a one-time read.
     const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
-    const userStyle = (refStyle as { style?: JSX.CSSProperties }).style
-    if (userRef !== undefined) userProps.ref = userRef
-    if (userStyle !== undefined) userProps.style = userStyle
+    const userProps: WardUserProps = {
+      ...(userRef !== undefined ? { ref: userRef } : {}),
+      get style() {
+        return (refStyle as { style?: JSX.CSSProperties }).style
+      },
+    }
 
     return <Dynamic component={tag} {...rest} {...ward(userProps)} />
   }
