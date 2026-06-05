@@ -1,0 +1,26 @@
+{
+  "name": "@wardic/test",
+  "version": "0.1.0-alpha.0",
+  "description": "Headless testing Layers for Wardic — mock implementations of the core services.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@wardic/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.71"
+  }
+}

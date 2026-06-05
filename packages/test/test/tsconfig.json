@@ -1,0 +1,5 @@
+{
+  "// note": "IDE-facing config so the editor resolves test files with the test compilerOptions (libs, env). The package tsconfig.json includes only `src` (composite build), so test files are otherwise orphaned to inferred defaults. The CLI gate `typecheck:tests` runs ../tsconfig.test.json; this inherits the same options via extends, so no drift.",
+  "extends": "../tsconfig.test.json",
+  "include": ["."]
+}
