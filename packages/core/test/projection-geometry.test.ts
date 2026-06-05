@@ -9,6 +9,7 @@ import {
   calcLength,
   calcRelativeBox,
   mixBox,
+  placeRelativeBox,
 } from "@wardic/core"
 import { expect, it } from "@effect/vitest"
 
@@ -90,6 +91,17 @@ it("calcRelativeBox: child relative to parent at top-left vs centre anchors", ()
   expect(calcRelativeBox(child, parent, { x: 0.5, y: 0.5 })).toEqual(box(-80, -30, -20, 10))
   // default anchor is top-left.
   expect(calcRelativeBox(child, parent)).toEqual(calcRelativeBox(child, parent, { x: 0, y: 0 }))
+})
+
+it("placeRelativeBox: inverse of calcRelativeBox (round-trip) and tracks a moved parent", () => {
+  const child = box(120, 40, 180, 80)
+  const parent = box(100, 20, 300, 120)
+  const rel = calcRelativeBox(child, parent) // child's offset within parent (top-left anchor)
+  // round-trip into the SAME parent reproduces the child.
+  expect(placeRelativeBox(rel, parent)).toEqual(child)
+  // placed into a MOVED parent (shifted +50,+10), the child tracks by the same offset.
+  const movedParent = box(150, 30, 350, 130)
+  expect(placeRelativeBox(rel, movedParent)).toEqual(box(170, 50, 230, 90))
 })
 
 // --- mixBox -----------------------------------------------------------------

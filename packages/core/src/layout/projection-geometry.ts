@@ -147,6 +147,27 @@ export const calcRelativeBox = (child: Box, parent: Box, anchor: Point = { x: 0,
   y: calcRelativeAxis(child.y, parent.y, anchor.y),
 })
 
+/**
+ * Inverse of {@link calcRelativeAxis}: place a relative axis back into `parent`
+ * at the 0–1 `anchor` — ADD the parent's anchor point. `placeRelativeAxis(calcRelativeAxis(c, p, a), p, a) === c`.
+ */
+export const placeRelativeAxis = (relative: Axis, parent: Axis, anchor: number): Axis => {
+  const anchorPoint = lerp(parent.min, parent.max, anchor)
+  return { min: relative.min + anchorPoint, max: relative.max + anchorPoint }
+}
+
+/**
+ * Place a relative {@link Box} into `parent`, per axis (the inverse of
+ * {@link calcRelativeBox}). Used by relative projection: a child's offset within
+ * its parent, placed into the parent's CURRENT (animating) target, yields the
+ * child's viewport target — so the child tracks the parent regardless of their
+ * relative progress (ADR-0009, "not left behind").
+ */
+export const placeRelativeBox = (relative: Box, parent: Box, anchor: Point = { x: 0, y: 0 }): Box => ({
+  x: placeRelativeAxis(relative.x, parent.x, anchor.x),
+  y: placeRelativeAxis(relative.y, parent.y, anchor.y),
+})
+
 /** Interpolate one {@link Axis} toward another by `progress` (0 = `from`, 1 = `to`). */
 export const mixAxis = (from: Axis, to: Axis, progress: number): Axis => ({
   min: lerp(from.min, to.min, progress),
