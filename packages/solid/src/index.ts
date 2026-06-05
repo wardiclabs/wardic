@@ -153,7 +153,7 @@ export {
   useLayoutMember,
   useSharedLayout,
 } from "./layout.tsx"
-export { measureLayoutBox } from "./measure.ts"
+export { measureLayoutBox } from "@wardic/dom"
 
 /**
  * `use:ward` — the directive surface (ADR-0008 Tier 1). `<div use:ward={config}>`

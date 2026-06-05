@@ -19,9 +19,9 @@ import * as ManagedRuntime from "effect/ManagedRuntime"
 import type { AtomRegistry } from "effect/unstable/reactivity"
 import { createContext, onCleanup, useContext } from "solid-js"
 import type { JSX } from "solid-js"
+import { makeProjectionSystem, type ProjectionSystem } from "@wardic/dom"
 import { type FlushGate, makeFlushGate } from "./gate.ts"
 import { makeSharedLayoutRegistry, SharedLayoutContext } from "./layout.tsx"
-import { makeProjectionSystem, type ProjectionSystem } from "./projection.ts"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: all five core

@@ -24,6 +24,18 @@ export { InputDomLive } from "./input.ts"
 export { ProbeDomLive } from "./probe.ts"
 export { RendererDomLive } from "./renderer.ts"
 
+// Layout/projection engine (ADR-0009) — framework-agnostic; a binding wires it
+// with its own flush gate (as a ProjectionSink) + a runtime providing Clock.
+export { measureLayoutBox } from "./measure.ts"
+export {
+  makeProjectionSystem,
+  type ProjectionNodeHandle,
+  type ProjectionRuntime,
+  type ProjectionSink,
+  type ProjectionSystem,
+  type RegisterNodeOptions,
+} from "./projection.ts"
+
 /**
  * The composed browser environment: the four DOM service Layers plus core's
  * real {@link InterpolatorRegistry}, fully self-contained (R = never).

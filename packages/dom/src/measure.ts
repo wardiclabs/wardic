@@ -1,8 +1,9 @@
 /**
  * `measureLayoutBox` — read an element's UNTRANSFORMED layout box (ADR-0005 /
- * ADR-0009 transform-reset-on-measure). Shared by the projection system and the
- * (transitional) `<LayoutGroup>` path; it lives in its own module so neither has
- * to import the other (keeping the provider↔layout↔projection imports acyclic).
+ * ADR-0009 transform-reset-on-measure). Used by the projection system and the
+ * binding's (transitional) `<LayoutGroup>` path. It has no framework or Effect
+ * dependency — pure DOM — so it lives in `@wardic/dom` alongside the projection
+ * engine that consumes it (a binding imports it from here).
  */
 import type { Bounds } from "@wardic/core"
 

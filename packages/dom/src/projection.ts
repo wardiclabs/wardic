@@ -1,13 +1,19 @@
 /**
- * The box-based projection system (ADR-0009) — the binding half of the layout
- * engine. Provider-owned (one per `WardicProvider`, like the flush gate), it
- * holds the projection nodes, the trigger sources, and the Clock-driven
- * coordinator that derives each node's transform every frame.
+ * The box-based projection system (ADR-0009) — the reusable DOM half of the
+ * layout engine. It holds the projection nodes, the trigger sources, and the
+ * Clock-driven coordinator that derives each node's transform every frame.
+ *
+ * It has NO framework reactivity: it reaches its host binding through two seams
+ * only — a {@link ProjectionSink} (`write` per-element projection values into the
+ * binding's flush gate + `scheduleMeasure` a coalesced pre-flush read pass) and a
+ * `ManagedRuntime` providing {@link Clock} (to fork the ref-counted tick fiber).
+ * So it lives here in `@wardic/dom`, next to `ClockDomLive`/the Renderer, and any
+ * binding (Solid today; React/vanilla later) wires it with its own gate + runtime.
  *
  * Pipeline (the locked design):
  *   - REGISTER a node (its gate `id`, `element`, and a `springOptions` accessor).
  *   - TRIGGER (registration / a shared `ResizeObserver` size change /
- *     `layoutDependency` via `notify`) -> `gate.scheduleMeasure(measurePass)`.
+ *     `layoutDependency` via `notify`) -> `sink.scheduleMeasure(measurePass)`.
  *   - MEASURE pass (in the gate's pre-flush read-queue, D4): re-measure EVERY
  *     node's untransformed box (Q5); compute the projection TREE by DOM ancestry
  *     (each node's parent = the nearest ancestor ELEMENT that is a registered node);
@@ -49,10 +55,28 @@ import {
 } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
-import type { FlushGate } from "./gate.ts"
 import { measureLayoutBox } from "./measure.ts"
-import type { WardicRuntime } from "./provider.tsx"
+
+/**
+ * The binding seam the coordinator writes through — structurally satisfied by the
+ * binding's flush gate (e.g. `@wardic/solid`'s `FlushGate`), so the engine never
+ * imports a framework. `write` merges a per-element projection value-map into the
+ * gate; `scheduleMeasure` enqueues a coalesced read pass that runs in the gate's
+ * pre-flush read-queue (reads-before-writes, one rAF).
+ */
+export interface ProjectionSink {
+  readonly write: (id: string, partial: Record<string, unknown>) => void
+  readonly scheduleMeasure: (pass: () => void) => void
+}
+
+/**
+ * The runtime flavour the coordinator needs: a `ManagedRuntime` that can run the
+ * Clock-subscribing tick loop. A binding's wider runtime (e.g. one providing the
+ * full `WardicServices`) is assignable here.
+ */
+export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<Clock, never>
 
 /** Identity tree-scale (no ancestor scaling). */
 const TREE_SCALE_IDENTITY: Point = { x: 1, y: 1 }
@@ -128,13 +152,13 @@ interface NodeState {
 }
 
 /**
- * Build a projection system against the provider `runtime` + flush `gate`.
+ * Build a projection system against a binding's `runtime` (providing {@link Clock})
+ * and its {@link ProjectionSink} (its flush gate).
  *
- * Forks the coordinator on `runtime` directly (NOT via `runScoped`, to avoid a
- * provider↔projection import cycle); the provider disposes the system in its own
- * `onCleanup`.
+ * Forks the coordinator on `runtime` directly; the binding disposes the system in
+ * its own teardown (e.g. the provider's `onCleanup`).
  */
-export const makeProjectionSystem = (runtime: WardicRuntime, gate: FlushGate): ProjectionSystem => {
+export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: ProjectionSink): ProjectionSystem => {
   const nodes = new Set<NodeState>()
   const active = new Set<NodeState>()
   // Element -> node, for the DOM-ancestry parent walk.
@@ -146,7 +170,7 @@ export const makeProjectionSystem = (runtime: WardicRuntime, gate: FlushGate): P
 
   /** Write a node's per-frame `@projection` value into the gate (Option A). */
   const writeProjection = (node: NodeState, delta: Delta, treeScale: Point): void => {
-    gate.write(node.id, { [PROJECTION_KEY]: { delta, treeScale } })
+    sink.write(node.id, { [PROJECTION_KEY]: { delta, treeScale } })
   }
 
   /**
@@ -322,7 +346,7 @@ export const makeProjectionSystem = (runtime: WardicRuntime, gate: FlushGate): P
   }
 
   /** Enqueue a coalesced measure pass (gate dedups by the stable `measurePass` ref). */
-  const scheduleMeasure = (): void => gate.scheduleMeasure(measurePass)
+  const scheduleMeasure = (): void => sink.scheduleMeasure(measurePass)
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
   const step = (dtRaw: number): void => {
