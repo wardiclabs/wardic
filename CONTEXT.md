@@ -101,8 +101,16 @@ A layout-enabled element's entry in the **projection tree** — a parent link by
 _Avoid_: layout member (the prior flat name), FLIP node.
 
 **Shared layout**:
-A FLIP between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from the leaver's Measurement. The cross-element matching and timing is binding orchestration (`<LayoutGroup>`); only the per-element Invert→Play stays in core.
+A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from the leaver's Measurement, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from the leaver's last Measurement held in a per-`layoutId` registry) and a **Crossfade** (the twins coexist). The cross-element matching and registry are binding orchestration; the per-element box geometry stays in core.
 _Avoid_: magic motion, shared element (reserve as the informal gloss only).
+
+**Crossfade**:
+The **Shared layout** mode where both twins are mounted at once (one app-rendered alongside the other, or one retained mid-exit by `<AnimatePresence>`). They are kept perfectly overlapped — every non-lead twin (a **Follower**) projects onto the **Lead**'s current Box each frame — while opacity cross-fades (lead in, followers out) over the same progress that drives the move. Contrast **Switch**, where there is no overlap because the leaver is already gone.
+_Avoid_: fade transition (opacity-only, no shared box), dissolve.
+
+**Lead / Follower**:
+Among the Projection nodes sharing one `layoutId`, the **Lead** is the most-recently-mounted live node — the only visible one, projecting to its own Box. Every other node is a **Follower**: locked onto the Lead's Box (so it overlaps) and held hidden (a *live* follower at rest) or fading out toward removal (a *leaving* follower, retained mid-exit). Mounting promotes a new Lead; the prior Lead is relegated to a Follower.
+_Avoid_: active/inactive, primary/secondary.
 
 ### Environment
 
