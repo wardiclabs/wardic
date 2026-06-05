@@ -1,8 +1,9 @@
 // Shared helpers for the real-browser test tier. The engine animates in REAL time
 // (real rAF + real Effect scheduling); tests POLL real frames and assert robust
 // INVARIANTS / settle states rather than exact per-frame values at a calibrated
-// frame count. Elements are moved via reactive CLASS (wardic.* does not yet track
-// a reactive `style` prop for non-animated keys — a tracked follow-up).
+// frame count. Most existing tests move elements via reactive CLASS; a reactive
+// `style` prop is now tracked too (see wardic-create.browser.test.tsx), so either
+// works for new tests.
 
 /** Resolve after the next real animation frame. */
 export const raf = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()))
