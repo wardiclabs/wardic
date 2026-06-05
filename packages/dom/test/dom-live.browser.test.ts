@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { DragSample } from "@wardic/core"
 import { Clock, drag, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
 import { expect, layer } from "@effect/vitest"

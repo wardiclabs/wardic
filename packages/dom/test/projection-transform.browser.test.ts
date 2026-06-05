@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { Delta, Point } from "@wardic/core"
 import { PROJECTION_KEY, Renderer } from "@wardic/core"
 import { describe, expect, it } from "@effect/vitest"

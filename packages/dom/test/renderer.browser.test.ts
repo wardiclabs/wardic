@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import { Renderer } from "@wardic/core"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"

@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import { InputSource } from "@wardic/core"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
