@@ -1,5 +1,11 @@
+// Sensor hooks in a REAL browser. The originals ran under happy-dom; here real
+// pointer/focus events drive the recognizer fibers and we assert the resulting
+// BOOLEAN/sample signals. These are EVENT-driven (not time-based): after
+// dispatching a real DOM event we tick a frame/microtask for the signal to
+// propagate, then assert. `createInView` uses a real IntersectionObserver which
+// does NOT fire deterministically headless — see the FLAG note on that block.
 import { cleanup, render, waitFor } from "@solidjs/testing-library"
-import { afterEach, describe, expect, it } from "@effect/vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import type { DragSample } from "@wardic/core"
 import { DomLive } from "@wardic/dom"
 import { createSignal } from "solid-js"
@@ -17,12 +23,11 @@ afterEach(cleanup)
 
 /**
  * Render `body` (which captures a sensor accessor on `el`) inside a
- * `<WardicProvider env={DomLive}>` over a real happy-dom element. Returns the
- * element so the test can dispatch real DOM events at it.
+ * `<WardicProvider env={DomLive}>` over a real DOM element. Returns the element
+ * so the test can dispatch real DOM events at it.
  *
  * The element is appended to the document so listeners attached by the DOM
- * `InputSource` (and the `IntersectionObserver` happy-dom provides) see the
- * dispatched events.
+ * `InputSource` (and the real `IntersectionObserver`) see the dispatched events.
  */
 const renderWithProbe = (body: (el: HTMLElement) => void): HTMLElement => {
   const el = document.createElement("div")
@@ -84,13 +89,16 @@ describe("createDrag", () => {
 })
 
 describe("createInView", () => {
+  // FLAG: IntersectionObserver does NOT fire deterministically in headless
+  // Chromium within a test turn (its delivery is async + tied to the real
+  // rendering pipeline). Keeping the original SMOKE intent: the hook subscribed
+  // and exposes a boolean at its initial (false) state. A true intersection
+  // round-trip is not asserted here — left for manual handling.
   it("subscribes and exposes a boolean (smoke)", () => {
     let visible: Accessor<boolean> | undefined
     renderWithProbe((target) => {
       visible = createInView(target)
     })
-    // No intersection fires in happy-dom, so it stays at its initial false —
-    // the smoke assertion is that the hook subscribed and returns a boolean.
     expect(typeof visible!()).toBe("boolean")
     expect(visible!()).toBe(false)
   })
@@ -102,10 +110,9 @@ describe("createReducedMotion", () => {
     renderWithProbe(() => {
       reduced = createReducedMotion()
     })
-    // happy-dom's matchMedia reports false by default; the contract under test
-    // is that the atom bridge yields a boolean.
+    // matchMedia reports a boolean for prefers-reduced-motion; the contract
+    // under test is that the atom bridge yields a boolean.
     expect(typeof reduced!()).toBe("boolean")
-    expect(reduced!()).toBe(false)
   })
 })
 

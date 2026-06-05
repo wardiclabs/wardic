@@ -1,61 +1,22 @@
-// @vitest-environment happy-dom
-import { cleanup, render, waitFor } from "@solidjs/testing-library"
-import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest"
+// `use:ward` directive wiring in a REAL browser. The original drove a hand-stubbed
+// rAF clock under happy-dom; here the engine animates in REAL time (real rAF +
+// real Effect scheduling), so instead of asserting exact opacity at a calibrated
+// frame count we POLL real frames and assert ROBUST INVARIANTS: the spring
+// departs its seed, eventually settles, the user's inline style coexists, hover
+// raises it, and unmount stops further writes.
+import { cleanup, render } from "@solidjs/testing-library"
+import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 // IMPORTANT: `ward` MUST be imported at the top so `use:ward` resolves —
 // vite-plugin-solid compiles `use:ward={cfg}` into a bare `ward(el, () => cfg)`
 // call, and the import retains the symbol (no tree-shake). See directive.ts.
 import { ward, WardicProvider } from "@wardic/solid"
+import { opacityOf, raf, until } from "./browser-helpers.ts"
 
-/**
- * Deterministic rAF + macrotask settle harness — identical strategy to
- * use-wardic.test.tsx / wardic-create.test.tsx: BOTH the Clock's rAF loop and
- * the gate's flush rAF are hand-driven, and forked Effect fibers drain on a real
- * macrotask turn.
- */
-type RafCallback = (t: number) => void
-
-let pending: Map<number, RafCallback>
-let nextId: number
-
-beforeEach(() => {
-  pending = new Map()
-  nextId = 1
-  vi.stubGlobal("requestAnimationFrame", (cb: RafCallback) => {
-    const id = nextId++
-    pending.set(id, cb)
-    return id
-  })
-  vi.stubGlobal("cancelAnimationFrame", (id: number) => {
-    pending.delete(id)
-  })
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  cleanup()
-})
-
-const fireFrame = (t: number): void => {
-  const batch = [...pending.values()]
-  pending.clear()
-  for (const cb of batch) cb(t)
-}
-
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
-const settle = (): Promise<void> => tick()
-
-const drive = async (count: number): Promise<void> => {
-  for (let i = 0; i < count; i++) {
-    fireFrame(i * 16)
-    await tick()
-  }
-}
-
-const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
+afterEach(cleanup)
 
 describe("use:ward — animate (commit sink)", () => {
-  it("animates the element's style.opacity 0 -> 1 across driven frames", async () => {
+  it("animates the element's style.opacity 0 -> 1 over real frames", async () => {
     let el: HTMLDivElement | undefined
     render(() => (
       <WardicProvider env={DomLive}>
@@ -69,15 +30,15 @@ describe("use:ward — animate (commit sink)", () => {
       </WardicProvider>
     ))
 
-    // use:ward is CLIENT-ONLY: the commit happens post-mount (no SSR-seeded
-    // initial). Drive frames; the spring departs the seeded 0 toward 1.
-    await settle()
-    await drive(8)
-    const mid = opacityOf(el!)
-    expect(mid).toBeGreaterThan(0)
-    expect(mid).toBeLessThanOrEqual(1)
-
-    await drive(80)
+    // use:ward is CLIENT-ONLY: the commit happens post-mount. The spring departs
+    // the seeded 0 and climbs into the open range...
+    let sawMid = false
+    await until(() => {
+      const o = opacityOf(el!)
+      if (o > 0 && o < 1) sawMid = true
+      return o >= 0.99
+    })
+    expect(sawMid).toBe(true) // animated THROUGH (not an instant jump)
     expect(opacityOf(el!)).toBeCloseTo(1, 1)
   })
 
@@ -100,12 +61,10 @@ describe("use:ward — animate (commit sink)", () => {
 
     // The commit sink writes only the animated key (opacity) onto el.style; the
     // inline height:100px coexists across the whole animation.
-    await settle()
-    await drive(8)
-    expect(opacityOf(el!)).toBeGreaterThan(0)
+    await until(() => opacityOf(el!) > 0)
     expect(el!.style.height).toBe("100px")
 
-    await drive(80)
+    await until(() => opacityOf(el!) >= 0.99)
     expect(opacityOf(el!)).toBeCloseTo(1, 1)
     expect(el!.style.height).toBe("100px")
   })
@@ -127,21 +86,18 @@ describe("use:ward — whileHover", () => {
     ))
 
     // Settle at the base 0.2 first.
-    await settle()
-    await drive(80)
+    await until(() => Math.abs(opacityOf(el!) - 0.2) < 0.02)
     expect(opacityOf(el!)).toBeCloseTo(0.2, 1)
 
     // pointerenter -> hovered() flips; the recognizer attaches asynchronously,
-    // so re-dispatch inside waitFor (draining the scheduler) until it moves.
-    await waitFor(
-      async () => {
-        el!.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1 }))
-        await drive(10)
-        expect(opacityOf(el!)).toBeGreaterThan(0.2)
-      },
-      { timeout: 2000 },
-    )
-    await drive(80)
+    // so re-dispatch each frame until the opacity departs the base toward 1.
+    await until(() => {
+      el!.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1 }))
+      return opacityOf(el!) > 0.25
+    })
+    expect(opacityOf(el!)).toBeGreaterThan(0.2)
+
+    await until(() => opacityOf(el!) >= 0.99)
     expect(opacityOf(el!)).toBeCloseTo(1, 1)
   })
 })
@@ -161,9 +117,11 @@ describe("use:ward — teardown", () => {
       </WardicProvider>
     )).unmount
 
-    // Advance a few frames so the spring is mid-flight (writes are happening).
-    await settle()
-    await drive(6)
+    // Advance until the spring is mid-flight (writes are happening).
+    await until(() => {
+      const o = opacityOf(el!)
+      return o > 0 && o < 0.9
+    })
     const moving = opacityOf(el!)
     expect(moving).toBeGreaterThan(0)
     expect(moving).toBeLessThan(1)
@@ -173,7 +131,7 @@ describe("use:ward — teardown", () => {
     const atUnmount = el!.style.opacity
 
     // Firing many more frames must not advance the element's opacity.
-    await drive(40)
+    for (let i = 0; i < 40; i++) await raf()
     expect(el!.style.opacity).toBe(atUnmount)
   })
 })

@@ -1,5 +1,5 @@
 import { cleanup, render } from "@solidjs/testing-library"
-import { expect, it, vi } from "@effect/vitest"
+import { expect, it, vi } from "vitest"
 import { Clock } from "@wardic/core"
 import { TestLive } from "@wardic/test"
 import * as Effect from "effect/Effect"

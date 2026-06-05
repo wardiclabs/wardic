@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Patch } from "@wardic/core"
 import { DomLive } from "@wardic/dom"
 import { TestLive } from "@wardic/test"
@@ -11,6 +11,9 @@ import { makeFlushGate } from "../src/gate.ts"
  * capture each scheduled callback so the test fires frames deterministically
  * and asserts scheduling via rAF/caf call counts. The gate keeps at most one
  * frame outstanding (gated), so `fireFrame` runs the single pending callback.
+ *
+ * This stubs rAF/caf synchronously — the gate flush is NOT an Effect fiber, so
+ * this deterministic approach runs as-is in a real browser.
  */
 type RafCallback = (t: number) => void
 
@@ -70,7 +73,7 @@ describe("makeFlushGate", () => {
     }
   })
 
-  it("commit sink writes the projected patch onto a happy-dom element's style", () => {
+  it("commit sink writes the projected patch onto an element's style", () => {
     // DomLive so project groups transforms / applies units and commit writes style.
     const runtime = ManagedRuntime.make(DomLive)
     try {
