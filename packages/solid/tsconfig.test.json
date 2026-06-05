@@ -1,0 +1,13 @@
+{
+  "// note": "Test-only typecheck: includes test/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "noEmit": true,
+    "composite": false,
+    "rootDir": "."
+  },
+  "include": ["src", "test"]
+}

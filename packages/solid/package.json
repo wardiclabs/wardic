@@ -1,0 +1,34 @@
+{
+  "name": "@wardic/solid",
+  "version": "0.1.0-alpha.0",
+  "description": "Solid framework binding for Wardic.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@solid-primitives/refs": "^1.1.3",
+    "@wardic/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.71",
+    "solid-js": "^1.9.13"
+  },
+  "devDependencies": {
+    "@wardic/dom": "workspace:*",
+    "@wardic/test": "workspace:*",
+    "effect": "4.0.0-beta.71",
+    "solid-js": "^1.9.13"
+  }
+}
