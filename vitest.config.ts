@@ -1,41 +1,24 @@
-import { configDefaults, defineConfig } from "vitest/config"
+import { defineConfig } from "vitest/config"
 
-// Root config for the Wardic monorepo.
+// Fast node test tier — run via `bun run test`.
 //
-// Tests live under each package's `test/` directory and import from
-// `@effect/vitest` explicitly (no `globals: true`).
+// Scope: @wardic/core + @wardic/test ONLY. These are pure logic (no DOM), so
+// they run in the `node` environment with no Solid JSX transform and no browser.
 //
-// We split the run into vitest projects so the Solid JSX transform stays
-// scoped to @wardic/solid:
+// Everything DOM-related lives in the canonical browser tier (run via
+// `bun run test:browser`, vitest.browser.config.ts):
+//   - @wardic/dom    — the DOM ports against real observers / geometry / events.
+//   - @wardic/solid  — rendered components + projection/FLIP against real layout.
 //
-//   - "node": @wardic/core, @wardic/test, and @wardic/dom. The default
-//     environment is `node`; @wardic/dom test files opt into happy-dom
-//     per-file via a `// @vitest-environment happy-dom` docblock. No Solid
-//     plugin runs here, so the JSX transform never touches these suites.
-//   - "solid": @wardic/solid, defined in packages/solid/vitest.config.ts so
-//     vite resolves solid-js through that package's node_modules.
-//     vite-plugin-solid compiles JSX/.tsx and the environment is happy-dom so
-//     rendered components have DOM globals.
-//
-// `vitest run` (bun run test) executes ALL projects.
+// happy-dom has been retired: it has no layout engine and never fires real
+// observers, so DOM behaviour can only be truly verified in a real browser. Both
+// gates run in CI; both must pass.
 export default defineConfig({
   test: {
-    projects: [
-      {
-        test: {
-          name: "node",
-          include: [
-            "packages/core/test/**/*.test.ts",
-            "packages/test/test/**/*.test.ts",
-            "packages/dom/test/**/*.test.ts",
-          ],
-          // Real-browser DOM tests (`*.browser.test.*`) belong to the browser tier
-          // (vitest.browser.config.ts), not this node project — the `*.test.ts`
-          // glob would otherwise match them and run them without a layout engine.
-          exclude: [...configDefaults.exclude, "**/*.browser.test.*"],
-        },
-      },
-      "packages/solid/vitest.config.ts",
+    name: "node",
+    include: [
+      "packages/core/test/**/*.test.ts",
+      "packages/test/test/**/*.test.ts",
     ],
   },
 })
