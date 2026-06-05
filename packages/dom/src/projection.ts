@@ -103,6 +103,21 @@ export interface RegisterNodeOptions {
    * is spring-shaped (framer-motion parity); the caller does that resolution.
    */
   readonly springOptions: () => SpringOptions
+  /**
+   * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
+   * lead/follow stack so coexisting twins crossfade. Omitted for a plain `layout`
+   * node.
+   */
+  readonly layoutId?: string
+  /**
+   * The switch-gap seed origin (ADR-0010): the leaver's last box, **captured by
+   * the binding synchronously at mount** (the accessor returns that captured value,
+   * NOT a live registry read — by the first measure pass the registry slot may be
+   * cleared). When it yields a box AND no live twin is in the stack, the node's
+   * FIRST measure animates FROM that box to its own (a switch), instead of the
+   * no-FLIP identity seed.
+   */
+  readonly seedOrigin?: () => Box | undefined
 }
 
 /** Handle returned from {@link ProjectionSystem.register}. */
@@ -131,6 +146,10 @@ interface NodeState {
   readonly id: string
   readonly element: HTMLElement
   readonly springOptions: () => SpringOptions
+  /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
+  readonly layoutId: string | undefined
+  /** Switch-gap seed-origin accessor (returns the binding's mount-captured leaver box). */
+  readonly seedOrigin: (() => Box | undefined) | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
   retained: Box | undefined
   /** Where the element appears at progress 0 (the box it animates FROM). */
@@ -312,8 +331,22 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       node.retained = newBox
 
       if (prev === undefined) {
-        // First measure: seed retained, NO FLIP. Write an identity projection so a
-        // layout element is consistently projection-owned from mount (its animated
+        // First measure. SWITCH detection (ADR-0010): a `layoutId` enterer whose
+        // binding captured a leaver box (seedOrigin) — and which has no live twin
+        // in the stack to crossfade against — FLIPs from that box to its own
+        // measured box (a switch). The lead/follow crossfade path (a live twin) is
+        // handled in `derive` via the stack; here we only seed the switch origin.
+        const seed = node.seedOrigin?.()
+        if (seed !== undefined && !boxesEqual(seed, newBox)) {
+          node.origin = seed
+          node.layoutBox = newBox
+          node.spring = initSpring({ from: 0 }) // progress spring restarts at 0
+          node.animating = true
+          active.add(node)
+          continue
+        }
+        // No seed: seed retained, NO FLIP. Write an identity projection so a layout
+        // element is consistently projection-owned from mount (its animated
         // translate/scale are ignored, rotate/skew woven — matches Motion). A nested
         // first-mount node is carried by its ancestors via CSS (identity own transform).
         node.lastDelta = IDENTITY_DELTA
@@ -402,6 +435,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       id: opts.id,
       element: opts.element,
       springOptions: opts.springOptions,
+      layoutId: opts.layoutId,
+      seedOrigin: opts.seedOrigin,
       retained: undefined,
       origin: undefined,
       layoutBox: undefined,

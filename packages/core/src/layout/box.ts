@@ -83,6 +83,14 @@ export const PROJECTION_KEY = "@projection"
 export interface ProjectionValue {
   readonly delta: Delta
   readonly treeScale: Point
+  /**
+   * Optional shared-element crossfade factor (ADR-0010), 0–1. When present the
+   * renderer composes `finalOpacity = (userOpacity ?? 1) × opacity` in the
+   * `@projection` branch — the lead fades in (`mix(0,1,progress)`), followers fade
+   * out (`mix(1,0,progress)`). Absent for a plain layout node (no crossfade), so
+   * the user's opacity passes through untouched.
+   */
+  readonly opacity?: number
 }
 
 /**

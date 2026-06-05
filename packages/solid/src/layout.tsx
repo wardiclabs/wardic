@@ -1,30 +1,25 @@
 /**
- * The `layout` / `layoutId` binding surface (ADR-0009 + ADR-0005).
+ * The `layout` / `layoutId` binding surface (ADR-0009 + ADR-0010).
  *
- * `layout` FLIP runs on the box-based **projection system** (`./projection.ts`):
- * {@link useLayoutMember} just registers the element as a projection node — the
- * provider-owned system owns measurement (a shared `ResizeObserver` + a
- * `layoutDependency`/registration trigger) and the per-frame box-projection derive
- * (relative + `treeScale`, nested-correct). {@link LayoutGroup} is now a thin
- * grouping boundary (the tree handles nesting + sibling reflow without it).
+ * BOTH `layout` and `layoutId` now run on the one box-based **projection system**
+ * (`@wardic/dom`): {@link useLayoutMember} registers the element as a single
+ * projection node — the provider-owned system owns measurement (a shared
+ * `ResizeObserver` + a `layoutDependency`/registration trigger) and the per-frame
+ * box-projection derive (relative + `treeScale`, nested-correct).
  *
- * `layoutId` shared-element FLIP still uses the FLAT delta-key Play here
- * ({@link playFlip} over `x`/`y`/`scaleX`/`scaleY` toward {@link FLIP_IDENTITY},
- * seeded from the prior twin's box via the {@link SharedLayoutContext} registry).
- * Migrating `layoutId` onto the box tree is a later phase; until then `playFlip` +
- * {@link measureLayoutBox} remain for it.
+ * `layoutId` shared-element animation (ADR-0010) is wired through the SAME node:
+ * the {@link SharedLayoutContext} registry's prior-twin box is captured at mount
+ * as the node's `seedOrigin` (the switch-gap — leaver already unmounted), and the
+ * `layoutId` is passed so the engine's lead/follow stack can crossfade coexisting
+ * twins. The flat delta-key Play (`playFlip`) is gone — one layout model.
  *
  * Idle = zero cost: nothing is measured until a trigger fires (CONTEXT.md
  * observability convention — hot path stays quiet).
  */
-import { type Bounds, FLIP_IDENTITY, flip, type SpringOptions, springValues } from "@wardic/core"
-import * as Effect from "effect/Effect"
-import * as Fiber from "effect/Fiber"
-import * as Stream from "effect/Stream"
-import { createContext, createEffect, type JSX, on, onCleanup, useContext } from "solid-js"
+import { type Bounds, type Box, boundsToBox, type SpringOptions } from "@wardic/core"
 import { measureLayoutBox } from "@wardic/dom"
-import type { FlushGate } from "./gate.ts"
-import { runScoped, useWardicProjection, type WardicRuntime } from "./provider.tsx"
+import { createContext, createEffect, type JSX, on, onCleanup, useContext } from "solid-js"
+import { useWardicProjection } from "./provider.tsx"
 import type { WardicTransition } from "./use-wardic.tsx"
 
 /**
@@ -119,70 +114,6 @@ export const makeSharedLayoutRegistry = (): SharedLayoutContextValue => {
   }
 }
 
-/** Structural box equality on the geometry that drives a FLIP delta. */
-const boxesEqual = (a: Bounds, b: Bounds): boolean =>
-  a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height
-
-/** Whether a FLIP delta is the resting identity (a no-op Play). */
-const isIdentityDelta = (d: { x: number; y: number; scaleX: number; scaleY: number }): boolean =>
-  d.x === FLIP_IDENTITY.x && d.y === FLIP_IDENTITY.y && d.scaleX === FLIP_IDENTITY.scaleX && d.scaleY === FLIP_IDENTITY.scaleY
-
-/**
- * The Play half of FLIP for one member: spring the four FLIP keys from the
- * INVERTED `delta` toward {@link FLIP_IDENTITY}, writing each frame into `id`'s
- * gate entry so the keys merge with the element's other animated keys (project
- * once, ADR-0006). A `delta` already at identity is a no-op (no reflow).
- *
- * Returns the forked fiber so the caller can interrupt a superseded Play before
- * starting the next one (a fast re-trigger), or `undefined` for a no-op delta.
- */
-const playFlip = (
-  runtime: WardicRuntime,
-  gate: FlushGate,
-  id: string,
-  delta: { x: number; y: number; scaleX: number; scaleY: number },
-  transition: WardicTransition | undefined,
-): Fiber.Fiber<void, never> | undefined => {
-  if (isIdentityDelta(delta)) return undefined
-
-  // Seed the gate at the inverted delta immediately (so the very first projected
-  // frame shows the element back at its `from` box — no flash before frame 1),
-  // then spring toward identity. A tween-typed transition still uses spring
-  // defaults here (layout animation is spring-shaped in framer-motion parity).
-  gate.write(id, { x: delta.x, y: delta.y, scaleX: delta.scaleX, scaleY: delta.scaleY })
-
-  const springOpts = transition !== undefined && transition.type !== "tween" ? transition : {}
-  return runScoped(
-    runtime,
-    Stream.runForEach(
-      springValues(
-        { x: FLIP_IDENTITY.x, y: FLIP_IDENTITY.y, scaleX: FLIP_IDENTITY.scaleX, scaleY: FLIP_IDENTITY.scaleY },
-        springOpts,
-        // from: the inverted delta (Invert); velocities default to 0.
-        { x: delta.x, y: delta.y, scaleX: delta.scaleX, scaleY: delta.scaleY },
-        {},
-      ),
-      (frame) => Effect.sync(() => gate.write(id, frame.value)),
-    ),
-  )
-}
-
-/** Options for {@link useLayoutMember}. */
-export interface UseLayoutMemberOptions {
-  /** The provider runtime the FLIP Play forks on. */
-  readonly runtime: WardicRuntime
-  /** The provider-owned flush gate (ADR-0006). */
-  readonly gate: FlushGate
-  /** The element's gate id (the spine's entry — FLIP writes merge here). */
-  readonly id: string
-  /** The live DOM element to measure + FLIP. */
-  readonly element: HTMLElement
-  /** The element's `layoutDependency` accessor (a re-measure trigger). */
-  readonly layoutDependency: () => unknown
-  /** The element's effective transition (drives the FLIP spring). */
-  readonly transition: () => WardicTransition | undefined
-}
-
 /**
  * Resolve a layout transition to the progress spring's options: a tween-typed
  * transition (or none) falls back to spring defaults `{}` — layout animation is
@@ -191,138 +122,88 @@ export interface UseLayoutMemberOptions {
 const toSpringOptions = (t: WardicTransition | undefined): SpringOptions =>
   t !== undefined && t.type !== "tween" ? t : {}
 
+/** Options for {@link useLayoutMember}. */
+export interface UseLayoutMemberOptions {
+  /** The element's gate id (the spine's entry — `@projection` writes merge here). */
+  readonly id: string
+  /** The live DOM element to measure + project. */
+  readonly element: HTMLElement
+  /** The element's `layoutDependency` accessor (a re-measure trigger). */
+  readonly layoutDependency: () => unknown
+  /** The element's effective transition (drives the projection progress spring). */
+  readonly transition: () => WardicTransition | undefined
+  /**
+   * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
+   * `layout` element. When set, the one node joins the engine's per-`layoutId`
+   * lead/follow stack (crossfade for coexisting twins) AND seeds its switch-gap
+   * origin from the {@link SharedLayoutContext} registry's prior-twin box.
+   */
+  readonly layoutId?: string
+}
+
 /**
- * Wire a single `layout` element into FLIP. Called from the `useWardic` spine
- * once the element + gate id exist (ADR-0005). Behaviour splits on context:
+ * Wire an element into layout projection (ADR-0009 + ADR-0010) — exactly ONE
+ * projection node per element, whether it has `layout`, `layoutId`, or both. Called
+ * from the `useWardic` spine once the element + gate id exist.
  *
- *   - UNDER a `<LayoutGroup>`: register the member; the group owns the trigger +
- *     the batched delta-key Play (enabling sibling reflow). A change to THIS
- * Registers the element as a node in the box-based projection system (ADR-0009),
- * whether or not it is under a `<LayoutGroup>` — the projection tree is built by
- * DOM ancestry, so nesting and sibling reflow are handled uniformly. The system
- * owns measurement (one shared `ResizeObserver` + this `notify`) and the per-frame
- * box-projection derive; a `layoutDependency` change requests a re-measure. No FLIP
- * on first measure.
+ * The provider-owned projection system (built by DOM ancestry) owns measurement
+ * (one shared `ResizeObserver` + this node's `notify`) and the per-frame box derive;
+ * a `layoutDependency` change requests a re-measure. No FLIP on first measure for a
+ * plain `layout` node.
+ *
+ * SHARED-ELEMENT (`layoutId`, ADR-0010). When `layoutId` is set and a
+ * {@link SharedLayoutContext} is in scope (the provider root by default):
+ *   - SWITCH-GAP seed: read the registry's prior-twin box SYNCHRONOUSLY at mount
+ *     and capture it as the node's `seedOrigin` — the engine FLIPs the node from
+ *     that box to its own on first measure (when no live twin is in the stack). We
+ *     capture NOW, not lazily: the registry slot may be cleared by the time the
+ *     measure pass runs.
+ *   - CROSSFADE: passing `layoutId` enrols the node in the engine's lead/follow
+ *     stack, so a coexisting live twin crossfades (engine-side).
+ *
+ * OWNERSHIP MODEL (MEDIUM-1 / MEDIUM-2), unchanged from the flat path. This member
+ * holds a unique `token`; on mount `setBox(layoutId, myBox, token)` claims the slot.
+ * On cleanup, ONLY if it still owns the slot (no twin re-claimed):
+ *   (a) MEDIUM-2 — if still connected, re-measure + `setBox(final)` so a same-frame
+ *       switch twin seeds from the leaver's FINAL box.
+ *   (b) MEDIUM-1 — `queueMicrotask(clearIfOwner)` bounds a lone unmount's slot.
  *
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
-  const { element, id, layoutDependency, transition } = opts
+  const { element, id, layoutDependency, layoutId, transition } = opts
   const projection = useWardicProjection()
-  const handle = projection.register({ id, element, springOptions: () => toSpringOptions(transition()) })
-  onCleanup(handle.dispose)
-  createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))
-}
-
-/** Options for {@link useLayoutIdMember}. */
-export interface UseLayoutIdMemberOptions {
-  /** The provider runtime the FLIP Play forks on. */
-  readonly runtime: WardicRuntime
-  /** The provider-owned flush gate (ADR-0006). */
-  readonly gate: FlushGate
-  /** The element's gate id (the spine's entry — FLIP writes merge here). */
-  readonly id: string
-  /** This element's `layoutId` — the shared-element match key. */
-  readonly layoutId: string
-  /** The live DOM element to measure + FLIP. */
-  readonly element: HTMLElement
-  /** The element's effective transition (drives the FLIP spring). */
-  readonly transition: () => WardicTransition | undefined
-}
-
-/**
- * Wire a single `layoutId` element into shared-element (cross-element) FLIP —
- * the {@link Shared layout} from CONTEXT.md, framer-motion's `layoutId` parity.
- * Called from the `useWardic` spine once the element + gate id exist (ADR-0005),
- * in addition to (and composing with) any standalone/grouped `layout` FLIP.
- *
- * Resolves the NEAREST {@link SharedLayoutContext} (the provider root by default;
- * a future `<LayoutGroup>` namespace if present). On mount (element live):
- *
- *   1. Measure THIS element's untransformed box.
- *   2. If the registry already holds a box for this `layoutId` (a PRIOR twin
- *      either still alive or just left), seed a FLIP from that prior box -> this
- *      element's measured box and Play it to identity via the spine — the
- *      entering element visually departs from where its twin was (shared-element
- *      animation). The basic same-frame swap (an indicator unmounting at A and
- *      mounting at B) falls out: A wrote its box to the registry on cleanup, B
- *      reads it here and FLIPs A->B.
- *   3. If there is NO prior box (first appearance of this id), no FLIP — just
- *      seed the registry with this element's box.
- *
- * OWNERSHIP MODEL (MEDIUM-1 / MEDIUM-2). This member holds a unique `token`. On
- * mount it `setBox(layoutId, myBox, token)` — becoming the slot's owner. On
- * cleanup it interrupts its Play, THEN acts ONLY if it still owns the slot (no
- * twin re-claimed it):
- *
- *   (a) MEDIUM-2 — if the element is still connected, RE-MEASURE its CURRENT box
- *       and `setBox(final, token)` so a same-frame twin seeds from the leaver's
- *       FINAL position (not its stale mount box).
- *   (b) MEDIUM-1 — `queueMicrotask(() => clearIfOwner(layoutId, token))` so a lone
- *       unmount BOUNDS the slot (cleared next microtask; no stale-FLIP-on-reuse)
- *       UNLESS a twin re-claims it first (then `clearIfOwner` is a no-op).
- *
- * If a twin already re-claimed the slot before this cleanup ran (`!isOwner`), do
- * NOTHING — the twin owns the seed; neither overwrite nor clear.
- *
- * BOTH swap orderings verified (Solid flushes spine effects synchronously):
- *   - mount-before-cleanup: the twin's `setBox` makes it the owner, so the
- *     leaver's cleanup sees `isOwner === false` and neither overwrites nor clears
- *     — the twin keeps its box.
- *   - cleanup-before-mount: the leaver (still owner) re-measures + `setBox(final)`
- *     + schedules the microtask clear; the twin then mounts in the SAME task,
- *     reads the leaver's FINAL box, and re-claims (`setBox` with the twin's token)
- *     BEFORE the microtask fires — so `clearIfOwner(leaver token)` is a no-op.
- *   - lone unmount (no twin): the microtask `clearIfOwner` fires and deletes the
- *     slot (bounded).
- *
- * NOTE: an async / Suspense-mounted twin (a later task) would miss the seed (the
- * microtask clear has already fired) — acceptable for v0.1.
- *
- * Must be called within a Solid owner (registers `onCleanup`).
- */
-export const useLayoutIdMember = (opts: UseLayoutIdMemberOptions): void => {
-  const { element, gate, id, layoutId, runtime, transition } = opts
   const shared = useSharedLayout()
-  // No registry in scope (no <WardicProvider> root registry) — nothing to match
-  // against; layoutId is a no-op. (The provider provides one by default.)
-  if (shared === undefined) return
 
-  // This member's unique ownership token (identity-only). It tags every setBox so
-  // a twin's re-claim is distinguishable from this member's own writes.
-  const token = {}
-
-  // Per-member in-flight Play fiber, interrupted before the next Play so a fast
-  // re-trigger does not stack overlapping springs on the same gate id.
-  let playing: Fiber.Fiber<void, never> | undefined
-  const play = (from: Bounds, to: Bounds): void => {
-    if (playing !== undefined) runtime.runFork(Fiber.interrupt(playing))
-    playing = playFlip(runtime, gate, id, flip(from, to), transition())
+  // Shared-element switch-gap handoff (ADR-0010 + MEDIUM-1/2). Capture the prior
+  // twin's box NOW as the seed origin, claim the slot, and hand off the final box
+  // (if still owner) + bounded clear on cleanup. `seedOrigin` returns the captured
+  // box (a live registry read at measure time could see a cleared slot).
+  let seedOrigin: (() => Box | undefined) | undefined
+  if (layoutId !== undefined && shared !== undefined) {
+    const token: object = {}
+    const prior = shared.getBox(layoutId)
+    const seedBox = prior !== undefined ? boundsToBox(prior) : undefined
+    seedOrigin = () => seedBox
+    shared.setBox(layoutId, measureLayoutBox(element), token)
+    onCleanup(() => {
+      // A twin re-claimed the slot (mount-before-cleanup) — leave it untouched.
+      if (!shared.isOwner(layoutId, token)) return
+      // Still owner (cleanup-before-mount, or a lone unmount):
+      if (element.isConnected) shared.setBox(layoutId, measureLayoutBox(element), token) // MEDIUM-2
+      queueMicrotask(() => shared.clearIfOwner(layoutId, token)) // MEDIUM-1
+    })
   }
 
-  // (1) Measure THIS element's box now (the element is live — this runs from the
-  // spine's on(el) effect). (2) Read the registry's prior box for this id; if one
-  // exists (a prior twin), FLIP from it -> this box. (3) Claim the slot with this
-  // element's box + token (the seed a later twin reads; we now own the slot).
-  const myBox = measureLayoutBox(element)
-  const priorBox = shared.getBox(layoutId)
-  if (priorBox !== undefined && !boxesEqual(priorBox, myBox)) play(priorBox, myBox)
-  shared.setBox(layoutId, myBox, token)
-
-  onCleanup(() => {
-    if (playing !== undefined) runtime.runFork(Fiber.interrupt(playing))
-    // If a twin already re-claimed the slot (mount-before-cleanup), it is now the
-    // owner — do NOTHING (no overwrite, no clear): the twin owns the seed.
-    if (!shared.isOwner(layoutId, token)) return
-    // We still own the slot (cleanup-before-mount, or a lone unmount).
-    // (a) MEDIUM-2: re-measure the element's FINAL box (if still connected) so a
-    //     same-frame twin seeds from where we ACTUALLY ended (not our mount box).
-    if (element.isConnected) shared.setBox(layoutId, measureLayoutBox(element), token)
-    // (b) MEDIUM-1: schedule a bounded clear. A same-frame twin mounting in this
-    //     task re-claims (setBox twin token) BEFORE this microtask runs, making
-    //     clearIfOwner a no-op; a lone unmount has no twin, so it clears the slot.
-    queueMicrotask(() => shared.clearIfOwner(layoutId, token))
+  const handle = projection.register({
+    id,
+    element,
+    springOptions: () => toSpringOptions(transition()),
+    ...(layoutId !== undefined ? { layoutId } : {}),
+    ...(seedOrigin !== undefined ? { seedOrigin } : {}),
   })
+  onCleanup(handle.dispose)
+  createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))
 }
 
 /**

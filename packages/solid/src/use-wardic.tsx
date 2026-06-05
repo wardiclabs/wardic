@@ -56,7 +56,7 @@ import {
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
 import type { FlushGate, FlushSink } from "./gate.ts"
-import { useLayoutIdMember, useLayoutMember } from "./layout.tsx"
+import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
 import { runScoped, useWardicGate, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
@@ -528,41 +528,24 @@ export function runSpine(opts: RunSpineOptions): void {
         if (presenceRec !== undefined) Object.assign(presenceRec.snapshot.current, value)
       }
 
-      // --- Layout FLIP (ADR-0005) ---------------------------------------------
-      // When cfg().layout is on, wire this element into FLIP. `layout` is a
-      // static enable flag (read once, untracked); the member writes its FLIP
-      // keys into THIS spine's gate id so they merge with the element's animate
-      // keys and project to one transform (ADR-0006). Under a <LayoutGroup> the
-      // group drives a batched pass (sibling reflow); standalone it self-measures.
-      if (untrack(cfg).layout === true) {
+      // --- Layout / shared-element projection (ADR-0009 + ADR-0010) -----------
+      // ONE projection node per element: `layout` and/or `layoutId` feed the SAME
+      // node (no double registration). `layout` is a static enable flag; `layoutId`
+      // (also static, read once) enrols the node in the engine's lead/follow stack
+      // (crossfade) AND seeds its switch-gap origin from the SharedLayoutContext
+      // registry (provider root by default, so NO <LayoutGroup> is required). Both
+      // the node's own reflow and a shared-element handoff drive the one progress
+      // spring, projecting to one transform (ADR-0006). The reserved projection-tree
+      // props (layoutScroll/layoutRoot/layoutAnchor) are typed-but-no-op (a future
+      // phase).
+      const layoutId = untrack(cfg).layoutId
+      if (untrack(cfg).layout === true || layoutId !== undefined) {
         useLayoutMember({
-          runtime,
-          gate,
           id,
           element,
           layoutDependency: () => cfg().layoutDependency,
           transition: () => cfg().transition ?? parent?.transition(),
-        })
-      }
-
-      // --- Shared-element FLIP (ADR-0005, layoutId) ---------------------------
-      // When cfg().layoutId is set, wire this element into cross-element FLIP: on
-      // mount it seeds its FLIP from the box left by a prior twin with the same id
-      // (resolving the nearest SharedLayoutContext — the provider root by default,
-      // so NO <LayoutGroup> is required). `layoutId` is a static key (read once,
-      // untracked); its FLIP keys write into THIS spine's gate id so they merge
-      // with the element's animate keys and any `layout` FLIP, projecting once
-      // (ADR-0006). The reserved projection-tree props (layoutScroll/layoutRoot/
-      // layoutAnchor) are typed-but-no-op (a future phase).
-      const layoutId = untrack(cfg).layoutId
-      if (layoutId !== undefined) {
-        useLayoutIdMember({
-          runtime,
-          gate,
-          id,
-          layoutId,
-          element,
-          transition: () => cfg().transition ?? parent?.transition(),
+          ...(layoutId !== undefined ? { layoutId } : {}),
         })
       }
 

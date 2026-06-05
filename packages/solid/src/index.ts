@@ -144,12 +144,10 @@ export {
 export {
   type SharedBox,
   type SharedLayoutContextValue,
-  type UseLayoutIdMemberOptions,
   type UseLayoutMemberOptions,
   LayoutGroup,
   makeSharedLayoutRegistry,
   SharedLayoutContext,
-  useLayoutIdMember,
   useLayoutMember,
   useSharedLayout,
 } from "./layout.tsx"
