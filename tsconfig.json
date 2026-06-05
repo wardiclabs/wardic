@@ -1,0 +1,10 @@
+{
+  "// note": "Solution file — `tsc --build` walks these references in dependency order. The example app is bundler-built (vinxi) and typechecked separately.",
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/test" },
+    { "path": "./packages/dom" },
+    { "path": "./packages/solid" }
+  ]
+}

@@ -1,0 +1,24 @@
+
+# Nix/direnv local cache
+.direnv/
+.envrc
+
+# Dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local reference material (vendored upstream source, not committed)
+.reference/
+
+# Tooling scratch space
+.tmp/
+
+# SolidStart / vinxi / Nitro build output (examples)
+.vinxi/
+.output/
+.nitro/
+
+# Logs & OS cruft
+*.log
+.DS_Store

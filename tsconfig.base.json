@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // Output (resolved relative to each extending config via ${configDir}).
+    "outDir": "${configDir}/dist",
+    "rootDir": "${configDir}/src",
+
+    // Incremental builds via project references.
+    "composite": true,
+    "incremental": true,
+
+    // Target modern JS, stay close to the Node module system.
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
+
+    // Only erase type-only syntax; keep imports verbatim (matches Effect v4).
+    "verbatimModuleSyntax": true,
+    // Write `./foo.ts` in relative imports; tsc rewrites to `.js` on emit.
+    "rewriteRelativeImportExtensions": true,
+    "isolatedModules": true,
+    "allowJs": false,
+
+    // Emit declarations + maps for published packages.
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // Strictness — the more the merrier.
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "skipLibCheck": true,
+    "noErrorTruncation": true,
+    // Don't auto-load @types/*; each package opts in explicitly.
+    "types": []
+  }
+}
