@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 
 // Root config for the Wardic monorepo.
 //
@@ -29,6 +29,10 @@ export default defineConfig({
             "packages/test/test/**/*.test.ts",
             "packages/dom/test/**/*.test.ts",
           ],
+          // Real-browser DOM tests (`*.browser.test.*`) belong to the browser tier
+          // (vitest.browser.config.ts), not this node project — the `*.test.ts`
+          // glob would otherwise match them and run them without a layout engine.
+          exclude: [...configDefaults.exclude, "**/*.browser.test.*"],
         },
       },
       "packages/solid/vitest.config.ts",
