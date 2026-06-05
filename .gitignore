@@ -19,6 +19,9 @@ dist/
 .output/
 .nitro/
 
+# Vitest browser-mode failure screenshots (test artifacts, not source)
+**/__screenshots__/
+
 # Logs & OS cruft
 *.log
 .DS_Store

@@ -27,6 +27,8 @@ export default defineConfig({
   test: {
     name: "browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],
+    // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).
+    setupFiles: ["./test/browser-setup.ts"],
     server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },
     browser: {
       enabled: true,
