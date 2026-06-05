@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import { Clock } from "@wardic/core"
 import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest"
 import * as Effect from "effect/Effect"

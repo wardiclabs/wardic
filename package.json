@@ -15,7 +15,7 @@
     "clean": "tsc --build --clean",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "vitest run --config packages/solid/vitest.browser.config.ts",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "bun run build && changeset publish"
