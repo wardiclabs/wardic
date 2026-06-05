@@ -21,23 +21,26 @@
  *     assembles the transform). On settle it drops the node; when none remain it
  *     interrupts the fiber (idle = zero cost).
  *
- * Nesting (P1b-ii-a): parent links come from a DOM-ancestry WALK (CSS composes by
- * DOM nesting, so that is exactly what projection must follow), and a child's box
- * is corrected for its ancestors' transforms via `applyTreeDeltas` (+ `treeScale`).
- * This is correct for nested SCALE and for nested layout with SYNCHRONIZED
- * transitions. The `relativeTarget` re-anchoring that keeps a child glued to a
- * parent on DIFFERENT transitions ("not left behind") is P1b-ii-b.
+ * Nesting: parent links come from a DOM-ancestry WALK (CSS composes by DOM
+ * nesting, so that is exactly what projection must follow), and a child's box is
+ * corrected for its ancestors' transforms via `applyTreeDeltas` (+ `treeScale`)
+ * for nested SCALE. For nested layout, an animating child with a pure-translate
+ * animating ancestor uses RELATIVE projection (`relativeParentOf` + `derive`): it
+ * re-anchors to its `relativeParent`'s CURRENT target each frame, so it stays
+ * glued even when parent and child run DIFFERENT transitions ("not left behind").
  */
 import {
   applyTreeDeltas,
   type Box,
   boundsToBox,
   calcBoxDelta,
+  calcRelativeBox,
   Clock,
   type Delta,
   initSpring,
   MAX_DT,
   mixBox,
+  placeRelativeBox,
   type Point,
   PROJECTION_KEY,
   type SpringOptions,
@@ -120,6 +123,8 @@ interface NodeState {
   depth: number
   /** This frame's projection delta — read by descendants for applyTreeDeltas; identity at rest. */
   lastDelta: Delta
+  /** This frame's viewport target box — read by a child using this node as its relativeParent. */
+  lastTarget: Box | undefined
 }
 
 /**
@@ -171,23 +176,70 @@ export const makeProjectionSystem = (runtime: WardicRuntime, gate: FlushGate): P
     return false
   }
 
+  /** A delta with ~no scale on either axis (a pure-translate projection). */
+  const isUnscaled = (d: Delta): boolean =>
+    Math.abs(d.x.scale - 1) < 1e-3 && Math.abs(d.y.scale - 1) < 1e-3
+
   /**
-   * Derive + write one node's projection for the current frame. An ANIMATING node
-   * targets its mixed box (its own FLIP); a CARRIED node (own box unchanged, but an
-   * ancestor is animating) targets its real box, so applyTreeDeltas yields the
-   * counter-transform that keeps it visually put while the ancestor moves/scales.
+   * The node's relativeParent (ADR-0009 / Motion's getClosestProjectingParent):
+   * the nearest ANIMATING ancestor with ~no scale distortion. A child re-anchors
+   * to its relativeParent's CURRENT target each frame, so it stays glued even when
+   * parent and child run DIFFERENT transitions ("not left behind"). Scaling
+   * ancestors are skipped (relative placement through a scaled frame is unsound);
+   * the node then projects ABSOLUTELY.
+   */
+  const relativeParentOf = (node: NodeState): NodeState | undefined => {
+    let p = node.parent
+    while (p !== undefined) {
+      if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined && isUnscaled(p.lastDelta)) {
+        return p
+      }
+      p = p.parent
+    }
+    return undefined
+  }
+
+  /**
+   * Derive + write one node's projection for the current frame.
+   *   - ANIMATING with a (pure-translate) animating relativeParent: RELATIVE —
+   *     mix the child's offset-within-parent (before→after) and PLACE it into the
+   *     parent's CURRENT target, so it tracks the parent regardless of progress.
+   *   - ANIMATING with no relativeParent: ABSOLUTE — mix its own viewport box.
+   *   - CARRIED (own box unchanged, ancestor animating): target its real box, so
+   *     applyTreeDeltas yields the counter-transform that keeps it visually put.
+   * In every case applyTreeDeltas supplies treeScale + the ancestor-transform
+   * correction, and `delta = calcBoxDelta(layoutCorrected, targetBox)`.
    */
   const derive = (node: NodeState): void => {
     const box = node.layoutBox ?? node.retained
     if (box === undefined) return
-    const targetBox =
-      node.animating && node.origin !== undefined && node.spring !== undefined
-        ? mixBox(node.origin, box, node.spring.position)
-        : box
+
+    const rp = relativeParentOf(node)
+    let targetBox: Box
+    if (rp !== undefined && rp.origin !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
+      // RELATIVE: track the (pure-translate, animating) parent. Use the node's OWN
+      // progress while it animates; once its own spring is done — or if it never
+      // animated (a carried child) — it sits at its final relative offset and KEEPS
+      // tracking the parent (so a fast child does not detach from a slow parent).
+      const progress = node.animating && node.spring !== undefined ? node.spring.position : 1
+      const relFrom = node.origin !== undefined ? calcRelativeBox(node.origin, rp.origin) : calcRelativeBox(box, rp.layoutBox)
+      const relTo = calcRelativeBox(box, rp.layoutBox)
+      const relTarget = mixBox(relFrom, relTo, progress)
+      targetBox = placeRelativeBox(relTarget, rp.lastTarget)
+    } else if (node.animating && node.origin !== undefined && node.spring !== undefined) {
+      // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
+      targetBox = mixBox(node.origin, box, node.spring.position)
+    } else {
+      // CARRIED under a SCALED ancestor / at rest: target the real box — applyTreeDeltas
+      // supplies the counter-transform.
+      targetBox = box
+    }
+
     const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
     // delta source is the element's REAL box pushed through ancestor transforms;
     // target is where it should appear.
     const delta = calcBoxDelta(layoutCorrected, targetBox)
+    node.lastTarget = targetBox
     node.lastDelta = delta
     writeProjection(node, delta, treeScale)
   }
@@ -334,6 +386,7 @@ export const makeProjectionSystem = (runtime: WardicRuntime, gate: FlushGate): P
       parent: undefined,
       depth: 0,
       lastDelta: IDENTITY_DELTA,
+      lastTarget: undefined,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
