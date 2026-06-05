@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // The @wardic/* packages ship TS source whose relative imports carry `.ts`
+    // extensions (Effect v4 convention). Vite resolves them; tsc needs this flag.
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "allowJs": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "types": ["vinxi/types/client"],
+    "paths": {
+      "~/*": ["./src/*"]
+    }
+  }
+}

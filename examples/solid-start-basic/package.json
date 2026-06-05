@@ -1,0 +1,26 @@
+{
+  "name": "@wardic/example-solid-start-basic",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SolidStart dev sandbox for exercising the @wardic packages (SSR included).",
+  "scripts": {
+    "dev": "vinxi dev",
+    "build": "vinxi build",
+    "start": "vinxi start",
+    "version": "vinxi version",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.16.1",
+    "@solidjs/start": "^1.3.2",
+    "@wardic/core": "workspace:*",
+    "@wardic/dom": "workspace:*",
+    "@wardic/solid": "workspace:*",
+    "solid-js": "^1.9.13",
+    "vinxi": "^0.5.11"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
