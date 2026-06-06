@@ -37,7 +37,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
 import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
-import { useWardicRuntime } from "./provider.tsx"
+import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
 
 /**
  * A child's live presence registration. `snapshot` / `exit` are MUTABLE ref
@@ -97,6 +97,7 @@ const isEmpty = (values: Values): boolean => {
  */
 export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.Element {
   const runtime = useWardicRuntime()
+  const projection = useWardicProjection()
   const { commit, project } = runtime.runSync(Renderer)
 
   // The registry of live child records, keyed by their DOM element. Filled by
@@ -244,7 +245,13 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
               prevParent.appendChild(prevEl)
             }
           }
-          driveExit(rec)
+          // Shared-element crossfade (ADR-0010): if the projection has a live twin
+          // (Lead) to crossfade toward, defer to it — it drives the retained node as
+          // a leaving Follower and calls onDone (-> finishExit) on the lead's settle.
+          // Otherwise (no twin / no layoutId) run the normal exit animation.
+          const leavingEl = prevEl // narrowed const (prevEl is a reassigned `let`)
+          const crossfaded = projection.handleLeave(leavingEl, () => finishExit(leavingEl))
+          if (!crossfaded) driveExit(rec)
         }
       }
 

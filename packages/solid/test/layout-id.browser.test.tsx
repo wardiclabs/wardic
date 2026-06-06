@@ -3,7 +3,7 @@
 // verified by REAL measured positions. The pure registry-ownership unit test
 // (makeSharedLayoutRegistry) is environment-agnostic and kept as-is.
 import { cleanup, render } from "@solidjs/testing-library"
-import { makeSharedLayoutRegistry, SharedLayoutContext, wardic, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, makeSharedLayoutRegistry, SharedLayoutContext, wardic, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
 import { createSignal, Show } from "solid-js"
@@ -290,4 +290,89 @@ it("crossfade under treeScale: a follower nested in a SCALING layout parent stay
   // scale (tens of px); locked + corrected it tracks the lead within a few px.
   expect(worstVisibleDrift).toBeLessThan(12)
   expect(op(a)).toBeLessThan(0.1) // follower ended hidden behind the lead
+})
+
+it("crossfade (S3): closing a layoutId twin under <AnimatePresence> flies it back onto the promoted twin, then removes it", async () => {
+  // NOTE on scheduler ordering: a <Show>-driven leave disposes the leaver's owner
+  // (projection dispose) BEFORE presence's tracker effect calls handleLeave, so the
+  // reachable interleaving is dispose-first (the re-introduce path). The
+  // handleLeave-before-dispose path is defensively handled in the engine.
+  const [open, setOpen] = createSignal(false) // start closed: only the thumbnail
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative" }}>
+        <wardic.div data-thumb class="ind a" layoutId="s3" initial={{ opacity: 1 }} animate={{ opacity: 1 }} />
+        <AnimatePresence>
+          <Show when={open()}>
+            <wardic.div
+              data-modal
+              class="ind b"
+              layoutId="s3"
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+          </Show>
+        </AnimatePresence>
+      </div>
+    </WardicProvider>
+  ))
+  const root = container.querySelector("[data-root]") as HTMLElement
+  const base = leftOf(root)
+  const thumb = container.querySelector("[data-thumb]") as HTMLElement
+  await raf()
+  await raf() // thumbnail is the lone lead, visible at +20
+
+  setOpen(true) // the modal mounts LATER -> it is the newest -> lead (crossfade in from thumb)
+  // Seed-wait: the crossfade seeds the modal BACK at the thumbnail's box (+20) and
+  // fading in — wait for that, so we don't match its raw mount position (+300, op 1)
+  // before the projection engages.
+  await until(() => {
+    const m = container.querySelector("[data-modal]")
+    return m instanceof HTMLElement && leftOf(m) - base < 150
+  })
+  const modal = container.querySelector("[data-modal]") as HTMLElement
+  // Now let the crossfade-in settle: modal back at +300, fully in; thumbnail hidden.
+  await until(() => Math.abs(leftOf(modal) - base - 300) < 3 && op(modal) >= 0.95)
+  expect(op(thumb)).toBeLessThan(0.15) // thumbnail hidden behind the open modal
+
+  setOpen(false) // close: AnimatePresence retains the modal; it crossfades back onto the thumbnail
+  // Mid-crossfade: the modal STAYS connected, flies back toward the thumbnail (+20)
+  // while fading out, and the thumbnail un-hides + flies home.
+  let sawReturning = false
+  await until(() => {
+    if (modal.isConnected && leftOf(modal) - base < 250 && op(modal) < 0.95 && op(thumb) > 0.05) sawReturning = true
+    return !modal.isConnected // removed on the crossfade's settle
+  })
+  expect(sawReturning).toBe(true) // the leaver crossfaded back (not an instant exit)
+  expect(modal.isConnected).toBe(false) // onDone removed the retained node
+  expect(leftOf(thumb) - base).toBeCloseTo(20, 0) // thumbnail back home
+  expect(op(thumb)).toBeCloseTo(1, 1) // and fully visible again
+})
+
+it("lone layoutId leave (no twin) under <AnimatePresence> degrades to the normal exit", async () => {
+  const [show, setShow] = createSignal(true)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <AnimatePresence>
+        <Show when={show()}>
+          <wardic.div data-lone class="ind a" layoutId="lone-s3" initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+        </Show>
+      </AnimatePresence>
+    </WardicProvider>
+  ))
+  const el = container.querySelector("[data-lone]") as HTMLElement
+  await raf()
+  await raf()
+
+  setShow(false) // no twin -> handleLeave returns false -> normal exit animation runs
+  let sawFade = false
+  await until(() => {
+    if (el.isConnected && op(el) < 0.95 && op(el) > 0.05) sawFade = true
+    return !el.isConnected
+  })
+  expect(sawFade).toBe(true) // ran the normal exit (faded), not a crossfade
+  expect(el.isConnected).toBe(false)
 })

@@ -49,6 +49,7 @@ import {
   placeRelativeBox,
   type Point,
   PROJECTION_KEY,
+  Renderer,
   type SpringOptions,
   type SpringState,
   springStep,
@@ -73,10 +74,12 @@ export interface ProjectionSink {
 
 /**
  * The runtime flavour the coordinator needs: a `ManagedRuntime` that can run the
- * Clock-subscribing tick loop. A binding's wider runtime (e.g. one providing the
- * full `WardicServices`) is assignable here.
+ * Clock-subscribing tick loop AND resolve the `Renderer` (to drive a presence-
+ * retained leaving Follower whose gate registration was torn down on owner
+ * disposal — ADR-0010). A binding's wider runtime (e.g. one providing the full
+ * `WardicServices`) is assignable here.
  */
-export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<Clock, never>
+export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<Clock | Renderer, never>
 
 /** Identity tree-scale (no ancestor scaling). */
 const TREE_SCALE_IDENTITY: Point = { x: 1, y: 1 }
@@ -137,6 +140,20 @@ export interface ProjectionSystem {
    * re-measures every node, so sibling reflow falls out.
    */
   readonly notify: () => void
+  /**
+   * Shared-element exit coupling (ADR-0010). A binding's presence layer calls this
+   * for a leaving `layoutId` element it has RETAINED (kept in the DOM mid-exit).
+   * Returns `true` if there is a live twin (Lead) to crossfade toward — the engine
+   * then drives `el` as a transient leaving Follower (locked onto the lead, fading
+   * out, driven directly via the Renderer since its gate registration is gone) and
+   * calls `onDone` once the crossfade settles, so presence removes the DOM node.
+   * Returns `false` for a lone leave (no twin) — presence runs its normal `exit`.
+   *
+   * A method on the shared engine (the binding already holds it), NOT a service:
+   * the flow is unidirectional (presence → engine), and `onDone` is the only
+   * callback back. Presence keeps ADR-0007 ownership of retention + DOM removal.
+   */
+  readonly handleLeave: (el: HTMLElement, onDone: () => void) => boolean
   /** Tear down the coordinator fiber + observer (wired into the provider's onCleanup). */
   readonly dispose: () => void
 }
@@ -168,6 +185,15 @@ interface NodeState {
   lastDelta: Delta
   /** This frame's viewport target box — read by a child using this node as its relativeParent. */
   lastTarget: Box | undefined
+  /**
+   * A presence-retained LEAVING Follower (ADR-0010): it crossfades out toward the
+   * Lead and is removed on the lead's settle. `dispose` SKIPS a leaving node (the
+   * {@link finishLeaver} lifecycle owns its removal); its `@projection` is driven
+   * directly via the Renderer (its gate registration is gone).
+   */
+  leaving: boolean
+  /** Called once the leaving Follower's crossfade settles → presence removes the DOM node. */
+  onLeaveDone: (() => void) | undefined
 }
 
 /**
@@ -189,18 +215,34 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   let tickFiber: Fiber.Fiber<void, never> | undefined
   // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe).
   let ro: ResizeObserver | undefined
+  // A just-disposed `layoutId` node's box, so a presence `handleLeave` arriving
+  // AFTER dispose can re-introduce it as a leaving Follower (cleared next microtask).
+  const recentLeavers = new Map<HTMLElement, { readonly layoutId: string; readonly box: Box }>()
+
+  // The Renderer's pure halves, resolved once (like the gate) — used to drive a
+  // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
+  const renderer = runtime.runSync(
+    Effect.gen(function* () {
+      return yield* Renderer
+    }),
+  )
 
   /**
-   * Write a node's per-frame `@projection` value into the gate (Option A). The
-   * optional `opacity` is the crossfade factor (ADR-0010) the renderer multiplies
-   * with the user opacity; omitted for a non-crossfading node so it passes through
-   * (writing a fresh ProjectionValue REPLACES the gate's `@projection`, so a node
-   * that stops crossfading drops any stale factor).
+   * Write a node's per-frame `@projection` value (Option A). The optional `opacity`
+   * is the crossfade factor (ADR-0010) the renderer multiplies with the user
+   * opacity; omitted for a non-crossfading node so it passes through (a fresh
+   * ProjectionValue REPLACES the gate's `@projection`, dropping any stale factor).
+   *
+   * A LEAVING Follower is gate-unregistered (its owner was disposed), so it is
+   * driven directly via the Renderer onto the retained element instead of the gate.
    */
   const writeProjection = (node: NodeState, delta: Delta, treeScale: Point, opacity?: number): void => {
-    sink.write(node.id, {
-      [PROJECTION_KEY]: opacity !== undefined ? { delta, treeScale, opacity } : { delta, treeScale },
-    })
+    const value = opacity !== undefined ? { delta, treeScale, opacity } : { delta, treeScale }
+    if (node.leaving) {
+      runtime.runSync(renderer.commit(node.element, renderer.project({ [PROJECTION_KEY]: value })))
+    } else {
+      sink.write(node.id, { [PROJECTION_KEY]: value })
+    }
   }
 
   /** The Lead of `layoutId` — the newest live node in its stack — or undefined. */
@@ -495,6 +537,14 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       node.lastDelta = IDENTITY_DELTA
       active.delete(node)
     }
+    // 3b) A leaving Follower whose Lead just settled is done crossfading → remove it
+    //     (fires onDone → presence removes the retained DOM node).
+    for (const node of settled) {
+      if (node.layoutId !== undefined && leadOf(node.layoutId) === node) {
+        const stack = stacks.get(node.layoutId)
+        if (stack !== undefined) for (const f of [...stack]) if (f.leaving) finishLeaver(f)
+      }
+    }
     if (active.size === 0) stopTicking()
   }
 
@@ -518,6 +568,101 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     runtime.runFork(Fiber.interrupt(fiber))
   }
 
+  /** Promote `node` to an animating Lead from `fromBox` → its own box (un-hide + move home). */
+  const promoteFrom = (node: NodeState, fromBox: Box | undefined): void => {
+    const ownBox = node.retained
+    if (fromBox === undefined || ownBox === undefined || boxesEqual(fromBox, ownBox)) return
+    node.origin = fromBox
+    node.layoutBox = ownBox
+    node.spring = initSpring({ from: 0 })
+    node.animating = true
+    active.add(node)
+    ensureRunning()
+  }
+
+  /** Remove a finished leaving Follower + fire its `onDone` (presence removes the DOM node). */
+  const finishLeaver = (node: NodeState): void => {
+    const cb = node.onLeaveDone
+    node.onLeaveDone = undefined
+    node.leaving = false
+    ro?.unobserve(node.element)
+    elementToNode.delete(node.element)
+    if (node.layoutId !== undefined) {
+      const stack = stacks.get(node.layoutId)
+      if (stack !== undefined) {
+        const i = stack.indexOf(node)
+        if (i >= 0) stack.splice(i, 1)
+        if (stack.length === 0) stacks.delete(node.layoutId)
+      }
+    }
+    active.delete(node)
+    nodes.delete(node)
+    cb?.()
+  }
+
+  /** Build a transient leaving-Follower node for a re-introduced (already-disposed) leaver. */
+  const makeFollowerNode = (el: HTMLElement, layoutId: string, box: Box, onDone: () => void): NodeState => ({
+    id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
+    element: el,
+    springOptions: () => ({}),
+    layoutId,
+    seedOrigin: undefined,
+    retained: box,
+    origin: undefined,
+    layoutBox: box,
+    spring: undefined,
+    animating: false,
+    parent: undefined,
+    depth: 0,
+    lastDelta: IDENTITY_DELTA,
+    lastTarget: undefined,
+    leaving: true,
+    onLeaveDone: onDone,
+  })
+
+  const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) => {
+    const live = elementToNode.get(el)
+    const recent = recentLeavers.get(el)
+    const layoutId = live?.layoutId ?? recent?.layoutId
+    if (layoutId === undefined) return false
+
+    // (A) handleLeave BEFORE dispose — el's node is still live. Mark it leaving (its
+    // later dispose then SKIPS removal), demote it to a Follower, and promote the twin.
+    if (live !== undefined) {
+      const stack = stacks.get(layoutId)
+      const isLead = leadOf(layoutId) === live
+      const twin = isLead ? priorLeadOf(live) : leadOf(layoutId)
+      if (twin === undefined || twin === live || stack === undefined) return false // lone leave
+      live.leaving = true
+      live.onLeaveDone = onDone
+      if (isLead) {
+        // Swap so the twin becomes the Lead (last); el becomes a Follower below it.
+        const last = stack.length - 1
+        stack[last - 1] = live
+        stack[last] = twin
+        promoteFrom(twin, live.layoutBox ?? live.retained)
+      }
+      if (active.has(leadOf(layoutId)!)) deriveAll()
+      else finishLeaver(live) // no animating lead to ride → finish promptly (already hidden)
+      return true
+    }
+
+    // (B) dispose BEFORE handleLeave — el's node is gone; re-introduce it as a
+    // transient leaving Follower from the recorded box (the re-introduce model).
+    const lead = leadOf(layoutId)
+    if (lead === undefined || lead.element === el || recent === undefined) return false
+    const stack = stacks.get(layoutId)
+    if (stack === undefined) return false
+    const follower = makeFollowerNode(el, layoutId, recent.box, onDone)
+    nodes.add(follower)
+    elementToNode.set(el, follower)
+    stack.splice(stack.length - 1, 0, follower) // insert below the Lead
+    computeTree()
+    if (active.has(lead)) deriveAll()
+    else finishLeaver(follower)
+    return true
+  }
+
   const register: ProjectionSystem["register"] = (opts) => {
     const node: NodeState = {
       id: opts.id,
@@ -534,6 +679,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       depth: 0,
       lastDelta: IDENTITY_DELTA,
       lastTarget: undefined,
+      leaving: false,
+      onLeaveDone: undefined,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
@@ -557,37 +704,32 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     return {
       notify: scheduleMeasure,
       dispose: () => {
+        // A leaving Follower's removal is owned by finishLeaver (presence retained
+        // it for the crossfade); a plain dispose must NOT tear it down here.
+        if (node.leaving) return
+        // Record the box so a presence handleLeave arriving AFTER this dispose can
+        // re-introduce the leaver as a Follower (bounded — cleared next microtask).
+        if (node.layoutId !== undefined) {
+          const box = node.layoutBox ?? node.retained
+          if (box !== undefined) {
+            recentLeavers.set(node.element, { layoutId: node.layoutId, box })
+            queueMicrotask(() => recentLeavers.delete(node.element))
+          }
+        }
         ro?.unobserve(node.element)
         elementToNode.delete(node.element)
         active.delete(node)
         nodes.delete(node)
-        // Stack relegation / promotion (ADR-0010).
+        // Stack relegation / promotion (ADR-0010): a leaving Lead promotes the new
+        // newest node, animating it FROM the leaver's box (un-hide + move home).
         if (node.layoutId !== undefined) {
           const stack = stacks.get(node.layoutId)
           if (stack !== undefined) {
             const wasLead = stack[stack.length - 1] === node
             const i = stack.indexOf(node)
             if (i >= 0) stack.splice(i, 1)
-            if (stack.length === 0) {
-              stacks.delete(node.layoutId)
-            } else if (wasLead) {
-              // Promote the new newest node: animate it FROM the leaver's box to its
-              // own (un-hide + move home). With no Followers left it carries no
-              // crossfade factor (the leaver is gone — a move, not a fade); with
-              // Followers remaining it crossfades (leadOpacity). Drive directly (no
-              // re-measure, which would clobber the seeded origin).
-              const newLead = stack[stack.length - 1]!
-              const leaverBox = node.layoutBox ?? node.retained
-              const ownBox = newLead.retained
-              if (leaverBox !== undefined && ownBox !== undefined && !boxesEqual(leaverBox, ownBox)) {
-                newLead.origin = leaverBox
-                newLead.layoutBox = ownBox
-                newLead.spring = initSpring({ from: 0 })
-                newLead.animating = true
-                active.add(newLead)
-                ensureRunning()
-              }
-            }
+            if (stack.length === 0) stacks.delete(node.layoutId)
+            else if (wasLead) promoteFrom(stack[stack.length - 1]!, node.layoutBox ?? node.retained)
           }
         }
         if (active.size === 0) stopTicking()
@@ -604,5 +746,5 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     elementToNode.clear()
   }
 
-  return { register, notify: scheduleMeasure, dispose }
+  return { register, notify: scheduleMeasure, handleLeave, dispose }
 }
