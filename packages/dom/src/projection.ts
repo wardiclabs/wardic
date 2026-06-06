@@ -85,6 +85,9 @@ export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<Clock | Renderer, 
 /** Identity tree-scale (no ancestor scaling). */
 const TREE_SCALE_IDENTITY: Point = { x: 1, y: 1 }
 
+/** Default relative-projection anchor (top-left) when a node sets no `layoutAnchor` (ADR-0013). */
+const ZERO_ANCHOR: Point = { x: 0, y: 0 }
+
 /** The resting projection delta — element at its real box (a no-op in applyTreeDeltas). */
 const IDENTITY_DELTA: Delta = {
   x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
@@ -128,6 +131,18 @@ export interface RegisterNodeOptions {
    * boxes, so a scroll change BETWEEN triggers doesn't leak into their FLIP delta.
    */
   readonly layoutScroll?: boolean
+  /**
+   * Mark this element a stable projection sub-root (ADR-0013, Motion's `layoutRoot`):
+   * it never FLIPs its own layout (self-snaps), bounds delta accumulation /
+   * relativeParent search for its subtree, and is a persistent relative anchor.
+   */
+  readonly layoutRoot?: boolean
+  /**
+   * The anchor (0–1 per axis, ADR-0013, Motion's `layoutAnchor`) for this node's
+   * RELATIVE projection — where in its relativeParent it anchors (default top-left
+   * `{0,0}`). `false` opts out of relative projection (force absolute).
+   */
+  readonly layoutAnchor?: Point | false
 }
 
 /** Handle returned from {@link ProjectionSystem.register}. */
@@ -180,6 +195,10 @@ interface NodeState {
   scroll: Point
   /** Whether this (scroll) node is `position: fixed` — a scroll root (resets the fold). */
   isScrollRoot: boolean
+  /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the subtree, persistent relativeParent. */
+  readonly layoutRoot: boolean
+  /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
+  readonly layoutAnchor: Point | false | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
   retained: Box | undefined
   /** Where the element appears at progress 0 (the box it animates FROM). */
@@ -345,6 +364,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     let p = node.parent
     while (p !== undefined) {
       chain.push(p.lastDelta)
+      if (p.layoutRoot) break // accumulation boundary (ADR-0013): a layoutRoot is the sub-root
       p = p.parent
     }
     chain.reverse()
@@ -356,29 +376,28 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     let p = node.parent
     while (p !== undefined) {
       if (active.has(p)) return true
+      if (p.layoutRoot) return false // boundary (ADR-0013): ancestors above a layoutRoot don't carry this node
       p = p.parent
     }
     return false
   }
 
-  /** A delta with ~no scale on either axis (a pure-translate projection). */
-  const isUnscaled = (d: Delta): boolean =>
-    Math.abs(d.x.scale - 1) < 1e-3 && Math.abs(d.y.scale - 1) < 1e-3
-
   /**
-   * The node's relativeParent (ADR-0009 / Motion's getClosestProjectingParent):
-   * the nearest ANIMATING ancestor with ~no scale distortion. A child re-anchors
-   * to its relativeParent's CURRENT target each frame, so it stays glued even when
-   * parent and child run DIFFERENT transitions ("not left behind"). Scaling
-   * ancestors are skipped (relative placement through a scaled frame is unsound);
-   * the node then projects ABSOLUTELY.
+   * The node's relativeParent (ADR-0009/0013, Motion's getClosestProjectingParent):
+   * the nearest ANIMATING ancestor (any scale — the {@link layoutAnchor} makes
+   * relative-through-a-scaled-parent sound, ADR-0013), OR a `layoutRoot` ancestor
+   * (a persistent relative anchor + boundary, even at rest). A child re-anchors to
+   * its relativeParent's CURRENT target each frame, so it stays glued even when
+   * parent and child run DIFFERENT transitions ("not left behind"). `layoutAnchor:
+   * false` opts the node out entirely (it then projects ABSOLUTELY).
    */
   const relativeParentOf = (node: NodeState): NodeState | undefined => {
+    if (node.layoutAnchor === false) return undefined // opt out -> absolute (Motion's layoutAnchor !== false gate)
     let p = node.parent
     while (p !== undefined) {
-      if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined && isUnscaled(p.lastDelta)) {
-        return p
-      }
+      // A layoutRoot is a persistent relative anchor AND the boundary — stop here.
+      if (p.layoutRoot) return p.layoutBox !== undefined ? p : undefined
+      if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined) return p
       p = p.parent
     }
     return undefined
@@ -401,16 +420,21 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
     const rp = relativeParentOf(node)
     let targetBox: Box
-    if (rp !== undefined && rp.origin !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
-      // RELATIVE: track the (pure-translate, animating) parent. Use the node's OWN
-      // progress while it animates; once its own spring is done — or if it never
-      // animated (a carried child) — it sits at its final relative offset and KEEPS
-      // tracking the parent (so a fast child does not detach from a slow parent).
+    if (rp !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
+      // RELATIVE: track the relativeParent (any scale, ADR-0013) at the node's
+      // `layoutAnchor` (default top-left). Use the node's OWN progress while it
+      // animates; once settled — or for a carried child — it sits at its final
+      // relative offset and KEEPS tracking the parent (a fast child doesn't detach
+      // from a slow one). For a static `layoutRoot` relativeParent (no own
+      // animation), the parent's "from" box is just its layout box.
+      const anchor = node.layoutAnchor !== false && node.layoutAnchor !== undefined ? node.layoutAnchor : ZERO_ANCHOR
+      const rpFromBox = rp.origin ?? rp.layoutBox
       const progress = node.animating && node.spring !== undefined ? node.spring.position : 1
-      const relFrom = node.origin !== undefined ? calcRelativeBox(node.origin, rp.origin) : calcRelativeBox(box, rp.layoutBox)
-      const relTo = calcRelativeBox(box, rp.layoutBox)
+      const relFrom =
+        node.origin !== undefined ? calcRelativeBox(node.origin, rpFromBox, anchor) : calcRelativeBox(box, rp.layoutBox, anchor)
+      const relTo = calcRelativeBox(box, rp.layoutBox, anchor)
       const relTarget = mixBox(relFrom, relTo, progress)
-      targetBox = placeRelativeBox(relTarget, rp.lastTarget)
+      targetBox = placeRelativeBox(relTarget, rp.lastTarget, anchor)
     } else if (node.animating && node.origin !== undefined && node.spring !== undefined) {
       // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
       targetBox = mixBox(node.origin, box, node.spring.position)
@@ -562,6 +586,21 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // radius/shadow each frame. (A node's authored radius changing mid-life is the
       // documented v0.1 limit.)
       if (node.correctorBases === undefined) node.correctorBases = readBases(node.element)
+
+      // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
+      // stable box (layoutBox + lastTarget) so descendants project relative to it,
+      // and write identity — no spring, never `active`.
+      if (node.layoutRoot) {
+        node.layoutBox = newBox
+        node.lastTarget = newBox
+        node.origin = undefined
+        node.spring = undefined
+        node.animating = false
+        active.delete(node)
+        node.lastDelta = IDENTITY_DELTA
+        writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
+        continue
+      }
 
       if (prev === undefined) {
         // First measure — detection priority (ADR-0010):
@@ -738,6 +777,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     isScroll: false,
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
+    layoutRoot: false,
+    layoutAnchor: undefined,
   })
 
   const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) => {
@@ -806,6 +847,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       isScroll: opts.layoutScroll === true,
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,
+      layoutRoot: opts.layoutRoot === true,
+      layoutAnchor: opts.layoutAnchor,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)

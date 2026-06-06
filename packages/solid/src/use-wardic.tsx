@@ -265,23 +265,23 @@ export interface WardicConfig {
    */
   readonly layoutId?: string
   /**
-   * PLANNED — requires the parent-relative projection tree (a future phase);
-   * currently a NO-OP. Reserved for Motion-parity API shape: whether this layout
-   * element's scroll offset is accounted for when projecting its box.
+   * Mark this a scroll container (ADR-0012): its scroll offset is folded out of its
+   * descendants' boxes, so a scroll change between triggers doesn't leak into their
+   * layout animation. Static (read once at mount).
    */
   readonly layoutScroll?: boolean
   /**
-   * PLANNED — requires the parent-relative projection tree (a future phase);
-   * currently a NO-OP. Reserved for Motion-parity API shape: marks this element
-   * as a projection-tree root (its descendants project relative to it).
+   * Mark this a stable projection sub-root (ADR-0013): it never FLIPs its own layout
+   * (self-snaps), bounds delta accumulation for its subtree, and is a persistent
+   * relative anchor for its descendants. Static (read once at mount).
    */
   readonly layoutRoot?: boolean
   /**
-   * PLANNED — requires the parent-relative projection tree (a future phase);
-   * currently a NO-OP. Reserved for Motion-parity API shape: the relative anchor
-   * point used when resolving a shared-element transition under a projection tree.
+   * The relative-projection anchor (ADR-0013): where in its relativeParent this
+   * element anchors (0–1 per axis, default top-left `{x:0,y:0}`). `false` opts out
+   * of relative projection (force absolute). Static (read once at mount).
    */
-  readonly layoutAnchor?: { readonly x: number; readonly y: number }
+  readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
 }
 
 /**
@@ -539,7 +539,9 @@ export function runSpine(opts: RunSpineOptions): void {
       // (P4).
       const c0 = untrack(cfg)
       const layoutId = c0.layoutId
-      if (c0.layout === true || layoutId !== undefined || c0.layoutScroll === true) {
+      // layout / layoutId / layoutScroll / layoutRoot each warrant a node; layoutAnchor
+      // alone does not (it only tunes a node that already projects), but is forwarded.
+      if (c0.layout === true || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
         useLayoutMember({
           id,
           element,
@@ -547,6 +549,8 @@ export function runSpine(opts: RunSpineOptions): void {
           transition: () => cfg().transition ?? parent?.transition(),
           ...(layoutId !== undefined ? { layoutId } : {}),
           ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
+          ...(c0.layoutRoot === true ? { layoutRoot: true } : {}),
+          ...(c0.layoutAnchor !== undefined ? { layoutAnchor: c0.layoutAnchor } : {}),
         })
       }
 

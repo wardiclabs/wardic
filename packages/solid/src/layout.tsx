@@ -16,7 +16,7 @@
  * Idle = zero cost: nothing is measured until a trigger fires (CONTEXT.md
  * observability convention — hot path stays quiet).
  */
-import { type Bounds, type Box, boundsToBox, type SpringOptions } from "@wardic/core"
+import { type Bounds, type Box, boundsToBox, type Point, type SpringOptions } from "@wardic/core"
 import { measureLayoutBox } from "@wardic/dom"
 import { createContext, createEffect, type JSX, on, onCleanup, useContext } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
@@ -145,6 +145,10 @@ export interface UseLayoutMemberOptions {
    * triggers doesn't leak into their FLIP delta.
    */
   readonly layoutScroll?: boolean
+  /** Mark this element a stable projection sub-root (ADR-0013): self-snap + boundary + persistent relative anchor. */
+  readonly layoutRoot?: boolean
+  /** This element's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
+  readonly layoutAnchor?: Point | false
 }
 
 /**
@@ -177,7 +181,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
-  const { element, id, layoutDependency, layoutId, layoutScroll, transition } = opts
+  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutRoot, layoutScroll, transition } = opts
   const projection = useWardicProjection()
   const shared = useSharedLayout()
 
@@ -208,6 +212,8 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
     ...(layoutId !== undefined ? { layoutId } : {}),
     ...(seedOrigin !== undefined ? { seedOrigin } : {}),
     ...(layoutScroll === true ? { layoutScroll: true } : {}),
+    ...(layoutRoot === true ? { layoutRoot: true } : {}),
+    ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))

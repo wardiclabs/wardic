@@ -145,21 +145,15 @@ export interface WardicMotionProps {
    * `layout`/`layoutDependency` and `animate` (FLIP keys merge + project once).
    */
   readonly layoutId?: string
-  /**
-   * PLANNED — requires the parent-relative projection tree (a future phase);
-   * currently a NO-OP. Reserved for Motion-parity API shape.
-   */
+  /** Scroll container (ADR-0012): its scroll is folded out of descendants' layout animations. */
   readonly layoutScroll?: boolean
-  /**
-   * PLANNED — requires the parent-relative projection tree (a future phase);
-   * currently a NO-OP. Reserved for Motion-parity API shape.
-   */
+  /** Stable projection sub-root (ADR-0013): self-snaps, bounds its subtree, persistent relative anchor. */
   readonly layoutRoot?: boolean
   /**
-   * PLANNED — requires the parent-relative projection tree (a future phase);
-   * currently a NO-OP. Reserved for Motion-parity API shape.
+   * Relative-projection anchor (ADR-0013): where in its relativeParent this element
+   * anchors (0–1 per axis, default top-left). `false` forces absolute projection.
    */
-  readonly layoutAnchor?: { readonly x: number; readonly y: number }
+  readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
 }
 
 /** Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props. */
@@ -203,6 +197,8 @@ const motionToConfig =
     const layoutDependency = motion.layoutDependency
     const layoutId = motion.layoutId
     const layoutScroll = motion.layoutScroll
+    const layoutRoot = motion.layoutRoot
+    const layoutAnchor = motion.layoutAnchor
     if (initial !== undefined) config.initial = initial
     if (animate !== undefined) config.animate = animate
     if (whileHover !== undefined) config.whileHover = whileHover
@@ -220,8 +216,8 @@ const motionToConfig =
     if (layoutDependency !== undefined) config.layoutDependency = layoutDependency
     if (layoutId !== undefined) config.layoutId = layoutId
     if (layoutScroll !== undefined) config.layoutScroll = layoutScroll
-    // layoutRoot / layoutAnchor remain PLANNED no-ops: split off MOTION_PROPS so they
-    // never leak to the DOM, but not forwarded to config (no spine effect yet — P4).
+    if (layoutRoot !== undefined) config.layoutRoot = layoutRoot
+    if (layoutAnchor !== undefined) config.layoutAnchor = layoutAnchor
     return config
   }
 
