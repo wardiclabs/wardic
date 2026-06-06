@@ -1,8 +1,17 @@
 import { Renderer } from "@wardic/core"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { flip } from "@wardic/core"
+import { flip, PROJECTION_KEY } from "@wardic/core"
 import { RendererDomLive } from "../src/renderer.ts"
+
+/** An identity projection delta + tree-scale, for the @projection opacity tests. */
+const IDENTITY_PROJECTION = {
+  delta: {
+    x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
+    y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
+  },
+  treeScale: { x: 1, y: 1 },
+}
 
 /**
  * Reach the concrete `project`/`commit` out of the Layer once so the pure
@@ -51,6 +60,21 @@ describe("RendererDomLive.project (pure)", () => {
 
   it("keeps opacity unitless and raw", () => {
     expect(renderer.project({ opacity: 0.5 })).toEqual({ opacity: 0.5 })
+  })
+
+  it("composes the @projection crossfade factor with user opacity (finalOpacity = user × factor)", () => {
+    // user 0.8 × factor 0.5 = 0.4
+    expect(
+      renderer.project({ opacity: 0.8, [PROJECTION_KEY]: { ...IDENTITY_PROJECTION, opacity: 0.5 } }).opacity,
+    ).toBeCloseTo(0.4, 5)
+    // no user opacity → the factor alone (1 × 0.25)
+    expect(
+      renderer.project({ [PROJECTION_KEY]: { ...IDENTITY_PROJECTION, opacity: 0.25 } }).opacity,
+    ).toBeCloseTo(0.25, 5)
+  })
+
+  it("passes user opacity through untouched when the @projection carries no factor", () => {
+    expect(renderer.project({ opacity: 0.7, [PROJECTION_KEY]: IDENTITY_PROJECTION }).opacity).toBe(0.7)
   })
 
   it("appends px to a numeric length property (width)", () => {

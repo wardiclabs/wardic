@@ -217,6 +217,13 @@ const project = (values: Record<string, unknown>): Patch => {
       if (key === PROJECTION_KEY || TRANSFORM_KEYS.has(key)) continue
       patch[key] = formatStyleValue(key, values[key])
     }
+    // Shared-element crossfade (ADR-0010): compose the crossfade factor with the
+    // user's opacity — `finalOpacity = (userOpacity ?? 1) × factor`. Pure: both
+    // values are already in the value-map (like buildProjectionTransform above).
+    if (projection.opacity !== undefined) {
+      const user = typeof values.opacity === "number" ? values.opacity : 1
+      patch.opacity = user * projection.opacity
+    }
     return patch
   }
 

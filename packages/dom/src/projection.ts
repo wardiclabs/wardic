@@ -182,14 +182,52 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   const active = new Set<NodeState>()
   // Element -> node, for the DOM-ancestry parent walk.
   const elementToNode = new Map<HTMLElement, NodeState>()
+  // Per-`layoutId` mount-order stack (ADR-0010): the newest live node is the Lead,
+  // the rest are Followers. Crossfade is driven engine-side off this stack.
+  const stacks = new Map<string, Array<NodeState>>()
   // The Clock-driven coordinator fiber, present only while >=1 node animates.
   let tickFiber: Fiber.Fiber<void, never> | undefined
   // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe).
   let ro: ResizeObserver | undefined
 
-  /** Write a node's per-frame `@projection` value into the gate (Option A). */
-  const writeProjection = (node: NodeState, delta: Delta, treeScale: Point): void => {
-    sink.write(node.id, { [PROJECTION_KEY]: { delta, treeScale } })
+  /**
+   * Write a node's per-frame `@projection` value into the gate (Option A). The
+   * optional `opacity` is the crossfade factor (ADR-0010) the renderer multiplies
+   * with the user opacity; omitted for a non-crossfading node so it passes through
+   * (writing a fresh ProjectionValue REPLACES the gate's `@projection`, so a node
+   * that stops crossfading drops any stale factor).
+   */
+  const writeProjection = (node: NodeState, delta: Delta, treeScale: Point, opacity?: number): void => {
+    sink.write(node.id, {
+      [PROJECTION_KEY]: opacity !== undefined ? { delta, treeScale, opacity } : { delta, treeScale },
+    })
+  }
+
+  /** The Lead of `layoutId` — the newest live node in its stack — or undefined. */
+  const leadOf = (layoutId: string): NodeState | undefined => {
+    const stack = stacks.get(layoutId)
+    return stack !== undefined && stack.length > 0 ? stack[stack.length - 1] : undefined
+  }
+
+  /** The node directly below `node` in its stack (the prior Lead it crossfades from), or undefined. */
+  const priorLeadOf = (node: NodeState): NodeState | undefined => {
+    if (node.layoutId === undefined) return undefined
+    const stack = stacks.get(node.layoutId)
+    if (stack === undefined) return undefined
+    const i = stack.indexOf(node)
+    return i > 0 ? stack[i - 1] : undefined
+  }
+
+  /** Whether `node` is a Follower: in a `layoutId` stack but NOT its (newest-live) Lead. */
+  const isFollower = (node: NodeState): boolean =>
+    node.layoutId !== undefined && leadOf(node.layoutId) !== node
+
+  /** The crossfade factor for a LEAD (its own progress) — only when it has Followers; else undefined. */
+  const leadOpacity = (node: NodeState): number | undefined => {
+    if (node.layoutId === undefined) return undefined
+    const stack = stacks.get(node.layoutId)
+    if (stack === undefined || stack.length < 2 || stack[stack.length - 1] !== node) return undefined
+    return node.spring !== undefined ? node.spring.position : 1 // mix(0,1,progress)
   }
 
   /**
@@ -284,17 +322,54 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     const delta = calcBoxDelta(layoutCorrected, targetBox)
     node.lastTarget = targetBox
     node.lastDelta = delta
-    writeProjection(node, delta, treeScale)
+    // A Lead with Followers carries the crossfade factor (fades IN over its own
+    // progress); otherwise none (a plain/switch node — user opacity passes through).
+    writeProjection(node, delta, treeScale, leadOpacity(node))
   }
 
   /**
-   * Derive every node that is animating OR carried by an animating ancestor,
-   * TOP-DOWN (by depth) — so a child reads its ancestors' fresh `lastDelta`.
+   * Derive a FOLLOWER (ADR-0010): lock it onto its Lead's CURRENT target box (so it
+   * overlaps the lead) and fade it OUT over the lead's progress. Run AFTER the lead
+   * (pass 2 of {@link deriveAll}) so `lead.lastTarget` is fresh; lead and follower
+   * can live in unrelated subtrees, so this is NOT tree-depth ordered. `treeScale` +
+   * the ancestor correction still apply to the follower's OWN box.
+   */
+  const deriveFollower = (node: NodeState): void => {
+    if (node.layoutId === undefined) return
+    const lead = leadOf(node.layoutId)
+    if (lead === undefined || lead === node || lead.lastTarget === undefined) return
+    const box = node.layoutBox ?? node.retained
+    if (box === undefined) return
+    const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
+    const delta = calcBoxDelta(layoutCorrected, lead.lastTarget) // lock onto the lead's box
+    node.lastTarget = lead.lastTarget
+    node.lastDelta = delta
+    const progress = lead.spring !== undefined ? lead.spring.position : 1
+    writeProjection(node, delta, treeScale, 1 - progress) // follower fades out: mix(1,0,progress)
+  }
+
+  /**
+   * Two-pass derive (ADR-0010):
+   *   1. Leads + plain nodes (animating or carried by an animating ancestor),
+   *      TOP-DOWN by tree depth — a child reads its ancestors' fresh `lastDelta`.
+   *   2. Followers — lock onto their (now-derived) Lead's fresh `lastTarget`.
+   * A Follower is derived only WHILE its Lead is active (idle = zero cost: a settled
+   * Follower holds its last hidden-locked `@projection` write in the gate).
    */
   const deriveAll = (): void => {
-    const toDerive = [...nodes].filter((n) => active.has(n) || hasActiveAncestor(n))
-    toDerive.sort((a, b) => a.depth - b.depth)
-    for (const node of toDerive) derive(node)
+    const leads: Array<NodeState> = []
+    const followers: Array<NodeState> = []
+    for (const n of nodes) {
+      if (isFollower(n)) {
+        const lead = n.layoutId !== undefined ? leadOf(n.layoutId) : undefined
+        if (lead !== undefined && active.has(lead)) followers.push(n)
+      } else if (active.has(n) || hasActiveAncestor(n)) {
+        leads.push(n)
+      }
+    }
+    leads.sort((a, b) => a.depth - b.depth)
+    for (const node of leads) derive(node)
+    for (const node of followers) deriveFollower(node)
   }
 
   /** Recompute parent links + depth for every node by walking DOM ancestry. */
@@ -331,11 +406,24 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       node.retained = newBox
 
       if (prev === undefined) {
-        // First measure. SWITCH detection (ADR-0010): a `layoutId` enterer whose
-        // binding captured a leaver box (seedOrigin) — and which has no live twin
-        // in the stack to crossfade against — FLIPs from that box to its own
-        // measured box (a switch). The lead/follow crossfade path (a live twin) is
-        // handled in `derive` via the stack; here we only seed the switch origin.
+        // First measure — detection priority (ADR-0010):
+        // (1) CROSSFADE: a LIVE prior twin already in this node's stack → animate
+        //     FROM the prior lead's box (the prior twins become Followers locked
+        //     onto us, fading out via the stack derive). Takes priority over the
+        //     registry switch seed — the live twin's box is authoritative.
+        const priorLead = priorLeadOf(node)
+        const priorBox = priorLead !== undefined ? (priorLead.layoutBox ?? priorLead.retained) : undefined
+        if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
+          node.origin = priorBox
+          node.layoutBox = newBox
+          node.spring = initSpring({ from: 0 })
+          node.animating = true
+          active.add(node)
+          continue
+        }
+        // (2) SWITCH: a `layoutId` enterer whose binding captured a leaver box
+        //     (seedOrigin) — no live twin in the stack — FLIPs from that box to its
+        //     own measured box (a move, no crossfade — the leaver is gone).
         const seed = node.seedOrigin?.()
         if (seed !== undefined && !boxesEqual(seed, newBox)) {
           node.origin = seed
@@ -449,6 +537,16 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
+    // Enrol in the per-`layoutId` stack: newest → Lead; prior entries are relegated
+    // to Followers (the crossfade is detected from the stack at first measure).
+    if (node.layoutId !== undefined) {
+      let stack = stacks.get(node.layoutId)
+      if (stack === undefined) {
+        stack = []
+        stacks.set(node.layoutId, stack)
+      }
+      stack.push(node)
+    }
     if (ro === undefined && typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => scheduleMeasure())
     }
@@ -463,6 +561,35 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         elementToNode.delete(node.element)
         active.delete(node)
         nodes.delete(node)
+        // Stack relegation / promotion (ADR-0010).
+        if (node.layoutId !== undefined) {
+          const stack = stacks.get(node.layoutId)
+          if (stack !== undefined) {
+            const wasLead = stack[stack.length - 1] === node
+            const i = stack.indexOf(node)
+            if (i >= 0) stack.splice(i, 1)
+            if (stack.length === 0) {
+              stacks.delete(node.layoutId)
+            } else if (wasLead) {
+              // Promote the new newest node: animate it FROM the leaver's box to its
+              // own (un-hide + move home). With no Followers left it carries no
+              // crossfade factor (the leaver is gone — a move, not a fade); with
+              // Followers remaining it crossfades (leadOpacity). Drive directly (no
+              // re-measure, which would clobber the seeded origin).
+              const newLead = stack[stack.length - 1]!
+              const leaverBox = node.layoutBox ?? node.retained
+              const ownBox = newLead.retained
+              if (leaverBox !== undefined && ownBox !== undefined && !boxesEqual(leaverBox, ownBox)) {
+                newLead.origin = leaverBox
+                newLead.layoutBox = ownBox
+                newLead.spring = initSpring({ from: 0 })
+                newLead.animating = true
+                active.add(newLead)
+                ensureRunning()
+              }
+            }
+          }
+        }
         if (active.size === 0) stopTicking()
       },
     }

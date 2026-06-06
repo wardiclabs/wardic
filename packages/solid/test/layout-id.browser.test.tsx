@@ -7,7 +7,7 @@ import { makeSharedLayoutRegistry, SharedLayoutContext, wardic, WardicProvider }
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
 import { createSignal, Show } from "solid-js"
-import { leftOf, raf, until } from "./browser-helpers.ts"
+import { leftOf, raf, until, widthOf } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -16,6 +16,10 @@ const CSS = `
   .ind.a{left:20px}
   .ind.afinal{left:120px}
   .ind.b{left:300px}
+  .cf-parent{position:absolute;top:0;left:0;width:100px;height:100px}
+  .cf-parent.grown{width:150px;height:150px}
+  .cf-child{position:absolute;top:0;left:0;width:60px;height:60px}
+  .cf-far{position:absolute;top:0;left:400px;width:60px;height:60px}
 `
 const styled = () => <style>{CSS}</style>
 
@@ -201,4 +205,89 @@ it("mount-before-cleanup: the later twin owns the slot; the leaver does NOT clob
   // B (still alive) keeps owning the slot — its box survives (not cleared/clobbered).
   expect(reg.getBox("dual")).toBeDefined()
   expect(reg.getBox("dual")!.left).toBeCloseTo(ownedLeft, 0)
+})
+
+const op = (el: HTMLElement): number => Number(el.style.opacity || "1")
+
+it("crossfade (S1): a twin mounting beside a LIVE twin leads from its box; the live one follows + fades out", async () => {
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative" }}>
+        {/* A: always mounted (e.g. the thumbnail). */}
+        <wardic.div data-a class="ind a" layoutId="cf" initial={{ opacity: 1 }} animate={{ opacity: 1 }} />
+        {/* B: mounts on open (e.g. the modal), in a different slot. */}
+        <Show when={open()}>
+          <wardic.div data-b class="ind b" layoutId="cf" initial={{ opacity: 1 }} animate={{ opacity: 1 }} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const root = container.querySelector("[data-root]") as HTMLElement
+  const base = leftOf(root)
+  const a = container.querySelector("[data-a]") as HTMLElement
+  await raf()
+  await raf() // A is the lone lead, settled at +20, full opacity
+
+  setOpen(true) // B mounts → B leads (animates from A's box +20); A relegates to follower
+  await raf()
+  const b = container.querySelector("[data-b]") as HTMLElement
+
+  // B is seeded at A's box (well left of its own +300) and fading IN from ~0.
+  await until(() => leftOf(b) - base < 200 && op(b) < 0.95)
+  expect(leftOf(b) - base).toBeLessThan(200) // started at A's side, not its own +300
+
+  // Crossfade: B opacity rises while A opacity falls, A locked onto B (overlapping).
+  let sawCross = false
+  await until(() => {
+    if (op(b) > 0.2 && op(b) < 0.95 && op(a) < 0.95) sawCross = true
+    return Math.abs(leftOf(b) - base - 300) < 2 // B settled at its own +300
+  })
+  expect(sawCross).toBe(true)
+  expect(op(b)).toBeCloseTo(1, 1) // lead fully in
+  expect(op(a)).toBeLessThan(0.1) // follower faded out (hidden, held)
+  expect(Math.abs(leftOf(a) - leftOf(b))).toBeLessThan(3) // follower locked onto the lead's box
+})
+
+it("crossfade under treeScale: a follower nested in a SCALING layout parent stays locked onto the lead", async () => {
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative", width: "600px", height: "400px" }}>
+        {/* The follower twin A lives inside a layout parent that scales on open. */}
+        <wardic.div data-parent class="cf-parent" classList={{ grown: open() }} layout layoutDependency={open()}>
+          <wardic.div data-a class="cf-child" layoutId="cf2" initial={{ opacity: 1 }} animate={{ opacity: 1 }} />
+        </wardic.div>
+        {/* The lead twin B mounts far away (left 400), under NO scaling ancestor. */}
+        <Show when={open()}>
+          <wardic.div data-b class="cf-far" layoutId="cf2" initial={{ opacity: 1 }} animate={{ opacity: 1 }} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const a = container.querySelector("[data-a]") as HTMLElement
+  const parent = container.querySelector("[data-parent]") as HTMLElement
+  await raf()
+  await raf()
+
+  setOpen(true) // parent scales 100->150 AND B mounts (lead); A follows B through treeScale
+  await raf()
+  const b = container.querySelector("[data-b]") as HTMLElement
+
+  // The invariant that matters: WHILE THE FOLLOWER IS STILL VISIBLE (fading out),
+  // it stays locked onto the lead despite the simultaneously-scaling ancestor
+  // (treeScale-corrected) — it must not drift toward its own box. Once it's hidden
+  // (opacity ~0) its exact rest position is visually irrelevant, so we only sample
+  // drift while visible. Settle when both springs (crossfade + parent scale) rest.
+  let worstVisibleDrift = 0
+  await until(() => {
+    if (op(a) > 0.1) worstVisibleDrift = Math.max(worstVisibleDrift, Math.abs(leftOf(a) - leftOf(b)))
+    return op(b) >= 0.99 && Math.abs(widthOf(parent) - 150) < 1
+  })
+  // Without treeScale correction the follower would be dragged by the parent's
+  // scale (tens of px); locked + corrected it tracks the lead within a few px.
+  expect(worstVisibleDrift).toBeLessThan(12)
+  expect(op(a)).toBeLessThan(0.1) // follower ended hidden behind the lead
 })
