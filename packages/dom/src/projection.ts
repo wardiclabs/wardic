@@ -58,7 +58,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
-import { measureLayoutBox } from "./measure.ts"
+import { isScrollRoot, measureDocumentScroll, measureLayoutBox, measureScroll } from "./measure.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
 /**
@@ -122,6 +122,12 @@ export interface RegisterNodeOptions {
    * no-FLIP identity seed.
    */
   readonly seedOrigin?: () => Box | undefined
+  /**
+   * Mark this element as a scroll container (ADR-0012, Motion's `layoutScroll`):
+   * its scroll offset is sampled at measure and folded out of its descendants'
+   * boxes, so a scroll change BETWEEN triggers doesn't leak into their FLIP delta.
+   */
+  readonly layoutScroll?: boolean
 }
 
 /** Handle returned from {@link ProjectionSystem.register}. */
@@ -168,6 +174,12 @@ interface NodeState {
   readonly layoutId: string | undefined
   /** Switch-gap seed-origin accessor (returns the binding's mount-captured leaver box). */
   readonly seedOrigin: (() => Box | undefined) | undefined
+  /** Marked a scroll container (ADR-0012): its scroll is sampled + folded out of descendants. */
+  readonly isScroll: boolean
+  /** This scroll container's offset, sampled at measure (`{0,0}` for a non-scroll node). */
+  scroll: Point
+  /** Whether this (scroll) node is `position: fixed` — a scroll root (resets the fold). */
+  isScrollRoot: boolean
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
   retained: Box | undefined
   /** Where the element appears at progress 0 (the box it animates FROM). */
@@ -493,10 +505,55 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     }
   }
 
+  /**
+   * Fold scroll out of `box` (ADR-0012) → a scroll-stable (content-frame) box. ADDS
+   * each `layoutScroll` ancestor's scroll (Motion's `removeElementScroll` adds the
+   * offset back to undo the scroll's visual effect), stopping at a `position: fixed`
+   * scroll-root ancestor, and adds the document/page scroll unless the node sits in a
+   * scroll root. No-op on the non-scroll path (no isScroll ancestors + zero page
+   * scroll ⇒ box unchanged), so it never perturbs ordinary layout animation.
+   */
+  const foldScroll = (node: NodeState, box: Box, documentScroll: Point): Box => {
+    if (node.isScroll && node.isScrollRoot) return box // a fixed node is itself viewport-relative
+    let dx = 0
+    let dy = 0
+    let pageApplies = true
+    for (let p = node.parent; p !== undefined; p = p.parent) {
+      if (!p.isScroll) continue
+      dx += p.scroll.x
+      dy += p.scroll.y
+      if (p.isScrollRoot) {
+        // A fixed scroll-root ancestor: its own scroll applies, but its subtree is
+        // viewport-relative — nothing OUTSIDE it (further containers, the page) does.
+        pageApplies = false
+        break
+      }
+    }
+    if (pageApplies) {
+      dx += documentScroll.x
+      dy += documentScroll.y
+    }
+    if (dx === 0 && dy === 0) return box
+    return { x: { min: box.x.min + dx, max: box.x.max + dx }, y: { min: box.y.min + dy, max: box.y.max + dy } }
+  }
+
   // --- The measure pass (reads), run in the gate's pre-flush read-queue. ------
   const measurePass = (): void => {
-    for (const node of nodes) {
-      const newBox = boundsToBox(measureLayoutBox(node.element))
+    // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
+    // fold walks the ancestor chain, and we measure ancestors-first so each scroll
+    // container's offset is sampled before a descendant folds it in.
+    computeTree()
+    const documentScroll = measureDocumentScroll()
+    const ordered = [...nodes].sort((a, b) => a.depth - b.depth)
+    for (const node of ordered) {
+      const viewportBox = boundsToBox(measureLayoutBox(node.element))
+      if (node.isScroll) {
+        node.scroll = measureScroll(node.element)
+        node.isScrollRoot = isScrollRoot(node.element)
+      }
+      // Store the box in the SCROLL-STABLE frame (ADR-0012), so a scroll change
+      // between triggers doesn't leak into the delta.
+      const newBox = foldScroll(node, viewportBox, documentScroll)
       const prev = node.retained
       node.retained = newBox
       // Read scale-correction bases ONCE (ADR-0011), the first time we measure this
@@ -560,9 +617,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       active.add(node)
     }
 
-    // Parent links must be fresh before the tree-aware derive (structure may have
-    // changed). Then seed the initial (progress-0) frame for new movers, top-down.
-    computeTree()
+    // Seed the initial (progress-0) frame for new movers, top-down. (Parent links
+    // were computed at the top of the pass, before the scroll fold.)
     deriveAll()
     ensureRunning()
   }
@@ -679,6 +735,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     onLeaveDone: onDone,
     correctorBases: readBases(el),
     corrected: false,
+    isScroll: false,
+    scroll: { x: 0, y: 0 },
+    isScrollRoot: false,
   })
 
   const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) => {
@@ -744,6 +803,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       onLeaveDone: undefined,
       correctorBases: undefined,
       corrected: false,
+      isScroll: opts.layoutScroll === true,
+      scroll: { x: 0, y: 0 },
+      isScrollRoot: false,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)

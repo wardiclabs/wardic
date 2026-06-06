@@ -528,24 +528,25 @@ export function runSpine(opts: RunSpineOptions): void {
         if (presenceRec !== undefined) Object.assign(presenceRec.snapshot.current, value)
       }
 
-      // --- Layout / shared-element projection (ADR-0009 + ADR-0010) -----------
-      // ONE projection node per element: `layout` and/or `layoutId` feed the SAME
-      // node (no double registration). `layout` is a static enable flag; `layoutId`
-      // (also static, read once) enrols the node in the engine's lead/follow stack
-      // (crossfade) AND seeds its switch-gap origin from the SharedLayoutContext
-      // registry (provider root by default, so NO <LayoutGroup> is required). Both
-      // the node's own reflow and a shared-element handoff drive the one progress
-      // spring, projecting to one transform (ADR-0006). The reserved projection-tree
-      // props (layoutScroll/layoutRoot/layoutAnchor) are typed-but-no-op (a future
-      // phase).
-      const layoutId = untrack(cfg).layoutId
-      if (untrack(cfg).layout === true || layoutId !== undefined) {
+      // --- Layout / shared-element / scroll projection (ADR-0009/0010/0012) ---
+      // ONE projection node per element: `layout`, `layoutId`, and/or `layoutScroll`
+      // feed the SAME node (no double registration). `layout` is a static enable
+      // flag; `layoutId` (static, read once) enrols the node in the engine's
+      // lead/follow stack (crossfade) AND seeds its switch-gap origin from the
+      // SharedLayoutContext registry; `layoutScroll` (static) marks it a scroll
+      // container whose scroll is folded out of its descendants' boxes. All static,
+      // read once — the reserved props layoutRoot/layoutAnchor remain typed-but-no-op
+      // (P4).
+      const c0 = untrack(cfg)
+      const layoutId = c0.layoutId
+      if (c0.layout === true || layoutId !== undefined || c0.layoutScroll === true) {
         useLayoutMember({
           id,
           element,
           layoutDependency: () => cfg().layoutDependency,
           transition: () => cfg().transition ?? parent?.transition(),
           ...(layoutId !== undefined ? { layoutId } : {}),
+          ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
         })
       }
 

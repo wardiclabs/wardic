@@ -202,6 +202,7 @@ const motionToConfig =
     const layout = motion.layout
     const layoutDependency = motion.layoutDependency
     const layoutId = motion.layoutId
+    const layoutScroll = motion.layoutScroll
     if (initial !== undefined) config.initial = initial
     if (animate !== undefined) config.animate = animate
     if (whileHover !== undefined) config.whileHover = whileHover
@@ -218,9 +219,9 @@ const motionToConfig =
     if (layout !== undefined) config.layout = layout
     if (layoutDependency !== undefined) config.layoutDependency = layoutDependency
     if (layoutId !== undefined) config.layoutId = layoutId
-    // layoutScroll / layoutRoot / layoutAnchor are PLANNED no-ops: split off the
-    // MOTION_PROPS so they never leak to the DOM, but not forwarded to config
-    // (they have no spine effect yet — a future projection-tree phase).
+    if (layoutScroll !== undefined) config.layoutScroll = layoutScroll
+    // layoutRoot / layoutAnchor remain PLANNED no-ops: split off MOTION_PROPS so they
+    // never leak to the DOM, but not forwarded to config (no spine effect yet — P4).
     return config
   }
 

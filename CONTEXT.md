@@ -116,6 +116,10 @@ _Avoid_: active/inactive, primary/secondary.
 A **Projection**'s scale counter-scales an element's *geometry* via the transform, but distorts non-geometric CSS — `border-radius`, `box-shadow`. A **Scale corrector** reads the authored value and emits, each frame, a CSS string that — once the transform scales it — renders as the authored value (a px radius becomes `radius / scale`; a percentage is self-correcting and passes through). The corrected value is computed upstream (in the projection, which has the per-frame scale) and written as an ordinary style key, so the Renderer stays pure. An extensible per-CSS-key registry holds the correctors.
 _Avoid_: counter-scale (reserve for the geometric transform), inverse scale.
 
+**Scroll-stable frame** (`layoutScroll`):
+The coordinate frame a **Projection node**'s box is stored in so scroll never leaks into a layout animation: the viewport box plus the scroll offsets of its scroll-container ancestors (page scroll always; a nested container only when marked `layoutScroll`), sampled at measure. Two measures taken at *different* scrolls then yield the same box if the layout didn't change, so the delta is layout-only. A `position: fixed` element is a **scroll root** — its subtree is viewport-relative and folds in no outer (or page) scroll. Scroll changing *during* a transition is the documented limit (offsets are sampled at measure, not per frame).
+_Avoid_: scroll compensation, document frame (reserve "stable" for this specific fold).
+
 ### Environment
 
 **Environment**:

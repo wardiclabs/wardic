@@ -139,6 +139,12 @@ export interface UseLayoutMemberOptions {
    * origin from the {@link SharedLayoutContext} registry's prior-twin box.
    */
   readonly layoutId?: string
+  /**
+   * Mark this element a scroll container (ADR-0012): its scroll offset is sampled at
+   * measure and folded out of its descendants' boxes, so a scroll change between
+   * triggers doesn't leak into their FLIP delta.
+   */
+  readonly layoutScroll?: boolean
 }
 
 /**
@@ -171,7 +177,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
-  const { element, id, layoutDependency, layoutId, transition } = opts
+  const { element, id, layoutDependency, layoutId, layoutScroll, transition } = opts
   const projection = useWardicProjection()
   const shared = useSharedLayout()
 
@@ -201,6 +207,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
     springOptions: () => toSpringOptions(transition()),
     ...(layoutId !== undefined ? { layoutId } : {}),
     ...(seedOrigin !== undefined ? { seedOrigin } : {}),
+    ...(layoutScroll === true ? { layoutScroll: true } : {}),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))
