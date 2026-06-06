@@ -35,6 +35,13 @@ export {
   type ProjectionSystem,
   type RegisterNodeOptions,
 } from "./projection.ts"
+// Scale-correction registry (ADR-0011) — borderRadius/boxShadow visual correction.
+export {
+  borderRadiusCorrector,
+  boxShadowCorrector,
+  type ScaleCorrector,
+  SCALE_CORRECTORS,
+} from "./scale-correction.ts"
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's

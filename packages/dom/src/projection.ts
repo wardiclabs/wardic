@@ -59,6 +59,7 @@ import * as Fiber from "effect/Fiber"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
 import { measureLayoutBox } from "./measure.ts"
+import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
 /**
  * The binding seam the coordinator writes through — structurally satisfied by the
@@ -194,6 +195,14 @@ interface NodeState {
   leaving: boolean
   /** Called once the leaving Follower's crossfade settles → presence removes the DOM node. */
   onLeaveDone: (() => void) | undefined
+  /**
+   * Scale-correctable base values read at measure (ADR-0011) — the non-trivial
+   * `border-radius`/`box-shadow` correctors for this element, or `undefined`/empty
+   * if it has nothing to correct.
+   */
+  correctorBases: ReadonlyArray<{ readonly corrector: ScaleCorrector; readonly base: unknown }> | undefined
+  /** Whether a corrected style is currently applied (so it's restored once at rest). */
+  corrected: boolean
 }
 
 /**
@@ -228,21 +237,62 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   )
 
   /**
-   * Write a node's per-frame `@projection` value (Option A). The optional `opacity`
-   * is the crossfade factor (ADR-0010) the renderer multiplies with the user
-   * opacity; omitted for a non-crossfading node so it passes through (a fresh
-   * ProjectionValue REPLACES the gate's `@projection`, dropping any stale factor).
+   * Write a node's per-frame `@projection` value (Option A) plus any scale-corrected
+   * style keys (ADR-0011). The optional `opacity` is the crossfade factor (ADR-0010)
+   * the renderer multiplies with the user opacity; omitted for a non-crossfading node
+   * so it passes through (a fresh ProjectionValue REPLACES the gate's `@projection`,
+   * dropping any stale factor). `corrected` (e.g. `{ borderRadius, boxShadow }`) flows
+   * as ordinary style keys the renderer applies verbatim.
    *
    * A LEAVING Follower is gate-unregistered (its owner was disposed), so it is
    * driven directly via the Renderer onto the retained element instead of the gate.
    */
-  const writeProjection = (node: NodeState, delta: Delta, treeScale: Point, opacity?: number): void => {
+  const writeProjection = (
+    node: NodeState,
+    delta: Delta,
+    treeScale: Point,
+    opacity?: number,
+    corrected?: Record<string, string>,
+  ): void => {
     const value = opacity !== undefined ? { delta, treeScale, opacity } : { delta, treeScale }
+    const patch = corrected !== undefined ? { [PROJECTION_KEY]: value, ...corrected } : { [PROJECTION_KEY]: value }
     if (node.leaving) {
-      runtime.runSync(renderer.commit(node.element, renderer.project({ [PROJECTION_KEY]: value })))
+      runtime.runSync(renderer.commit(node.element, renderer.project(patch)))
     } else {
-      sink.write(node.id, { [PROJECTION_KEY]: value })
+      sink.write(node.id, patch)
     }
+  }
+
+  /** Read this element's non-trivial scale-correction bases (ADR-0011), measure phase. */
+  const readBases = (el: HTMLElement): NodeState["correctorBases"] => {
+    const out: Array<{ corrector: ScaleCorrector; base: unknown }> = []
+    for (const corrector of SCALE_CORRECTORS) {
+      const base = corrector.read(el)
+      if (base !== undefined) out.push({ corrector, base })
+    }
+    return out
+  }
+
+  /**
+   * The scale-corrected style keys for `node` at the per-axis visual scale `(sx,sy)`
+   * (ADR-0011), or `undefined` when there is nothing to write. At unit scale a
+   * previously-corrected node is restored to its base ONCE (then nothing) so no
+   * stale correction lingers and rest stays zero-cost.
+   */
+  const correctionsFor = (node: NodeState, sx: number, sy: number): Record<string, string> | undefined => {
+    const bases = node.correctorBases
+    if (bases === undefined || bases.length === 0) return undefined
+    if (isUnitScale(sx, sy)) {
+      if (!node.corrected) return undefined
+      node.corrected = false
+      const out: Record<string, string> = {}
+      for (const { corrector, base } of bases) out[corrector.key] = corrector.correct(base, 1, 1)
+      return out
+    }
+    node.corrected = true
+    const out: Record<string, string> = {}
+    for (const { corrector, base } of bases) out[corrector.key] = corrector.correct(base, sx, sy)
+    return out
   }
 
   /** The Lead of `layoutId` — the newest live node in its stack — or undefined. */
@@ -366,7 +416,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     node.lastDelta = delta
     // A Lead with Followers carries the crossfade factor (fades IN over its own
     // progress); otherwise none (a plain/switch node — user opacity passes through).
-    writeProjection(node, delta, treeScale, leadOpacity(node))
+    // Scale-correct border-radius/box-shadow at the true visual scale (ADR-0011).
+    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+    writeProjection(node, delta, treeScale, leadOpacity(node), corrected)
   }
 
   /**
@@ -387,7 +439,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     node.lastTarget = lead.lastTarget
     node.lastDelta = delta
     const progress = lead.spring !== undefined ? lead.spring.position : 1
-    writeProjection(node, delta, treeScale, 1 - progress) // follower fades out: mix(1,0,progress)
+    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+    writeProjection(node, delta, treeScale, 1 - progress, corrected) // follower fades out: mix(1,0,progress)
   }
 
   /**
@@ -446,6 +499,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       const newBox = boundsToBox(measureLayoutBox(node.element))
       const prev = node.retained
       node.retained = newBox
+      // Read scale-correction bases ONCE (ADR-0011), the first time we measure this
+      // node — i.e. before any correction is written. Re-reading would pick up our
+      // OWN corrected inline value (inline overrides the stylesheet) and compound the
+      // radius/shadow each frame. (A node's authored radius changing mid-life is the
+      // documented v0.1 limit.)
+      if (node.correctorBases === undefined) node.correctorBases = readBases(node.element)
 
       if (prev === undefined) {
         // First measure — detection priority (ADR-0010):
@@ -618,6 +677,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     lastTarget: undefined,
     leaving: true,
     onLeaveDone: onDone,
+    correctorBases: readBases(el),
+    corrected: false,
   })
 
   const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) => {
@@ -681,6 +742,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       lastTarget: undefined,
       leaving: false,
       onLeaveDone: undefined,
+      correctorBases: undefined,
+      corrected: false,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)

@@ -17,6 +17,7 @@ const CSS = `
   .lf-box.moved{left:200px}
   .lf-parent{position:absolute;top:0;left:0;width:100px;height:100px}
   .lf-parent.grown{width:200px;height:200px}
+  .lf-round{border-radius:20px;box-shadow:4px 4px 8px rgb(0, 0, 0)}
   .lf-child{position:absolute;top:0;left:0;width:50px;height:50px}
   .col{position:relative;display:flex;flex-direction:column;width:200px}
   .row-a{height:50px}
@@ -119,4 +120,46 @@ it("nested treeScale: a scaling layout parent keeps its layout child's rendered 
   // Child's RENDERED width stayed ~50 throughout the parent's scale (treeScale counter-scale).
   expect(worstW).toBeLessThan(6)
   expect(widthOf(child)).toBeCloseTo(50, 0)
+})
+
+it("scale-correction (P2): a scaling layout element keeps its rendered border-radius + shadow visually constant", async () => {
+  const [grown, setGrown] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <style>{CSS}</style>
+      <div style={{ position: "relative", width: "600px", height: "400px" }}>
+        {/* border-radius / box-shadow come from a CLASS (not the style prop) so the
+            projection's corrected inline value is the only one in style.* */}
+        <wardic.div data-box class="lf-parent lf-round" classList={{ grown: grown() }} layout layoutDependency={grown()} />
+      </div>
+    </WardicProvider>
+  ))
+  const box = container.querySelector("[data-box]") as HTMLElement
+  await raf()
+  await raf()
+  expect(box.style.borderRadius).toBe("") // unscaled: no correction, the class's 20px shows
+
+  setGrown(true) // 100 -> 200: the element scales during the FLIP, so the radius/shadow distort
+  // Seed-wait: the FLIP seeds the box scaled-DOWN to its old size (~100px); wait for
+  // that so we don't sample the raw post-class width (200, no transform) before the
+  // projection engages.
+  await until(() => widthOf(box) < 150)
+  let sawCorrected = false
+  let worstRenderedRadius = 0
+  await until(() => {
+    const cr = box.style.borderRadius
+    const h = Number.parseFloat(cr) // top-left horizontal radius of the corrected shorthand
+    if (cr !== "" && Number.isFinite(h)) {
+      const scale = widthOf(box) / 200 // visual scale (layout box is the grown 200px)
+      if (Math.abs(h - 20) > 2) sawCorrected = true // corrected away from the authored 20px
+      worstRenderedRadius = Math.max(worstRenderedRadius, Math.abs(h * scale - 20))
+    }
+    return Math.abs(widthOf(box) - 200) < 2 // settled at the grown size
+  })
+  // The radius WAS corrected (inline value diverged from 20px) and, once the
+  // transform scales it, RENDERS at the authored 20px throughout the scale.
+  expect(sawCorrected).toBe(true)
+  expect(worstRenderedRadius).toBeLessThan(3)
+  // box-shadow is corrected too (the projection drove an inline value during the scale).
+  expect(box.style.boxShadow).not.toBe("")
 })

@@ -112,6 +112,10 @@ _Avoid_: fade transition (opacity-only, no shared box), dissolve.
 Among the Projection nodes sharing one `layoutId`, the **Lead** is the most-recently-mounted live node — the only visible one, projecting to its own Box. Every other node is a **Follower**: locked onto the Lead's Box (so it overlaps) and held hidden (a *live* follower at rest) or fading out toward removal (a *leaving* follower, retained mid-exit). Mounting promotes a new Lead; the prior Lead is relegated to a Follower.
 _Avoid_: active/inactive, primary/secondary.
 
+**Scale correction**:
+A **Projection**'s scale counter-scales an element's *geometry* via the transform, but distorts non-geometric CSS — `border-radius`, `box-shadow`. A **Scale corrector** reads the authored value and emits, each frame, a CSS string that — once the transform scales it — renders as the authored value (a px radius becomes `radius / scale`; a percentage is self-correcting and passes through). The corrected value is computed upstream (in the projection, which has the per-frame scale) and written as an ordinary style key, so the Renderer stays pure. An extensible per-CSS-key registry holds the correctors.
+_Avoid_: counter-scale (reserve for the geometric transform), inverse scale.
+
 ### Environment
 
 **Environment**:
