@@ -568,8 +568,10 @@ export function runSpine(opts: RunSpineOptions): void {
       // <Reorder> is the planned supported path for drag + layout. Behaviour is
       // otherwise unchanged (both run; results are undefined).
       if (dragCfg && untrack(cfg).layoutId !== undefined) {
-        console.warn(
-          "wardic: combining `drag` with `layoutId` on the same element is not supported yet — both drive x/y; use <Reorder> for drag+layout (planned).",
+        runtime.runFork(
+          Effect.logWarning(
+            "wardic: combining `drag` with `layoutId` on the same element is not supported yet — both drive x/y; use <Reorder> for drag+layout (planned).",
+          ).pipe(Effect.annotateLogs({ id })),
         )
       }
       if (dragCfg) {

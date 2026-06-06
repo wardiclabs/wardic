@@ -94,9 +94,21 @@ const IDENTITY_DELTA: Delta = {
   y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
 }
 
-/** Structural equality of two boxes on the geometry that matters for a FLIP. */
+/**
+ * Sub-pixel tolerance for box comparison. `getBoundingClientRect` returns
+ * fractional values and the scroll-fold adds/subtracts offsets, so two boxes can
+ * differ by float-arithmetic jitter well below a pixel without a real layout move.
+ * Comparing within this epsilon (instead of strict `===`) keeps that jitter from
+ * spuriously seeding a FLIP or blocking the unchanged-node skip.
+ */
+const BOX_EPSILON = 0.01
+
+/** Structural equality of two boxes on the geometry that matters for a FLIP (within {@link BOX_EPSILON}). */
 const boxesEqual = (a: Box, b: Box): boolean =>
-  a.x.min === b.x.min && a.x.max === b.x.max && a.y.min === b.y.min && a.y.max === b.y.max
+  Math.abs(a.x.min - b.x.min) < BOX_EPSILON &&
+  Math.abs(a.x.max - b.x.max) < BOX_EPSILON &&
+  Math.abs(a.y.min - b.y.min) < BOX_EPSILON &&
+  Math.abs(a.y.max - b.y.max) < BOX_EPSILON
 
 /** Options to register a layout element as a projection node. */
 export interface RegisterNodeOptions {
@@ -266,6 +278,21 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       return yield* Renderer
     }),
   )
+
+  /**
+   * Emit a debug-level lifecycle log on a COLD path (register / dispose / leave /
+   * coordinator start-stop / measure summary). Forked on the runtime so the calling
+   * sync path (a gate callback / `onCleanup`) isn't blocked, and filtered out unless
+   * the logger is at Debug (observability convention: `wardic.*` + annotated debug
+   * logs on lifecycle; the per-frame derive/step hot path stays SILENT).
+   */
+  const debug = (event: string, annotations?: Record<string, unknown>): void => {
+    runtime.runFork(
+      annotations !== undefined
+        ? Effect.logDebug(`wardic.projection: ${event}`).pipe(Effect.annotateLogs(annotations))
+        : Effect.logDebug(`wardic.projection: ${event}`),
+    )
+  }
 
   /**
    * Write a node's per-frame `@projection` value (Option A) plus any scale-corrected
@@ -659,6 +686,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     // Seed the initial (progress-0) frame for new movers, top-down. (Parent links
     // were computed at the top of the pass, before the scroll fold.)
     deriveAll()
+    debug("measure", { nodes: nodes.size, active: active.size })
     ensureRunning()
   }
 
@@ -704,6 +732,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
   const ensureRunning = (): void => {
     if (tickFiber !== undefined || active.size === 0) return
+    debug("coordinator: start", { active: active.size })
     tickFiber = runtime.runFork(
       Effect.gen(function* () {
         const clock = yield* Clock
@@ -716,6 +745,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (tickFiber === undefined) return
     const fiber = tickFiber
     tickFiber = undefined // clear first so a re-entrant ensureRunning starts fresh
+    debug("coordinator: stop")
     // Everything is at rest now — reset deltas to identity (belt-and-suspenders so
     // no stale carried-node delta lingers for a future tree walk).
     for (const node of nodes) node.lastDelta = IDENTITY_DELTA
@@ -736,6 +766,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
   /** Remove a finished leaving Follower + fire its `onDone` (presence removes the DOM node). */
   const finishLeaver = (node: NodeState): void => {
+    debug("finishLeaver", { layoutId: node.layoutId })
     const cb = node.onLeaveDone
     node.onLeaveDone = undefined
     node.leaving = false
@@ -786,6 +817,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     const recent = recentLeavers.get(el)
     const layoutId = live?.layoutId ?? recent?.layoutId
     if (layoutId === undefined) return false
+    debug("handleLeave", { layoutId, branch: live !== undefined ? "live" : "reintroduce" })
 
     // (A) handleLeave BEFORE dispose — el's node is still live. Mark it leaving (its
     // later dispose then SKIPS removal), demote it to a Follower, and promote the twin.
@@ -803,7 +835,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         stack[last] = twin
         promoteFrom(twin, live.layoutBox ?? live.retained)
       }
-      if (active.has(leadOf(layoutId)!)) deriveAll()
+      // After a possible swap, re-read the (new) Lead — never assert it exists.
+      const newLead = leadOf(layoutId)
+      if (newLead !== undefined && active.has(newLead)) deriveAll()
       else finishLeaver(live) // no animating lead to ride → finish promptly (already hidden)
       return true
     }
@@ -852,6 +886,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
+    debug("register", {
+      id: opts.id,
+      layoutId: opts.layoutId,
+      layoutRoot: opts.layoutRoot === true,
+      layoutScroll: opts.layoutScroll === true,
+    })
     // Enrol in the per-`layoutId` stack: newest → Lead; prior entries are relegated
     // to Followers (the crossfade is detected from the stack at first measure).
     if (node.layoutId !== undefined) {
@@ -875,6 +915,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         // A leaving Follower's removal is owned by finishLeaver (presence retained
         // it for the crossfade); a plain dispose must NOT tear it down here.
         if (node.leaving) return
+        debug("dispose node", { id: node.id, layoutId: node.layoutId })
         // Record the box so a presence handleLeave arriving AFTER this dispose can
         // re-introduce the leaver as a Follower (bounded — cleared next microtask).
         if (node.layoutId !== undefined) {
@@ -906,6 +947,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   const dispose: ProjectionSystem["dispose"] = () => {
+    debug("dispose system", { nodes: nodes.size })
     stopTicking()
     ro?.disconnect()
     ro = undefined
