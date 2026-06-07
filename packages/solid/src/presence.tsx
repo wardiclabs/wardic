@@ -100,6 +100,20 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
   const projection = useWardicProjection()
   const { commit, project } = runtime.runSync(Renderer)
 
+  /**
+   * Debug-level lifecycle log for the parent-driven exit (observability
+   * convention): forked on the runtime, filtered out unless the logger is at
+   * Debug, so an exit that never removes its node — or a re-entry that interrupts
+   * the wrong one — is diagnosable. The per-frame commit stays silent.
+   */
+  const debug = (event: string, annotations?: Record<string, unknown>): void => {
+    runtime.runFork(
+      annotations !== undefined
+        ? Effect.logDebug(`wardic.presence: ${event}`).pipe(Effect.annotateLogs(annotations))
+        : Effect.logDebug(`wardic.presence: ${event}`),
+    )
+  }
+
   // The registry of live child records, keyed by their DOM element. Filled by
   // register() (called from the child's spine on mount), drained as children
   // leave (after their exit settles).
@@ -137,6 +151,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
   const interruptExit = (el: HTMLElement): void => {
     const fiber = exiting.get(el)
     if (fiber !== undefined) {
+      debug("exit: interrupt")
       runtime.runFork(Fiber.interrupt(fiber))
     }
     finishExit(el)
@@ -149,6 +164,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     const el = rec.element
     const exit = rec.exit.current
     if (isEmpty(exit)) {
+      debug("exit: immediate (no target)")
       finishExit(el)
       return
     }
@@ -201,8 +217,16 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
           )
         : program
 
+    // One `wardic.presence.exit` span spans the whole exit animation (from the last
+    // snapshot to the exit target), so a devtool/timeline shows each parent-driven
+    // exit as a bar with its key counts. Removal-on-settle is the span's end.
     const fiber = runtime.runFork(
-      withStrings.pipe(Effect.ensuring(Effect.sync(() => finishExit(el)))),
+      withStrings.pipe(
+        Effect.ensuring(Effect.sync(() => finishExit(el))),
+        Effect.withSpan("wardic.presence.exit", {
+          attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length },
+        }),
+      ),
     )
     exiting.set(el, fiber)
   }
@@ -251,7 +275,8 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
           // Otherwise (no twin / no layoutId) run the normal exit animation.
           const leavingEl = prevEl // narrowed const (prevEl is a reassigned `let`)
           const crossfaded = projection.handleLeave(leavingEl, () => finishExit(leavingEl))
-          if (!crossfaded) driveExit(rec)
+          if (crossfaded) debug("leave: crossfade (deferred to projection)")
+          else driveExit(rec)
         }
       }
 
@@ -276,6 +301,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
 
   // Teardown: interrupt every in-flight exit + remove retained nodes (no leaks).
   onCleanup(() => {
+    debug("teardown", { inflight: exiting.size })
     for (const el of [...exiting.keys()]) interruptExit(el)
   })
 

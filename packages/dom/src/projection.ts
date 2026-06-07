@@ -589,7 +589,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   // --- The measure pass (reads), run in the gate's pre-flush read-queue. ------
-  const measurePass = (): void => {
+  // The synchronous read + FLIP-seed work; {@link measurePass} wraps this in the
+  // `wardic.projection.measure` span (so a devtool/timeline sees each pass as a
+  // span carrying its node counts, and the coordinator burst it forks nests
+  // beneath it via the propagated span context).
+  const runMeasurePass = (): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain, and we measure ancestors-first so each scroll
     // container's offset is sampled before a descendant folds it in.
@@ -686,8 +690,22 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     // Seed the initial (progress-0) frame for new movers, top-down. (Parent links
     // were computed at the top of the pass, before the scroll fold.)
     deriveAll()
-    debug("measure", { nodes: nodes.size, active: active.size })
     ensureRunning()
+  }
+
+  /**
+   * Run a measure pass inside the `wardic.projection.measure` span, annotating it
+   * with the node counts. The span is the timeline unit for "a layout trigger
+   * re-measured the tree"; the coordinator fiber `ensureRunning` forks within the
+   * pass inherits this span as its parent.
+   */
+  const measurePass = (): void => {
+    runtime.runSync(
+      Effect.suspend(() => {
+        runMeasurePass()
+        return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size })
+      }).pipe(Effect.withSpan("wardic.projection.measure")),
+    )
   }
 
   /** Enqueue a coalesced measure pass (gate dedups by the stable `measurePass` ref). */
@@ -733,11 +751,15 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   const ensureRunning = (): void => {
     if (tickFiber !== undefined || active.size === 0) return
     debug("coordinator: start", { active: active.size })
+    // One span spans the WHOLE animation burst: it opens here and closes when
+    // `stopTicking` interrupts the fiber (every node settled). On a devtool timeline
+    // that's one bar per burst, with each measure pass that re-seeds mid-burst
+    // appearing alongside. The per-tick `step` stays span-less (hot path).
     tickFiber = runtime.runFork(
       Effect.gen(function* () {
         const clock = yield* Clock
         yield* Stream.runForEach(clock.ticks, (dt) => Effect.sync(() => step(dt)))
-      }),
+      }).pipe(Effect.withSpan("wardic.projection.coordinator", { attributes: { active: active.size } })),
     )
   }
 
@@ -812,7 +834,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     layoutAnchor: undefined,
   })
 
-  const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) => {
+  const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
     const live = elementToNode.get(el)
     const recent = recentLeavers.get(el)
     const layoutId = live?.layoutId ?? recent?.layoutId
@@ -857,6 +879,17 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     else finishLeaver(follower)
     return true
   }
+
+  /**
+   * Shared-element exit coupling, inside the `wardic.projection.handleLeave` span
+   * (so the timeline shows the presence→engine hand-off; the `handleLeave` debug
+   * log it emits attaches as a span event). The crossfade burst it kicks off runs
+   * on the coordinator's own span.
+   */
+  const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) =>
+    runtime.runSync(
+      Effect.sync(() => doHandleLeave(el, onDone)).pipe(Effect.withSpan("wardic.projection.handleLeave")),
+    )
 
   const register: ProjectionSystem["register"] = (opts) => {
     const node: NodeState = {
