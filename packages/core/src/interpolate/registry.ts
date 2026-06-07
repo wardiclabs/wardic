@@ -4,6 +4,7 @@ import { InterpolatorRegistry } from "../services/InterpolatorRegistry.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
 import { arrayInterpolator } from "./array.ts"
 import { colorInterpolator } from "./color.ts"
+import { complexInterpolator } from "./complex.ts"
 import { numberInterpolator } from "./number.ts"
 import { unitInterpolator } from "./unit.ts"
 
@@ -12,13 +13,16 @@ import { unitInterpolator } from "./unit.ts"
 /**
  * The interpolators core ships with, in resolution order. `number` and `array`
  * are checked first (cheap, unambiguous); `color` before `unit` so `"#fff"`
- * routes to color while `"10px"` routes to unit.
+ * routes to color while `"10px"` routes to unit; `complex` LAST so it only
+ * catches multi-number structural strings (SVG `d`/`points`, `filter`,
+ * `box-shadow`) the specific entries didn't claim (ADR-0015).
  */
 export const defaultInterpolators: ReadonlyArray<InterpolatorEntry<any>> = [
   numberInterpolator,
   arrayInterpolator,
   colorInterpolator("rgb"),
   unitInterpolator,
+  complexInterpolator,
 ]
 
 const UNIT_PAIR_RE = /^(-?\d*\.?\d+)([a-z%]*)$/i

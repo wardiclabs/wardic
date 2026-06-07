@@ -85,3 +85,27 @@ it("draws a path via pathLength → stroke-dasharray", async () => {
   expect(Number.parseFloat(path.getAttribute("stroke-dasharray") ?? "0")).toBeGreaterThan(0.9)
   expect(path.getAttribute("pathLength")).toBe("1") // normalised
 })
+
+it("morphs a same-structure path `d` end-to-end (complex interpolator → setAttribute)", async () => {
+  // Same command structure (M_,_ L_,_), so the complex interpolator (ADR-0015)
+  // blends the coordinates and the applier writes the tweened `d` attribute.
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <svg width="200" height="200">
+        <wardic.path
+          data-p
+          fill="none"
+          stroke="black"
+          initial={{ d: "M10,10 L20,20" }}
+          animate={{ d: "M10,10 L80,80" }}
+        />
+      </svg>
+    </WardicProvider>
+  ))
+  const path = container.querySelector("[data-p]") as SVGPathElement
+  await until(() => {
+    const m = (path.getAttribute("d") ?? "").match(/L([\d.]+),/)
+    return m !== null && Number.parseFloat(m[1]!) > 79
+  })
+  expect(path.getAttribute("d")).toBe("M10,10 L80,80")
+})
