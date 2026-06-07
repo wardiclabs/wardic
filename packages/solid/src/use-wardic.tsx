@@ -38,6 +38,7 @@ import {
   type StaggerOrigin,
   type Values,
 } from "@wardic/core"
+import { setSvgAttrs, splitPatch } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -95,21 +96,50 @@ export interface WardicTransformShorthands {
 }
 
 /**
- * The Solid-binding value type: every `JSX.CSSProperties` key PLUS the transform
- * shorthands the renderer understands. This is the type users write at the edge
- * (`animate={{ opacity: 1, x: 100, scale: 1.1 }}`). Core's `Values`
- * (`Record<string, number | string>`) is framework-agnostic and UNCHANGED; the
- * binding funnels `WardicValues` through {@link toValues} (stripping undefined)
- * before handing anything to core.
- *
- * Some shorthand keys (`x`, `scale`, `rotate`, …) ALSO exist on `csstype`'s
- * property set as SVG / CSS-spec properties with much narrower value types
- * (e.g. `scale: "none" | string`). A plain intersection would narrow those to
- * the (often `never`-like) overlap and reject `scale: 1.1`. So we `Omit` the
- * shorthand keys off `JSX.CSSProperties` first, letting {@link WardicTransformShorthands}'s
- * `number | string` typing win for them.
+ * Animatable SVG attributes (ADR-0014) the DOM applier routes via `setAttribute`.
+ * These are the SVG keys NOT already typed by `JSX.CSSProperties`, plus the
+ * geometry keys (`cx`/`cy`/`r`/`rx`/`ry`) re-typed `number | string` (csstype's
+ * CSS-Geometry types are narrower). `fill`/`stroke`/`stroke-*` stay as
+ * `JSX.CSSProperties` provides (color/length strings — already animatable). The
+ * runtime accepts any key regardless; this is purely DX typing.
  */
-export type WardicValues = Omit<JSX.CSSProperties, keyof WardicTransformShorthands> & WardicTransformShorthands
+export interface WardicSvgAttributes {
+  readonly cx?: number | string
+  readonly cy?: number | string
+  readonly r?: number | string
+  readonly rx?: number | string
+  readonly ry?: number | string
+  readonly x1?: number | string
+  readonly y1?: number | string
+  readonly x2?: number | string
+  readonly y2?: number | string
+  /** Motion's line-draw feature: portion (0–1) of the path stroked → `stroke-dasharray`. */
+  readonly pathLength?: number
+  readonly pathSpacing?: number
+  readonly pathOffset?: number
+  /** Set the SVG `x`/`y`/`scale` ATTRIBUTE explicitly (Wardic's `x`/`y` are transform shorthands). */
+  readonly attrX?: number | string
+  readonly attrY?: number | string
+  readonly attrScale?: number | string
+}
+
+/**
+ * The Solid-binding value type: every `JSX.CSSProperties` key PLUS the transform
+ * shorthands and the {@link WardicSvgAttributes} the renderer understands. This is
+ * the type users write at the edge (`animate={{ opacity: 1, x: 100, cx: 50 }}`).
+ * Core's `Values` (`Record<string, number | string>`) is framework-agnostic and
+ * UNCHANGED; the binding funnels `WardicValues` through {@link toValues} before core.
+ *
+ * Some shorthand / geometry keys (`x`, `scale`, `cx`, `r`, …) ALSO exist on
+ * `csstype`'s property set with much narrower value types (e.g. `scale: "none" |
+ * string`). A plain intersection would narrow those to the (often `never`-like)
+ * overlap and reject `scale: 1.1`. So we `Omit` those keys off `JSX.CSSProperties`
+ * first, letting the `number | string` typing here win for them.
+ */
+export type WardicValues =
+  & Omit<JSX.CSSProperties, keyof WardicTransformShorthands | keyof WardicSvgAttributes>
+  & WardicTransformShorthands
+  & WardicSvgAttributes
 
 /**
  * Strip a {@link WardicValues} object down to a clean core {@link Values} map:
@@ -947,7 +977,18 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
     extraDelay,
     canStart,
     onFrame,
-    makeSink: () => ({ kind: "signal", set: (patch) => setStyle(patch) }),
+    // SIGNAL sink (ADR-0014): split the projected Patch — CSS `style` keys feed
+    // the declarative style signal (preserving the user-style merge + SSR seed),
+    // SVG `attrs` are applied imperatively via setAttribute. For an HTML element
+    // the attr map is empty, so this is the prior `setStyle(patch)` behavior.
+    makeSink: (element) => ({
+      kind: "signal",
+      set: (patch) => {
+        const { style, attrs } = splitPatch(element, patch)
+        setStyle(style)
+        setSvgAttrs(element, attrs)
+      },
+    }),
   })
 
   // This instance's CURRENT variant NAME, reactive (ADR-0007 name propagation).

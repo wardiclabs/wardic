@@ -18,6 +18,7 @@
  */
 import { type Delta, type Patch, type Point, PROJECTION_KEY, type ProjectionValue, Renderer } from "@wardic/core"
 import * as Effect from "effect/Effect"
+import { dashCase, setSvgAttrs, splitPatch } from "./svg.ts"
 import * as Layer from "effect/Layer"
 
 /**
@@ -246,16 +247,21 @@ const project = (values: Record<string, unknown>): Patch => {
 }
 
 /**
- * Imperative: write each `Patch` entry onto `target.style`. The engine treats
- * `target` as opaque; the DOM renderer narrows it to something carrying a
- * `style` object (an `HTMLElement`). Quiet per-frame hot path — no span/log.
+ * Imperative: write a `Patch` onto `target`. The engine treats `target` as
+ * opaque; the DOM renderer narrows it to an `HTMLElement`/`SVGElement`. Routing
+ * (ADR-0014) goes through {@link splitPatch}: CSS `style` keys via `setProperty`
+ * (dash-cased so `transform-box` etc. apply — `el.style[kebab]=` silently fails)
+ * and SVG `attrs` via `setAttribute`. For an HTML element the attribute map is
+ * empty, so this is the prior behavior. Quiet per-frame hot path — no span/log.
  */
 const commit = <T>(target: T, patch: Patch): Effect.Effect<void> =>
   Effect.sync(() => {
-    const el = target as { style: Record<string, string> }
-    for (const key in patch) {
-      el.style[key] = String(patch[key])
+    const el = target as Element & { style: CSSStyleDeclaration }
+    const { style, attrs } = splitPatch(el, patch)
+    for (const key in style) {
+      el.style.setProperty(dashCase(key), String(style[key]))
     }
+    setSvgAttrs(el, attrs)
   })
 
 /**

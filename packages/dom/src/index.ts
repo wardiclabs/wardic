@@ -42,6 +42,9 @@ export {
   type ScaleCorrector,
   SCALE_CORRECTORS,
 } from "./scale-correction.ts"
+// SVG attribute/style routing (ADR-0014) — the binding's signal-sink applies the
+// `style` half declaratively + the `attrs` half via `setSvgAttrs`.
+export { dashCase, isSvgInner, isSvgRoot, setSvgAttrs, type SplitPatch, splitPatch } from "./svg.ts"
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's
