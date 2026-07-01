@@ -1,9 +1,11 @@
 # Projection / layout — next steps
 
-> **Status (2026-06-27).** Working plan for the box-based projection track (ADR-0009
+> **Status (2026-06-30).** Working plan for the box-based projection track (ADR-0009
 > and its descendants). Authoritative design lives in the ADRs; this file is the
 > ordered worklist + open review items. Repo is green at time of writing: node
-> 116/116, browser 168/168 (`bun run test` + `bun run test:browser`).
+> 116/116, browser 170/170 on a clean instance (`bun run test` + `bun run test:browser`).
+> **The drag→projection handoff (ADR-0016) is now LANDED** (commit `3a64169`) — the
+> frontier is the `<Reorder>` component.
 
 ## Landed (committed)
 
@@ -21,6 +23,18 @@ The box-projection engine is feature-complete through P4 and several follow-on A
 - **ADR-0013** — `layoutRoot` + `layoutAnchor`, scaling-aware relative projection.
 - **ADR-0014** — SVG animation via the DOM applier's attr/style routing.
 - **ADR-0015** — complex-value interpolator (same-structure path morphing).
+- **ADR-0016** — drag → projection handoff (commit `3a64169`). A draggable
+  `layout`/`layoutId` node drives its drag through the projection target (the
+  renderer ignores a projected element's raw `x`/`y`): `NodeState` gained
+  `dragging`/`grabBox`/`dragDelta`; `derive` has a dragging branch
+  (`target = grabBox + dragDelta`, pointer-anchored so mid-drag reorders keep the
+  item under the pointer); `step` skips dragging nodes; `ProjectionNodeHandle`
+  gained `dragStart`/`dragMove`/`dragEnd` (+ `DragProjectionHandle`); `dragEnd`
+  FLIPs from the dragged box to the slot via the layout spring. Binding:
+  `useLayoutMember` returns the handle; the spine forwards it to `runDragTrack`,
+  which routes grab→`dragStart` (off the "start" SAMPLE, not the racing grab
+  event), sample→`dragMove`, release→`dragEnd`. Free drag unchanged; old
+  `drag`+`layoutId` warning retired. Tested: `drag-layout.browser`.
 - **Engine hoist** — `makeProjectionSystem` + `measureLayoutBox` now live in
   `@wardic/dom`, reached by the binding through a structural `ProjectionSink`
   (`{ write, scheduleMeasure }`, satisfied by Solid's `FlushGate`) + a
@@ -29,28 +43,39 @@ The box-projection engine is feature-complete through P4 and several follow-on A
 - **`layoutId` on the box tree** — shared-element migrated onto the one tree, with
   leaving-Follower handling coupled to presence (`handleLeave`, deferred-clear).
 
-## Next — the drag → projection handoff (ADR-0016)
+## Next — `<Reorder>` (the frontier)
 
-The frontier. Design is written ([ADR-0016](../adr/0016-drag-layout-projection-handoff.md))
-but **not yet implemented**. This is the `<Reorder>` prerequisite.
+The drag→projection handoff (ADR-0016) is landed, so the engine already positions a
+dragged layout item under the pointer and FLIPs it to its slot on release, with live
+mid-drag reorders correct. `<Reorder>` is now a **component-level** build on top — no
+further engine work expected. Grill it against Motion's `Reorder.Group` / `Reorder.Item`
+before implementing. Rough shape:
 
-1. **Engine (`@wardic/dom/projection.ts`).** `NodeState` gains `dragging` / `grabBox` /
-   `dragDelta`; `derive` gains a dragging branch (`target = grabBox + dragDelta`);
-   `ProjectionNodeHandle` gains `dragStart()` / `dragMove(delta)` / `dragEnd()`. A
-   `dragging` node joins `active` spring-less; `step` skips spring-stepping it;
-   `deriveAll` derives it each frame so tree-scale / ancestor corrections never desync.
-2. **Binding (`@wardic/solid`).** `useLayoutMember` returns the handle (was `void`); the
-   spine forwards the drag methods to `runDragTrack` when both `drag` and a projection
-   node are present; `runDragTrack` branches grab/move/release on an optional
-   `projection` handle. Free-drag (no projection node) stays byte-for-byte unchanged.
-   Remove the old `drag`+`layoutId` warning (routing to the projection fixes the
-   dropped-`x`/`y` defect).
-3. **Tests (browser, synthetic pointer events).** A layout element follows the pointer
-   during drag (projection translate tracks the offset) and FLIPs to its slot on
-   release; a free-drag element still moves via raw `x`/`y` (regression guard).
-4. **Then `<Reorder>`.** Crossover / value-reordering is the component's job; the engine
-   (after ADR-0016) positions a dragged layout item under the pointer and FLIPs it to
-   its slot on release, with live mid-drag reorders correct.
+1. **`Reorder.Group`** — owns the ordered `values` array (controlled via `onReorder`),
+   provides a context with the axis + a registry of item layout boxes.
+2. **`Reorder.Item`** — a `wardic` `layout` + `drag` element (reuses the ADR-0016 path).
+   While dragging, it reports its live position to the group.
+3. **Crossover detection** — the group compares the dragged item's position against
+   sibling layout boxes; when it passes a neighbor's midpoint, it reorders the `values`
+   array → DOM reorders → the projection FLIPs the displaced siblings to their new slots
+   (already works), while the dragged item stays under the pointer (grab-anchor).
+4. **Release** — `dragEnd` (already) FLIPs the dragged item into its final slot.
+5. **Tests (browser, synthetic pointer events)** — drag an item past a neighbor →
+   `values` reorders and siblings animate; the dragged item tracks the pointer; on
+   release it settles into the new slot.
+
+Open sub-questions for the grill: axis (`"y"` default vs `"x"`), keyboard reordering
+(parity nicety, likely deferred), and whether `Reorder.Item` needs `layoutId` (probably
+plain `layout` is enough within one group).
+
+## Also pending — `@wardic/path-morph` (tier-2 morphing, own grill)
+
+Independent of `<Reorder>`. Arbitrary-structure path morphing (aligning `d`/`points`
+with *different* command counts: parse → normalize segment counts → match subpaths/rings
+→ rotate start point → blend). A **standalone, dependency-free package** (flubber/
+polymorph-class, useful outside animation) wired into Wardic purely as an **opt-in
+registry interpolator** registered at higher precedence than the tier-1 complex one —
+never bundled by default, never a `@wardic/dom` import (ADR-0015). Needs its own grill.
 
 ## Open review items (verify against current engine, then decide)
 
@@ -77,6 +102,10 @@ From the ADR-0009 code review (some of the reviewed code has since moved to `@wa
 ## Notes for the next session / device
 
 - Run both suites: `direnv exec . bun run test` (node) and `direnv exec . bun run test:browser`
-  (real Chromium). The browser stagger test `stagger-when (e)` can flake on timing — re-run
-  before treating a single failure as real.
+  (real Chromium). **Browser-suite timing flake:** 1–3 tests may hit the 15s timeout; the
+  test *varies* run-to-run and each passes in isolation (`test:browser -- <file>`). It is a
+  suite-wide timing issue amplified by back-to-back runs (`prepare` balloons as the instance
+  thrashes) — NOT a regression. Verify: node+typecheck green? failing test uses your feature?
+  passes alone? If no → flake. Don't run the browser gate many times back-to-back; a clean
+  instance does ~168–170/170. (Avoid `pkill` to clear stragglers — restart the instance instead.)
 - Tooling is the nix devshell; `tsc`/`bun` are not global — prefix with `direnv exec .`.
