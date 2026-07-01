@@ -39,6 +39,7 @@ import {
   type Vec2,
   withinBounds,
 } from "@wardic/core"
+import type { DragProjectionHandle } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
@@ -91,6 +92,13 @@ export interface RunDragTrackOptions {
   readonly setDragging: (dragging: boolean) => void
   /** The static drag config (read once at setup). */
   readonly config: DragTrackConfig
+  /**
+   * When the element is a projection node (ADR-0016), the drag feeds the projection
+   * instead of writing raw `x`/`y` (which the renderer ignores for a projected
+   * element): grab → `dragStart`, each sample → `dragMove(offset)`, release →
+   * `dragEnd` (FLIP to slot — the momentum/snap tail is skipped). Absent ⇒ free drag.
+   */
+  readonly projection?: DragProjectionHandle | undefined
 }
 
 /** Single-ref state: `base` is the rebase point, `position` the live absolute position. */
@@ -124,6 +132,14 @@ const snapshotPos = (snapshot: DragSnapshot): Vec2 => ({
  * strips the translate keys from its target while `dragging()` is true).
  */
 const directSet = (opts: RunDragTrackOptions, p: Vec2): void => {
+  // Projection node (ADR-0016): feed the live pointer offset to the projection —
+  // the renderer ignores a projected element's raw x/y, so writing them is moot.
+  // The snapshot x/y stays 0 (projection owns position), so `base` stays 0 and
+  // `position` is the pure pointer offset, which IS the dragDelta.
+  if (opts.projection !== undefined) {
+    opts.projection.dragMove({ x: p.x, y: p.y })
+    return
+  }
   opts.gate.write(opts.id, { x: p.x, y: p.y })
   opts.snapshot.values.x = p.x
   opts.snapshot.values.y = p.y
@@ -145,7 +161,11 @@ const inner = (
   if (event._tag === "grab") {
     // Rebase to wherever the element currently rests (the snapshot's x/y) and
     // interrupt any running release — `switchMap` cancels the previous inner, so
-    // returning a drained one-shot effect is enough. No emission, no jump.
+    // returning a drained one-shot effect is enough. No emission, no jump. For a
+    // projection node the snapshot x/y stays 0 (the projection owns position), so
+    // this naturally rebases `base` to the origin. `dragStart` is driven off the
+    // "start" SAMPLE below, not this grab event — the two race on pointerdown and
+    // switchMap can interrupt the grab inner before it runs (ADR-0016).
     return Stream.fromEffect(
       Ref.update(ref, () => {
         const at = snapshotPos(opts.snapshot)
@@ -166,6 +186,10 @@ const inner = (
         Effect.tap((p) =>
           Effect.sync(() => {
             opts.setDragging(true)
+            // Projection node (ADR-0016): begin the drag on the "start" sample (not
+            // the racing grab event) so `dragStart` reliably runs before the first
+            // `dragMove`; `directSet` then routes the offset to `dragMove`.
+            if (opts.projection !== undefined && sample.phase === "start") opts.projection.dragStart()
             directSet(opts, p)
           }),
         ),
@@ -173,9 +197,20 @@ const inner = (
     ).pipe(Stream.drain)
   }
 
-  // phase === "end": run the PLUGGABLE release seeded from the release position +
-  // velocity. The release inner's effects live here, so a re-grab interrupts them
-  // (switchMap), stopping the tail — exactly the momentum.ts handoff guarantee.
+  // phase === "end": projection node (ADR-0016) → FLIP to the current slot via the
+  // layout spring (dragEnd); the free-drag momentum/snap/rest tail is skipped.
+  if (opts.projection !== undefined) {
+    return Stream.fromEffect(
+      Effect.sync(() => {
+        opts.projection!.dragEnd()
+        opts.setDragging(false)
+      }),
+    ).pipe(Stream.drain)
+  }
+
+  // phase === "end" (free drag): run the PLUGGABLE release seeded from the release
+  // position + velocity. The release inner's effects live here, so a re-grab
+  // interrupts them (switchMap), stopping the tail — the momentum.ts handoff guarantee.
   return Stream.unwrap(
     Ref.get(ref).pipe(
       Effect.map((st) => {

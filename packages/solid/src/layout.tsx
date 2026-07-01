@@ -17,7 +17,7 @@
  * observability convention — hot path stays quiet).
  */
 import { type Bounds, type Box, boundsToBox, type Point, type SpringOptions } from "@wardic/core"
-import { measureLayoutBox } from "@wardic/dom"
+import { measureLayoutBox, type ProjectionNodeHandle } from "@wardic/dom"
 import { createContext, createEffect, type JSX, on, onCleanup, useContext } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import type { WardicTransition } from "./use-wardic.tsx"
@@ -180,7 +180,7 @@ export interface UseLayoutMemberOptions {
  *
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
-export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
+export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
   const { element, id, layoutAnchor, layoutDependency, layoutId, layoutRoot, layoutScroll, transition } = opts
   const projection = useWardicProjection()
   const shared = useSharedLayout()
@@ -217,6 +217,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): void => {
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))
+  return handle // ADR-0016: the spine forwards the drag methods to runDragTrack
 }
 
 /**

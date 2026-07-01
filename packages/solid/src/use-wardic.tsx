@@ -38,7 +38,7 @@ import {
   type StaggerOrigin,
   type Values,
 } from "@wardic/core"
-import { setSvgAttrs, splitPatch } from "@wardic/dom"
+import { type ProjectionNodeHandle, setSvgAttrs, splitPatch } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -571,8 +571,9 @@ export function runSpine(opts: RunSpineOptions): void {
       const layoutId = c0.layoutId
       // layout / layoutId / layoutScroll / layoutRoot each warrant a node; layoutAnchor
       // alone does not (it only tunes a node that already projects), but is forwarded.
+      let layoutHandle: ProjectionNodeHandle | undefined
       if (c0.layout === true || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
-        useLayoutMember({
+        layoutHandle = useLayoutMember({
           id,
           element,
           layoutDependency: () => cfg().layoutDependency,
@@ -593,26 +594,15 @@ export function runSpine(opts: RunSpineOptions): void {
       // document. The track's single fiber is scoped to this owner's onCleanup.
       const dragCfg = untrack(cfg).drag
       const [dragging, setDragging] = createSignal(false)
-      // LOW-2: drag + layoutId co-own x/y (both DRIVE the translate keys) — not
-      // supported together yet. Warn ONCE (dev only) so the conflict is visible;
-      // <Reorder> is the planned supported path for drag + layout. Behaviour is
-      // otherwise unchanged (both run; results are undefined).
-      if (dragCfg && untrack(cfg).layoutId !== undefined) {
-        runtime.runFork(
-          Effect.logWarning(
-            "wardic: combining `drag` with `layoutId` on the same element is not supported yet — both drive x/y; use <Reorder> for drag+layout (planned).",
-          ).pipe(Effect.annotateLogs({ id })),
-        )
-      }
       if (dragCfg) {
-        const c0 = untrack(cfg)
+        const c0d = untrack(cfg)
         const trackConfig: DragTrackConfig = {
           axis: dragCfg,
-          constraints: c0.dragConstraints,
-          elastic: c0.dragElastic,
-          momentum: c0.dragMomentum,
-          snapToOrigin: c0.dragSnapToOrigin,
-          springOpts: (c0.transition ?? parent?.transition()) as SpringOptions | undefined,
+          constraints: c0d.dragConstraints,
+          elastic: c0d.dragElastic,
+          momentum: c0d.dragMomentum,
+          snapToOrigin: c0d.dragSnapToOrigin,
+          springOpts: (c0d.transition ?? parent?.transition()) as SpringOptions | undefined,
         }
         runDragTrack({
           runtime,
@@ -623,6 +613,10 @@ export function runSpine(opts: RunSpineOptions): void {
           recordFrame,
           setDragging,
           config: trackConfig,
+          // ADR-0016: a drag on a LAYOUT node feeds the projection (the renderer
+          // ignores a projected element's raw x/y), so the dragged item follows the
+          // pointer and FLIPs to its slot on release. Free drag (no handle) is unchanged.
+          ...(layoutHandle !== undefined ? { projection: layoutHandle } : {}),
         })
       }
 

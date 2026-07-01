@@ -28,6 +28,7 @@ export { RendererDomLive } from "./renderer.ts"
 // with its own flush gate (as a ProjectionSink) + a runtime providing Clock.
 export { measureLayoutBox } from "./measure.ts"
 export {
+  type DragProjectionHandle,
   makeProjectionSystem,
   type ProjectionNodeHandle,
   type ProjectionRuntime,

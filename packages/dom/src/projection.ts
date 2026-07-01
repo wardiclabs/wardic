@@ -110,6 +110,12 @@ const boxesEqual = (a: Box, b: Box): boolean =>
   Math.abs(a.y.min - b.y.min) < BOX_EPSILON &&
   Math.abs(a.y.max - b.y.max) < BOX_EPSILON
 
+/** Translate a box by a point (ADR-0016: the dragged target is `grabBox + dragDelta`). */
+const offsetBox = (box: Box, delta: Point): Box => ({
+  x: { min: box.x.min + delta.x, max: box.x.max + delta.x },
+  y: { min: box.y.min + delta.y, max: box.y.max + delta.y },
+})
+
 /** Options to register a layout element as a projection node. */
 export interface RegisterNodeOptions {
   /** The element's gate id (shared with its spine — `@projection` writes merge there). */
@@ -157,8 +163,24 @@ export interface RegisterNodeOptions {
   readonly layoutAnchor?: Point | false
 }
 
+/**
+ * The drag seam (ADR-0016): a draggable LAYOUT node drives its drag through the
+ * projection target, not a raw `x`/`y` transform (the renderer ignores a layout
+ * node's own `x`/`y` — the projection owns translate). The binding's drag track
+ * calls these so the dragged element follows the pointer and FLIPs to its slot on
+ * release. A subset of {@link ProjectionNodeHandle}.
+ */
+export interface DragProjectionHandle {
+  /** Begin a drag: capture the grab-time slot box as the pointer anchor; hold the node active. */
+  readonly dragStart: () => void
+  /** The live pointer translate from the grab point — the node tracks `grabBox + delta`. */
+  readonly dragMove: (delta: Point) => void
+  /** End the drag: FLIP from the dragged position to the node's current layout slot. */
+  readonly dragEnd: () => void
+}
+
 /** Handle returned from {@link ProjectionSystem.register}. */
-export interface ProjectionNodeHandle {
+export interface ProjectionNodeHandle extends DragProjectionHandle {
   /** Request a (coalesced) measure pass — e.g. this node's `layoutDependency` changed. */
   readonly notify: () => void
   /** Unregister the node, finalising any in-flight animation. */
@@ -246,6 +268,13 @@ interface NodeState {
   correctorBases: ReadonlyArray<{ readonly corrector: ScaleCorrector; readonly base: unknown }> | undefined
   /** Whether a corrected style is currently applied (so it's restored once at rest). */
   corrected: boolean
+  // --- drag (ADR-0016) ---
+  /** Whether this node is being dragged: its target follows the pointer (no spring), held active. */
+  dragging: boolean
+  /** The slot box captured at drag start — the pointer anchor; `target = grabBox + dragDelta`. */
+  grabBox: Box | undefined
+  /** The live pointer translate from the grab point (zero when not dragging). */
+  dragDelta: Point
 }
 
 /**
@@ -444,6 +473,21 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   const derive = (node: NodeState): void => {
     const box = node.layoutBox ?? node.retained
     if (box === undefined) return
+
+    // DRAGGING (ADR-0016): the target is the pointer's visual position — the grab-time
+    // slot translated by the live pointer delta. Anchored at `grabBox` (not the current
+    // `layoutBox`), so a mid-drag reorder that moves the slot keeps the item under the
+    // pointer (the delta just recomputes against the new layoutBox). No spring.
+    if (node.dragging && node.grabBox !== undefined) {
+      const targetBox = offsetBox(node.grabBox, node.dragDelta)
+      const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
+      const delta = calcBoxDelta(layoutCorrected, targetBox)
+      node.lastTarget = targetBox
+      node.lastDelta = delta
+      const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+      writeProjection(node, delta, treeScale, leadOpacity(node), corrected)
+      return
+    }
 
     const rp = relativeParentOf(node)
     let targetBox: Box
@@ -718,6 +762,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     // 1) Step every active node's progress spring (no derive yet — the tree-aware
     //    derive needs ALL springs advanced before computing parent-first).
     for (const node of active) {
+      // A dragging node (ADR-0016) follows the pointer with no spring — keep it
+      // active + derived each frame, never spring-stepped or settled.
+      if (node.dragging) continue
       if (node.spring === undefined) {
         settled.push(node)
         continue
@@ -832,6 +879,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     isScrollRoot: false,
     layoutRoot: false,
     layoutAnchor: undefined,
+    dragging: false,
+    grabBox: undefined,
+    dragDelta: { x: 0, y: 0 },
   })
 
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
@@ -916,6 +966,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       isScrollRoot: false,
       layoutRoot: opts.layoutRoot === true,
       layoutAnchor: opts.layoutAnchor,
+      dragging: false,
+      grabBox: undefined,
+      dragDelta: { x: 0, y: 0 },
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
@@ -944,6 +997,51 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
     return {
       notify: scheduleMeasure,
+      // --- drag (ADR-0016) -----------------------------------------------------
+      dragStart: () => {
+        if (node.dragging) return // idempotent — a re-fired start must not re-anchor mid-drag
+        // Anchor at the grab-time slot; the node then tracks `grabBox + dragDelta`.
+        node.grabBox = node.layoutBox ?? node.retained
+        if (node.grabBox === undefined) return // not measured yet — nothing to anchor
+        debug("dragStart", { id: node.id })
+        node.dragging = true
+        node.dragDelta = { x: 0, y: 0 }
+        node.spring = undefined
+        node.origin = undefined
+        node.animating = false
+        active.add(node)
+        ensureRunning()
+      },
+      dragMove: (delta) => {
+        if (!node.dragging) return
+        node.dragDelta = delta // the tick re-derives `grabBox + delta` next frame
+      },
+      dragEnd: () => {
+        if (!node.dragging || node.grabBox === undefined) return
+        debug("dragEnd", { id: node.id })
+        const visual = offsetBox(node.grabBox, node.dragDelta)
+        const slot = node.layoutBox ?? node.grabBox
+        node.dragging = false
+        node.grabBox = undefined
+        node.dragDelta = { x: 0, y: 0 }
+        if (boxesEqual(visual, slot)) {
+          // No travel (released in place at its slot) — settle now, no FLIP.
+          node.animating = false
+          node.spring = undefined
+          node.origin = undefined
+          node.lastDelta = IDENTITY_DELTA
+          active.delete(node)
+          if (active.size === 0) stopTicking()
+          return
+        }
+        // FLIP from the dragged visual position to the current slot, via the layout spring.
+        node.origin = visual
+        node.layoutBox = slot
+        node.spring = initSpring({ from: 0 })
+        node.animating = true
+        active.add(node)
+        ensureRunning()
+      },
       dispose: () => {
         // A leaving Follower's removal is owned by finishLeaver (presence retained
         // it for the crossfade); a plain dispose must NOT tear it down here.
