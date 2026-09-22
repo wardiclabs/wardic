@@ -14,6 +14,7 @@
             nodejs_22
             bun
             lazygit
+            gh
           ];
           # Real-browser test harness (Vitest browser mode + Playwright). The npm
           # `playwright` package is pinned to match nixpkgs' playwright-driver
