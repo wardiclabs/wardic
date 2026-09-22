@@ -58,7 +58,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
-import { isScrollRoot, measureDocumentScroll, measureLayoutBox, measureScroll } from "./measure.ts"
+import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox } from "./measure.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
 /**
@@ -639,28 +639,85 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // beneath it via the propagated span context).
   const runMeasurePass = (): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
-    // fold walks the ancestor chain, and we measure ancestors-first so each scroll
-    // container's offset is sampled before a descendant folds it in.
+    // fold walks the ancestor chain, and the depth order makes every phase below
+    // ancestors-first, so each scroll container's offset is sampled before a
+    // descendant folds it in (ADR-0012).
     computeTree()
-    const documentScroll = measureDocumentScroll()
     const ordered = [...nodes].sort((a, b) => a.depth - b.depth)
+
+    // --- WRITE: reset every node's transform, before ANY box is read. ---------
+    // `getBoundingClientRect` is viewport-space, so a node measured while an
+    // ANCESTOR is mid-animation reads an ancestor-transform-polluted box. Clearing
+    // inside the per-node read (the old `measureLayoutBox` loop) cannot fix that:
+    // it restores in a `finally`, i.e. before the next node is read. So the reset
+    // is hoisted here, to its own pass (Motion's `resetTransformStyle` loop).
+    //
+    // Motion flags `shouldResetTransform` on the `path + self` of each DIRTY node
+    // and clears only those. Wardic re-measures the WHOLE registered tree every
+    // pass (ADR-0009 Q5), so that set is exactly `ordered` — the flag would be
+    // dead machinery. A descendant's transform cannot pollute an ancestor's rect,
+    // so this is still the minimal set, not a widening.
+    const savedTransforms: Array<string> = []
     for (const node of ordered) {
-      const viewportBox = boundsToBox(measureLayoutBox(node.element))
-      if (node.isScroll) {
-        node.scroll = measureScroll(node.element)
-        node.isScrollRoot = isScrollRoot(node.element)
+      savedTransforms.push(node.element.style.transform)
+      node.element.style.transform = ""
+    }
+
+    // --- READ: no DOM writes until the next banner. ---------------------------
+    // Everything that touches layout lives here: the boxes, the scroll samples
+    // (ADR-0012) and the `getComputedStyle` scale-correction bases (ADR-0011).
+    // Assignments onto NodeState are plain JS — they don't invalidate layout.
+    //
+    // The scroll offsets are sampled HERE, in the reset state, not before the clear
+    // loop: clearing a transform can shrink a container's scrollable overflow and so
+    // clamp its `scrollLeft`/`scrollTop`, and the boxes we are about to read reflect
+    // whatever scroll position the reset left behind. Sampling alongside the boxes
+    // keeps offset and box in the same frame, which is what the fold needs (Motion
+    // samples in the same phase, `updateLayout` -> `updateScroll`). The residual is
+    // that the clamp itself is not undone by the restore — the ADR-0012
+    // scroll-during-transition limit.
+    const viewportBoxes: Array<Box> = []
+    let documentScroll: Point
+    try {
+      documentScroll = measureDocumentScroll()
+      for (const node of ordered) {
+        viewportBoxes.push(boundsToBox(readLayoutBox(node.element)))
+        if (node.isScroll) {
+          node.scroll = measureScroll(node.element)
+          node.isScrollRoot = isScrollRoot(node.element)
+        }
+        // Read scale-correction bases ONCE (ADR-0011), the first time we measure this
+        // node — i.e. before any correction is written. Re-reading would pick up our
+        // OWN corrected inline value (inline overrides the stylesheet) and compound the
+        // radius/shadow each frame. (A node's authored radius changing mid-life is the
+        // documented v0.1 limit.)
+        if (node.correctorBases === undefined) node.correctorBases = readBases(node.element)
       }
+    } finally {
+      // --- WRITE: restore the transforms we cleared. --------------------------
+      // `deriveAll()` at the tail re-derives the inline transform from the new delta
+      // for every node it touches, so this only matters for a node it won't (one at
+      // rest with no animating ancestor). Restoring unconditionally saves having to
+      // prove that set empty, and it lands in the SAME synchronous pass — the gate's
+      // flush then overwrites it for every animating node, so no frame ever paints a
+      // cleared or stale transform.
+      //
+      // In a `finally` because the reset is now pass-level: a throwing read would
+      // otherwise leave EVERY node's transform wiped (the per-node helper this
+      // replaced could only ever strand one), and the gate's `flush` has no
+      // `finally` of its own, so it would stay latched mid-flush.
+      for (let i = 0; i < ordered.length; i++) ordered[i].element.style.transform = savedTransforms[i]
+    }
+
+    // --- WRITE: FLIP detection + seeding, on the already-measured boxes. ------
+    for (let i = 0; i < ordered.length; i++) {
+      const node = ordered[i]
       // Store the box in the SCROLL-STABLE frame (ADR-0012), so a scroll change
-      // between triggers doesn't leak into the delta.
-      const newBox = foldScroll(node, viewportBox, documentScroll)
+      // between triggers doesn't leak into the delta. Every scroll offset was
+      // sampled in the read phase, so the whole ancestor chain is available.
+      const newBox = foldScroll(node, viewportBoxes[i], documentScroll)
       const prev = node.retained
       node.retained = newBox
-      // Read scale-correction bases ONCE (ADR-0011), the first time we measure this
-      // node — i.e. before any correction is written. Re-reading would pick up our
-      // OWN corrected inline value (inline overrides the stylesheet) and compound the
-      // radius/shadow each frame. (A node's authored radius changing mid-life is the
-      // documented v0.1 limit.)
-      if (node.correctorBases === undefined) node.correctorBases = readBases(node.element)
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
       // stable box (layoutBox + lastTarget) so descendants project relative to it,
@@ -732,7 +789,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     }
 
     // Seed the initial (progress-0) frame for new movers, top-down. (Parent links
-    // were computed at the top of the pass, before the scroll fold.)
+    // were computed at the top of the pass, before the scroll fold.) This is also
+    // the real restore: `writeProjection` rebuilds each node's inline transform
+    // from its new delta, rather than writing back the pre-pass value.
     deriveAll()
     ensureRunning()
   }
