@@ -19,6 +19,21 @@
         "vitest": "^3.2.0",
       },
     },
+    "examples/layout-lab": {
+      "name": "@wardic/example-layout-lab",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wardic/core": "workspace:*",
+        "@wardic/dom": "workspace:*",
+        "@wardic/solid": "workspace:*",
+        "effect": "4.0.0-beta.71",
+        "solid-js": "1.9.13",
+      },
+      "devDependencies": {
+        "vite": "6.4.2",
+        "vite-plugin-solid": "2.11.12",
+      },
+    },
     "examples/solid-start-basic": {
       "name": "@wardic/example-solid-start-basic",
       "version": "0.0.0",
@@ -59,9 +74,9 @@
       "dependencies": {
         "@solid-primitives/refs": "^1.1.3",
         "@wardic/core": "workspace:*",
+        "@wardic/dom": "workspace:*",
       },
       "devDependencies": {
-        "@wardic/dom": "workspace:*",
         "@wardic/test": "workspace:*",
         "effect": "4.0.0-beta.71",
         "solid-js": "^1.9.13",
@@ -500,6 +515,8 @@
     "@wardic/core": ["@wardic/core@workspace:packages/core"],
 
     "@wardic/dom": ["@wardic/dom@workspace:packages/dom"],
+
+    "@wardic/example-layout-lab": ["@wardic/example-layout-lab@workspace:examples/layout-lab"],
 
     "@wardic/example-solid-start-basic": ["@wardic/example-solid-start-basic@workspace:examples/solid-start-basic"],
 

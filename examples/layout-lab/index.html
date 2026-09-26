@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wardic layout lab</title>
+    <!--
+      Scheduler switch. This CLASSIC (non-module) script must run BEFORE the module
+      graph evaluates: effect/dist/Scheduler.js picks its task scheduler at module
+      evaluation time (`"setImmediate" in globalThis` ? setImmediate : setTimeout(0)).
+
+      Default (no query): no polyfill, so Effect falls back to setTimeout(0), exactly
+      as in a real app.
+
+      ?scheduler=microtask: install the browser test harness's queueMicrotask-backed
+      setImmediate/clearImmediate (copied from packages/solid/test/browser-setup.ts,
+      including the `cancelled` flag that keeps clearImmediate honest), so the lab
+      reproduces test-harness timing and the two can be compared directly.
+    -->
+    <script>
+      ;(function () {
+        var g = globalThis
+        var mode = new URLSearchParams(location.search).get("scheduler") === "microtask" ? "microtask" : "default"
+        g.__labScheduler = mode
+        if (mode !== "microtask" || typeof g.setImmediate === "function") return
+        g.setImmediate = function (fn) {
+          var args = Array.prototype.slice.call(arguments, 1)
+          var handle = { cancelled: false }
+          queueMicrotask(function () {
+            if (!handle.cancelled) fn.apply(undefined, args)
+          })
+          return handle
+        }
+        g.clearImmediate = function (id) {
+          if (id && typeof id === "object") id.cancelled = true
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
