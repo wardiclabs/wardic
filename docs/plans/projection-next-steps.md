@@ -82,14 +82,26 @@ never bundled by default, never a `@wardic/dom` import (ADR-0015). Needs its own
 From the ADR-0009 code review (some of the reviewed code has since moved to `@wardic/dom`
 — re-confirm before acting):
 
-- **Tree-wide transform reset on measure (HIGH).** `measureLayoutBox`
-  (`@wardic/dom/measure.ts`) still clears only the *node's own* inline transform.
-  `getBoundingClientRect` is viewport-space, so a node measured while an *ancestor*
-  projection node is mid-animation reads an ancestor-transform-polluted box. Motion
-  resets transforms across the whole tree before measuring, then restores. Confirm
-  whether `measurePass` already does a tree-wide reset; if not, add one (clear all node
-  transforms → read all → restore all) + a nested mid-animation-interrupt regression
-  test. happy-dom can't catch this — needs the browser harness.
+- ~~**Tree-wide transform reset on measure (HIGH).**~~ **LANDED** (issue #1). The defect was
+  confirmed against Motion's source and turned out to have a second, load-bearing half:
+  `measureLayoutBox` restored each node's transform in a `finally`, *before the next node was
+  read*, so widening the reset's scope inside it could not have fixed anything. `runMeasurePass`
+  (`@wardic/dom/projection.ts`) is now split into Motion's pass-separated phases — **write**
+  (clear every node's transform) → **read** (boxes + scroll samples + the ADR-0011
+  `getComputedStyle` bases) → **write** (restore) → **write** (FLIP detection/seeding) →
+  `deriveAll()`. `measureLayoutBox` keeps its own save/clear/restore for the two single-element
+  `SharedLayoutContext` seed reads in `@wardic/solid/layout.tsx`; the pass reads through the new
+  `readLayoutBox` (raw rect, no reset). Regression:
+  `packages/solid/test/measure-pass-reset.browser.test.tsx` (real Chromium — happy-dom zeroes
+  `getBoundingClientRect`), which diverged by ~276px before the fix.
+- **Measure-pass reset can clamp a `layoutScroll` container (LOW, surfaced by issue #1).** A
+  transform contributes to scrollable overflow, so the pass-level clear can shrink a container's
+  scroll range and clamp its `scrollLeft`/`scrollTop`; the restore puts the transform back but not
+  the scroll position. The pass samples scroll in the read phase *after* the reset, so the offsets
+  stay consistent with the boxes read alongside them (Motion does the same) — the residue is that
+  a user's scroll position can shift. Needs a browser repro (a `layoutScroll` container scrolled to
+  its end, whose overflow comes from a projected descendant) before deciding whether to save and
+  restore scroll around the reset.
 - **`dispose` dangling `parent` pointers (MEDIUM).** On dispose, surviving
   nodes that referenced the disposed node as `.parent` keep that reference until the next
   `computeTree` (which only runs in a measure pass, and dispose schedules none). Confirm
