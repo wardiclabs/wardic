@@ -1,0 +1,27 @@
+{
+  // Standalone on purpose: NOT extending tsconfig.base.json, NOT composite, and NOT
+  // listed in the root tsconfig.json references. The lab is bundler-built (Vite)
+  // and typechecked on its own via `bun run typecheck` in this package.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // The @wardic/* packages ship TS source whose relative imports carry `.ts`
+    // extensions (Effect v4 convention). Vite resolves them; tsc needs this flag.
+    "allowImportingTsExtensions": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

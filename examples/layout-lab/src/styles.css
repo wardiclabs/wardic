@@ -1,0 +1,534 @@
+/*
+ * Layout-lab primitives.
+ *
+ * .stage is the layout-isolation boundary: fixed width AND height, position
+ * relative and overflow hidden, so a scenario's mutation (a box moving or
+ * resizing by 40px or more) can never reflow anything outside its stage. The
+ * sampler measures the watched box against the viewport, so a stage that moved
+ * because some sibling grew would corrupt every reading.
+ */
+:root {
+  color-scheme: light dark;
+  --lab-bg: #f6f7f9;
+  --lab-fg: #1b1f24;
+  --lab-muted: #5b6573;
+  --lab-surface: #ffffff;
+  --lab-border: #d4d9e0;
+  --lab-accent: #3a6ff7;
+  --lab-accent-fg: #ffffff;
+  --lab-box: #3a6ff7;
+  --lab-box-alt: #e8743b;
+  --lab-flash: #d93025;
+  --lab-safe: #1e8e3e;
+  --lab-risk: #b06000;
+  --lab-surprise: #c5221f;
+  --lab-surprise-bg: #fde7e9;
+  --lab-early: #e37400;
+  --lab-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --lab-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --stage-w: 320px;
+  --stage-h: 160px;
+  --sidebar-w: 400px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lab-bg: #14171c;
+    --lab-fg: #e6e9ee;
+    --lab-muted: #9aa4b2;
+    --lab-surface: #1d2128;
+    --lab-border: #333a45;
+    --lab-accent: #6d93ff;
+    --lab-accent-fg: #0b0d10;
+    --lab-box: #6d93ff;
+    --lab-box-alt: #f0955f;
+    --lab-flash: #ff6b5e;
+    --lab-safe: #5bb974;
+    --lab-risk: #fdd663;
+    --lab-surprise: #ff8a80;
+    --lab-surprise-bg: #4a1f1f;
+    --lab-early: #fcad70;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--lab-bg);
+  color: var(--lab-fg);
+  font-family: var(--lab-font);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* A fixed-size, clipped, positioned container every scenario mutates inside. */
+.stage {
+  position: relative;
+  width: var(--stage-w);
+  height: var(--stage-h);
+  flex: none;
+  overflow: hidden;
+  background: var(--lab-surface);
+  border: 1px solid var(--lab-border);
+  border-radius: 6px;
+}
+
+/* The watched element. Scenarios position or size it explicitly. */
+.box {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  background: var(--lab-box);
+  color: var(--lab-accent-fg);
+  font: 600 12px/1 var(--lab-mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.box.alt {
+  background: var(--lab-box-alt);
+}
+
+.btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--lab-accent);
+  border-radius: 6px;
+  background: var(--lab-accent);
+  color: var(--lab-accent-fg);
+  font: 600 13px/1.2 var(--lab-font);
+  cursor: pointer;
+}
+
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--lab-fg);
+  outline-offset: 2px;
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--lab-accent);
+}
+
+.btn.small {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+
+/* ---- Shell --------------------------------------------------------------
+ * The cards scroll with the PAGE (Wardic folds page scroll out of its
+ * measurements). The sidebar is its own fixed-width sticky column with its own
+ * scroll, so nothing it renders can move or resize a .stage.
+ */
+.lab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-w);
+  /* The header row stays content-sized; the cards row takes any spare height. */
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "header header"
+    "cards sidebar";
+  align-items: start;
+  min-height: 100vh;
+}
+
+.lab-header {
+  grid-area: header;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--lab-border);
+  background: var(--lab-surface);
+}
+
+.lab-heading h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.lab-heading p {
+  margin: 2px 0 0;
+  color: var(--lab-muted);
+}
+
+.lab-scheduler {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lab-switch {
+  color: var(--lab-accent);
+  font-weight: 600;
+}
+
+.cards {
+  grid-area: cards;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(372px, 1fr));
+  gap: 16px;
+  padding: 16px 20px 40px;
+  min-width: 0;
+}
+
+.sidebar {
+  grid-area: sidebar;
+  position: sticky;
+  top: 0;
+  width: var(--sidebar-w);
+  max-height: 100vh;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-left: 1px solid var(--lab-border);
+}
+
+@media (max-width: 860px) {
+  .lab {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas:
+      "header"
+      "cards"
+      "sidebar";
+  }
+
+  .sidebar {
+    position: static;
+    width: auto;
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid var(--lab-border);
+  }
+
+  .cards {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+}
+
+/* ---- Pills ------------------------------------------------------------- */
+.pill {
+  display: inline-block;
+  min-width: 64px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font: 600 11px/18px var(--lab-mono);
+  text-align: center;
+  white-space: nowrap;
+  color: var(--lab-muted);
+}
+
+.prediction-safe,
+.verdict-clean,
+.outcome-as-predicted {
+  color: var(--lab-safe);
+}
+
+.prediction-flash-risk,
+.verdict-snap {
+  color: var(--lab-risk);
+}
+
+.verdict-flash {
+  color: var(--lab-flash);
+}
+
+.outcome-surprise {
+  color: var(--lab-surprise-bg);
+  background: var(--lab-surprise);
+  border-color: var(--lab-surprise);
+}
+
+.scheduler-microtask {
+  color: var(--lab-risk);
+}
+
+/* ---- Scenario cards ---------------------------------------------------- */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--lab-surface);
+  border: 1px solid var(--lab-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+/* An outline, not a border: selecting a card never changes its size. */
+.card.selected {
+  outline: 2px solid var(--lab-accent);
+  outline-offset: -1px;
+}
+
+.card-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.card-index {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--lab-accent);
+  color: var(--lab-accent-fg);
+  font: 700 13px/26px var(--lab-mono);
+  text-align: center;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 15px;
+}
+
+.card-mechanism {
+  margin: 2px 0 0;
+  color: var(--lab-muted);
+  font-size: 13px;
+}
+
+.card-prediction {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.card-prediction .pill {
+  flex: none;
+  margin-top: 1px;
+}
+
+.card-rationale {
+  color: var(--lab-muted);
+  font-size: 12px;
+}
+
+.card-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-timeline {
+  flex: none;
+}
+
+/* Fixed height, always rendered: a result arriving never changes the card's size. */
+.card-result {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 16px;
+  height: 48px;
+  overflow: hidden;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--lab-border);
+}
+
+.result-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.result-label {
+  color: var(--lab-muted);
+  font: 11px/14px var(--lab-mono);
+}
+
+.result-value {
+  font: 700 13px/20px var(--lab-mono);
+}
+
+/* ---- Sidebar panels ---------------------------------------------------- */
+.panel {
+  padding: 12px;
+  background: var(--lab-surface);
+  border: 1px solid var(--lab-border);
+  border-radius: 8px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.panel-head h2 {
+  margin: 0;
+  margin-right: auto;
+  font-size: 14px;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.panel-note {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--lab-muted);
+  font-size: 12px;
+}
+
+.flash-total {
+  font: 700 18px/1 var(--lab-mono);
+}
+
+.flash-total.hot,
+.flash-list li.hot .flash-count {
+  color: var(--lab-flash);
+}
+
+.flash-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.flash-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.flash-index,
+.flash-count {
+  font-family: var(--lab-mono);
+}
+
+.flash-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stretch-value {
+  font: 600 13px var(--lab-mono);
+}
+
+.stretch-slider {
+  width: 100%;
+}
+
+.log-fallback {
+  width: 100%;
+  margin-top: 8px;
+  font: 11px/1.4 var(--lab-mono);
+  background: var(--lab-bg);
+  color: var(--lab-fg);
+  border: 1px solid var(--lab-border);
+  border-radius: 4px;
+}
+
+/* ---- Timeline ---------------------------------------------------------- */
+.timeline-summary {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.timeline-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--lab-mono);
+}
+
+.tl-lane {
+  stroke: var(--lab-border);
+  stroke-width: 1;
+}
+
+.tl-label {
+  fill: var(--lab-muted);
+  font-size: 10px;
+}
+
+.tl-zero {
+  stroke: var(--lab-accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+
+.tl-trigger line {
+  stroke: var(--lab-accent);
+  stroke-width: 3;
+}
+
+.tl-note line {
+  stroke: var(--lab-muted);
+  stroke-width: 2;
+}
+
+.tl-paint {
+  stroke: var(--lab-muted);
+  stroke-width: 1.5;
+}
+
+.tl-paint.early {
+  stroke: var(--lab-early);
+  stroke-width: 3;
+}
+
+.tl-paint.flash {
+  stroke: var(--lab-flash);
+  stroke-width: 4;
+}
+
+.tl-span.measure {
+  fill: var(--lab-accent);
+}
+
+.tl-span.coordinator {
+  fill: var(--lab-safe);
+  opacity: 0.7;
+}
+
+.tl-span.open {
+  opacity: 0.35;
+}
+
+.tl-tick line {
+  stroke: var(--lab-muted);
+}
+
+.tl-tick text {
+  fill: var(--lab-muted);
+  font-size: 9px;
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@wardic/example-layout-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Client-only Vite + Solid lab measuring whether each layout-trigger path paints the destination box before Wardic's measure pass (issue #2).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wardic/core": "workspace:*",
+    "@wardic/dom": "workspace:*",
+    "@wardic/solid": "workspace:*",
+    "effect": "4.0.0-beta.71",
+    "solid-js": "1.9.13"
+  },
+  "devDependencies": {
+    "vite": "6.4.2",
+    "vite-plugin-solid": "2.11.12"
+  }
+}
