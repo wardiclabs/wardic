@@ -22,6 +22,11 @@ direnv exec . bun run --filter='@wardic/example-layout-lab' dev
 
 Open the URL Vite prints. Press **Run** on a scenario card and read its verdict.
 
+To share a session, press **Save log to repo**. The dev server writes the whole
+log to `examples/layout-lab/logs/<timestamp>-<scheduler mode>.json` (gitignored),
+with no size limit, unlike a paste. The button only exists under `bun run dev`.
+**Copy log JSON** still works anywhere.
+
 ## Method
 
 - **Post-paint sampling.** One `requestAnimationFrame` per frame, and each rAF

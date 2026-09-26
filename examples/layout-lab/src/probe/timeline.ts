@@ -22,7 +22,8 @@
  *
  * @module
  */
-import type * as Exit from "effect/Exit"
+import * as Cause from "effect/Cause"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Tracer from "effect/Tracer"
@@ -99,8 +100,13 @@ export interface SpanRecord {
    * `Exit`, a DOM node) its `String()` form.
    */
   readonly attributes: Readonly<Record<string, unknown>>
-  /** The `_tag` of the span's `Exit` (`"Success"` or `"Failure"`). Absent while in flight. */
-  readonly exitTag?: string
+  /**
+   * How the span ended: `"Success"`, `"Failure"`, or `"Interrupted"` for a failure
+   * whose cause is interruption only. Interruption is how the projection coordinator
+   * stops once every node settles, so it is the expected end, not an error. Absent
+   * while in flight.
+   */
+  readonly exitTag?: "Success" | "Failure" | "Interrupted"
   /** The scheduler mode the span was captured under. */
   readonly scheduler: LabScheduler
 }
@@ -305,7 +311,7 @@ class LabSpan extends Tracer.NativeSpan {
     if (record.end !== undefined) return
     record.end = end
     record.attributes = copyEntries(this.attributes, 0)
-    record.exitTag = exit._tag
+    record.exitTag = Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause) ? "Interrupted" : exit._tag
     this.onEnd(record)
   }
 }

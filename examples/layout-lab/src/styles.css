@@ -391,8 +391,15 @@ body {
   font-size: 14px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .panel-note {
   margin: 6px 0 0;
+  overflow-wrap: anywhere;
   color: var(--lab-muted);
   font-size: 12px;
 }
