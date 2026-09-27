@@ -26,7 +26,8 @@
  * @module
  */
 import { wardic } from "@wardic/solid"
-import { batch, createSignal, For, type JSX, onCleanup } from "solid-js"
+import { batch, createSignal, type JSX, onCleanup } from "solid-js"
+import { CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
 import type { ScenarioDef } from "./types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
@@ -40,12 +41,6 @@ type Mutation = "move" | "resize" | "move+resize"
 
 /** How Wardic is told about the write. */
 type NotifyPath = "layoutDependency" | "content-only"
-
-/** One select option: the value used in the trigger label, and its display text. */
-interface Option<T extends string> {
-  readonly value: T
-  readonly label: string
-}
 
 /** The timing choices, in the order the select lists them. */
 const TIMINGS: ReadonlyArray<Option<Timing>> = [
@@ -69,43 +64,12 @@ const PATHS: ReadonlyArray<Option<NotifyPath>> = [
   { value: "content-only", label: "content-only (RO)" },
 ]
 
-/**
- * The value in `options` that equals `value`, or `fallback` when none does. Turns a
- * select's untyped string back into its union type.
- */
-const pick = <T extends string>(options: ReadonlyArray<Option<T>>, value: string, fallback: T): T =>
-  options.find((o) => o.value === value)?.value ?? fallback
-
 /** The View root: the controls, the stage, the Run button and a note, stacked. */
 const ROOT_STYLE: JSX.CSSProperties = {
   display: "flex",
   "flex-direction": "column",
   "align-items": "flex-start",
   gap: "8px",
-}
-
-/** The controls row. */
-const CONTROLS_STYLE: JSX.CSSProperties = {
-  display: "flex",
-  "flex-wrap": "wrap",
-  gap: "12px",
-}
-
-/** One labelled control: the label text above its select. */
-const CONTROL_STYLE: JSX.CSSProperties = {
-  display: "flex",
-  "flex-direction": "column",
-  gap: "2px",
-  color: "var(--lab-muted)",
-  "font-size": "12px",
-}
-
-/** The always-shown note. Static text, so changing a select never reflows the page. */
-const NOTE_STYLE: JSX.CSSProperties = {
-  margin: "0",
-  "max-width": "320px",
-  color: "var(--lab-muted)",
-  "font-size": "12px",
 }
 
 /** The box's absolute position for state A or B: top 24px, left 24px or 184px. */
@@ -123,31 +87,6 @@ const contentStyle = (big: boolean): JSX.CSSProperties => {
   const size = `${big ? 112 : 64}px`
   return { width: size, height: size, flex: "none" }
 }
-
-/**
- * A labelled select over `options`. Every prop is a static value: the View passes
- * `value={signal()}`, and Solid's prop getter keeps it reactive.
- */
-const Select = <T extends string>(props: {
-  readonly label: string
-  readonly name: string
-  readonly options: ReadonlyArray<Option<T>>
-  readonly value: T
-  readonly onChange: (value: T) => void
-}): JSX.Element => (
-  <label style={CONTROL_STYLE}>
-    {props.label}
-    <select name={props.name} onChange={(e) => props.onChange(pick(props.options, e.currentTarget.value, props.value))}>
-      <For each={props.options}>
-        {(o) => (
-          <option value={o.value} selected={props.value === o.value}>
-            {o.label}
-          </option>
-        )}
-      </For>
-    </select>
-  </label>
-)
 
 /**
  * The scenario View. Run reads the three selects, cancels any write still pending

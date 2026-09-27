@@ -260,6 +260,12 @@ body {
   color: var(--lab-flash);
 }
 
+/* Dashed, like the ghost it draws: the FLIP started off its path (#13). */
+.verdict-wrong-origin {
+  color: var(--lab-flash);
+  border-style: dashed;
+}
+
 .outcome-surprise {
   color: var(--lab-surprise-bg);
   background: var(--lab-surprise);

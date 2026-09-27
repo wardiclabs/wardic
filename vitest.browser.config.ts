@@ -8,8 +8,8 @@ import { defineConfig } from "vitest/config"
 //   - @wardic/solid  (packages/solid/vitest.browser.config.ts) — rendered
 //     components + projection/FLIP against real layout (vite-plugin-solid).
 //
-// The fast node tier (`bun run test`, vitest.config.ts) stays @wardic/core +
-// @wardic/test only. Both gates must pass in CI.
+// The fast node tier (`bun run test`, vitest.config.ts) stays pure logic:
+// @wardic/core, @wardic/test and the layout lab's classifier. Both gates must pass in CI.
 export default defineConfig({
   test: {
     projects: [
