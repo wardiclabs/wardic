@@ -56,6 +56,10 @@ import type { Clock } from "./Clock.ts"
  * withdraws a pending request. `requestAnimationFrame`/`cancelAnimationFrame` in
  * DOM and native. `Handle` is whatever `requestFrame` returns.
  *
+ * `requestFrame` must call back LATER, never inside `requestFrame` itself: the
+ * Refresh frame loop requests each next frame from inside the current callback and
+ * does not yield in between, so a source that answered synchronously would spin.
+ *
  * Tier 2 (ADR-0008): for Environment authors.
  */
 export interface RefreshFrameSource<Handle = unknown> {
@@ -155,13 +159,16 @@ export const makeRefreshFrameClock = <Handle>(
       }).pipe(Effect.andThen(Effect.forkScoped(loop, { startImmediately: true })), Effect.asVoid),
     })
 
-    // Subscribing acquires the (shared, ref-counted) Refresh frame loop, then
-    // reads dt from the tick PubSub.
+    // Subscribing joins the tick PubSub, then acquires the (shared, ref-counted)
+    // Refresh frame loop. Join FIRST: a Cold start's acquire queues the Priming
+    // tick, and a fiber that yields to the scheduler between the two steps (its op
+    // budget ran out) would otherwise let that tick publish to nobody.
     const ticks = Stream.unwrap(
       Effect.gen(function* () {
         yield* Effect.logDebug("wardic.clock: subscribe")
+        const subscription = yield* PubSub.subscribe(tickPubSub)
         yield* RcRef.get(loopRef)
-        return Stream.fromPubSub(tickPubSub)
+        return Stream.fromSubscription(subscription)
       }),
     ).pipe(Stream.withSpan("wardic.clock"))
 

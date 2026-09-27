@@ -37,7 +37,7 @@ const coldS1: Fixture = {
 }
 
 /**
- * Scenario 8, a warm start (its driver spring keeps the Clock ticking). It also
+ * Scenario 8, a warm start (its animated dot keeps the Clock ticking). It also
  * flashes (#2): sample 0 is the destination, painted before the measure pass, so
  * it is not part of the hold.
  */
@@ -98,6 +98,16 @@ describe("heldFramesOf", () => {
     // A run whose first sample already moved holds 0.
     const moved = heldFramesOf(coldS1.samples.slice(3), coldS1.origin, { from: "trigger", at: 0 }, NEAR_PX)
     expect(moved?.heldFrames).toBe(0)
+  })
+
+  it("keeps the measure frame when its delivery shares the pass's millisecond (Firefox's coarse timer)", () => {
+    // Firefox headless, 2026-09-27: trigger 5100, measure pass 5100, frame K delivered 5100.
+    const origin: VisualBox = { left: 0, top: 0, width: W, height: W }
+    const samples: ReadonlyArray<PaintSample> = [
+      { t: 5100, frame: 1, box: origin },
+      { t: 5117, frame: 2, box: { ...origin, left: 5 } },
+    ]
+    expect(heldFramesOf(samples, origin, { from: "measure", at: 5100 }, NEAR_PX)?.heldFrames).toBe(1)
   })
 
   it("is undefined when nothing moved after the anchor", () => {

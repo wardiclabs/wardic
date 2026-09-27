@@ -158,7 +158,7 @@ export interface Timeline {
   readonly onSpanEnd: (cb: (s: SpanRecord) => void) => () => void
   /**
    * How many recorded spans named `name` have started and not yet ended. Kept as a
-   * running count, not read from the span ring, so a long-lived span (a driver's
+   * running count, not read from the span ring, so a long-lived span (a background spring's
    * `wardic.clock`) still counts after newer spans have pushed its record out.
    * `wardic.clock` > 0 means the Clock is ticking: each subscription to
    * `Clock.ticks` runs inside one, for exactly as long as it holds the Clock.

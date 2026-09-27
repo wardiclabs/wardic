@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { MixedScheduler } from "effect/Scheduler"
+import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { AtomRegistry } from "effect/unstable/reactivity"
@@ -66,15 +66,19 @@ const makeHarness = async () => {
     ),
     { scheduler },
   )
-  const subscribe = () => {
+  /** Subscribe in a fresh fiber. A small `maxOpsBeforeYield` makes it yield to the scheduler every few steps. */
+  const subscribe = (options?: { readonly maxOpsBeforeYield?: number }) => {
     const received: Array<number> = []
+    const consume = Stream.runForEach(clock.ticks, (dt) =>
+      Effect.sync(() => {
+        frames.events.push("deliver")
+        received.push(dt)
+      }),
+    )
     const fiber = Effect.runFork(
-      Stream.runForEach(clock.ticks, (dt) =>
-        Effect.sync(() => {
-          frames.events.push("deliver")
-          received.push(dt)
-        }),
-      ),
+      options?.maxOpsBeforeYield === undefined
+        ? consume
+        : consume.pipe(Effect.provideService(MaxOpsBeforeYield, options.maxOpsBeforeYield)),
       { scheduler },
     )
     return { received, fiber, close: () => Effect.runPromise(Fiber.interrupt(fiber), { scheduler }) }
@@ -107,6 +111,15 @@ describe("makeRefreshFrameClock", () => {
     await endOfTask()
     expect(sub.received).toEqual([NOMINAL_DT]) // before any Refresh frame or setTimeout(0)
     expect(h.frames.requests()).toBe(1) // then the loop asks for its first Refresh frame
+    await sub.close()
+  })
+
+  it("a subscriber that yields to the scheduler while subscribing still gets its Priming tick", async () => {
+    const h = await makeHarness()
+    const sub = h.subscribe({ maxOpsBeforeYield: 5 }) // below ~5 the fiber livelocks: it yields before every op
+    for (let i = 0; i < 100 && sub.received.length === 0; i++) await nextTimeout()
+    expect(sub.received).toEqual([NOMINAL_DT]) // the Priming tick, not a late first Refresh frame
+    expect(h.frames.pending.size).toBe(1) // and no Refresh frame has fired yet
     await sub.close()
   })
 
@@ -212,6 +225,8 @@ describe("makeRefreshFrameClock", () => {
     await nextTimeout()
     expect(sub.received).toEqual([])
     expect(h.frames.pending.size).toBe(0)
+    expect(h.frames.requests()).toBe(0) // the loop was stopped while it waited for the Priming tick
+    expect(h.frames.cancels()).toBe(0)
   })
 
   it("writes the time and dt Atoms: the Priming tick sets dt only, Refresh frames set both", async () => {

@@ -29,7 +29,7 @@ const CSS = `
   .cs-dot{position:absolute;top:150px;left:0;width:20px;height:20px}
 `
 
-/** A layout box that jumps 200px right when `moved()` flips, plus an optional driver dot. */
+/** A layout box that jumps 200px right when `moved()` flips, plus an optional background spring. */
 const FlipStage = (props: { env: WardicEnv; moved: () => boolean; drive?: () => number }) => (
   <WardicProvider env={props.env}>
     <style>{CSS}</style>

@@ -31,8 +31,8 @@ export interface Held {
 
 /**
  * The run's hold before its first motion, or `undefined` when no sample after the
- * anchor moved. For a `measure` anchor at time `at`, only samples delivered after
- * `at` count; for a `trigger` anchor, every sample does (the sampler's samples are
+ * anchor moved. For a `measure` anchor at time `at`, only samples delivered at or
+ * after `at` count; for a `trigger` anchor, every sample does (the sampler's samples are
  * exactly the frames painted after the trigger).
  */
 export const heldFramesOf = (
@@ -43,7 +43,10 @@ export const heldFramesOf = (
 ): Held | undefined => {
   let held = 0
   for (const sample of samples) {
-    if (anchor.from === "measure" && sample.t <= anchor.at) continue
+    // `<`, not `<=`: Firefox coarsens `performance.now()` to whole ms, so the measure
+    // frame's own delivery can share the pass's millisecond. A frame painted before
+    // the pass was delivered a whole frame earlier, so a tie is always the measure frame.
+    if (anchor.from === "measure" && sample.t < anchor.at) continue
     if (boxDistance(sample.box, origin) <= nearPx) {
       held++
       continue
