@@ -61,6 +61,23 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
 - **framesToMeasure.** The number of paints between the trigger mark and the start
   of the first `wardic.projection.measure` span after it, captured by a custom
   Effect `Tracer`. `0` means the measure pass ran before the next paint.
+- **held (`heldFrames`, `clock`).** Issue #14's metric. `heldFrames` counts the
+  painted frames that sit at the origin (within 1px) before the first moved frame,
+  starting with the first frame painted after the measure pass began (`heldFrom:
+  "measure"`), so a flash frame before the pass is not counted. The measure pass
+  itself paints the origin, so 1 is the minimum for a layout run. Scenario 9 has no
+  measure pass and counts from the trigger (`heldFrom: "trigger"`), so its minimum
+  is 0. `msToFirstMotion` is the time from that anchor to the first moved frame.
+  `clock` says whether the Clock was already ticking at the trigger: `warm` when a
+  `wardic.clock` span was open (each subscription to `Clock.ticks` runs inside one),
+  `cold` when the run had to start it. The card shows both, e.g. `1 · cold`.
+  Two things to know when reading it. A run's settle test (1px) is looser than a
+  spring's rest test, so for about a second after a run ends its spring is still
+  ticking: Run again inside that second and the new run reads `warm`. And
+  retargeting the only running animation (scenario 9's second Run, or scenario 1
+  pressed mid-animation) interrupts it before the new one subscribes, which stops
+  and restarts the Clock: that run reads `warm` but gets a Cold start's Priming tick.
+  Wait about a second between runs for a clean `cold`.
 
 ## Scenarios
 
@@ -76,6 +93,7 @@ Predictions and their reasoning are shown on each card, not here.
 | 6 | IntersectionObserver callback | An IntersectionObserver callback, fired by a scroll, writes the `layoutDependency` signal. |
 | 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`: on the page, in one `layoutScroll` box, or across two (the Container select). |
 | 8 | Solid effect during gate batch | A `createEffect` that runs inside the flush gate's `batch()` writes the `layoutDependency` signal. |
+| 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no measure pass. |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. |
 
 Scenario 7 is issue #13's check. Before the fix, the `layoutId` switch seeded the
@@ -88,6 +106,17 @@ Container mode should grade `clean` whatever the page or box scroll. `split` is 
 mode where the two twins' containers differ, so it is the one that tells the fix
 apart from folding each twin with its own container's scroll (which would be off
 by `scrollA − scrollB`).
+
+Issue #14 is checked with the `held` column, on every scenario. Before the fix, a
+run that had to start the Clock (a Cold start: `cold`) held 3 frames on a layout
+run and 2 on scenario 9, because the Clock's first tick came a frame late and
+carried `dt = 0`; a run that joined a ticking Clock (`warm`) held 1. With the fix,
+the Clock delivers a Priming tick at the end of the task that starts it (ADR-0017),
+so every layout run holds 1, cold or warm, and scenario 9 holds 0 cold and 1 warm
+(a warm spring's first value comes from the next tick, which the flush gate paints
+a frame later, ADR-0006). The **Keep Clock warm** panel runs a background spring so
+any scenario can be run warm on purpose. The result should be the same in both
+scheduler modes (below): the Clock never goes through Effect's scheduler.
 
 ## Scheduler note
 

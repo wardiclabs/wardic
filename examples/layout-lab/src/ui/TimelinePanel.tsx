@@ -19,6 +19,7 @@
 import { For, type JSX, Show } from "solid-js"
 import type { LabRun } from "../lab/lab.ts"
 import type { SpanRecord, TimelineWindow } from "../probe/timeline.ts"
+import { formatHeld } from "./ScenarioCard.tsx"
 
 /** A run plus the timeline slice captured when it ended. */
 export interface TimelineSelection {
@@ -136,7 +137,7 @@ const TimelineChart = (props: { readonly selection: TimelineSelection }): JSX.El
     <div class="timeline">
       <p class="timeline-summary">
         <strong>{run().scenarioId}</strong> · {run().trigger} · {run().verdict} · framesToMeasure{" "}
-        <strong>{run().framesToMeasure ?? "?"}</strong>
+        <strong>{run().framesToMeasure ?? "?"}</strong> · held <strong>{formatHeld(run())}</strong>
       </p>
       <svg
         class="timeline-svg"

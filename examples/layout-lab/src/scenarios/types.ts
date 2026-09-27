@@ -90,7 +90,7 @@ export interface ScenarioContext {
 export interface ScenarioDef {
   /** A unique kebab-case id. It is also the View root's `data-scenario` value. */
   readonly id: string
-  /** The display order: 1-8 for the numbered scenarios, 0 for free-play. */
+  /** The display order: 1-9 for the numbered scenarios, 0 for free-play. */
   readonly index: number
   /** A short human-readable title. */
   readonly title: string
@@ -100,6 +100,12 @@ export interface ScenarioDef {
   readonly prediction: Prediction
   /** Why the author expects that: the event-loop reasoning behind the prediction. */
   readonly rationale: string
+  /**
+   * What the run's `heldFrames` (issue #14) counts from: `measure` (the default) is
+   * the first `wardic.projection.measure` pass after the trigger; `trigger` is for
+   * a scenario with no measure pass (scenario 9's spring).
+   */
+  readonly heldFramesFrom?: "measure" | "trigger"
   /**
    * The scenario's UI: a `.stage` holding the watched element, and a Run button.
    * It receives its context as a static prop (see the scenario rules above).

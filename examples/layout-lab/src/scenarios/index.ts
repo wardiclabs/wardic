@@ -1,5 +1,5 @@
 /**
- * The scenario registry, in display order: scenarios 1-8, then free-play.
+ * The scenario registry, in display order: scenarios 1-9, then free-play.
  *
  * @module
  */
@@ -12,7 +12,8 @@ import { s5 } from "./s5-animation-complete.tsx"
 import { s6 } from "./s6-io-callback.tsx"
 import { s7 } from "./s7-layout-id-switch.tsx"
 import { s8 } from "./s8-effect-in-gate-batch.tsx"
+import { s9 } from "./s9-cold-spring.tsx"
 import type { ScenarioDef } from "./types.ts"
 
 /** Every scenario the lab mounts: s1-s8, then free-play. */
-export const scenarios: ReadonlyArray<ScenarioDef> = [s1, s2, s3, s4, s5, s6, s7, s8, freePlay]
+export const scenarios: ReadonlyArray<ScenarioDef> = [s1, s2, s3, s4, s5, s6, s7, s8, s9, freePlay]
