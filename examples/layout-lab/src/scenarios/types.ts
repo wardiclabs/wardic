@@ -36,6 +36,9 @@ import type { Component } from "solid-js"
  */
 export type Prediction = "safe" | "flash-risk" | "unknown"
 
+/** JSON-safe facts a scenario attaches to a run at trigger time (see `markTrigger`). */
+export type TriggerMeta = Readonly<Record<string, string | number | boolean>>
+
 /**
  * The lab-side hooks a scenario View receives. One context is bound to one
  * scenario id, and every mark or run it starts is attributed to that id.
@@ -58,10 +61,14 @@ export interface ScenarioContext {
    *
    * It synchronously snapshots the watched element's origin box, starts a
    * sampling run, and drops a `trigger` mark labelled `source` on the timeline.
+   * The run records `source` as its `trigger`, and `meta` (if given) as its
+   * `triggerMeta`, so a saved log says what each run was set up with.
    *
    * @param source a short label naming the trigger path, e.g. `"click"`.
+   * @param meta JSON-safe facts about the run's setup, read at trigger time (e.g.
+   *   scenario 7's container scroll offsets).
    */
-  readonly markTrigger: (source: string) => void
+  readonly markTrigger: (source: string, meta?: TriggerMeta) => void
   /**
    * Drops an auxiliary `note` mark on the timeline, labelled `label`. It starts
    * no run. Use it for the steps that lead up to the trigger (for example the

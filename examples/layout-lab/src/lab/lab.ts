@@ -18,7 +18,7 @@ import {
   type Verdict,
 } from "../probe/paint-sampler.ts"
 import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, type Timeline } from "../probe/timeline.ts"
-import type { Prediction, ScenarioContext, ScenarioDef } from "../scenarios/types.ts"
+import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
 
 /** How many completed runs the lab keeps (oldest dropped first). */
 const MAX_RUNS = 200
@@ -33,7 +33,9 @@ const COORDINATOR_SPAN = "wardic.projection.coordinator"
  * How an observed verdict compares with the scenario's prediction.
  *
  * - `as-predicted`: `safe` + `clean`, or `flash-risk` + `flash`.
- * - `surprise`: `safe` + `flash`/`snap`, or `flash-risk` + `clean`/`snap`.
+ * - `surprise`: `safe` + `flash`/`snap`, or `flash-risk` + `clean`/`snap`, or
+ *   `wrong-origin` under either prediction (no scenario predicts a FLIP that starts
+ *   off its path).
  * - `n/a`: an `unknown` prediction, or a verdict that says nothing about flashing
  *   (`no-move`, `timeout`, `interrupted`).
  */
@@ -45,6 +47,13 @@ export type Outcome = "as-predicted" | "surprise" | "n/a"
  * survives a JSON round trip unchanged.
  */
 export interface LabRun extends RunResult {
+  /**
+   * The label the scenario passed to `markTrigger`: the trigger path, plus any setup
+   * it names (free play's `timing/mutation/path`, scenario 7's container mode).
+   */
+  readonly trigger: string
+  /** The `meta` the scenario passed to `markTrigger`, when it passed one. */
+  readonly triggerMeta?: TriggerMeta
   /** The scenario's prediction at the time of the run. */
   readonly prediction: Prediction
   /**
@@ -124,7 +133,7 @@ export interface Lab {
   readonly subscribe: (cb: (run: LabRun) => void) => () => void
   /** Flash totals since the last reset. */
   readonly flashCounts: () => FlashCounts
-  /** Zeroes the flash counts and removes every flash ghost outline. */
+  /** Zeroes the flash counts and removes every ghost outline (flash and wrong-origin). */
   readonly resetCounts: () => void
   /** Builds the copy-log payload. It is JSON-round-trip safe. */
   readonly log: (meta: { readonly frameStretchMs: number }) => LabLog
@@ -134,6 +143,7 @@ export interface Lab {
 export const outcomeOf = (prediction: Prediction, verdict: Verdict): Outcome => {
   if (prediction === "unknown") return "n/a"
   if (verdict === "no-move" || verdict === "timeout" || verdict === "interrupted") return "n/a"
+  if (verdict === "wrong-origin") return "surprise"
   if (prediction === "safe") return verdict === "clean" ? "as-predicted" : "surprise"
   return verdict === "flash" ? "as-predicted" : "surprise"
 }
@@ -144,6 +154,8 @@ const MEASURE_SPAN = "wardic.projection.measure"
 /** A started run's trigger, kept until the run ends. */
 interface PendingTrigger {
   readonly mark: Mark
+  /** The `meta` passed to `markTrigger`, if any. */
+  readonly meta: TriggerMeta | undefined
   /** `ticker.frame()` when the trigger was marked. */
   readonly frame: number
   /**
@@ -236,6 +248,9 @@ export const makeLab = (options: LabOptions): Lab => {
     const frames = trigger === undefined ? undefined : framesToMeasureOf(trigger, result)
     const run: LabRun = {
       ...result,
+      trigger: trigger?.mark.label ?? "",
+      // Omitted rather than `undefined`, so the run round-trips through JSON.
+      ...(trigger?.meta === undefined ? {} : { triggerMeta: trigger.meta }),
       prediction,
       framesToMeasure: frames ?? null,
       outcome: outcomeOf(prediction, result.verdict),
@@ -262,7 +277,7 @@ export const makeLab = (options: LabOptions): Lab => {
       watched.set(id, el)
       if (sampler.activeScenarioId() === id) sampler.retarget(el)
     },
-    markTrigger: (source) => {
+    markTrigger: (source, meta) => {
       const el = watched.get(id)
       if (el === undefined) {
         timeline.mark("note", `no watched element (${source})`, id)
@@ -271,7 +286,7 @@ export const makeLab = (options: LabOptions): Lab => {
       }
       const mark = timeline.mark("trigger", source, id)
       const frame = ticker.frame()
-      const pending: PendingTrigger = { mark, frame, lateEarlierFrames: [], frameDeliveredAt: undefined }
+      const pending: PendingTrigger = { mark, meta, frame, lateEarlierFrames: [], frameDeliveredAt: undefined }
       pendingTriggers.set(mark.t, pending)
       if (deliveredFrame < frame) awaitingDelivery.add(pending)
       sampler.begin({ el, scenarioId: id, triggerAt: mark.t })

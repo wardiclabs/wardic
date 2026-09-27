@@ -46,6 +46,7 @@ import {
   initSpring,
   MAX_DT,
   mixBox,
+  nextMicrotask,
   placeRelativeBox,
   type Point,
   PROJECTION_KEY,
@@ -55,8 +56,11 @@ import {
   springStep,
 } from "@wardic/core"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as FiberSet from "effect/FiberSet"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox } from "./measure.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
@@ -130,19 +134,11 @@ export interface RegisterNodeOptions {
   readonly springOptions: () => SpringOptions
   /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
-   * lead/follow stack so coexisting twins crossfade. Omitted for a plain `layout`
-   * node.
+   * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
+   * same task seed its first measure (a Switch, *Amendment (#13)*). Omitted for a
+   * plain `layout` node.
    */
   readonly layoutId?: string
-  /**
-   * The switch-gap seed origin (ADR-0010): the leaver's last box, **captured by
-   * the binding synchronously at mount** (the accessor returns that captured value,
-   * NOT a live registry read — by the first measure pass the registry slot may be
-   * cleared). When it yields a box AND no live twin is in the stack, the node's
-   * FIRST measure animates FROM that box to its own (a switch), instead of the
-   * no-FLIP identity seed.
-   */
-  readonly seedOrigin?: () => Box | undefined
   /**
    * Mark this element as a scroll container (ADR-0012, Motion's `layoutScroll`):
    * its scroll offset is sampled at measure and folded out of its descendants'
@@ -221,8 +217,14 @@ interface NodeState {
   readonly springOptions: () => SpringOptions
   /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
   readonly layoutId: string | undefined
-  /** Switch-gap seed-origin accessor (returns the binding's mount-captured leaver box). */
-  readonly seedOrigin: (() => Box | undefined) | undefined
+  /**
+   * The Switch seed handed to this node (ADR-0010 *Amendment (#13)*): a disposed
+   * twin's box in the **Root frame**, taken from the per-`layoutId` hold at
+   * registration or handed over directly by a twin disposed before this node's
+   * first measure. Consumed (and cleared) by that first measure, which rebases it
+   * into this node's Scroll-stable frame. `undefined` otherwise.
+   */
+  seed: Box | undefined
   /** Marked a scroll container (ADR-0012): its scroll is sampled + folded out of descendants. */
   readonly isScroll: boolean
   /** This scroll container's offset, sampled at measure (`{0,0}` for a non-scroll node). */
@@ -278,6 +280,30 @@ interface NodeState {
 }
 
 /**
+ * A just-disposed `layoutId` node's content-frame box, kept until the end of the
+ * current task so a presence `handleLeave` arriving AFTER dispose can re-introduce
+ * the element as a leaving Follower (ADR-0010). `reintroduced` records whether it did.
+ */
+interface RecentLeaver {
+  readonly layoutId: string
+  readonly box: Box
+  reintroduced: boolean
+}
+
+/**
+ * A disposed twin's Switch seed, in the **Root frame**, held per `layoutId` until
+ * the end of the current task (ADR-0010 *Amendment (#13)*). `consumed` records
+ * whether an enterer picked it up at registration.
+ */
+interface HeldSeed {
+  readonly box: Box
+  consumed: boolean
+}
+
+/** The origin point: no scroll to add. */
+const ZERO_POINT: Point = { x: 0, y: 0 }
+
+/**
  * Build a projection system against a binding's `runtime` (providing {@link Clock})
  * and its {@link ProjectionSink} (its flush gate).
  *
@@ -297,8 +323,19 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe).
   let ro: ResizeObserver | undefined
   // A just-disposed `layoutId` node's box, so a presence `handleLeave` arriving
-  // AFTER dispose can re-introduce it as a leaving Follower (cleared next microtask).
-  const recentLeavers = new Map<HTMLElement, { readonly layoutId: string; readonly box: Box }>()
+  // AFTER dispose can re-introduce it as a leaving Follower (cleared at the end of
+  // the task, by the leaver's `endOfTask` hold).
+  const recentLeavers = new Map<HTMLElement, RecentLeaver>()
+  // A disposed twin's Switch seed per `layoutId`, in the Root frame, until the end of
+  // the task (ADR-0010 *Amendment (#13)*). An enterer registering within the task
+  // takes it; a twin already registered but unmeasured gets it handed over directly.
+  // Plain `Map`s keyed by string / element identity — nothing here is Effect-hashed.
+  const heldSeeds = new Map<string, HeldSeed>()
+  // The end-of-task hold fibers. A `FiberSet` (a native `Set`, reference identity)
+  // inside a Scope the system owns: disposing the system closes it, interrupting any
+  // hold still pending.
+  const scope = Scope.makeUnsafe()
+  const taskFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(scope)))
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
@@ -320,6 +357,35 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       annotations !== undefined
         ? Effect.logDebug(`wardic.projection: ${event}`).pipe(Effect.annotateLogs(annotations))
         : Effect.logDebug(`wardic.projection: ${event}`),
+    )
+  }
+
+  /**
+   * Run `expire` at the end of the current task — the next microtask checkpoint,
+   * before any timer, frame or later task — on a traced, interruptible fiber
+   * (ADR-0010 *Amendment (#13)*, option a′). `runFork` evaluates the fiber
+   * synchronously up to `nextMicrotask`, whose `queueMicrotask` resumes it
+   * synchronously inside that microtask — no trip through the Effect scheduler, so
+   * the window ends at the same checkpoint in browsers, React Native and the test
+   * harness. Keep `expire` synchronous: a `yieldNow` or a child fork before it would
+   * move the end of the window onto the scheduler (`setTimeout(0)` in browsers).
+   * `expire` returns the outcome attributes, annotated onto `span` before it ends.
+   */
+  const endOfTask = (
+    span: string,
+    attributes: Record<string, unknown>,
+    expire: () => Record<string, unknown>,
+  ): void => {
+    FiberSet.addUnsafe(
+      taskFibers,
+      runtime.runFork(
+        nextMicrotask.pipe(
+          Effect.map(expire),
+          Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
+          Effect.tapCause((cause) => Effect.logError(`wardic.projection: ${span} failed`, cause)),
+          Effect.withSpan(span, { attributes }),
+        ),
+      ),
     )
   }
 
@@ -601,35 +667,161 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   /**
-   * Fold scroll out of `box` (ADR-0012) → a scroll-stable (content-frame) box. ADDS
-   * each `layoutScroll` ancestor's scroll (Motion's `removeElementScroll` adds the
-   * offset back to undo the scroll's visual effect), stopping at a `position: fixed`
-   * scroll-root ancestor, and adds the document/page scroll unless the node sits in a
-   * scroll root. No-op on the non-scroll path (no isScroll ancestors + zero page
-   * scroll ⇒ box unchanged), so it never perturbs ordinary layout animation.
+   * The scroll the fold adds to `node`'s box (ADR-0012): each `layoutScroll`
+   * ancestor's scroll (Motion's `removeElementScroll` adds the offset back to undo
+   * the scroll's visual effect), stopping at a `position: fixed` scroll-root
+   * ancestor, plus `rootScroll` unless the node sits in a scroll root. Reads the last
+   * pass's scroll samples. With `ZERO_POINT` as `rootScroll` it is the containers'
+   * share alone: what rebases a Root-frame Switch seed into the node's Scroll-stable
+   * frame.
    */
-  const foldScroll = (node: NodeState, box: Box, documentScroll: Point): Box => {
-    if (node.isScroll && node.isScrollRoot) return box // a fixed node is itself viewport-relative
+  const scrollOffset = (node: NodeState, rootScroll: Point): Point => {
+    if (node.isScroll && node.isScrollRoot) return ZERO_POINT // a fixed node is itself viewport-relative
     let dx = 0
     let dy = 0
-    let pageApplies = true
+    let rootApplies = true
     for (let p = node.parent; p !== undefined; p = p.parent) {
       if (!p.isScroll) continue
       dx += p.scroll.x
       dy += p.scroll.y
       if (p.isScrollRoot) {
         // A fixed scroll-root ancestor: its own scroll applies, but its subtree is
-        // viewport-relative — nothing OUTSIDE it (further containers, the page) does.
-        pageApplies = false
+        // viewport-relative — nothing OUTSIDE it (further containers, the root) does.
+        rootApplies = false
         break
       }
     }
-    if (pageApplies) {
-      dx += documentScroll.x
-      dy += documentScroll.y
+    if (rootApplies) {
+      dx += rootScroll.x
+      dy += rootScroll.y
     }
-    if (dx === 0 && dy === 0) return box
-    return { x: { min: box.x.min + dx, max: box.x.max + dx }, y: { min: box.y.min + dy, max: box.y.max + dy } }
+    return dx === 0 && dy === 0 ? ZERO_POINT : { x: dx, y: dy }
+  }
+
+  /**
+   * Fold scroll out of `box` (ADR-0012) → a scroll-stable (content-frame) box. No-op
+   * on the non-scroll path (no isScroll ancestors + zero root scroll ⇒ box
+   * unchanged), so it never perturbs ordinary layout animation.
+   */
+  const foldScroll = (node: NodeState, box: Box, rootScroll: Point): Box => {
+    const offset = scrollOffset(node, rootScroll)
+    return offset === ZERO_POINT ? box : offsetBox(box, offset)
+  }
+
+  /**
+   * Whether the root's scroll is part of `node`'s frame (ADR-0012; CONTEXT.md **Root
+   * frame**): not when the node, or one of its `layoutScroll` ancestors, is a
+   * `position: fixed` scroll root. Walks the LIVE DOM ancestry and reads computed
+   * style — it serves a node at dispose, when the last pass's parent links and
+   * samples may be stale — so call it inside a read window.
+   */
+  const rootScrollApplies = (node: NodeState): boolean => {
+    if (node.isScroll && isScrollRoot(node.element)) return false
+    for (let el = node.element.parentElement; el !== null; el = el.parentElement) {
+      if (elementToNode.get(el)?.isScroll === true && isScrollRoot(el)) return false
+    }
+    return true
+  }
+
+  /**
+   * `node`'s box in the **Root frame** (CONTEXT.md; ADR-0012 *Amendment (#13)*): the
+   * viewport box plus the root's scroll, nested `layoutScroll` scroll left as
+   * rendered — Motion's `measuredBox`. While the element is connected it is read
+   * fresh: own transform cleared and every read inside one write → read → restore
+   * window, so it costs the one forced layout the binding's seed read used to. Once
+   * disconnected it is derived from the last measured (Scroll-stable) box by taking
+   * the containers' share of the fold back out — at each container's LIVE scroll
+   * while it is still connected (its last-pass sample otherwise), so a container
+   * scrolled since the last pass doesn't shift the seed. The root's scroll needs no
+   * such care: the Root frame carries it, so it cancels. `undefined` when there is
+   * neither.
+   */
+  const rootFrameBox = (node: NodeState): Box | undefined => {
+    const el = node.element
+    if (el.isConnected) {
+      const saved = el.style.transform
+      el.style.transform = ""
+      try {
+        const viewport = boundsToBox(readLayoutBox(el))
+        return rootScrollApplies(node) ? offsetBox(viewport, measureDocumentScroll()) : viewport
+      } finally {
+        el.style.transform = saved
+      }
+    }
+    const stable = node.layoutBox ?? node.retained
+    if (stable === undefined) return undefined
+    if (node.isScroll && node.isScrollRoot) return stable // a fixed node folds nothing (see scrollOffset)
+    let dx = 0
+    let dy = 0
+    for (let p = node.parent; p !== undefined; p = p.parent) {
+      if (!p.isScroll) continue
+      const scroll = p.element.isConnected ? measureScroll(p.element) : p.scroll
+      dx += scroll.x
+      dy += scroll.y
+      if (p.isScrollRoot) break
+    }
+    return dx === 0 && dy === 0 ? stable : offsetBox(stable, { x: -dx, y: -dy })
+  }
+
+  /**
+   * The twin a disposed node's Switch seed goes straight to: the newest other live
+   * node in its stack that has registered but not yet been measured — it mounted
+   * first (the register-then-dispose ordering), so it has no hold left to read at
+   * registration. `undefined` when there is none.
+   */
+  const pendingTwinOf = (node: NodeState, layoutId: string): NodeState | undefined => {
+    const stack = stacks.get(layoutId)
+    if (stack === undefined) return undefined
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const twin = stack[i]
+      if (twin !== node && !twin.leaving && twin.retained === undefined) return twin
+    }
+    return undefined
+  }
+
+  /**
+   * Hold a disposed `layoutId` node's two end-of-task records (ADR-0010 *Amendment
+   * (#13)*): the content-frame box a presence `handleLeave` may re-introduce, and the
+   * Switch seed in the Root frame — handed straight to a twin that registered first,
+   * or held per `layoutId` for an enterer that registers within this task. ONE
+   * `wardic.projection.leaverHold` fiber per leaver expires both at the end of the
+   * task and annotates what became of them.
+   */
+  const holdLeaver = (node: NodeState, layoutId: string): void => {
+    const box = node.layoutBox ?? node.retained
+    const recent: RecentLeaver | undefined = box !== undefined ? { layoutId, box, reintroduced: false } : undefined
+    if (recent !== undefined) recentLeavers.set(node.element, recent)
+
+    const seedBox = rootFrameBox(node)
+    let handedOff = false
+    let held: HeldSeed | undefined
+    if (seedBox !== undefined) {
+      const twin = pendingTwinOf(node, layoutId)
+      if (twin !== undefined) {
+        twin.seed = seedBox
+        handedOff = true
+      } else {
+        held = { box: seedBox, consumed: false }
+        heldSeeds.set(layoutId, held)
+      }
+    }
+    if (recent === undefined && seedBox === undefined) return
+
+    endOfTask("wardic.projection.leaverHold", { layoutId }, () => {
+      if (recent !== undefined && recentLeavers.get(node.element) === recent) recentLeavers.delete(node.element)
+      let seed = handedOff ? "handed-off" : "none"
+      if (held !== undefined) {
+        if (held.consumed) {
+          seed = "consumed"
+        } else if (heldSeeds.get(layoutId) === held) {
+          heldSeeds.delete(layoutId)
+          seed = "expired"
+        } else {
+          seed = "replaced" // a later leaver with the same layoutId took the slot
+        }
+      }
+      return { seed, reintroduced: recent?.reintroduced ?? false }
+    })
   }
 
   // --- The measure pass (reads), run in the gate's pre-flush read-queue. ------
@@ -718,6 +910,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       const newBox = foldScroll(node, viewportBoxes[i], documentScroll)
       const prev = node.retained
       node.retained = newBox
+      // A Switch seed only ever serves a node's first measure (ADR-0010 *Amendment
+      // (#13)*); take it now, whichever branch below handles the node.
+      const seed = node.seed
+      node.seed = undefined
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
       // stable box (layoutBox + lastTarget) so descendants project relative to it,
@@ -739,7 +935,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         // (1) CROSSFADE: a LIVE prior twin already in this node's stack → animate
         //     FROM the prior lead's box (the prior twins become Followers locked
         //     onto us, fading out via the stack derive). Takes priority over the
-        //     registry switch seed — the live twin's box is authoritative.
+        //     switch seed — the live twin's box is authoritative.
         const priorLead = priorLeadOf(node)
         const priorBox = priorLead !== undefined ? (priorLead.layoutBox ?? priorLead.retained) : undefined
         if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
@@ -750,17 +946,22 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           active.add(node)
           continue
         }
-        // (2) SWITCH: a `layoutId` enterer whose binding captured a leaver box
-        //     (seedOrigin) — no live twin in the stack — FLIPs from that box to its
-        //     own measured box (a move, no crossfade — the leaver is gone).
-        const seed = node.seedOrigin?.()
-        if (seed !== undefined && !boxesEqual(seed, newBox)) {
-          node.origin = seed
-          node.layoutBox = newBox
-          node.spring = initSpring({ from: 0 }) // progress spring restarts at 0
-          node.animating = true
-          active.add(node)
-          continue
+        // (2) SWITCH: a disposed twin left this node a seed — no live twin in the
+        //     stack. The seed is in the Root frame; rebase it into this node's
+        //     Scroll-stable frame by adding its own `layoutScroll`-ancestor scroll
+        //     (sampled this pass), then FLIP from it to the measured box (a move, no
+        //     crossfade — the leaver is gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
+        if (seed !== undefined) {
+          const containers = scrollOffset(node, ZERO_POINT)
+          const origin = containers === ZERO_POINT ? seed : offsetBox(seed, containers)
+          if (!boxesEqual(origin, newBox)) {
+            node.origin = origin
+            node.layoutBox = newBox
+            node.spring = initSpring({ from: 0 }) // progress spring restarts at 0
+            node.animating = true
+            active.add(node)
+            continue
+          }
         }
         // No seed: seed retained, NO FLIP. Write an identity projection so a layout
         // element is consistently projection-owned from mount (its animated
@@ -919,7 +1120,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     element: el,
     springOptions: () => ({}),
     layoutId,
-    seedOrigin: undefined,
+    seed: undefined,
     retained: box,
     origin: undefined,
     layoutBox: box,
@@ -980,6 +1181,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     const stack = stacks.get(layoutId)
     if (stack === undefined) return false
     const follower = makeFollowerNode(el, layoutId, recent.box, onDone)
+    recent.reintroduced = true
     nodes.add(follower)
     elementToNode.set(el, follower)
     stack.splice(stack.length - 1, 0, follower) // insert below the Lead
@@ -1006,7 +1208,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       element: opts.element,
       springOptions: opts.springOptions,
       layoutId: opts.layoutId,
-      seedOrigin: opts.seedOrigin,
+      seed: undefined,
       retained: undefined,
       origin: undefined,
       layoutBox: undefined,
@@ -1046,6 +1248,13 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         stacks.set(node.layoutId, stack)
       }
       stack.push(node)
+      // Take the Switch seed a twin disposed earlier in this task left behind.
+      const held = heldSeeds.get(node.layoutId)
+      if (held !== undefined) {
+        node.seed = held.box
+        held.consumed = true
+        heldSeeds.delete(node.layoutId)
+      }
     }
     if (ro === undefined && typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => scheduleMeasure())
@@ -1106,15 +1315,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         // it for the crossfade); a plain dispose must NOT tear it down here.
         if (node.leaving) return
         debug("dispose node", { id: node.id, layoutId: node.layoutId })
-        // Record the box so a presence handleLeave arriving AFTER this dispose can
-        // re-introduce the leaver as a Follower (bounded — cleared next microtask).
-        if (node.layoutId !== undefined) {
-          const box = node.layoutBox ?? node.retained
-          if (box !== undefined) {
-            recentLeavers.set(node.element, { layoutId: node.layoutId, box })
-            queueMicrotask(() => recentLeavers.delete(node.element))
-          }
-        }
+        // Hold the leaver's end-of-task records before it leaves the stack: the box
+        // a presence handleLeave arriving AFTER this dispose re-introduces, and its
+        // Switch seed for a twin (ADR-0010 *Amendment (#13)*).
+        if (node.layoutId !== undefined) holdLeaver(node, node.layoutId)
         ro?.unobserve(node.element)
         elementToNode.delete(node.element)
         active.delete(node)
@@ -1139,6 +1343,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   const dispose: ProjectionSystem["dispose"] = () => {
     debug("dispose system", { nodes: nodes.size })
     stopTicking()
+    // Interrupt any end-of-task hold still pending, then drop what they held.
+    runtime.runFork(Scope.close(scope, Exit.void))
+    heldSeeds.clear()
+    recentLeavers.clear()
     ro?.disconnect()
     ro = undefined
     active.clear()

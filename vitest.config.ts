@@ -2,8 +2,10 @@ import { defineConfig } from "vitest/config"
 
 // Fast node test tier — run via `bun run test`.
 //
-// Scope: @wardic/core + @wardic/test ONLY. These are pure logic (no DOM), so
-// they run in the `node` environment with no Solid JSX transform and no browser.
+// Scope: @wardic/core + @wardic/test, plus the layout lab's classifier tests
+// (examples/layout-lab/test — pure functions from a module that touches no DOM at
+// import). All of it is pure logic (no DOM), so it runs in the `node` environment
+// with no Solid JSX transform and no browser.
 //
 // Everything DOM-related lives in the canonical browser tier (run via
 // `bun run test:browser`, vitest.browser.config.ts):
@@ -19,6 +21,7 @@ export default defineConfig({
     include: [
       "packages/core/test/**/*.test.ts",
       "packages/test/test/**/*.test.ts",
+      "examples/layout-lab/test/**/*.test.ts",
     ],
   },
 })

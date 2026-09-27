@@ -48,8 +48,8 @@
  *
  * The ticker runs one rAF per frame for the page's lifetime. With no active run the
  * sampler's post-paint listener records the frame number and returns: no layout
- * read, no allocation. The module touches no DOM at evaluation time, so it can be
- * imported under bun to test `classify`.
+ * read, no allocation. The module touches no DOM at evaluation time, so the node
+ * test tier can import it to test `classify` (`test/classify.test.ts`).
  *
  * @module
  */
@@ -208,11 +208,15 @@ export const boxDistance = (a: VisualBox, b: VisualBox): number =>
  *   the element was closer to the origin again (teleport-and-return).
  * - `snap`: the first painted frame after the trigger already showed the
  *   destination and nothing returned: no FLIP was visible.
+ * - `wrong-origin`: the first painted frame was off the origin-to-destination path
+ *   by more than `wrongOriginPx`: the FLIP started somewhere the element never was
+ *   (issue #13's scroll-offset seed painted it ~1300px away). Not judged for a run
+ *   that started mid-flight (see {@link RunResult.startedMidFlight}).
  * - `no-move`: origin and destination are closer than `minMovePx`.
  * - `timeout`: the box had not settled `timeoutMs` after the trigger.
  * - `interrupted`: `begin()` or `cancel()` ended the run before it settled.
  */
-export type Verdict = "clean" | "flash" | "snap" | "no-move" | "timeout" | "interrupted"
+export type Verdict = "clean" | "flash" | "snap" | "wrong-origin" | "no-move" | "timeout" | "interrupted"
 
 /** The pixel thresholds {@link classify} uses. */
 export interface Thresholds {
@@ -220,6 +224,8 @@ export interface Thresholds {
   readonly nearPx: number
   /** A run whose origin and destination are closer than this did not move. */
   readonly minMovePx: number
+  /** A first sample further than this {@link pathDistance} off the path is `wrong-origin`. */
+  readonly wrongOriginPx: number
 }
 
 /** What {@link classify} decides from the samples alone. */
@@ -228,21 +234,71 @@ export interface Classification {
   readonly verdict: Exclude<Verdict, "timeout" | "interrupted">
   /** For `flash` only: the index of the first sample that showed the destination. */
   readonly teleportIndex?: number
+  /** For `wrong-origin` only: the first sample minus the origin, per field. */
+  readonly originOffset?: VisualBox
 }
 
 /** How many samples after a destination frame {@link classify} looks for the return. */
 const RETURN_WINDOW = 3
 
 /**
- * Classifies one run's painted samples. Pure: no DOM access, so it runs under bun.
- * Checks run in this order:
+ * How far `sample` lies off the straight path from `origin` to `destination`: the
+ * {@link boxDistance} between `sample` and its projection onto that segment.
+ *
+ * The projection uses all four box fields (`left`, `top`, `width`, `height`) as one
+ * vector, because a FLIP moves and resizes with a single progress value: every frame
+ * of a correct animation is `origin + t * (destination - origin)` in all four at
+ * once. `t` is the least-squares fit over the four fields, clamped to [0, 1], so a
+ * sample before the origin or past the destination is measured against that end.
+ * A zero-length path (origin equals destination) projects onto the origin.
+ */
+export const pathDistance = (sample: VisualBox, origin: VisualBox, destination: VisualBox): number => {
+  const dLeft = destination.left - origin.left
+  const dTop = destination.top - origin.top
+  const dWidth = destination.width - origin.width
+  const dHeight = destination.height - origin.height
+  const lengthSq = dLeft * dLeft + dTop * dTop + dWidth * dWidth + dHeight * dHeight
+  const along =
+    lengthSq === 0
+      ? 0
+      : ((sample.left - origin.left) * dLeft +
+          (sample.top - origin.top) * dTop +
+          (sample.width - origin.width) * dWidth +
+          (sample.height - origin.height) * dHeight) /
+        lengthSq
+  const t = Math.min(1, Math.max(0, along))
+  return boxDistance(sample, {
+    left: origin.left + t * dLeft,
+    top: origin.top + t * dTop,
+    width: origin.width + t * dWidth,
+    height: origin.height + t * dHeight,
+  })
+}
+
+/** `a - b`, per field. */
+const boxOffset = (a: VisualBox, b: VisualBox): VisualBox => ({
+  left: a.left - b.left,
+  top: a.top - b.top,
+  width: a.width - b.width,
+  height: a.height - b.height,
+})
+
+/**
+ * Classifies one run's painted samples. Pure: no DOM access, so it runs in the node
+ * test tier. Checks run in this order:
  *
  * 1. `no-move` when `boxDistance(origin, destination) < minMovePx`.
  * 2. `flash` when some sample `s[i]` is within `nearPx` of the destination and some
  *    `s[j]` with `i < j <= i + 3` is closer to the origin than to the destination.
  *    `teleportIndex` is the first such `i`.
  * 3. `snap` when the first sample is already within `nearPx` of the destination.
- * 4. `clean` otherwise (including an empty sample list, which the sampler never
+ * 4. `wrong-origin` when the first sample's {@link pathDistance} is more than
+ *    `wrongOriginPx`, unless `startedMidFlight`. `originOffset` is that sample
+ *    minus the origin. A run that started while the element was still moving has
+ *    a first frame one frame of the OLD motion past the origin (the origin is read
+ *    at the trigger; the element coasts one more frame before the new FLIP takes
+ *    over), so its origin cannot be judged this way and the check is skipped.
+ * 5. `clean` otherwise (including an empty sample list, which the sampler never
  *    produces: a settled run holds at least `settleFrames` samples).
  *
  * The return test is "closer to the origin", not "within `nearPx` of the origin",
@@ -255,12 +311,15 @@ const RETURN_WINDOW = 3
  * @param origin the box `begin()` read, before the layout-mutating write.
  * @param samples the painted boxes, oldest first.
  * @param destination the settled box (the last sample).
+ * @param startedMidFlight whether the run began by cutting short a still-active run
+ *   of the same scenario (the element was likely still moving): skips check 4.
  */
 export const classify = (
   origin: VisualBox,
   samples: ReadonlyArray<VisualBox>,
   destination: VisualBox,
   thresholds: Thresholds,
+  startedMidFlight = false,
 ): Classification => {
   if (boxDistance(origin, destination) < thresholds.minMovePx) return { verdict: "no-move" }
   for (let i = 0; i < samples.length; i++) {
@@ -275,6 +334,9 @@ export const classify = (
   }
   if (samples.length > 0 && boxDistance(samples[0], destination) <= thresholds.nearPx) {
     return { verdict: "snap" }
+  }
+  if (!startedMidFlight && samples.length > 0 && pathDistance(samples[0], origin, destination) > thresholds.wrongOriginPx) {
+    return { verdict: "wrong-origin", originOffset: boxOffset(samples[0], origin) }
   }
   return { verdict: "clean" }
 }
@@ -298,11 +360,12 @@ const removeGhost = (scenarioId: string): void => {
 }
 
 /**
- * Outlines where a flash frame painted the element: a fixed-position, dashed,
- * click-through box labelled with the scenario id. It goes on `document.body`,
- * outside every `.stage`, so it cannot reflow a scenario. Being fixed-position, it
- * lines up with the flash only while the page stays at the scroll offset the
- * sample was taken at.
+ * Outlines a frame worth seeing after the fact: the teleport frame of a `flash`, or
+ * the first frame of a `wrong-origin` run. A fixed-position, dashed, click-through
+ * box labelled with the scenario id. It goes on `document.body`, outside every
+ * `.stage`, so it cannot reflow a scenario. Being fixed-position, it lines up with
+ * that frame only while the page stays at the scroll offset the sample was taken
+ * at.
  */
 const drawGhost = (scenarioId: string, box: VisualBox): void => {
   removeGhost(scenarioId)
@@ -334,8 +397,8 @@ const drawGhost = (scenarioId: string, box: VisualBox): void => {
 }
 
 /**
- * Removes every flash ghost, for example when the lab resets its flash counts. A
- * ghost is also removed by the next `begin()` for its scenario.
+ * Removes every ghost, for example when the lab resets its flash counts. A ghost is
+ * also removed by the next `begin()` for its scenario.
  */
 export const clearGhosts = (): void => {
   for (const ghost of ghosts.values()) ghost.remove()
@@ -375,6 +438,16 @@ export interface RunResult {
   readonly verdict: Verdict
   /** The box `begin()` read, before the layout-mutating write. */
   readonly origin: VisualBox
+  /** `window.scrollX` when `begin()` ran. */
+  readonly scrollX: number
+  /** `window.scrollY` when `begin()` ran. */
+  readonly scrollY: number
+  /**
+   * Whether `begin()` cut short a still-active run of the same scenario: the element
+   * was most likely still moving at the trigger, so its first frame is one frame of
+   * the old motion past `origin` and the `wrong-origin` check is skipped.
+   */
+  readonly startedMidFlight: boolean
   /**
    * The last sample's box: the settled box, or the latest one for a timeout or an
    * interruption. It is `origin` when there are no samples.
@@ -384,6 +457,8 @@ export interface RunResult {
   readonly samples: ReadonlyArray<PaintSample>
   /** For `flash` only: the index into `samples` of the first destination frame. */
   readonly teleportIndex?: number
+  /** For `wrong-origin` only: the first sample minus `origin`, per field. */
+  readonly originOffset?: VisualBox
 }
 
 /** Tuning for {@link makePaintSampler}. Any field left out takes its default. */
@@ -396,6 +471,8 @@ export interface PaintSamplerOptions {
   readonly nearPx?: number
   /** A move smaller than this is `no-move`. Default 8. */
   readonly minMovePx?: number
+  /** A first sample further than this off the origin-to-destination path is `wrong-origin`. Default 8. */
+  readonly wrongOriginPx?: number
 }
 
 /** The defaults {@link makePaintSampler} fills in. */
@@ -404,6 +481,7 @@ export const DEFAULT_PAINT_SAMPLER_OPTIONS: Required<PaintSamplerOptions> = {
   timeoutMs: 4000,
   nearPx: 1,
   minMovePx: 8,
+  wrongOriginPx: 8,
 }
 
 /** What {@link PaintSampler.begin} needs to start a run. */
@@ -462,6 +540,9 @@ interface ActiveRun {
   readonly scenarioId: string
   readonly triggerAt: number
   readonly origin: VisualBox
+  readonly scrollX: number
+  readonly scrollY: number
+  readonly startedMidFlight: boolean
   /** `ticker.frame()` when `begin()` ran. */
   readonly startFrame: number
   readonly samples: Array<PaintSample>
@@ -488,7 +569,8 @@ interface RunEndEntry {
  * watched element's box (see the module doc for how the first frame is decided).
  * The run settles once the last `settleFrames` samples lie within `nearPx` of each
  * other; the destination is the last sample, and {@link classify} gives the
- * verdict. A `flash` also draws a ghost at the teleport frame's box. A run that has
+ * verdict. A `flash` also draws a ghost at the teleport frame's box, and a
+ * `wrong-origin` at the first sample's box. A run that has
  * not settled `timeoutMs` after `triggerAt` ends as `timeout`. It does not settle
  * while its first frame is still undecided (in practice the probe reports within a
  * frame; the timeout still bounds it).
@@ -504,7 +586,8 @@ export const makePaintSampler = (
   const timeoutMs = options.timeoutMs ?? DEFAULT_PAINT_SAMPLER_OPTIONS.timeoutMs
   const nearPx = options.nearPx ?? DEFAULT_PAINT_SAMPLER_OPTIONS.nearPx
   const minMovePx = options.minMovePx ?? DEFAULT_PAINT_SAMPLER_OPTIONS.minMovePx
-  const thresholds: Thresholds = { nearPx, minMovePx }
+  const wrongOriginPx = options.wrongOriginPx ?? DEFAULT_PAINT_SAMPLER_OPTIONS.wrongOriginPx
+  const thresholds: Thresholds = { nearPx, minMovePx, wrongOriginPx }
 
   let runEndEntries: ReadonlyArray<RunEndEntry> = []
   let active: ActiveRun | undefined
@@ -512,12 +595,15 @@ export const makePaintSampler = (
   // first one: a begin() before then counts as ambiguous, and the probe decides.
   let paintedFrame = 0
 
-  /** Ends `run` exactly once and delivers its result. Stale calls are no-ops. */
+  /**
+   * Ends `run` exactly once and delivers its result. Stale calls are no-ops.
+   * `detail` carries the classifier's per-verdict fields.
+   */
   const end = (
     run: ActiveRun,
     verdict: Verdict,
     endedAt: number,
-    teleportIndex?: number,
+    detail: Omit<Classification, "verdict"> = {},
   ): void => {
     if (active !== run) return
     active = undefined
@@ -528,19 +614,27 @@ export const makePaintSampler = (
     run.held = undefined
     const { samples } = run
     const destination = samples.length > 0 ? samples[samples.length - 1].box : run.origin
+    const { teleportIndex, originOffset } = detail
     const result: RunResult = {
       scenarioId: run.scenarioId,
       triggerAt: run.triggerAt,
       endedAt,
       verdict,
       origin: run.origin,
+      scrollX: run.scrollX,
+      scrollY: run.scrollY,
+      startedMidFlight: run.startedMidFlight,
       destination,
       samples,
       // Omitted rather than `undefined`, so the result round-trips through JSON.
       ...(teleportIndex === undefined ? {} : { teleportIndex }),
+      ...(originOffset === undefined ? {} : { originOffset }),
     }
     if (verdict === "flash" && teleportIndex !== undefined) {
       drawGhost(run.scenarioId, samples[teleportIndex].box)
+    }
+    if (verdict === "wrong-origin" && samples.length > 0) {
+      drawGhost(run.scenarioId, samples[0].box)
     }
     for (const entry of runEndEntries) {
       try {
@@ -620,8 +714,8 @@ export const makePaintSampler = (
       const { samples } = run
       const destination = samples[samples.length - 1].box
       const boxes = samples.map((s) => s.box)
-      const { verdict, teleportIndex } = classify(run.origin, boxes, destination, thresholds)
-      end(run, verdict, t, teleportIndex)
+      const { verdict, ...detail } = classify(run.origin, boxes, destination, thresholds, run.startedMidFlight)
+      end(run, verdict, t, detail)
       return
     }
     if (t - run.triggerAt >= timeoutMs) end(run, "timeout", t)
@@ -630,6 +724,10 @@ export const makePaintSampler = (
   const begin: PaintSampler["begin"] = ({ el, scenarioId, triggerAt }) => {
     // Read first, before any listener of an interrupted run can touch the DOM.
     const origin = readVisualBox(el)
+    const { scrollX, scrollY } = window
+    // A still-active run of this scenario has not settled: the element is most likely
+    // still moving, so this run starts mid-flight (read before the loop below ends it).
+    const startedMidFlight = active !== undefined && active.scenarioId === scenarioId
     const startFrame = ticker.frame()
     const startFramePending = paintedFrame < startFrame
     // A run-end listener may itself call begin(); whatever it started is superseded
@@ -640,6 +738,9 @@ export const makePaintSampler = (
       scenarioId,
       triggerAt,
       origin,
+      scrollX,
+      scrollY,
+      startedMidFlight,
       startFrame,
       samples: [],
       el,

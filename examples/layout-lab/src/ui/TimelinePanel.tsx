@@ -135,7 +135,7 @@ const TimelineChart = (props: { readonly selection: TimelineSelection }): JSX.El
   return (
     <div class="timeline">
       <p class="timeline-summary">
-        <strong>{run().scenarioId}</strong> · {run().verdict} · framesToMeasure{" "}
+        <strong>{run().scenarioId}</strong> · {run().trigger} · {run().verdict} · framesToMeasure{" "}
         <strong>{run().framesToMeasure ?? "?"}</strong>
       </p>
       <svg

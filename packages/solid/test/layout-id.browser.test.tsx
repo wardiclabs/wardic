@@ -1,9 +1,11 @@
 // Shared-element (`layoutId`) FLIP tests in a REAL browser. The old happy-dom
 // version mocked getBoundingClientRect with scripted boxes; here the swap is
-// verified by REAL measured positions. The pure registry-ownership unit test
-// (makeSharedLayoutRegistry) is environment-agnostic and kept as-is.
+// verified by REAL measured positions. The switch seed and its hand-off live in the
+// projection engine (ADR-0010 *Amendment (#13)*), so these assert painted positions
+// only; the scroll / container / swap-ordering cases are in
+// layout-id-scroll.browser.test.tsx.
 import { cleanup, render } from "@solidjs/testing-library"
-import { AnimatePresence, makeSharedLayoutRegistry, SharedLayoutContext, wardic, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
 import { createSignal, Show } from "solid-js"
@@ -87,59 +89,6 @@ it("reserved projection props (layoutScroll/layoutRoot/layoutAnchor) are typed, 
   expect(el.getAttribute("layoutId")).toBeNull()
 })
 
-it("makeSharedLayoutRegistry: setBox/getBox/isOwner/clearIfOwner ownership semantics (pure)", () => {
-  const reg = makeSharedLayoutRegistry()
-  const owner1 = {}
-  const owner2 = {}
-  const box1 = { x: 20, y: 0, left: 20, top: 0, right: 120, bottom: 40, width: 100, height: 40 }
-  const box2 = { x: 300, y: 0, left: 300, top: 0, right: 400, bottom: 40, width: 100, height: 40 }
-
-  expect(reg.getBox("id")).toBeUndefined()
-  expect(reg.isOwner("id", owner1)).toBe(false)
-
-  reg.setBox("id", box1, owner1)
-  expect(reg.getBox("id")).toEqual(box1)
-  expect(reg.isOwner("id", owner1)).toBe(true)
-  expect(reg.isOwner("id", owner2)).toBe(false)
-
-  // Non-owner clear is a no-op.
-  reg.clearIfOwner("id", owner2)
-  expect(reg.getBox("id")).toEqual(box1)
-
-  // Twin re-claim moves ownership.
-  reg.setBox("id", box2, owner2)
-  expect(reg.isOwner("id", owner1)).toBe(false)
-  expect(reg.getBox("id")).toEqual(box2)
-
-  // Stale clear by the prior owner is a no-op; the current owner CAN clear.
-  reg.clearIfOwner("id", owner1)
-  expect(reg.getBox("id")).toEqual(box2)
-  reg.clearIfOwner("id", owner2)
-  expect(reg.getBox("id")).toBeUndefined()
-})
-
-it("lone unmount BOUNDS the registry — the slot is cleared next microtask", async () => {
-  const reg = makeSharedLayoutRegistry()
-  const [shown, setShown] = createSignal(true)
-  render(() => (
-    <WardicProvider env={DomLive}>
-      {styled()}
-      <SharedLayoutContext.Provider value={reg}>
-        <Show when={shown()}>
-          <wardic.div data-flip class="ind a" layoutId="lone" />
-        </Show>
-      </SharedLayoutContext.Provider>
-    </WardicProvider>
-  ))
-  await raf()
-  await raf()
-  expect(reg.getBox("lone")).toBeDefined() // mounted: slot holds the element's box
-
-  setShown(false)
-  await Promise.resolve() // deferred clearIfOwner fires (no twin re-claimed)
-  expect(reg.getBox("lone")).toBeUndefined()
-})
-
 it("cleanup re-measures the FINAL box — a same-frame twin FLIPs from where the leaver ACTUALLY ended", async () => {
   const [atB, setAtB] = createSignal(false)
   const [aMoved, setAMoved] = createSignal(false)
@@ -177,34 +126,39 @@ it("cleanup re-measures the FINAL box — a same-frame twin FLIPs from where the
   expect(Math.abs(leftOf(b) - base - 300)).toBeLessThan(2)
 })
 
-it("mount-before-cleanup: the later twin owns the slot; the leaver does NOT clobber or clear it", async () => {
-  const reg = makeSharedLayoutRegistry()
+it("mount-before-cleanup: a leaver that unmounts after its twin settled does not move the twin", async () => {
   const [showA, setShowA] = createSignal(true)
-  render(() => (
+  const { container } = render(() => (
     <WardicProvider env={DomLive}>
       {styled()}
-      <SharedLayoutContext.Provider value={reg}>
-        <div style={{ position: "relative" }}>
-          <Show when={showA()}>
-            <wardic.div data-a class="ind a" layoutId="dual" />
-          </Show>
-          <wardic.div data-b class="ind b" layoutId="dual" />
-        </div>
-      </SharedLayoutContext.Provider>
+      <div data-root style={{ position: "relative" }}>
+        <Show when={showA()}>
+          <wardic.div data-a class="ind a" layoutId="dual" />
+        </Show>
+        <wardic.div data-b class="ind b" layoutId="dual" />
+      </div>
     </WardicProvider>
   ))
-  await raf()
-  await raf()
-  // B mounted AFTER A -> B owns the slot; its box (~left 300) is held.
-  const owned = reg.getBox("dual")
-  expect(owned).toBeDefined()
-  const ownedLeft = owned!.left
+  const root = container.querySelector("[data-root]") as HTMLElement
+  const b = container.querySelector("[data-b]") as HTMLElement
+  const base = leftOf(root)
+  // B mounted after A, so B leads, crossfading from A's box. Wait for that crossfade to
+  // start (B measured) and then settle home at +300 — unmounting A before B's first
+  // measure would instead hand B the switch seed (the register-then-dispose path).
+  await until(() => transformOf(b).includes("translate"))
+  await until(() => Math.abs(leftOf(b) - base - 300) < 1 && !transformOf(b).includes("translate"))
+  expect(Math.abs(leftOf(b) - base - 300)).toBeLessThan(1)
 
-  setShowA(false) // A leaves; isOwner(A) is false -> A's cleanup does nothing
-  await Promise.resolve()
-  // B (still alive) keeps owning the slot — its box survives (not cleared/clobbered).
-  expect(reg.getBox("dual")).toBeDefined()
-  expect(reg.getBox("dual")!.left).toBeCloseTo(ownedLeft, 0)
+  // A (a Follower) leaves AFTER B's first measure: A's seed is held for the task,
+  // but B is already measured, so nothing reaches it and it stays put.
+  setShowA(false)
+  let worst = 0
+  for (let i = 0; i < 12; i++) {
+    await raf()
+    worst = Math.max(worst, Math.abs(leftOf(b) - base - 300))
+  }
+  expect(worst).toBeLessThan(1)
+  expect(transformOf(b)).not.toContain("translate")
 })
 
 const op = (el: HTMLElement): number => Number(el.style.opacity || "1")

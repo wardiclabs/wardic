@@ -40,10 +40,24 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   than to the destination: the element was painted at its new place, then the FLIP
   transform pulled it back. The first destination frame is outlined with a dashed
   ghost box so it can be seen after the fact.
+- **Wrong origin.** A run is `wrong-origin` when its first painted frame lies more
+  than 8px off the straight path from the origin to the destination: the FLIP
+  started somewhere the element never was (issue #13). The run records that
+  frame's offset from the origin as `originOffset`, and the first frame gets the
+  same dashed ghost as a flash. A run that starts while the previous run of the
+  same scenario is still going (Run pressed mid-animation) is marked
+  `startedMidFlight` and not judged this way: the element coasts one more frame on
+  its old motion before the new FLIP takes over, so its first frame legitimately
+  sits a step past the origin.
 - **Other verdicts.** `clean`: the FLIP started from the origin with no
   destination frame first. `snap`: the first sample is already at the destination
   and it stays there (no FLIP was visible). `no-move`, `timeout` and
   `interrupted` mean the run says nothing about flashing.
+- **What each run records.** Besides the samples and the verdict: `trigger`, the
+  label the scenario passed to `markTrigger` (free play's `timing/mutation/path`,
+  scenario 7's `layoutId-switch/<container>`); `triggerMeta`, any facts it passed
+  with it (scenario 7's container `scrollTop`s); and `scrollX`/`scrollY`, the page
+  scroll at the trigger. A `wrong-origin` offset can be checked against them.
 - **framesToMeasure.** The number of paints between the trigger mark and the start
   of the first `wardic.projection.measure` span after it, captured by a custom
   Effect `Tracer`. `0` means the measure pass ran before the next paint.
@@ -60,15 +74,20 @@ Predictions and their reasoning are shown on each card, not here.
 | 4 | Change inside rAF | A `requestAnimationFrame` callback writes the `layoutDependency` signal. |
 | 5 | On Wardic animation complete | The end of the projection coordinator span (the finished FLIP) writes the signal back. |
 | 6 | IntersectionObserver callback | An IntersectionObserver callback, fired by a scroll, writes the `layoutDependency` signal. |
-| 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`. |
+| 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`: on the page, in one `layoutScroll` box, or across two (the Container select). |
 | 8 | Solid effect during gate batch | A `createEffect` that runs inside the flush gate's `batch()` writes the `layoutDependency` signal. |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. |
 
-Run scenario 7 with the page scrolled to the top. The `layoutId` switch seeds the
-entering twin from a viewport-relative box (`measureLayoutBox`), while the measure
-pass stores boxes with page scroll folded in, so with the page scrolled the twin
-animates from a point offset by the scroll amount. That is a Wardic issue, not a
-lab artifact.
+Scenario 7 is issue #13's check. Before the fix, the `layoutId` switch seeded the
+entering twin from a viewport box while the measure pass stored its box with page
+and container scroll folded in, so the twin's first frame sat off by that whole
+fold: the run grades `wrong-origin`, and its `originOffset.top` equals minus
+(`scrollY` plus the entering twin's container `scrollTop`). With the fix, the seed
+is captured in the Root frame and rebased into the enterer's frame, so every
+Container mode should grade `clean` whatever the page or box scroll. `split` is the
+mode where the two twins' containers differ, so it is the one that tells the fix
+apart from folding each twin with its own container's scroll (which would be off
+by `scrollA − scrollB`).
 
 ## Scheduler note
 

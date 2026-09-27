@@ -1,6 +1,7 @@
 export * from "./stagger.ts"
 export * from "./generators.ts"
 export * from "./time.ts"
+export * from "./microtask.ts"
 export * from "./velocity.ts"
 export * from "./flow.ts"
 export * from "./reduced-motion.ts"
