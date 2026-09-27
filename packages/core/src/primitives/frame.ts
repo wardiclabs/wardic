@@ -59,3 +59,11 @@ export const isPhysicsFrame = (frame: Frame<number>): frame is PhysicsFrame =>
  * 60fps frames (~16ms) are unaffected.
  */
 export const MAX_DT = 0.5
+
+/**
+ * The delta-time (seconds) a Clock reports while it has no measured Refresh frame
+ * interval yet: the Priming tick of a Cold start, and the first Refresh frame after
+ * it (ADR-0017). One frame at 60 Hz — Motion's first-frame `delta = 1000 / 60`
+ * after its frame loop wakes (motion-dom `frameloop/batcher.ts:47-49` @16c6122).
+ */
+export const NOMINAL_DT = 1 / 60
