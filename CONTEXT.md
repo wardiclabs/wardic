@@ -89,7 +89,7 @@ A `Bounds` reading taken via `Probe`, recorded so a later layout change can be a
 _Avoid_: snapshot (reserved), rect, box.
 
 **FLIP** (layout animation):
-Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). Core owns the Invert→Play math as the pure combinator `flip(from: Bounds, to: Bounds)`; the binding owns *when* to measure (a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points) and matching `layoutId`s. Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
+Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). Core owns the Invert→Play math as the pure combinator `flip(from: Bounds, to: Bounds)`; the binding owns *when* to measure (a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points); matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
 _Avoid_: layout (too broad), reflow animation.
 
 **Projection** (the box-based layout model):
@@ -101,7 +101,7 @@ A layout-enabled element's entry in the **projection tree** — a parent link by
 _Avoid_: layout member (the prior flat name), FLIP node.
 
 **Shared layout**:
-A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from the leaver's Measurement, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from the leaver's last Measurement held in a per-`layoutId` registry) and a **Crossfade** (the twins coexist). The cross-element matching and registry are binding orchestration; the per-element box geometry stays in core.
+A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from the leaver's Measurement, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from the leaver's last Measurement, captured in the **Root frame** at the leaver's removal and held by the projection engine until the end of the current task) and a **Crossfade** (the twins coexist). The per-element box geometry stays in core.
 _Avoid_: magic motion, shared element (reserve as the informal gloss only).
 
 **Crossfade**:
@@ -125,8 +125,12 @@ The point (0–1 per axis, default top-left) in a relativeParent that a node anc
 _Avoid_: origin (reserve for the scale transform-origin in the delta math).
 
 **Scroll-stable frame** (`layoutScroll`):
-The coordinate frame a **Projection node**'s box is stored in so scroll never leaks into a layout animation: the viewport box plus the scroll offsets of its scroll-container ancestors (page scroll always; a nested container only when marked `layoutScroll`), sampled at measure. Two measures taken at *different* scrolls then yield the same box if the layout didn't change, so the delta is layout-only. A `position: fixed` element is a **scroll root** — its subtree is viewport-relative and folds in no outer (or page) scroll. Scroll changing *during* a transition is the documented limit (offsets are sampled at measure, not per frame).
+The coordinate frame a **Projection node**'s box is stored in so scroll never leaks into a layout animation: the viewport box plus the scroll offsets of its scroll-container ancestors (the root's scroll always; a nested container only when marked `layoutScroll`), sampled at measure. Two measures taken at *different* scrolls then yield the same box if the layout didn't change, so the delta is layout-only. A `position: fixed` element is a **scroll root** — its subtree is viewport-relative and folds in no outer (or root) scroll. Scroll changing *during* a transition is the documented limit (offsets are sampled at measure, not per frame).
 _Avoid_: scroll compensation, document frame (reserve "stable" for this specific fold).
+
+**Root frame**:
+The coordinate frame **Shared layout** twins are compared in: a box's viewport position plus the scroll of the projection tree's root (the page, in a browser), with nested `layoutScroll` container scroll left as rendered — Motion's `measuredBox`. Unlike the **Scroll-stable frame**, it doesn't depend on which containers a node sits in, so two twins' boxes are directly comparable. A Switch seed is captured in it and converted into the enterer's scroll-stable frame at first measure. A **scroll root** cuts its subtree off from the root's scroll, so no root scroll is added there (ADR-0012, *Amendment (#13)*).
+_Avoid_: page frame, document frame (browser words for the same thing).
 
 ### Environment
 

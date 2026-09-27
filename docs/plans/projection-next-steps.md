@@ -89,9 +89,8 @@ From the ADR-0009 code review (some of the reviewed code has since moved to `@wa
   (`@wardic/dom/projection.ts`) is now split into Motion's pass-separated phases — **write**
   (clear every node's transform) → **read** (boxes + scroll samples + the ADR-0011
   `getComputedStyle` bases) → **write** (restore) → **write** (FLIP detection/seeding) →
-  `deriveAll()`. `measureLayoutBox` keeps its own save/clear/restore for the two single-element
-  `SharedLayoutContext` seed reads in `@wardic/solid/layout.tsx`; the pass reads through the new
-  `readLayoutBox` (raw rect, no reset). Regression:
+  `deriveAll()`. `measureLayoutBox` keeps its own save/clear/restore for lone single-element
+  reads; the pass reads through the new `readLayoutBox` (raw rect, no reset). Regression:
   `packages/solid/test/measure-pass-reset.browser.test.tsx` (real Chromium — happy-dom zeroes
   `getBoundingClientRect`), which diverged by ~276px before the fix.
 - **Measure-pass reset can clamp a `layoutScroll` container (LOW, surfaced by issue #1).** A
