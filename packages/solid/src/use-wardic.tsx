@@ -562,9 +562,10 @@ export function runSpine(opts: RunSpineOptions): void {
       // ONE projection node per element: `layout`, `layoutId`, and/or `layoutScroll`
       // feed the SAME node (no double registration). `layout` is a static enable
       // flag; `layoutId` (static, read once) enrols the node in the engine's
-      // lead/follow stack (crossfade) AND seeds its switch-gap origin from the
-      // SharedLayoutContext registry; `layoutScroll` (static) marks it a scroll
-      // container whose scroll is folded out of its descendants' boxes. All static,
+      // lead/follow stack (crossfade) and lets a twin disposed in the same task seed
+      // it (a Switch, engine-side — ADR-0010 *Amendment (#13)*); `layoutScroll`
+      // (static) marks it a scroll container whose scroll is folded out of its
+      // descendants' boxes. All static,
       // read once — the reserved props layoutRoot/layoutAnchor remain typed-but-no-op
       // (P4).
       const c0 = untrack(cfg)

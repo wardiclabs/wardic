@@ -8,111 +8,20 @@
  * box-projection derive (relative + `treeScale`, nested-correct).
  *
  * `layoutId` shared-element animation (ADR-0010) is wired through the SAME node:
- * the {@link SharedLayoutContext} registry's prior-twin box is captured at mount
- * as the node's `seedOrigin` (the switch-gap — leaver already unmounted), and the
- * `layoutId` is passed so the engine's lead/follow stack can crossfade coexisting
- * twins. The flat delta-key Play (`playFlip`) is gone — one layout model.
+ * the binding passes the `layoutId`, and the engine does the rest — its lead/follow
+ * stack crossfades coexisting twins, and a twin disposed in the same task hands the
+ * enterer its Switch seed, captured in the Root frame (ADR-0010 / ADR-0012
+ * *Amendment (#13)*). The binding keeps no registry and makes no layout reads. The
+ * flat delta-key Play (`playFlip`) is gone — one layout model.
  *
  * Idle = zero cost: nothing is measured until a trigger fires (CONTEXT.md
  * observability convention — hot path stays quiet).
  */
-import { type Bounds, type Box, boundsToBox, type Point, type SpringOptions } from "@wardic/core"
-import { measureLayoutBox, type ProjectionNodeHandle } from "@wardic/dom"
-import { createContext, createEffect, type JSX, on, onCleanup, useContext } from "solid-js"
+import type { Point, SpringOptions } from "@wardic/core"
+import type { ProjectionNodeHandle } from "@wardic/dom"
+import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import type { WardicTransition } from "./use-wardic.tsx"
-
-/**
- * A `layoutId` registry slot: the last box a live member with this id committed
- * (the geometry an entering twin reads to seed its shared-element FLIP), tagged
- * with the OWNER token of the member that wrote it. Held in a mutable cell so a
- * member can update its own box each pass without re-reading the registry, and an
- * entering member reads the LEAVER's box even across the same-frame swap (the
- * leaver writes its box on cleanup, the enterer reads it on mount).
- *
- * The `owner` token disambiguates the two same-frame swap orderings (MEDIUM-1 /
- * MEDIUM-2): a leaver only re-measures / clears the slot when it STILL owns it
- * (`owner === its token`); once a twin re-claims (`setBox` with its own token)
- * the leaver's cleanup is a no-op, so the twin's seed is never clobbered or
- * prematurely cleared. `box`/`owner` `undefined` until the first member measures.
- */
-export interface SharedBox {
-  box: Bounds | undefined
-  /** The token of the member that last wrote `box` (ownership for deferred clear). */
-  owner: object | undefined
-}
-
-/**
- * The shared-layout registry: matches elements that share a `layoutId` for
- * cross-element (shared-element) FLIP — the {@link Shared layout} from CONTEXT.md.
- * A single registry maps each `layoutId` to its last-known box; an entering
- * element seeds its FLIP from the box left by the leaving element with the same
- * id (framer-motion's `layoutId` shared-element animation).
- *
- * Provided AT THE `WardicProvider` ROOT by default — so `layoutId` works with NO
- * `<LayoutGroup>` (Motion parity). A `<LayoutGroup>` MAY re-provide a NESTED
- * `SharedLayoutContext` later to namespace ids per-group (out of scope now — a
- * future phase; an element always resolves the NEAREST registry).
- */
-export interface SharedLayoutContextValue {
-  /** Read the last box recorded for `layoutId` (the seed for an entering twin). */
-  readonly getBox: (id: string) => Bounds | undefined
-  /**
-   * Record `layoutId`'s current box AND claim ownership of the slot with `owner`
-   * (a per-member token). Writing makes `owner` the slot's owner — a later
-   * {@link clearIfOwner} / {@link isOwner} by a DIFFERENT token is a no-op.
-   */
-  readonly setBox: (id: string, box: Bounds, owner: object) => void
-  /** Whether `owner` currently owns `layoutId`'s slot (it wrote the live box). */
-  readonly isOwner: (id: string, owner: object) => boolean
-  /**
-   * Drop `layoutId`'s slot ONLY IF `owner` still owns it (deferred-clear: a
-   * leaver schedules this for next microtask so the slot is bounded UNLESS a twin
-   * re-claims it first, in which case ownership has moved and this is a no-op).
-   */
-  readonly clearIfOwner: (id: string, owner: object) => void
-}
-
-/**
- * Context carrying the nearest {@link SharedLayoutContextValue}. Defaults to
- * `undefined`; `WardicProvider` provides a root registry so `layoutId` resolves
- * with no `<LayoutGroup>` (Motion parity). {@link useSharedLayout} reads it.
- */
-export const SharedLayoutContext = createContext<SharedLayoutContextValue | undefined>(undefined)
-
-/** Read the nearest {@link SharedLayoutContext}, or `undefined` outside a provider. */
-export const useSharedLayout = (): SharedLayoutContextValue | undefined => useContext(SharedLayoutContext)
-
-/**
- * Build a fresh shared-layout registry (a `Map<layoutId, SharedBox>`). Used by
- * `WardicProvider` to seed the root registry; a future `<LayoutGroup>` namespace
- * would build its own nested one.
- */
-export const makeSharedLayoutRegistry = (): SharedLayoutContextValue => {
-  const slots = new Map<string, SharedBox>()
-  const slot = (id: string): SharedBox => {
-    let s = slots.get(id)
-    if (s === undefined) {
-      s = { box: undefined, owner: undefined }
-      slots.set(id, s)
-    }
-    return s
-  }
-  return {
-    getBox: (id) => slots.get(id)?.box,
-    setBox: (id, box, owner) => {
-      const s = slot(id)
-      s.box = box
-      s.owner = owner
-    },
-    isOwner: (id, owner) => slots.get(id)?.owner === owner,
-    clearIfOwner: (id, owner) => {
-      // Only the current owner may clear: a twin that re-claimed the slot (its own
-      // token is now the owner) makes a leaver's scheduled clear a no-op.
-      if (slots.get(id)?.owner === owner) slots.delete(id)
-    },
-  }
-}
 
 /**
  * Resolve a layout transition to the progress spring's options: a tween-typed
@@ -135,8 +44,8 @@ export interface UseLayoutMemberOptions {
   /**
    * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
    * `layout` element. When set, the one node joins the engine's per-`layoutId`
-   * lead/follow stack (crossfade for coexisting twins) AND seeds its switch-gap
-   * origin from the {@link SharedLayoutContext} registry's prior-twin box.
+   * lead/follow stack (crossfade for coexisting twins) and takes a Switch seed from
+   * a twin disposed in the same task — both engine-side (*Amendment (#13)*).
    */
   readonly layoutId?: string
   /**
@@ -161,56 +70,25 @@ export interface UseLayoutMemberOptions {
  * a `layoutDependency` change requests a re-measure. No FLIP on first measure for a
  * plain `layout` node.
  *
- * SHARED-ELEMENT (`layoutId`, ADR-0010). When `layoutId` is set and a
- * {@link SharedLayoutContext} is in scope (the provider root by default):
- *   - SWITCH-GAP seed: read the registry's prior-twin box SYNCHRONOUSLY at mount
- *     and capture it as the node's `seedOrigin` — the engine FLIPs the node from
- *     that box to its own on first measure (when no live twin is in the stack). We
- *     capture NOW, not lazily: the registry slot may be cleared by the time the
- *     measure pass runs.
- *   - CROSSFADE: passing `layoutId` enrols the node in the engine's lead/follow
- *     stack, so a coexisting live twin crossfades (engine-side).
- *
- * OWNERSHIP MODEL (MEDIUM-1 / MEDIUM-2), unchanged from the flat path. This member
- * holds a unique `token`; on mount `setBox(layoutId, myBox, token)` claims the slot.
- * On cleanup, ONLY if it still owns the slot (no twin re-claimed):
- *   (a) MEDIUM-2 — if still connected, re-measure + `setBox(final)` so a same-frame
- *       switch twin seeds from the leaver's FINAL box.
- *   (b) MEDIUM-1 — `queueMicrotask(clearIfOwner)` bounds a lone unmount's slot.
+ * SHARED-ELEMENT (`layoutId`, ADR-0010). Passing `layoutId` is all the binding
+ * does: the engine enrols the node in its lead/follow stack (a coexisting live twin
+ * crossfades) and, when a twin's node is disposed in the same task, seeds this
+ * node's first measure from that twin's Root-frame box (a Switch). Both swap
+ * orderings — the leaver's cleanup before this mount, or after it — resolve
+ * engine-side (ADR-0010 *Amendment (#13)*), so there is no registry, ownership
+ * token or layout read here.
  *
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
   const { element, id, layoutAnchor, layoutDependency, layoutId, layoutRoot, layoutScroll, transition } = opts
   const projection = useWardicProjection()
-  const shared = useSharedLayout()
-
-  // Shared-element switch-gap handoff (ADR-0010 + MEDIUM-1/2). Capture the prior
-  // twin's box NOW as the seed origin, claim the slot, and hand off the final box
-  // (if still owner) + bounded clear on cleanup. `seedOrigin` returns the captured
-  // box (a live registry read at measure time could see a cleared slot).
-  let seedOrigin: (() => Box | undefined) | undefined
-  if (layoutId !== undefined && shared !== undefined) {
-    const token: object = {}
-    const prior = shared.getBox(layoutId)
-    const seedBox = prior !== undefined ? boundsToBox(prior) : undefined
-    seedOrigin = () => seedBox
-    shared.setBox(layoutId, measureLayoutBox(element), token)
-    onCleanup(() => {
-      // A twin re-claimed the slot (mount-before-cleanup) — leave it untouched.
-      if (!shared.isOwner(layoutId, token)) return
-      // Still owner (cleanup-before-mount, or a lone unmount):
-      if (element.isConnected) shared.setBox(layoutId, measureLayoutBox(element), token) // MEDIUM-2
-      queueMicrotask(() => shared.clearIfOwner(layoutId, token)) // MEDIUM-1
-    })
-  }
 
   const handle = projection.register({
     id,
     element,
     springOptions: () => toSpringOptions(transition()),
     ...(layoutId !== undefined ? { layoutId } : {}),
-    ...(seedOrigin !== undefined ? { seedOrigin } : {}),
     ...(layoutScroll === true ? { layoutScroll: true } : {}),
     ...(layoutRoot === true ? { layoutRoot: true } : {}),
     ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
@@ -228,8 +106,9 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
  * drives FLIP — it is a thin wrapper whose `layoutDependency` triggers a full
  * re-measure (a convenience for "re-measure my subtree when this value changes").
  *
- * A future phase repurposes `<LayoutGroup>` for `layoutId` namespacing (a nested
- * shared-layout registry) and as a measure-scope boundary (`layoutRoot`).
+ * A future phase repurposes `<LayoutGroup>` for `layoutId` namespacing (prefixing
+ * its members' ids before they reach the engine, as Motion's `LayoutGroup` does)
+ * and as a measure-scope boundary (`layoutRoot`).
  */
 export function LayoutGroup(props: {
   readonly children: JSX.Element

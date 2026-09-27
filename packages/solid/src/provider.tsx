@@ -21,7 +21,6 @@ import { createContext, onCleanup, useContext } from "solid-js"
 import type { JSX } from "solid-js"
 import { makeProjectionSystem, type ProjectionSystem } from "@wardic/dom"
 import { type FlushGate, makeFlushGate } from "./gate.ts"
-import { makeSharedLayoutRegistry, SharedLayoutContext } from "./layout.tsx"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: all five core
@@ -78,15 +77,12 @@ export function WardicProvider(props: {
   // construction.
   const gate = makeFlushGate(runtime)
 
-  // The shared-layout registry is provided AT THE ROOT (ADR-0005) so `layoutId`
-  // shared-element FLIP works with NO `<LayoutGroup>` (Motion parity). Built
-  // once per provider; a future `<LayoutGroup>` MAY re-provide a nested one to
-  // namespace ids (an element resolves the NEAREST registry).
-  const sharedLayout = makeSharedLayoutRegistry()
-
   // The box-based projection system (ADR-0009) — provider-owned like the gate.
   // It holds the projection nodes + the Clock-driven coordinator; standalone
   // `layout` elements register with it (a future <LayoutGroup> uses the tree too).
+  // It also owns `layoutId` matching end to end — the lead/follow stack AND the
+  // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
+  // `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
   const projection = makeProjectionSystem(runtime, gate)
 
   onCleanup(() => {
@@ -100,9 +96,7 @@ export function WardicProvider(props: {
   })
 
   return (
-    <WardicContext.Provider value={{ runtime, gate, projection }}>
-      <SharedLayoutContext.Provider value={sharedLayout}>{props.children}</SharedLayoutContext.Provider>
-    </WardicContext.Provider>
+    <WardicContext.Provider value={{ runtime, gate, projection }}>{props.children}</WardicContext.Provider>
   )
 }
 

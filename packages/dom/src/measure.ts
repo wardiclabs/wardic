@@ -2,8 +2,7 @@
  * The DOM reads the layout engine takes at measure time (ADR-0005 / ADR-0009 /
  * ADR-0012). Two box readers: {@link readLayoutBox} is the raw rect the projection
  * pass uses (it owns the transform reset at pass level), {@link measureLayoutBox}
- * the self-resetting single-element read the binding's transitional
- * `<LayoutGroup>` path uses. No framework or Effect dependency — pure DOM — so
+ * a self-resetting single-element read for a lone caller. No framework or Effect dependency — pure DOM — so
  * this lives in `@wardic/dom` alongside the projection engine that consumes it (a
  * binding imports it from here).
  */
@@ -36,8 +35,7 @@ export const readLayoutBox = (el: HTMLElement): Bounds => {
  * temporarily blanked, the rect read, then the exact prior value restored — in a
  * `finally`, so a throwing `getBoundingClientRect` can't leave the element reset.
  *
- * Single-element use only (the binding's transitional `SharedLayoutContext` seed
- * reads). It is NOT enough inside a tree pass: `getBoundingClientRect` is
+ * Single-element use only. It is NOT enough inside a tree pass: `getBoundingClientRect` is
  * viewport-space, so an ANCESTOR's transform pollutes the reading too, and the
  * `finally` restores before the next element is read — which is why the projection
  * pass hoists the reset out to pass level rather than widening it here.

@@ -138,19 +138,11 @@ export {
  * box-based projection system: `useLayoutMember` registers the element as a
  * projection node (the provider-owned tree handles nesting + sibling reflow).
  * `<LayoutGroup>` is now a thin grouping boundary whose `layoutDependency`
- * triggers a full re-measure. `layoutId` shared-element FLIP uses the
- * `SharedLayoutContext` registry; `measureLayoutBox` reads an untransformed box.
+ * triggers a full re-measure. `layoutId` shared-element animation (Switch and
+ * Crossfade) is matched entirely by the projection engine (ADR-0010 *Amendment
+ * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
-export {
-  type SharedBox,
-  type SharedLayoutContextValue,
-  type UseLayoutMemberOptions,
-  LayoutGroup,
-  makeSharedLayoutRegistry,
-  SharedLayoutContext,
-  useLayoutMember,
-  useSharedLayout,
-} from "./layout.tsx"
+export { type UseLayoutMemberOptions, LayoutGroup, useLayoutMember } from "./layout.tsx"
 export { measureLayoutBox } from "@wardic/dom"
 
 /**
