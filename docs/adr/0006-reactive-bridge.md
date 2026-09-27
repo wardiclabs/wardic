@@ -14,6 +14,7 @@ To keep per-frame writes cheap at scale (the cost ADR-0002 flagged), writes go t
 
 - Streams remain the single driving model; the per-primitive spans and structured-concurrency cleanup come for free on the flagship path.
 - The reactive path carries a constant one-frame latency versus a synchronous write. This is imperceptible for animation and uniform across elements; consumers needing zero-latency single-shot writes use the imperative `applyTo` path.
+- A Cold start meets this latency with a Priming tick (ADR-0017), so an animation that starts the Clock from idle paints its first moved value as soon as one that joins a running Clock.
 - The central coordinator stays a clean, contract-preserving swap if measurement demands it — the pure steppers being already factored out of the Stream wrappers ([stepper.ts](../../packages/core/src/primitives/stepper.ts)) is what makes that future swap cheap.
 - The gate supports **two sink modes** per registered element: a *signal sink* (set the per-element Solid signal — the default for `wardic.create("div")` / element wraps) and a *commit sink* (`Renderer.commit(el, patch)` via a forwarded ref — used for `wardic.create(Component)` wraps, where the HOC doesn't own the root JSX). Both share the same merge + one-`project`-per-frame + single-`batch()` flush, so batching stays uniform regardless of sink.
 - A future `@wardic/react` binding reuses this shape with React state as the cell and its own flush integration (React already batches); only the cell and flush differ, not the driving model.
