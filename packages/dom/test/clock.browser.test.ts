@@ -1,187 +1,83 @@
-import { Clock } from "@wardic/core"
-import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest"
+import { Clock, NOMINAL_DT } from "@wardic/core"
+import { afterEach, describe, expect, it, vi } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
-import * as Ref from "effect/Ref"
+import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/unstable/reactivity"
 import { ClockDomLive } from "../src/clock.ts"
 
 /**
- * A hand-driven requestAnimationFrame: instead of relying on happy-dom's real
- * frame timing, we capture each scheduled callback so the test advances frames
- * deterministically with explicit timestamps (so dt is exact) and so we can
- * assert ref-counting via call counts on rAF/caf.
+ * `ClockDomLive` is core's `makeRefreshFrameClock` over the browser's REAL
+ * `requestAnimationFrame` / `cancelAnimationFrame` (spied on, not stubbed). The
+ * Clock's own contract — the Priming tick, the dt sequence, ref-counting, and no
+ * Effect-scheduler dependence — is pinned in core's node tests
+ * (`packages/core/test/refresh-frame-clock.test.ts`); these check the wiring: the
+ * real functions are called (detached, so no "Illegal invocation"), and releasing
+ * the last subscriber cancels the pending Refresh frame.
  */
-type RafCallback = (t: number) => void
+const raf = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()))
 
-let pending: Map<number, RafCallback>
-let nextId: number
-let rafSpy: ReturnType<typeof vi.fn>
-let cafSpy: ReturnType<typeof vi.fn>
-
-beforeEach(() => {
-  pending = new Map()
-  nextId = 1
-  rafSpy = vi.fn((cb: RafCallback) => {
-    const id = nextId++
-    pending.set(id, cb)
-    return id
-  })
-  cafSpy = vi.fn((id: number) => {
-    pending.delete(id)
-  })
-  vi.stubGlobal("requestAnimationFrame", rafSpy)
-  vi.stubGlobal("cancelAnimationFrame", cafSpy)
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
-
-/** Fire the single outstanding rAF callback with timestamp `t` (ms). */
-const fireFrame = (t: number): void => {
-  // The driver schedules exactly one frame at a time; grab the latest pending.
-  const entries = [...pending.entries()]
-  const last = entries[entries.length - 1]
-  if (last === undefined) return
-  pending.delete(last[0])
-  last[1](t)
+/** Build ClockDomLive (after any spy is installed — the Layer captures the functions). */
+const buildClock = async () => {
+  const runtime = ManagedRuntime.make(Layer.provideMerge(ClockDomLive, AtomRegistry.layer))
+  const clock = await runtime.runPromise(
+    Effect.gen(function* () {
+      return yield* Clock
+    }),
+  )
+  /** Subscribe synchronously, so the caller can observe the end of the subscribing task. */
+  const subscribe = () => {
+    const received: Array<number> = []
+    const fiber = runtime.runFork(Stream.runForEach(clock.ticks, (dt) => Effect.sync(() => void received.push(dt))))
+    return {
+      received,
+      close: async () => {
+        await runtime.runPromise(Fiber.interrupt(fiber))
+        await runtime.dispose()
+      },
+    }
+  }
+  return { subscribe }
 }
 
-/** Hand the scheduler enough turns for the forked rAF loop / stream to drain. */
-const flush = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
-
-/**
- * Subscribe to `Clock.ticks` in a child fiber, collecting dt values. `close`
- * interrupts the fiber (closing the subscriber scope -> dropping the rAF
- * ref-count) and drains so finalizers run before the test asserts.
- */
-const subscribeTicks = Effect.gen(function* () {
-  const clock = yield* Clock
-  const received = yield* Ref.make<ReadonlyArray<number>>([])
-  const fiber = yield* Effect.forkChild(
-    Stream.runForEach(clock.ticks, (dt) => Ref.update(received, (xs) => [...xs, dt])),
-  )
-  yield* flush
-  return {
-    received: Ref.get(received),
-    close: Fiber.interrupt(fiber).pipe(Effect.andThen(flush)),
-  }
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
-const TestLayer = Layer.provideMerge(ClockDomLive, AtomRegistry.layer)
-
 describe("ClockDomLive", () => {
-  it.effect("no rAF is scheduled until something subscribes", () =>
-    Effect.gen(function* () {
-      yield* Clock // building the Clock alone must not start the loop
-      expect(rafSpy).not.toHaveBeenCalled()
-    }).pipe(Effect.provide(TestLayer)))
+  it("ticks on the real requestAnimationFrame: the Priming tick, then measured Refresh frames", async () => {
+    const requestSpy = vi.spyOn(window, "requestAnimationFrame")
+    const sub = (await buildClock()).subscribe()
+    expect(sub.received).toEqual([])
+    expect(requestSpy).not.toHaveBeenCalled()
 
-  it.effect("ticks emits dt across frames: first dt 0, then positive deltas", () =>
-    Effect.gen(function* () {
-      const sub = yield* subscribeTicks
+    await Promise.resolve() // the end of the subscribing task
+    expect(sub.received).toEqual([NOMINAL_DT])
+    expect(requestSpy).toHaveBeenCalledTimes(1)
 
-      // First subscribe acquires the rAF driver: exactly one frame scheduled.
-      expect(rafSpy).toHaveBeenCalledTimes(1)
+    await raf()
+    await raf()
+    await raf()
+    expect(sub.received.length).toBeGreaterThanOrEqual(3)
+    expect(sub.received[1]).toBeCloseTo(NOMINAL_DT, 9) // first Refresh frame: nothing to measure against yet
+    expect(sub.received[2]).toBeGreaterThan(0) // a real, measured interval
+    await sub.close()
+  })
 
-      // Frame 1 @ t=0ms: first-frame dt is 0. After tick, the loop schedules
-      // the next frame.
-      fireFrame(0)
-      yield* flush
-      // Frame 2 @ t=16ms: dt = 16/1000 = 0.016s.
-      fireFrame(16)
-      yield* flush
-      // Frame 3 @ t=48ms: dt = 32/1000 = 0.032s.
-      fireFrame(48)
-      yield* flush
+  it("releasing the last subscriber calls cancelAnimationFrame and stops ticking", async () => {
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame")
+    const sub = (await buildClock()).subscribe()
+    await Promise.resolve()
+    await raf()
+    expect(cancelSpy).not.toHaveBeenCalled()
 
-      const dts = yield* sub.received
-      expect(dts.length).toBe(3)
-      expect(dts[0]).toBeCloseTo(0, 6)
-      expect(dts[1]).toBeCloseTo(0.016, 6)
-      expect(dts[2]).toBeCloseTo(0.032, 6)
-
-      yield* sub.close
-    }).pipe(Effect.provide(TestLayer)))
-
-  it.effect("tick updates the time and dt Atoms (read via the Environment registry)", () =>
-    Effect.gen(function* () {
-      const clock = yield* Clock
-      const sub = yield* subscribeTicks
-
-      // Before any frame: atoms still at their initial 0.
-      expect(yield* Atom.get(clock.time)).toBe(0)
-      expect(yield* Atom.get(clock.dt)).toBe(0)
-
-      fireFrame(0)
-      yield* flush
-      fireFrame(100)
-      yield* flush
-
-      // time = latest absolute timestamp; dt = last delta in seconds.
-      expect(yield* Atom.get(clock.time)).toBe(100)
-      expect(yield* Atom.get(clock.dt)).toBeCloseTo(0.1, 6)
-
-      yield* sub.close
-    }).pipe(Effect.provide(TestLayer)))
-
-  it.effect("rAF loop is ref-counted: cancelled after the last subscriber leaves", () =>
-    Effect.gen(function* () {
-      // Two concurrent subscribers share ONE rAF loop.
-      const a = yield* subscribeTicks
-      const b = yield* subscribeTicks
-      expect(rafSpy).toHaveBeenCalledTimes(1)
-
-      // Drive a couple of frames; the loop keeps a single frame outstanding.
-      fireFrame(0)
-      yield* flush
-      fireFrame(16)
-      yield* flush
-      expect(pending.size).toBe(1)
-
-      // First subscriber leaves: ref-count >= 1, loop still alive (not cancelled).
-      yield* a.close
-      expect(cafSpy).not.toHaveBeenCalled()
-      expect(pending.size).toBe(1)
-
-      // Last subscriber leaves: RcRef releases, the forked fiber is interrupted,
-      // and nextFrame's finalizer cancels the outstanding frame.
-      yield* b.close
-      expect(cafSpy).toHaveBeenCalledTimes(1)
-      expect(pending.size).toBe(0)
-
-      // No further frames are produced after teardown: firing a stale id is a
-      // no-op (already cancelled), and no new rAF was scheduled.
-      const beforeCount = rafSpy.mock.calls.length
-      yield* flush
-      expect(rafSpy.mock.calls.length).toBe(beforeCount)
-    }).pipe(Effect.provide(TestLayer)))
-
-  it.effect("re-subscribing after teardown re-acquires the rAF loop AND resets dt (no idle-gap jump)", () =>
-    Effect.gen(function* () {
-      const a = yield* subscribeTicks
-      expect(rafSpy).toHaveBeenCalledTimes(1)
-      // Advance so `lastTime` holds a real timestamp before teardown.
-      fireFrame(0)
-      yield* flush
-      fireFrame(1000) // dt = 1.0s; lastTime = 1000
-      yield* flush
-      yield* a.close
-
-      // Re-subscribe after an "idle gap": the next frame's timestamp is far ahead.
-      // Without the acquire-time reset this first dt would be (10000-1000)/1000 = 9s
-      // — a spurious lurch. The reset makes it a clean dt = 0. (Ref-count teardown
-      // itself is covered by the dedicated test above.)
-      const b = yield* subscribeTicks // re-acquires the loop (it receives the tick below)
-      fireFrame(10000)
-      yield* flush
-      const dts = yield* b.received
-      expect(dts.length).toBe(1)
-      expect(dts[0]).toBeCloseTo(0, 6) // clean first-frame dt, not a 9s idle-gap jump
-
-      yield* b.close
-    }).pipe(Effect.provide(TestLayer)))
+    await sub.close()
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
+    const count = sub.received.length
+    await raf()
+    await raf()
+    expect(sub.received.length).toBe(count)
+  })
 })
