@@ -210,7 +210,8 @@ export const boxDistance = (a: VisualBox, b: VisualBox): number =>
  *   destination and nothing returned: no FLIP was visible.
  * - `wrong-origin`: the first painted frame was off the origin-to-destination path
  *   by more than `wrongOriginPx`: the FLIP started somewhere the element never was
- *   (issue #13's scroll-offset seed painted it ~1300px away).
+ *   (issue #13's scroll-offset seed painted it ~1300px away). Not judged for a run
+ *   that started mid-flight (see {@link RunResult.startedMidFlight}).
  * - `no-move`: origin and destination are closer than `minMovePx`.
  * - `timeout`: the box had not settled `timeoutMs` after the trigger.
  * - `interrupted`: `begin()` or `cancel()` ended the run before it settled.
@@ -292,7 +293,11 @@ const boxOffset = (a: VisualBox, b: VisualBox): VisualBox => ({
  *    `teleportIndex` is the first such `i`.
  * 3. `snap` when the first sample is already within `nearPx` of the destination.
  * 4. `wrong-origin` when the first sample's {@link pathDistance} is more than
- *    `wrongOriginPx`. `originOffset` is that sample minus the origin.
+ *    `wrongOriginPx`, unless `startedMidFlight`. `originOffset` is that sample
+ *    minus the origin. A run that started while the element was still moving has
+ *    a first frame one frame of the OLD motion past the origin (the origin is read
+ *    at the trigger; the element coasts one more frame before the new FLIP takes
+ *    over), so its origin cannot be judged this way and the check is skipped.
  * 5. `clean` otherwise (including an empty sample list, which the sampler never
  *    produces: a settled run holds at least `settleFrames` samples).
  *
@@ -306,12 +311,15 @@ const boxOffset = (a: VisualBox, b: VisualBox): VisualBox => ({
  * @param origin the box `begin()` read, before the layout-mutating write.
  * @param samples the painted boxes, oldest first.
  * @param destination the settled box (the last sample).
+ * @param startedMidFlight whether the run began by cutting short a still-active run
+ *   of the same scenario (the element was likely still moving): skips check 4.
  */
 export const classify = (
   origin: VisualBox,
   samples: ReadonlyArray<VisualBox>,
   destination: VisualBox,
   thresholds: Thresholds,
+  startedMidFlight = false,
 ): Classification => {
   if (boxDistance(origin, destination) < thresholds.minMovePx) return { verdict: "no-move" }
   for (let i = 0; i < samples.length; i++) {
@@ -327,7 +335,7 @@ export const classify = (
   if (samples.length > 0 && boxDistance(samples[0], destination) <= thresholds.nearPx) {
     return { verdict: "snap" }
   }
-  if (samples.length > 0 && pathDistance(samples[0], origin, destination) > thresholds.wrongOriginPx) {
+  if (!startedMidFlight && samples.length > 0 && pathDistance(samples[0], origin, destination) > thresholds.wrongOriginPx) {
     return { verdict: "wrong-origin", originOffset: boxOffset(samples[0], origin) }
   }
   return { verdict: "clean" }
@@ -435,6 +443,12 @@ export interface RunResult {
   /** `window.scrollY` when `begin()` ran. */
   readonly scrollY: number
   /**
+   * Whether `begin()` cut short a still-active run of the same scenario: the element
+   * was most likely still moving at the trigger, so its first frame is one frame of
+   * the old motion past `origin` and the `wrong-origin` check is skipped.
+   */
+  readonly startedMidFlight: boolean
+  /**
    * The last sample's box: the settled box, or the latest one for a timeout or an
    * interruption. It is `origin` when there are no samples.
    */
@@ -528,6 +542,7 @@ interface ActiveRun {
   readonly origin: VisualBox
   readonly scrollX: number
   readonly scrollY: number
+  readonly startedMidFlight: boolean
   /** `ticker.frame()` when `begin()` ran. */
   readonly startFrame: number
   readonly samples: Array<PaintSample>
@@ -608,6 +623,7 @@ export const makePaintSampler = (
       origin: run.origin,
       scrollX: run.scrollX,
       scrollY: run.scrollY,
+      startedMidFlight: run.startedMidFlight,
       destination,
       samples,
       // Omitted rather than `undefined`, so the result round-trips through JSON.
@@ -698,7 +714,7 @@ export const makePaintSampler = (
       const { samples } = run
       const destination = samples[samples.length - 1].box
       const boxes = samples.map((s) => s.box)
-      const { verdict, ...detail } = classify(run.origin, boxes, destination, thresholds)
+      const { verdict, ...detail } = classify(run.origin, boxes, destination, thresholds, run.startedMidFlight)
       end(run, verdict, t, detail)
       return
     }
@@ -709,6 +725,9 @@ export const makePaintSampler = (
     // Read first, before any listener of an interrupted run can touch the DOM.
     const origin = readVisualBox(el)
     const { scrollX, scrollY } = window
+    // A still-active run of this scenario has not settled: the element is most likely
+    // still moving, so this run starts mid-flight (read before the loop below ends it).
+    const startedMidFlight = active !== undefined && active.scenarioId === scenarioId
     const startFrame = ticker.frame()
     const startFramePending = paintedFrame < startFrame
     // A run-end listener may itself call begin(); whatever it started is superseded
@@ -721,6 +740,7 @@ export const makePaintSampler = (
       origin,
       scrollX,
       scrollY,
+      startedMidFlight,
       startFrame,
       samples: [],
       el,

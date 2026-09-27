@@ -44,7 +44,11 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   than 8px off the straight path from the origin to the destination: the FLIP
   started somewhere the element never was (issue #13). The run records that
   frame's offset from the origin as `originOffset`, and the first frame gets the
-  same dashed ghost as a flash.
+  same dashed ghost as a flash. A run that starts while the previous run of the
+  same scenario is still going (Run pressed mid-animation) is marked
+  `startedMidFlight` and not judged this way: the element coasts one more frame on
+  its old motion before the new FLIP takes over, so its first frame legitimately
+  sits a step past the origin.
 - **Other verdicts.** `clean`: the FLIP started from the origin with no
   destination frame first. `snap`: the first sample is already at the destination
   and it stays there (no FLIP was visible). `no-move`, `timeout` and

@@ -93,6 +93,29 @@ const firefoxS4Flash: Fixture = {
   ],
 }
 
+const CHROME_W2 = 63.996910095214844
+
+/**
+ * The PR #17 check session (Chrome 153 on Windows, 2026-09-27, log
+ * `2026-09-27T20-18-46-222Z-default.json`, run 9): s1 re-run while the previous run
+ * was still animating. Run was pressed at 0.0ms after run 8 was cut short, with the
+ * box moving right about 9.2px a frame; the first frame is one more step of that old
+ * motion, 8.34px behind the origin, before the new FLIP heads left.
+ */
+const chromeS1MidFlight: Fixture = {
+  origin: { left: 197.0298309326172, top: 329.72991943359375, width: 63.996925354003906, height: CHROME_W2 },
+  samples: [
+    { left: 205.37474060058594, top: 329.72991943359375, width: 63.996925354003906, height: CHROME_W2 }, // 0
+    { left: 201.77911376953125, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 1
+    { left: 194.2432098388672, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 2
+    { left: 184.44482421875, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 3
+    { left: 151.818115234375, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 6
+    { left: 103.48316955566406, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 12
+    { left: 72.74154663085938, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 24
+    { left: 68.20649719238281, top: 329.72991943359375, width: CHROME_W2, height: CHROME_W2 }, // 41 (settled)
+  ],
+}
+
 /** A synthetic 200px move to the right. */
 const box = (left: number, top = 0): VisualBox => ({ left, top, width: 64, height: 64 })
 const moveRight = (first: VisualBox): Fixture => ({
@@ -129,6 +152,23 @@ describe("classify: wrong-origin (issue #13)", () => {
       verdict: "wrong-origin",
       originOffset: { left: 100, top: 8.5, width: 0, height: 0 },
     })
+  })
+})
+
+describe("classify: a run that started mid-flight is not judged for its origin", () => {
+  const midFlight = (fixture: Fixture) =>
+    classify(fixture.origin, fixture.samples, fixture.samples[fixture.samples.length - 1]!, thresholds, true)
+
+  it("the logged s1 re-run coasts 8.34px past its origin: wrong-origin if judged, clean when started mid-flight", () => {
+    expect(pathDistance(chromeS1MidFlight.samples[0]!, chromeS1MidFlight.origin, chromeS1MidFlight.samples[7]!)).toBeCloseTo(8.34, 2)
+    expect(run(chromeS1MidFlight).verdict).toBe("wrong-origin")
+    expect(midFlight(chromeS1MidFlight)).toEqual({ verdict: "clean" })
+  })
+
+  it("still grades flash, snap and no-move for a mid-flight run", () => {
+    expect(midFlight(firefoxS4Flash)).toEqual({ verdict: "flash", teleportIndex: 0 })
+    expect(midFlight({ origin: box(0), samples: [box(200), box(200), box(200)] })).toEqual({ verdict: "snap" })
+    expect(midFlight({ origin: box(0), samples: [box(3), box(5), box(5)] })).toEqual({ verdict: "no-move" })
   })
 })
 
