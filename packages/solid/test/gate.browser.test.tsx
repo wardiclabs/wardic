@@ -3,7 +3,7 @@ import type { Patch } from "@wardic/core"
 import { DomLive } from "@wardic/dom"
 import { TestLive } from "@wardic/test"
 import * as ManagedRuntime from "effect/ManagedRuntime"
-import { createRoot } from "solid-js"
+import { createEffect, createRoot, createSignal, on } from "solid-js"
 import { makeFlushGate } from "../src/gate.ts"
 
 /**
@@ -240,32 +240,20 @@ describe("makeFlushGate", () => {
   })
 })
 
-describe("makeFlushGate — scheduleMeasure (pre-flush read queue, ADR-0009 / D4)", () => {
-  it("runs the measure pass BEFORE the write flush in one frame; a seed write from the pass flushes same-frame", () => {
+describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-0006 amendment)", () => {
+  it("runs the pass synchronously and applies exactly what it wrote before returning, with no frame fired", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
       const order: Array<string> = []
       let received: Patch | undefined
-      gate.register("a", {
-        kind: "signal",
-        set: (p) => {
-          order.push("write")
-          received = p
-        },
-      })
+      gate.register("a", { kind: "signal", set: (p) => ((received = p), order.push("apply")) })
 
-      gate.scheduleMeasure(() => {
-        order.push("read")
-        gate.write("a", { x: 1 }) // seed value written from within the pass
+      gate.flushPass(() => {
+        order.push("pass")
+        gate.write("a", { x: 1 }) // a FLIP seed written by the Measure pass
       })
-      // One frame scheduled; nothing has run yet.
-      expect(rafSpy).toHaveBeenCalledTimes(1)
-      expect(order).toEqual([])
-
-      fireFrame()
-      // Reads run BEFORE writes; the seed flushed in the SAME frame.
-      expect(order).toEqual(["read", "write"])
+      expect(order).toEqual(["pass", "apply"])
       expect(received).toEqual({ x: 1 })
 
       gate.dispose()
@@ -274,21 +262,22 @@ describe("makeFlushGate — scheduleMeasure (pre-flush read queue, ADR-0009 / D4
     }
   })
 
-  it("coalesces: the same pass scheduled multiple times in a frame runs once", () => {
+  it("leaves an entry the pass did not write for the next frame, even if it was already dirty", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      let runs = 0
-      const pass = (): void => {
-        runs++
-      }
-      gate.scheduleMeasure(pass)
-      gate.scheduleMeasure(pass)
-      gate.scheduleMeasure(pass)
-      expect(rafSpy).toHaveBeenCalledTimes(1)
+      let a: Patch | undefined
+      let b: Patch | undefined
+      gate.register("a", { kind: "signal", set: (p) => (a = p) })
+      gate.register("b", { kind: "signal", set: (p) => (b = p) })
+
+      gate.write("b", { y: 2 }) // e.g. another animation's value from this frame's Clock tick
+      gate.flushPass(() => gate.write("a", { x: 1 }))
+      expect(a).toEqual({ x: 1 })
+      expect(b).toBeUndefined() // keeps ADR-0006's one-frame latency
 
       fireFrame()
-      expect(runs).toBe(1)
+      expect(b).toEqual({ y: 2 })
 
       gate.dispose()
     } finally {
@@ -296,36 +285,116 @@ describe("makeFlushGate — scheduleMeasure (pre-flush read queue, ADR-0009 / D4
     }
   })
 
-  it("a write issued from inside a pass does NOT schedule an extra frame (flushing guard)", () => {
+  it("applies everything the pass wrote inside one batch(): an effect reading two of them runs once", () => {
+    const runtime = ManagedRuntime.make(TestLive)
+    const gate = makeFlushGate(runtime)
+    const runs: Array<[Patch | undefined, Patch | undefined]> = []
+    // Effects go live once the root's setup returns, so the pass runs after it.
+    const disposeRoot = createRoot((dispose) => {
+      const [a, setA] = createSignal<Patch | undefined>(undefined)
+      const [b, setB] = createSignal<Patch | undefined>(undefined)
+      gate.register("a", { kind: "signal", set: setA })
+      gate.register("b", { kind: "signal", set: setB })
+      createEffect(on([a, b], ([va, vb]) => runs.push([va, vb]), { defer: true }))
+      return dispose
+    })
+
+    gate.flushPass(() => {
+      gate.write("a", { x: 1 })
+      gate.write("b", { y: 2 })
+    })
+    expect(runs).toEqual([[{ x: 1 }, { y: 2 }]])
+
+    gate.dispose()
+    void runtime.dispose()
+    disposeRoot()
+  })
+
+  it("commits a commit-sink entry the pass wrote through the Renderer", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const el = document.createElement("div")
+      gate.register("el", { kind: "commit", target: el })
+
+      gate.flushPass(() => gate.write("el", { x: 10 }))
+      expect(el.style.transform).toBe("translateX(10px)")
+
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("the next frame does not re-apply an entry the pass flushed unless it was written again", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      gate.register("a", { kind: "signal", set: () => {} })
-      gate.scheduleMeasure(() => gate.write("a", { x: 1 }))
-      expect(rafSpy).toHaveBeenCalledTimes(1)
+      let applied = 0
+      gate.register("a", { kind: "signal", set: () => applied++ })
 
+      gate.flushPass(() => gate.write("a", { x: 1 }))
+      expect(applied).toBe(1)
       fireFrame()
-      // The in-pass write flushed this frame; it must not have queued another rAF.
-      expect(rafSpy).toHaveBeenCalledTimes(1)
+      expect(applied).toBe(1)
+
+      gate.write("a", { x: 2 })
+      fireFrame()
+      expect(applied).toBe(2)
+
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("a write from an effect inside the pass's flush waits for the next frame, and requests it", () => {
+    const runtime = ManagedRuntime.make(TestLive)
+    const gate = makeFlushGate(runtime)
+    let b: Patch | undefined
+    const disposeRoot = createRoot((dispose) => {
+      const [a, setA] = createSignal<Patch | undefined>(undefined)
+      gate.register("a", { kind: "signal", set: setA })
+      gate.register("b", { kind: "signal", set: (p) => (b = p) })
+      // Runs inside flushPass's batch(), after the pass itself has returned.
+      createEffect(on(a, () => gate.write("b", { y: 1 }), { defer: true }))
+      return dispose
+    })
+
+    gate.flushPass(() => gate.write("a", { x: 1 }))
+    expect(b).toBeUndefined() // not part of the pass
+    expect(pending.size).toBe(1) // but not stranded either: the next frame is requested
+
+    fireFrame() // the frame the pass's own write requested also applies b
+    expect(b).toEqual({ y: 1 })
+
+    gate.dispose()
+    void runtime.dispose()
+    disposeRoot()
+  })
+
+  it("has no measure read-queue any more", () => {
+    const runtime = ManagedRuntime.make(TestLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      expect("scheduleMeasure" in gate).toBe(false)
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("after dispose, a pass applies nothing and requests no frame", () => {
+    const runtime = ManagedRuntime.make(TestLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      let applied = 0
+      gate.register("a", { kind: "signal", set: () => applied++ })
+      gate.dispose()
+
+      gate.flushPass(() => gate.write("a", { x: 1 }))
+      expect(applied).toBe(0)
       expect(pending.size).toBe(0)
-
-      gate.dispose()
-    } finally {
-      void runtime.dispose()
-    }
-  })
-
-  it("dispose clears queued measure passes", () => {
-    const runtime = ManagedRuntime.make(TestLive)
-    try {
-      const gate = makeFlushGate(runtime)
-      let runs = 0
-      gate.scheduleMeasure(() => {
-        runs++
-      })
-      gate.dispose()
-      fireFrame()
-      expect(runs).toBe(0)
     } finally {
       void runtime.dispose()
     }

@@ -47,6 +47,54 @@ export const paintedFrames = (el: Element, n: number): Promise<ReadonlyArray<DOM
     requestAnimationFrame(post)
   })
 
+/**
+ * {@link paintedFrames}, started from INSIDE a Refresh frame's rendering update (a
+ * ResizeObserver callback, a rAF callback, a Clock tick, an effect in the gate's
+ * flush): the first message is posted at once, so the first box is read just after
+ * the paint of the frame the caller is running in. Called from an ordinary task it
+ * would read before the next frame instead, so use it only inside a frame.
+ */
+export const paintedFramesFromHere = (el: Element, n: number): Promise<ReadonlyArray<DOMRect>> =>
+  new Promise((resolve) => {
+    const boxes: Array<DOMRect> = []
+    const channel = new MessageChannel()
+    const post = (): void => channel.port2.postMessage(undefined)
+    channel.port1.onmessage = () => {
+      boxes.push(el.getBoundingClientRect())
+      if (boxes.length < n) {
+        requestAnimationFrame(post)
+        return
+      }
+      channel.port1.close()
+      resolve(boxes)
+    }
+    post()
+  })
+
+/** One post-paint read: when it ran (`performance.now()`) and the box it saw. */
+export interface PaintedSample {
+  readonly t: number
+  readonly box: DOMRect
+}
+
+/** {@link paintedFrames} with each read's time, so a test can find the frames around a mid-flight trigger. */
+export const paintedTimedFrames = (el: Element, n: number): Promise<ReadonlyArray<PaintedSample>> =>
+  new Promise((resolve) => {
+    const samples: Array<PaintedSample> = []
+    const channel = new MessageChannel()
+    const post = (): void => channel.port2.postMessage(undefined)
+    channel.port1.onmessage = () => {
+      samples.push({ t: performance.now(), box: el.getBoundingClientRect() })
+      if (samples.length < n) {
+        requestAnimationFrame(post)
+        return
+      }
+      channel.port1.close()
+      resolve(samples)
+    }
+    requestAnimationFrame(post)
+  })
+
 /** Poll every real frame until `done()` returns true, or `timeoutMs` elapses. */
 export const until = async (done: () => boolean, timeoutMs = 4000): Promise<void> => {
   const start = performance.now()

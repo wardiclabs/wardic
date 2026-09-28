@@ -78,17 +78,22 @@ const View: ScenarioDef["View"] = (props) => {
 
 /**
  * Scenario 4, change inside rAF: a `requestAnimationFrame` callback, requested by
- * the Run click, writes the `layoutDependency` signal. Expected to flash.
+ * the Run click, writes the `layoutDependency` signal. Expected to be safe,
+ * holding 1: the callback runs after the frame's gate flush, or in a frame with
+ * none.
  */
 export const s4: ScenarioDef = {
   id: ID,
   index: 4,
   title: "Change inside rAF",
   mechanism: "A requestAnimationFrame callback, requested by the Run click, writes the layoutDependency signal.",
-  prediction: "flash-risk",
+  prediction: "safe",
+  expectedHeld: 1,
   rationale:
-    "The signal write runs Wardic's layoutDependency effect synchronously, so notify requests the gate's rAF while " +
-    "this frame's rAF callbacks are already running. A callback requested then runs in the next frame, so this " +
-    "frame paints the destination box before the measure pass.",
+    "The callback runs after the frame's gate flush when the Clock is ticking (the gate requested its frame " +
+    "first), and in a frame with no gate flush at all when it is not. The signal write runs Wardic's " +
+    "layoutDependency effect synchronously, and notify queues a Measure pass that runs in a microtask at the end " +
+    "of the callback, before the frame's layout, and flushes its seed (ADR-0018), so the frame paints the origin. " +
+    "The Priming step waits for the next frame's gate flush (held 1, cold or warm).",
   View,
 }

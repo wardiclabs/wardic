@@ -92,7 +92,14 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
             following={pickedId() === undefined}
             onFollowLatest={() => setPickedId(undefined)}
           />
-          <FrameStretch ticker={lab.ticker} value={stretchMs()} onChange={(ms) => setStretchMs(ms)} />
+          <FrameStretch
+            ticker={lab.ticker}
+            value={stretchMs()}
+            onChange={(ms) => {
+              setStretchMs(ms)
+              lab.setFrameStretch(ms)
+            }}
+          />
           <KeepClockWarm value={keepWarm()} onChange={(on) => setKeepWarm(on)} />
           <CopyLog lab={lab} frameStretchMs={stretchMs()} keepClockWarm={keepWarm()} />
         </aside>

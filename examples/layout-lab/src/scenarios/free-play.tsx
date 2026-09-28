@@ -229,10 +229,12 @@ export const freePlay: ScenarioDef = {
   mechanism: "Run schedules the selected mutation with the selected timing and notify path.",
   prediction: "unknown",
   rationale:
-    "It depends on the selection: sync, queueMicrotask and setTimeout(0) writes request the gate rAF from a task or " +
-    "microtask, so the measure pass runs before the next paint, while rAF and double-rAF writes request it from " +
-    "inside an rAF callback, so it runs a frame late. The content-only path waits for ResizeObserver delivery, which " +
-    "runs after the frame's rAF callbacks, and a pure move never changes the box's size, so ResizeObserver never " +
-    "reports it.",
+    "It depends on the selection. A sync, queueMicrotask or setTimeout(0) write happens in an ordinary task (or a " +
+    "microtask of one), so its Measure pass runs at the end of that task and the first painted frame is already " +
+    "one step along (held 0). A rAF or double-rAF write runs in a rAF callback: after the frame's gate flush, or in " +
+    "a frame with none, the frame paints the origin and the FLIP moves on the next (held 1), while a callback that " +
+    "runs before the gate's flush behaves like a task (held 0). The content-only path waits for the engine's " +
+    "ResizeObserver, which delivers after the frame's gate flush (held 1), and a pure move never changes the box's " +
+    "size, so the observer never reports it and Wardic misses it.",
   View,
 }

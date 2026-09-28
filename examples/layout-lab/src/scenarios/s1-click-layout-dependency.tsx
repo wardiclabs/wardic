@@ -65,7 +65,7 @@ const View: ScenarioDef["View"] = (props) => {
 
 /**
  * Scenario 1, click -> layoutDependency: the Run click handler writes the
- * `layoutDependency` signal directly. Expected to be safe.
+ * `layoutDependency` signal directly. Expected to be safe, holding 0.
  */
 export const s1: ScenarioDef = {
   id: ID,
@@ -73,9 +73,11 @@ export const s1: ScenarioDef = {
   title: "click -> layoutDependency",
   mechanism: "The Run click handler writes the signal bound to the box's layoutDependency.",
   prediction: "safe",
+  expectedHeld: 0,
   rationale:
-    "The signal write runs Wardic's layoutDependency effect synchronously, so notify -> scheduleMeasure requests " +
-    "the gate's rAF while the click task is still running. That rAF, and the measure pass in it, runs in the " +
-    "same rendering update, before the paint that would show the destination box.",
+    "The signal write runs Wardic's layoutDependency effect synchronously, and its notify queues a Measure pass, " +
+    "which the engine runs in a microtask at the end of the click task (ADR-0018). The pass seeds the FLIP and " +
+    "flushes that seed before it returns, so no paint shows the destination box. Its Priming step is applied by the " +
+    "next frame's gate flush, so the first painted frame is already one step along (held 0, cold or warm).",
   View,
 }

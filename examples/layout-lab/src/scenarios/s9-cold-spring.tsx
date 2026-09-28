@@ -75,6 +75,7 @@ export const s9: ScenarioDef = {
   mechanism: "The Run click handler flips a useWardic animate target. No layout change, so no measure pass.",
   prediction: "safe",
   heldFramesFrom: "trigger",
+  expectedHeld: { cold: 0, warm: 1 },
   rationale:
     "Nothing changes layout, so nothing can flash; the run measures the Clock's Cold start (#14). With nothing else " +
     "animating, the Priming tick runs at the end of the click task, so the first moved frame is the next paint " +

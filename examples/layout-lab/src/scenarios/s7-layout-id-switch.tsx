@@ -211,20 +211,26 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 7, layoutId switch: a click swaps two `layoutId` twins under `<Show>` —
  * on the page, in one `layoutScroll` box, or across two — and the new twin's mount
- * schedules the measure pass. Expected to be safe.
+ * queues the Measure pass. Expected to be safe, holding 0, with a second Measure
+ * pass that seeds nothing (the engine ResizeObserver's first delivery for the new
+ * twin).
  */
 export const s7: ScenarioDef = {
   id: ID,
   index: 7,
   title: "layoutId switch",
   mechanism:
-    "The Run click swaps two layoutId twins under <Show> (on the page, or inside layoutScroll boxes); the new twin's mount registers its projection node, which schedules the measure.",
+    "The Run click swaps two layoutId twins under <Show> (on the page, or inside layoutScroll boxes); the new twin's mount registers its projection node, which queues a Measure pass.",
   prediction: "safe",
+  expectedHeld: 0,
   rationale:
     "The <Show> swap runs synchronously in the click task: Solid disposes the leaver, whose projection node captures " +
     "its box in the Root frame and holds it for the rest of the task, then the new twin's mount effect registers its " +
-    "projection node, takes that seed, and register() calls scheduleMeasure. The gate rAF is therefore requested " +
-    "from the click task and lands in the same frame's rAF, before paint, where the first measure rebases the seed " +
-    "into the new twin's frame and FLIPs it from the leaver's painted box.",
+    "projection node and takes that seed. The registration queues a Measure pass, which runs at the end of the click " +
+    "task, rebases the seed into the new twin's frame, FLIPs it from the leaver's painted box and flushes that seed " +
+    "(ADR-0018), so the first painted frame is already one step along (held 0). The engine's ResizeObserver then " +
+    "makes its first delivery for the new twin after the next frame's gate flush, and the Measure pass it runs finds " +
+    "the running twin's box unchanged and leaves it alone: passes 2 (1 seeding), until that first delivery is " +
+    "filtered.",
   View,
 }

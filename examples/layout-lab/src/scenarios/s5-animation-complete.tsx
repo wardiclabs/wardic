@@ -150,7 +150,8 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 5, on Wardic animation complete: the end of the coordinator span that
  * carried the click's A to B FLIP writes the `layoutDependency` signal (B to A).
- * The outcome depends on Effect's scheduler, so the prediction is unknown.
+ * Expected to be safe, holding 1: the span end is delivered inside the Clock's
+ * callback, after the frame's gate flush.
  */
 export const s5: ScenarioDef = {
   id: ID,
@@ -158,12 +159,14 @@ export const s5: ScenarioDef = {
   title: "On Wardic animation complete",
   mechanism:
     "The end of the wardic.projection.coordinator span (ctx.onLayoutAnimationComplete) writes the layoutDependency signal.",
-  prediction: "unknown",
+  prediction: "safe",
+  expectedHeld: 1,
   rationale:
-    "The coordinator span ends when stopTicking's forked Fiber.interrupt runs, and that fiber runs on Effect's " +
-    "scheduler (MixedScheduler, whose setImmediate falls back to setTimeout(0) in a browser). So the write may land " +
-    "inside the Clock's rAF callback, where the gate rAF it requests waits a frame, or in a later task, where the " +
-    "next rAF measures before paint. The span end is only a proxy: Wardic exposes no layout-animation-complete " +
-    "callback.",
+    "The span end, and so the signal write, lands inside the Clock's rAF callback, after the frame's gate flush " +
+    "(the lab's frame trace shows it there in Chrome and Firefox). notify queues a Measure pass that runs in a " +
+    "microtask at the end of that callback and flushes its seed before the frame paints (ADR-0018), so the frame " +
+    "shows the box at its origin and the Priming step moves it on the next (held 1). Were Effect's scheduler to " +
+    "deliver the end in a later task instead, that would be a task trigger: still safe, held 0. The span end is " +
+    "only a proxy: Wardic exposes no layout-animation-complete callback.",
   View,
 }

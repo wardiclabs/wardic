@@ -114,7 +114,8 @@ const View: ScenarioDef["View"] = (props) => {
 
 /**
  * Scenario 3, app ResizeObserver -> signal: the app's own ResizeObserver on a
- * separate driver element writes the `layoutDependency` signal. Expected to flash.
+ * separate driver element writes the `layoutDependency` signal. Expected to be
+ * safe, holding 1: the observer delivers after the frame's gate flush.
  */
 export const s3: ScenarioDef = {
   id: ID,
@@ -122,10 +123,13 @@ export const s3: ScenarioDef = {
   title: "App ResizeObserver -> signal",
   mechanism:
     "An app-owned ResizeObserver on a separate driver element writes the layoutDependency signal after the click resizes the driver.",
-  prediction: "flash-risk",
+  prediction: "safe",
+  expectedHeld: 1,
   rationale:
-    "The app's ResizeObserver callback runs in the rendering update after that frame's rAF callbacks. Its signal " +
-    "write moves the box and runs Wardic's layoutDependency effect synchronously, but the gate rAF that notify " +
-    "requests there lands on the next frame, so the browser re-lays out and paints the box at its destination first.",
+    "The app's ResizeObserver callback runs in the rendering update after the rAF callbacks and layout, so after " +
+    "the frame's gate flush. Its signal write moves the box and runs Wardic's layoutDependency effect " +
+    "synchronously, and notify queues a Measure pass that runs in a microtask at the end of the callback and " +
+    "flushes its seed (ADR-0018). The browser lays out again before it paints, so the frame shows the box at its " +
+    "origin. The Priming step waits for the next frame's gate flush (held 1, cold or warm).",
   View,
 }

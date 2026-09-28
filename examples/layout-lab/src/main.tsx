@@ -6,8 +6,13 @@
  * `window.__layoutLab` is assigned in dev AND production builds, so a scripted
  * smoke run (or a person in devtools) can read the runs and the log.
  *
+ * The frame trace is imported FIRST: it wraps `requestAnimationFrame` and
+ * `ResizeObserver` when it evaluates, and ES modules evaluate in import order, so
+ * the wrappers are in place before any Wardic module runs.
+ *
  * @module
  */
+import { frameTrace } from "./probe/frame-trace.ts"
 import "./styles.css"
 import { render } from "solid-js/web"
 import { type Lab, makeLab } from "./lab/lab.ts"
@@ -29,7 +34,7 @@ const timeline = makeTimeline()
 // already in the paint log when the lab computes that run's framesToMeasure.
 ticker.onPostPaint((t) => timeline.notePaint(t))
 const sampler = makePaintSampler(ticker)
-const lab = makeLab({ ticker, sampler, timeline, scenarios })
+const lab = makeLab({ ticker, sampler, timeline, frameTrace, scenarios })
 
 window.__layoutLab = { lab, log: lab.log }
 

@@ -89,16 +89,24 @@ A `Bounds` reading taken via `Probe`, recorded so a later layout change can be a
 _Avoid_: snapshot (reserved), rect, box.
 
 **FLIP** (layout animation):
-Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). Core owns the Invert→Play math as the pure combinator `flip(from: Bounds, to: Bounds)`; the binding owns *when* to measure (a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points); matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
+Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). Core owns the Invert→Play math as the pure combinator `flip(from: Bounds, to: Bounds)`; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the projection engine measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
 _Avoid_: layout (too broad), reflow animation.
 
 **Projection** (the box-based layout model):
-Animating an element's *target Box* and **deriving** its transform each frame, tree-aware: a node's box is expressed relative to its parent node's *projected* box, and translations are corrected by the cumulative ancestor scale (**treeScale**) so nested layout animations compose correctly through CSS transform nesting. Box-based (animate the box, derive the transform), **not** invert-delta-based (see ADR). Plain **FLIP** is the un-nested special case (no parent node ⇒ project relative to the viewport). Core owns the pure box geometry (relative box, axis delta, tree-scale, applied around an `origin`/anchor); the binding owns the node tree, *when* to measure, and the per-frame projection pass.
+Animating an element's *target Box* and **deriving** its transform each frame, tree-aware: a node's box is expressed relative to its parent node's *projected* box, and translations are corrected by the cumulative ancestor scale (**treeScale**) so nested layout animations compose correctly through CSS transform nesting. Box-based (animate the box, derive the transform), **not** invert-delta-based (see ADR). Plain **FLIP** is the un-nested special case (no parent node ⇒ project relative to the viewport). Core owns the pure box geometry (relative box, axis delta, tree-scale, applied around an `origin`/anchor); the projection engine (`@wardic/dom`) owns the node tree, the **Measure pass** and the per-frame projection pass; the binding reports the layout changes only it knows about (`layoutDependency`).
 _Avoid_: FLIP (reserve for the un-nested case), transform tree.
 
 **Projection node**:
 A layout-enabled element's entry in the **projection tree** — a parent link by DOM ancestry, its children, and its retained + target **Box** (`{ x: {min,max}, y: {min,max} }`, the projection-internal geometry that measured `Bounds` convert into). The tree is rooted at a synthetic viewport node the `WardicProvider` supplies, so Projection works with no `<LayoutGroup>`.
 _Avoid_: layout member (the prior flat name), FLIP node.
+
+**Measure pass**:
+The projection engine's end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. Then the nodes it seeded take a **Priming step**. A running animation whose box didn't change is left alone. A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018).
+_Avoid_: commit (the Renderer's write), layout update (Motion's name).
+
+**Priming step**:
+The first step of a layout animation, given by the **Measure pass** that seeded it, with the nominal dt. On a **Cold start** it is the Clock's **Priming tick**; on a ticking Clock the projection engine takes it itself. It's written into the gate after the pass's flush. So a layout change made in an ordinary task moves on its first painted frame, and one made after the Refresh frame's gate flush (a ResizeObserver callback, a later rAF callback) moves on the next, cold or warm (ADR-0018).
+_Avoid_: Priming tick (the Clock's), first tick.
 
 **Shared layout**:
 A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from the leaver's Measurement, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from the leaver's last Measurement, captured in the **Root frame** at the leaver's removal and held by the projection engine until the end of the current task) and a **Crossfade** (the twins coexist). The per-element box geometry stays in core.
@@ -144,7 +152,7 @@ The Clock's loop ends at the first Refresh frame after its last subscriber leave
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Refresh frame**:
-One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `makeRefreshFrameClock` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.
+One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `makeRefreshFrameClock` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.
 _Avoid_: animation frame (browser API wording), display frame, vsync.
 
 **Cold start**:
@@ -152,7 +160,7 @@ A subscription to `Clock.ticks` made while the Clock is idle, so it starts reque
 _Avoid_: wake (Motion's term).
 
 **Priming tick**:
-The first tick of a **Cold start**. It's delivered at the end of the subscribing task with the nominal dt (1/60 s), before the first Refresh frame. A start made during a Refresh frame then paints on the next one, the same as a warm start, despite the gate's one-frame latency (ADR-0006, ADR-0017).
+The first tick of a **Cold start**. It's delivered at the end of the subscribing task with the nominal dt (1/60 s), before the first Refresh frame. A spring started from a task then moves on the first painted frame despite the gate's one-frame latency (ADR-0006, ADR-0017); a layout animation gets its first step from the **Priming step** of the Measure pass that seeded it (ADR-0018).
 
 ### Rendering
 

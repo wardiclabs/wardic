@@ -15,14 +15,19 @@ import { AtomRegistry } from "effect/unstable/reactivity"
 // counted, so these tests see real-browser timing: nothing in the Clock's timing
 // may depend on the scheduler (decision 3).
 
-/** A Refresh frame source the test fires by hand. `events` logs requests, cancels and deliveries in order. */
+/**
+ * A Refresh frame source the test fires by hand. `events` logs requests, cancels and
+ * deliveries in order. `setNow` sets what the source's `now()` reports (ms).
+ */
 const makeFrames = () => {
   const pending = new Map<number, (t: number) => void>()
   const events: Array<string> = []
   let nextHandle = 1
   let requests = 0
   let cancels = 0
+  let now = 0
   const source: RefreshFrameSource<number> = {
+    now: () => now,
     requestFrame: (callback) => {
       const handle = nextHandle++
       pending.set(handle, callback)
@@ -44,7 +49,10 @@ const makeFrames = () => {
     pending.delete(handle)
     callback(t)
   }
-  return { source, pending, events, fire, requests: () => requests, cancels: () => cancels }
+  const setNow = (ms: number): void => {
+    now = ms
+  }
+  return { source, pending, events, fire, setNow, requests: () => requests, cancels: () => cancels }
 }
 
 type ClockShape = Context.Service.Shape<typeof Clock>
@@ -273,6 +281,48 @@ describe("makeRefreshFrameClock", () => {
     expect(h.frames.pending.size).toBe(0)
     expect(h.frames.requests()).toBe(0) // the loop was stopped while it waited for the Priming tick
     expect(h.frames.cancels()).toBe(0)
+  })
+
+  it("a Refresh frame that repeats the previous timestamp advances by the elapsed now(), and the next frame gets the rest", async () => {
+    // Firefox runs a second Refresh frame right after an input and passes it the
+    // previous frame's timestamp (issue #18, measured in the layout lab); timed by its
+    // timestamp alone it would advance nothing.
+    const h = await makeHarness()
+    const sub = h.subscribe()
+    await endOfTask()
+    h.frames.setNow(1001)
+    await fireAndSettle(h.frames, 1000)
+    h.frames.setNow(1017.67)
+    await fireAndSettle(h.frames, 1016.67)
+    h.frames.setNow(1026.67) // 9 ms after the previous Refresh frame's callback
+    await fireAndSettle(h.frames, 1016.67) // the repeat
+    h.frames.setNow(1034.34)
+    await fireAndSettle(h.frames, 1033.34)
+    expect(sub.received).toHaveLength(5)
+    expect(sub.received[2]).toBeCloseTo(0.01667, 9)
+    expect(sub.received[3]).toBeCloseTo(0.009, 9) // the repeated frame: the elapsed now()
+    expect(sub.received[4]).toBeCloseTo(0.00767, 9) // the rest of the interval
+    expect(h.registry.get(h.clock.time)).toBeCloseTo(1033.34, 9) // time is back on the timestamps
+    await sub.close()
+  })
+
+  it("frames with distinct timestamps keep their timestamp dt whatever now() says, and a remainder below 0 clamps to 0", async () => {
+    const h = await makeHarness()
+    const sub = h.subscribe()
+    await endOfTask()
+    h.frames.setNow(1003)
+    await fireAndSettle(h.frames, 1000)
+    h.frames.setNow(1025) // jittered: the callback ran 8 ms late
+    await fireAndSettle(h.frames, 1016.67)
+    h.frames.setNow(1044) // a repeat whose callback ran 19 ms later: past the next timestamp
+    await fireAndSettle(h.frames, 1016.67)
+    h.frames.setNow(1034.34)
+    await fireAndSettle(h.frames, 1033.34)
+    expect(sub.received).toHaveLength(5)
+    expect(sub.received[2]).toBeCloseTo(0.01667, 9) // the timestamp dt, not now()'s 0.022
+    expect(sub.received[3]).toBeCloseTo(0.019, 9)
+    expect(sub.received[4]).toBe(0) // (1033.34 - (1016.67 + 19)) < 0: clamped, never negative
+    await sub.close()
   })
 
   it("writes the time and dt Atoms: the Priming tick sets dt only, Refresh frames set both", async () => {
