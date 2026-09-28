@@ -18,8 +18,11 @@
 
 The upgrade needed one source change, one test-config change and a test-toolchain move. Every
 Effect behaviour that Wardic's frame timing relies on (ADR-0017, ADR-0010's *Amendment (#13)*) is
-unchanged at rc.117. The tests pass unchanged, the layout lab paints the same frames in Chromium,
-and headless Firefox keeps the 1–2 frame spread on a warm layout run that it had on beta.71.
+unchanged at rc.117. The tests pass unchanged, and the layout lab paints the same frames in
+Chromium (headless) and desktop Chrome. Firefox, headless and desktop, holds a warm layout run for
+1 or 2 frames on both versions. Which one it gets depends on whether Firefox runs its refresh
+tick within about 1 ms of the click, not on the Effect version
+([Desktop, by hand](#layout-lab-desktop-by-hand)).
 
 ## What broke
 
@@ -133,6 +136,42 @@ started was discarded. Both versions were served side by side from checkouts of 
   about 2 ms apart. That is the lab's documented late-delivery misread
   (`wardic:examples/layout-lab/README.md:78-82`).
 
+### Layout lab, desktop, by hand
+
+Devin, Windows, Chrome 153 and Firefox 156 at devicePixelRatio 2, default scheduler
+(`setTimeout(0)`), 2026-09-28. The logs are in `wardic:examples/layout-lab/logs/` (gitignored, so
+local only).
+
+- **Chrome, rc.117** (`2026-09-28T02-55-33-766Z`): s1 cold held 1 ×3, s9 cold 0 ×3; with Keep
+  Clock warm on, s1 held 1 ×3 and s9 held 1 ×3. An s9 retarget read `warm` and reversed smoothly.
+- **Firefox, rc.117, every scenario** (`…02-43-05-753Z`, 67 runs). Every scenario run fresh
+  matches the beta.71 Firefox log from PR #19 (`…00-25-55-720Z`):
+  - s1, s6 and s7 (all 6 Container runs) cold: held 1;
+  - s2–s5 and s8: held 1 with verdict `flash` (#2's late measure pass);
+  - s9 cold: held 0.
+  
+  38 mid-flight layout retargets from rapid clicks showed no doubled or frozen step: 0 of 924
+  moving steps changed by more than 1.8× both neighbours or dropped to 0 between moving ones.
+- **Firefox, warm s1, interleaved A/B.** Two visible windows, each served by the lab at one
+  commit: beta.71 on port 5198 (`…03-53-10-729Z`) and rc.117 on port 5199 (`…03-53-04-144Z`).
+  Each server's Vite pre-bundle was checked to come from its Effect version. Runs were
+  alternated, and the throwaway first runs and one known misread were dropped.
+
+  | Measure pass starts | beta.71: held 2 | rc.117: held 2 |
+  |---|---|---|
+  | ≤ 1 ms after the click | 11/15 | 19/24 |
+  | later | 0/15 | 2/11 (both at 2 ms) |
+  | all | 11/30 | 21/35 |
+
+  - Given when the measure pass starts, the versions agree (≤ 1 ms: two-sided Fisher p ≈ 0.71).
+    Click-to-first-motion within each case also agrees: held-1 runs 20.5 and 21.9 ms, held-2
+    runs 27.9 and 28.8 ms.
+  - The overall gap (p ≈ 0.08) comes from how many clicks Firefox handled right before a
+    refresh tick: 15/30 against 24/35 (p ≈ 0.14). That share rose over the session in both
+    logs. Stratified by time, the version effect isn't significant (Mantel–Haenszel p ≈ 0.15).
+  - Every one of these runs had exactly one measure pass, so the ResizeObserver mechanism #18
+    hypothesises is not involved. The late start is tracked in #18.
+
 ## Re-checking at the next RC
 
 1. `npm view effect dist-tags`, and `npm view @effect/vitest@<rc> peerDependencies`. Watch the `vitest` range.
@@ -149,3 +188,5 @@ started was discarded. Both versions were served side by side from checkouts of 
 - Every changelog entry outside the core runtime, Stream, Layer, PubSub, reactivity and
   `@effect/vitest` (HTTP, Schema, cluster, SQL and so on) was scanned only for those keywords.
 - Per-frame CPU cost, which was not profiled. The gate and the lab measure frame timing, not CPU.
+  So whether rc.117 changes how often Firefox handles a click right before a refresh tick
+  (through main-thread load) is not ruled out.
