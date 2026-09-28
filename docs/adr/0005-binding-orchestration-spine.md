@@ -23,3 +23,4 @@ FLIP timing follows the same "binding owns timing" seam (ADR-0004): core's `flip
 - Continuous-follow is an explicit, declarative feature — discoverable and predictable — rather than an emergent runtime behaviour.
 - Retained-Measurement FLIP shares ADR-0003's boundary: the first post-mount frame may flash because the "to" box is only knowable after layout.
 - This spine is the contract a future `@wardic/react` / `@wardic/native` binding re-implements over the *same* core recognizers and primitives; only the reactive bridge (frames → the framework's reactive cell) and the FLIP capture hook differ per framework.
+- *Note (#2, 2026-09-28):* the binding still decides **what** triggers a layout measure (`layoutDependency`, which it reports through `notify`); the projection engine now decides **when** a triggered measure runs: in one Measure pass at the end of the task (ADR-0018).

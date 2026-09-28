@@ -5,7 +5,7 @@
  *
  * It has NO framework reactivity: it reaches its host binding through two seams
  * only — a {@link ProjectionSink} (`write` per-element projection values into the
- * binding's flush gate + `scheduleMeasure` a coalesced pre-flush read pass) and a
+ * binding's flush gate + `flushPass` a Measure pass, applying its writes at once) and a
  * `ManagedRuntime` providing {@link Clock} (to fork the ref-counted tick fiber).
  * So it lives here in `@wardic/dom`, next to `ClockDomLive`/the Renderer, and any
  * binding (Solid today; React/vanilla later) wires it with its own gate + runtime.
