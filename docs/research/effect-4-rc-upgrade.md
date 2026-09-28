@@ -12,7 +12,7 @@
 >   and @ `428e2e50` (v5.0.2) `docs/guide/migration/index.md`.
 >
 > Paths are relative to the `effect` package root (`src/…`, `dist/…`) unless prefixed `wardic:`.
-> The upgrade itself is PR "chore(deps): move effect and @effect/vitest to 4.0.0-rc.117, vitest to 5".
+> The upgrade itself is PR #20.
 
 ## Summary
 

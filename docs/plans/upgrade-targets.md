@@ -13,8 +13,7 @@ Wardic will:
 
 ## 1. Effect: `4.0.0-beta.71` → the 4.0 RC line
 
-> **Done (2026-09-28): `4.0.0-rc.117`**, in PR "chore(deps): move effect and @effect/vitest to
-> 4.0.0-rc.117, vitest to 5". What changed, the re-verified timing internals and the before/after
+> **Done (2026-09-28): `4.0.0-rc.117`**, in PR #20. What changed, the re-verified timing internals and the before/after
 > numbers are in [`docs/research/effect-4-rc-upgrade.md`](../research/effect-4-rc-upgrade.md).
 > Next: follow the RCs to 4.0.0 stable, re-checking with that doc's last section.
 
