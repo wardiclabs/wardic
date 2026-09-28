@@ -305,6 +305,70 @@ describe("the Measure pass (ADR-0018)", () => {
     e.dispose()
   })
 
+  it("a node seeded under a running ancestor is flushed together with that ancestor's subtree; an unrelated running node is not", async () => {
+    const s = makeSink()
+    const e = makeEngine(s.sink)
+    const parentEl = makeBox(0)
+    parentEl.style.width = "300px"
+    parentEl.style.height = "120px"
+    const childEl = document.createElement("div")
+    childEl.style.cssText = "position:absolute;top:10px;left:10px;width:40px;height:40px"
+    parentEl.append(childEl)
+    const parent = e.system.register({ id: "parent", element: parentEl, springOptions: () => ({}) })
+    const child = e.system.register({ id: "child", element: childEl, springOptions: () => ({}) })
+    const other = await registerAt(e.system, "other", 0, 200)
+    await endOfTask()
+
+    parentEl.style.left = "200px"
+    parent.notify()
+    other.element.style.left = "300px"
+    other.handle.notify()
+    await endOfTask()
+    for (let i = 0; i < 3; i++) fireFrame() // parent and other are mid-flight
+
+    childEl.style.left = "150px" // the child moves inside its running parent
+    child.notify()
+    await endOfTask()
+    const inFlush = insideLastFlush(s.log)
+    expect(writesFor(inFlush, "child").length).toBeGreaterThan(0)
+    expect(writesFor(inFlush, "parent").length).toBeGreaterThan(0) // derived with it, so they paint together
+    expect(writesFor(inFlush, "other")).toHaveLength(0) // unrelated: left alone
+    e.dispose()
+  })
+
+  it("a node seeded below a layoutRoot carried by a running ancestor is flushed with that ancestor too", async () => {
+    const s = makeSink()
+    const e = makeEngine(s.sink)
+    const outerEl = makeBox(0)
+    outerEl.style.width = "400px"
+    outerEl.style.height = "200px"
+    const rootEl = document.createElement("div")
+    rootEl.style.cssText = "position:absolute;top:0;left:0;width:300px;height:150px"
+    const leafEl = document.createElement("div")
+    leafEl.style.cssText = "position:absolute;top:10px;left:10px;width:40px;height:40px"
+    rootEl.append(leafEl)
+    outerEl.append(rootEl)
+    const outer = e.system.register({ id: "outer", element: outerEl, springOptions: () => ({}) })
+    e.system.register({ id: "layout-root", element: rootEl, springOptions: () => ({}), layoutRoot: true })
+    const leaf = e.system.register({ id: "leaf", element: leafEl, springOptions: () => ({}) })
+    await endOfTask()
+
+    outerEl.style.left = "200px"
+    outer.notify()
+    await endOfTask()
+    for (let i = 0; i < 3; i++) fireFrame() // outer is mid-flight; the layoutRoot counter-transforms it
+
+    leafEl.style.left = "150px"
+    leaf.notify()
+    await endOfTask()
+    const inFlush = insideLastFlush(s.log)
+    expect(writesFor(inFlush, "leaf").length).toBeGreaterThan(0)
+    // The leaf is derived against the layoutRoot's delta, which follows outer's motion.
+    expect(writesFor(inFlush, "layout-root").length).toBeGreaterThan(0)
+    expect(writesFor(inFlush, "outer").length).toBeGreaterThan(0)
+    e.dispose()
+  })
+
   it("disposing before the end of the task runs no pass and leaves no timer behind", async () => {
     const s = makeSink()
     const e = makeEngine(s.sink)

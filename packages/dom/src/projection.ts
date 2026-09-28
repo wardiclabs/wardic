@@ -675,11 +675,13 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
   /**
    * The nodes whose projection a Measure pass changes (ADR-0018): for each node it
-   * (re)seeded, the whole subtree of that node's highest RUNNING ancestor below any
-   * `layoutRoot` boundary (or of the node itself). A seed is derived against its
-   * ancestors' deltas, so the node and everything sharing those deltas must paint
-   * together. Every other node keeps the value its last Clock tick wrote: a running
-   * animation elsewhere is left alone.
+   * (re)seeded, the whole subtree of that node's highest RUNNING ancestor (or of the
+   * node itself). A seed is derived against its ancestors' deltas, so the node and
+   * everything sharing those deltas must paint together. That includes the climb
+   * past a `layoutRoot`: a layoutRoot under a running ancestor is derived each frame
+   * to counter that ancestor's transform, so a node seeded inside it still depends on
+   * the ancestor. Every other node keeps the value its last Clock tick wrote: a
+   * running animation elsewhere is left alone.
    */
   const groupOf = (changed: ReadonlySet<NodeState>): Set<NodeState> => {
     const group = new Set<NodeState>()
@@ -687,7 +689,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     const roots = new Set<NodeState>()
     for (const node of changed) {
       let root = node
-      for (let p = node.parent; p !== undefined && !p.layoutRoot; p = p.parent) if (active.has(p)) root = p
+      for (let p = node.parent; p !== undefined; p = p.parent) if (active.has(p)) root = p
       roots.add(root)
     }
     for (const node of nodes) {
@@ -1114,7 +1116,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     } finally {
       inPass = false
     }
-    if (triggeredDuringPass) {
+    if (triggeredDuringPass && !disposed) {
       triggeredDuringPass = false
       debug("measure round cap", { rounds })
       leftover = setTimeout(() => {
