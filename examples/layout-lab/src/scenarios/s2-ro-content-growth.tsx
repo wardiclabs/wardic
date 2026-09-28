@@ -81,7 +81,8 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 2, ResizeObserver-only content growth: the Run click handler changes
  * the box's content, and only Wardic's shared ResizeObserver sees the new size.
- * Expected to flash.
+ * Expected to be safe, holding 1: the observer delivers after the frame's gate
+ * flush.
  */
 export const s2: ScenarioDef = {
   id: ID,
@@ -89,10 +90,13 @@ export const s2: ScenarioDef = {
   title: "ResizeObserver-only content growth",
   mechanism:
     "The Run click handler adds or removes a 64px cell inside the box; only Wardic's shared ResizeObserver sees the size change.",
-  prediction: "flash-risk",
+  prediction: "safe",
+  expectedHeld: 1,
   rationale:
-    "Nothing Wardic tracks changes, so the measure waits for the ResizeObserver, which delivers in the rendering " +
-    "update after that frame's rAF callbacks and layout. The scheduleMeasure it calls requests a gate rAF for the " +
-    "next frame, so this frame paints the resized box before the measure pass runs.",
+    "Nothing Wardic tracks changes, so Wardic hears of the new size only from its shared ResizeObserver, which " +
+    "delivers in the next rendering update after the rAF callbacks and layout, so after the frame's gate flush. " +
+    "The delivery queues a Measure pass, which runs in a microtask at the end of the callback and flushes its seed " +
+    "before the frame paints (ADR-0018), so that frame shows the box at its old size. The Priming step waits for " +
+    "the next frame's gate flush, so the box grows from the frame after (held 1, cold or warm).",
   View,
 }

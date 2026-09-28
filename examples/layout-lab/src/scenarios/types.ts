@@ -2,11 +2,11 @@
  * The scenario contract: what a layout-lab scenario is, and the context the lab
  * hands it.
  *
- * A scenario is one way a layout change can reach Wardic's measure pass (a click
+ * A scenario is one way a layout change can reach Wardic's Measure pass (a click
  * writing `layoutDependency`, a ResizeObserver delivery, a write inside rAF, and so
  * on). The lab samples the watched element's painted box after every frame and
  * reports whether the destination box was painted before the FLIP started (a
- * "flash").
+ * "flash", issue #2), how many frames it held at the origin, and how it moved.
  *
  * Scenario rules (every scenario must follow all of them):
  *
@@ -27,8 +27,8 @@ import type { Component } from "solid-js"
 /**
  * What the scenario author expects before running it.
  *
- * - `safe`: the measure pass runs before the frame that would show the
- *   destination box, so no flash is expected.
+ * - `safe`: the Measure pass runs, and its seed is applied, before the first paint
+ *   that could show the destination box, so no flash is expected.
  * - `flash-risk`: at least one paint is expected to show the destination box
  *   before the FLIP starts.
  * - `unknown`: the timing depends on something the author cannot predict (for
@@ -86,11 +86,14 @@ export interface ScenarioContext {
   readonly onLayoutAnimationComplete: (cb: () => void) => () => void
 }
 
+/** A scenario's expected hold (see {@link ScenarioDef.expectedHeld}). */
+export type ExpectedHeld = NonNullable<ScenarioDef["expectedHeld"]>
+
 /** One scenario definition: its metadata plus the View the lab mounts. */
 export interface ScenarioDef {
   /** A unique kebab-case id. It is also the View root's `data-scenario` value. */
   readonly id: string
-  /** The display order: 1-9 for the numbered scenarios, 0 for free-play. */
+  /** The display order: 1-10 for the numbered scenarios, 0 for free-play. */
   readonly index: number
   /** A short human-readable title. */
   readonly title: string
@@ -106,6 +109,21 @@ export interface ScenarioDef {
    * a scenario with no measure pass (scenario 9's spring).
    */
   readonly heldFramesFrom?: "measure" | "trigger"
+  /**
+   * The `heldFrames` the author expects (issues #2 and #14), which the card checks
+   * every run against: `held 0 · warm ✓`, or `held 1 · cold ✗ expected 0`. A number
+   * holds for either Clock start; `{ cold, warm }` gives one per Clock start (see
+   * `heldCheckOf` in `lab/held-frames.ts`). Left out, the card shows no check (free
+   * play, whose timing depends on the selection).
+   *
+   * A layout change made in an ordinary task (a click, an IntersectionObserver
+   * callback) is measured at the end of that task, and its first painted frame is
+   * already one step along: 0. One made after the frame's gate flush (a
+   * ResizeObserver callback, a later rAF callback, the Clock's callback, an effect
+   * inside the gate's flush) paints the origin in that frame and moves on the next:
+   * 1. Both hold cold or warm (ADR-0018).
+   */
+  readonly expectedHeld?: number | { readonly cold: number; readonly warm: number }
   /**
    * The scenario's UI: a `.stage` holding the watched element, and a Run button.
    * It receives its context as a static prop (see the scenario rules above).

@@ -1,9 +1,11 @@
 /**
  * The lab orchestrator: it binds each scenario to a {@link ScenarioContext}, joins
- * a finished paint-sampler run with the timeline (framesToMeasure, the Wardic spans
- * around it) and the frame trace (the Refresh frames, ResizeObserver deliveries and
- * inputs around it) into a {@link LabRun}, grades it against the scenario's
- * prediction, and keeps the bounded run log the UI and the copy-log read.
+ * a finished paint-sampler run with the timeline (framesToMeasure, the held frames,
+ * the Wardic spans around it) and the frame trace (the Refresh frames,
+ * ResizeObserver deliveries and inputs around it) into a {@link LabRun}, reads the
+ * run's first steps and its pace through a second Measure pass, grades it against
+ * the scenario's prediction, and keeps the bounded run log the UI and the copy-log
+ * read. All of that runs once per completed run, never per frame.
  *
  * Framework-free on purpose (no Solid import): the UI subscribes through
  * {@link Lab.subscribe}, which fires once per completed run and never per frame,
@@ -24,6 +26,8 @@ import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, typ
 import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
 import { groupFrames, type InputJoin, joinInputs, type RefreshFrame } from "./frame-order.ts"
 import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
+import { measurePassesOf } from "./measure-passes.ts"
+import { firstStepsOf, passStepRatioOf } from "./steps.ts"
 
 /** How many completed runs the lab keeps (oldest dropped first). */
 const MAX_RUNS = 200
@@ -85,19 +89,50 @@ export interface LabRun extends RunResult {
   /**
    * Paints between the trigger mark and the start of the first
    * `wardic.projection.measure` span after it. `null` when no measure span was
-   * recorded (JSON has no `undefined`).
+   * recorded (JSON has no `undefined`). Since #2's fix every layout trigger reads 0:
+   * the Measure pass runs at the end of the triggering task or, for a change made
+   * after the frame's gate flush, inside that frame before it paints (ADR-0018).
    */
   readonly framesToMeasure: number | null
   /**
-   * Issue #14: painted frames held at the origin before the first motion, counted
-   * from {@link heldFrom}. A layout run's measure pass paints the origin, so 1 is
-   * the minimum there. `null` when the anchor was never seen or nothing moved after it.
+   * Issues #14 and #2: painted frames held at the origin before the first motion,
+   * counted from {@link heldFrom}. A layout change made in an ordinary task holds 0
+   * (its first painted frame is already one step along); one measured after the
+   * frame's gate flush holds 1 (that frame paints the origin); cold or warm alike
+   * (ADR-0018). `null` when the anchor was never seen or nothing moved after it.
    */
   readonly heldFrames: number | null
   /** Milliseconds from {@link heldFrom} to the first moved frame's post-paint delivery; `null` like {@link heldFrames}. */
   readonly msToFirstMotion: number | null
-  /** What {@link heldFrames} counts from: the first measure pass, or (scenario 9) the trigger. */
+  /** What {@link heldFrames} counts from: the first Measure pass, or (scenario 9) the trigger. */
   readonly heldFrom: HeldFrom
+  /**
+   * Issue #18: the first three step sizes of the run's motion, in px, starting at
+   * its first step larger than 1px (see `firstStepsOf` in `steps.ts`). The origin
+   * stands for the frame before the first sample, so a run whose first painted
+   * frame already moved starts with that step. A layout FLIP's steps grow as its
+   * spring speeds up (a click: `5.1 10.7 13.7`); #18's hesitation, a spring
+   * restarted by a second Measure pass, read `5.1 4.9 10.3`. Empty when nothing
+   * moved further than 1px in one step.
+   */
+  readonly firstSteps: ReadonlyArray<number>
+  /**
+   * ADR-0018's unchanged-node rule: across the two steps from the first sample
+   * delivered at or after the run's second `wardic.projection.measure` span, each
+   * step divided by the one before it, the ratio farthest from 1 (see
+   * `passStepRatioOf` in `steps.ts`). About 1 when that pass left the running
+   * animation alone (scenario 10: a sibling's resize mid-flight); well below 1 for
+   * a restart or a held frame, above 1.6 for a skip ahead. `null` with fewer than
+   * two Measure passes, when the second came before the first painted frame
+   * (scenario 7), or when the element was not moving just before it.
+   */
+  readonly passStepRatio: number | null
+  /**
+   * The frame-stretch busy-wait in effect at the trigger, in ms (0 when off). A
+   * stretched run is sampled at the stretched cadence, so a frame can go unsampled
+   * and `heldFrames` read one short: judge its held count with that in mind.
+   */
+  readonly frameStretchMs: number
   /**
    * Whether the Clock was already ticking at the trigger (`warm`: some `wardic.clock`
    * span was open) or the run had to start it (`cold`). `null` for a run the lab
@@ -198,6 +233,8 @@ export interface Lab {
   readonly flashCounts: () => FlashCounts
   /** Zeroes the flash counts and removes every ghost outline (flash and wrong-origin). */
   readonly resetCounts: () => void
+  /** Records the frame-stretch control's current value (ms), stamped on every run triggered after it. */
+  readonly setFrameStretch: (ms: number) => void
   /** Builds the copy-log payload. It is JSON-round-trip safe. */
   readonly log: (meta: { readonly frameStretchMs: number; readonly keepClockWarm: boolean }) => LabLog
 }
@@ -211,7 +248,7 @@ export const outcomeOf = (prediction: Prediction, verdict: Verdict): Outcome => 
   return verdict === "flash" ? "as-predicted" : "surprise"
 }
 
-/** The span that marks one measure pass. */
+/** The span that marks one Measure pass. */
 const MEASURE_SPAN = "wardic.projection.measure"
 
 /** A started run's trigger, kept until the run ends. */
@@ -223,6 +260,8 @@ interface PendingTrigger {
   readonly frame: number
   /** Whether the Clock was already ticking when the trigger was marked. */
   readonly clock: ClockStart
+  /** The frame stretch in effect when the trigger was marked, in ms. */
+  readonly frameStretchMs: number
   /**
    * Delivery times of frames numbered before {@link frame} whose post-paint
    * delivery only ran after the trigger. Those frames painted before it.
@@ -305,6 +344,8 @@ export const makeLab = (options: LabOptions): Lab => {
   const listeners = new Set<(run: LabRun) => void>()
   let flashTotal = 0
   let flashPerScenario: Record<string, number> = {}
+  // The frame-stretch control's value (ms), stamped on each run at its trigger.
+  let frameStretchMs = 0
 
   sampler.onRunEnd((result) => {
     const trigger = pendingTriggers.get(result.triggerAt)
@@ -313,12 +354,11 @@ export const makeLab = (options: LabOptions): Lab => {
     const prediction = predictions.get(result.scenarioId) ?? "unknown"
     const frames = trigger === undefined ? undefined : framesToMeasureOf(trigger, result)
     const heldFrom = heldFroms.get(result.scenarioId) ?? "measure"
-    const anchorAt =
-      heldFrom === "trigger"
-        ? result.triggerAt
-        : timeline
-            .window(result.triggerAt, result.endedAt)
-            .spans.find((s) => s.name === MEASURE_SPAN && s.start >= result.triggerAt)?.start
+    const spans = timeline.window(result.triggerAt - SPAN_LEAD_MS, result.endedAt).spans
+    const passes = measurePassesOf(spans, result.triggerAt)
+    // `starts` is empty when no Measure pass answered the run, so index 0 or 1 may be missing.
+    const anchorAt: number | undefined = heldFrom === "trigger" ? result.triggerAt : passes.starts[0]
+    const secondPassAt: number | undefined = passes.starts[1]
     const held =
       anchorAt === undefined
         ? undefined
@@ -344,9 +384,12 @@ export const makeLab = (options: LabOptions): Lab => {
       heldFrames: held?.heldFrames ?? null,
       msToFirstMotion: held?.msToFirstMotion ?? null,
       heldFrom,
+      firstSteps: firstStepsOf(result.origin, result.samples, NEAR_PX),
+      passStepRatio: passStepRatioOf(result.origin, result.samples, secondPassAt, NEAR_PX),
+      frameStretchMs: trigger?.frameStretchMs ?? frameStretchMs,
       clock: trigger?.clock ?? null,
       outcome: outcomeOf(prediction, result.verdict),
-      spans: timeline.window(result.triggerAt - SPAN_LEAD_MS, result.endedAt).spans,
+      spans,
       scheduler: currentLabScheduler(),
       refreshFrames,
       observerCallbacks,
@@ -383,7 +426,15 @@ export const makeLab = (options: LabOptions): Lab => {
       const clock: ClockStart = timeline.openCount(CLOCK_SPAN) > 0 ? "warm" : "cold"
       const mark = timeline.mark("trigger", source, id)
       const frame = ticker.frame()
-      const pending: PendingTrigger = { mark, meta, frame, clock, lateEarlierFrames: [], frameDeliveredAt: undefined }
+      const pending: PendingTrigger = {
+        mark,
+        meta,
+        frame,
+        clock,
+        frameStretchMs,
+        lateEarlierFrames: [],
+        frameDeliveredAt: undefined,
+      }
       pendingTriggers.set(mark.t, pending)
       if (deliveredFrame < frame) awaitingDelivery.add(pending)
       sampler.begin({ el, scenarioId: id, triggerAt: mark.t })
@@ -423,6 +474,9 @@ export const makeLab = (options: LabOptions): Lab => {
       flashTotal = 0
       flashPerScenario = {}
       clearGhosts()
+    },
+    setFrameStretch: (ms) => {
+      frameStretchMs = ms
     },
     log: ({ frameStretchMs, keepClockWarm }) => ({
       createdAt: new Date().toISOString(),

@@ -348,12 +348,19 @@ body {
   flex: none;
 }
 
-/* Fixed height, always rendered: a result arriving never changes the card's size. */
+/*
+ * Fixed height, always rendered: a result arriving never changes the card's size.
+ * The seven cells wrap onto three rows on a card of the grid's 372px minimum
+ * width, so the height fits three: two rows holding a pill (14 + 3 + 22px), one of
+ * plain values (14 + 3 + 20px), two 6px row gaps, the 8px padding and the 1px
+ * border.
+ */
 .card-result {
-  display: grid;
-  grid-template-columns: repeat(4, max-content);
-  gap: 12px;
-  height: 48px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px 12px;
+  height: 136px;
   overflow: hidden;
   margin-top: auto;
   padding-top: 8px;
@@ -374,6 +381,12 @@ body {
 
 .result-value {
   font: 700 13px/20px var(--lab-mono);
+  white-space: nowrap;
+}
+
+/* The run's hold missed the scenario's expectedHeld. */
+.result-value.held-miss {
+  color: var(--lab-flash);
 }
 
 /* ---- Sidebar panels ---------------------------------------------------- */

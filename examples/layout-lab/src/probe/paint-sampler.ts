@@ -11,13 +11,14 @@
  * ## What "post-paint" means here
  *
  * A read inside a `requestAnimationFrame` callback sees the DOM before the frame's
- * later rAF callbacks run. Wardic's own measure pass is one of those later
- * callbacks, so an rAF-time read cannot say what the frame showed. Instead the
- * ticker posts a `MessageChannel` message from each rAF callback. A posted message
- * is a task, and the event loop runs no task until the current rendering update
- * (rAF callbacks, style, layout, ResizeObserver callbacks, paint) has finished. The
- * handler therefore runs after the frame painted, and a `getBoundingClientRect`
- * there reads the box that frame put on screen, transform included.
+ * later rAF callbacks run. Wardic's flush gate is one of those later callbacks
+ * (and a Measure pass can run after them, in a ResizeObserver delivery), so an
+ * rAF-time read cannot say what the frame showed. Instead the ticker posts a
+ * `MessageChannel` message from each rAF callback. A posted message is a task, and
+ * the event loop runs no task until the current rendering update (rAF callbacks,
+ * style, layout, ResizeObserver callbacks, paint) has finished. The handler
+ * therefore runs after the frame painted, and a `getBoundingClientRect` there
+ * reads the box that frame put on screen, transform included.
  *
  * ## Which deliveries belong to a run
  *

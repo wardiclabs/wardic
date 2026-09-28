@@ -151,7 +151,7 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 6, IntersectionObserver callback: an IO whose root is a scroll container
  * inside the stage writes the `layoutDependency` signal when a scroll flips its
- * sentinel. Expected to be safe.
+ * sentinel. Expected to be safe, holding 0: the notification is an ordinary task.
  */
 export const s6: ScenarioDef = {
   id: ID,
@@ -160,10 +160,12 @@ export const s6: ScenarioDef = {
   mechanism:
     "An IntersectionObserver (root = a scroll container) writes the layoutDependency signal after the click scrolls its sentinel in or out.",
   prediction: "safe",
+  expectedHeld: 0,
   rationale:
     "The browser computes intersections during the rendering update, then queues the IntersectionObserver " +
-    "notification as a task after it. The callback's signal write, and the gate rAF that notify -> scheduleMeasure " +
-    "requests there, therefore happen in an ordinary task, so the measure pass runs in the next frame's rAF, before " +
-    "that frame paints the destination box.",
+    "notification as a task. The callback's signal write, and the Measure pass its notify queues, therefore " +
+    "happen in an ordinary task: the pass runs in a microtask at the end of it and flushes its seed (ADR-0018), " +
+    "and the next frame's gate flush applies the Priming step, so the first painted frame is already one step " +
+    "along (held 0, cold or warm).",
   View,
 }

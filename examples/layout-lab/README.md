@@ -2,15 +2,24 @@
 
 A client-only Vite + Solid lab that answers one question empirically, per trigger
 path: **does the browser paint an element at its new (destination) box before
-Wardic's measure pass starts the layout animation?** That is the rAF-hop flash
-question from [issue #2 on wardiclabs/wardic](https://github.com/wardiclabs/wardic/issues/2).
+Wardic's Measure pass starts the layout animation?** That is the flash of
+[issue #2 on wardiclabs/wardic](https://github.com/wardiclabs/wardic/issues/2),
+which is fixed; the lab now checks, path by path, that the fix holds.
 
-Wardic's flush gate batches layout measurement into a `requestAnimationFrame`. When
-a layout change is committed in a task that runs after that frame's rAF callbacks
-(a ResizeObserver delivery, a write inside rAF, and so on), the measure pass lands
-one frame late, and the frame in between may show the element already at its
-destination for one paint, before the FLIP pulls it back to the origin. Each
-scenario here drives one trigger path and records what was actually painted.
+Before the fix, Wardic's flush gate ran the measure pass in its next
+`requestAnimationFrame` callback. A layout change made after that frame's gate
+flush (a ResizeObserver delivery, a write inside a later rAF callback, and so on)
+was measured a frame late, and the frame in between showed the element at its
+destination for one paint before the FLIP pulled it back to the origin. Now every
+layout trigger in a task queues one **Measure pass**, which the projection engine
+runs in a microtask at the end of that task, and the pass has the gate apply the
+writes it made before it returns (`flushPass`), so a new layout never paints
+without its projection. The nodes it seeded then take a **Priming step**, so the
+animation moves on the next painted frame whether the Clock was idle or ticking
+([ADR-0018](../../docs/adr/0018-end-of-task-measure-pass.md)). Each scenario here
+drives one trigger path and records what was actually painted: whether it
+flashed, how many frames it held at its origin, which Measure passes answered it,
+and how it moved.
 
 ## Run it
 
@@ -59,27 +68,75 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   with it (scenario 7's container `scrollTop`s); and `scrollX`/`scrollY`, the page
   scroll at the trigger. A `wrong-origin` offset can be checked against them.
 - **framesToMeasure.** The number of paints between the trigger mark and the start
-  of the first `wardic.projection.measure` span after it, captured by a custom
-  Effect `Tracer`. `0` means the measure pass ran before the next paint.
-- **held (`heldFrames`, `clock`).** Issue #14's metric. `heldFrames` counts the
-  painted frames that sit at the origin (within 1px) before the first moved frame,
-  starting with the first frame painted after the measure pass began (`heldFrom:
-  "measure"`), so a flash frame before the pass is not counted. The measure pass
-  itself paints the origin, so 1 is the minimum for a layout run. Scenario 9 has no
-  measure pass and counts from the trigger (`heldFrom: "trigger"`), so its minimum
-  is 0. `msToFirstMotion` is the time from that anchor to the first moved frame.
-  `clock` says whether the Clock was already ticking at the trigger: `warm` when a
-  `wardic.clock` span was open (each subscription to `Clock.ticks` runs inside one),
-  `cold` when the run had to start it. The card shows both, e.g. `1 · cold`.
+  of the first `wardic.projection.measure` span after it (the engine records one
+  span per Measure pass), captured by a custom Effect `Tracer`. `0` means the
+  Measure pass ran before the next paint. Since #2's fix every layout trigger reads
+  0: the pass runs at the end of the triggering task, or, for a change made after
+  the frame's gate flush, inside that frame's rendering update before it paints.
+  Scenario 9 has no Measure pass, so it reads `?`.
+- **held (`heldFrames`, `clock`, `expectedHeld`).** Issue #14's metric. `heldFrames`
+  counts the painted frames that sit at the origin (within 1px) before the first
+  moved frame, starting with the first frame painted after the Measure pass began
+  (`heldFrom: "measure"`), so a flash frame before the pass is not counted. A
+  layout change made in an ordinary task (a click, an IntersectionObserver
+  callback, a timer) holds **0**: the pass applies its seed at the end of the task
+  and the next frame's gate flush applies its Priming step, so the first painted
+  frame is already one step along. One measured after the frame's gate flush (a
+  ResizeObserver callback, a later rAF callback, the Clock's callback, an effect
+  inside the gate's flush) holds **1**: that frame paints the seed, which is the
+  origin, and the Priming step waits for the next frame's gate flush. Both hold
+  cold or warm. Scenario 9 has no Measure pass and counts from the trigger
+  (`heldFrom: "trigger"`). `msToFirstMotion` is the time from that anchor to the
+  first moved frame. `clock` says whether the Clock was already ticking at the
+  trigger: `warm` when a `wardic.clock` span was open (each subscription to
+  `Clock.ticks` runs inside one), `cold` when the run had to start it. The card
+  shows both, and checks the hold against the scenario's `expectedHeld` (one
+  number, or one per Clock start where they differ): `0 · warm ✓`, or
+  `1 · cold ✗ expected 0` in red. Free play has no expectation, so no check.
   One thing to know when reading it: a run's settle test (1px) is looser than a
   spring's rest test, so for about a second after a run ends its spring is still
   ticking, and a Run inside that second reads `warm` (and is warm: the Clock
   stays running through a retarget, ADR-0017). Wait about a second between runs
   for a clean `cold`. Also discard the first run after the dev server starts or
-  recompiles an edited file: its first-time code makes the measure pass slow, the
-  post-paint message for the measure frame can then run after the next frame's
-  flush, and that run reads one frame short (seen as `held 0` on a layout run,
-  with two samples delivered a couple of ms apart).
+  recompiles an edited file: its first-time code makes the pass slow, the
+  post-paint message for the frame it painted can then run after the next frame's
+  flush, and that run can read one frame short (seen before #2's fix as `held 0`
+  on a run that should hold 1, with two samples delivered a couple of ms apart).
+  The same goes for a run made with **Frame stretch** on: its samples come at the
+  stretched cadence, so the frame that painted the origin can go unsampled and a
+  run that holds 1 reads `held 0` (measured on 2026-09-28: every such Chrome run
+  had samples about 51 ms apart). Each run records the stretch in effect at its
+  trigger as `frameStretchMs`; the log's own `frameStretchMs` is only the value at
+  save time.
+- **passes.** The card's `passes 2 (1 seeding)`: the run's
+  `wardic.projection.measure` spans that started at or after the trigger, and how
+  many of them seeded a node. The engine annotates each span with `nodes`,
+  `active`, `seeded` (the nodes that started or restarted a layout animation in
+  that pass) and `rounds` (the pass repeats while its own flush triggers another,
+  at most 5 rounds, ADR-0018); the lab copies them when the span ends. A pass that
+  seeds nothing found nothing to animate. `passes 0` is a run no pass answered
+  (scenario 9). Computed from the run's `spans`, so a saved log carries it too.
+- **steps (`firstSteps`, `passStepRatio`).** A step is the distance between two
+  consecutive painted boxes, |dLeft| + |dTop| + |dWidth| + |dHeight| px, with the
+  origin standing for the frame before the first sample (so a run whose first
+  painted frame already moved starts with that step). `firstSteps` is the first
+  three, from the first step larger than 1px; the card prints them as `steps 5.1
+  10.7 13.7`. A FLIP's steps grow while its spring speeds up; #18's hesitation, a
+  spring restarted by a second pass, read `5.1 4.9 10.3` (ADR-0018). An effect
+  inside the gate's flush (scenario 8) starts about two steps in (`15.7 …` in the
+  desktop Chrome log cited under Scenarios, where a click starts about `5.1 10.7`),
+  because the Priming step and that frame's Clock tick both land before its first
+  painted move. `passStepRatio` is the step into the first frame delivered at or
+  after the run's second Measure pass, divided by the step before it: about 1 when
+  that pass left the running animation alone (scenario 10), about 2 when it
+  re-wrote the node and the frame skipped a step ahead. It is `null` (the card
+  prints `n/a`) with fewer than two passes, when the second pass came before the
+  first painted frame (scenario 7), or when the element was not moving just before
+  it. A restart at zero velocity by a pass that runs after the frame's gate flush
+  would first show in the step after the one it reads (inferred from the frame
+  order, not measured); the browser test for the unchanged-node rule
+  (`packages/solid/test/measure-pass-timing.browser.test.tsx`) catches a restart by
+  a pass at the end of a task.
 - **Frame trace (`refreshFrames`, `observerCallbacks`, `input`).** Issues #2 and #18: what
   ran in each Refresh frame around the run. `src/probe/frame-trace.ts` is imported
   before anything else and wraps `requestAnimationFrame` and `ResizeObserver`, so
@@ -109,20 +166,51 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
 
 ## Scenarios
 
-Predictions and their reasoning are shown on each card, not here.
+Each card shows its prediction and the reasoning behind it. The expectation
+columns are what a run should read since #2's fix: the prediction, the `held`
+count the card checks (`expectedHeld`, cold and warm alike unless both are given),
+and the card's `passes`.
 
-| # | Scenario | Mechanism |
-| - | -------- | --------- |
-| 1 | click -> layoutDependency | The click handler writes the signal bound to the box's `layoutDependency`. |
-| 2 | ResizeObserver-only content growth | The click adds content inside the box; only Wardic's shared ResizeObserver sees the size change. |
-| 3 | App ResizeObserver -> signal | An app-owned ResizeObserver on a separate driver element writes the `layoutDependency` signal. |
-| 4 | Change inside rAF | A `requestAnimationFrame` callback writes the `layoutDependency` signal. |
-| 5 | On Wardic animation complete | The end of the projection coordinator span (the finished FLIP) writes the signal back. |
-| 6 | IntersectionObserver callback | An IntersectionObserver callback, fired by a scroll, writes the `layoutDependency` signal. |
-| 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`: on the page, in one `layoutScroll` box, or across two (the Container select). |
-| 8 | Solid effect during gate batch | A `createEffect` that runs inside the flush gate's `batch()` writes the `layoutDependency` signal. |
-| 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no measure pass. |
-| 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. |
+| # | Scenario | Mechanism | Prediction | Held | Passes |
+| - | -------- | --------- | ---------- | ---- | ------ |
+| 1 | click -> layoutDependency | The click handler writes the signal bound to the box's `layoutDependency`. | safe | 0 | 1 (1 seeding) |
+| 2 | ResizeObserver-only content growth | The click adds content inside the box; only Wardic's shared ResizeObserver sees the size change. | safe | 1 | 1 (1 seeding) |
+| 3 | App ResizeObserver -> signal | An app-owned ResizeObserver on a separate driver element writes the `layoutDependency` signal. | safe | 1 | 1 (1 seeding) |
+| 4 | Change inside rAF | A `requestAnimationFrame` callback writes the `layoutDependency` signal. | safe | 1 | 1 (1 seeding) |
+| 5 | On Wardic animation complete | The end of the projection coordinator span (the finished FLIP) writes the signal back. | safe | 1 | 1 (1 seeding) |
+| 6 | IntersectionObserver callback | An IntersectionObserver callback, fired by a scroll, writes the `layoutDependency` signal. | safe | 0 | 1 (1 seeding) |
+| 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`: on the page, in one `layoutScroll` box, or across two (the Container select). | safe | 0 | 2 (1 seeding) |
+| 8 | Solid effect during gate batch | A `createEffect` that runs inside the flush gate's `batch()` writes the `layoutDependency` signal. | safe | 1 | 1 (1 seeding) |
+| 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no Measure pass. | safe | 0 cold, 1 warm | 0 |
+| 10 | Sibling resize mid-flight | The click moves box A; 150 ms later a timer grows box B's content, which only Wardic's shared ResizeObserver sees, while A is mid-flight. | safe | 0 | 2 (2 seeding), `passStepRatio` about 1 |
+| 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
+
+Why each path holds what it does. The browser runs a frame's rAF callbacks, then
+style and layout, then its ResizeObserver deliveries (laying out again after
+them), and only then paints; it computes intersections in that same update, but
+delivers IntersectionObserver notifications in a task of their own. After each
+callback it runs the microtask checkpoint, which is where the Measure pass runs
+(HTML Living Standard, [update the
+rendering](https://html.spec.whatwg.org/multipage/webappapis.html#update-the-rendering)
+and [clean up after running
+script](https://html.spec.whatwg.org/multipage/webappapis.html#clean-up-after-running-script),
+last updated 28 September 2026; Intersection Observer Editor's Draft of 19 March
+2026, [queue an intersection observer
+task](https://w3c.github.io/IntersectionObserver/#queue-intersection-observer-task)).
+So scenarios 1, 6, 7 and 10 (a click or an observer task) are measured before the
+next frame's gate flush and hold 0; scenarios 2 and 3 (a ResizeObserver
+delivery) are measured after it and hold 1. Where the other triggers run was
+measured with the lab's frame trace in desktop Chrome 153 and Firefox 156 after the
+fix (`logs/2026-09-28T18-50-29-479Z-default.json` and
+`logs/2026-09-28T18-52-51-410Z-default.json`): scenario 4's callback ran in a
+frame with no gate callback when the Clock was idle (`ticker>scenario`) and after
+the gate's and the Clock's when it was ticking (`ticker>gate>clock>scenario`);
+scenario 5's span end ran inside the Clock's callback; scenario 8's effect ran
+inside the gate's (12 of 13 runs; the other, in Firefox, inside the Clock's). Each
+of those is after the frame's gate flush, or in a frame with none, so all three
+hold 1. A headless probe (Chromium 147, Firefox 148) had already shown a write
+from such a microtask laid out in the same frame, before its paint, 20 of 20
+times per case (ADR-0018, *Why*).
 
 Scenario 7 is issue #13's check. Before the fix, the `layoutId` switch seeded the
 entering twin from a viewport box while the measure pass stored its box with page
@@ -135,16 +223,24 @@ mode where the two twins' containers differ, so it is the one that tells the fix
 apart from folding each twin with its own container's scroll (which would be off
 by `scrollA − scrollB`).
 
-Issue #14 is checked with the `held` column, on every scenario. Before the fix, a
-run that had to start the Clock (a Cold start: `cold`) held 3 frames on a layout
-run and 2 on scenario 9, because the Clock's first tick came a frame late and
-carried `dt = 0`; a run that joined a ticking Clock (`warm`) held 1. With the fix,
-the Clock delivers a Priming tick at the end of the task that starts it (ADR-0017),
-so every layout run holds 1, cold or warm, and scenario 9 holds 0 cold and 1 warm
-(a warm spring's first value comes from the next tick, which the flush gate paints
-a frame later, ADR-0006). The **Keep Clock warm** panel runs a background spring so
-any scenario can be run warm on purpose. The result should be the same in both
-scheduler modes (below): the Clock never goes through Effect's scheduler.
+Issues #14 and #2 are checked with the `held` column, on every scenario. Before
+#14's fix, a run that had to start the Clock (a Cold start: `cold`) held 3 frames
+on a layout run and 2 on scenario 9, because the Clock's first tick came a frame
+late and carried `dt = 0`; a run that joined a ticking Clock (`warm`) held 1. With
+#14's fix the Clock delivers a Priming tick at the end of the task that starts it
+(ADR-0017), and every layout run then held 1, cold or warm, because the measure
+pass still ran in the gate's next rAF callback and painted the origin there. Since
+#2's fix a layout change made in an ordinary task holds 0 (its Priming step lands
+before the first paint), and one measured after the frame's gate flush holds 1,
+cold or warm alike (ADR-0017, *Amendment (#2)*). Scenario 9 still holds 0 cold and
+1 warm: a warm spring's first value comes from the next tick, which the flush gate
+paints a frame later (ADR-0006). Scenario 7 still shows `passes 2 (1 seeding)`: the
+engine ResizeObserver's first delivery for the newly mounted twin runs a second
+Measure pass, which now leaves the running twin alone (its steps no longer
+hesitate) but still runs, until a follow-up filters that delivery. The **Keep
+Clock warm** panel runs a background spring so any scenario can be run warm on
+purpose. The result should be the same in both scheduler modes (below): the Clock
+never goes through Effect's scheduler.
 
 ## Scheduler note
 
