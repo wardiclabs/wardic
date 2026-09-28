@@ -6,11 +6,17 @@
 // the end of the subscribing task, and runs the Refresh frame loop without the
 // Effect scheduler (ADR-0017).
 //
+// Since #2 a layout change is measured in a Measure pass at the end of the task that
+// made it, and the pass's Priming step takes the animation's first step there too
+// (ADR-0018): on a Cold start that step is the Clock's Priming tick, on a ticking
+// Clock the projection engine takes it itself. A layout FLIP triggered from a task
+// therefore moves on the 1st painted frame, cold or warm.
+//
 // How a frame is read: `paintedFrames` samples each box just after its paint (a
 // rAF posts a message; the handler reads). A read inside a rAF callback depends on
 // callback order, which is exactly what a Cold start changes. Every trigger runs in
 // a task after a paint (`afterPaint`), where a click lands, so the first sample is
-// the frame the gate's pass runs in.
+// the first frame painted after the trigger.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
@@ -43,14 +49,17 @@ const FlipStage = (props: { env: WardicEnv; moved: () => boolean; drive?: () => 
   </WardicProvider>
 )
 
-/** Frame K (the gate's pass) paints the origin; frame K+1 has moved toward the destination. */
-const expectMovesOnSecondFrame = (frames: ReadonlyArray<DOMRect>, origin: number): void => {
-  expect(Math.abs(frames[0]!.left - origin)).toBeLessThanOrEqual(1)
-  expect(frames[1]!.left - origin).toBeGreaterThan(1)
-  expect(frames[1]!.left - origin).toBeLessThan(200)
+/**
+ * The first painted frame has already moved one step: more than 1px, and less than
+ * 10% of the 200px move (one nominal step of the default spring from rest is about
+ * 2.4%). The origin itself is never painted.
+ */
+const expectMovesOnFirstFrame = (frames: ReadonlyArray<DOMRect>, origin: number): void => {
+  expect(frames[0]!.left - origin).toBeGreaterThan(1)
+  expect(frames[0]!.left - origin).toBeLessThan(20)
 }
 
-it("Cold start: a layout FLIP with nothing else animating moves on the 2nd painted frame", async () => {
+it("Cold start: a layout FLIP with nothing else animating moves on the 1st painted frame", async () => {
   const [moved, setMoved] = createSignal(false)
   const { container } = render(() => <FlipStage env={DomLive} moved={moved} />)
   const box = container.querySelector("[data-box]") as HTMLElement
@@ -59,10 +68,10 @@ it("Cold start: a layout FLIP with nothing else animating moves on the 2nd paint
   const origin = box.getBoundingClientRect().left
 
   setMoved(true)
-  expectMovesOnSecondFrame(await paintedFrames(box, 2), origin)
+  expectMovesOnFirstFrame(await paintedFrames(box, 2), origin)
 })
 
-it("warm start: a layout FLIP while another spring runs still moves on the 2nd painted frame", async () => {
+it("warm start: a layout FLIP while another spring runs also moves on the 1st painted frame", async () => {
   const [moved, setMoved] = createSignal(false)
   const [drive, setDrive] = createSignal(0)
   const { container } = render(() => <FlipStage env={DomLive} moved={moved} drive={drive} />)
@@ -74,7 +83,7 @@ it("warm start: a layout FLIP while another spring runs still moves on the 2nd p
   const origin = box.getBoundingClientRect().left
 
   setMoved(true)
-  expectMovesOnSecondFrame(await paintedFrames(box, 2), origin)
+  expectMovesOnFirstFrame(await paintedFrames(box, 2), origin)
 })
 
 it("Cold start on a setTimeout(0) Effect scheduler (real-browser timing): same frames, and no scheduler dispatch", async () => {
@@ -99,7 +108,7 @@ it("Cold start on a setTimeout(0) Effect scheduler (real-browser timing): same f
 
   setMoved(true)
   const frames = await paintedFrames(box, 6)
-  expectMovesOnSecondFrame(frames, origin)
+  expectMovesOnFirstFrame(frames, origin)
   expect(dispatches - before).toBe(0) // the Refresh frame loop never touches the scheduler
 })
 

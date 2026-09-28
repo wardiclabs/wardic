@@ -66,6 +66,13 @@ import type { Clock } from "./Clock.ts"
 export interface RefreshFrameSource<Handle = unknown> {
   readonly requestFrame: (callback: (timestampMs: number) => void) => Handle
   readonly cancelFrame: (handle: Handle) => void
+  /**
+   * The Environment's monotonic clock, in ms on the same timebase as the Refresh
+   * frame timestamps. The Clock reads it to time a Refresh frame whose timestamp
+   * repeats the previous one (Firefox runs one right after an input; ADR-0017 as
+   * amended by #2). Defaults to `performance.now()`.
+   */
+  readonly now?: () => number
 }
 
 /**
