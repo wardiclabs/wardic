@@ -14,8 +14,9 @@ import { ClockDomLive } from "../src/clock.ts"
  * Clock's own contract — the Priming tick, the dt sequence, ref-counting, and no
  * Effect-scheduler dependence — is pinned in core's node tests
  * (`packages/core/test/refresh-frame-clock.test.ts`); these check the wiring: the
- * real functions are called (detached, so no "Illegal invocation"), and releasing
- * the last subscriber cancels the pending Refresh frame.
+ * real functions are called (detached, so no "Illegal invocation"), the loop stops
+ * at the Refresh frame after the last subscriber leaves, and tearing the Layer down
+ * cancels a pending request.
  */
 const raf = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()))
 
@@ -31,15 +32,9 @@ const buildClock = async () => {
   const subscribe = () => {
     const received: Array<number> = []
     const fiber = runtime.runFork(Stream.runForEach(clock.ticks, (dt) => Effect.sync(() => void received.push(dt))))
-    return {
-      received,
-      close: async () => {
-        await runtime.runPromise(Fiber.interrupt(fiber))
-        await runtime.dispose()
-      },
-    }
+    return { received, unsubscribe: () => runtime.runPromise(Fiber.interrupt(fiber)) }
   }
-  return { subscribe }
+  return { subscribe, dispose: () => runtime.dispose() }
 }
 
 afterEach(() => {
@@ -49,7 +44,8 @@ afterEach(() => {
 describe("ClockDomLive", () => {
   it("ticks on the real requestAnimationFrame: the Priming tick, then measured Refresh frames", async () => {
     const requestSpy = vi.spyOn(window, "requestAnimationFrame")
-    const sub = (await buildClock()).subscribe()
+    const env = await buildClock()
+    const sub = env.subscribe()
     expect(sub.received).toEqual([])
     expect(requestSpy).not.toHaveBeenCalled()
 
@@ -63,21 +59,32 @@ describe("ClockDomLive", () => {
     expect(sub.received.length).toBeGreaterThanOrEqual(3)
     expect(sub.received[1]).toBeCloseTo(NOMINAL_DT, 9) // first Refresh frame: nothing to measure against yet
     expect(sub.received[2]).toBeGreaterThan(0) // a real, measured interval
-    await sub.close()
+    await sub.unsubscribe()
+    await env.dispose()
   })
 
-  it("releasing the last subscriber calls cancelAnimationFrame and stops ticking", async () => {
+  it("after the last subscriber leaves, the loop stops at the next Refresh frame; tearing down cancels a pending one", async () => {
+    const requestSpy = vi.spyOn(window, "requestAnimationFrame")
     const cancelSpy = vi.spyOn(window, "cancelAnimationFrame")
-    const sub = (await buildClock()).subscribe()
+    const env = await buildClock()
+    const sub = env.subscribe()
     await Promise.resolve()
     await raf()
+    await sub.unsubscribe()
+    const requests = requestSpy.mock.calls.length
+    await raf() // the loop's pending Refresh frame finds nobody and ends the loop
+    await raf()
+    expect(requestSpy.mock.calls.length).toBe(requests + 2) // only this test's own two raf() calls
     expect(cancelSpy).not.toHaveBeenCalled()
 
-    await sub.close()
+    // A running loop's pending request is cancelled when the Clock's Layer is torn down.
+    const again = env.subscribe()
+    await Promise.resolve()
+    await raf()
+    await env.dispose()
     expect(cancelSpy).toHaveBeenCalledTimes(1)
-    const count = sub.received.length
+    const count = again.received.length
     await raf()
-    await raf()
-    expect(sub.received.length).toBe(count)
+    expect(again.received.length).toBe(count)
   })
 })

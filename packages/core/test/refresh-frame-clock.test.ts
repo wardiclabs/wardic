@@ -2,6 +2,7 @@ import { type Clock, makeRefreshFrameClock, NOMINAL_DT, type RefreshFrameSource 
 import { describe, expect, it } from "@effect/vitest"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
@@ -83,7 +84,14 @@ const makeHarness = async () => {
     )
     return { received, fiber, close: () => Effect.runPromise(Fiber.interrupt(fiber), { scheduler }) }
   }
-  return { clock, frames, registry, subscribe, dispatches: () => dispatches }
+  return {
+    clock,
+    frames,
+    registry,
+    subscribe,
+    dispatches: () => dispatches,
+    closeScope: () => Effect.runPromise(Scope.close(scope, Exit.void), { scheduler }),
+  }
 }
 
 /** The end of the current task: one microtask checkpoint later. */
@@ -145,8 +153,9 @@ describe("makeRefreshFrameClock", () => {
     await fireAndSettle(h.frames, 0)
     await fireAndSettle(h.frames, 1000)
     await a.close()
+    await fireAndSettle(h.frames, 1016) // finds nobody: the loop ends, and the Clock is idle
 
-    // Without the acquire-time reset the next dt would be (10000 - 1000) / 1000 = 9 s.
+    // Without the start-time reset the next dt would be (10000 - 1016) / 1000 ≈ 9 s.
     const b = h.subscribe()
     await endOfTask()
     await fireAndSettle(h.frames, 10000)
@@ -198,7 +207,7 @@ describe("makeRefreshFrameClock", () => {
     await sub.close()
   })
 
-  it("the last unsubscribe cancels the pending Refresh frame", async () => {
+  it("the loop ends at the first Refresh frame that finds no subscriber, without requesting another", async () => {
     const h = await makeHarness()
     const a = h.subscribe()
     const b = h.subscribe()
@@ -207,14 +216,51 @@ describe("makeRefreshFrameClock", () => {
     expect(h.frames.requests()).toBe(2) // ONE shared loop: first Refresh frame + its re-request
 
     await a.close()
-    expect(h.frames.cancels()).toBe(0)
-    expect(h.frames.pending.size).toBe(1)
-
     await b.close()
+    // Leaving doesn't stop the loop: its request stays pending until that frame.
+    expect(h.frames.pending.size).toBe(1)
+    expect(h.frames.cancels()).toBe(0)
+
+    const delivered = a.received.length + b.received.length
+    h.frames.fire(1016) // finds nobody: no tick, no new request
+    await nextTimeout()
+    expect(a.received.length + b.received.length).toBe(delivered)
+    expect(h.frames.pending.size).toBe(0)
+    expect(h.frames.requests()).toBe(2)
+    expect(h.frames.cancels()).toBe(0)
+  })
+
+  it("a subscriber that arrives before that frame joins warm: no Priming tick, a measured dt (a retarget)", async () => {
+    const h = await makeHarness()
+    const a = h.subscribe()
+    await endOfTask()
+    await fireAndSettle(h.frames, 1000)
+    await fireAndSettle(h.frames, 1016)
+
+    // A retarget: the old animation's subscription ends and the new one's starts,
+    // in the same task, with nothing else subscribed.
+    await a.close()
+    const b = h.subscribe()
+    await endOfTask()
+    await nextTimeout()
+    expect(b.received).toEqual([]) // no Priming tick
+    await fireAndSettle(h.frames, 1033)
+    expect(b.received).toHaveLength(1)
+    expect(b.received[0]).toBeCloseTo(0.017, 9) // the loop kept its last timestamp
+    expect(h.frames.requests()).toBe(4) // the same loop, never restarted
+    await b.close()
+  })
+
+  it("the Clock's Scope closing interrupts the loop and cancels its pending Refresh frame", async () => {
+    const h = await makeHarness()
+    const sub = h.subscribe()
+    await endOfTask()
+    await fireAndSettle(h.frames, 1000)
+    expect(h.frames.pending.size).toBe(1)
+    await h.closeScope()
     expect(h.frames.cancels()).toBe(1)
     expect(h.frames.pending.size).toBe(0)
-    await nextTimeout()
-    expect(h.frames.requests()).toBe(2) // nothing requested after teardown
+    await sub.close()
   })
 
   it("unsubscribing before the Priming tick delivers nothing and leaves no Refresh frame pending", async () => {

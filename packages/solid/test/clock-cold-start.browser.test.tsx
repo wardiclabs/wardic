@@ -123,3 +123,35 @@ it("Cold start: a useWardic spring set from a task moves on the 1st painted fram
   expect(first!.left - origin).toBeGreaterThan(1)
   expect(first!.left - origin).toBeLessThan(200)
 })
+
+it("retargeting the only running spring mid-motion paints no doubled or frozen step", async () => {
+  // `useWardic` interrupts the old spring before the new one subscribes, so with
+  // nothing else animating the Clock has no subscriber for a moment. It must stay
+  // warm through that (its loop ends only at a Refresh frame that finds nobody):
+  // restarting cold froze a frame before #14, and after the Priming tick landed it
+  // doubled a step instead (the new spring's first value overwrote the old one's
+  // unpainted value in the gate).
+  const [x, setX] = createSignal(0)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <style>{CSS}</style>
+      <div class="cs-stage">
+        <wardic.div data-dot class="cs-dot" animate={{ x: x() }} transition={{ stiffness: 20, damping: 8 }} />
+      </div>
+    </WardicProvider>
+  ))
+  const dot = container.querySelector("[data-dot]") as HTMLElement
+  for (let i = 0; i < 3; i++) await raf()
+  setX(600)
+  for (let i = 0; i < 12; i++) await raf() // well into the motion: ~17px a frame
+  await afterPaint()
+  const before = await paintedFrames(dot, 3)
+
+  setX(800) // the retarget, from a task after a paint
+  const after = await paintedFrames(dot, 3)
+  const lefts = [...before, ...after].map((box) => box.left)
+  const steps = lefts.slice(1).map((left, i) => left - lefts[i]!)
+  // steps[2] spans the retarget; its neighbours are ordinary frames.
+  expect(steps[2]! / steps[1]!).toBeGreaterThan(0.6) // not frozen (was 0)
+  expect(steps[2]! / steps[1]!).toBeLessThan(1.6) // not doubled (was 2)
+})

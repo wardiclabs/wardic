@@ -1,6 +1,6 @@
 /**
  * `makeRefreshFrameClock` — the shared, DOM-free realization of `Clock`: one
- * ref-counted Refresh frame loop over an Environment's {@link RefreshFrameSource}.
+ * shared Refresh frame loop over an Environment's {@link RefreshFrameSource}.
  * `@wardic/dom` passes `requestAnimationFrame`/`cancelAnimationFrame`; a native or
  * canvas Environment passes its own pair and gets the same Clock (ADR-0004: no
  * per-Environment re-implementation).
@@ -24,12 +24,14 @@
  * tick is delivered — so timing is the same in browsers (scheduler =
  * `setTimeout(0)`), React Native and the test harness (scheduler = microtask).
  *
- * Per CONTEXT.md's **Shared source** contract, the loop is ref-counted: no
- * Refresh frame is requested while nothing is subscribed. The first subscriber to
- * `ticks` acquires the loop via an `RcRef`; concurrent subscribers share that one
- * loop; when the last subscriber's scope closes the `RcRef` releases, the
- * `forkScoped` loop fiber is interrupted, and the pending request's `cancelFrame`
- * finalizer runs.
+ * Per CONTEXT.md's **Shared source** contract, the loop is shared and counted:
+ * the first subscriber to `ticks` starts it, concurrent subscribers share it, and
+ * it requests no Refresh frame once nothing is subscribed. It stops the way
+ * Motion's frame loop does (ADR-0017, decision 9): the last subscriber leaving
+ * does not stop it; the first Refresh frame that finds no subscriber ends it
+ * without ticking or requesting another. A subscriber that arrives before that
+ * frame — the new animation of a retarget, which `useWardic` starts right after
+ * interrupting the old one — joins warm, with no Priming tick and a measured dt.
  *
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
  * authors; `InterpolatorRegistryLive` is the precedent for a shared constructor
@@ -42,8 +44,7 @@
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as PubSub from "effect/PubSub"
-import * as RcRef from "effect/RcRef"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/unstable/reactivity"
 import { NOMINAL_DT } from "../primitives/frame.ts"
@@ -70,7 +71,8 @@ export interface RefreshFrameSource<Handle = unknown> {
 /**
  * Build a `Clock` service driven by `source`'s Refresh frames. Requires the
  * Environment's `AtomRegistry` (the registry consumers read `time`/`dt` from) and
- * a `Scope` (the loop's `RcRef` lives in it), so an Environment wraps it as
+ * a `Scope` (the loop runs in it, and is interrupted — its pending request
+ * cancelled — when it closes), so an Environment wraps it as
  * `Layer.effect(Clock)(makeRefreshFrameClock(source))`.
  *
  * Tier 2 (ADR-0008): Effect-typed, for Environment authors.
@@ -129,45 +131,92 @@ export const makeRefreshFrameClock = <Handle>(
       return Effect.sync(() => cancelFrame(handle))
     })
 
-    // The loop body, entirely off the Effect scheduler (ADR-0017, decision 3):
-    // `nextMicrotask` resumes inside its microtask, `nextFrame` inside the Refresh
-    // frame callback, and `disableYield` drops `forever`'s per-iteration `yieldNow`
-    // — which would otherwise request every next Refresh frame from a scheduler task
-    // (a `setTimeout(0)` after paint, in a browser). Each iteration waits on a
-    // Refresh frame, so it never spins.
-    const loop = nextMicrotask.pipe(
-      Effect.andThen(primingTick),
-      Effect.andThen(Effect.forever(Effect.flatMap(nextFrame, tick), { disableYield: true })),
+    // Open `ticks` subscriptions, and whether the loop is running (false = idle).
+    let subscribers = 0
+    let running = false
+
+    // One Refresh frame: tick if anyone is still subscribed, and say whether the
+    // loop goes on. The first Refresh frame that finds no subscriber ends the loop
+    // without ticking or requesting another (ADR-0017, decision 9), so an
+    // unsubscribe followed by a subscribe before it keeps the loop warm.
+    const frame: Effect.Effect<boolean> = Effect.flatMap(nextFrame, (t) =>
+      subscribers === 0 ? Effect.succeed(false) : Effect.as(tick(t), true),
     )
 
-    // The ref-counted Refresh frame loop: acquiring forks the loop into the RcRef's
-    // scope. When the last `ticks` subscriber leaves, the RcRef releases, the forked
-    // fiber is interrupted, and the pending wait's finalizer cancels it (an
-    // outstanding Refresh frame request is cancelled; a pending Priming tick never
-    // fires) — so nothing runs with zero subscribers. `startImmediately` runs the
-    // fork synchronously up to `nextMicrotask`, rather than posting it to the
-    // scheduler.
+    // The loop, entirely off the Effect scheduler (ADR-0017, decision 3):
+    // `nextMicrotask` resumes inside its microtask, `nextFrame` inside the Refresh
+    // frame callback, and `whileLoop` never yields — so each next Refresh frame is
+    // requested inside the current one's callback, after the tick is delivered,
+    // rather than from a scheduler task (a `setTimeout(0)` after paint, in a
+    // browser). Each iteration waits on a Refresh frame, so it never spins.
+    const loop = Effect.suspend(() => {
+      let live = true
+      return nextMicrotask.pipe(
+        // Everyone left before the Priming tick (in the task that started the loop):
+        // end here, with no tick and no Refresh frame requested.
+        Effect.andThen(
+          Effect.suspend(() => {
+            if (subscribers > 0) return primingTick
+            live = false
+            return Effect.void
+          }),
+        ),
+        Effect.andThen(
+          Effect.whileLoop({
+            while: () => live,
+            body: () => frame,
+            step: (goOn) => {
+              live = goOn
+            },
+          }),
+        ),
+      )
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          running = false
+        }),
+      ),
+    )
+
+    // The loop runs in the Clock Layer's scope, forked under the Layer's build
+    // context — never a subscriber's, so it inherits no subscriber's scheduler or
+    // op budget — and the scope closing interrupts it, cancelling its pending
+    // request. `startImmediately` runs the fork synchronously up to
+    // `nextMicrotask`, rather than posting it to the scheduler.
     //
-    // Reset `lastTime` on every acquire (the 0 -> 1 ref-count transition). The
-    // closure variable outlives the forked loop, so without this a subscriber that
-    // arrives after an idle gap would compute its first dt against the STALE last
-    // timestamp — a huge spurious delta that lurches every spring forward a frame.
-    // Resetting makes every Cold start begin like the first-ever one.
-    const loopRef = yield* RcRef.make({
-      acquire: Effect.sync(() => {
-        lastTime = undefined
-      }).pipe(Effect.andThen(Effect.forkScoped(loop, { startImmediately: true })), Effect.asVoid),
+    // Reset `lastTime` on every start. The closure variable outlives the loop, so
+    // without this a subscriber that arrives after an idle gap would compute its
+    // first dt against the STALE last timestamp — a huge spurious delta that lurches
+    // every spring forward a frame. Resetting makes every Cold start begin like the
+    // first-ever one.
+    const scope = yield* Scope.Scope
+    const buildContext = yield* Effect.context<AtomRegistry.AtomRegistry | Scope.Scope>()
+    const start: Effect.Effect<void> = Effect.suspend(() => {
+      running = true
+      lastTime = undefined
+      return Effect.forkIn(loop, scope, { startImmediately: true })
+    }).pipe(Effect.asVoid, Effect.provideContext(buildContext))
+
+    // A subscription counts from its acquire to its release; the first one while
+    // the loop is idle starts it (a Cold start).
+    const join: Effect.Effect<void> = Effect.suspend(() => {
+      subscribers++
+      return running ? Effect.void : start
+    })
+    const leave: Effect.Effect<void> = Effect.sync(() => {
+      subscribers--
     })
 
-    // Subscribing joins the tick PubSub, then acquires the (shared, ref-counted)
-    // Refresh frame loop. Join FIRST: a Cold start's acquire queues the Priming
-    // tick, and a fiber that yields to the scheduler between the two steps (its op
-    // budget ran out) would otherwise let that tick publish to nobody.
+    // Subscribing joins the tick PubSub, then joins the loop. Join the PubSub
+    // FIRST: a Cold start queues the Priming tick, and a fiber that yields to the
+    // scheduler between the two steps (its op budget ran out) would otherwise let
+    // that tick publish to nobody.
     const ticks = Stream.unwrap(
       Effect.gen(function* () {
         yield* Effect.logDebug("wardic.clock: subscribe")
         const subscription = yield* PubSub.subscribe(tickPubSub)
-        yield* RcRef.get(loopRef)
+        yield* Effect.acquireRelease(join, () => leave)
         return Stream.fromSubscription(subscription)
       }),
     ).pipe(Stream.withSpan("wardic.clock"))

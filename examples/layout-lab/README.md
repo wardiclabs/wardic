@@ -71,13 +71,15 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   `clock` says whether the Clock was already ticking at the trigger: `warm` when a
   `wardic.clock` span was open (each subscription to `Clock.ticks` runs inside one),
   `cold` when the run had to start it. The card shows both, e.g. `1 · cold`.
-  Two things to know when reading it. A run's settle test (1px) is looser than a
+  One thing to know when reading it: a run's settle test (1px) is looser than a
   spring's rest test, so for about a second after a run ends its spring is still
-  ticking: Run again inside that second and the new run reads `warm`. And
-  retargeting the only running animation (scenario 9's second Run, or scenario 1
-  pressed mid-animation) interrupts it before the new one subscribes, which stops
-  and restarts the Clock: that run reads `warm` but gets a Cold start's Priming tick.
-  Wait about a second between runs for a clean `cold`.
+  ticking, and a Run inside that second reads `warm` (and is warm: the Clock
+  stays running through a retarget, ADR-0017). Wait about a second between runs
+  for a clean `cold`. Also discard the first run after the dev server starts or
+  recompiles an edited file: its first-time code makes the measure pass slow, the
+  post-paint message for the measure frame can then run after the next frame's
+  flush, and that run reads one frame short (seen as `held 0` on a layout run,
+  with two samples delivered a couple of ms apart).
 
 ## Scenarios
 

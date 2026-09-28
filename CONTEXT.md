@@ -140,6 +140,7 @@ _Avoid_: platform, adapter, driver.
 
 **Shared source**:
 A contract property of *every* Stream an Environment hands out — `Clock.ticks`, `InputSource.pointer`/`keyboard`/`wheel`/`focus`, `Probe.observeResize`/`observeIntersection`: it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
+The Clock's loop ends at the first Refresh frame after its last subscriber leaves, not at the unsubscribe itself (see **Cold start**).
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Refresh frame**:
@@ -147,7 +148,7 @@ One refresh of an Environment's output: a display vsync in DOM and native, a tim
 _Avoid_: animation frame (browser API wording), display frame, vsync.
 
 **Cold start**:
-A subscription to `Clock.ticks` made while nothing else is subscribed, so the Clock starts requesting Refresh frames. Its first tick is the **Priming tick**. A **warm start** joins a Clock that is already ticking and gets its next tick.
+A subscription to `Clock.ticks` made while the Clock is idle, so it starts requesting Refresh frames. Its first tick is the **Priming tick**. A **warm start** joins a Clock that is already ticking and gets its next tick. The Clock goes idle only at the first Refresh frame that finds no subscriber, so an unsubscribe followed by a subscribe before the next Refresh frame (a retarget) is a warm start (ADR-0017).
 _Avoid_: wake (Motion's term).
 
 **Priming tick**:
