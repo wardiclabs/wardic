@@ -286,26 +286,28 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("applies everything the pass wrote inside one batch(): an effect reading two of them runs once", () => {
-    createRoot((dispose) => {
-      const runtime = ManagedRuntime.make(TestLive)
-      const gate = makeFlushGate(runtime)
+    const runtime = ManagedRuntime.make(TestLive)
+    const gate = makeFlushGate(runtime)
+    const runs: Array<[Patch | undefined, Patch | undefined]> = []
+    // Effects go live once the root's setup returns, so the pass runs after it.
+    const disposeRoot = createRoot((dispose) => {
       const [a, setA] = createSignal<Patch | undefined>(undefined)
       const [b, setB] = createSignal<Patch | undefined>(undefined)
       gate.register("a", { kind: "signal", set: setA })
       gate.register("b", { kind: "signal", set: setB })
-      const runs: Array<[Patch | undefined, Patch | undefined]> = []
       createEffect(on([a, b], ([va, vb]) => runs.push([va, vb]), { defer: true }))
-
-      gate.flushPass(() => {
-        gate.write("a", { x: 1 })
-        gate.write("b", { y: 2 })
-      })
-      expect(runs).toEqual([[{ x: 1 }, { y: 2 }]])
-
-      gate.dispose()
-      void runtime.dispose()
-      dispose()
+      return dispose
     })
+
+    gate.flushPass(() => {
+      gate.write("a", { x: 1 })
+      gate.write("b", { y: 2 })
+    })
+    expect(runs).toEqual([[{ x: 1 }, { y: 2 }]])
+
+    gate.dispose()
+    void runtime.dispose()
+    disposeRoot()
   })
 
   it("commits a commit-sink entry the pass wrote through the Renderer", () => {
@@ -347,27 +349,28 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("a write from an effect inside the pass's flush waits for the next frame, and requests it", () => {
-    createRoot((dispose) => {
-      const runtime = ManagedRuntime.make(TestLive)
-      const gate = makeFlushGate(runtime)
+    const runtime = ManagedRuntime.make(TestLive)
+    const gate = makeFlushGate(runtime)
+    let b: Patch | undefined
+    const disposeRoot = createRoot((dispose) => {
       const [a, setA] = createSignal<Patch | undefined>(undefined)
-      let b: Patch | undefined
       gate.register("a", { kind: "signal", set: setA })
       gate.register("b", { kind: "signal", set: (p) => (b = p) })
       // Runs inside flushPass's batch(), after the pass itself has returned.
       createEffect(on(a, () => gate.write("b", { y: 1 }), { defer: true }))
-
-      gate.flushPass(() => gate.write("a", { x: 1 }))
-      expect(b).toBeUndefined() // not part of the pass
-      expect(pending.size).toBe(1) // but not stranded either: the next frame is requested
-
-      fireFrame()
-      expect(b).toEqual({ y: 1 })
-
-      gate.dispose()
-      void runtime.dispose()
-      dispose()
+      return dispose
     })
+
+    gate.flushPass(() => gate.write("a", { x: 1 }))
+    expect(b).toBeUndefined() // not part of the pass
+    expect(pending.size).toBe(1) // but not stranded either: the next frame is requested
+
+    fireFrame() // the frame the pass's own write requested also applies b
+    expect(b).toEqual({ y: 1 })
+
+    gate.dispose()
+    void runtime.dispose()
+    disposeRoot()
   })
 
   it("has no measure read-queue any more", () => {

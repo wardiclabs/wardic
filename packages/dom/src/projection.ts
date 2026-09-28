@@ -13,12 +13,17 @@
  * Pipeline (the locked design):
  *   - REGISTER a node (its gate `id`, `element`, and a `springOptions` accessor).
  *   - TRIGGER (registration / a shared `ResizeObserver` size change /
- *     `layoutDependency` via `notify`) -> `sink.scheduleMeasure(measurePass)`.
- *   - MEASURE pass (in the gate's pre-flush read-queue, D4): re-measure EVERY
- *     node's untransformed box (Q5); compute the projection TREE by DOM ancestry
- *     (each node's parent = the nearest ancestor ELEMENT that is a registered node);
- *     for each node that moved, set up an animation (origin + target) and seed the
- *     progress-0 frame; start the coordinator.
+ *     `layoutDependency` via `notify`) -> ONE **Measure pass** per task, run by the
+ *     engine in a microtask at the end of that task (ADR-0018).
+ *   - MEASURE pass (through `sink.flushPass`, which applies what it wrote before
+ *     returning): re-measure EVERY node's untransformed box (Q5); compute the
+ *     projection TREE by DOM ancestry (each node's parent = the nearest ancestor
+ *     ELEMENT that is a registered node); for each node that moved, set up an
+ *     animation (origin + target) and seed the progress-0 frame; start the
+ *     coordinator. A running node whose box didn't change is left alone. A trigger
+ *     during the pass's own flush repeats it (at most 5 rounds). Then every node the
+ *     pass seeded takes one **Priming step** (the Clock's Priming tick on a Cold
+ *     start), so it moves on the next painted frame whatever the Clock's state.
  *   - COORDINATOR (a single Clock-driven fiber, ref-counted ACTIVE while >=1 node
  *     animates, Q4): each tick steps every active node's progress spring, then
  *     `deriveAll()` walks the active nodes TOP-DOWN (ancestors first) computing
@@ -46,6 +51,7 @@ import {
   initSpring,
   MAX_DT,
   mixBox,
+  NOMINAL_DT,
   nextMicrotask,
   placeRelativeBox,
   type Point,
@@ -69,13 +75,17 @@ import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-corr
  * The binding seam the coordinator writes through — structurally satisfied by the
  * binding's flush gate (e.g. `@wardic/solid`'s `FlushGate`), so the engine never
  * imports a framework. `write` merges a per-element projection value-map into the
- * gate; `scheduleMeasure` enqueues a coalesced read pass that runs in the gate's
- * pre-flush read-queue (reads-before-writes, one rAF).
+ * gate (applied on the gate's next Refresh frame, ADR-0006); `flushPass` runs a
+ * Measure pass now and applies exactly what it wrote before returning (ADR-0018),
+ * so a new layout never paints without its projection.
  */
 export interface ProjectionSink {
   readonly write: (id: string, partial: Record<string, unknown>) => void
-  readonly scheduleMeasure: (pass: () => void) => void
+  readonly flushPass: (pass: () => void) => void
 }
+
+/** How many pass -> flush rounds one Measure pass runs before the rest waits for the next task (ADR-0018). */
+const MAX_ROUNDS = 5
 
 /**
  * The runtime flavour the coordinator needs: a `ManagedRuntime` that can run the
@@ -277,6 +287,12 @@ interface NodeState {
   grabBox: Box | undefined
   /** The live pointer translate from the grab point (zero when not dragging). */
   dragDelta: Point
+  /**
+   * Whether the coordinator has stepped this node since a Measure pass last seeded
+   * it. The Priming step skips a node the Clock's Priming tick already stepped (a
+   * Cold start), so the first step is never taken twice (ADR-0018).
+   */
+  steppedSinceSeed: boolean
 }
 
 /**
@@ -336,6 +352,14 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // hold still pending.
   const scope = Scope.makeUnsafe()
   const taskFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(scope)))
+  // The Measure pass (ADR-0018): whether one is queued for the end of this task,
+  // whether one is running its rounds (a trigger then repeats it), whether a trigger
+  // arrived during the current round, and the next-task leftover past the round cap.
+  let passQueued = false
+  let inPass = false
+  let triggeredDuringPass = false
+  let leftover: ReturnType<typeof setTimeout> | undefined
+  let disposed = false
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
@@ -640,6 +664,61 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     for (const node of followers) deriveFollower(node)
   }
 
+  /** Whether an ancestor of `node` (up to and including a `layoutRoot` boundary) is in `changed`. */
+  const hasChangedAncestor = (node: NodeState, changed: ReadonlySet<NodeState>): boolean => {
+    for (let p = node.parent; p !== undefined; p = p.parent) {
+      if (changed.has(p)) return true
+      if (p.layoutRoot) return false
+    }
+    return false
+  }
+
+  /**
+   * The nodes whose projection a Measure pass changes (ADR-0018): for each node it
+   * (re)seeded, the whole subtree of that node's highest RUNNING ancestor below any
+   * `layoutRoot` boundary (or of the node itself). A seed is derived against its
+   * ancestors' deltas, so the node and everything sharing those deltas must paint
+   * together. Every other node keeps the value its last Clock tick wrote: a running
+   * animation elsewhere is left alone.
+   */
+  const groupOf = (changed: ReadonlySet<NodeState>): Set<NodeState> => {
+    const group = new Set<NodeState>()
+    if (changed.size === 0) return group
+    const roots = new Set<NodeState>()
+    for (const node of changed) {
+      let root = node
+      for (let p = node.parent; p !== undefined && !p.layoutRoot; p = p.parent) if (active.has(p)) root = p
+      roots.add(root)
+    }
+    for (const node of nodes) {
+      for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) {
+        if (roots.has(p)) {
+          group.add(node)
+          break
+        }
+      }
+    }
+    return group
+  }
+
+  /** {@link deriveAll}, restricted to `group`: its leads top-down, then the followers of its active leads. */
+  const deriveGroup = (group: ReadonlySet<NodeState>): void => {
+    if (group.size === 0) return
+    const leads: Array<NodeState> = []
+    const followers: Array<NodeState> = []
+    for (const n of nodes) {
+      if (isFollower(n)) {
+        const lead = n.layoutId !== undefined ? leadOf(n.layoutId) : undefined
+        if (lead !== undefined && active.has(lead) && group.has(lead)) followers.push(n)
+      } else if (group.has(n) && (active.has(n) || hasActiveAncestor(n))) {
+        leads.push(n)
+      }
+    }
+    leads.sort((a, b) => a.depth - b.depth)
+    for (const node of leads) derive(node)
+    for (const node of followers) deriveFollower(node)
+  }
+
   /** Recompute parent links + depth for every node by walking DOM ancestry. */
   const computeTree = (): void => {
     for (const node of nodes) {
@@ -824,18 +903,24 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     })
   }
 
-  // --- The measure pass (reads), run in the gate's pre-flush read-queue. ------
-  // The synchronous read + FLIP-seed work; {@link measurePass} wraps this in the
-  // `wardic.projection.measure` span (so a devtool/timeline sees each pass as a
-  // span carrying its node counts, and the coordinator burst it forks nests
-  // beneath it via the propagated span context).
-  const runMeasurePass = (): void => {
+  // --- One round of the Measure pass (reads, then FLIP seeds), run inside the ---
+  // sink's `flushPass`, which applies what it writes before returning. The
+  // {@link measurePass} wraps its rounds in the `wardic.projection.measure` span.
+  // Every node it (re)starts is added to `seeded`, for the Priming step.
+  const runMeasurePass = (seeded: Set<NodeState>): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain, and the depth order makes every phase below
     // ancestors-first, so each scroll container's offset is sampled before a
     // descendant folds it in (ADR-0012).
     computeTree()
     const ordered = [...nodes].sort((a, b) => a.depth - b.depth)
+    // The nodes this round (re)seeded or whose box changed under their descendants.
+    const changed = new Set<NodeState>()
+    const start = (node: NodeState): void => {
+      changed.add(node)
+      seeded.add(node)
+      node.steppedSinceSeed = false
+    }
 
     // --- WRITE: reset every node's transform, before ANY box is read. ---------
     // `getBoundingClientRect` is viewport-space, so a node measured while an
@@ -919,6 +1004,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // stable box (layoutBox + lastTarget) so descendants project relative to it,
       // and write identity — no spring, never `active`.
       if (node.layoutRoot) {
+        if (prev !== undefined && !boxesEqual(prev, newBox)) changed.add(node)
         node.layoutBox = newBox
         node.lastTarget = newBox
         node.origin = undefined
@@ -944,6 +1030,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           node.spring = initSpring({ from: 0 })
           node.animating = true
           active.add(node)
+          start(node)
           continue
         }
         // (2) SWITCH: a disposed twin left this node a seed — no live twin in the
@@ -960,6 +1047,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
             node.spring = initSpring({ from: 0 }) // progress spring restarts at 0
             node.animating = true
             active.add(node)
+            start(node)
             continue
           }
         }
@@ -972,8 +1060,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         continue
       }
 
-      // Skip a node that did not move and is not mid-animation.
-      if (boxesEqual(prev, newBox) && !node.animating) continue
+      // Skip a node that did not move, unless it is mid-animation under an ancestor
+      // this pass restarted (its origin is relative to that ancestor's old motion). A
+      // running node whose box didn't change keeps its animation: not restarted, not
+      // re-written, not primed (ADR-0018; Motion leaves an unchanged target alone,
+      // create-projection-node.ts:546-552 at 16c6122).
+      if (boxesEqual(prev, newBox) && (!node.animating || !hasChangedAncestor(node, changed))) continue
 
       // Origin = where the element appears RIGHT NOW: mid-animation, the current
       // mixed target box (smooth interrupt, no jump — Q3); at rest, the prior box.
@@ -987,33 +1079,102 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       node.spring = initSpring({ from: 0 }) // progress spring restarts at 0 (velocity 0)
       node.animating = true
       active.add(node)
+      start(node)
     }
 
-    // Seed the initial (progress-0) frame for new movers, top-down. (Parent links
-    // were computed at the top of the pass, before the scroll fold.) This is also
-    // the real restore: `writeProjection` rebuilds each node's inline transform
+    // Seed the initial (progress-0) frame for the nodes this round changed and
+    // everything that shares their ancestors' deltas, top-down. (Parent links were
+    // computed at the top of the pass, before the scroll fold.) This is also the
+    // real restore for them: `writeProjection` rebuilds each node's inline transform
     // from its new delta, rather than writing back the pre-pass value.
-    deriveAll()
+    deriveGroup(groupOf(changed))
     ensureRunning()
   }
 
   /**
-   * Run a measure pass inside the `wardic.projection.measure` span, annotating it
-   * with the node counts. The span is the timeline unit for "a layout trigger
-   * re-measured the tree"; the coordinator fiber `ensureRunning` forks within the
-   * pass inherits this span as its parent.
+   * One **Measure pass** (ADR-0018), at the end of the task that queued it: rounds
+   * of `sink.flushPass(round)` until a round ends with no new trigger (a trigger
+   * during a round comes from an effect in its flush), at most {@link MAX_ROUNDS};
+   * past the cap the rest runs as a fresh Measure pass in the next task. Then, after
+   * the microtasks the rounds queued (a Cold start's Priming tick among them), the
+   * Priming step. Traced as one `wardic.projection.measure` span annotated with the
+   * node counts, how many nodes it seeded and how many rounds it ran.
    */
-  const measurePass = (): void => {
-    runtime.runSync(
-      Effect.suspend(() => {
-        runMeasurePass()
-        return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size })
-      }).pipe(Effect.withSpan("wardic.projection.measure")),
+  const measurePass: Effect.Effect<void> = Effect.suspend(() => {
+    passQueued = false
+    const seeded = new Set<NodeState>()
+    let rounds = 0
+    inPass = true
+    try {
+      do {
+        triggeredDuringPass = false
+        rounds++
+        sink.flushPass(() => runMeasurePass(seeded))
+      } while (triggeredDuringPass && rounds < MAX_ROUNDS)
+    } finally {
+      inPass = false
+    }
+    if (triggeredDuringPass) {
+      triggeredDuringPass = false
+      debug("measure round cap", { rounds })
+      leftover = setTimeout(() => {
+        leftover = undefined
+        scheduleMeasure()
+      }, 0)
+    }
+    return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size, seeded: seeded.size, rounds }).pipe(
+      Effect.andThen(nextMicrotask),
+      Effect.andThen(Effect.sync(() => primingStep(seeded))),
+    )
+  }).pipe(Effect.withSpan("wardic.projection.measure"))
+
+  /**
+   * Queue the Measure pass for the end of the current task (one per task, however
+   * many triggers). A trigger while a pass runs its rounds repeats the pass instead.
+   * The fiber reaches `nextMicrotask` synchronously and resumes inside that
+   * microtask, so no Effect scheduler is involved (ADR-0010 *Amendment (#13)*).
+   */
+  const scheduleMeasure = (): void => {
+    if (disposed) return
+    if (inPass) {
+      triggeredDuringPass = true
+      return
+    }
+    if (passQueued) return
+    passQueued = true
+    FiberSet.addUnsafe(
+      taskFibers,
+      runtime.runFork(
+        nextMicrotask.pipe(
+          Effect.andThen(measurePass),
+          Effect.tapCause((cause) => Effect.logError("wardic.projection: measure pass failed", cause)),
+        ),
+      ),
     )
   }
 
-  /** Enqueue a coalesced measure pass (gate dedups by the stable `measurePass` ref). */
-  const scheduleMeasure = (): void => sink.scheduleMeasure(measurePass)
+  /**
+   * The **Priming step** (ADR-0018): one nominal-dt step for each node the Measure
+   * pass seeded that no tick has stepped since (a Cold start's Priming tick already
+   * did; a node that settled or left is skipped), written into the gate for its next
+   * Refresh frame. So a layout animation moves on the next painted frame whether the
+   * Clock was idle or ticking. Only those nodes' groups are re-derived.
+   */
+  const primingStep = (seeded: ReadonlySet<NodeState>): void => {
+    const primed = new Set<NodeState>()
+    const settled: Array<NodeState> = []
+    for (const node of seeded) {
+      if (node.steppedSinceSeed || node.dragging || node.spring === undefined || !active.has(node)) continue
+      const r = springStep(node.spring, NOMINAL_DT, 1, node.springOptions())
+      node.spring = r.state
+      node.steppedSinceSeed = true
+      primed.add(node)
+      if (r.done) settled.push(node)
+    }
+    if (primed.size === 0) return
+    deriveGroup(groupOf(primed))
+    finishSettled(settled)
+  }
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
   const step = (dtRaw: number): void => {
@@ -1031,12 +1192,17 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       }
       const r = springStep(node.spring, dt, 1, node.springOptions())
       node.spring = r.state
+      node.steppedSinceSeed = true
       if (r.done) settled.push(node)
     }
     // 2) Derive all top-down (settled nodes are still in `active` here, so their
     //    progress=1 identity-ish delta is available to descendants this frame).
     deriveAll()
-    // 3) Finalise settled nodes: at rest, projection-owned at identity.
+    finishSettled(settled)
+  }
+
+  /** Finalise settled nodes (at rest, projection-owned at identity), finish their leavers, and stop at idle. */
+  const finishSettled = (settled: ReadonlyArray<NodeState>): void => {
     for (const node of settled) {
       node.animating = false
       node.spring = undefined
@@ -1142,6 +1308,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     dragging: false,
     grabBox: undefined,
     dragDelta: { x: 0, y: 0 },
+    steppedSinceSeed: true,
   })
 
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
@@ -1230,6 +1397,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       dragging: false,
       grabBox: undefined,
       dragDelta: { x: 0, y: 0 },
+      steppedSinceSeed: true,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
@@ -1342,6 +1510,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
   const dispose: ProjectionSystem["dispose"] = () => {
     debug("dispose system", { nodes: nodes.size })
+    disposed = true
+    passQueued = false
+    if (leftover !== undefined) {
+      clearTimeout(leftover)
+      leftover = undefined
+    }
     stopTicking()
     // Interrupt any end-of-task hold still pending, then drop what they held.
     runtime.runFork(Scope.close(scope, Exit.void))

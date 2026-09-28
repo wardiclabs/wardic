@@ -23,7 +23,9 @@
  *     pending; `flush` does NOT auto-reschedule. An idle accumulator therefore
  *     schedules no frames — the next `write` reschedules. (Contrast the Clock's
  *     self-perpetuating ref-counted loop.)
- *   - ONE `batch()` per frame: all dirty elements flush together.
+ *   - ONE `batch()` per frame: all dirty elements flush together. The one exception
+ *     is `flushPass` (ADR-0018): a projection Measure pass's own writes are applied
+ *     at the end of its task, so a new layout never paints without its projection.
  *   - TWO sink modes: a *signal sink* (`{ kind: "signal", set }`) sets the
  *     per-element Solid signal (the default for `wardic.create("div")`); a
  *     *commit sink* (`{ kind: "commit", target }`) runs `Renderer.commit(target,
@@ -75,15 +77,16 @@ export interface FlushGate {
    */
   readonly write: (id: string, partial: Record<string, unknown>) => void
   /**
-   * Enqueue a pre-flush MEASURE pass (ADR-0009 / D4 — the projection read phase).
-   * The pass runs inside the next rAF BEFORE the write flush (reads-before-writes,
-   * one rAF), so it may read layout (`getBoundingClientRect`) and `write()` seed
-   * values that flush in the SAME frame. Passes are deduped by function identity
-   * and coalesced — many triggers in a frame run one root pass once. A `write()`
-   * issued from within a pass does NOT schedule an extra frame (it is serviced by
-   * the in-progress flush). A pass must not enqueue another pass.
+   * Run a projection **Measure pass** now and apply exactly what it wrote before
+   * returning (ADR-0018; the one exception ADR-0006's *Amendment (#2)* makes to the
+   * one-frame latency). Only `write()`s made while `pass()` runs are recorded; each
+   * recorded entry is `project`ed once and applied inside ONE Solid `batch()`, and
+   * marked clean. Everything else stays dirty for the next Refresh frame. A write
+   * made by a Solid effect that runs inside that `batch()` takes the ordinary
+   * next-frame path. The projection engine calls it at the end of a task, so a new
+   * layout never paints without its projection.
    */
-  readonly scheduleMeasure: (pass: () => void) => void
+  readonly flushPass: (pass: () => void) => void
   /**
    * Cancel any pending frame and clear the accumulator. Wired into the
    * provider's `onCleanup`.
@@ -111,49 +114,34 @@ export const makeFlushGate = (
   )
 
   const accumulator = new Map<string, Entry>()
-  // Pre-flush MEASURE passes (the projection read phase), deduped by identity.
-  const measurePasses = new Set<() => void>()
   let scheduled = false
-  // True only while `flush` is running — gates re-entrant write()/scheduleMeasure()
-  // (from inside a measure pass) so they don't request a second frame.
-  let flushing = false
   let rafId = 0
+  // The ids written while a `flushPass` pass runs; `undefined` otherwise.
+  let recording: Set<string> | undefined
+
+  /** Project and apply one dirty entry (once per element per flush), marking it clean. */
+  const apply = (entry: Entry): void => {
+    const patch = project(entry.values)
+    if (entry.sink.kind === "signal") {
+      entry.sink.set(patch)
+    } else {
+      runtime.runSync(commit(entry.sink.target, patch))
+    }
+    entry.dirty = false
+  }
 
   const flush = (): void => {
     scheduled = false
-    flushing = true
-    // READS first (ADR-0009 / D4): run queued measure passes — each may
-    // getBoundingClientRect and write() seed values — BEFORE any write is applied,
-    // so a read never follows a write within a frame. A write() made from a pass
-    // lands in the accumulator and flushes in THIS frame's batch (the `flushing`
-    // guard stops it scheduling another rAF).
-    if (measurePasses.size > 0) {
-      const passes = [...measurePasses]
-      measurePasses.clear()
-      for (const pass of passes) pass()
-    }
-    // WRITES: one batch() per frame for every dirty element. No auto-reschedule —
-    // the next write()/scheduleMeasure() does.
+    // One batch() per frame for every dirty element. No auto-reschedule — the next
+    // write() does. A write() from an effect running inside the batch requests the
+    // next frame (it isn't stranded).
     batch(() => {
-      for (const entry of accumulator.values()) {
-        if (!entry.dirty) continue
-        // project once per element per frame.
-        const patch = project(entry.values)
-        if (entry.sink.kind === "signal") {
-          entry.sink.set(patch)
-        } else {
-          runtime.runSync(commit(entry.sink.target, patch))
-        }
-        entry.dirty = false
-      }
+      for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
     })
-    flushing = false
   }
 
   const scheduleFlush = (): void => {
-    // `flushing`: a write()/scheduleMeasure() from inside a measure pass is already
-    // serviced by the in-progress flush, so it must not request another frame.
-    if (scheduled || flushing) return
+    if (scheduled) return
     scheduled = true
     rafId = requestAnimationFrame(flush)
   }
@@ -170,12 +158,25 @@ export const makeFlushGate = (
     if (entry === undefined) return
     Object.assign(entry.values, partial)
     entry.dirty = true
+    recording?.add(id)
     scheduleFlush()
   }
 
-  const scheduleMeasure: FlushGate["scheduleMeasure"] = (pass) => {
-    measurePasses.add(pass)
-    scheduleFlush()
+  const flushPass: FlushGate["flushPass"] = (pass) => {
+    const written = new Set<string>()
+    recording = written
+    try {
+      pass()
+    } finally {
+      recording = undefined
+    }
+    if (written.size === 0) return
+    batch(() => {
+      for (const id of written) {
+        const entry = accumulator.get(id)
+        if (entry !== undefined && entry.dirty) apply(entry)
+      }
+    })
   }
 
   const dispose: FlushGate["dispose"] = () => {
@@ -183,9 +184,8 @@ export const makeFlushGate = (
       cancelAnimationFrame(rafId)
       scheduled = false
     }
-    measurePasses.clear()
     accumulator.clear()
   }
 
-  return { register, write, scheduleMeasure, dispose }
+  return { register, write, flushPass, dispose }
 }

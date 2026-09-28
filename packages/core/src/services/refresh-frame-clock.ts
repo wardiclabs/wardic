@@ -51,6 +51,11 @@ import { NOMINAL_DT } from "../primitives/frame.ts"
 import { nextMicrotask } from "../util/microtask.ts"
 import type { Clock } from "./Clock.ts"
 
+// @wardic/core compiles against ES2022 alone (no DOM lib, no Node types), which does
+// not declare `performance`. It is a host global in every environment Wardic targets
+// (browsers, Node, React Native), so it is declared here, in module scope only.
+declare const performance: { readonly now: () => number }
+
 /**
  * Where an Environment's Refresh frames come from: `requestFrame` asks for one
  * callback at the next Refresh frame (passing its timestamp in ms), `cancelFrame`
@@ -92,6 +97,7 @@ export const makeRefreshFrameClock = <Handle>(
     // "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
     // anything but the window.
     const { requestFrame, cancelFrame } = source
+    const now = source.now ?? (() => performance.now())
     // The shared Environment registry — the one consumers read these atoms from.
     const registry = yield* AtomRegistry.AtomRegistry
     // Mirror TestClock's Atom shape exactly (writable state atoms from a plain
@@ -104,21 +110,45 @@ export const makeRefreshFrameClock = <Handle>(
     // Carries dt (seconds) to subscribers of `ticks`.
     const tickPubSub = yield* PubSub.unbounded<number>()
 
-    // Previous Refresh frame timestamp (ms), for dt computation; undefined => no
-    // Refresh frame since the loop started. Only Refresh frame timestamps set it —
-    // the Priming tick has none (ADR-0017, decision 2).
+    // The previous Refresh frame's time (ms), for dt computation; undefined => no
+    // Refresh frame since the loop started. Only Refresh frames set it — the Priming
+    // tick has none (ADR-0017, decision 2). It is the frame's timestamp, except for a
+    // frame that repeats the previous timestamp (below).
     let lastTime: number | undefined
+    // The previous Refresh frame's raw timestamp, and `now()` when it was delivered.
+    let lastStamp: number | undefined
+    let lastNow = 0
 
     /**
      * THE SINGLE UPDATE PATH. dt = no earlier Refresh frame ? NOMINAL_DT : (t - lastTime) / 1000.
-     * Writes the `time`/`dt` Atoms and publishes dt to the tick PubSub. No clamp.
-     * Hot path — intentionally unlogged.
+     *
+     * A Refresh frame whose timestamp REPEATS the previous one is timed by the
+     * elapsed `now()` since the previous frame instead: Firefox runs a second frame
+     * right after an input and passes it the previous frame's timestamp, which would
+     * otherwise advance nothing (#18; ADR-0017, amended by #2). The next frame then
+     * gets the rest of the interval, and a dt never goes below 0. There is no upper
+     * clamp here: that is the consumer boundary's (`MAX_DT`).
+     *
+     * Writes the `time`/`dt` Atoms and publishes dt to the tick PubSub. Hot path —
+     * intentionally unlogged; one `now()` read per Refresh frame.
      */
     const tick = (t: number): Effect.Effect<void> =>
       Effect.suspend(() => {
-        const delta = lastTime === undefined ? NOMINAL_DT : (t - lastTime) / 1000
-        lastTime = t
-        registry.set(time, t)
+        const at = now()
+        let current = t
+        let delta: number
+        if (lastTime === undefined) {
+          delta = NOMINAL_DT
+        } else if (t === lastStamp) {
+          current = lastTime + (at - lastNow)
+          delta = (current - lastTime) / 1000
+        } else {
+          delta = Math.max(0, (t - lastTime) / 1000)
+        }
+        lastTime = current
+        lastStamp = t
+        lastNow = at
+        registry.set(time, current)
         registry.set(dt, delta)
         return PubSub.publish(tickPubSub, delta).pipe(Effect.asVoid)
       })
@@ -202,6 +232,7 @@ export const makeRefreshFrameClock = <Handle>(
     const start: Effect.Effect<void> = Effect.suspend(() => {
       running = true
       lastTime = undefined
+      lastStamp = undefined
       return Effect.forkIn(loop, scope, { startImmediately: true })
     }).pipe(Effect.asVoid, Effect.provideContext(buildContext))
 
