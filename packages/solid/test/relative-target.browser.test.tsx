@@ -53,6 +53,9 @@ it("sanity: a standalone layout element FLIP-animates in a real browser", async 
   const base = leftOf(box)
 
   setMoved(true)
+  // The Measure pass applies the FLIP at the end of this task (ADR-0018): sample from
+  // the next frame on, not the moved, not-yet-projected DOM of this task.
+  await raf()
   let maxLeft = base
   await sampleUntil(
     () => leftOf(box) >= base + 199,
