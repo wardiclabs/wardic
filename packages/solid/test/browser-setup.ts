@@ -1,9 +1,9 @@
 // Browser-harness setup: polyfill `setImmediate`/`clearImmediate`.
 //
-// Effect's scheduler (effect@4 beta) schedules fibers via `setImmediate`, a
-// Node/happy-dom global absent in a real browser — without it any test running the
-// Wardic Effect runtime (WardicProvider) throws "globalThis.setImmediate is not a
-// function".
+// Effect's scheduler (effect@4) dispatches fibers through `setImmediate` when that
+// global exists and falls back to `setTimeout(0)` otherwise. It checks once, at
+// module load (`"setImmediate" in globalThis`, effect/dist/Scheduler.js). A real
+// browser has no `setImmediate`, so this setup file installs one before Effect loads.
 //
 // We back it with `queueMicrotask`, NOT setTimeout: a fiber chain schedules many
 // setImmediates, and microtasks all drain before the next macrotask (`await`), so

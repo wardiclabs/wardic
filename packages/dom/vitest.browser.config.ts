@@ -1,3 +1,4 @@
+import { playwright } from "@vitest/browser-playwright"
 import { defineConfig } from "vitest/config"
 
 // Real-browser test project for @wardic/dom — the DOM realization of the engine's
@@ -22,7 +23,7 @@ export default defineConfig({
     setupFiles: ["./test/browser-setup.ts"],
     browser: {
       enabled: true,
-      provider: "playwright",
+      provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
     },

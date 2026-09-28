@@ -1,3 +1,4 @@
+import { playwright } from "@vitest/browser-playwright"
 import solidPlugin from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
 
@@ -32,7 +33,7 @@ export default defineConfig({
     server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },
     browser: {
       enabled: true,
-      provider: "playwright",
+      provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
     },

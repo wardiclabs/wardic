@@ -22,6 +22,6 @@
     "culori": "^4.0.2"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.71"
+    "effect": "4.0.0-rc.117"
   }
 }

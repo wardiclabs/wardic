@@ -1,9 +1,8 @@
 # Upgrade targets: Effect 4 RC and Solid 2
 
-> **Status (2026-09-26): intent only, not scheduled.** This records two upgrades Wardic
-> is committed to making. Neither has started, so treat everything below as a
-> starting point, not a plan. Re-check every upstream fact here before acting on it:
-> both lines are moving weekly.
+> **Status (2026-09-28): the Effect half is done** — `effect` and `@effect/vitest` are on
+> `4.0.0-rc.117` (§1). **The Solid 2 half is still intent only, not scheduled** (§2): treat it as a
+> starting point, not a plan, and re-check every upstream fact before acting on it.
 
 Wardic will:
 
@@ -14,50 +13,43 @@ Wardic will:
 
 ## 1. Effect: `4.0.0-beta.71` → the 4.0 RC line
 
+> **Done (2026-09-28): `4.0.0-rc.117`**, in PR #20. What changed, the re-verified timing internals and the before/after
+> numbers are in [`docs/research/effect-4-rc-upgrade.md`](../research/effect-4-rc-upgrade.md).
+> Next: follow the RCs to 4.0.0 stable, re-checking with that doc's last section.
+
 ### Where we are
 
-Every package pins `effect` **exactly** at `4.0.0-beta.71`: `@wardic/core`, `@wardic/dom`,
-`@wardic/test` and `@wardic/solid` (peer and dev), plus the root. `@effect/vitest` is pinned
-to the same exact version.
+`effect` is pinned **exactly** at `4.0.0-rc.117` in the root, in the `@wardic/core`,
+`@wardic/dom`, `@wardic/test` and `@wardic/solid` peers, in `@wardic/solid`'s dev dependencies,
+and in `examples/layout-lab`. `@effect/vitest` is pinned to the same exact version in the root.
 
-### Upstream, as of 2026-09-26
+RCs are published from **`Effect-TS/effect`** (tag `effect@4.0.0-rc.117` = `14a3f140`), not from
+`effect-smol`. `.reference/effect` (the local, uncommitted Effect source copy) is that repository
+at that commit; re-download it from
+`https://codeload.github.com/Effect-TS/effect/tar.gz/<tag commit>` at the next bump.
 
-From the npm registry (`npm view effect dist-tags` / `time`):
+### What the upgrade needed
 
-| | Version | Published |
-|---|---|---|
-| Our pin | `4.0.0-beta.71` | 2026-05-27 |
-| Last beta | `4.0.0-beta.107` | 2026-08-10 |
-| First RC | `4.0.0-rc.108` | 2026-08-12 |
-| `rc` tag | `4.0.0-rc.117` | 2026-09-21 |
-| `latest` tag | `3.22.2` | (v4 is not stable yet) |
-
-So we are 36 betas and 10 RCs behind. RC numbering continues from the beta sequence.
-`@effect/vitest` publishes in lockstep: its `rc` tag is also `4.0.0-rc.117`.
-
-### Where the upgrade will bite
-
-- **`effect/unstable/reactivity`.** 11 source files import it. `unstable` is a
-  no-stability-guarantee namespace, so check it first on any bump:
-  `core/src/services/{Clock,Probe}.ts`, `core/src/util/reduced-motion.ts`,
-  `dom/src/{clock,index,probe}.ts`, `solid/src/{bridge.ts,provider.tsx}`,
-  `test/src/{clock,layer,probe}.ts`.
-- **Service definitions** (`Context.Service`), Layers, `ManagedRuntime` and `Stream`, i.e. the
-  whole ADR-0001 stream contract and the service graph.
-- **The test runner.** `@effect/vitest` must move in lockstep with `effect`, including the
-  `it.effect` / `it.layer` patterns.
-- **`.reference/effect-smol`** (the local, uncommitted Effect source copy) is at
-  `4.0.0-beta.71`. Refresh it to the target version before reading source to settle a question.
+- **`Stream.fromEventListener`** no longer infers its element type from the target (rc.113,
+  #7443), so `dom/src/probe.ts` names it at both call sites.
+- **Vitest 3 → 5.** `@effect/vitest` rc.113+ requires `vitest >=5 <6`: the browser provider became
+  `playwright()` from `@vitest/browser-playwright`, the root pins `vite` 6.4.2 (now a required
+  peer), and `.vitest/` is gitignored.
+- **Core's test tsconfig declares Node's types.** The Clock/microtask guard tests use host timers
+  that vitest 3's types had been leaking in.
 
 ### Constraints to keep
 
-- Exact pins (no `^`) while Effect is pre-1.0-of-v4. `effect` and `@effect/vitest` move together.
+- Exact pins (no `^`) while Effect is pre-1.0-of-v4. `effect` and `@effect/vitest` move together,
+  and `@effect/vitest`'s `vitest` peer range decides the vitest version.
 - The observability convention (`wardic.*` spans, annotated debug logs) must survive unchanged.
+- `effect/unstable/reactivity` (imported by 12 source files under `packages/*/src`) is a
+  no-stability-guarantee namespace: check it first on any bump.
+- Wardic's frame timing relies on Effect internals (ADR-0017, ADR-0010's *Amendment (#13)*).
+  Re-run their guard tests and the layout-lab check (see the research doc) on every bump.
 
 ### Not yet researched
 
-- The changelog between `beta.71` and the current RC: what breaks, what's renamed, and whether
-  `unstable/reactivity` moved or stabilised.
 - Whether a stable `4.0.0` date has been announced.
 
 ## 2. Solid 2 build of `@wardic/solid`
@@ -127,3 +119,5 @@ Two places carry timing guarantees that must be re-proven under Solid 2, not jus
 All registry facts were read on 2026-09-26 with `npm view <pkg> dist-tags`, `npm view <pkg> time`
 and `npm view <pkg>@<tag> peerDependencies`. Codebase facts (pins, import sites) come from this
 repo's `package.json` files and `packages/*/src` at the commit that adds this document.
+§1 was updated on 2026-09-28 from the sources pinned in
+[`docs/research/effect-4-rc-upgrade.md`](../research/effect-4-rc-upgrade.md).
