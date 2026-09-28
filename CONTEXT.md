@@ -25,7 +25,7 @@ A Physics primitive that follows a continuously-moving target indefinitely — i
 _Avoid_: follow, track.
 
 **Frame**:
-One per-tick emission of a Primitive — the current value plus whether motion has settled.
+One per-tick emission of a Primitive — the current value plus whether motion has settled. Distinct from a **Refresh frame**.
 _Avoid_: tick, step, sample.
 
 **Physics frame**:
@@ -140,7 +140,19 @@ _Avoid_: platform, adapter, driver.
 
 **Shared source**:
 A contract property of *every* Stream an Environment hands out — `Clock.ticks`, `InputSource.pointer`/`keyboard`/`wheel`/`focus`, `Probe.observeResize`/`observeIntersection`: it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
+The Clock's loop ends at the first Refresh frame after its last subscriber leaves, not at the unsubscribe itself (see **Cold start**).
 _Avoid_: hot stream, multicast (name the property — Shared source).
+
+**Refresh frame**:
+One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `makeRefreshFrameClock` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.
+_Avoid_: animation frame (browser API wording), display frame, vsync.
+
+**Cold start**:
+A subscription to `Clock.ticks` made while the Clock is idle, so it starts requesting Refresh frames. Its first tick is the **Priming tick**. A **warm start** joins a Clock that is already ticking and gets its next tick. The Clock goes idle only at the first Refresh frame that finds no subscriber, so an unsubscribe followed by a subscribe before the next Refresh frame (a retarget) is a warm start (ADR-0017).
+_Avoid_: wake (Motion's term).
+
+**Priming tick**:
+The first tick of a **Cold start**. It's delivered at the end of the subscribing task with the nominal dt (1/60 s), before the first Refresh frame. A start made during a Refresh frame then paints on the next one, the same as a warm start, despite the gate's one-frame latency (ADR-0006, ADR-0017).
 
 ### Rendering
 

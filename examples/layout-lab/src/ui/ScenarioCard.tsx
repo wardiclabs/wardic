@@ -60,6 +60,10 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
           <span class="result-value">{formatFrames(props.lastRun)}</span>
         </div>
         <div class="result-cell">
+          <span class="result-label">held</span>
+          <span class="result-value">{formatHeld(props.lastRun)}</span>
+        </div>
+        <div class="result-cell">
           <span class="result-label">outcome</span>
           <span class={`pill outcome-${outcomeClass(props.lastRun)}`}>{props.lastRun?.outcome ?? "–"}</span>
         </div>
@@ -72,6 +76,16 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
 const formatFrames = (run: LabRun | undefined): string => {
   if (run === undefined) return "–"
   return run.framesToMeasure === null ? "?" : String(run.framesToMeasure)
+}
+
+/**
+ * Issue #14's hold and the Clock start as text, e.g. `1 · cold`: `–` before any
+ * run, `?` when the run's anchor was never seen or nothing moved after it.
+ */
+export const formatHeld = (run: LabRun | undefined): string => {
+  if (run === undefined) return "–"
+  const held = run.heldFrames === null ? "?" : String(run.heldFrames)
+  return run.clock === null ? held : `${held} · ${run.clock}`
 }
 
 /** A CSS-safe class suffix for an outcome (`n/a` has a slash). */

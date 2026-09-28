@@ -3,7 +3,9 @@
  *
  * Implemented (docs/plans/v0.1.md implementation order, steps 2–7):
  *   - The five service contracts (`Clock`, `Renderer`, `InputSource`, `Probe`,
- *     `InterpolatorRegistry`). Contracts only; environments provide the Layers.
+ *     `InterpolatorRegistry`); environments provide the Layers. Core also ships
+ *     the shared Refresh-frame Clock constructor, `makeRefreshFrameClock`, that
+ *     every Environment's Clock is built from.
  *   - The interpolation registry's built-in interpolators (number, array, color
  *     via culori, unit-string) and pure easings + math utilities.
  *   - The animation primitives — `tween`, `spring`, `decay`, `animate`,

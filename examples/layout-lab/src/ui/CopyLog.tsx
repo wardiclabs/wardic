@@ -14,11 +14,13 @@ import type { Lab } from "../lab/lab.ts"
 /** Must match `SAVE_LOG_ROUTE` in `vite.config.ts` (not imported: it pulls in `node:fs`). */
 const SAVE_LOG_ROUTE = "/__lab/save-log"
 
-/** Props are static values; `frameStretchMs` is a tracked prop getter. */
+/** Props are static values; `frameStretchMs` and `keepClockWarm` are tracked prop getters. */
 export interface CopyLogProps {
   readonly lab: Lab
   /** The current frame-stretch value, recorded in the log. */
   readonly frameStretchMs: number
+  /** Whether the Keep Clock warm background spring is on. */
+  readonly keepClockWarm: boolean
 }
 
 const plural = (n: number): string => `${n} run${n === 1 ? "" : "s"}`
@@ -30,7 +32,7 @@ export const CopyLog = (props: CopyLogProps): JSX.Element => {
   const [saving, setSaving] = createSignal(false)
 
   const snapshot = () => {
-    const log = props.lab.log({ frameStretchMs: props.frameStretchMs })
+    const log = props.lab.log({ frameStretchMs: props.frameStretchMs, keepClockWarm: props.keepClockWarm })
     return { log, json: JSON.stringify(log, null, 2) }
   }
 

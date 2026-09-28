@@ -9,6 +9,14 @@ import type { Atom } from "effect/unstable/reactivity"
  * Exposes the current absolute time (reference-only — animations consume `dt`,
  * not absolute time), the most recent delta, and a stream of `dt` values that
  * primitives subscribe to. Environments drive it by calling `tick`.
+ *
+ * Cold start contract (ADR-0017), which `makeRefreshFrameClock` implements for
+ * every Environment driven by Refresh frames: a subscription that starts an idle
+ * Clock receives a Priming tick with `dt = NOMINAL_DT` at the end of its task,
+ * before the first Refresh frame; `dt` stays nominal until two Refresh frame
+ * timestamps exist; no tick depends on the Effect scheduler; and the Clock goes
+ * idle only at the first Refresh frame that finds no subscriber, so an unsubscribe
+ * followed by a subscribe before it (a retarget) is a warm start.
  */
 export class Clock extends Context.Service<Clock, {
   /** Current absolute time. Reference-only; prefer `dt`. */

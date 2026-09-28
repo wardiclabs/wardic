@@ -12,6 +12,7 @@
  */
 import {
   clearGhosts,
+  DEFAULT_PAINT_SAMPLER_OPTIONS,
   type PaintSampler,
   type PostPaintTicker,
   type RunResult,
@@ -19,15 +20,22 @@ import {
 } from "../probe/paint-sampler.ts"
 import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, type Timeline } from "../probe/timeline.ts"
 import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
+import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
 
 /** How many completed runs the lab keeps (oldest dropped first). */
 const MAX_RUNS = 200
+
+/** The sampler's "same box" distance, which also decides whether a frame is still at the origin. */
+const NEAR_PX = DEFAULT_PAINT_SAMPLER_OPTIONS.nearPx
 
 /** How far before the trigger mark a run's span window reaches, in ms. */
 const SPAN_LEAD_MS = 50
 
 /** The coordinator span whose end the lab treats as "a layout animation finished". */
 const COORDINATOR_SPAN = "wardic.projection.coordinator"
+
+/** The span each subscription to `Clock.ticks` runs in: one open means the Clock is ticking. */
+const CLOCK_SPAN = "wardic.clock"
 
 /**
  * How an observed verdict compares with the scenario's prediction.
@@ -62,6 +70,22 @@ export interface LabRun extends RunResult {
    * recorded (JSON has no `undefined`).
    */
   readonly framesToMeasure: number | null
+  /**
+   * Issue #14: painted frames held at the origin before the first motion, counted
+   * from {@link heldFrom}. A layout run's measure pass paints the origin, so 1 is
+   * the minimum there. `null` when the anchor was never seen or nothing moved after it.
+   */
+  readonly heldFrames: number | null
+  /** Milliseconds from {@link heldFrom} to the first moved frame's post-paint delivery; `null` like {@link heldFrames}. */
+  readonly msToFirstMotion: number | null
+  /** What {@link heldFrames} counts from: the first measure pass, or (scenario 9) the trigger. */
+  readonly heldFrom: HeldFrom
+  /**
+   * Whether the Clock was already ticking at the trigger (`warm`: some `wardic.clock`
+   * span was open) or the run had to start it (`cold`). `null` for a run the lab
+   * has no trigger record for.
+   */
+  readonly clock: ClockStart | null
   /** The verdict graded against the prediction. */
   readonly outcome: Outcome
   /**
@@ -97,6 +121,8 @@ export interface LabLog {
   readonly devicePixelRatio: number
   /** The frame-stretch busy-wait in effect when the log was produced, in ms. */
   readonly frameStretchMs: number
+  /** Whether the Keep Clock warm background spring was on when the log was produced. */
+  readonly keepClockWarm: boolean
   /** Which scheduler Effect is running on (see {@link EffectScheduler}). */
   readonly scheduler: EffectScheduler
   /**
@@ -136,7 +162,7 @@ export interface Lab {
   /** Zeroes the flash counts and removes every ghost outline (flash and wrong-origin). */
   readonly resetCounts: () => void
   /** Builds the copy-log payload. It is JSON-round-trip safe. */
-  readonly log: (meta: { readonly frameStretchMs: number }) => LabLog
+  readonly log: (meta: { readonly frameStretchMs: number; readonly keepClockWarm: boolean }) => LabLog
 }
 
 /** Grades `verdict` against `prediction` (see {@link Outcome}). */
@@ -158,6 +184,8 @@ interface PendingTrigger {
   readonly meta: TriggerMeta | undefined
   /** `ticker.frame()` when the trigger was marked. */
   readonly frame: number
+  /** Whether the Clock was already ticking when the trigger was marked. */
+  readonly clock: ClockStart
   /**
    * Delivery times of frames numbered before {@link frame} whose post-paint
    * delivery only ran after the trigger. Those frames painted before it.
@@ -190,7 +218,7 @@ const framesToMeasureOfWith =
     const raw = timeline.framesToMeasure(trigger.mark)
     if (raw === undefined) return undefined
     const after = trigger.mark.t
-    const measure = timeline.window(after, result.endedAt).spans.find((s) => s.name === MEASURE_SPAN && s.start > after)
+    const measure = timeline.window(after, result.endedAt).spans.find((s) => s.name === MEASURE_SPAN && s.start >= after)
     if (measure === undefined) return raw
     const first = result.samples[0]
     const triggerFramePaintedBefore =
@@ -212,6 +240,7 @@ export const makeLab = (options: LabOptions): Lab => {
 
   const framesToMeasureOf = framesToMeasureOfWith(timeline)
   const predictions = new Map<string, Prediction>(scenarios.map((def) => [def.id, def.prediction]))
+  const heldFroms = new Map<string, HeldFrom>(scenarios.map((def) => [def.id, def.heldFramesFrom ?? "measure"]))
   const watched = new Map<string, HTMLElement>()
   const contexts = new Map<string, ScenarioContext>()
   // Every started run that has not ended yet, keyed by its trigger mark's
@@ -246,6 +275,17 @@ export const makeLab = (options: LabOptions): Lab => {
     if (trigger !== undefined) awaitingDelivery.delete(trigger)
     const prediction = predictions.get(result.scenarioId) ?? "unknown"
     const frames = trigger === undefined ? undefined : framesToMeasureOf(trigger, result)
+    const heldFrom = heldFroms.get(result.scenarioId) ?? "measure"
+    const anchorAt =
+      heldFrom === "trigger"
+        ? result.triggerAt
+        : timeline
+            .window(result.triggerAt, result.endedAt)
+            .spans.find((s) => s.name === MEASURE_SPAN && s.start >= result.triggerAt)?.start
+    const held =
+      anchorAt === undefined
+        ? undefined
+        : heldFramesOf(result.samples, result.origin, { from: heldFrom, at: anchorAt }, NEAR_PX)
     const run: LabRun = {
       ...result,
       trigger: trigger?.mark.label ?? "",
@@ -253,6 +293,10 @@ export const makeLab = (options: LabOptions): Lab => {
       ...(trigger?.meta === undefined ? {} : { triggerMeta: trigger.meta }),
       prediction,
       framesToMeasure: frames ?? null,
+      heldFrames: held?.heldFrames ?? null,
+      msToFirstMotion: held?.msToFirstMotion ?? null,
+      heldFrom,
+      clock: trigger?.clock ?? null,
       outcome: outcomeOf(prediction, result.verdict),
       spans: timeline.window(result.triggerAt - SPAN_LEAD_MS, result.endedAt).spans,
       scheduler: currentLabScheduler(),
@@ -284,9 +328,11 @@ export const makeLab = (options: LabOptions): Lab => {
         console.warn(`layout-lab: ${id} called markTrigger("${source}") before watch(); no run started`)
         return
       }
+      // Read before the scenario's write starts anything: is the Clock already ticking?
+      const clock: ClockStart = timeline.openCount(CLOCK_SPAN) > 0 ? "warm" : "cold"
       const mark = timeline.mark("trigger", source, id)
       const frame = ticker.frame()
-      const pending: PendingTrigger = { mark, meta, frame, lateEarlierFrames: [], frameDeliveredAt: undefined }
+      const pending: PendingTrigger = { mark, meta, frame, clock, lateEarlierFrames: [], frameDeliveredAt: undefined }
       pendingTriggers.set(mark.t, pending)
       if (deliveredFrame < frame) awaitingDelivery.add(pending)
       sampler.begin({ el, scenarioId: id, triggerAt: mark.t })
@@ -327,11 +373,12 @@ export const makeLab = (options: LabOptions): Lab => {
       flashPerScenario = {}
       clearGhosts()
     },
-    log: ({ frameStretchMs }) => ({
+    log: ({ frameStretchMs, keepClockWarm }) => ({
       createdAt: new Date().toISOString(),
       userAgent: navigator.userAgent,
       devicePixelRatio: window.devicePixelRatio,
       frameStretchMs,
+      keepClockWarm,
       scheduler,
       schedulerMode: currentLabScheduler(),
       runs: runs.slice(),

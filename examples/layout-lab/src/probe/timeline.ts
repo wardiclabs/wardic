@@ -157,8 +157,16 @@ export interface Timeline {
    */
   readonly onSpanEnd: (cb: (s: SpanRecord) => void) => () => void
   /**
+   * How many recorded spans named `name` have started and not yet ended. Kept as a
+   * running count, not read from the span ring, so a long-lived span (a background spring's
+   * `wardic.clock`) still counts after newer spans have pushed its record out.
+   * `wardic.clock` > 0 means the Clock is ticking: each subscription to
+   * `Clock.ticks` runs inside one, for exactly as long as it holds the Clock.
+   */
+  readonly openCount: (name: string) => number
+  /**
    * Counts the recorded paints `p` with `trigger.t < p < s.start`, where `s` is the
-   * first `wardic.projection.measure` span with `start > trigger.t`: the number of
+   * first `wardic.projection.measure` span with `start >= trigger.t`: the number of
    * frames painted before the measure pass that answered the trigger.
    *
    * @returns `undefined` while no such measure span has been recorded.
@@ -166,7 +174,7 @@ export interface Timeline {
   readonly framesToMeasure: (trigger: Mark) => number | undefined
   /** Returns the marks, spans (by `start`) and paints with timestamps in `[from, to]`. */
   readonly window: (from: number, to: number) => TimelineWindow
-  /** Empties every buffer. Listeners stay subscribed. */
+  /** Empties every buffer. Listeners stay subscribed; spans still open stay counted. */
   readonly clear: () => void
 }
 
@@ -336,8 +344,11 @@ export const makeTimeline = (options?: TimelineOptions): Timeline => {
   let paintSize = 0
 
   let listeners: ReadonlyArray<{ readonly cb: (s: SpanRecord) => void }> = []
+  // Recorded spans started and not yet ended, per name (see `openCount`).
+  const open = new Map<string, number>()
 
   const notifySpanEnd = (record: SpanRecord): void => {
+    open.set(record.name, (open.get(record.name) ?? 1) - 1)
     // Copy-on-write list: (un)subscribing during a notification never disturbs it.
     for (const listener of listeners) {
       try {
@@ -353,6 +364,7 @@ export const makeTimeline = (options?: TimelineOptions): Timeline => {
       if (!spanOptions.name.startsWith(RECORDED_PREFIX)) return new Tracer.NativeSpan(spanOptions)
       const span = new LabSpan(spanOptions, notifySpanEnd)
       spans.push(span.record)
+      open.set(spanOptions.name, (open.get(spanOptions.name) ?? 0) + 1)
       return span
     },
   })
@@ -382,7 +394,9 @@ export const makeTimeline = (options?: TimelineOptions): Timeline => {
 
   const framesToMeasure = (trigger: Mark): number | undefined => {
     const after = trigger.t
-    const measure = spans.find((s) => s.name === MEASURE_SPAN && s.start > after)
+    // `>=`, not `>`: Firefox coarsens `performance.now()` to whole milliseconds, so a
+    // measure pass can start in the trigger's own millisecond.
+    const measure = spans.find((s) => s.name === MEASURE_SPAN && s.start >= after)
     if (measure === undefined) return undefined
     const before = measure.start
     const first = paintHead - paintSize + capacity
@@ -422,6 +436,7 @@ export const makeTimeline = (options?: TimelineOptions): Timeline => {
     mark,
     notePaint,
     onSpanEnd,
+    openCount: (name) => open.get(name) ?? 0,
     framesToMeasure,
     window: windowOf,
     clear,

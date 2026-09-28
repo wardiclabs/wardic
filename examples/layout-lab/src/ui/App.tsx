@@ -23,6 +23,7 @@ import { currentLabScheduler } from "../probe/timeline.ts"
 import { CopyLog } from "./CopyLog.tsx"
 import { FlashCounter } from "./FlashCounter.tsx"
 import { FrameStretch } from "./FrameStretch.tsx"
+import { KeepClockWarm } from "./KeepClockWarm.tsx"
 import { ScenarioCard } from "./ScenarioCard.tsx"
 import { TimelinePanel, type TimelineSelection } from "./TimelinePanel.tsx"
 
@@ -43,6 +44,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
   const [pickedId, setPickedId] = createSignal<string | undefined>(undefined)
   const [counts, setCounts] = createSignal(lab.flashCounts())
   const [stretchMs, setStretchMs] = createSignal(0)
+  const [keepWarm, setKeepWarm] = createSignal(false)
 
   onCleanup(
     lab.subscribe((run) => {
@@ -91,7 +93,8 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
             onFollowLatest={() => setPickedId(undefined)}
           />
           <FrameStretch ticker={lab.ticker} value={stretchMs()} onChange={(ms) => setStretchMs(ms)} />
-          <CopyLog lab={lab} frameStretchMs={stretchMs()} />
+          <KeepClockWarm value={keepWarm()} onChange={(on) => setKeepWarm(on)} />
+          <CopyLog lab={lab} frameStretchMs={stretchMs()} keepClockWarm={keepWarm()} />
         </aside>
       </div>
     </WardicProvider>

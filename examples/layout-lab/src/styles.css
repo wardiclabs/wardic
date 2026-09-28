@@ -351,8 +351,8 @@ body {
 /* Fixed height, always rendered: a result arriving never changes the card's size. */
 .card-result {
   display: grid;
-  grid-template-columns: repeat(3, max-content);
-  gap: 16px;
+  grid-template-columns: repeat(4, max-content);
+  gap: 12px;
   height: 48px;
   overflow: hidden;
   margin-top: auto;
@@ -395,6 +395,24 @@ body {
   margin: 0;
   margin-right: auto;
   font-size: 14px;
+}
+
+/* Keep Clock warm: a fixed-size track, so the background spring reflows nothing. */
+.warm-track {
+  position: relative;
+  width: 180px;
+  height: 20px;
+  margin-bottom: 6px;
+}
+
+.warm-dot {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--lab-accent);
 }
 
 .panel-actions {
