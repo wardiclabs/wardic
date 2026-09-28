@@ -80,6 +80,32 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   post-paint message for the measure frame can then run after the next frame's
   flush, and that run reads one frame short (seen as `held 0` on a layout run,
   with two samples delivered a couple of ms apart).
+- **Frame trace (`refreshFrames`, `observerCallbacks`, `input`).** Issues #2 and #18: what
+  ran in each Refresh frame around the run. `src/probe/frame-trace.ts` is imported
+  before anything else and wraps `requestAnimationFrame` and `ResizeObserver`, so
+  every rAF callback is recorded with the timestamp the browser passed it and when
+  it started and ended, tagged by who requested it: `gate` (the flush gate), `clock`
+  (the Clock's Refresh frame loop), `ticker` (this lab's post-paint ticker),
+  `scenario` (scenario 4's and free play's own rAFs) or `other`. One run of rAF callbacks is one
+  Refresh frame (not one timestamp: Firefox can run a second frame right after an
+  input with the previous frame's timestamp), and each frame's `order` lists them in
+  run order, then its ResizeObserver deliveries after a `|` (`engine-ro` for the
+  projection engine's observer, `app-ro` for any other; under a `vite build` every
+  observer reads `app-ro`):
+  `ticker>gate>clock|engine-ro` means the gate flushed before the Clock ticked, and
+  the engine's observer delivered after both. `input` holds the `pointerdown`s and
+  `click`s from 500 ms before the trigger, each with its `timeStamp`, when the
+  capture listener saw it (`t`), and the first Refresh frame whose callbacks started
+  after it (`frameTs`, `frameStart`, `order`). Every record carries a `seq`, and
+  order and joins go by it, not by time: Firefox's `performance.now()` is whole
+  milliseconds, so a click and the next frame's first callback can share a time. The
+  tags come from each request's stack, which names the source file only under
+  `bun run dev`: in a `vite build` every callback reads `other`. The trace is always on
+  and costs one record per callback, plus one stack capture per Refresh frame while
+  the Clock ticks (its request is a new closure every frame; the gate's and the
+  ticker's are stable and cached; a scenario's own rAF costs one per Run). It makes
+  a saved log larger: about 36 KB per run of 0.7 s (measured headlessly), more for a
+  longer run. Nothing reads it in the UI; read it from a saved log.
 
 ## Scenarios
 

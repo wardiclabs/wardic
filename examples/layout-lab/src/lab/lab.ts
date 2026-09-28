@@ -1,8 +1,9 @@
 /**
  * The lab orchestrator: it binds each scenario to a {@link ScenarioContext}, joins
  * a finished paint-sampler run with the timeline (framesToMeasure, the Wardic spans
- * around it) into a {@link LabRun}, grades it against the scenario's prediction,
- * and keeps the bounded run log the UI and the copy-log read.
+ * around it) and the frame trace (the Refresh frames, ResizeObserver deliveries and
+ * inputs around it) into a {@link LabRun}, grades it against the scenario's
+ * prediction, and keeps the bounded run log the UI and the copy-log read.
  *
  * Framework-free on purpose (no Solid import): the UI subscribes through
  * {@link Lab.subscribe}, which fires once per completed run and never per frame,
@@ -18,8 +19,10 @@ import {
   type RunResult,
   type Verdict,
 } from "../probe/paint-sampler.ts"
+import type { FrameTrace, ObserverRecord } from "../probe/frame-trace.ts"
 import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, type Timeline } from "../probe/timeline.ts"
 import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
+import { groupFrames, type InputJoin, joinInputs, type RefreshFrame } from "./frame-order.ts"
 import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
 
 /** How many completed runs the lab keeps (oldest dropped first). */
@@ -30,6 +33,21 @@ const NEAR_PX = DEFAULT_PAINT_SAMPLER_OPTIONS.nearPx
 
 /** How far before the trigger mark a run's span window reaches, in ms. */
 const SPAN_LEAD_MS = 50
+
+/**
+ * How far before the trigger mark a run keeps inputs, in ms: enough for a hand
+ * click's `pointerdown` (the `click` itself is usually the trigger), and for the
+ * click that started a scenario whose trigger comes later (scenario 3's observer,
+ * scenario 4's rAF).
+ */
+const INPUT_LEAD_MS = 500
+
+/**
+ * How much earlier than a run's trace window the trace is read, in ms, so a frame
+ * whose first callback starts just inside the window is read whole (its later
+ * callbacks all start within a few ms of its first).
+ */
+const FRAME_SLACK_MS = 20
 
 /** The coordinator span whose end the lab treats as "a layout animation finished". */
 const COORDINATOR_SPAN = "wardic.projection.coordinator"
@@ -96,6 +114,23 @@ export interface LabRun extends RunResult {
   readonly spans: ReadonlyArray<SpanRecord>
   /** The page's scheduler mode (`?scheduler=`) the run was captured under. */
   readonly scheduler: LabScheduler
+  /**
+   * Issues #2 and #18: every Refresh frame whose first callback started in the
+   * run's trace window, oldest first, each with its callbacks in run order and its
+   * `order` (e.g. `ticker>gate>clock|engine-ro`). The window is `[from, endedAt]`,
+   * where `from` is the earlier of `triggerAt - 50` and the first of
+   * {@link input}. The tags only resolve under the Vite dev server: under a
+   * `vite build` every callback reads `other`. (Not to be confused with the painted
+   * frames `framesToMeasure` and `heldFrames` count.)
+   */
+  readonly refreshFrames: ReadonlyArray<RefreshFrame>
+  /** The ResizeObserver deliveries in the same window, oldest first. */
+  readonly observerCallbacks: ReadonlyArray<ObserverRecord>
+  /**
+   * The `pointerdown`s and `click`s from `triggerAt - 500` to `endedAt`, each with
+   * the first Refresh frame whose callbacks started after it was handled.
+   */
+  readonly input: ReadonlyArray<InputJoin>
 }
 
 /** Flash totals since the last {@link Lab.resetCounts}. */
@@ -140,6 +175,8 @@ export interface LabOptions {
   readonly ticker: PostPaintTicker
   readonly sampler: PaintSampler
   readonly timeline: Timeline
+  /** The page's frame trace (`probe/frame-trace.ts`), installed before any other module evaluated. */
+  readonly frameTrace: FrameTrace
   readonly scenarios: ReadonlyArray<ScenarioDef>
 }
 
@@ -233,7 +270,7 @@ const framesToMeasureOfWith =
 
 /** Builds the lab. Call it once. */
 export const makeLab = (options: LabOptions): Lab => {
-  const { ticker, sampler, timeline, scenarios } = options
+  const { ticker, sampler, timeline, frameTrace, scenarios } = options
   // Recorded once, at startup: Effect chose its scheduler when its module loaded,
   // which happened before this module ran (see index.html).
   const scheduler: EffectScheduler = typeof globalThis.setImmediate === "function" ? "setImmediate" : "setTimeout-fallback"
@@ -286,6 +323,17 @@ export const makeLab = (options: LabOptions): Lab => {
       anchorAt === undefined
         ? undefined
         : heldFramesOf(result.samples, result.origin, { from: heldFrom, at: anchorAt }, NEAR_PX)
+    // The frame trace around the run: inputs from INPUT_LEAD_MS before the trigger,
+    // and every frame whose first callback starts after the earlier of the first of
+    // them and the span lead (read FRAME_SLACK_MS early, so that frame is whole).
+    const trace = frameTrace.window(result.triggerAt - INPUT_LEAD_MS - FRAME_SLACK_MS, result.endedAt)
+    const inputs = trace.inputs.filter((i) => i.t >= result.triggerAt - INPUT_LEAD_MS)
+    const traceFrom = Math.min(result.triggerAt - SPAN_LEAD_MS, inputs[0]?.t ?? Number.POSITIVE_INFINITY)
+    const refreshFrames = groupFrames(
+      trace.callbacks.filter((c) => c.start >= traceFrom - FRAME_SLACK_MS),
+      trace.observers,
+    ).filter((f) => f.firstStart >= traceFrom)
+    const observerCallbacks = trace.observers.filter((o) => o.start >= traceFrom)
     const run: LabRun = {
       ...result,
       trigger: trigger?.mark.label ?? "",
@@ -300,6 +348,9 @@ export const makeLab = (options: LabOptions): Lab => {
       outcome: outcomeOf(prediction, result.verdict),
       spans: timeline.window(result.triggerAt - SPAN_LEAD_MS, result.endedAt).spans,
       scheduler: currentLabScheduler(),
+      refreshFrames,
+      observerCallbacks,
+      input: joinInputs(inputs, refreshFrames),
     }
     runs.push(run)
     if (runs.length > MAX_RUNS) runs.splice(0, runs.length - MAX_RUNS)
