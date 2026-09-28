@@ -61,7 +61,7 @@ const make = Effect.gen(function* () {
   // A forked window "resize" listener is the only writer of `viewport`.
   yield* Effect.forkScoped(
     Stream.runForEach(
-      Stream.fromEventListener(window as unknown as Stream.EventListener<Event>, "resize"),
+      Stream.fromEventListener<Event>(window as unknown as Stream.EventListener<Event>, "resize"),
       () => Effect.sync(() => registry.set(viewport, { width: window.innerWidth, height: window.innerHeight })),
     ),
   )
@@ -77,7 +77,7 @@ const make = Effect.gen(function* () {
     // into the layer scope; the finalizer removes the listener on teardown.
     yield* Effect.forkScoped(
       Stream.runForEach(
-        Stream.fromEventListener(mql as unknown as Stream.EventListener<MediaQueryListEvent>, "change"),
+        Stream.fromEventListener<MediaQueryListEvent>(mql as unknown as Stream.EventListener<MediaQueryListEvent>, "change"),
         (ev) => Effect.sync(() => registry.set(prefersReducedMotion, ev.matches)),
       ),
     )

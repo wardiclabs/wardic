@@ -3,6 +3,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
+    // The node tier runs these tests under Node, and the Clock/microtask guard tests
+    // use its timers (`setTimeout`, `queueMicrotask`). `src` stays host-free.
+    "types": ["node"],
     "noEmit": true,
     "composite": false,
     "rootDir": "."

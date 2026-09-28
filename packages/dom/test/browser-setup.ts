@@ -1,6 +1,6 @@
 // Browser-harness setup: polyfill `setImmediate`/`clearImmediate`.
 //
-// Effect's scheduler (effect@4 beta) schedules fibers via `setImmediate`, a
+// Effect's scheduler (effect@4) schedules fibers via `setImmediate`, a
 // Node/happy-dom global absent in a real browser — without it any test running an
 // Effect runtime (ManagedRuntime / Layer) throws "globalThis.setImmediate is not a
 // function".

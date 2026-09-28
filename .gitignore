@@ -21,6 +21,8 @@ dist/
 
 # Vitest browser-mode failure screenshots (test artifacts, not source)
 **/__screenshots__/
+# Vitest 5's artifact root (failure screenshots, attachments, reports)
+.vitest/
 
 # Logs & OS cruft
 *.log
