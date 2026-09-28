@@ -1,6 +1,6 @@
 # Effect `4.0.0-beta.71` → `4.0.0-rc.117`: what changed for Wardic
 
-> **Read at:** 2026-09-28 · **Sources:**
+> **Read at:** 2026-09-28 (UTC) · **Sources:**
 > - `effect@4.0.0-rc.117` and `@effect/vitest@4.0.0-rc.117` (published 2026-09-21), and both at
 >   `4.0.0-beta.71`, read from the npm tarballs (`npm pack`). RCs are published from
 >   **`Effect-TS/effect`** (tag `effect@4.0.0-rc.117` = `14a3f140095fdebbff9162944fe7d4ea83e054e6`),
@@ -18,7 +18,8 @@
 
 The upgrade needed one source change, one test-config change and a test-toolchain move. Every
 Effect behaviour that Wardic's frame timing relies on (ADR-0017, ADR-0010's *Amendment (#13)*) is
-unchanged at rc.117, and the tests and the layout lab measure the same frames as on beta.71.
+unchanged at rc.117. The tests pass unchanged, the layout lab paints the same frames in Chromium,
+and headless Firefox keeps the 1–2 frame spread on a warm layout run that it had on beta.71.
 
 ## What broke
 
@@ -31,7 +32,7 @@ unchanged at rc.117, and the tests and the layout lab measure the same frames as
    the event type explicitly, as `wardic:packages/dom/src/input.ts` already did. The same PR makes
    `{ once: true }` end the stream after one event; Wardic never passes `once`.
 2. **`@effect/vitest` requires a newer vitest.** Its `vitest` peer is `^3.0.0 || ^4.0.0` up to
-   beta.100, `>=4.1.0 <5.0.0` for beta.107–rc.112, and `>=5.0.0 <6.0.0` from rc.113
+   beta.102, `^4.1.0` at beta.103–104, `>=4.1.0 <5.0.0` from beta.105 to rc.112, and `>=5.0.0 <6.0.0` from rc.113
    ([#8104](https://github.com/Effect-TS/effect/pull/8104), `packages/vitest/CHANGELOG.md:153`,
    which also requires Node `^22.12.0 || ^24.0.0 || >=26.0.0`). Versions can't be mixed:
    `@effect/vitest@rc.117` on vitest 3.2.6 fails every file (`getCurrentSuite` is undefined), and
@@ -74,7 +75,10 @@ unchanged at rc.117, and the tests and the layout lab measure the same frames as
   ([#7361](https://github.com/Effect-TS/effect/pull/7361), `packages/effect/CHANGELOG.md:1187`).
 - **`effect/unstable/reactivity`** is still exported at the same subpath (`package.json:49`).
   `Atom.make` and `Atom.get` are code-identical; `Atom.keepAlive` differs only in its doc comment.
-  `Atom` gained an `equals` member that defaults to `Object.is`.
+  `Atom` gained an `equals` member that defaults to `Object.is`, so `registry.set` still notifies
+  on any non-identical value. `AtomRegistry`'s node graph now keeps `parents`/`children` in `Set`s
+  instead of arrays (`src/unstable/reactivity/AtomRegistry.ts:99-100`; beta.71 `:166-167`), and a
+  node invalidated while it builds is rebuilt ([#6751](https://github.com/Effect-TS/effect/pull/6751)).
 - **`@effect/vitest`'s API** (`src/index.ts`) changes only `prop` (FastCheck → `effect/unstable/arbitrary`)
   and adds a `concurrent` option to `layer`. `it.effect`, `it.live`, `layer`, `describe`, `expect`
   and `vi` are unchanged. After a timeout it now awaits the timed-out test's finalizers before the
@@ -108,18 +112,23 @@ unchanged at rc.117, and the tests and the layout lab measure the same frames as
 | `clock-cold-start` (S1–S5, incl. S3's 0 dispatches) + `layout-id-scroll` (6) | 11/11 | 11/11 |
 | layout lab `build` (JS) | 249.74 kB, 85.51 kB gzip | 256.43 kB, 87.67 kB gzip (+2.5%) |
 
-**Layout lab, headless** (`.tmp/lab-14-check.ts`, Chromium and Firefox × default and microtask
-scheduler; scenario 1 layout and scenario 9 spring, 2 runs cold and 2 warm each; the first script
-run after the dev server started was discarded). Both versions were served side by side from
-checkouts of the two commits:
+**Layout lab, headless.** `.tmp/lab-14-check.ts` is a local, uncommitted Playwright script (`.tmp/`
+is gitignored; it lives there so it resolves the repo's pinned playwright 1.59.1). It loads the
+lab's dev server in Chromium and Firefox × default and microtask scheduler, clicks Run on
+scenario 1 (layout) and scenario 9 (spring) twice each cold, then twice each with Keep Clock warm
+on, and prints each run's `heldFrames` · `clock`. The first script run after the dev server
+started was discarded. Both versions were served side by side from checkouts of the two commits:
 
 - Chromium, both modes, both versions: cold layout held **1**, s9 cold **0**, warm layout **1**,
   s9 warm **1**, in every run.
 - Firefox, both modes, both versions: cold layout held **1** (apart from the misread below), s9
-  cold **0**, s9 warm **1**. Warm
-  layout held 1 or 2 on both versions. A focused sample (warm layout only, 12 runs per mode)
-  held 2 in **20 of 24** runs on beta.71 and **11 of 24** on rc.117. This is headless Firefox's
-  pre-existing noise (#14 saw the same), not a change from the upgrade.
+  cold **0**, s9 warm **1**. Warm layout held **1 or 2** on both versions (PR #19's desktop
+  Firefox run also had warm runs a frame long, 3 of 10). How often it held 2 differed between
+  samples: 5 of 8 (beta.71) against 7 of 8 (rc.117) in the check above, then 20 of 24 against
+  11 of 24 in a focused sample (warm layout only, 12 runs per mode). Two-sided Fisher p ≈ 0.57
+  and ≈ 0.015; pooled, 25/32 against 18/32, p ≈ 0.11. Each sample ran one version after the
+  other, not interleaved, so the cause of the focused sample's shift, which is towards the
+  minimum of 1, is not established.
 - One run per version read `held 0` on a cold Firefox layout run, with two samples delivered
   about 2 ms apart. That is the lab's documented late-delivery misread
   (`wardic:examples/layout-lab/README.md:78-82`).
@@ -131,7 +140,8 @@ checkouts of the two commits:
    changelog sections in between for `Scheduler`, `fork`, `callback`, `runLoop` and `fiberCached`.
 3. Run the guards by name: `refresh-frame-clock.test.ts`, `next-microtask.test.ts`,
    `clock-cold-start.browser.test.tsx` and `layout-id-scroll.browser.test.tsx`. Then run the
-   headless lab check and compare with the numbers above.
+   headless lab check (or, without the local script, the same clicks by hand in the lab) and
+   compare with the numbers above. Interleave the two versions if comparing Firefox's warm runs.
 
 ## Not checked
 

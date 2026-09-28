@@ -44,10 +44,10 @@ at that commit; re-download it from
 - Exact pins (no `^`) while Effect is pre-1.0-of-v4. `effect` and `@effect/vitest` move together,
   and `@effect/vitest`'s `vitest` peer range decides the vitest version.
 - The observability convention (`wardic.*` spans, annotated debug logs) must survive unchanged.
-- `effect/unstable/reactivity` (14 source files under `packages/*/src`) is a
+- `effect/unstable/reactivity` (imported by 12 source files under `packages/*/src`) is a
   no-stability-guarantee namespace: check it first on any bump.
 - Wardic's frame timing relies on Effect internals (ADR-0017, ADR-0010's *Amendment (#13)*).
-  Re-run their guard tests and the headless layout-lab check on every bump.
+  Re-run their guard tests and the layout-lab check (see the research doc) on every bump.
 
 ### Not yet researched
 
