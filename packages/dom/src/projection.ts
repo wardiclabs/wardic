@@ -317,6 +317,12 @@ interface NodeState {
   /** The live pointer translate from the grab point (zero when not dragging). */
   dragDelta: Point
   /**
+   * Whether this node's FLIP is a drag's release (set by `dragEnd`, cleared when it
+   * settles or the node is grabbed again): it stays its subtree's relative parent
+   * until then, as while dragged, so the whole subtree flies back with it.
+   */
+  releasing: boolean
+  /**
    * Whether the coordinator has stepped this node since a Measure pass last seeded it
    * (or a drag's release started its FLIP). The Priming step skips a node the Clock's
    * Priming tick already stepped (a Cold start), so the first step is never taken
@@ -572,13 +578,14 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * its relativeParent's CURRENT target each frame, so it stays glued even when
    * parent and child run DIFFERENT transitions ("not left behind"). `layoutAnchor:
    * false` opts the node out (it then projects ABSOLUTELY), except under a dragged
-   * ancestor: a dragged node is the relative parent of its whole subtree, so everything
-   * in it rides the drag (ADR-0016 *Amendment (#26)*).
+   * ancestor: a dragged node (and one flying back from its release) is the relative
+   * parent of its whole subtree, so everything in it rides the drag (ADR-0016
+   * *Amendment (#26)*).
    */
   const relativeParentOf = (node: NodeState): NodeState | undefined => {
     let p = node.parent
     while (p !== undefined) {
-      if (p.dragging && p.layoutBox !== undefined) return p
+      if ((p.dragging || p.releasing) && p.layoutBox !== undefined) return p
       if (node.layoutAnchor === false) {
         // Opted out (Motion's layoutAnchor !== false gate): only a dragged ancestor,
         // below the next layoutRoot boundary, anchors it.
@@ -1344,6 +1351,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   /** Finalise settled nodes (at rest, projection-owned at identity), finish their leavers, and stop at idle. */
   const finishSettled = (settled: ReadonlyArray<NodeState>): void => {
     for (const node of settled) {
+      node.releasing = false
       node.animating = false
       node.spring = undefined
       node.origin = undefined
@@ -1448,6 +1456,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     dragging: false,
     grabBox: undefined,
     dragDelta: { x: 0, y: 0 },
+    releasing: false,
     steppedSinceSeed: true,
   })
 
@@ -1537,6 +1546,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       dragging: false,
       grabBox: undefined,
       dragDelta: { x: 0, y: 0 },
+      releasing: false,
       steppedSinceSeed: true,
     }
     nodes.add(node)
@@ -1581,6 +1591,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         if (node.grabBox === undefined) return // not measured yet — nothing to anchor
         debug("dragStart", { id: node.id })
         node.dragging = true
+        node.releasing = false
         node.dragDelta = { x: 0, y: 0 }
         node.spring = undefined
         node.origin = undefined
@@ -1634,6 +1645,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           node.animating = false
           node.spring = undefined
           node.origin = undefined
+          node.releasing = false
           deriveGroup(groupOf(new Set([node])))
           node.lastDelta = IDENTITY_DELTA
           active.delete(node)
@@ -1646,6 +1658,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         node.layoutBox = slot
         node.spring = initSpring({ from: 0 })
         node.animating = true
+        node.releasing = true
         active.add(node)
         ensureRunning()
         primeRelease(node)

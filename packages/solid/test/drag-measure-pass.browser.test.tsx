@@ -718,3 +718,11 @@ it("T17: a running descendant keeps its animation, without a jump, through a mid
   expect.soft(await run("d"), "a running child of D: no jump").toBeLessThan(15)
   expect.soft(await run("layout-root"), "a running child of a layoutRoot inside D: no jump while dragged").toBeLessThan(15)
 })
+
+it("T18: a `layoutAnchor: false` child stays on the dragged node through the release", async () => {
+  const { els, start } = await mountScene({ child: "anchor-false" })
+  await grab(els.d, start)
+  const rel = await release(els)
+  expect(maxDrift(rel, "c1", C1_AT), "the `layoutAnchor: false` child glued while D flies back").toBeLessThan(1)
+  expect(Math.abs(rel[rel.length - 1]!.v.d.top - start.top), "D ends on its slot").toBeLessThan(1)
+})
