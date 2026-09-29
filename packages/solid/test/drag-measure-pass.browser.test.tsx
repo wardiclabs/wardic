@@ -472,6 +472,9 @@ it("T12: a release that lands on the slot, in the same frame as its last move, e
   expect.soft(Math.abs(last.left - start.left), "D ends on its slot (x)").toBeLessThan(0.5)
 })
 
+// Runs under this tier's microtask-backed `setImmediate` (browser-setup.ts). With a
+// browser's own scheduler (`setTimeout(0)`), pointer input reaches the drag one hop
+// later, so a move paints a frame later (#32; the layout lab's scenario 11 shows both).
 it("T13: with real mouse input, a dragged layout node paints each move in the frame it was delivered", async () => {
   let d: HTMLElement | undefined
   render(() => (

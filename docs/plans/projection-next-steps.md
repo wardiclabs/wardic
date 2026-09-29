@@ -90,8 +90,17 @@ Engine questions left open by #26 (each with measurements in its issue):
   - **Retarget:** a running FLIP retargeted mid-flight doubles its first move, then
     stalls, and a glued child jumps (#28). `<Reorder>` retargets displaced siblings
     constantly.
+- **The drag's input** (#31, #32; both matter for every `<Reorder>` item):
+  - There is no pointer capture, so a move off the item stops the drag and a release
+    outside never ends it (#31). A mid-drag slot move seen only by the engine's
+    observer leaves the item's hit box off by the move for one frame, which can trigger it.
+  - Pointer input reaches the drag one `setTimeout(0)` hop late in a real page: one frame
+    of lag (#32).
 - **Nested draggables** have no drag lock (#29): grabbing an inner draggable also drags
   its draggable ancestor.
+- **Released-drag edges:** a running node inside a `layoutRoot` inside a FLIPing parent
+  counts the parent's motion twice (#33), and a `layoutId` lead with followers
+  re-crossfades on every FLIP, its release included (#34).
 - **Unchanged projection writes** still cost a full gate apply every frame (#27).
 - **#9's "resize blocks rather than triggers"** item (Motion's `updateBlockedByResize`).
 
