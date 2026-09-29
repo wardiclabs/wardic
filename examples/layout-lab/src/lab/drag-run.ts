@@ -131,6 +131,21 @@ export interface DragRunInput {
   readonly releaseAt: number | null
   /** When the recorder stopped (ms). */
   readonly endedAt: number
+  /**
+   * Whether a pointer event of the press landed outside the dragged element (a move
+   * too fast for it, or the release). Wardic's drag listens on the element itself, so
+   * from there it stops following and a release outside doesn't end it: the run then
+   * shows that, not the Measure pass. Left out when it never happened.
+   */
+  readonly pointerLeft?: boolean
+  /**
+   * Effect's scheduler on the page (`currentLabScheduler()`): `default` is a browser's
+   * own (`setTimeout(0)`, as no browser has `setImmediate`), `microtask` the browser
+   * test harness's `queueMicrotask`-backed one (`?scheduler=microtask`). Pointer input
+   * reaches Wardic's drag through one scheduler hop, so it is one frame later with
+   * `default`. Left out, `default`.
+   */
+  readonly scheduler?: "default" | "microtask"
 }
 
 /** One Measure pass that started during a drag run. */
@@ -172,7 +187,8 @@ export interface DragRun extends DragRunInput {
   /**
    * The largest distance, in px (the larger of x and y), between a held frame's
    * painted centre and the grab box's centre moved by the latest pointer move
-   * handled before that frame's rAF callback. Centres, so a slot resize mid-drag,
+   * handled before that frame's rAF callback (with the `default` scheduler, before
+   * the previous frame's: the input's hop, see {@link DragRunInput.scheduler}). Centres, so a slot resize mid-drag,
    * which paints the new size about the same centre (ADR-0016 *Amendment (#26)*),
    * reads 0. 0 with no held frame.
    */
@@ -224,21 +240,28 @@ export interface DragRun extends DragRunInput {
  * What a drag scenario expects of every drag run, which the card checks each run
  * against (see {@link dragChecksOf}). A bound left out is shown without a check.
  */
+/** An expectation that depends on Effect's scheduler (see {@link DragRunInput.scheduler}). */
+export type PerScheduler = number | { readonly default: number; readonly microtask: number }
+
+/** `value` for the run's scheduler. */
+const forScheduler = (value: PerScheduler | undefined, run: DragRunInput): number | undefined =>
+  value === undefined || typeof value === "number" ? value : value[run.scheduler ?? "default"]
+
 export interface DragExpect {
   /** The most {@link DragRun.underPointerMaxPx} may read, in px. */
   readonly underPointerMaxPx?: number
-  /** The most {@link DragRun.framesBehindMax} may read. */
-  readonly framesBehindMax?: number
+  /** The most {@link DragRun.framesBehindMax} may read (per scheduler: the input's hop adds one with `default`). */
+  readonly framesBehindMax?: PerScheduler
   /** The most any child's {@link DragRun.childGlueMaxPx} may read, in px. */
   readonly childGlueMaxPx?: number
   /**
-   * The most nodes a held pass may seed. Given, every held pass must also have
-   * drag-blocked at least one node: a pass during the drag should move the dragged
-   * tree's slots without animating them (scenario 11: 1, the sibling only).
+   * The most nodes a held pass may seed. Given, the held passes must also have
+   * drag-blocked at least one node between them: a pass during the drag moves the
+   * dragged tree's slots without animating them (scenario 11: 1, the sibling only).
    */
   readonly maxSeededPerPass?: number
-  /** The {@link DragRun.releaseHeld} expected, exactly. */
-  readonly releaseHeld?: number
+  /** The most {@link DragRun.releaseHeld} may read (per scheduler: the release's hop can add one with `default`). */
+  readonly releaseHeldMax?: PerScheduler
   /** The most {@link DragRun.endsOnSlotPx} may read, in px. */
   readonly endsOnSlotMaxPx?: number
 }
@@ -345,13 +368,19 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>)
 
   // One walk over the held frames: the distance from the latest move each could
   // show, and the newest move each one's painted centre does show (-1 for none).
+  // With Effect's default scheduler a move reaches the drag one hop (a frame) late,
+  // so "could show" means handled before the frame before (see `scheduler`): the
+  // under-pointer check then catches a position error, and `framesBehindMax` the lag.
+  const hop = (input.scheduler ?? "default") === "default" ? 1 : 0
   let underPointerMaxPx = 0
   const newestShown: Array<number> = []
   let visible = 0
+  let reachable = 0
   for (const f of held) {
     while (visible < moves.length && moves[visible].frame < f.frame) visible++
+    while (reachable < moves.length && moves[reachable].frame < f.frame - hop) reachable++
     const centre = centreOf(f.d)
-    underPointerMaxPx = Math.max(underPointerMaxPx, pointDistance(centre, targetOf(moves[visible - 1])))
+    if (reachable > 0) underPointerMaxPx = Math.max(underPointerMaxPx, pointDistance(centre, targetOf(moves[reachable - 1])))
     let shown = -1
     for (let j = visible - 1; j >= 0; j--) {
       if (pointDistance(centre, targetOf(moves[j])) <= NEAR_PX) {
@@ -435,27 +464,35 @@ const lineOf = (name: DragCheckName, value: string, expected: string | undefined
  * {@link DRAG_CHECK_NAMES}, in that order. A value the run could not measure reads
  * `?` and fails its check (the expected drag did not happen), as a `null` hold does
  * on a trigger card. A held pass fails the `passes` check when it seeded more than
- * `expect.maxSeededPerPass` nodes or drag-blocked none.
+ * `expect.maxSeededPerPass` nodes, and the held passes fail it when none of them
+ * drag-blocked anything (one pass may find nothing left to change: a resize both a
+ * `layoutDependency` and the engine's ResizeObserver report runs two). A held pass started after the
+ * drag's first move past the threshold (a pass at the pointerdown comes before the
+ * drag) and before the release.
  */
 export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck> => {
   const under = run.heldFrameCount === 0 ? undefined : run.underPointerMaxPx
   const glue = Object.entries(run.childGlueMaxPx)
   const releaseAt = run.releaseAt
+  // A held pass ran while the item was dragged: from the drag's start (its first move
+  // past the threshold; a pass at the pointerdown, before it, drag-blocks nothing) to
+  // the release.
+  const started = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)?.t ?? run.grabAt
   const heldPasses = run.passes.perPass.filter(
-    (p) => p.start >= run.grabAt && (releaseAt === null || p.start < releaseAt),
+    (p) => p.start >= started && (releaseAt === null || p.start < releaseAt),
   )
   const {
     underPointerMaxPx: underMax,
-    framesBehindMax: behindMax,
     childGlueMaxPx: glueMax,
     maxSeededPerPass: seededMax,
-    releaseHeld,
     endsOnSlotMaxPx: slotMax,
   } = expect
+  const behindMax = forScheduler(expect.framesBehindMax, run)
+  const releaseHeldMax = forScheduler(expect.releaseHeldMax, run)
   return [
     lineOf(
       "under pointer",
-      under === undefined ? "?" : px(under),
+      `${under === undefined ? "?" : px(under)}${run.pointerLeft === true ? " · the pointer left the item" : ""}`,
       underMax === undefined ? undefined : `≤ ${underMax} px`,
       under !== undefined && underMax !== undefined && under <= underMax,
     ),
@@ -476,14 +513,16 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
     lineOf(
       "passes",
       formatDragPasses(run.passes),
-      seededMax === undefined ? undefined : `seeded ≤ ${seededMax}, drag-blocked ≥ 1 per held pass`,
-      seededMax !== undefined && heldPasses.every((p) => p.seeded <= seededMax && p.dragBlocked >= 1),
+      seededMax === undefined ? undefined : `seeded ≤ ${seededMax} per held pass, drag-blocked ≥ 1 over them`,
+      seededMax !== undefined &&
+        heldPasses.every((p) => p.seeded <= seededMax) &&
+        (heldPasses.length === 0 || heldPasses.some((p) => p.dragBlocked >= 1)),
     ),
     lineOf(
       "release held",
       run.releaseHeld === null ? "?" : String(run.releaseHeld),
-      releaseHeld === undefined ? undefined : String(releaseHeld),
-      run.releaseHeld !== null && run.releaseHeld === releaseHeld,
+      releaseHeldMax === undefined ? undefined : `≤ ${releaseHeldMax}`,
+      run.releaseHeld !== null && releaseHeldMax !== undefined && run.releaseHeld <= releaseHeldMax,
     ),
     lineOf(
       "ends on slot",

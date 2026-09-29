@@ -96,6 +96,8 @@ const input = (frames: ReadonlyArray<DragFrame>, over: Partial<DragRunInput> = {
   childOffsets: { c1: C1, c2: C2 },
   releaseAt: RELEASE_AT,
   endedAt: ENDED_AT,
+  // The fixtures' frames are exact: each paints the move handled before its rAF.
+  scheduler: "microtask",
   ...over,
 })
 
@@ -140,7 +142,7 @@ const S11_EXPECT: DragExpect = {
   framesBehindMax: 0,
   childGlueMaxPx: 1,
   maxSeededPerPass: 1,
-  releaseHeld: 0,
+  releaseHeldMax: 0,
   endsOnSlotMaxPx: 0.5,
 }
 
@@ -362,10 +364,38 @@ describe("dragChecksOf", () => {
       ["under pointer", false, "10.00 px ✗ expected ≤ 1 px"],
       ["frames behind", false, "1 · 6 moves ✗ expected ≤ 0"],
       ["child glued", false, "c1 35.00 · c2 0.00 px ✗ expected ≤ 1 px"],
-      ["passes", false, "1 (1 seeding, 0 drag-blocked) ✗ expected seeded ≤ 1, drag-blocked ≥ 1 per held pass"],
-      ["release held", false, "1 ✗ expected 0"],
+      ["passes", false, "1 (1 seeding, 0 drag-blocked) ✗ expected seeded ≤ 1 per held pass, drag-blocked ≥ 1 over them"],
+      ["release held", false, "1 ✗ expected ≤ 0"],
       ["ends on slot", true, "0.00 px ✓"],
     ])
+  })
+
+  it("picks a per-scheduler expectation by the run's scheduler (default when left out)", () => {
+    const want: DragExpect = { framesBehindMax: { default: 1, microtask: 0 }, releaseHeldMax: { default: 1, microtask: 0 } }
+    const { scheduler: _, ...unset } = input(oldFrames)
+    const lagging = dragRunOf(unset, oldSpans)
+    const byName = (run: DragRun) => Object.fromEntries(dragChecksOf(run, want).map((c) => [c.name, c.ok]))
+    expect(byName(lagging)).toMatchObject({ "frames behind": true, "release held": true })
+    expect(byName({ ...lagging, scheduler: "microtask" })).toMatchObject({ "frames behind": false, "release held": false })
+  })
+
+  it("with the default scheduler, compares a frame with the move handled before the frame before (the input's hop)", () => {
+    // oldFrames lag one frame behind the moves: 10 px off the latest move, on the one before.
+    const exact = dragRunOf(input(oldFrames), oldSpans)
+    const hopped = dragRunOf(input(oldFrames, { scheduler: "default" }), oldSpans)
+    expect(exact.underPointerMaxPx).toBe(10)
+    expect(hopped.underPointerMaxPx).toBe(0)
+    expect(hopped.framesBehindMax).toBe(exact.framesBehindMax) // the lag itself still reads 1
+  })
+
+  it("says so on the under-pointer line when the pointer left the item", () => {
+    const run = dragRunOf(input(oldFrames, { pointerLeft: true }), oldSpans)
+    expect(textsOf(run, S11_EXPECT)[0]).toEqual([
+      "under pointer",
+      false,
+      "10.00 px · the pointer left the item ✗ expected ≤ 1 px",
+    ])
+    expect(JSON.parse(JSON.stringify(run)).pointerLeft).toBe(true)
   })
 
   it("fails what a run could not measure (`?`), and shows a line with no expectation unchecked", () => {
@@ -375,7 +405,7 @@ describe("dragChecksOf", () => {
       ["frames behind", false, "? ✗ expected ≤ 0"],
       ["child glued", false, "? ✗ expected ≤ 1 px"],
       ["passes", true, "0 ✓"],
-      ["release held", false, "? ✗ expected 0"],
+      ["release held", false, "? ✗ expected ≤ 0"],
       ["ends on slot", false, "? ✗ expected ≤ 0.5 px"],
     ])
     expect(textsOf(dragRunOf(input(oldFrames), oldSpans), {})).toEqual([
@@ -388,7 +418,7 @@ describe("dragChecksOf", () => {
     ])
   })
 
-  it("checks only the held passes: one after the release may drag-block none, one while held may not", () => {
+  it("checks only the held passes: one after the release may drag-block none, and so may one held pass if another did", () => {
     const afterRelease = span(MEASURE, RELEASE_AT + 10, RELEASE_AT + 11, { seeded: 1, dragBlocked: 0 })
     const passesOf = (spans: ReadonlyArray<SpanRecord>) =>
       dragChecksOf(dragRunOf(input(cleanFrames), spans), S11_EXPECT).find((c) => c.name === "passes")
@@ -397,10 +427,21 @@ describe("dragChecksOf", () => {
       ok: true,
       text: "2 (2 seeding, 2 drag-blocked) ✓",
     })
-    const heldNoBlock = span(MEASURE, 1070, 1071, { seeded: 1, dragBlocked: 0 })
-    expect(passesOf([...cleanSpans, heldNoBlock])?.ok).toBe(false)
+    // A held pass that finds nothing to change is fine while another drag-blocked…
+    const heldNoBlock = span(MEASURE, 1070, 1071, { seeded: 0, dragBlocked: 0 })
+    expect(passesOf([...cleanSpans, heldNoBlock])?.ok).toBe(true)
+    // …but held passes that between them drag-blocked nothing fail.
+    const unblocked = cleanSpans.map((sp) => ({ ...sp, attributes: { ...sp.attributes, dragBlocked: 0 } }))
+    expect(passesOf(unblocked)?.ok).toBe(false)
     const heldTwoSeeded = span(MEASURE, 1070, 1071, { seeded: 2, dragBlocked: 2 })
     expect(passesOf([...cleanSpans, heldTwoSeeded])?.ok).toBe(false)
+  })
+
+  it("does not count a pass before the drag started (at the pointerdown) as a held pass", () => {
+    const firstMove = MOVES.find((m) => Math.hypot(m.dx, m.dy) > 3)!
+    const atDown = span(MEASURE, firstMove.t - 5, firstMove.t - 4, { seeded: 1, dragBlocked: 0 })
+    const passes = dragChecksOf(dragRunOf(input(cleanFrames), [...cleanSpans, atDown]), S11_EXPECT).find((c) => c.name === "passes")
+    expect(passes?.ok).toBe(true)
   })
 
   it("reads a stuck release as `?` and off the slot", () => {
@@ -412,7 +453,7 @@ describe("dragChecksOf", () => {
     const frames = [1, 2, 3, 4].map((k) => frameOf(k, at(moves[Math.min(k - 1, 1)]), GRAB))
     const run = dragRunOf(input(frames, { moves, releaseAt: frameAtOf(2) + 8 }), [])
     const checks = dragChecksOf(run, S11_EXPECT)
-    expect(checks.find((c) => c.name === "release held")).toEqual({ name: "release held", ok: false, text: "? ✗ expected 0" })
+    expect(checks.find((c) => c.name === "release held")).toEqual({ name: "release held", ok: false, text: "? ✗ expected ≤ 0" })
     expect(checks.find((c) => c.name === "ends on slot")).toEqual({
       name: "ends on slot",
       ok: false,
