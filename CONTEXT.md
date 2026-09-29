@@ -109,7 +109,7 @@ The first step of a layout animation, given by the **Measure pass** that seeded 
 _Avoid_: Priming tick (the Clock's), first tick.
 
 **Drag block**:
-While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, so the subtree rides the drag (ADR-0016, *Amendment (#26)*).
+While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, and stays so after the release until it settles, so the subtree rides the drag and the flight back (ADR-0016, *Amendment (#26)*).
 _Avoid_: held (the layout lab's held frames), drag lock (claiming the gesture between nested draggables, #29).
 
 **Shared layout**:
