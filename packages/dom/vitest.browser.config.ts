@@ -16,6 +16,9 @@ import { defineConfig } from "vitest/config"
 // browser config composes this with the @wardic/solid browser project).
 export default defineConfig({
   root: import.meta.dirname,
+  // Pre-bundled up front: Vite otherwise discovers a test's first import of it
+  // mid-run and reloads the page once ("optimized dependencies changed. reloading").
+  optimizeDeps: { include: ["effect/Tracer"] },
   test: {
     name: "dom-browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],
