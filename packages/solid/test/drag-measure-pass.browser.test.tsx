@@ -616,3 +616,102 @@ it("T15: grabbing a node during its own scale FLIP leaves no stale projection on
   ).toBeLessThan(0.5)
   el.dispatchEvent(up(DRAG.x, DRAG.y))
 })
+
+it("T16: a dragged `layoutRoot` node stays under the pointer through a mid-drag pass", async () => {
+  const [sibling, setSibling] = createSignal(40)
+  let d: HTMLElement | undefined
+  render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "absolute", top: "40px", left: "40px", width: "400px" }}>
+        <wardic.div layout style={{ width: "200px", height: `${sibling()}px` }} />
+        {/* eslint-disable-next-line solid/reactivity */}
+        <wardic.div layoutRoot drag ref={(n: HTMLElement) => (d = n)} style={{ position: "relative", width: "160px", height: "80px" }} />
+      </div>
+    </WardicProvider>
+  ))
+  await settle()
+  const el = d!
+  const r = el.getBoundingClientRect()
+  const start = { left: r.left, top: r.top }
+  await grab(el, start)
+  const sampling = paintedReads(20, () => el.getBoundingClientRect())
+  for (let i = 0; i < 4; i++) await raf()
+  await afterPaint()
+  const triggerAt = performance.now()
+  setSibling(100) // the engine observer's pass moves the layoutRoot's slot down by 60
+  const frames = (await sampling).filter((f) => f.frameAt > triggerAt)
+  const off = Math.max(...frames.map((f) => Math.max(Math.abs(f.v.left - (start.left + DRAG.x)), Math.abs(f.v.top - (start.top + DRAG.y)))))
+  expect(off, "the dragged layoutRoot under the pointer across the pass").toBeLessThanOrEqual(1)
+  el.dispatchEvent(up(DRAG.x, DRAG.y))
+})
+
+it("T17: a running descendant keeps its animation, without a jump, through a mid-drag pass and through the release", async () => {
+  // Under a `layoutRoot` inside D, only the drag and the pass are checked: once D flies
+  // back, D is a FLIPing parent, and a running node inside a layoutRoot inside a FLIPing
+  // parent counts the parent's motion twice (no drag needed), which is outside #26.
+  /** Frame-to-frame change of `child`'s offset from D, at its largest. */
+  const maxJumpOf = (frames: ReadonlyArray<Painted<{ d: DOMRect; child: DOMRect }>>): number => {
+    let jump = 0
+    for (let i = 1; i < frames.length; i++) {
+      const a = frames[i - 1]!.v
+      const b = frames[i]!.v
+      jump = Math.max(
+        jump,
+        Math.abs(b.child.left - b.d.left - (a.child.left - a.d.left)),
+        Math.abs(b.child.top - b.d.top - (a.child.top - a.d.top)),
+      )
+    }
+    return jump
+  }
+  const run = async (under: "d" | "layout-root") => {
+    const [sibling, setSibling] = createSignal(40)
+    const [x, setX] = createSignal(10)
+    let d: HTMLElement | undefined
+    let child: HTMLElement | undefined
+    const springy = { stiffness: 30, damping: 12 } // slow, so it is still running at the release
+    const Runner = () => (
+      <wardic.div
+        layout
+        layoutDependency={x()}
+        transition={springy}
+        // eslint-disable-next-line solid/reactivity
+        ref={(n: HTMLElement) => (child = n)}
+        style={{ position: "absolute", left: `${x()}px`, top: "10px", width: "20px", height: "20px" }}
+      />
+    )
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "absolute", top: "40px", left: "40px", width: "400px" }}>
+          <wardic.div layout style={{ width: "200px", height: `${sibling()}px` }} />
+          {/* eslint-disable-next-line solid/reactivity */}
+          <wardic.div layout drag ref={(n: HTMLElement) => (d = n)} style={{ position: "relative", width: "200px", height: "80px" }}>
+            {under === "d" ? (
+              <Runner />
+            ) : (
+              <wardic.div layoutRoot style={{ position: "absolute", left: "0px", top: "0px", width: "200px", height: "80px" }}>
+                <Runner />
+              </wardic.div>
+            )}
+          </wardic.div>
+        </div>
+      </WardicProvider>
+    ))
+    await settle()
+    const el = d!
+    const r = el.getBoundingClientRect()
+    const sampling = paintedReads(45, () => ({ d: el.getBoundingClientRect(), child: child!.getBoundingClientRect() }))
+    setX(150) // the child starts a slow FLIP inside D
+    for (let i = 0; i < 3; i++) await raf()
+    await grab(el, { left: r.left, top: r.top })
+    await afterPaint()
+    setSibling(100) // a mid-drag pass moves D's slot (and the running child's box) down by 60
+    for (let i = 0; i < 6; i++) await raf()
+    const releasedAt = performance.now()
+    el.dispatchEvent(up(DRAG.x, DRAG.y)) // released while the child still runs
+    const frames = await sampling
+    cleanup()
+    return maxJumpOf(under === "d" ? frames : frames.filter((f) => f.frameAt < releasedAt))
+  }
+  expect.soft(await run("d"), "a running child of D: no jump").toBeLessThan(15)
+  expect.soft(await run("layout-root"), "a running child of a layoutRoot inside D: no jump while dragged").toBeLessThan(15)
+})

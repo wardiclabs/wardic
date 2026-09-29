@@ -290,6 +290,20 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     e.dispose()
   })
 
+  it("N7: a pass with nothing dragged reports dragBlocked 0", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const { sEl, s } = await mountScene(e.system)
+    const before = e.measures.spans.length
+    sEl.style.left = "450px"
+    s.notify()
+    await endOfTask()
+    const pass = e.measures.spans[before]
+    expect(pass?.seeded, "S seeded").toBe(1)
+    expect(pass?.dragBlocked, "nothing drag-blocked").toBe(0)
+    e.dispose()
+  })
+
   it("N6: after several slot moves, the release starts from the drag target and ends on the latest slot", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)

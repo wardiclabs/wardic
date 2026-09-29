@@ -317,9 +317,10 @@ interface NodeState {
   /** The live pointer translate from the grab point (zero when not dragging). */
   dragDelta: Point
   /**
-   * Whether the coordinator has stepped this node since a Measure pass last seeded
-   * it. The Priming step skips a node the Clock's Priming tick already stepped (a
-   * Cold start), so the first step is never taken twice (ADR-0018).
+   * Whether the coordinator has stepped this node since a Measure pass last seeded it
+   * (or a drag's release started its FLIP). The Priming step skips a node the Clock's
+   * Priming tick already stepped (a Cold start), so the first step is never taken
+   * twice (ADR-0018).
    */
   steppedSinceSeed: boolean
 }
@@ -1076,8 +1077,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
       // stable box (layoutBox + lastTarget) so descendants project relative to it,
-      // and write identity — no spring, never `active`.
-      if (node.layoutRoot) {
+      // and write identity — no spring, never `active`. A dragged layoutRoot follows the
+      // pointer instead: it takes the drag-blocked update below, like any dragged node.
+      if (node.layoutRoot && !node.dragging) {
         if (prev !== undefined && !boxesEqual(prev, newBox)) {
           changed.add(node)
           if (inDraggedTree(node)) dragBlocked.add(node)
@@ -1267,7 +1269,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
   /**
    * The **Priming step** (ADR-0018): one nominal-dt step for each node the Measure
-   * pass seeded that no tick has stepped since (a Cold start's Priming tick already
+   * pass seeded (or a drag's release, `primeRelease`) that no tick has stepped since (a Cold start's Priming tick already
    * did; a node that settled or left is skipped), written into the gate for its next
    * Refresh frame. So a layout animation moves on the next painted frame whether the
    * Clock was idle or ticking. Only those nodes' groups are re-derived.
@@ -1605,21 +1607,30 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         debug("dragEnd", { id: node.id })
         const slot = node.layoutBox ?? node.grabBox
         const visual = dragTargetOf(node, slot)
-        // A running descendant animated relative to the slot while dragged; from here it
-        // animates relative to this node's release, which starts at `visual`. Move its
-        // origin with that frame, so it doesn't jump.
+        // A running descendant placed in this node's frame (its relative parent is this
+        // node, or a running node that is) animated relative to the slot while dragged;
+        // from here it animates relative to this node's release, which starts at
+        // `visual`. Move its origin with that frame, so it doesn't jump. One placed in
+        // another frame (a layoutRoot's inside this node) keeps its origin.
         const shift = { x: visual.x.min - slot.x.min, y: visual.y.min - slot.y.min }
         if (shift.x !== 0 || shift.y !== 0) {
+          const moved: Array<NodeState> = []
           for (const n of nodes) {
-            if (n.animating && n.origin !== undefined && isDescendantOf(n, node)) n.origin = offsetBox(n.origin, shift)
+            if (!n.animating || n.origin === undefined || !isDescendantOf(n, node)) continue
+            let frame = relativeParentOf(n)
+            while (frame !== undefined && frame !== node && frame.animating) frame = relativeParentOf(frame)
+            if (frame === node) moved.push(n)
           }
+          for (const n of moved) n.origin = offsetBox(n.origin!, shift)
         }
         node.dragging = false
         node.grabBox = undefined
         node.dragDelta = { x: 0, y: 0 }
         if (boxesEqual(visual, slot)) {
           // No travel (released in place at its slot) — settle now, no FLIP. Write the
-          // resting projection first, so no frame keeps an offset an earlier write left.
+          // resting projection first, so no frame keeps an offset an earlier write left
+          // (a safety net: every pointer move writes its offset, so the last write is
+          // normally the slot already).
           node.animating = false
           node.spring = undefined
           node.origin = undefined
