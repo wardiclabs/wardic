@@ -30,6 +30,8 @@ direnv exec . bun run --filter='@wardic/example-layout-lab' dev
 ```
 
 Open the URL Vite prints. Press **Run** on a scenario card and read its verdict.
+A drag card (issue #26) has no Run button: drag its item by hand and read its
+checks (see **Drag runs** under Method).
 
 To share a session, press **Save log to repo**. The dev server writes the whole
 log to `examples/layout-lab/logs/<timestamp>-<scheduler mode>.json` (gitignored),
@@ -163,6 +165,51 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   ticker's are stable and cached; a scenario's own rAF costs one per Run). It makes
   a saved log larger: about 36 KB per run of 0.7 s (measured headlessly), more for a
   longer run. Nothing reads it in the UI; read it from a saved log.
+- **Drag runs (`kind: "drag"`, `dragRuns`).** Issue #26: what a Measure pass does
+  to an item while it is dragged. A drag scenario is driven by hand, so it has no
+  Run button and no trigger: grab the item (its handle carries
+  `data-action="drag"`), hold it still or move it, and release it. The drag only
+  starts once the pointer has moved more than 3px from where it went down (the
+  drag recognizer's threshold), so to hold it still, move it a little first. Each
+  press is one **drag run**. The scenario's recorder listens to the pointer without
+  driving the drag, and after each frame's paint reads the item's painted box, its
+  slot (its untransformed layout box, `offsetLeft`/`offsetTop`/`offsetWidth`/
+  `offsetHeight`) and its children's painted boxes, all relative to the stage,
+  with its own frame counter on every frame and every pointer move. When the
+  release has settled it hands the lab the whole press (`ctx.recordDragRun`); the
+  lab adds the `wardic.*` spans from the grab to the end and reads the run
+  (`src/lab/drag-run.ts`, unit-tested in the node tier). The card shows one line
+  per check against the scenario's `dragExpect`:
+  - **under pointer**: the largest distance, in px, between the item's painted
+    centre and where the pointer put it (its grab-time centre plus the pointer's
+    offset from where it went down), over the frames painted after the drag's
+    first move and before the release. Each frame is compared with the latest move
+    handled before its rAF callback. Centres, so a slot that resizes mid-drag,
+    which the item paints at the new size about the same centre, reads 0.
+  - **frames behind**: for each move, how many painted frames it took for the item
+    to show it (within 1px), and how many moves that measured: `0 · 41 moves`. A
+    move the next one replaced before any frame could show it is skipped.
+  - **child glued**: for each child, the largest distance, in px, between its
+    painted offset from the item and its offset at the grab, over every frame of
+    the run, release and settle included: `c1 0.00 · c2 0.00 px`.
+  - **passes**: `N (M seeding, K drag-blocked)`: the run's Measure passes, how many
+    seeded a node, and the sum of their `dragBlocked` attribute (the nodes in the
+    dragged subtree whose box a pass changed, given a slot-only update instead of
+    an animation: the **Drag block**, ADR-0016 *Amendment (#26)*). A pass during
+    the hold is expected to seed no more than the scenario allows (scenario 11: the
+    sibling only) and to drag-block at least one node. A pass that moved nothing in
+    the dragged subtree reads 0 drag-blocked, and fails the line.
+  - **release held**: the frames painted after the release that still show the
+    held box, before the first one that moves. A release from a task (a real
+    pointerup) moves on its first painted frame: 0. A release with nowhere to go
+    reads 0; one that never moves although it is off its slot reads `?`.
+  - **ends on slot**: the distance, in px, between the last frame's painted box
+    and its slot.
+
+  A value the run could not measure reads `?` and fails its check. Each drag run
+  keeps its whole recording (the moves, the frames, the spans), and the saved log
+  carries every kept drag run in `dragRuns`, beside `runs`. Nothing about a drag
+  run feeds the flash counter or the timeline panel.
 
 ## Scenarios
 

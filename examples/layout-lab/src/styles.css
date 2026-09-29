@@ -384,9 +384,37 @@ body {
   white-space: nowrap;
 }
 
-/* The run's hold missed the scenario's expectedHeld. */
-.result-value.held-miss {
+/* The run's hold missed the scenario's expectedHeld, or a drag run missed a dragExpect check. */
+.result-value.held-miss,
+.result-value.check-miss {
   color: var(--lab-flash);
+}
+
+/*
+ * A drag card's result (issue #26): six label/value lines in two columns, in the
+ * same fixed-height footer. Six 18px lines and five 2px gaps take 118px of the
+ * 127px inside it. A value too long for its column ends in an ellipsis; its whole
+ * text is the value's title.
+ */
+.card-result.drag {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-content: start;
+  gap: 2px 10px;
+}
+
+.card-result.drag .result-cell {
+  display: contents;
+}
+
+.card-result.drag .result-label {
+  font: 11px/18px var(--lab-mono);
+}
+
+.card-result.drag .result-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 700 12px/18px var(--lab-mono);
 }
 
 /* ---- Sidebar panels ---------------------------------------------------- */

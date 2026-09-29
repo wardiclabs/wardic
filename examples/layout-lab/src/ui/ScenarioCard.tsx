@@ -5,23 +5,31 @@
  * scenario's `expectedHeld`, the outcome, the run's Measure passes, its first steps
  * and its `passStepRatio`.
  *
+ * A drag scenario's card (`kind: "drag"`, issue #26) shows its last drag run
+ * instead, one line per check against the scenario's `dragExpect` (see
+ * `dragChecksOf` in `lab/drag-run.ts`), and has no Timeline button: a drag run is
+ * not a sampling run, so the timeline panel has nothing to draw for it.
+ *
  * The result area has a fixed height and is always rendered, so a result arriving
  * never changes the card's height and never moves a `.stage` below it.
  *
  * @module
  */
-import type { JSX } from "solid-js"
+import { createMemo, For, type JSX } from "solid-js"
+import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf } from "../lab/drag-run.ts"
 import { heldCheckOf } from "../lab/held-frames.ts"
 import type { LabRun } from "../lab/lab.ts"
 import { formatPasses, measurePassesOf } from "../lab/measure-passes.ts"
 import type { ExpectedHeld, ScenarioContext, ScenarioDef } from "../scenarios/types.ts"
 
-/** Props are static values; `lastRun` and `selected` are tracked prop getters. */
+/** Props are static values; `lastRun`, `lastDragRun` and `selected` are tracked prop getters. */
 export interface ScenarioCardProps {
   readonly def: ScenarioDef
   readonly ctx: ScenarioContext
   /** The scenario's most recent completed run, if any. */
   readonly lastRun: LabRun | undefined
+  /** A drag scenario's most recent drag run, if any. */
+  readonly lastDragRun: DragRun | undefined
   /** Whether the timeline panel is showing this card's last run. */
   readonly selected: boolean
   /** Shows this card's last run in the timeline panel. */
@@ -32,6 +40,8 @@ export interface ScenarioCardProps {
 export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
   const def = props.def
   const View = def.View
+  // `def` is static, so the card's kind is fixed for its lifetime.
+  const drag = def.kind === "drag"
   return (
     <article class="card" classList={{ selected: props.selected }}>
       <header class="card-head">
@@ -40,53 +50,106 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
           <h2 class="card-title">{def.title}</h2>
           <p class="card-mechanism">{def.mechanism}</p>
         </div>
-        <button
-          type="button"
-          class="btn secondary small card-timeline"
-          disabled={props.lastRun === undefined}
-          onClick={() => props.onSelect()}
-        >
-          Timeline
-        </button>
+        {drag ? null : (
+          <button
+            type="button"
+            class="btn secondary small card-timeline"
+            disabled={props.lastRun === undefined}
+            onClick={() => props.onSelect()}
+          >
+            Timeline
+          </button>
+        )}
       </header>
       <p class="card-prediction">
         <span class={`pill prediction-${def.prediction}`}>{def.prediction}</span>
         <span class="card-rationale">{def.rationale}</span>
       </p>
       <View ctx={props.ctx} />
-      <footer class="card-result" aria-live="polite">
-        <div class="result-cell">
-          <span class="result-label">verdict</span>
-          <span class={`pill verdict-${props.lastRun?.verdict ?? "none"}`}>{props.lastRun?.verdict ?? "not run"}</span>
-        </div>
-        <div class="result-cell">
-          <span class="result-label">framesToMeasure</span>
-          <span class="result-value">{formatFrames(props.lastRun)}</span>
-        </div>
-        <div class="result-cell">
-          <span class="result-label">held</span>
-          <span class="result-value" classList={{ "held-miss": heldMissed(props.lastRun, def.expectedHeld) }}>
-            {formatHeld(props.lastRun, def.expectedHeld)}
-          </span>
-        </div>
-        <div class="result-cell">
-          <span class="result-label">outcome</span>
-          <span class={`pill outcome-${outcomeClass(props.lastRun)}`}>{props.lastRun?.outcome ?? "–"}</span>
-        </div>
-        <div class="result-cell">
-          <span class="result-label">passes</span>
-          <span class="result-value">{formatRunPasses(props.lastRun)}</span>
-        </div>
-        <div class="result-cell">
-          <span class="result-label">steps</span>
-          <span class="result-value">{formatSteps(props.lastRun)}</span>
-        </div>
-        <div class="result-cell">
-          <span class="result-label">passStepRatio</span>
-          <span class="result-value">{formatRatio(props.lastRun)}</span>
-        </div>
-      </footer>
+      {drag ? (
+        <DragResult run={props.lastDragRun} expect={def.dragExpect} />
+      ) : (
+        <TriggerResult def={def} lastRun={props.lastRun} />
+      )}
     </article>
+  )
+}
+
+/**
+ * A trigger card's result row: the last run's verdict, framesToMeasure, hold,
+ * outcome, passes, steps and passStepRatio. Props are static values; `lastRun` is a
+ * tracked prop getter.
+ */
+const TriggerResult = (props: { readonly def: ScenarioDef; readonly lastRun: LabRun | undefined }): JSX.Element => {
+  const def = props.def
+  return (
+    <footer class="card-result" aria-live="polite">
+      <div class="result-cell">
+        <span class="result-label">verdict</span>
+        <span class={`pill verdict-${props.lastRun?.verdict ?? "none"}`}>{props.lastRun?.verdict ?? "not run"}</span>
+      </div>
+      <div class="result-cell">
+        <span class="result-label">framesToMeasure</span>
+        <span class="result-value">{formatFrames(props.lastRun)}</span>
+      </div>
+      <div class="result-cell">
+        <span class="result-label">held</span>
+        <span class="result-value" classList={{ "held-miss": heldMissed(props.lastRun, def.expectedHeld) }}>
+          {formatHeld(props.lastRun, def.expectedHeld)}
+        </span>
+      </div>
+      <div class="result-cell">
+        <span class="result-label">outcome</span>
+        <span class={`pill outcome-${outcomeClass(props.lastRun)}`}>{props.lastRun?.outcome ?? "–"}</span>
+      </div>
+      <div class="result-cell">
+        <span class="result-label">passes</span>
+        <span class="result-value">{formatRunPasses(props.lastRun)}</span>
+      </div>
+      <div class="result-cell">
+        <span class="result-label">steps</span>
+        <span class="result-value">{formatSteps(props.lastRun)}</span>
+      </div>
+      <div class="result-cell">
+        <span class="result-label">passStepRatio</span>
+        <span class="result-value">{formatRatio(props.lastRun)}</span>
+      </div>
+    </footer>
+  )
+}
+
+/** Props are static values; `run` is a tracked prop getter. */
+interface DragResultProps {
+  /** The scenario's most recent drag run, if any. */
+  readonly run: DragRun | undefined
+  /** The scenario's `dragExpect`; left out, every line shows its value with no check. */
+  readonly expect: DragExpect | undefined
+}
+
+/**
+ * A drag card's result: one line per drag check, `–` before the first press. A
+ * missed check is coloured, and a line too long for the card ends in an ellipsis
+ * with its whole text as the value's tooltip. The checks are recomputed once per
+ * drag run.
+ */
+const DragResult = (props: DragResultProps): JSX.Element => {
+  const checks = createMemo(() => (props.run === undefined ? undefined : dragChecksOf(props.run, props.expect ?? {})))
+  return (
+    <footer class="card-result drag" aria-live="polite">
+      <For each={DRAG_CHECK_NAMES}>
+        {(name) => {
+          const check = () => checks()?.find((c) => c.name === name)
+          return (
+            <div class="result-cell">
+              <span class="result-label">{name}</span>
+              <span class="result-value" classList={{ "check-miss": check()?.ok === false }} title={check()?.text}>
+                {check()?.text ?? "–"}
+              </span>
+            </div>
+          )
+        }}
+      </For>
+    </footer>
   )
 }
 

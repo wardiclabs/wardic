@@ -8,21 +8,30 @@
  * reports whether the destination box was painted before the FLIP started (a
  * "flash", issue #2), how many frames it held at the origin, and how it moved.
  *
+ * A drag scenario (`kind: "drag"`, issue #26) is driven by hand instead: grab the
+ * item, hold it still or move it, release it. It has no Run button and never calls
+ * `markTrigger`. Its recorder samples each press and hands the lab one
+ * `DragRunInput` through `recordDragRun`, and the card checks the resulting
+ * `DragRun` against the scenario's `dragExpect` (see `lab/drag-run.ts`).
+ *
  * Scenario rules (every scenario must follow all of them):
  *
- * 1. The watched element moves or resizes by at least 40px per run, so the
- *    sampler can tell origin, destination and every FLIP frame apart.
+ * 1. The watched element (in a drag scenario, the dragged item's slot) moves or
+ *    resizes by at least 40px per run, so the sampler can tell origin, destination
+ *    and every FLIP frame apart.
  * 2. The mutation stays inside a fixed-size `.stage` (see styles.css). Nothing
  *    outside the stage reflows, so no other scenario's box moves.
  * 3. The View root carries `data-scenario={id}`, so a scripted smoke run can find
  *    the scenario.
- * 4. The Run button carries `data-action="run"`.
+ * 4. A trigger scenario's Run button carries `data-action="run"`; a drag
+ *    scenario's drag handle carries `data-action="drag"`.
  * 5. Props are static. A View takes `{ ctx }` as a plain value; reactive values
  *    are Solid Accessors created inside the View, never `MaybeAccessor` props.
  *
  * @module
  */
 import type { Component } from "solid-js"
+import type { DragExpect, DragRunInput } from "../lab/drag-run.ts"
 
 /**
  * What the scenario author expects before running it.
@@ -57,7 +66,7 @@ export interface ScenarioContext {
    * Starts a run. Call it IMMEDIATELY BEFORE the layout-mutating write, in the
    * execution context the scenario is testing (the click handler, the observer
    * callback, the rAF callback, and so on). Never call it earlier or from a
-   * different task.
+   * different task. A drag scenario never calls it (see {@link recordDragRun}).
    *
    * It synchronously snapshots the watched element's origin box, starts a
    * sampling run, and drops a `trigger` mark labelled `source` on the timeline.
@@ -84,6 +93,16 @@ export interface ScenarioContext {
    * callback has done its job.
    */
   readonly onLayoutAnimationComplete: (cb: () => void) => () => void
+  /**
+   * Records one press of a drag scenario (issue #26): call it once per press, after
+   * the release has settled (or the press ended without one), with everything the
+   * recorder sampled. The lab joins the `wardic.*` spans that started in
+   * `[input.grabAt, input.endedAt]` from its timeline, reads a `DragRun` from both
+   * (`dragRunOf` in `lab/drag-run.ts`), attributes it to this context's scenario id,
+   * keeps it (the same cap as runs), and notifies `Lab.subscribeDragRuns`. It starts
+   * no sampling run and drops no mark.
+   */
+  readonly recordDragRun: (input: DragRunInput) => void
 }
 
 /** A scenario's expected hold (see {@link ScenarioDef.expectedHeld}). */
@@ -93,8 +112,16 @@ export type ExpectedHeld = NonNullable<ScenarioDef["expectedHeld"]>
 export interface ScenarioDef {
   /** A unique kebab-case id. It is also the View root's `data-scenario` value. */
   readonly id: string
-  /** The display order: 1-10 for the numbered scenarios, 0 for free-play. */
+  /** The display order: 1 and up for the numbered scenarios, 0 for free-play. */
   readonly index: number
+  /**
+   * How the scenario is run: `trigger` (the default) has a Run button that calls
+   * `markTrigger`, and the lab samples the watched element; `drag` is driven by hand
+   * (grab, hold or move, release), records one run per press through
+   * `recordDragRun`, and its card shows the drag checks instead of the trigger
+   * results.
+   */
+  readonly kind?: "trigger" | "drag"
   /** A short human-readable title. */
   readonly title: string
   /** One line naming what schedules the layout-mutating write. */
@@ -125,8 +152,15 @@ export interface ScenarioDef {
    */
   readonly expectedHeld?: number | { readonly cold: number; readonly warm: number }
   /**
-   * The scenario's UI: a `.stage` holding the watched element, and a Run button.
-   * It receives its context as a static prop (see the scenario rules above).
+   * What a drag scenario expects of every press, which the card checks each drag run
+   * against (see `dragChecksOf` in `lab/drag-run.ts`). Left out, the card shows the
+   * numbers with no check. A trigger scenario leaves it out.
+   */
+  readonly dragExpect?: DragExpect
+  /**
+   * The scenario's UI: a `.stage` holding the watched element, and a Run button (a
+   * drag scenario: its drag handle). It receives its context as a static prop (see
+   * the scenario rules above).
    */
   readonly View: Component<{ readonly ctx: ScenarioContext }>
 }
