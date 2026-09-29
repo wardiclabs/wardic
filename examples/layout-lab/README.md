@@ -30,6 +30,8 @@ direnv exec . bun run --filter='@wardic/example-layout-lab' dev
 ```
 
 Open the URL Vite prints. Press **Run** on a scenario card and read its verdict.
+A drag card (issue #26) has no Run button: drag its item by hand and read its
+checks (see **Drag runs** under Method).
 
 To share a session, press **Save log to repo**. The dev server writes the whole
 log to `examples/layout-lab/logs/<timestamp>-<scheduler mode>.json` (gitignored),
@@ -163,6 +165,69 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
   ticker's are stable and cached; a scenario's own rAF costs one per Run). It makes
   a saved log larger: about 36 KB per run of 0.7 s (measured headlessly), more for a
   longer run. Nothing reads it in the UI; read it from a saved log.
+- **Drag runs (`kind: "drag"`, `dragRuns`).** Issue #26: what a Measure pass does
+  to an item while it is dragged. A drag scenario is driven by hand, so it has no
+  Run button and no trigger: grab the item (its handle carries
+  `data-action="drag"`), hold it still or move it, and release it. The drag only
+  starts once the pointer has moved more than 3px from where it went down (the
+  drag recognizer's threshold), so to hold it still, move it a little first. Each
+  press is one **drag run**. The scenario's recorder listens to the pointer without
+  driving the drag, and after each frame's paint reads the item's painted box, its
+  slot (its untransformed layout box, `offsetLeft`/`offsetTop`/`offsetWidth`/
+  `offsetHeight`) and its children's painted boxes, all relative to the stage,
+  with its own frame counter on every frame and every pointer move. A read after a
+  layout change the scenario made from a timer, between that frame's paint and the
+  read, would show a layout no frame painted, so the scenario notes each such change
+  and the recorder drops that read. The order goes by a counter, not by time:
+  Firefox's whole-millisecond `performance.now()` gave a timer right after a rAF
+  callback the callback's own time in 7 of 12 headless runs of scenario 11's
+  `resize` mode, which read a painted-correct frame as 60px off. When the
+  release has settled it hands the lab the whole press (`ctx.recordDragRun`); the
+  lab adds the `wardic.*` spans from the grab to the end and reads the run
+  (`src/lab/drag-run.ts`, unit-tested in the node tier). The card shows one line
+  per check against the scenario's `dragExpect`:
+  - **under pointer**: the largest distance, in px, between the item's painted
+    centre and where the pointer put it (its grab-time centre plus the pointer's
+    offset from where it went down), over the frames painted after the drag's
+    first move and before the release. Each frame is compared with the latest move
+    handled before its rAF callback (with a browser's own scheduler, before the
+    previous frame's: pointer input reaches the drag one `setTimeout(0)` hop late,
+    #32, and **frames behind** reports that lag). Centres, so a slot that resizes
+    mid-drag, which the item paints at the new size about the same centre, reads 0.
+    `· the pointer left the item` means a pointer event of the press landed outside
+    the item: Wardic's drag then loses the pointer (#31), and the run shows that,
+    not the Measure pass.
+  - **frames behind**: for each move, how many painted frames it took for the item
+    to show it (within 1px), and how many moves that measured: `1 · 41 moves`. A
+    move the next one replaced before any frame could show it is skipped. Expected
+    1 with a browser's scheduler (the input's hop, #32) and 0 with
+    `?scheduler=microtask`.
+  - **child glued**: for each child, the largest distance, in px, between its
+    painted offset from the item and its offset at the grab, over every frame of
+    the run, release and settle included: `c1 0.00 · c2 0.00 px`.
+  - **passes**: `N (M seeding, K drag-blocked)`: the run's Measure passes, how many
+    seeded a node, and the sum of their `dragBlocked` attribute (the nodes in the
+    dragged subtree whose box a pass changed, given a slot-only update instead of
+    an animation: the **Drag block**, ADR-0016 *Amendment (#26)*). Each pass during
+    the drag (from its first move past the threshold to the release) is expected to
+    seed no more than the scenario allows (the sibling or parent only), and the
+    passes between them to drag-block at least one node. One pass may find nothing
+    left to change (a resize that both a `layoutDependency` and the engine's
+    ResizeObserver report runs two), so a single pass reading 0 drag-blocked is fine.
+  - **release held**: the frames painted after the release that still show the
+    held box, before the first one that moves. A release from a task (a real
+    pointerup) moves on its first painted frame: 0 with `?scheduler=microtask`, up
+    to 1 with a browser's scheduler (the release reaches the drag one hop late,
+    #32). A release with nowhere to go reads 0; one that never moves although it is
+    off its slot reads `?`.
+  - **ends on slot**: the distance, in px, between the last frame's painted box
+    and its slot.
+
+  A value the run could not measure reads `?` and fails its check. A new press
+  while the last release is still settling ends that run first. Each drag run
+  keeps its whole recording (the moves, the frames, the spans), and the saved log
+  carries every kept drag run in `dragRuns`, beside `runs`. Nothing about a drag
+  run feeds the flash counter or the timeline panel.
 
 ## Scenarios
 
@@ -183,6 +248,9 @@ and the card's `passes`.
 | 8 | Solid effect during gate batch | A `createEffect` that runs inside the flush gate's `batch()` writes the `layoutDependency` signal. | safe | 1 | 1 (1 seeding) |
 | 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no Measure pass. | safe | 0 cold, 1 warm | 0 |
 | 10 | Sibling resize mid-flight | The click moves box A; 150 ms later a timer grows box B's content, which only Wardic's shared ResizeObserver sees, while A is mid-flight. | safe | 0 | 2 (2 seeding), `passStepRatio` about 1 |
+| 11 | Drag while the slot moves | Hold the item; its slot moves every 600 ms or on R: the sibling resizes (the engine ResizeObserver's pass) or the two swap under a `LayoutGroup` (a task's pass). | safe | drag card | each pass seeds the sibling only; the dragged tree drag-blocked |
+| 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms or on S) and the release. | safe | drag card | as 11 |
+| 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent. | safe | drag card | a pass seeds the parent at most |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
 
 Why each path holds what it does. The browser runs a frame's rAF callbacks, then
@@ -241,6 +309,68 @@ hesitate) but still runs, until a follow-up filters that delivery. The **Keep
 Clock warm** panel runs a background spring so any scenario can be run warm on
 purpose. The result should be the same in both scheduler modes (below): the Clock
 never goes through Effect's scheduler.
+
+## Drag scenarios (#26)
+
+Scenarios 11 to 13 are issue #26's check: what a Measure pass does to a dragged
+item and its children, and what the release does (ADR-0016 *Amendment (#26)*, the
+**Drag block**). Each press is a drag run with six checks (see **Drag runs** under
+Method); the expected card, with a browser's own scheduler:
+
+| Check | Expected | Before #26 |
+| ----- | -------- | ---------- |
+| under pointer | ≤ 1 px | the same |
+| frames behind | 1 (0 with `?scheduler=microtask`) | one frame more (the engine's own) |
+| child glued | ≤ 1 px, every child | a `layout` child held at its slot while dragged, then jumping 100 px |
+| passes | each seeds the sibling (or parent) only; the dragged tree drag-blocked | the dragged item and its children seeded at every pass |
+| release held | ≤ 1 (0 with `?scheduler=microtask`) | 1 or 2 |
+| ends on slot | ≤ 0.5 px | stuck off the slot when the last move landed on it |
+
+- **11, drag while the slot moves.** The mode select picks how the slot moves:
+  `resize` (the orange sibling grows or shrinks by 60px; only the engine's
+  ResizeObserver sees it, so the pass runs after the frame's gate flush) or
+  `reorder` (the sibling and the item swap under a `LayoutGroup`; the pass runs at
+  the end of the task, as a `<Reorder>` would). While you hold the item the slot
+  moves every 600 ms, or press R. The item has `z-index: 1`: after a swap the
+  sibling follows it in the DOM, and while the sibling's FLIP gives it a transform
+  it would paint over the item and take the pointer's events (#31), as a `<Reorder>`
+  item would without Motion's `zIndex: 1`.
+- **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
+  and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
+  900 ms, or press S. M (grey) starts a slow FLIP across the item when you grab it
+  (the toggle): it should keep animating on the item, with no jump. Its offset
+  changes by design, so the eye checks it, not the card.
+- **13, release and pointer lag.** The item sits in a `layout` parent. While you
+  hold it, Z resizes its own slot (it should paint its new size under the pointer,
+  about the same centre) and P FLIPs its parent 60px right (it should stay under the
+  pointer). The release lines are the point: let go still, while moving, and back
+  where you grabbed while still moving (the release that used to stay stuck).
+
+Known and not fixed by #26, so they don't surprise you:
+
+- **Keep the pointer on the item.** Wardic's drag has no pointer capture: a move
+  that leaves the item stops the drag, and a release outside never ends it, so the
+  item can keep following the pointer after you let go (#31). The card flags such a
+  run with `· the pointer left the item`. In `resize` mode, from the slot move
+  until the next frame's ResizeObserver pass, the item's hit box sits off by the
+  slot move, so a move or a release in that window can miss it even with the
+  pointer still: once in 24 headless Firefox runs, a release landed there and the
+  drag never ended.
+- A move paints one frame after it with a browser's scheduler (#32).
+- A flick doesn't carry into the release (the release has no velocity), and
+  grabbing the item while it is still flying back jumps it (#30).
+
+Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
+
+| Run | Scenario | What to do | Times |
+| --- | -------- | ---------- | ----- |
+| R1 | 11 `resize` | grab, move a little, hold still about 2 s, release | 3 |
+| R2 | 11 `resize` | keep moving slowly while the slot moves, release while moving | 3 |
+| R3 | 11 `reorder` | as R1 | 3 |
+| R4 | 11 `reorder` | as R2 | 3 |
+| R5 | 11 either | move away, come back to where you grabbed, release while still moving | 3 |
+| R6 | 12 | hold while the slot moves (S too), release; once with M animating | 3 |
+| R7 | 13 | hold, press Z, then P, release; then a release while moving, and R5 | 3 |
 
 ## Scheduler note
 

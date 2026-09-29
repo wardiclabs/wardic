@@ -10,14 +10,16 @@
  * card's result row has a fixed height.
  *
  * Reactivity: every signal here is written from `lab.subscribe` (once per
- * completed run) or from user input, never per frame. Props passed down are
- * static values, kept reactive by Solid's prop getters.
+ * completed run), `lab.subscribeDragRuns` (once per drag run) or from user input,
+ * never per frame. Props passed down are static values, kept reactive by Solid's
+ * prop getters.
  *
  * @module
  */
 import { WardicProvider } from "@wardic/solid"
 import { batch, createSignal, For, type JSX, onCleanup } from "solid-js"
 import { makeLabEnv } from "../env.ts"
+import type { DragRun } from "../lab/drag-run.ts"
 import type { Lab } from "../lab/lab.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
 import { CopyLog } from "./CopyLog.tsx"
@@ -39,12 +41,16 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
   // Each scenario's last run, with the timeline slice captured when it ended (so
   // an older run stays drawable after the ring buffers move on).
   const [lastRuns, setLastRuns] = createSignal<Readonly<Record<string, TimelineSelection>>>({})
+  // Each drag scenario's last drag run (issue #26).
+  const [lastDragRuns, setLastDragRuns] = createSignal<Readonly<Record<string, DragRun>>>({})
   const [latestId, setLatestId] = createSignal<string | undefined>(undefined)
   // The card picked for the timeline; `undefined` follows the latest run.
   const [pickedId, setPickedId] = createSignal<string | undefined>(undefined)
   const [counts, setCounts] = createSignal(lab.flashCounts())
   const [stretchMs, setStretchMs] = createSignal(0)
   const [keepWarm, setKeepWarm] = createSignal(false)
+  // A drag scenario never flashes (it starts no sampling run), so the counter leaves it out.
+  const flashScenarios = lab.scenarios.filter((def) => def.kind !== "drag")
 
   onCleanup(
     lab.subscribe((run) => {
@@ -56,6 +62,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
       })
     }),
   )
+  onCleanup(lab.subscribeDragRuns((run) => setLastDragRuns((prev) => ({ ...prev, [run.scenarioId]: run }))))
 
   const shownId = (): string | undefined => pickedId() ?? latestId()
   const selection = (): TimelineSelection | undefined => {
@@ -79,6 +86,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
                 def={def}
                 ctx={lab.context(def)}
                 lastRun={lastRuns()[def.id]?.run}
+                lastDragRun={lastDragRuns()[def.id]}
                 selected={shownId() === def.id}
                 onSelect={() => setPickedId(def.id)}
               />
@@ -86,7 +94,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
           </For>
         </main>
         <aside class="sidebar">
-          <FlashCounter scenarios={lab.scenarios} counts={counts()} onReset={resetCounts} />
+          <FlashCounter scenarios={flashScenarios} counts={counts()} onReset={resetCounts} />
           <TimelinePanel
             selection={selection()}
             following={pickedId() === undefined}
@@ -121,7 +129,8 @@ const LabHeader = (): JSX.Element => {
       <div class="lab-heading">
         <h1>Wardic layout lab</h1>
         <p>
-          Does each layout-trigger path paint the destination box before Wardic's measure pass? Press Run on a card.
+          Does each layout-trigger path paint the destination box before Wardic's measure pass? Press Run on a card,
+          or drag the item on a drag card.
         </p>
       </div>
       <div class="lab-scheduler">

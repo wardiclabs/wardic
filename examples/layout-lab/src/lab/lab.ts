@@ -5,11 +5,15 @@
  * ResizeObserver deliveries and inputs around it) into a {@link LabRun}, reads the
  * run's first steps and its pace through a second Measure pass, grades it against
  * the scenario's prediction, and keeps the bounded run log the UI and the copy-log
- * read. All of that runs once per completed run, never per frame.
+ * read. A drag scenario's presses (issue #26) come in whole through
+ * `ctx.recordDragRun` instead: the lab joins the timeline's spans onto each one
+ * into a {@link DragRun} and keeps those in a log of their own. All of that runs
+ * once per completed run or press, never per frame.
  *
  * Framework-free on purpose (no Solid import): the UI subscribes through
- * {@link Lab.subscribe}, which fires once per completed run and never per frame,
- * so no Solid signal is written on the per-frame path.
+ * {@link Lab.subscribe} and {@link Lab.subscribeDragRuns}, which fire once per
+ * completed run or press and never per frame, so no Solid signal is written on the
+ * per-frame path.
  *
  * @module
  */
@@ -24,12 +28,13 @@ import {
 import type { FrameTrace, ObserverRecord } from "../probe/frame-trace.ts"
 import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, type Timeline } from "../probe/timeline.ts"
 import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
+import { type DragRun, dragRunOf } from "./drag-run.ts"
 import { groupFrames, type InputJoin, joinInputs, type RefreshFrame } from "./frame-order.ts"
 import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
 import { measurePassesOf } from "./measure-passes.ts"
 import { firstStepsOf, passStepRatioOf } from "./steps.ts"
 
-/** How many completed runs the lab keeps (oldest dropped first). */
+/** How many completed runs, and separately how many drag runs, the lab keeps (oldest dropped first). */
 const MAX_RUNS = 200
 
 /** The sampler's "same box" distance, which also decides whether a frame is still at the origin. */
@@ -183,7 +188,7 @@ export interface FlashCounts {
  */
 export type EffectScheduler = "setTimeout-fallback" | "setImmediate"
 
-/** The copy-log payload: environment metadata plus every kept run. */
+/** The copy-log payload: environment metadata plus every kept run and drag run. */
 export interface LabLog {
   /** When the log was produced (ISO 8601). */
   readonly createdAt: string
@@ -203,6 +208,8 @@ export interface LabLog {
   readonly schedulerMode: LabScheduler
   /** The kept runs, oldest first. */
   readonly runs: ReadonlyArray<LabRun>
+  /** The kept drag runs (issue #26), oldest first: one per press of a drag scenario. */
+  readonly dragRuns: ReadonlyArray<DragRun>
 }
 
 /** Everything the lab is built from. Each piece is created once, at module scope. */
@@ -229,6 +236,10 @@ export interface Lab {
   readonly runs: () => ReadonlyArray<LabRun>
   /** Calls `cb` once per completed run. Returns an unsubscribe function. */
   readonly subscribe: (cb: (run: LabRun) => void) => () => void
+  /** The kept drag runs, oldest first (a copy). */
+  readonly dragRuns: () => ReadonlyArray<DragRun>
+  /** Calls `cb` once per recorded drag run. Returns an unsubscribe function. */
+  readonly subscribeDragRuns: (cb: (run: DragRun) => void) => () => void
   /** Flash totals since the last reset. */
   readonly flashCounts: () => FlashCounts
   /** Zeroes the flash counts and removes every ghost outline (flash and wrong-origin). */
@@ -342,6 +353,8 @@ export const makeLab = (options: LabOptions): Lab => {
 
   const runs: Array<LabRun> = []
   const listeners = new Set<(run: LabRun) => void>()
+  const dragRuns: Array<DragRun> = []
+  const dragListeners = new Set<(run: DragRun) => void>()
   let flashTotal = 0
   let flashPerScenario: Record<string, number> = {}
   // The frame-stretch control's value (ms), stamped on each run at its trigger.
@@ -446,6 +459,20 @@ export const makeLab = (options: LabOptions): Lab => {
       timeline.onSpanEnd((span) => {
         if (span.name === COORDINATOR_SPAN) cb()
       }),
+    recordDragRun: (input) => {
+      const spans = timeline.window(input.grabAt, input.endedAt).spans
+      // Attributed to this context's scenario, like every mark and run it starts.
+      const run = dragRunOf({ ...input, scenarioId: id }, spans)
+      dragRuns.push(run)
+      if (dragRuns.length > MAX_RUNS) dragRuns.splice(0, dragRuns.length - MAX_RUNS)
+      for (const cb of dragListeners) {
+        try {
+          cb(run)
+        } catch (error) {
+          console.error("layout-lab: a drag run listener threw", error)
+        }
+      }
+    },
   })
 
   const context: Lab["context"] = (def) => {
@@ -469,6 +496,13 @@ export const makeLab = (options: LabOptions): Lab => {
         listeners.delete(cb)
       }
     },
+    dragRuns: () => dragRuns.slice(),
+    subscribeDragRuns: (cb) => {
+      dragListeners.add(cb)
+      return () => {
+        dragListeners.delete(cb)
+      }
+    },
     flashCounts: () => ({ total: flashTotal, perScenario: flashPerScenario }),
     resetCounts: () => {
       flashTotal = 0
@@ -487,6 +521,7 @@ export const makeLab = (options: LabOptions): Lab => {
       scheduler,
       schedulerMode: currentLabScheduler(),
       runs: runs.slice(),
+      dragRuns: dragRuns.slice(),
     }),
   }
 }
