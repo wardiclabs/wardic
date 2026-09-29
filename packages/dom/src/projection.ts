@@ -32,6 +32,13 @@
  *     assembles the transform). On settle it drops the node; when none remain it
  *     interrupts the fiber (idle = zero cost).
  *
+ * DRAG (ADR-0016 and its *Amendment (#26)*): a dragged node follows the pointer through
+ * its target (`grabBox + dragDelta`), and it and its subtree are drag-blocked: a
+ * Measure pass updates their slots but starts no animation there, the dragged node is
+ * its subtree's relative parent, and a resting descendant is left to ride the drag
+ * through CSS. A pointer move re-derives the dragged group; the release is a FLIP from
+ * the drag target to the latest slot, with a Priming step.
+ *
  * Nesting: parent links come from a DOM-ancestry WALK (CSS composes by DOM
  * nesting, so that is exactly what projection must follow), and a child's box is
  * corrected for its ancestors' transforms via `applyTreeDeltas` (+ `treeScale`)
@@ -130,6 +137,22 @@ const offsetBox = (box: Box, delta: Point): Box => ({
   y: { min: box.y.min + delta.y, max: box.y.max + delta.y },
 })
 
+/** The centre of a box. */
+const centreOf = (box: Box): Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
+
+/** Whether two boxes have the same width and height (within {@link BOX_EPSILON}). */
+const sameSize = (a: Box, b: Box): boolean =>
+  Math.abs(a.x.max - a.x.min - (b.x.max - b.x.min)) < BOX_EPSILON &&
+  Math.abs(a.y.max - a.y.min - (b.y.max - b.y.min)) < BOX_EPSILON
+
+/** `box` resized to `size`'s width and height about its own centre. */
+const resizeAboutCentre = (box: Box, size: Box): Box => {
+  const c = centreOf(box)
+  const w = (size.x.max - size.x.min) / 2
+  const h = (size.y.max - size.y.min) / 2
+  return { x: { min: c.x - w, max: c.x + w }, y: { min: c.y - h, max: c.y + h } }
+}
+
 /** Options to register a layout element as a projection node. */
 export interface RegisterNodeOptions {
   /** The element's gate id (shared with its spine — `@projection` writes merge there). */
@@ -179,9 +202,12 @@ export interface RegisterNodeOptions {
 export interface DragProjectionHandle {
   /** Begin a drag: capture the grab-time slot box as the pointer anchor; hold the node active. */
   readonly dragStart: () => void
-  /** The live pointer translate from the grab point — the node tracks `grabBox + delta`. */
+  /**
+   * The live pointer translate from the grab point — the node tracks `grabBox + delta`.
+   * Re-derives the dragged group into the sink at once, so the gate's next flush paints it.
+   */
   readonly dragMove: (delta: Point) => void
-  /** End the drag: FLIP from the dragged position to the node's current layout slot. */
+  /** End the drag: FLIP from the dragged position to the node's latest slot, with a Priming step. */
   readonly dragEnd: () => void
 }
 
@@ -283,7 +309,10 @@ interface NodeState {
   // --- drag (ADR-0016) ---
   /** Whether this node is being dragged: its target follows the pointer (no spring), held active. */
   dragging: boolean
-  /** The slot box captured at drag start — the pointer anchor; `target = grabBox + dragDelta`. */
+  /**
+   * The slot box captured at drag start — the pointer anchor; the target is `grabBox +
+   * dragDelta`, at the current slot's size about its centre (see {@link dragTargetOf}).
+   */
   grabBox: Box | undefined
   /** The live pointer translate from the grab point (zero when not dragging). */
   dragDelta: Point
@@ -517,11 +546,17 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     return chain
   }
 
-  /** Whether any ancestor is animating its own FLIP (so this node is "carried" + must counter-correct). */
+  /**
+   * Whether any ancestor is animating its own FLIP (so this node is "carried" + must
+   * counter-correct). A dragged ancestor doesn't count: its transform is where the user
+   * put it, not a FLIP to undo, so a resting descendant keeps its identity projection
+   * and CSS carries it with the drag (ADR-0016 *Amendment (#26)*; Motion projects no
+   * resting node, create-projection-node.ts:1262, :1484-1498 at 16c6122).
+   */
   const hasActiveAncestor = (node: NodeState): boolean => {
     let p = node.parent
     while (p !== undefined) {
-      if (active.has(p)) return true
+      if (active.has(p) && !p.dragging) return true
       if (p.layoutRoot) return false // boundary (ADR-0013): ancestors above a layoutRoot don't carry this node
       p = p.parent
     }
@@ -535,18 +570,38 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * (a persistent relative anchor + boundary, even at rest). A child re-anchors to
    * its relativeParent's CURRENT target each frame, so it stays glued even when
    * parent and child run DIFFERENT transitions ("not left behind"). `layoutAnchor:
-   * false` opts the node out entirely (it then projects ABSOLUTELY).
+   * false` opts the node out (it then projects ABSOLUTELY), except under a dragged
+   * ancestor: a dragged node is the relative parent of its whole subtree, so everything
+   * in it rides the drag (ADR-0016 *Amendment (#26)*).
    */
   const relativeParentOf = (node: NodeState): NodeState | undefined => {
-    if (node.layoutAnchor === false) return undefined // opt out -> absolute (Motion's layoutAnchor !== false gate)
     let p = node.parent
     while (p !== undefined) {
-      // A layoutRoot is a persistent relative anchor AND the boundary — stop here.
-      if (p.layoutRoot) return p.layoutBox !== undefined ? p : undefined
-      if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined) return p
+      if (p.dragging && p.layoutBox !== undefined) return p
+      if (node.layoutAnchor === false) {
+        // Opted out (Motion's layoutAnchor !== false gate): only a dragged ancestor,
+        // below the next layoutRoot boundary, anchors it.
+        if (p.layoutRoot) return undefined
+      } else {
+        // A layoutRoot is a persistent relative anchor AND the boundary — stop here.
+        if (p.layoutRoot) return p.layoutBox !== undefined ? p : undefined
+        if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined) return p
+      }
       p = p.parent
     }
     return undefined
+  }
+
+  /**
+   * A dragged node's target: its grab box moved by the pointer delta (ADR-0016 Q3a). If
+   * its slot has since changed size, the target takes the slot's size about the same
+   * centre, so the node paints its new size under the pointer instead of being scaled
+   * back to its grab size (Motion shifts a dragged node by the layout delta measured at
+   * the centre, VisualElementDragControls.ts:742-759, delta-calc.ts:24-36).
+   */
+  const dragTargetOf = (node: NodeState, slot: Box): Box => {
+    const moved = offsetBox(node.grabBox!, node.dragDelta)
+    return sameSize(moved, slot) ? moved : resizeAboutCentre(moved, slot)
   }
 
   /**
@@ -569,7 +624,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     // `layoutBox`), so a mid-drag reorder that moves the slot keeps the item under the
     // pointer (the delta just recomputes against the new layoutBox). No spring.
     if (node.dragging && node.grabBox !== undefined) {
-      const targetBox = offsetBox(node.grabBox, node.dragDelta)
+      const targetBox = dragTargetOf(node, box)
       const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
       const delta = calcBoxDelta(layoutCorrected, targetBox)
       node.lastTarget = targetBox
@@ -662,6 +717,22 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
     for (const node of followers) deriveFollower(node)
+  }
+
+  /**
+   * Whether `node` is in a dragged subtree: it or an ancestor is being dragged. Such a
+   * node is drag-blocked: a Measure pass starts or restarts no animation on it (Motion's
+   * `isTreeAnimationBlocked`, create-projection-node.ts:633-639 at 16c6122).
+   */
+  const inDraggedTree = (node: NodeState): boolean => {
+    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) if (p.dragging) return true
+    return false
+  }
+
+  /** Whether `node` is a descendant of `ancestor`. */
+  const isDescendantOf = (node: NodeState, ancestor: NodeState): boolean => {
+    for (let p = node.parent; p !== undefined; p = p.parent) if (p === ancestor) return true
+    return false
   }
 
   /** Whether an ancestor of `node` (up to and including a `layoutRoot` boundary) is in `changed`. */
@@ -908,8 +979,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // --- One round of the Measure pass (reads, then FLIP seeds), run inside the ---
   // sink's `flushPass`, which applies what it writes before returning. The
   // {@link measurePass} wraps its rounds in the `wardic.projection.measure` span.
-  // Every node it (re)starts is added to `seeded`, for the Priming step.
-  const runMeasurePass = (seeded: Set<NodeState>): void => {
+  // Every node it (re)starts is added to `seeded`, for the Priming step; every node of
+  // a dragged subtree whose box changed is added to `dragBlocked` instead.
+  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain, and the depth order makes every phase below
     // ancestors-first, so each scroll container's offset is sampled before a
@@ -1006,7 +1078,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // stable box (layoutBox + lastTarget) so descendants project relative to it,
       // and write identity — no spring, never `active`.
       if (node.layoutRoot) {
-        if (prev !== undefined && !boxesEqual(prev, newBox)) changed.add(node)
+        if (prev !== undefined && !boxesEqual(prev, newBox)) {
+          changed.add(node)
+          if (inDraggedTree(node)) dragBlocked.add(node)
+        }
         node.layoutBox = newBox
         node.lastTarget = newBox
         node.origin = undefined
@@ -1015,6 +1090,33 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         active.delete(node)
         node.lastDelta = IDENTITY_DELTA
         writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
+        continue
+      }
+
+      // DRAG-BLOCKED (ADR-0016 *Amendment (#26)*): a dragged node and its subtree take a
+      // slot-only update. No animation starts or restarts here, a first-measure crossfade
+      // or switch included (Motion's blocked tree, create-projection-node.ts:507-511):
+      // the dragged node keeps following the pointer from its new slot, and a descendant
+      // rides the drag. The node counts as changed, so it is re-derived and flushed with
+      // its group in this pass, but it is not seeded and takes no Priming step. A
+      // running descendant's origin moves with its box, so its animation keeps its delta
+      // and doesn't jump (Motion keeps the running `targetDelta` of a blocked node).
+      if (inDraggedTree(node)) {
+        if (prev === undefined) {
+          node.lastDelta = IDENTITY_DELTA
+          writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
+          continue
+        }
+        if (!boxesEqual(prev, newBox)) {
+          if (!node.dragging && node.animating && node.origin !== undefined) {
+            const from = centreOf(node.layoutBox ?? prev)
+            const to = centreOf(newBox)
+            node.origin = offsetBox(node.origin, { x: to.x - from.x, y: to.y - from.y })
+          }
+          node.layoutBox = newBox
+          changed.add(node)
+          dragBlocked.add(node)
+        }
         continue
       }
 
@@ -1100,18 +1202,20 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * past the cap the rest runs as a fresh Measure pass in the next task. Then, after
    * the microtasks the rounds queued (a Cold start's Priming tick among them), the
    * Priming step. Traced as one `wardic.projection.measure` span annotated with the
-   * node counts, how many nodes it seeded and how many rounds it ran.
+   * node counts, how many nodes it seeded, how many it gave a slot-only update in a
+   * dragged subtree (`dragBlocked`), and how many rounds it ran.
    */
   const measurePass: Effect.Effect<void> = Effect.suspend(() => {
     passQueued = false
     const seeded = new Set<NodeState>()
+    const dragBlocked = new Set<NodeState>()
     let rounds = 0
     inPass = true
     try {
       do {
         triggeredDuringPass = false
         rounds++
-        sink.flushPass(() => runMeasurePass(seeded))
+        sink.flushPass(() => runMeasurePass(seeded, dragBlocked))
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
@@ -1124,7 +1228,13 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         scheduleMeasure()
       }, 0)
     }
-    return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size, seeded: seeded.size, rounds }).pipe(
+    return Effect.annotateCurrentSpan({
+      nodes: nodes.size,
+      active: active.size,
+      seeded: seeded.size,
+      dragBlocked: dragBlocked.size,
+      rounds,
+    }).pipe(
       Effect.andThen(nextMicrotask),
       Effect.andThen(Effect.sync(() => primingStep(seeded))),
     )
@@ -1176,6 +1286,32 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (primed.size === 0) return
     deriveGroup(groupOf(primed))
     finishSettled(settled)
+  }
+
+  /**
+   * Derive `root` and every node below it once, top-down, resting ones included (the
+   * drag start's cleanup, see `dragStart`).
+   */
+  const deriveSubtree = (root: NodeState): void => {
+    const subtree: Array<NodeState> = [root]
+    for (const n of nodes) if (!isFollower(n) && isDescendantOf(n, root)) subtree.push(n)
+    subtree.sort((a, b) => a.depth - b.depth)
+    for (const n of subtree) derive(n)
+  }
+
+  /**
+   * The release's Priming step (ADR-0016 *Amendment (#26)*): at the end of the task
+   * that ended the drag, one nominal-dt step for the released node, unless a tick has
+   * already stepped it. So a release from a task moves on its first painted frame, and
+   * one after the frame's gate flush on its second, like any Measure pass's FLIP.
+   */
+  const primeRelease = (node: NodeState): void => {
+    node.steppedSinceSeed = false
+    endOfTask("wardic.projection.releasePriming", { id: node.id }, () => {
+      const primed = !node.steppedSinceSeed && active.has(node)
+      primingStep(new Set([node]))
+      return { primed }
+    })
   }
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
@@ -1447,38 +1583,61 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         node.spring = undefined
         node.origin = undefined
         node.animating = false
+        // The slot: the delta source, and the frame its subtree is placed in while dragged.
+        node.layoutBox = node.grabBox
         active.add(node)
         ensureRunning()
+        // Derive the subtree once: from now on its resting nodes aren't derived (CSS
+        // carries them), so none may keep a projection written for an earlier motion.
+        deriveSubtree(node)
       },
       dragMove: (delta) => {
         if (!node.dragging) return
-        node.dragDelta = delta // the tick re-derives `grabBox + delta` next frame
+        node.dragDelta = delta
+        // Re-derive the dragged group now, so the gate's next flush paints the pointer's
+        // position (a pointer move lands before its frame's flush). The group is the one a
+        // Measure pass flushes, so the ancestors it is derived against stay coherent.
+        // Motion renders in its move handler (VisualElementDragControls.ts:216).
+        deriveGroup(groupOf(new Set([node])))
       },
       dragEnd: () => {
         if (!node.dragging || node.grabBox === undefined) return
         debug("dragEnd", { id: node.id })
-        const visual = offsetBox(node.grabBox, node.dragDelta)
         const slot = node.layoutBox ?? node.grabBox
+        const visual = dragTargetOf(node, slot)
+        // A running descendant animated relative to the slot while dragged; from here it
+        // animates relative to this node's release, which starts at `visual`. Move its
+        // origin with that frame, so it doesn't jump.
+        const shift = { x: visual.x.min - slot.x.min, y: visual.y.min - slot.y.min }
+        if (shift.x !== 0 || shift.y !== 0) {
+          for (const n of nodes) {
+            if (n.animating && n.origin !== undefined && isDescendantOf(n, node)) n.origin = offsetBox(n.origin, shift)
+          }
+        }
         node.dragging = false
         node.grabBox = undefined
         node.dragDelta = { x: 0, y: 0 }
         if (boxesEqual(visual, slot)) {
-          // No travel (released in place at its slot) — settle now, no FLIP.
+          // No travel (released in place at its slot) — settle now, no FLIP. Write the
+          // resting projection first, so no frame keeps an offset an earlier write left.
           node.animating = false
           node.spring = undefined
           node.origin = undefined
+          deriveGroup(groupOf(new Set([node])))
           node.lastDelta = IDENTITY_DELTA
           active.delete(node)
           if (active.size === 0) stopTicking()
           return
         }
-        // FLIP from the dragged visual position to the current slot, via the layout spring.
+        // FLIP from the dragged visual position to the latest slot, via the layout spring,
+        // with the Priming step a Measure pass gives the nodes it seeds (ADR-0018).
         node.origin = visual
         node.layoutBox = slot
         node.spring = initSpring({ from: 0 })
         node.animating = true
         active.add(node)
         ensureRunning()
+        primeRelease(node)
       },
       dispose: () => {
         // A leaving Follower's removal is owned by finishLeaver (presence retained
