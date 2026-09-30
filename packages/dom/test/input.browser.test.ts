@@ -376,3 +376,157 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       }
     }).pipe(Effect.scoped))
 })
+
+// A scroll during a hold (ADR-0019, *Amendment (Reorder)*): while a pointer is held, the
+// DOM reports scrolls of the target's scrollable ancestors and of its window, and core's
+// heldPointerSource turns each into a move of the held pointer shifted by the scroll, so
+// a drag stays under the pointer. Nothing listens for scroll at rest.
+
+/** Count the window's `scroll` listeners added and removed while it runs (any phase). */
+const spyWindowScroll = () => {
+  let adds = 0
+  let removes = 0
+  const realAdd = window.addEventListener.bind(window)
+  const realRemove = window.removeEventListener.bind(window)
+  window.addEventListener = ((...args: Parameters<typeof realAdd>) => {
+    if (args[0] === "scroll") adds++
+    return realAdd(...args)
+  }) as typeof window.addEventListener
+  window.removeEventListener = ((...args: Parameters<typeof realRemove>) => {
+    if (args[0] === "scroll") removes++
+    return realRemove(...args)
+  }) as typeof window.removeEventListener
+  return {
+    adds: () => adds,
+    removes: () => removes,
+    restore: () => {
+      window.addEventListener = realAdd
+      window.removeEventListener = realRemove
+    },
+  }
+}
+
+/** Wait for the next Refresh frame: scroll events are dispatched in its rendering steps. */
+const nextFrame = Effect.promise(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+
+/** A 100 px tall `overflow: auto` container holding 400 px of content, and a target inside it. */
+const scrolledTarget = Effect.acquireRelease(
+  Effect.sync(() => {
+    const container = document.createElement("div")
+    container.style.cssText = "position:relative;width:200px;height:100px;overflow:auto"
+    const content = document.createElement("div")
+    content.style.cssText = "height:400px"
+    const el = document.createElement("div")
+    el.style.cssText = "width:50px;height:50px"
+    content.append(el)
+    container.append(content)
+    document.body.append(container)
+    return { container, el }
+  }),
+  ({ container }) => Effect.sync(() => container.remove()),
+)
+
+layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
+  it.effect("I11: no scroll listener at rest, and none from a plain move", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const spy = spyWindowScroll()
+      try {
+        const { el } = yield* scrolledTarget
+        const sub = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointermove", { buttons: 0 }))
+        yield* sub.collect(1)
+        expect(spy.adds()).toBe(0)
+        yield* sub.close
+      } finally {
+        spy.restore()
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I12: a held pointer's container scrolled 60 px arrives as a move shifted 60 px", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const { container, el } = yield* scrolledTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+      container.scrollTop += 60
+      yield* nextFrame
+      const events = yield* sub.collect(2)
+      expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,66"])
+      expect(events[1]!.buttons).toBe(1)
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I13: the window scrolled 60 px while a pointer is held arrives as a shifted move", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const tall = document.createElement("div")
+      tall.style.cssText = "height:4000px"
+      document.body.append(tall)
+      try {
+        const { el } = yield* scrolledTarget
+        const sub = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        window.scrollBy(0, 60)
+        yield* nextFrame
+        const events = yield* sub.collect(2)
+        expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,66"])
+        yield* sub.close
+      } finally {
+        window.scrollTo(0, 0)
+        tall.remove()
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I14: a scroll of a container the target isn't in reports nothing", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const { el } = yield* scrolledTarget
+      const other = yield* scrolledTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+      other.container.scrollTop += 60
+      yield* nextFrame
+      expect((yield* sub.collect(1)).map((e) => e.type)).toEqual(["down"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I15: the two scroll listeners come with the hold and go at its release", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const spy = spyWindowScroll()
+      try {
+        const { el } = yield* scrolledTarget
+        const sub = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1 }))
+        expect(spy.adds(), "one capture-phase listener for element scrolls, one for the window's own").toBe(2)
+        expect(spy.removes()).toBe(0)
+        document.body.dispatchEvent(pointerEvent("pointerup", { buttons: 0 }))
+        expect(spy.removes()).toBe(2)
+        yield* sub.close
+      } finally {
+        spy.restore()
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I16: two subscribers to one element share one pair of scroll listeners", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const spy = spyWindowScroll()
+      try {
+        const { container, el } = yield* scrolledTarget
+        const a = yield* subscribeIn(input.pointer(el))
+        const b = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        expect(spy.adds()).toBe(2)
+        container.scrollTop += 60
+        yield* nextFrame
+        expect((yield* a.collect(2)).map((e) => `${e.type}@${e.y}`)).toEqual(["down@6", "move@66"])
+        expect((yield* b.collect(2)).map((e) => `${e.type}@${e.y}`)).toEqual(["down@6", "move@66"])
+        yield* a.close
+        yield* b.close
+      } finally {
+        spy.restore()
+      }
+    }).pipe(Effect.scoped))
+})
