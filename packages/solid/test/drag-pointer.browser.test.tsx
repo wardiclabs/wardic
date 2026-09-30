@@ -365,6 +365,21 @@ describe.each(["layout", "free"] as const)("%s drag", (mode) => {
     }
     expect.soft(after.opacity, "the release ends the drag").toBeGreaterThan(0.95)
   })
+
+  // Found by the layout lab's R10: the old gesture's "end" and the new down's grab reach
+  // the drag track together, and the grab must not drop the release.
+  it("P7: after a lost release, a click with no move ends the stuck drag", async () => {
+    const s = await mountDrag(mode)
+    const { at } = await loseRelease(s)
+    const mark = s.samples.length
+    await mouse.down(at, { move: false })
+    await mouse.up(at)
+    await wait(900)
+    const after = seen(s)
+    expect.soft(phases(s.samples, mark), "the click's down ends the old drag, and the click starts none").toBe("end")
+    expect.soft(after.opacity, "whileDrag ends").toBeGreaterThan(0.95)
+    expect.soft(after.dx, "D rests where the release leaves it").toBeCloseTo(rest(40), 0)
+  })
 })
 
 describe("primary pointer", () => {
