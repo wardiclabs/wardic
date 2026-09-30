@@ -29,16 +29,16 @@ import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
-import { afterPaint, raf, until } from "./browser-helpers.ts"
+import { afterPaint, raf, retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
 const down = (x: number, y: number): PointerEvent =>
-  new PointerEvent("pointerdown", { clientX: x, clientY: y, buttons: 1, pointerId: 1 })
+  new PointerEvent("pointerdown", { clientX: x, clientY: y, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true })
 const move = (x: number, y: number): PointerEvent =>
-  new PointerEvent("pointermove", { clientX: x, clientY: y, buttons: 1, pointerId: 1 })
+  new PointerEvent("pointermove", { clientX: x, clientY: y, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true })
 const up = (x: number, y: number): PointerEvent =>
-  new PointerEvent("pointerup", { clientX: x, clientY: y, buttons: 0, pointerId: 1 })
+  new PointerEvent("pointerup", { clientX: x, clientY: y, buttons: 0, pointerId: 1, pointerType: "mouse", isPrimary: true })
 
 /** The pointer offset D is held at. */
 const DRAG = { x: 100, y: 30 } as const
@@ -106,16 +106,18 @@ const maxDrift = (frames: ReadonlyArray<Painted<Boxes>>, key: "c1" | "c2", rest:
 const maxOff = (frames: ReadonlyArray<Painted<Boxes>>, at: { left: number; top: number }): number =>
   Math.max(0, ...frames.map((f) => Math.max(Math.abs(f.v.d.left - at.left), Math.abs(f.v.d.top - at.top))))
 
-/** Grab D at (0,0) and hold it at `offset`. The recognizer attaches late, so re-dispatch until D follows. */
+/** Grab D at (0,0) and hold it at `offset`. The recognizer attaches late, so a grab D doesn't follow is retried. */
 const grab = async (d: HTMLElement, start: { left: number; top: number }, offset: { x: number; y: number } = DRAG): Promise<void> => {
-  await until(() => {
-    d.dispatchEvent(down(0, 0))
-    d.dispatchEvent(move(offset.x, offset.y))
-    return (
+  await retryGesture(
+    () => {
+      d.dispatchEvent(down(0, 0))
+      d.dispatchEvent(move(offset.x, offset.y))
+    },
+    () => d.dispatchEvent(up(offset.x, offset.y)),
+    () =>
       Math.abs(d.getBoundingClientRect().left - (start.left + offset.x)) < 1 &&
-      Math.abs(d.getBoundingClientRect().top - (start.top + offset.y)) < 1
-    )
-  })
+      Math.abs(d.getBoundingClientRect().top - (start.top + offset.y)) < 1,
+  )
   for (let i = 0; i < 3; i++) await raf()
 }
 

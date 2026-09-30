@@ -12,7 +12,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
-import { until } from "./browser-helpers.ts"
+import { retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -30,25 +30,27 @@ const scaleOf = (el: HTMLElement): number => {
 }
 
 const down = (x: number, y: number): PointerEvent =>
-  new PointerEvent("pointerdown", { clientX: x, clientY: y, buttons: 1, pointerId: 1 })
+  new PointerEvent("pointerdown", { clientX: x, clientY: y, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true })
 const move = (x: number, y: number): PointerEvent =>
-  new PointerEvent("pointermove", { clientX: x, clientY: y, buttons: 1, pointerId: 1 })
+  new PointerEvent("pointermove", { clientX: x, clientY: y, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true })
 const up = (x: number, y: number): PointerEvent =>
-  new PointerEvent("pointerup", { clientX: x, clientY: y, buttons: 0, pointerId: 1 })
+  new PointerEvent("pointerup", { clientX: x, clientY: y, buttons: 0, pointerId: 1, pointerType: "mouse", isPrimary: true })
 
 /**
- * Grab `el` and drag the pointer to `(x, y)`, re-dispatching down+move each frame
- * until the direct-set lands in the committed transform. The recognizer fiber
- * attaches its DOM listener asynchronously, so a single dispatch can be dropped
- * before the listener is live. Re-dispatching `down` while already owned is
- * ignored by the recognizer, so the retry is safe.
+ * Grab `el` and drag the pointer to `(x, y)`, retrying until the direct-set lands in
+ * the committed transform. The recognizer fiber attaches its DOM listener
+ * asynchronously, so a single dispatch can be dropped before the listener is live;
+ * `retryGesture` never presses again once the drag has started.
  */
 const dragTo = (el: HTMLElement, x: number, y: number): Promise<void> =>
-  until(() => {
-    el.dispatchEvent(down(0, 0))
-    el.dispatchEvent(move(x, y))
-    return translateXOf(el) !== 0 || translateYOf(el) !== 0
-  })
+  retryGesture(
+    () => {
+      el.dispatchEvent(down(0, 0))
+      el.dispatchEvent(move(x, y))
+    },
+    () => el.dispatchEvent(up(x, y)),
+    () => translateXOf(el) !== 0 || translateYOf(el) !== 0,
+  )
 
 describe("drag — (a) FOLLOW", () => {
   it("direct-sets translateX to the dragged offset after a flush", async () => {

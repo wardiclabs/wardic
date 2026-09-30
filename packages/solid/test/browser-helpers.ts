@@ -117,3 +117,28 @@ export const loseNextRelease = (): (() => void) => {
   window.addEventListener("pointerup", swallow, true)
   return () => window.removeEventListener("pointerup", swallow, true)
 }
+
+/**
+ * Start a synthetic gesture and retry it until `took()`: the recognizer attaches its
+ * listener asynchronously, so the first events can arrive before it listens. Each
+ * attempt waits `frames` frames before it is judged, and a retry releases first, so a
+ * gesture that did start is never pressed again: a second down from the pointer that
+ * holds a drag ends it and starts another (ADR-0019).
+ */
+export const retryGesture = async (
+  press: () => void,
+  release: () => void,
+  took: () => boolean,
+  frames = 3,
+  timeoutMs = 4000,
+): Promise<void> => {
+  const start = performance.now()
+  for (let attempt = 0; performance.now() - start < timeoutMs; attempt++) {
+    if (attempt > 0) release()
+    press()
+    for (let f = 0; f < frames; f++) {
+      await raf()
+      if (took()) return
+    }
+  }
+}
