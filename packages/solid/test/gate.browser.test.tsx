@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { Patch } from "@wardic/core"
+import { type Delta, type Patch, PROJECTION_KEY } from "@wardic/core"
 import { DomLive } from "@wardic/dom"
 import { TestLive } from "@wardic/test"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -395,6 +395,74 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
       gate.flushPass(() => gate.write("a", { x: 1 }))
       expect(applied).toBe(0)
       expect(pending.size).toBe(0)
+    } finally {
+      void runtime.dispose()
+    }
+  })
+})
+
+// The raise's reset (ADR-0016, *Amendment (Reorder)*): the engine carries a dragged
+// node's raise inside `@projection`, and the renderer emits `z-index` only while it's
+// there. A signal sink's next patch simply lacks the key; a commit sink now removes a key
+// its previous patch had and this one doesn't, restoring the element's own inline value.
+describe("makeFlushGate — a key that drops out of a patch", () => {
+  const IDENTITY: Delta = {
+    x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
+    y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
+  }
+  const raised = { [PROJECTION_KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 }, raise: 1 } }
+  const lowered = { [PROJECTION_KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 } } }
+
+  it("GK1: a commit sink removes z-index once the projection stops carrying the raise", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const el = document.createElement("div")
+      gate.register("el", { kind: "commit", target: el })
+      gate.write("el", raised)
+      fireFrame()
+      expect(el.style.getPropertyValue("z-index")).toBe("1")
+      gate.write("el", lowered)
+      fireFrame()
+      expect(el.style.getPropertyValue("z-index")).toBe("")
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GK2: a commit sink restores the element's own inline value it overwrote", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const el = document.createElement("div")
+      el.style.setProperty("z-index", "5")
+      gate.register("el", { kind: "commit", target: el })
+      gate.write("el", raised)
+      fireFrame()
+      expect(el.style.getPropertyValue("z-index")).toBe("1")
+      gate.write("el", lowered)
+      fireFrame()
+      expect(el.style.getPropertyValue("z-index")).toBe("5")
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GK3: a signal sink's patch carries z-index while raised and lacks it after", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const patches: Array<Patch> = []
+      gate.register("a", { kind: "signal", set: (p) => patches.push(p) })
+      gate.write("a", raised)
+      fireFrame()
+      gate.write("a", lowered)
+      fireFrame()
+      expect(patches[0]?.["z-index"]).toBe(1)
+      expect(patches[1] !== undefined && "z-index" in patches[1]).toBe(false)
+      gate.dispose()
     } finally {
       void runtime.dispose()
     }
