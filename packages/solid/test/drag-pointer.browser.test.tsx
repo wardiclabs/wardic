@@ -22,7 +22,7 @@ import { DomLive } from "@wardic/dom"
 import { createDrag, createHover, createPress, wardic, WardicProvider } from "@wardic/solid"
 import { createEffect, createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { commands } from "vitest/browser"
+import { commands, server } from "vitest/browser"
 import "./browser-commands.ts"
 import type { RealMouseOptions } from "./browser-commands.ts"
 import { afterPaint, loseNextRelease, raf } from "./browser-helpers.ts"
@@ -41,29 +41,35 @@ const settle = async (): Promise<void> => {
   await afterPaint()
 }
 
-// The mouse button's state, so a test that fails mid-press still releases it, and the
+// The mouse button held, so a test that fails mid-press still releases it, and the
 // lost-release listeners a test registered, so one that ends early doesn't lose the
 // next test's release.
-let pressed = false
+let pressed: "left" | "right" | undefined
 const disposers: Array<() => void> = []
 const mouse = {
   move: (p: Pt): Promise<void> => commands.realMouse("move", p.x, p.y),
   down: async (p: Pt, options?: RealMouseOptions): Promise<void> => {
     await commands.realMouse("down", p.x, p.y, options)
-    pressed = true
+    pressed = options?.button ?? "left"
   },
-  up: async (p: Pt): Promise<void> => {
-    await commands.realMouse("up", p.x, p.y)
-    pressed = false
+  up: async (p: Pt, options?: RealMouseOptions): Promise<void> => {
+    await commands.realMouse("up", p.x, p.y, options)
+    pressed = undefined
   },
 }
 
 afterEach(async () => {
-  if (pressed) await mouse.up({ x: 5, y: 5 })
+  if (pressed !== undefined) await mouse.up({ x: 5, y: 5 }, { button: pressed })
   for (const dispose of disposers.splice(0)) dispose()
   await mouse.move({ x: 5, y: 5 })
   cleanup()
 })
+
+/** CDP touch input exists in Chromium only (`commands.realTouch`). */
+const cdpTouch = server.browser === "chromium"
+
+/** A finger at a client point. */
+const finger = (id: number, p: Pt): { x: number; y: number; id: number } => ({ x: p.x, y: p.y, id })
 
 /** Move the real mouse from `from` to `to` in `steps` moves, `ms` apart. */
 const glide = async (from: Pt, to: Pt, steps: number, ms = 20): Promise<void> => {
@@ -86,7 +92,12 @@ interface DragScene {
   readonly pressed: () => boolean
 }
 
-const mountDrag = async (mode: Mode, axis: true | "x" = true, momentum = false): Promise<DragScene> => {
+const mountDrag = async (
+  mode: Mode,
+  axis: true | "x" = true,
+  momentum = false,
+  touchAction?: "none",
+): Promise<DragScene> => {
   const [el, setEl] = createSignal<HTMLElement>()
   const samples: Array<DragSample> = []
   let hovered: () => boolean = () => false
@@ -114,7 +125,13 @@ const mountDrag = async (mode: Mode, axis: true | "x" = true, momentum = false):
           dragMomentum={momentum}
           animate={{ opacity: 1 }}
           whileDrag={{ opacity: 0.5 }}
-          style={{ position: "relative", width: "120px", height: "80px", background: "#f88" }}
+          style={{
+            position: "relative",
+            width: "120px",
+            height: "80px",
+            background: "#f88",
+            ...(touchAction !== undefined ? { "touch-action": touchAction } : {}),
+          }}
         />
       </div>
       <Show when={el()}>{(target) => <Recorder target={target()} />}</Show>
@@ -350,6 +367,69 @@ describe.each(["layout", "free"] as const)("%s drag", (mode) => {
   })
 })
 
+describe("primary pointer", () => {
+  it("R1: a right-button press and move on D", async () => {
+    const s = await mountDrag("free")
+    const g = s.grab
+    await mouse.down(g, { button: "right" })
+    await glide(g, { x: g.x + 40, y: g.y }, 8)
+    await wait(150)
+    const held = seen(s)
+    const heldPress = s.pressed()
+    await mouse.up({ x: g.x + 40, y: g.y }, { button: "right" })
+    await wait(300)
+    expect.soft(phases(s.samples, 0), "a right button starts no drag").toBe("none")
+    expect.soft(held.dx, "D doesn't move").toBeCloseTo(0, 0)
+    expect.soft(heldPress, "and isn't pressed").toBe(false)
+  })
+
+  // CDP touch: Chromium only. CDP's touchEnd lifts every finger, so the second finger
+  // stays down until the end; its down is what a drag must ignore.
+  it.skipIf(!cdpTouch)("M1: finger 1 drags D; finger 2 lands on D; finger 1 moves on", async () => {
+    const s = await mountDrag("free", true, false, "none")
+    const g = s.grab
+    const f2 = { x: g.x + 60, y: g.y + 20 }
+    await commands.realTouch("touchStart", [finger(1, g)])
+    for (let k = 1; k <= 8; k++) {
+      await commands.realTouch("touchMove", [finger(1, { x: g.x + 5 * k, y: g.y })])
+      await wait(20)
+    }
+    await wait(150)
+    const before = seen(s)
+    await commands.realTouch("touchStart", [finger(1, { x: g.x + 40, y: g.y }), finger(2, f2)])
+    await wait(100)
+    for (let k = 1; k <= 4; k++) {
+      await commands.realTouch("touchMove", [finger(1, { x: g.x + 40 + 5 * k, y: g.y }), finger(2, f2)])
+      await wait(20)
+    }
+    await wait(150)
+    const after = seen(s)
+    await commands.realTouch("touchEnd", [])
+    await wait(300)
+    expect.soft(before.dx, "finger 1 drags D").toBeCloseTo(40, 0)
+    expect.soft(after.dx, "a second finger doesn't rebase the drag").toBeCloseTo(60, 0)
+  })
+
+  it.skipIf(!cdpTouch)("M3: finger 1 rests off D; finger 2 drags D", async () => {
+    const s = await mountDrag("free", true, false, "none")
+    const g = s.grab
+    const f1 = finger(1, { x: g.x + 200, y: g.y + 200 })
+    await commands.realTouch("touchStart", [f1])
+    await wait(60)
+    await commands.realTouch("touchStart", [f1, finger(2, g)])
+    for (let k = 1; k <= 8; k++) {
+      await commands.realTouch("touchMove", [f1, finger(2, { x: g.x + 5 * k, y: g.y })])
+      await wait(20)
+    }
+    await wait(150)
+    const held = seen(s)
+    await commands.realTouch("touchEnd", [])
+    await wait(300)
+    expect.soft(phases(s.samples, 0), "a second finger starts no drag").toBe("none")
+    expect.soft(held.dx, "D doesn't move").toBeCloseTo(0, 0)
+  })
+})
+
 interface StateScene {
   readonly el: HTMLElement
   readonly centre: Pt
@@ -399,6 +479,57 @@ const mountState = async (): Promise<StateScene> => {
   }
 }
 
+/**
+ * The Drag activity scene (H3): an x-locked draggable D above O, a `whileHover`
+ * element 40 px below it. D is grabbed at its centre; the pointer can drift down onto
+ * O while D, locked to x, stays put.
+ */
+const mountDragOverO = async (): Promise<{ readonly d: DOMRect; readonly o: StateScene }> => {
+  const [d, setD] = createSignal<HTMLElement>()
+  const [o, setO] = createSignal<HTMLElement>()
+  let hovered: () => boolean = () => false
+  let pressedNow: () => boolean = () => false
+  function Recorder(props: { readonly target: HTMLElement }) {
+    // eslint-disable-next-line solid/reactivity
+    hovered = createHover(props.target)
+    // eslint-disable-next-line solid/reactivity
+    pressedNow = createPress(props.target)
+    return null
+  }
+  render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "absolute", top: "40px", left: "40px" }}>
+        <wardic.div
+          ref={(n: HTMLElement) => setD(n)}
+          drag="x"
+          dragMomentum={false}
+          style={{ position: "relative", width: "120px", height: "80px", background: "#f88" }}
+        />
+        <wardic.div
+          ref={(n: HTMLElement) => setO(n)}
+          animate={{ opacity: 0.2 }}
+          whileHover={{ opacity: 0.6 }}
+          style={{ position: "relative", "margin-top": "40px", width: "120px", height: "80px", background: "#8f8" }}
+        />
+      </div>
+      <Show when={o()}>{(target) => <Recorder target={target()} />}</Show>
+    </WardicProvider>
+  ))
+  await settle()
+  const target = o()!
+  const b = target.getBoundingClientRect()
+  return {
+    d: d()!.getBoundingClientRect(),
+    o: {
+      el: target,
+      centre: { x: b.left + 60, y: b.top + 40 },
+      hovered: () => hovered(),
+      pressed: () => pressedNow(),
+      look: () => ({ opacity: r2(Number(getComputedStyle(target).opacity)), scale: 1 }),
+    },
+  }
+}
+
 describe("press and hover", () => {
   it("Q0: a press released on the element", async () => {
     const s = await mountState()
@@ -428,6 +559,22 @@ describe("press and hover", () => {
     expect.soft(s.pressed(), "an unpressed move over it doesn't bring the press back").toBe(false)
   })
 
+  it("Q2: after a lost release, the first unpressed move ends the press", async () => {
+    const s = await mountState()
+    await glide({ x: 5, y: 5 }, s.centre, 4)
+    disposers.push(loseNextRelease())
+    await mouse.down(s.centre)
+    await wait(300)
+    await mouse.up(s.centre)
+    await wait(300)
+    const lost = s.pressed()
+    await glide(s.centre, { x: s.centre.x + 10, y: s.centre.y }, 2)
+    await wait(400)
+    expect.soft(lost, "the lost release leaves the press on").toBe(true)
+    expect.soft(s.pressed(), "the first unpressed move ends it").toBe(false)
+    expect.soft(s.look().scale, "whileTap ends").toBeCloseTo(1, 1)
+  })
+
   it("H0: hover follows enter and leave", async () => {
     const s = await mountState()
     await glide({ x: 5, y: 5 }, s.centre, 4)
@@ -437,5 +584,75 @@ describe("press and hover", () => {
     await wait(400)
     expect.soft(inside, "hover on enter").toBe(true)
     expect.soft(s.hovered(), "hover off on leave").toBe(false)
+  })
+
+  // Motion's deferred leave (hover.ts:67-107 @ 16c6122, pinned by hover.test.tsx:279-310).
+  it("H1: a leave while pressed waits for the release", async () => {
+    const s = await mountState()
+    await glide({ x: 5, y: 5 }, s.centre, 4)
+    await mouse.down(s.centre)
+    await wait(300)
+    const outside = { x: s.centre.x + 150, y: s.centre.y }
+    await glide(s.centre, outside, 6)
+    await wait(300)
+    const heldOff = { hovered: s.hovered(), opacity: s.look().opacity }
+    await mouse.up(outside)
+    await wait(400)
+    expect.soft(heldOff.hovered, "hover stays on while the pointer is held off the element").toBe(true)
+    expect.soft(heldOff.opacity, "and so does whileHover").toBeCloseTo(0.6, 1)
+    expect.soft(s.hovered(), "the release outside ends it").toBe(false)
+  })
+
+  // Touch never hovers (Motion's hover.ts:26-28, :99). The browser still fires
+  // pointerenter/pointerleave around a touch (enter down … up leave).
+  it.skipIf(!cdpTouch)("H2: a touch tap and a touch drag never hover", async () => {
+    const s = await mountState()
+    // Chromium can swallow the first touch after an earlier test's touch gesture, so
+    // tap once off the element first.
+    await commands.realTouch("touchStart", [finger(6, { x: 5, y: 5 })])
+    await commands.realTouch("touchEnd", [])
+    await wait(100)
+    const seenHover: Array<boolean> = []
+    await commands.realTouch("touchStart", [finger(7, s.centre)])
+    await wait(200)
+    seenHover.push(s.hovered())
+    await commands.realTouch("touchEnd", [])
+    await wait(200)
+    seenHover.push(s.hovered())
+    await commands.realTouch("touchStart", [finger(8, { x: s.centre.x - 40, y: s.centre.y })])
+    for (let k = 1; k <= 6; k++) {
+      await commands.realTouch("touchMove", [finger(8, { x: s.centre.x - 40 + 30 * k, y: s.centre.y })])
+      await wait(20)
+      seenHover.push(s.hovered())
+    }
+    await commands.realTouch("touchEnd", [])
+    await wait(300)
+    seenHover.push(s.hovered())
+    expect.soft(seenHover.every((h) => !h), `hover stays off: ${seenHover.join(",")}`).toBe(true)
+    expect.soft(s.look().opacity, "whileHover never starts").toBeCloseTo(0.2, 1)
+  })
+
+  // No hover starts while a drag is active (Motion's isDragActive, hover.ts:26-28). At the
+  // release over O, Motion leaves O unhovered until the pointer leaves and comes back
+  // (framer-motion 13.4.0 runtime, .tmp/motion-check/drag-run31b.ts, 2026-09-29).
+  it("H3: a drag whose pointer drifts onto another element doesn't hover it", async () => {
+    const { d, o } = await mountDragOverO()
+    const g = { x: d.left + 60, y: d.top + 40 }
+    await glide({ x: 5, y: 5 }, g, 4)
+    await mouse.down(g)
+    await glide(g, { x: g.x, y: g.y + 10 }, 2) // past the drag threshold, still on D
+    await glide({ x: g.x, y: g.y + 10 }, o.centre, 8) // D can't follow on y: the pointer is over O
+    await wait(400)
+    const during = { hovered: o.hovered(), opacity: o.look().opacity }
+    await mouse.up(o.centre)
+    await wait(300)
+    const released = o.hovered()
+    await glide(o.centre, { x: o.centre.x + 150, y: o.centre.y }, 4)
+    await glide({ x: o.centre.x + 150, y: o.centre.y }, o.centre, 4)
+    await wait(400)
+    expect.soft(during.hovered, "no hover starts on O while the drag is on").toBe(false)
+    expect.soft(during.opacity, "O's whileHover never starts").toBeCloseTo(0.2, 1)
+    expect.soft(released, "the release over O leaves it unhovered (Motion)").toBe(false)
+    expect.soft(o.hovered(), "leaving and coming back hovers it").toBe(true)
   })
 })
