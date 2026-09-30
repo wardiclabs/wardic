@@ -384,7 +384,9 @@ Method); the expected card, with a browser's own scheduler:
   and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
   900 ms, or press S. M (grey) starts a slow FLIP across the item when you grab it
   (the toggle): it should keep animating on the item, with no jump. Its offset
-  changes by design, so the eye checks it, not the card.
+  changes by design, so the eye checks it, not the card; each frame of the saved
+  log records its box under `watched`, for #38 (M steps back as the released item
+  settles on its slot).
 - **13, release and pointer lag.** The item sits in a `layout` parent. While you
   hold it, Z resizes its own slot (it should paint its new size under the pointer,
   about the same centre) and P FLIPs its parent 60px right (it should stay under the

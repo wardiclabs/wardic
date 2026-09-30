@@ -456,6 +456,13 @@ describe("dragChecksOf", () => {
     expect(passes?.ok).toBe(true)
   })
 
+  it("keeps a watched box in the frames and judges nothing by it (#38)", () => {
+    const watched = cleanFrames.map((f, i) => ({ ...f, watched: { m: box(40 * i, 3, 40, 20) } }))
+    const run = dragRunOf(input(watched), cleanSpans)
+    expect(run.frames[3]?.watched).toEqual({ m: box(120, 3, 40, 20) })
+    expect(dragChecksOf(run, S11_EXPECT)).toEqual(dragChecksOf(dragRunOf(input(cleanFrames), cleanSpans), S11_EXPECT))
+  })
+
   it("reads a stuck release as `?` and off the slot", () => {
     const moves: ReadonlyArray<DragMove> = [
       { t: 1008, frame: 0, dx: 20, dy: 0 },

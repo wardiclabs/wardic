@@ -71,6 +71,12 @@ export interface DragRecorderOptions {
   readonly item: () => HTMLElement | undefined
   /** The children whose glue to the item the run checks, by name. */
   readonly children: () => Readonly<Record<string, HTMLElement | undefined>>
+  /**
+   * Elements whose painted box each frame records, by name, and no check judges
+   * (optional): a child that moves by design, like scenario 12's M, kept for the eye
+   * and the saved log (#38).
+   */
+  readonly watched?: () => Readonly<Record<string, HTMLElement | undefined>>
   /** Elements whose painted opacity each frame records, by name (optional). */
   readonly opacity?: () => Readonly<Record<string, HTMLElement | undefined>>
   /** The scenario's mode at the grab. */
@@ -205,6 +211,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       d,
       slot: layoutBox(item, stage),
       children: boxesOf(opts.children(), stage),
+      ...(opts.watched === undefined ? {} : { watched: boxesOf(opts.watched(), stage) }),
       ...(opacities === undefined
         ? {}
         : {

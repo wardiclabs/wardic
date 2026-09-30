@@ -123,6 +123,11 @@ export interface DragFrame {
   readonly slot: Box
   /** Each watched child's painted box, by name. A child missing from a frame is not judged in it. */
   readonly children: Readonly<Record<string, Box>>
+  /**
+   * Painted boxes no check judges, by name, for a scenario that records one (scenario
+   * 12's M, which moves by design: #38). Left out otherwise.
+   */
+  readonly watched?: Readonly<Record<string, Box>>
   /** Painted opacities, by name, for a scenario that watches them (a dragged `layoutId` lead). */
   readonly opacity?: Readonly<Record<string, number>>
 }

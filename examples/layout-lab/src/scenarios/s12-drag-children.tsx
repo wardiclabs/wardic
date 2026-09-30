@@ -9,7 +9,8 @@
  * release. A sibling above D can move D's slot while it is held: every 900 ms, or on
  * S. A fifth child, M, starts a slow FLIP across D when you grab it (the "animate a
  * child on grab" toggle): it should keep animating on D, with no jump, which the eye
- * checks (its offset changes by design, so it is not in the glue check). The "lose
+ * checks (its offset changes by design, so it is not in the glue check; each frame
+ * records its box in `watched`, for #38's release stutter). The "lose
  * the next release" toggle (L while D is held, or its checkbox) swallows the press's
  * pointerup, for the card's `gesture ends` line (#31, ADR-0019).
  *
@@ -72,6 +73,7 @@ const View: ScenarioDef["View"] = (props) => {
   let c2: HTMLElement | undefined
   let r: HTMLElement | undefined
   let g: HTMLElement | undefined
+  let m: HTMLElement | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   let dragging = false
   let noteLayoutChange = (): void => {}
@@ -98,6 +100,8 @@ const View: ScenarioDef["View"] = (props) => {
       stage: () => stage,
       item: () => item,
       children: () => ({ c1, c2, r, g }),
+      // M moves by design, so it is recorded for the log but not glue-checked (#38).
+      watched: () => ({ m }),
       mode: () => (animateOnGrab() ? "animate-on-grab" : "resting"),
       onPhase: (phase) => {
         if (phase === "start") {
@@ -140,7 +144,8 @@ const View: ScenarioDef["View"] = (props) => {
               {/* eslint-disable-next-line solid/reactivity */}
               <wardic.div layout ref={(el: HTMLElement) => (g = el)} style={G_STYLE} />
             </wardic.div>
-            <wardic.div layout layoutDependency={mRight()} transition={M_TRANSITION} style={mStyle(mRight())} />
+            {/* eslint-disable-next-line solid/reactivity */}
+            <wardic.div layout layoutDependency={mRight()} transition={M_TRANSITION} ref={(el: HTMLElement) => (m = el)} style={mStyle(mRight())} />
           </wardic.div>
         </div>
       </div>
