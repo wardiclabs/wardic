@@ -665,7 +665,7 @@ describe("the gesture ends line (#31)", () => {
     expect(dragChecksOf(run, S11_EXPECT).every((c) => c.ok)).toBe(true)
   })
 
-  /** A press that went down on an item a stuck gesture left at `grabBox`: a click, released 168 ms later (#21). */
+  /** A press that went down on an item a stale gesture left at `grabBox`: a click, released 168 ms later (#21). */
   const clickOn = (grabBox: Box, before: (k: number) => Box): DragRunInput =>
     input(
       [
@@ -675,9 +675,9 @@ describe("the gesture ends line (#31)", () => {
       { moves: [], grabBox, releaseAt: frameAtOf(10) + 8, endedAt: frameAtOf(15) + 10, endedBy: "settled" },
     )
 
-  it("fails a press that inherited a stuck gesture, and a click on one (#12, #20, #21, #25)", () => {
+  it("fails a press that inherited a stale gesture, and a click on one (#12, #20, #21, #25)", () => {
     const stuck = dragRunOf(stuckInput({ pointerLeft: true }), cleanSpans)
-    // #21: between the presses the stuck gesture dragged the item 28.64px up; the click's
+    // #21: between the presses the stale gesture dragged the item 28.64px up; the click's
     // own release is what ended it, so the item sat still until the pointerup.
     const lifted = moved(HELD_BOX, 0, -28.64)
     const click = dragRunOf(clickOn(lifted, () => lifted), [], stuck)
@@ -687,7 +687,7 @@ describe("the gesture ends line (#31)", () => {
       [
         "gesture ends",
         false,
-        "28.64 px · click · inherited a stuck gesture · the press doesn't end the stuck gesture ✗ expected ≤ 1 px, and an end",
+        "28.64 px · click · inherited a stale gesture · the press doesn't end the stale gesture ✗ expected ≤ 1 px, and an end",
       ],
     ])
     // #12, a drag: the item follows the new press's moves as the old gesture's.
@@ -696,7 +696,7 @@ describe("the gesture ends line (#31)", () => {
     // From the stuck run's last frame (the held box, 67,96) to this grab (32,59.36).
     expect(drag.gestureEnd.inheritedPx).toBeCloseTo(36.64, 10)
     expect(gestureOf(drag)).toMatchObject({ ok: false })
-    expect(gestureOf(drag)?.text).toContain("inherited a stuck gesture")
+    expect(gestureOf(drag)?.text).toContain("inherited a stale gesture")
   })
 
   it("inherits nothing from a previous run whose gesture ended, or when the item is back on its slot", () => {
@@ -721,7 +721,7 @@ describe("the gesture ends line (#31)", () => {
     // Before #31's fix: the down is ignored, and the item sits still until the click's pointerup ends the old gesture.
     const ignored = dragRunOf(clickOn(HELD_BOX, () => HELD_BOX), [], lost)
     expect(ignored.gestureEnd).toMatchObject({ inheritedPx: null, pressOnOpen: "not ended" })
-    expect(gestureOf(ignored)).toMatchObject({ ok: false, text: "0.00 px · click · the press doesn't end the stuck gesture ✗ expected ≤ 1 px, and an end" })
+    expect(gestureOf(ignored)).toMatchObject({ ok: false, text: "0.00 px · click · the press doesn't end the stale gesture ✗ expected ≤ 1 px, and an end" })
     // After it: the down ends the old gesture, and its release flies the item to its slot at once.
     const ended = dragRunOf(clickOn(HELD_BOX, (k) => toward(HELD_BOX, SLOT_B, k / 10)), [], lost)
     expect(ended.gestureEnd.pressOnOpen).toBe("ended")
@@ -729,7 +729,7 @@ describe("the gesture ends line (#31)", () => {
     // A press whose drag started before any frame could show the down: unseen, and failed.
     const quick = dragRunOf(input(cleanFrames, { grabBox: HELD_BOX }), cleanSpans, lost)
     expect(quick.gestureEnd.pressOnOpen).toBe("unseen")
-    expect(gestureOf(quick)?.text).toContain("? whether the press ends the stuck gesture")
+    expect(gestureOf(quick)?.text).toContain("? whether the press ends the stale gesture")
   })
 
   it("fails a press of a pointer that isn't the Primary pointer when it drags, and reads no drag lines (#31's R11)", () => {

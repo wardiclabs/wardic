@@ -99,7 +99,9 @@ const endsPress = (event: PointerLikeEvent): boolean =>
  * ADR-0019): touch never hovers; an enter while a drag is active (**Drag activity**)
  * starts nothing; a leave while a pointer that went down on the target is held waits
  * for that pointer's release, its cancel or its first unpressed move, then ends the
- * hover unless the pointer came back in.
+ * hover unless the pointer came back in first. An enter during a drag doesn't count,
+ * so a dragged element whose pointer left and came back ends its hover at the release
+ * (Motion's `hover.ts:78-81, 109-112` do the same).
  */
 const hoverFold = (activity: DragActivityShape): Fold<HoverState, PointerLikeEvent> => ({
   initial: noHover,

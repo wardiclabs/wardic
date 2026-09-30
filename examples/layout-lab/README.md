@@ -233,9 +233,9 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     `follows the unpressed pointer` (a frame after the gesture's end sat where the
     unpressed pointer put the item, two in a row); `never ends, … off its slot`
     (nothing moved after its end although the item was off its slot); `inherited a
-    stuck gesture` (the scenario's previous run left its gesture on, and the item
+    stale gesture` (the scenario's previous run left its gesture on, and the item
     moved between that run's last frame and this grab); `the press doesn't end the
-    stuck gesture` (after such a run, the item neither flew toward its slot nor
+    stale gesture` (after such a run, the item neither flew toward its slot nor
     rested on it after this press's down, before its drag started or its release;
     `?` when no frame came in between); or `not the primary pointer · dragged it`
     (a press of a right button or a second finger moved the item: only the
@@ -247,7 +247,7 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
 
   - `click, no drag` on the six drag lines: the pointer never moved past the
     drag threshold. Its `gesture ends` line is still judged, so a click on an
-    item a stuck gesture left off its slot fails it.
+    item a stale gesture left off its slot fails it.
   - `not the primary pointer, no drag` on the six drag lines: a press that
     shouldn't drag at all. Its `gesture ends` line fails if it did.
   - `cut short by the next press` on `ends on slot` (after the last frame's

@@ -753,8 +753,8 @@ const lineOf = (name: DragCheckName, value: string, expected: string | undefined
  * The `gesture ends` line (#31): the gesture's {@link GestureEnd.stalePx}, what the press
  * was (`click`, `not the primary pointer`, `lost release`), and each thing that
  * shows a gesture going on when it should have ended (`follows the unpressed pointer`,
- * `inherited a stuck gesture`, `dragged it`, `never ends, … off its slot`, `the press
- * doesn't end the stuck gesture`). Any of those fails it, a distance only past `bound`
+ * `inherited a stale gesture`, `dragged it`, `never ends, … off its slot`, `the press
+ * doesn't end the stale gesture`). Any of those fails it, a distance only past `bound`
  * (1px when left out). A click, a lost release no unpressed move followed, and a run
  * the next press cut short before any frame after its end point have nothing to judge
  * unless one of those shows.
@@ -769,11 +769,11 @@ const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined):
   if (run.releaseLost === true) notes.push("lost release")
   const misses: Array<string> = []
   if (g.followedPx > limit) misses.push("follows the unpressed pointer")
-  if (g.inheritedPx !== null && g.inheritedPx > limit) misses.push("inherited a stuck gesture")
+  if (g.inheritedPx !== null && g.inheritedPx > limit) misses.push("inherited a stale gesture")
   if (g.notPrimaryPx > limit) misses.push("dragged it")
   if (g.stuckPx !== null) misses.push(`never ends, ${px(g.stuckPx)} off its slot`)
-  if (g.pressOnOpen === "not ended") misses.push("the press doesn't end the stuck gesture")
-  if (g.pressOnOpen === "unseen") misses.push("? whether the press ends the stuck gesture")
+  if (g.pressOnOpen === "not ended") misses.push("the press doesn't end the stale gesture")
+  if (g.pressOnOpen === "unseen") misses.push("? whether the press ends the stale gesture")
   const expected = bound === undefined ? undefined : `≤ ${bound} px, and an end`
   if (misses.length === 0) {
     if (run.releaseAt === null) return lineOf("gesture ends", "?", expected, false)

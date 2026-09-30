@@ -87,7 +87,7 @@ The pointer `drag` and `press` listen to: a mouse event with the left button or 
 _Avoid_: main pointer, first pointer.
 
 **Stale gesture**:
-A gesture whose release was lost, e.g. swallowed by another listener or released outside the window. It ends as a cancel, at its last pressed point with no velocity, at the owning pointer's first move with no button pressed or at its next down (ADR-0019).
+A gesture whose release was lost, e.g. swallowed by another listener or released outside the window. It ends as a cancel, at its last pressed point with no velocity, at the owning pointer's first move with no button pressed, at its next down, or at the next press anywhere by it or by a new primary pointer of its type (ADR-0019).
 _Avoid_: stuck drag.
 
 **Drag activity**:
@@ -168,7 +168,7 @@ The Clock's loop ends at the first Refresh frame after its last subscriber leave
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Held pointer**:
-A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release. DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `heldPointerSource` implements it for any Environment (ADR-0019).
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its type. DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `heldPointerSource` implements it for any Environment (ADR-0019).
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:

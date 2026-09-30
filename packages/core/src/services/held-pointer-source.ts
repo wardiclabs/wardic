@@ -38,13 +38,13 @@ import type { PointerLikeEvent } from "./InputSource.ts"
 
 /**
  * A source of pointer events: called with `emit`, it starts calling it for each event
- * and returns the function that stops it. `raw` is the platform event the
+ * and returns the function that stops it. Tier 2 (ADR-0008), for Environment authors. `raw` is the platform event the
  * {@link PointerLikeEvent} was mapped from (any object that is the same for the same
  * event on both feeds), used only to deliver an event once.
  */
 export type PointerFeed = (emit: (event: PointerLikeEvent, raw: unknown) => void) => () => void
 
-/** The two feeds {@link heldPointerSource} merges. */
+/** The two feeds {@link heldPointerSource} merges. Tier 2 (ADR-0008). */
 export interface HeldPointerSourceOptions {
   /** The pointer events on the target itself. */
   readonly target: PointerFeed

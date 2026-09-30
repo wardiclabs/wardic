@@ -96,7 +96,7 @@ Engine questions left open by #26 (each with measurements in its issue):
 - **The drag's input** (#31 fixed, #32 open; both matter for every `<Reorder>` item):
   - Since ADR-0019 a pointer that went down on an item is a Held pointer: the drag follows
     it anywhere on the page, a release anywhere ends it, a lost release ends at the next
-    unpressed move or press, and only the Primary pointer drags. After the down, the
+    unpressed move or the next press anywhere, and only the Primary pointer drags. After the down, the
     item's hit box no longer matters (the lab's resize mode lost the pointer in 2 of 8
     runs before, 0 of 8 after); a press still hit-tests.
   - Pointer input reaches the drag one `setTimeout(0)` hop late in a real page: one frame
@@ -105,7 +105,7 @@ Engine questions left open by #26 (each with measurements in its issue):
     paints over it takes a press meant for it.
   - Wardic sets no `touch-action` on a drag element (Motion sets `none`, or `pan-x`/`pan-y`
     for an axis): with `touch-action: auto` Chromium takes a touch drag for scrolling and
-    cancels it after the first move. A touch `<Reorder>` needs it; not yet filed.
+    cancels it after the first move. A touch `<Reorder>` needs it (#36).
   - After a lost release, pressing a `layout` item again restarts the drag from its slot
     (#30's grab mid-flight jump).
 - **Nested draggables** have no drag lock (#29): grabbing an inner draggable also drags

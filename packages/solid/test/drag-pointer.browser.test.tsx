@@ -368,7 +368,7 @@ describe.each(["layout", "free"] as const)("%s drag", (mode) => {
 
   // Found by the layout lab's R10: the old gesture's "end" and the new down's grab reach
   // the drag track together, and the grab must not drop the release.
-  it("P7: after a lost release, a click with no move ends the stuck drag", async () => {
+  it("P7: after a lost release, a click with no move ends the stale drag", async () => {
     const s = await mountDrag(mode)
     const { at } = await loseRelease(s)
     const mark = s.samples.length
