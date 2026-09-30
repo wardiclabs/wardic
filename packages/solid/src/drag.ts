@@ -33,6 +33,7 @@ import {
   type DragBounds,
   type DragSample,
   InputSource,
+  isPrimaryPointer,
   type SpringOptions,
   springValues,
   type Values,
@@ -111,13 +112,13 @@ const ORIGIN: Vec2 = { x: 0, y: 0 }
 
 /**
  * The merged event the track switches over: a fresh drag sample, or a bare
- * "grab" (pointer-down) used purely to rebase + interrupt a running release.
+ * "grab" (pointer-down) used purely to interrupt a running release.
  */
 type Event = { readonly _tag: "sample"; readonly s: DragSample } | { readonly _tag: "grab" }
 
 /**
- * Read the current rested `x`/`y` off the snapshot (defaulting to 0). Captured at
- * grab so a drag (or a re-grab mid-release) continues from where the element
+ * Read the current rested `x`/`y` off the snapshot (defaulting to 0). Captured at a
+ * drag's "start" so a drag (or a re-grab mid-release) continues from where the element
  * currently sits instead of snapping to origin.
  */
 const snapshotPos = (snapshot: DragSnapshot): Vec2 => ({
@@ -159,29 +160,27 @@ const inner = (
   opts: RunDragTrackOptions,
 ): Stream.Stream<never, never, Clock> => {
   if (event._tag === "grab") {
-    // Rebase to wherever the element currently rests (the snapshot's x/y) and
-    // interrupt any running release — `switchMap` cancels the previous inner, so
-    // returning a drained one-shot effect is enough. No emission, no jump. For a
-    // projection node the snapshot x/y stays 0 (the projection owns position), so
-    // this naturally rebases `base` to the origin. `dragStart` is driven off the
-    // "start" SAMPLE below, not this grab event — the two race on pointerdown and
-    // switchMap can interrupt the grab inner before it runs (ADR-0016).
-    return Stream.fromEffect(
-      Ref.update(ref, () => {
-        const at = snapshotPos(opts.snapshot)
-        return { base: at, position: at }
-      }),
-    ).pipe(Stream.drain)
+    // Interrupt any running release — `switchMap` cancels the previous inner, so
+    // returning an empty inner is enough. No emission, no jump. The drag rebases at
+    // its "start" sample below, not here: a new down from a pointer whose release was
+    // lost also ends the old gesture (a Stale gesture, ADR-0019), and that "end" and
+    // this grab arrive in either order. `dragStart` is driven off the "start" SAMPLE
+    // too — the two race on pointerdown and switchMap can interrupt the grab inner
+    // before it runs (ADR-0016).
+    return Stream.empty
   }
 
   const sample = event.s
 
   if (sample.phase === "start" || sample.phase === "move") {
-    // Direct-set: absolute position = base (captured at grab) + drag offset.
+    // Direct-set: absolute position = base + drag offset. A "start" rebases to wherever
+    // the element currently rests (the snapshot's x/y). For a projection node the
+    // snapshot x/y stays 0 (the projection owns position), so `base` stays the origin.
     return Stream.fromEffect(
       Ref.modify(ref, (st) => {
-        const p: Vec2 = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
-        return [p, { ...st, position: p }] as const
+        const base = sample.phase === "start" ? snapshotPos(opts.snapshot) : st.base
+        const p: Vec2 = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+        return [p, { base, position: p }] as const
       }).pipe(
         Effect.tap((p) =>
           Effect.sync(() => {
@@ -319,11 +318,11 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
       }
 
       const samples = shaped.pipe(Stream.map((s) => ({ _tag: "sample" as const, s })))
-      // Bare pointer-downs rebase + interrupt a running release. The InputSource
-      // is a Shared source, so this shares the recognizer's single listener-set
-      // (no extra listeners — CONTEXT.md Shared source contract).
+      // Bare pointer-downs from the Primary pointer interrupt a running release. The
+      // InputSource is a Shared source, so this shares the recognizer's single
+      // listener-set (no extra listeners — CONTEXT.md Shared source contract).
       const grabs = input.pointer(element).pipe(
-        Stream.filter((e) => e.type === "down"),
+        Stream.filter((e) => e.type === "down" && isPrimaryPointer(e)),
         Stream.map(() => ({ _tag: "grab" as const })),
       )
 
