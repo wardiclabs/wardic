@@ -5,8 +5,8 @@
  *
  * - **The press.** A `pointerdown` on the item starts it. The moves and the release
  *   are read on `window` (capture phase, passive), so a pointer that leaves the item
- *   is still recorded, and flagged: Wardic's drag listens on the item itself and loses
- *   such a pointer, which the run then shows. The press records its pointer (type,
+ *   is still recorded, and flagged (before #31's fix Wardic's drag listened on the
+ *   item itself and lost such a pointer). The press records its pointer (type,
  *   button, `isPrimary`), since only the Primary pointer should drag (#31), and each
  *   move its `buttons`. A move with no button pressed before any release means the
  *   release happened where the page never heard it (outside the window: headless

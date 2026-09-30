@@ -187,9 +187,10 @@ export interface DragRunInput {
   readonly endedBy?: DragRunEnd
   /**
    * Whether a pointer event of the press landed outside the dragged element (a move
-   * too fast for it, or the release). Wardic's drag listens on the element itself, so
-   * from there it stops following and a release outside doesn't end it: the run then
-   * shows that, not the Measure pass. Left out when it never happened.
+   * too fast for it, or the release). Before #31's fix Wardic's drag listened on the
+   * element itself, so from there it stopped following and a release outside didn't
+   * end it; since ADR-0019 the drag keeps its pointer, and this is information only.
+   * Left out when it never happened.
    */
   readonly pointerLeft?: boolean
   /**

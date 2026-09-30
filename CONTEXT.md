@@ -67,7 +67,7 @@ A core combinator that interprets raw `InputSource` (or `Probe`) events into a p
 _Avoid_: gesture (names the whole feature, not the core piece), handler, listener.
 
 **State recognizer**:
-A Recognizer that emits a `Stream<boolean>` — active / inactive — for the binary gestures `hover`, `press`, `focus`, `inView`. The binding toggles a variant on the boolean.
+A Recognizer that emits a `Stream<boolean>` — active / inactive — for the binary gestures `hover`, `press`, `focus`, `inView`. The binding toggles a variant on the boolean. `press` listens to the **Primary pointer** only. `hover` ignores touch, starts no hover during **Drag activity**, and holds a leave until the release of a pointer pressed on its target (ADR-0019).
 _Avoid_: binary recognizer, flag.
 
 **Sample recognizer**:
@@ -81,6 +81,18 @@ _Avoid_: drag event, pointer sample.
 **Fling** (momentum handoff):
 A drag release continuing under physics — a fresh `decay` (or `spring`) **per axis** seeded from the Drag sample's `end` velocity, so motion continues with no visible kink. Core ships it two ways: a binding-less **fusion combinator** (the `drag` sample stream switching into `decay` as one continuous Stream) and, inside a framework binding, a Retarget. The fusion combinator is the proof that *composing a Recognizer with a Primitive is core, not binding* — only variant-naming, tree propagation, lifecycle, and JSX are the binding's.
 _Avoid_: inertia, throw, momentum (name the mechanism — Fling).
+
+**Primary pointer**:
+The pointer `drag` and `press` listen to: a mouse event with the left button or no button change, or the first touch or pen contact on the page (`isPrimary`). A right-click doesn't drag, and a second finger neither presses nor moves a drag. Motion's `isPrimaryPointer` (ADR-0019).
+_Avoid_: main pointer, first pointer.
+
+**Stale gesture**:
+A gesture whose release was lost, e.g. swallowed by another listener or released outside the window. It ends as a cancel, at its last pressed point with no velocity, at the owning pointer's first move with no button pressed or at its next down (ADR-0019).
+_Avoid_: stuck drag.
+
+**Drag activity**:
+The number of drags active on the page, counted in one core `Context.Reference`. A drag claims it once past its threshold and releases it at its end or when interrupted. While it is non-zero, no hover and no press starts. The nested-drag lock (#29) grows out of it (ADR-0019).
+_Avoid_: drag lock (#29's claim), dragging (a projection node's flag, ADR-0016).
 
 ### Layout
 
@@ -151,9 +163,13 @@ A complete set of Layer implementations of the five core services (Clock, Render
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:
-A contract property of *every* Stream an Environment hands out — `Clock.ticks`, `InputSource.pointer`/`keyboard`/`wheel`/`focus`, `Probe.observeResize`/`observeIntersection`: it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
+A contract property of *every* Stream an Environment hands out — `Clock.ticks`, `InputSource.pointer`/`keyboard`/`wheel`/`focus`, `Probe.observeResize`/`observeIntersection`: it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, plus one page-wide set while a pointer that went down on it is held, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
 The Clock's loop ends at the first Refresh frame after its last subscriber leaves, not at the unsubscribe itself (see **Cold start**).
 _Avoid_: hot stream, multicast (name the property — Shared source).
+
+**Held pointer**:
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release. DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `heldPointerSource` implements it for any Environment (ADR-0019).
+_Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:
 One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `makeRefreshFrameClock` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.

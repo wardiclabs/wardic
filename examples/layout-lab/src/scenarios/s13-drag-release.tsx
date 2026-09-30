@@ -130,8 +130,7 @@ const View: ScenarioDef["View"] = (props) => {
       </div>
       <p style={NOTE_STYLE}>
         Grab the blue item near its centre. While you hold it: Z resizes its slot, P moves its parent, L loses its
-        release. Release still, release while moving, and release back where you grabbed while moving. Keep the
-        pointer on the item (#31).
+        release. Release still, release while moving, and release back where you grabbed while moving.
       </p>
     </div>
   )

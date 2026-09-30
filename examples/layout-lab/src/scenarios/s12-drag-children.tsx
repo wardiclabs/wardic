@@ -153,7 +153,7 @@ const View: ScenarioDef["View"] = (props) => {
       </div>
       <p style={NOTE_STYLE}>
         Grab the blue item near its centre and hold it. Its slot moves every 900 ms, or press S; L loses its release.
-        Every child should stay on it. Keep the pointer on the item (#31).
+        Every child should stay on it.
       </p>
     </div>
   )

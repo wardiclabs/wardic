@@ -195,8 +195,8 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     #32, and **frames behind** reports that lag). Centres, so a slot that resizes
     mid-drag, which the item paints at the new size about the same centre, reads 0.
     `· the pointer left the item` means a pointer event of the press landed outside
-    the item: Wardic's drag then loses the pointer (#31), and the run shows that,
-    not the Measure pass.
+    the item. Before #31's fix the drag lost such a pointer; since ADR-0019 it keeps
+    it, so the note is information only.
   - **frames behind**: for each move, how many painted frames it took for the item
     to show it (within 1px), and how many moves that measured: `1 · 41 moves`. A
     move the next one replaced before any frame could show it is skipped. Expected
@@ -377,8 +377,9 @@ Method); the expected card, with a browser's own scheduler:
   the end of the task, as a `<Reorder>` would). While you hold the item the slot
   moves every 600 ms, or press R. The item has `z-index: 1`: after a swap the
   sibling follows it in the DOM, and while the sibling's FLIP gives it a transform
-  it would paint over the item and take the pointer's events (#31), as a `<Reorder>`
-  item would without Motion's `zIndex: 1`.
+  it would paint over the item and take a press meant for it, as a `<Reorder>` item
+  would without Motion's `zIndex: 1` (before #31's fix it also took a held drag's
+  moves and release).
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
   and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
   900 ms, or press S. M (grey) starts a slow FLIP across the item when you grab it
@@ -390,16 +391,17 @@ Method); the expected card, with a browser's own scheduler:
   pointer). The release lines are the point: let go still, while moving, and back
   where you grabbed while still moving (the release that used to stay stuck).
 
-Known and not fixed by #26, so they don't surprise you:
+Known and not fixed yet, so they don't surprise you:
 
-- **Keep the pointer on the item.** Wardic's drag has no pointer capture: a move
-  that leaves the item stops the drag, and a release outside never ends it, so the
-  item can keep following the pointer after you let go (#31). The card flags such a
-  run with `· the pointer left the item`. In `resize` mode, from the slot move
-  until the next frame's ResizeObserver pass, the item's hit box sits off by the
-  slot move, so a move or a release in that window can miss it even with the
-  pointer still: once in 24 headless Firefox runs, a release landed there and the
-  drag never ended.
+- **A press still hit-tests.** Since #31 a drag keeps its pointer anywhere on the
+  page and a release anywhere ends it (ADR-0019), so the moves and the release no
+  longer depend on the item's hit box. In `resize` mode, from the slot move until
+  the next frame's ResizeObserver pass, the hit box still sits off by the slot
+  move, so a press in that window can miss the item.
+- **A restart after a lost release grabs from the slot (#30).** With L, pressing
+  the item again and dragging ends the old gesture and starts a new one; a
+  `layout` item is flying back to its slot by then, so it jumps to the slot plus
+  the pointer offset, as any grab mid-flight does.
 - A move paints one frame after it with a browser's scheduler (#32).
 - A flick doesn't carry into the release (the release has no velocity), and
   grabbing the item while it is still flying back jumps it (#30).
