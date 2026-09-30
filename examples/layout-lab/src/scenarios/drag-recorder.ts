@@ -28,7 +28,11 @@
  *   frame paints. The scenario calls `noteLayoutChange` just before such a change, and
  *   a read is dropped if a change was noted after its frame's rAF callback. That order
  *   is kept by a counter, not by timestamps: Firefox rounds `performance.now()` to the
- *   millisecond, so a timer just after a rAF callback often shares its timestamp.
+ *   millisecond, so a timer just after a rAF callback often shares its timestamp. The
+ *   release counts as such a change too: its task starts the release flight, and
+ *   Chromium can run that input task between a frame's paint and its read (#31: a slot
+ *   move and the release in the same frame read the flight's first step as a held
+ *   frame 1.05 px off the pointer). A lost release changes nothing.
  * - **The end.** After the release it keeps sampling, and recording the pointer's
  *   moves (`releaseMoves`), until the item's painted box has stood still for
  *   {@link STILL_FRAMES} frames, or {@link SETTLE_MS} ms have passed, or the next press
@@ -241,7 +245,11 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   const release = (p: NonNullable<typeof press>, e: PointerEvent, lost: boolean): void => {
     p.input.releaseAt = performance.now()
     if (lost) p.input.releaseLost = true
-    else p.endAt = p.input.releaseAt
+    else {
+      p.endAt = p.input.releaseAt
+      // The release's task starts the flight: a read after it paints no frame before it.
+      changes += 1
+    }
     const item = opts.item()
     if (item !== undefined && !(e.target instanceof Node && item.contains(e.target))) p.input.pointerLeft = true
     window.removeEventListener("pointerup", onUp, true)
