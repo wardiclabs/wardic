@@ -1,11 +1,13 @@
 // Issue #26's drag runs (`dragRunOf`, `dragChecksOf`, `formatDragPasses`) and the
 // lab's drag-run log (`ctx.recordDragRun`, `Lab.dragRuns`, `Lab.subscribeDragRuns`),
-// in the node test tier. No hand-driven drag has been saved yet, so the fixtures are
-// synthetic, built on the scene of the #26 browser suite
-// (`packages/solid/test/drag-measure-pass.browser.test.tsx`): a 160x80 item D with a
-// `layout` child C1 at (10,10) and a plain child C2 at (60,10). The recorder's first
-// rAF after the grab is frame 1, frames are 16 ms apart, and each pointer move is
-// handled between one frame's paint and the next frame's rAF, as real input is.
+// in the node test tier. The fixtures are synthetic, built on the scene of the #26
+// browser suite (`packages/solid/test/drag-measure-pass.browser.test.tsx`): a 160x80
+// item D with a `layout` child C1 at (10,10) and a plain child C2 at (60,10). The
+// recorder's first rAF after the grab is frame 1, frames are 16 ms apart, and each
+// pointer move is handled between one frame's paint and the next frame's rAF, as real
+// input is. #31's cases (a click, a run the next press cut short) are small inputs
+// shaped like runs of Devin's desktop log 2026-09-29T16-07-41-550Z (Chrome), numbered
+// as the log analyzer numbers them (0-based `dragRuns` order).
 import * as Effect from "effect/Effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
@@ -399,7 +401,9 @@ describe("dragChecksOf", () => {
   })
 
   it("fails what a run could not measure (`?`), and shows a line with no expectation unchecked", () => {
-    const still = dragRunOf(input(cleanHeld, { moves: [], releaseAt: null, childOffsets: {} }), [])
+    // A drag with nothing to read: its one move past the threshold came after the last
+    // frame (no held frame), with no release and no child sampled.
+    const still = dragRunOf(input(cleanHeld, { moves: [moveOf(6)], releaseAt: null, childOffsets: {} }), [])
     expect(textsOf(still, S11_EXPECT)).toEqual([
       ["under pointer", false, "? ✗ expected ≤ 1 px"],
       ["frames behind", false, "? ✗ expected ≤ 0"],
@@ -459,6 +463,101 @@ describe("dragChecksOf", () => {
       ok: false,
       text: "10.00 px ✗ expected ≤ 0.5 px",
     })
+  })
+
+  /** The clean run's six lines against scenario 11's expectations (see the first case above). */
+  const CLEAN_TEXTS = [
+    ["under pointer", true, "0.00 px ✓"],
+    ["frames behind", true, "0 · 6 moves ✓"],
+    ["child glued", true, "c1 0.00 · c2 0.00 px ✓"],
+    ["passes", true, "1 (1 seeding, 2 drag-blocked) ✓"],
+    ["release held", true, "0 ✓"],
+    ["ends on slot", true, "0.00 px ✓"],
+  ]
+
+  it("reads a press with no move past the threshold as a click on every line, none judged (#21, #25)", () => {
+    // Run #21: a press with no move, released 168 ms after the grab (frame 10 here);
+    // its pointerup ended a gesture a lost release had left on (#31), so the item then
+    // flew from where it was grabbed to its slot.
+    const slot = box(96, 36)
+    const grabbed = box(77, 25)
+    const releaseAt = frameAtOf(10) + 8
+    const frames = [
+      ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((k) => frameOf(k, grabbed, slot)),
+      ...[0.3, 0.7, 1, 1, 1, 1].map((f, i) => frameOf(11 + i, toward(grabbed, slot, f), slot)),
+    ]
+    const click = { moves: [], grabBox: grabbed, releaseAt, endedAt: frameAtOf(16) + 10, endedBy: "settled" } as const
+    const clickTexts = DRAG_CHECK_NAMES.map((name) => [name, true, "click, no drag"])
+    expect(textsOf(dragRunOf(input(frames, click), []), S11_EXPECT)).toEqual(clickTexts)
+    // Moves within the drag threshold (3px, straight-line) are still a click.
+    const jitter: ReadonlyArray<DragMove> = [
+      { t: frameAtOf(3) + 8, frame: 3, dx: 2, dy: 1 },
+      { t: frameAtOf(5) + 8, frame: 5, dx: 2.5, dy: -1.5 },
+    ]
+    expect(textsOf(dragRunOf(input(frames, { ...click, moves: jitter }), []), S11_EXPECT)).toEqual(clickTexts)
+    // One move past it starts a drag: that press is judged, and with no held frame reads `?`.
+    const late: DragMove = { t: frameAtOf(10) + 4, frame: 10, dx: 4, dy: 0 }
+    const dragged = textsOf(dragRunOf(input(frames, { ...click, moves: [...jitter, late] }), []), S11_EXPECT)
+    expect(dragged[0]).toEqual(["under pointer", false, "? ✗ expected ≤ 1 px"])
+  })
+
+  /**
+   * Run #14: the next press came 662 ms after the release, while the release's spring
+   * was still in its tail, 0.56 px short of the slot (in y), and ended the recording.
+   */
+  const TAIL = moved(SLOT_B, 0, 0.56)
+  const cutFrames: ReadonlyArray<DragFrame> = [
+    ...cleanHeld,
+    ...[0.1, 0.4, 0.8].map((f, i) => frameOf(7 + i, toward(HELD_BOX, SLOT_B, f), SLOT_B)),
+    frameOf(10, TAIL, SLOT_B),
+  ]
+  const cutInput = (endedBy: DragRunInput["endedBy"]): DragRunInput => {
+    const cut = input(cutFrames, { endedAt: frameAtOf(10) + 10, endedBy })
+    if (endedBy !== undefined) return cut
+    // A log from before #31's lab fix: no `endedBy` at all.
+    const { endedBy: _, ...old } = cut
+    return old
+  }
+
+  it("does not judge where a run the next press cut short ended (#14, #22)", () => {
+    const run = dragRunOf(cutInput("next-press"), cleanSpans)
+    expect(run.endsOnSlotPx).toBeCloseTo(0.56, 10)
+    expect(textsOf(run, S11_EXPECT)).toEqual([
+      ...CLEAN_TEXTS.slice(0, 5),
+      ["ends on slot", true, "0.56 px · cut short by the next press"],
+    ])
+    expect(JSON.parse(JSON.stringify(run))).toStrictEqual(run)
+    // Cut before any frame after the release: no distance to show.
+    const early = dragRunOf(input(cleanHeld, { endedAt: RELEASE_AT + 2, endedBy: "next-press" }), cleanSpans)
+    expect(dragChecksOf(early, S11_EXPECT).find((c) => c.name === "ends on slot")).toEqual({
+      name: "ends on slot",
+      ok: true,
+      text: "cut short by the next press",
+    })
+  })
+
+  it("still judges the same last frame when the run timed out, settled, or predates `endedBy`", () => {
+    for (const endedBy of ["timeout", "settled", undefined] as const) {
+      const ends = dragChecksOf(dragRunOf(cutInput(endedBy), cleanSpans), S11_EXPECT).find((c) => c.name === "ends on slot")
+      expect(ends).toEqual({ name: "ends on slot", ok: false, text: "0.56 px ✗ expected ≤ 0.5 px" })
+    }
+  })
+
+  it("leaves a whole #26 drag's six lines as they were, however the recording ended", () => {
+    const failing = textsOf(dragRunOf(input(oldFrames), oldSpans), S11_EXPECT)
+    for (const endedBy of ["settled", "timeout", "next-press", undefined] as const) {
+      const clean = dragRunOf(input(cleanFrames, endedBy === undefined ? {} : { endedBy }), cleanSpans)
+      const lines = textsOf(clean, S11_EXPECT)
+      // A cut-short run only notes it on `ends on slot`, still ok (0.00 px here).
+      expect(lines).toEqual(
+        endedBy === "next-press"
+          ? [...CLEAN_TEXTS.slice(0, 5), ["ends on slot", true, "0.00 px · cut short by the next press"]]
+          : CLEAN_TEXTS,
+      )
+      if (endedBy === "next-press") continue
+      const old = dragRunOf(input(oldFrames, endedBy === undefined ? {} : { endedBy }), oldSpans)
+      expect(textsOf(old, S11_EXPECT)).toEqual(failing)
+    }
   })
 })
 

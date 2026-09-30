@@ -17,6 +17,12 @@
  * to the stage. It hands the lab one input per press through `ctx.recordDragRun`,
  * and the lab adds the `wardic.*` spans that started in `[grabAt, endedAt]`.
  *
+ * Not every press is a whole drag (#31's lab fix, from Devin's desktop log of
+ * 2026-09-29). A press that never moves past the drag threshold is a click, and the
+ * card reads it as one. A run the next press cut short while its release was still
+ * settling (`endedBy`) has no settled last frame, so the card doesn't judge where it
+ * ended.
+ *
  * Every move and every frame carries the recorder's frame counter, so which moves a
  * frame could show is exact: a move handled before a frame's rAF callback has a
  * smaller counter than that frame. No timestamp is compared there, because Firefox
@@ -107,6 +113,9 @@ export interface DragFrame {
   readonly opacity?: Readonly<Record<string, number>>
 }
 
+/** Why a drag scenario's recorder stopped after the release (see {@link DragRunInput.endedBy}). */
+export type DragRunEnd = "settled" | "timeout" | "next-press"
+
 /**
  * What a drag scenario's recorder hands `ctx.recordDragRun` for one press. Every
  * field is a number, string, plain object or array, so it survives a JSON round
@@ -129,8 +138,17 @@ export interface DragRunInput {
   readonly childOffsets: Readonly<Record<string, Point>>
   /** When the pointer went up (ms), or `null` when the press never ended in a release. */
   readonly releaseAt: number | null
-  /** When the recorder stopped (ms). */
+  /** When the recorder stopped (ms). {@link endedBy} says why. */
   readonly endedAt: number
+  /**
+   * Why the recorder stopped after the release: `settled` (the item's painted box stood
+   * still for the recorder's `STILL_FRAMES` frames), `timeout` (its `SETTLE_MS` passed
+   * first) or `next-press` (the next press started while the release was still
+   * settling: the run was cut short, so its last frame may still be on the way to the
+   * slot). Left out in a log from before #31's lab fix, whose runs are judged as if they
+   * had settled.
+   */
+  readonly endedBy?: DragRunEnd
   /**
    * Whether a pointer event of the press landed outside the dragged element (a move
    * too fast for it, or the release). Wardic's drag listens on the element itself, so
@@ -278,6 +296,12 @@ export const DRAG_CHECK_NAMES = [
 
 /** One of {@link DRAG_CHECK_NAMES}. */
 export type DragCheckName = (typeof DRAG_CHECK_NAMES)[number]
+
+/** Every line of a press that never moved past {@link DRAG_THRESHOLD_PX}: no drag started. */
+const CLICK_TEXT = "click, no drag"
+
+/** The `ends on slot` note of a run the next press cut short (`endedBy: "next-press"`). */
+const CUT_SHORT_TEXT = "cut short by the next press"
 
 /**
  * One card line: its text, and whether it met the scenario's expectation (`true`
@@ -461,23 +485,30 @@ const lineOf = (name: DragCheckName, value: string, expected: string | undefined
 
 /**
  * Checks `run` against `expect`: one {@link DragCheck} per name in
- * {@link DRAG_CHECK_NAMES}, in that order. A value the run could not measure reads
- * `?` and fails its check (the expected drag did not happen), as a `null` hold does
- * on a trigger card. A held pass fails the `passes` check when it seeded more than
+ * {@link DRAG_CHECK_NAMES}, in that order. A press with no move past the drag
+ * threshold is a click, not a drag: every line reads `click, no drag` and none is
+ * judged. In a drag, a value the run could not measure reads `?` and fails its check
+ * (the expected drag did not happen), as a `null` hold does on a trigger card. A
+ * held pass fails the `passes` check when it seeded more than
  * `expect.maxSeededPerPass` nodes, and the held passes fail it when none of them
  * drag-blocked anything (one pass may find nothing left to change: a resize both a
  * `layoutDependency` and the engine's ResizeObserver report runs two). A held pass started after the
  * drag's first move past the threshold (a pass at the pointerdown comes before the
- * drag) and before the release.
+ * drag) and before the release. A run the next press cut short
+ * (`endedBy: "next-press"`) stopped while its release was still settling, so its
+ * `ends on slot` shows the last frame's distance `· cut short by the next press` and
+ * is not judged; a run that timed out is.
  */
 export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck> => {
+  // The drag's start: its first move past the threshold. A press with none is a click.
+  const startMove = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
+  if (startMove === undefined) return DRAG_CHECK_NAMES.map((name) => ({ name, ok: true, text: CLICK_TEXT }))
   const under = run.heldFrameCount === 0 ? undefined : run.underPointerMaxPx
   const glue = Object.entries(run.childGlueMaxPx)
   const releaseAt = run.releaseAt
-  // A held pass ran while the item was dragged: from the drag's start (its first move
-  // past the threshold; a pass at the pointerdown, before it, drag-blocks nothing) to
-  // the release.
-  const started = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)?.t ?? run.grabAt
+  // A held pass ran while the item was dragged: from the drag's start (a pass at the
+  // pointerdown, before it, drag-blocks nothing) to the release.
+  const started = startMove.t
   const heldPasses = run.passes.perPass.filter(
     (p) => p.start >= started && (releaseAt === null || p.start < releaseAt),
   )
@@ -524,11 +555,19 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
       releaseHeldMax === undefined ? undefined : `≤ ${releaseHeldMax}`,
       run.releaseHeld !== null && releaseHeldMax !== undefined && run.releaseHeld <= releaseHeldMax,
     ),
-    lineOf(
-      "ends on slot",
-      run.endsOnSlotPx === null ? "?" : px(run.endsOnSlotPx),
-      slotMax === undefined ? undefined : `≤ ${slotMax} px`,
-      run.endsOnSlotPx !== null && slotMax !== undefined && run.endsOnSlotPx <= slotMax,
-    ),
+    run.endedBy === "next-press"
+      ? // Still settling when the next press came: the last frame is not where the release ends.
+        lineOf(
+          "ends on slot",
+          run.endsOnSlotPx === null ? CUT_SHORT_TEXT : `${px(run.endsOnSlotPx)} · ${CUT_SHORT_TEXT}`,
+          undefined,
+          true,
+        )
+      : lineOf(
+          "ends on slot",
+          run.endsOnSlotPx === null ? "?" : px(run.endsOnSlotPx),
+          slotMax === undefined ? undefined : `≤ ${slotMax} px`,
+          run.endsOnSlotPx !== null && slotMax !== undefined && run.endsOnSlotPx <= slotMax,
+        ),
   ]
 }

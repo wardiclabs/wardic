@@ -22,14 +22,16 @@
  *   millisecond, so a timer just after a rAF callback often shares its timestamp.
  * - **The end.** After the release it keeps sampling until the item's painted box has
  *   stood still for {@link STILL_FRAMES} frames, or {@link SETTLE_MS} ms have passed,
- *   or the next press starts, then calls `record`.
+ *   or the next press starts, then calls `record` with which of the three it was
+ *   (`endedBy`: `settled`, `timeout` or `next-press`). A run the next press cut short
+ *   was still settling, so the card doesn't judge where it ended.
  *
  * Layouts should keep whole-pixel positions and sizes: `offsetLeft` and friends are
  * rounded, so a fractional slot would read up to half a pixel off.
  *
  * @module
  */
-import type { Box, DragFrame, DragMove, DragRunInput, Point } from "../lab/drag-run.ts"
+import type { Box, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
 
 /** How many frames in a row the released item's box must stand still to count as settled. */
@@ -116,6 +118,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
           childOffsets: Record<string, Point>
           releaseAt: number | null
           endedAt: number
+          endedBy?: DragRunEnd
           pointerLeft?: boolean
           scheduler: "default" | "microtask"
         }
@@ -137,12 +140,13 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     return out
   }
 
-  const finish = (): void => {
+  const finish = (endedBy: DragRunEnd): void => {
     const p = press
     press = undefined
     cancelAnimationFrame(rafId)
     if (p === undefined) return
     p.input.endedAt = performance.now()
+    p.input.endedBy = endedBy
     opts.record(p.input)
     opts.onPhase?.("end")
   }
@@ -182,8 +186,9 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       const still =
         prev !== undefined && Math.abs(prev.d.x - d.x) < STILL_PX && Math.abs(prev.d.y - d.y) < STILL_PX
       p.still = still ? p.still + 1 : 0
-      if (p.still >= STILL_FRAMES || performance.now() - p.input.releaseAt > SETTLE_MS) {
-        finish()
+      const settled = p.still >= STILL_FRAMES
+      if (settled || performance.now() - p.input.releaseAt > SETTLE_MS) {
+        finish(settled ? "settled" : "timeout")
         return
       }
     }
@@ -225,8 +230,9 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
 
   const onDown = (e: PointerEvent): void => {
     // A new press while the last one's release is still settling ends that recording
-    // first, so each press is its own run. A second pointer during a press is ignored.
-    if (press !== undefined && press.input.releaseAt !== null) finish()
+    // first (cut short), so each press is its own run. A second pointer during a press
+    // is ignored.
+    if (press !== undefined && press.input.releaseAt !== null) finish("next-press")
     const stage = opts.stage()
     const item = opts.item()
     if (press !== undefined || stage === undefined || item === undefined) return
