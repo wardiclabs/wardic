@@ -47,8 +47,11 @@ const POINTER_TYPE: Record<string, PointerLikeEvent["type"]> = {
 
 const POINTER_EVENTS = Object.keys(POINTER_TYPE)
 
-/** The page-wide events a Held pointer keeps: its moves, release and cancel. */
-const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel"]
+/**
+ * The page-wide events while a pointer is held: its moves, release and cancel, and any
+ * down, which ends a hold whose release was lost (ADR-0019, decision 7).
+ */
+const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel", "pointerdown"]
 
 const toPointer = (type: PointerLikeEvent["type"], ev: PointerEvent): PointerLikeEvent => ({
   type,

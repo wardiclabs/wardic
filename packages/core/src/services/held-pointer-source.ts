@@ -14,12 +14,16 @@
  *   already keeps a held pointer on its target (native touch, AppKit drags) leaves it
  *   out, and the target's events pass through.
  *
- * While a pointer is held, the helper forwards its global events and drops a target
- * event that is the same platform event (`raw`) as the last global one: the DOM
- * delivers a window capture-phase listener first, then the target. A held pointer
- * ends at its up, its cancel, or a move with `buttons === 0` (a lost release, ADR-0019
- * decision 4); the ending event is forwarded first. `global` is unsubscribed
- * synchronously when no pointer is held, and when the stream ends.
+ * While a pointer is held, the helper forwards its global moves, release and cancel,
+ * and drops a target event that is the same platform event (`raw`) as the last global
+ * one: the DOM delivers a window capture-phase listener first, then the target. A held
+ * pointer ends at its up, its cancel, or a move with `buttons === 0` (a lost release,
+ * ADR-0019 decision 4); the ending event is forwarded first. A global `down` by the
+ * held pointer, or by a new primary pointer of its type (a new finger: the old one has
+ * lifted), means its release was lost where no event reports it: the helper ends the
+ * hold with an unpressed move at its last position (decision 7), before the down
+ * reaches any target, and the down itself is left to the target it lands on. `global`
+ * is unsubscribed synchronously when no pointer is held, and when the stream ends.
  *
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
  * authors, like `makeRefreshFrameClock`. Nothing here names a DOM type.
@@ -53,6 +57,13 @@ const endsHold = (event: PointerLikeEvent): boolean =>
   event.type === "up" || event.type === "cancel" || (event.type === "move" && event.buttons === 0)
 
 /**
+ * Whether a page-wide `down` means `held`'s release was lost: the same pointer went down
+ * again, or a new primary pointer of its type did (only one is primary per type).
+ */
+const supersedes = (down: PointerLikeEvent, held: PointerLikeEvent): boolean =>
+  down.pointerId === held.pointerId || (down.isPrimary && held.isPrimary && down.pointerType === held.pointerType)
+
+/**
  * The target's `pointer` stream, with every Held pointer's events wherever they land
  * (see the module doc). One ordered emit: both feeds offer into the same queue, in the
  * order the platform calls them.
@@ -61,7 +72,8 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
   Stream.callback<PointerLikeEvent>((queue) =>
     Effect.acquireRelease(
       Effect.sync(() => {
-        const held = new Set<number>()
+        // Each held pointer's last event: where a lost release leaves it.
+        const held = new Map<number, PointerLikeEvent>()
         let stopGlobal: (() => void) | undefined
         let lastGlobalRaw: unknown
 
@@ -75,25 +87,45 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
         }
 
         const fromGlobal = (event: PointerLikeEvent, raw: unknown): void => {
+          if (event.type === "down") {
+            for (const [pointerId, last] of held) {
+              if (!supersedes(event, last)) continue
+              Queue.offerUnsafe(queue, { ...last, type: "move", buttons: 0, button: -1, timeStamp: event.timeStamp })
+              unhold(pointerId)
+            }
+            return
+          }
+          if (event.type !== "move" && event.type !== "up" && event.type !== "cancel") return
           if (!held.has(event.pointerId)) return
           lastGlobalRaw = raw
           Queue.offerUnsafe(queue, event)
           if (endsHold(event)) unhold(event.pointerId)
+          else held.set(event.pointerId, event)
         }
 
         const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
           // The same platform event, already forwarded from the page-wide feed.
-          if (raw !== undefined && raw === lastGlobalRaw) return
+          if (raw !== undefined && raw === lastGlobalRaw) {
+            lastGlobalRaw = undefined
+            return
+          }
           if (event.type === "down") {
             // A second down for a held pointer (its release was lost) keeps the one hold.
-            if (!held.has(event.pointerId)) {
-              held.add(event.pointerId)
-              if (options.global !== undefined && stopGlobal === undefined) stopGlobal = options.global(fromGlobal)
+            const first = held.size === 0
+            held.set(event.pointerId, event)
+            if (first && options.global !== undefined && stopGlobal === undefined) {
+              const stop = options.global(fromGlobal)
+              // The feed may have ended the hold while subscribing.
+              if (held.size === 0) stop()
+              else stopGlobal = stop
             }
-          } else if (held.has(event.pointerId) && endsHold(event)) {
-            Queue.offerUnsafe(queue, event)
-            unhold(event.pointerId)
-            return
+          } else if (held.has(event.pointerId)) {
+            if (endsHold(event)) {
+              Queue.offerUnsafe(queue, event)
+              unhold(event.pointerId)
+              return
+            }
+            held.set(event.pointerId, event)
           }
           Queue.offerUnsafe(queue, event)
         }

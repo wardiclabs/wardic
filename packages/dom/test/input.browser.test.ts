@@ -158,7 +158,8 @@ layer(InputDomLive)("InputDomLive", (it) => {
 // A Held pointer (ADR-0019, #31): a pointer that went down on the target keeps
 // delivering its moves, release and cancel to `pointer(target)` wherever they land,
 // until it is released. The DOM adds page-wide (window, capture-phase) listeners inside
-// the down's dispatch and removes them at the release. Page-wide events are dispatched
+// the down's dispatch and removes them at the release: move, up, cancel, and down,
+// which ends a hold whose release was lost (decision 7). Page-wide events are dispatched
 // on `document.body`; the target is attached to the document, so a window listener
 // sees the events dispatched on it too.
 
@@ -270,10 +271,10 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
         expect(spy.adds(), "none at subscribe").toBe(0)
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
         yield* sub.collect(1)
-        expect(spy.adds(), "move, up and cancel at the down").toBe(3)
+        expect(spy.adds(), "move, up, cancel and down at the down").toBe(4)
         document.body.dispatchEvent(pointerEvent("pointerup", { clientX: 0 }))
         yield* sub.collect(2)
-        expect(spy.removes(), "all three at the release").toBe(3)
+        expect(spy.removes(), "all four at the release").toBe(4)
         yield* sub.close
       } finally {
         spy.restore()
@@ -290,7 +291,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
         el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 1 }))
         el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 2, isPrimary: false }))
         yield* sub.collect(2)
-        expect(spy.adds(), "one set for both").toBe(3)
+        expect(spy.adds(), "one set for both").toBe(4)
         document.body.dispatchEvent(pointerEvent("pointerup", { pointerId: 1 }))
         yield* sub.collect(3)
         expect(spy.removes(), "kept while pointer 2 is held").toBe(0)
@@ -298,7 +299,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
         document.body.dispatchEvent(pointerEvent("pointerup", { pointerId: 2, isPrimary: false }))
         const events = yield* sub.collect(5)
         expect(events.map((e) => `${e.type}#${e.pointerId}`)).toEqual(["down#1", "down#2", "up#1", "move#2", "up#2"])
-        expect(spy.removes(), "removed at the last release").toBe(3)
+        expect(spy.removes(), "removed at the last release").toBe(4)
         yield* sub.close
       } finally {
         spy.restore()
@@ -364,12 +365,12 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
         expect((yield* a.collect(2)).map((e) => e.type)).toEqual(["down", "move"])
         expect((yield* b.collect(2)).map((e) => e.type)).toEqual(["down", "move"])
         expect(target.adds(), "one target listener-set").toBe(6)
-        expect(page.adds(), "one page-wide set while held").toBe(3)
+        expect(page.adds(), "one page-wide set while held").toBe(4)
         yield* a.close
         expect(page.removes(), "kept while a subscriber remains").toBe(0)
         yield* b.close
         expect(target.removes(), "the target's set goes with the last subscriber").toBe(6)
-        expect(page.removes(), "and so does the page-wide set").toBe(3)
+        expect(page.removes(), "and so does the page-wide set").toBe(4)
       } finally {
         page.restore()
       }

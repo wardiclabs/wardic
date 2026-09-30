@@ -510,7 +510,11 @@ const mountPair = async () => {
     ySamples,
     yPressed: () => yPressed(),
     dDx: () => r1(d()!.getBoundingClientRect().left - dLeft),
-    yLeft: () => y()!.getBoundingClientRect().left,
+    // Y's centre: `whileTap` scales it about its centre while pressed.
+    yCentre: () => {
+      const b = y()!.getBoundingClientRect()
+      return b.left + b.width / 2
+    },
     dOpacity: () => r2(Number(getComputedStyle(d()!).opacity)),
     setYAt,
   }
@@ -576,13 +580,13 @@ describe("a press elsewhere after a lost release", () => {
     const mark = s.samples.length
     s.setYAt({ x: at.x - 60, y: at.y - 40 }) // Y under the pointer, which doesn't move
     await settle()
-    const yStart = s.yLeft()
+    const yStart = s.yCentre()
     await mouse.down(at, { move: false })
     await wait(100)
     const yPressed = s.yPressed()
     await glide(at, { x: at.x + 30, y: at.y }, 6)
     await wait(150)
-    const held = { dDx: s.dDx(), yMoved: r1(s.yLeft() - yStart) }
+    const held = { dDx: s.dDx(), yMoved: r1(s.yCentre() - yStart) }
     await mouse.up({ x: at.x + 30, y: at.y })
     await wait(600)
     expect.soft(yPressed, "the press on Y presses it").toBe(true)
