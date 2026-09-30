@@ -1,0 +1,441 @@
+// Regression: a drag and a press keep their pointer until its release (issue #31,
+// ADR-0019). Real Playwright mouse input (`commands.realMouse`): an event dispatched on
+// the element can't show a pointer leaving it.
+//
+// Before #31 the DOM input source listened on the element only. A move that took the
+// pointer off the dragged element stopped the drag, a release outside never ended it,
+// and the gesture left behind followed later moves with no button pressed and ignored
+// the next press. Since #31 a pointer that went down on the element is a Held pointer:
+// its moves and release reach the element's stream wherever they land. A gesture whose
+// release is lost anyway (a Stale gesture) ends at the owning pointer's first move with
+// no button pressed, or at its next down.
+//
+// The drag scene: a 120x80 draggable D at (40,40), `layout` or free. A free D has
+// `dragMomentum={false}`, so its release rests where the pointer let go; a `layout` D
+// flies back to its slot. `whileDrag` fades D to 0.5 while the drag is on, so its
+// opacity says whether the gesture ended. A recorder on D logs the drag recognizer's
+// own samples (`createDrag`) and the hover and press recognizers. D is grabbed 20 px
+// in from its left edge, at its vertical centre.
+import { cleanup, render } from "@solidjs/testing-library"
+import type { DragSample } from "@wardic/core"
+import { DomLive } from "@wardic/dom"
+import { createDrag, createHover, createPress, wardic, WardicProvider } from "@wardic/solid"
+import { createEffect, createSignal, Show } from "solid-js"
+import { afterEach, describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
+import "./browser-commands.ts"
+import type { RealMouseOptions } from "./browser-commands.ts"
+import { afterPaint, loseNextRelease, raf } from "./browser-helpers.ts"
+
+interface Pt {
+  readonly x: number
+  readonly y: number
+}
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const r1 = (n: number): number => Math.round(n * 10) / 10
+const r2 = (n: number): number => Math.round(n * 100) / 100
+
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 4; i++) await raf()
+  await afterPaint()
+}
+
+// The mouse button's state, so a test that fails mid-press still releases it, and the
+// lost-release listeners a test registered, so one that ends early doesn't lose the
+// next test's release.
+let pressed = false
+const disposers: Array<() => void> = []
+const mouse = {
+  move: (p: Pt): Promise<void> => commands.realMouse("move", p.x, p.y),
+  down: async (p: Pt, options?: RealMouseOptions): Promise<void> => {
+    await commands.realMouse("down", p.x, p.y, options)
+    pressed = true
+  },
+  up: async (p: Pt): Promise<void> => {
+    await commands.realMouse("up", p.x, p.y)
+    pressed = false
+  },
+}
+
+afterEach(async () => {
+  if (pressed) await mouse.up({ x: 5, y: 5 })
+  for (const dispose of disposers.splice(0)) dispose()
+  await mouse.move({ x: 5, y: 5 })
+  cleanup()
+})
+
+/** Move the real mouse from `from` to `to` in `steps` moves, `ms` apart. */
+const glide = async (from: Pt, to: Pt, steps: number, ms = 20): Promise<void> => {
+  for (let k = 1; k <= steps; k++) {
+    await mouse.move({ x: from.x + ((to.x - from.x) * k) / steps, y: from.y + ((to.y - from.y) * k) / steps })
+    await wait(ms)
+  }
+}
+
+type Mode = "layout" | "free"
+
+interface DragScene {
+  readonly el: HTMLElement
+  readonly slot: DOMRect
+  /** The grab point: 20 px in from D's left edge, at its vertical centre. */
+  readonly grab: Pt
+  /** Every sample the drag recognizer emitted. */
+  readonly samples: Array<DragSample>
+  readonly hovered: () => boolean
+  readonly pressed: () => boolean
+}
+
+const mountDrag = async (mode: Mode, axis: true | "x" = true, momentum = false): Promise<DragScene> => {
+  const [el, setEl] = createSignal<HTMLElement>()
+  const samples: Array<DragSample> = []
+  let hovered: () => boolean = () => false
+  let pressedNow: () => boolean = () => false
+  function Recorder(props: { readonly target: HTMLElement }) {
+    // eslint-disable-next-line solid/reactivity
+    const sample = createDrag(props.target)
+    // eslint-disable-next-line solid/reactivity
+    hovered = createHover(props.target)
+    // eslint-disable-next-line solid/reactivity
+    pressedNow = createPress(props.target)
+    createEffect(() => {
+      const s = sample()
+      if (s !== null) samples.push(s)
+    })
+    return null
+  }
+  render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "absolute", top: "40px", left: "40px" }}>
+        <wardic.div
+          ref={(n: HTMLElement) => setEl(n)}
+          layout={mode === "layout"}
+          drag={axis}
+          dragMomentum={momentum}
+          animate={{ opacity: 1 }}
+          whileDrag={{ opacity: 0.5 }}
+          style={{ position: "relative", width: "120px", height: "80px", background: "#f88" }}
+        />
+      </div>
+      <Show when={el()}>{(target) => <Recorder target={target()} />}</Show>
+    </WardicProvider>
+  ))
+  await settle()
+  const target = el()!
+  const slot = target.getBoundingClientRect()
+  return {
+    el: target,
+    slot,
+    grab: { x: slot.left + 20, y: slot.top + 40 },
+    samples,
+    hovered: () => hovered(),
+    pressed: () => pressedNow(),
+  }
+}
+
+/** Where D paints relative to its slot, and its `whileDrag` opacity. */
+interface Seen {
+  readonly dx: number
+  readonly dy: number
+  readonly opacity: number
+}
+const seen = (s: DragScene): Seen => {
+  const b = s.el.getBoundingClientRect()
+  return { dx: r1(b.left - s.slot.left), dy: r1(b.top - s.slot.top), opacity: r2(Number(getComputedStyle(s.el).opacity)) }
+}
+
+/** The recognizer's samples since `from`, run-length encoded: `start move×5 end`. */
+const phases = (samples: ReadonlyArray<DragSample>, from: number): string => {
+  const out: Array<string> = []
+  let last = ""
+  let n = 0
+  for (const s of samples.slice(from)) {
+    if (s.phase === last) {
+      n++
+      continue
+    }
+    if (last !== "") out.push(n > 1 ? `${last}×${n}` : last)
+    last = s.phase
+    n = 1
+  }
+  if (last !== "") out.push(n > 1 ? `${last}×${n}` : last)
+  return out.length === 0 ? "none" : out.join(" ")
+}
+
+/** The x offset of the last sample since `from`. */
+const lastOffsetX = (samples: ReadonlyArray<DragSample>, from: number): number =>
+  r1(samples.slice(from).at(-1)?.offset.x ?? Number.NaN)
+
+/**
+ * The prelude for a release outside: an x-locked D is pressed, the pointer drifts
+ * 60 px down off D's bottom edge (D can't follow on y), then 60 px right, and is
+ * released there. The release is off D: a `layout` D flies back to its slot, a free D
+ * rests at +60.
+ */
+const releaseOutside = async (s: DragScene): Promise<{ readonly at: Pt; readonly held: Seen }> => {
+  const g = s.grab
+  await mouse.down(g)
+  await glide(g, { x: g.x, y: g.y + 60 }, 12) // leaves D's bottom edge at +40
+  await glide({ x: g.x, y: g.y + 60 }, { x: g.x + 60, y: g.y + 60 }, 6)
+  await wait(150)
+  const held = seen(s)
+  const at = { x: g.x + 60, y: g.y + 60 }
+  await mouse.up(at)
+  await wait(900)
+  return { at, held }
+}
+
+/**
+ * The prelude for a lost release: D is pressed, glided 40 px right and released there,
+ * but the release never reaches Wardic (`loseNextRelease`). The mouse button is up.
+ */
+const loseRelease = async (s: DragScene): Promise<{ readonly at: Pt; readonly held: Seen }> => {
+  disposers.push(loseNextRelease())
+  const g = s.grab
+  await mouse.down(g)
+  await glide(g, { x: g.x + 40, y: g.y }, 8)
+  await wait(150)
+  const held = seen(s)
+  const at = { x: g.x + 40, y: g.y }
+  await mouse.up(at)
+  await wait(150)
+  return { at, held }
+}
+
+describe.each(["layout", "free"] as const)("%s drag", (mode) => {
+  const rest = (dx: number): number => (mode === "layout" ? 0 : dx)
+
+  it("P0: moves that stay on D and a release on D", async () => {
+    const s = await mountDrag(mode)
+    const g = s.grab
+    await mouse.down(g)
+    await glide(g, { x: g.x + 40, y: g.y }, 10)
+    await wait(150)
+    const held = seen(s)
+    await mouse.up({ x: g.x + 40, y: g.y })
+    await wait(900)
+    const after = seen(s)
+    expect.soft(held.dx, "D follows the pointer").toBeCloseTo(40, 0)
+    expect.soft(after.opacity, "the release ends the drag (whileDrag off)").toBeGreaterThan(0.95)
+    expect.soft(after.dx, "D rests where the release leaves it").toBeCloseTo(rest(40), 0)
+  })
+
+  it("P1: a jump that takes the pointer off D, then more moves off it", async () => {
+    const s = await mountDrag(mode)
+    const g = s.grab
+    await mouse.down(g)
+    await glide(g, { x: g.x + 12, y: g.y }, 6)
+    await wait(100)
+    const before = seen(s)
+    // D spans [grab − 20 + 12, grab + 112] now; +200 is 88 px past its right edge.
+    await mouse.move({ x: g.x + 200, y: g.y })
+    await wait(20)
+    await glide({ x: g.x + 200, y: g.y }, { x: g.x + 240, y: g.y }, 4)
+    await wait(150)
+    const off = seen(s)
+    await mouse.up({ x: g.x + 240, y: g.y })
+    await wait(900)
+    const after = seen(s)
+    expect.soft(before.dx, "D follows the small moves").toBeCloseTo(12, 0)
+    expect.soft(off.dx, "D follows the pointer after the jump off it").toBeCloseTo(240, 0)
+    expect.soft(after.opacity, "the release ends the drag (whileDrag off)").toBeGreaterThan(0.95)
+    expect.soft(after.dx, "D rests where the release leaves it").toBeCloseTo(rest(240), 0)
+  })
+
+  it("P2: an x-locked D whose pointer drifts off it, then a release outside", async () => {
+    const s = await mountDrag(mode, "x")
+    const { held } = await releaseOutside(s)
+    const after = seen(s)
+    expect.soft(held.dx, "D follows x while the pointer is off it").toBeCloseTo(60, 0)
+    expect.soft(held.dy, "y stays locked").toBeCloseTo(0, 0)
+    expect.soft(after.opacity, "the release outside ends the drag (whileDrag off)").toBeGreaterThan(0.95)
+    expect.soft(after.dx, "D rests where the release leaves it").toBeCloseTo(rest(60), 0)
+    expect.soft(s.pressed(), "the release outside ends the press").toBe(false)
+  })
+
+  it("P3: an unpressed move over D after a release outside", async () => {
+    const s = await mountDrag(mode, "x")
+    const { at } = await releaseOutside(s)
+    const restAt = seen(s)
+    const mark = s.samples.length
+    const b = s.el.getBoundingClientRect()
+    const centre = { x: b.left + 60, y: b.top + 40 }
+    await glide(at, centre, 6)
+    await glide(centre, { x: centre.x + 30, y: centre.y }, 3)
+    await wait(200)
+    const after = seen(s)
+    expect.soft(after.dx, "an unpressed move doesn't drag D").toBeCloseTo(restAt.dx, 0)
+    expect.soft(phases(s.samples, mark), "no drag samples without a press").toBe("none")
+  })
+
+  it("P4: a second press after a release outside starts its own drag", async () => {
+    const s = await mountDrag(mode, "x")
+    const { at } = await releaseOutside(s)
+    const b = s.el.getBoundingClientRect()
+    const centre = { x: b.left + 60, y: b.top + 40 }
+    await glide(at, centre, 6)
+    await wait(100)
+    const atPress = seen(s)
+    const mark = s.samples.length
+    await mouse.down(centre)
+    await glide(centre, { x: centre.x + 30, y: centre.y }, 6)
+    await wait(150)
+    const held = seen(s)
+    const heldSamples = s.samples.slice(mark)
+    await mouse.up({ x: centre.x + 30, y: centre.y })
+    await wait(900)
+    const after = seen(s)
+    expect.soft(heldSamples[0]?.phase, "the second press starts a drag").toBe("start")
+    expect.soft(lastOffsetX(s.samples, mark), "its offset is measured from the second press").toBeCloseTo(30, 0)
+    expect.soft(held.dx, "D moves 30 px from where it was pressed").toBeCloseTo(atPress.dx + 30, 0)
+    expect.soft(after.opacity, "the release ends the drag").toBeGreaterThan(0.95)
+  })
+
+  it("P5: after a lost release, the first unpressed move ends the drag at its last pressed point", async () => {
+    const s = await mountDrag(mode)
+    const { at, held } = await loseRelease(s)
+    const mark = s.samples.length
+    await glide(at, { x: at.x + 30, y: at.y }, 3)
+    await wait(900)
+    const after = seen(s)
+    expect.soft(held.dx, "D follows the pressed glide").toBeCloseTo(40, 0)
+    expect.soft(phases(s.samples, mark), "the first unpressed move ends the drag, and no move follows").toBe("end")
+    expect.soft(lastOffsetX(s.samples, mark), "the drag ends at its last pressed point").toBeCloseTo(40, 0)
+    expect.soft(after.opacity, "whileDrag ends").toBeGreaterThan(0.95)
+    expect.soft(after.dx, "D rests where the last pressed point leaves it, not at the unpressed pointer").toBeCloseTo(
+      rest(40),
+      0,
+    )
+    expect.soft(s.pressed(), "the press ends").toBe(false)
+    if (mode === "layout") return
+    // With momentum on, the lost release carries no velocity: a fast glide still rests at its last pressed point.
+    cleanup()
+    const m = await mountDrag("free", true, true)
+    disposers.push(loseNextRelease())
+    const g = m.grab
+    await mouse.down(g)
+    await glide(g, { x: g.x + 60, y: g.y }, 4, 10) // ~1,500 px/s
+    await mouse.up({ x: g.x + 60, y: g.y })
+    await glide({ x: g.x + 60, y: g.y }, { x: g.x + 80, y: g.y }, 2, 10)
+    await wait(900)
+    expect.soft(Math.abs(seen(m).dx - 60), "momentum on: D rests within 1 px of its last pressed point").toBeLessThan(1)
+  })
+
+  it("P6: after a lost release, a press with no move in between ends the old drag and starts its own", async () => {
+    const s = await mountDrag(mode)
+    const { at } = await loseRelease(s)
+    const atPress = seen(s)
+    const mark = s.samples.length
+    await mouse.down(at, { move: false })
+    await glide(at, { x: at.x + 30, y: at.y }, 6)
+    await wait(150)
+    const held = seen(s)
+    await mouse.up({ x: at.x + 30, y: at.y })
+    await wait(900)
+    const after = seen(s)
+    expect.soft(phases(s.samples, mark).startsWith("end start"), "the down ends the old drag and a new one starts").toBe(
+      true,
+    )
+    expect.soft(lastOffsetX(s.samples, mark), "the new offsets are measured from the second down").toBeCloseTo(30, 0)
+    if (mode === "free") {
+      expect.soft(Math.abs(held.dx - (atPress.dx + 30)), "D moves 30 px from where it was, under the pointer").toBeLessThan(
+        1,
+      )
+    } else {
+      // #30: a layout node grabbed while it flies back starts from its slot, so until #30
+      // lands a restart paints D at its slot plus the new offset.
+      expect.soft(held.dx, "the new drag starts from D's slot (#30)").toBeCloseTo(30, 0)
+    }
+    expect.soft(after.opacity, "the release ends the drag").toBeGreaterThan(0.95)
+  })
+})
+
+interface StateScene {
+  readonly el: HTMLElement
+  readonly centre: Pt
+  readonly hovered: () => boolean
+  readonly pressed: () => boolean
+  /** The binding's response: `whileHover` opacity 0.6 (base 0.2), `whileTap` scale 0.8. */
+  readonly look: () => { readonly opacity: number; readonly scale: number }
+}
+
+const mountState = async (): Promise<StateScene> => {
+  const [el, setEl] = createSignal<HTMLElement>()
+  let hovered: () => boolean = () => false
+  let pressedNow: () => boolean = () => false
+  function Recorder(props: { readonly target: HTMLElement }) {
+    // eslint-disable-next-line solid/reactivity
+    hovered = createHover(props.target)
+    // eslint-disable-next-line solid/reactivity
+    pressedNow = createPress(props.target)
+    return null
+  }
+  render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "absolute", top: "40px", left: "40px" }}>
+        <wardic.div
+          ref={(n: HTMLElement) => setEl(n)}
+          animate={{ opacity: 0.2, scale: 1 }}
+          whileHover={{ opacity: 0.6 }}
+          whileTap={{ scale: 0.8 }}
+          style={{ width: "120px", height: "80px", background: "#8f8" }}
+        />
+      </div>
+      <Show when={el()}>{(target) => <Recorder target={target()} />}</Show>
+    </WardicProvider>
+  ))
+  await settle()
+  const target = el()!
+  const b = target.getBoundingClientRect()
+  return {
+    el: target,
+    centre: { x: b.left + 60, y: b.top + 40 },
+    hovered: () => hovered(),
+    pressed: () => pressedNow(),
+    look: () => {
+      const m = /scale\(([-\d.]+)\)/.exec(target.style.transform)
+      return { opacity: r2(Number(getComputedStyle(target).opacity)), scale: r2(m ? Number(m[1]) : 1) }
+    },
+  }
+}
+
+describe("press and hover", () => {
+  it("Q0: a press released on the element", async () => {
+    const s = await mountState()
+    await glide({ x: 5, y: 5 }, s.centre, 4)
+    await mouse.down(s.centre)
+    await wait(400)
+    await mouse.up(s.centre)
+    await wait(400)
+    expect.soft(s.pressed(), "the release ends the press").toBe(false)
+    expect.soft(s.look().scale, "whileTap ends").toBeCloseTo(1, 1)
+  })
+
+  it("Q1: a press whose pointer leaves the element and is released outside", async () => {
+    const s = await mountState()
+    await glide({ x: 5, y: 5 }, s.centre, 4)
+    await mouse.down(s.centre)
+    await wait(300)
+    const outside = { x: s.centre.x + 150, y: s.centre.y }
+    await glide(s.centre, outside, 6)
+    await mouse.up(outside)
+    await wait(400)
+    const released = { pressed: s.pressed(), scale: s.look().scale }
+    await glide(outside, s.centre, 6)
+    await wait(300)
+    expect.soft(released.pressed, "the release outside ends the press").toBe(false)
+    expect.soft(released.scale, "whileTap ends").toBeCloseTo(1, 1)
+    expect.soft(s.pressed(), "an unpressed move over it doesn't bring the press back").toBe(false)
+  })
+
+  it("H0: hover follows enter and leave", async () => {
+    const s = await mountState()
+    await glide({ x: 5, y: 5 }, s.centre, 4)
+    await wait(400)
+    const inside = s.hovered()
+    await glide(s.centre, { x: s.centre.x + 150, y: s.centre.y }, 6)
+    await wait(400)
+    expect.soft(inside, "hover on enter").toBe(true)
+    expect.soft(s.hovered(), "hover off on leave").toBe(false)
+  })
+})

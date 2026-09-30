@@ -1,7 +1,8 @@
 import { playwright } from "@vitest/browser-playwright"
+import type { CDPSession } from "playwright"
 import solidPlugin from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
-import type { BrowserCommand } from "vitest/node"
+import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
 
 // Real-browser test project for @wardic/solid — layout/projection behaviours that
 // happy-dom CANNOT verify (it has no layout engine, so getBoundingClientRect is
@@ -18,19 +19,62 @@ import type { BrowserCommand } from "vitest/node"
 // `bun run test:browser`. Files are named `*.browser.test.tsx` and are excluded
 // from the happy-dom solid project.
 
+/** Where the test iframe sits on the page, so a client point inside it maps to a page point. */
+const iframeOffset = async (ctx: BrowserCommandContext): Promise<{ x: number; y: number }> => {
+  const box = await (await (await ctx.frame()).frameElement()).boundingBox()
+  return { x: box?.x ?? 0, y: box?.y ?? 0 }
+}
+
 /**
- * Real pointer input for the drag tests (#26): moves Playwright's mouse to the client
- * point `(x, y)` inside the test iframe, then presses or releases the button for
- * `down` / `up`. Synthetic `PointerEvent`s are dispatched straight to their target,
- * so they can't show when the browser delivers input relative to a Refresh frame;
- * these go through the browser's own input pipeline.
+ * Real pointer input for the drag tests (#26, #31): moves Playwright's mouse to the
+ * client point `(x, y)` inside the test iframe, then presses or releases `button` for
+ * `down` / `up`. Synthetic `PointerEvent`s are dispatched straight to their target, so
+ * they can't show when the browser delivers input relative to a Refresh frame, or a
+ * pointer leaving its element; these go through the browser's own input pipeline.
+ * `move: false` presses or releases where the mouse already is, with no move first.
  */
-const realMouse: BrowserCommand<[type: "move" | "down" | "up", x: number, y: number]> = async (ctx, type, x, y) => {
-  const frame = await ctx.frame()
-  const offset = await (await frame.frameElement()).boundingBox()
-  await ctx.page.mouse.move((offset?.x ?? 0) + x, (offset?.y ?? 0) + y)
-  if (type === "down") await ctx.page.mouse.down()
-  if (type === "up") await ctx.page.mouse.up()
+const realMouse: BrowserCommand<[
+  type: "move" | "down" | "up",
+  x: number,
+  y: number,
+  options?: { readonly button?: "left" | "right"; readonly move?: boolean },
+]> = async (ctx, type, x, y, options) => {
+  if (options?.move !== false) {
+    const offset = await iframeOffset(ctx)
+    await ctx.page.mouse.move(offset.x + x, offset.y + y)
+  }
+  const button = options?.button ?? "left"
+  if (type === "down") await ctx.page.mouse.down({ button })
+  if (type === "up") await ctx.page.mouse.up({ button })
+}
+
+/** One DevTools session per page, with touch emulation on. */
+const touchSessions = new WeakMap<object, Promise<CDPSession>>()
+
+/**
+ * Real touch input (#31) through Chromium's DevTools protocol (`Input.dispatchTouchEvent`),
+ * Chromium only. `points` are the fingers down after the event, at client points in the
+ * test iframe. The protocol's `touchEnd` lifts every finger, and leaving a finger out of a
+ * `touchMove` doesn't lift it.
+ */
+const realTouch: BrowserCommand<[
+  type: "touchStart" | "touchMove" | "touchEnd",
+  points: ReadonlyArray<{ readonly x: number; readonly y: number; readonly id: number }>,
+]> = async (ctx, type, points) => {
+  let session = touchSessions.get(ctx.page)
+  if (session === undefined) {
+    session = ctx.context.newCDPSession(ctx.page).then(async (cdp) => {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 })
+      return cdp
+    })
+    touchSessions.set(ctx.page, session)
+  }
+  const cdp = await session
+  const offset = await iframeOffset(ctx)
+  await cdp.send("Input.dispatchTouchEvent", {
+    type,
+    touchPoints: points.map((p) => ({ x: offset.x + p.x, y: offset.y + p.y, id: p.id })),
+  })
 }
 
 export default defineConfig({
@@ -53,7 +97,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { realMouse },
+      commands: { realMouse, realTouch },
     },
   },
 })

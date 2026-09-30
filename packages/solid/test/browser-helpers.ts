@@ -100,3 +100,20 @@ export const until = async (done: () => boolean, timeoutMs = 4000): Promise<void
   const start = performance.now()
   while (!done() && performance.now() - start < timeoutMs) await raf()
 }
+
+/**
+ * Lose the next `pointerup` on purpose (#31): a window capture-phase listener that
+ * stops it before anything else sees it, then removes itself. Register it BEFORE the
+ * press: the DOM Environment adds its own window listener at the down, and a listener
+ * registered earlier on the same target runs first, so `stopImmediatePropagation`
+ * keeps the release from every Wardic listener, as another page script could. Returns
+ * a disposer for a test that ends before the release.
+ */
+export const loseNextRelease = (): (() => void) => {
+  const swallow = (e: Event): void => {
+    e.stopImmediatePropagation()
+    window.removeEventListener("pointerup", swallow, true)
+  }
+  window.addEventListener("pointerup", swallow, true)
+  return () => window.removeEventListener("pointerup", swallow, true)
+}

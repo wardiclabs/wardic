@@ -28,14 +28,8 @@ import { LayoutGroup, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { commands } from "vitest/browser"
+import "./browser-commands.ts"
 import { afterPaint, raf, until } from "./browser-helpers.ts"
-
-declare module "vitest/browser" {
-  interface BrowserCommands {
-    /** Real Playwright mouse input at a client point in the test iframe (packages/solid/vitest.browser.config.ts). */
-    realMouse: (type: "move" | "down" | "up", x: number, y: number) => Promise<void>
-  }
-}
 
 afterEach(cleanup)
 
