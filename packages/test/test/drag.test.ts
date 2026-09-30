@@ -107,3 +107,24 @@ it.effect("cancel emits a final end sample then nothing", () =>
     expect(end.phase).toBe("end")
     expect(end.offset).toEqual({ x: 20, y: 0 })
   }))
+
+it.effect("a cancel ends at the last move's point, not its own: Chromium's pointercancel carries (0, 0)", () =>
+  Effect.gen(function* () {
+    // Motion's pan session does the same (PanSession.ts:329-333 at
+    // 16c61222c4166bbef5ff6ab0051192faa79fa8c8): a cancel's info is the last move's, and
+    // its velocity comes from the moves alone.
+    const events = [
+      ev("down", 0, 0, 0),
+      ev("move", 10, 0, 10), // start
+      ev("move", 20, 0, 20), // move
+      ev("cancel", 0, 0, 25), // end, at the cancel's unreliable (0, 0)
+    ]
+    const samples = (yield* collect(events)) as ReadonlyArray<DragSample>
+
+    expect(samples.map((s) => s.phase)).toEqual(["start", "move", "end"])
+    const [, move, end] = samples
+    expect(end!.point).toEqual({ x: 20, y: 0 })
+    expect(end!.offset).toEqual({ x: 20, y: 0 })
+    expect(end!.delta).toEqual({ x: 0, y: 0 })
+    expect(end!.velocity).toEqual(move!.velocity)
+  }))

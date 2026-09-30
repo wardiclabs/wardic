@@ -145,8 +145,8 @@ describe.skipIf(!cdpTouch)("a touch drag isn't taken for a scroll (#36, Chromium
     }
     await commands.realTouch("touchEnd", [])
     await settle()
-    // Before: Chromium took the touch for a pan after 8 moves and sent a pointercancel,
-    // which ended the drag at the cancel's own point, (0, 0): the element at -60,-80.
+    // Before: Chromium took the touch for a pan after its first moves and sent a
+    // pointercancel, which ended the drag there, short of +60.
     expect(el.getBoundingClientRect().left - slot.left).toBeCloseTo(60, 0)
   })
 })
