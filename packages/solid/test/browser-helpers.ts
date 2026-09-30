@@ -100,3 +100,45 @@ export const until = async (done: () => boolean, timeoutMs = 4000): Promise<void
   const start = performance.now()
   while (!done() && performance.now() - start < timeoutMs) await raf()
 }
+
+/**
+ * Lose the next `pointerup` on purpose (#31): a window capture-phase listener that
+ * stops it before anything else sees it, then removes itself. Register it BEFORE the
+ * press: the DOM Environment adds its own window listener at the down, and a listener
+ * registered earlier on the same target runs first, so `stopImmediatePropagation`
+ * keeps the release from every Wardic listener, as another page script could. Returns
+ * a disposer for a test that ends before the release.
+ */
+export const loseNextRelease = (): (() => void) => {
+  const swallow = (e: Event): void => {
+    e.stopImmediatePropagation()
+    window.removeEventListener("pointerup", swallow, true)
+  }
+  window.addEventListener("pointerup", swallow, true)
+  return () => window.removeEventListener("pointerup", swallow, true)
+}
+
+/**
+ * Start a synthetic gesture and retry it until `took()`: the recognizer attaches its
+ * listener asynchronously, so the first events can arrive before it listens. Each
+ * attempt waits `frames` frames before it is judged, and a retry releases first, so a
+ * gesture that did start is never pressed again: a second down from the pointer that
+ * holds a drag ends it and starts another (ADR-0019).
+ */
+export const retryGesture = async (
+  press: () => void,
+  release: () => void,
+  took: () => boolean,
+  frames = 3,
+  timeoutMs = 4000,
+): Promise<void> => {
+  const start = performance.now()
+  for (let attempt = 0; performance.now() - start < timeoutMs; attempt++) {
+    if (attempt > 0) release()
+    press()
+    for (let f = 0; f < frames; f++) {
+      await raf()
+      if (took()) return
+    }
+  }
+}

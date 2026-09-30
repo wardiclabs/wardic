@@ -154,3 +154,225 @@ layer(InputDomLive)("InputDomLive", (it) => {
       expect(spy.removes()).toBe(6)
     }))
 })
+
+// A Held pointer (ADR-0019, #31): a pointer that went down on the target keeps
+// delivering its moves, release and cancel to `pointer(target)` wherever they land,
+// until it is released. The DOM adds page-wide (window, capture-phase) listeners inside
+// the down's dispatch and removes them at the release: move, up, cancel, and down,
+// which ends a hold whose release was lost (decision 7). Page-wide events are dispatched
+// on `document.body`; the target is attached to the document, so a window listener
+// sees the events dispatched on it too.
+
+/** A synthetic pointer event shaped like a real mouse's: primary, bubbling. */
+const pointerEvent = (type: string, init: PointerEventInit = {}): PointerEvent =>
+  new PointerEvent(type, { pointerType: "mouse", isPrimary: true, pointerId: 1, bubbles: true, ...init })
+
+/** Count the window's capture-phase `pointer*` listeners added and removed while it runs. */
+const spyWindowPointer = () => {
+  let adds = 0
+  let removes = 0
+  const realAdd = window.addEventListener.bind(window)
+  const realRemove = window.removeEventListener.bind(window)
+  const counts = (type: string, options: unknown): boolean =>
+    type.startsWith("pointer") &&
+    (options === true || (typeof options === "object" && options !== null && (options as AddEventListenerOptions).capture === true))
+  window.addEventListener = ((...args: Parameters<typeof realAdd>) => {
+    if (counts(args[0], args[2])) adds++
+    return realAdd(...args)
+  }) as typeof window.addEventListener
+  window.removeEventListener = ((...args: Parameters<typeof realRemove>) => {
+    if (counts(args[0], args[2])) removes++
+    return realRemove(...args)
+  }) as typeof window.removeEventListener
+  return {
+    adds: () => adds,
+    removes: () => removes,
+    restore: () => {
+      window.addEventListener = realAdd
+      window.removeEventListener = realRemove
+    },
+  }
+}
+
+/** A fresh target attached to the document; removed when the test's scope closes. */
+const attachedTarget = Effect.acquireRelease(
+  Effect.sync(() => {
+    const el = document.createElement("div")
+    document.body.append(el)
+    return el
+  }),
+  (el) => Effect.sync(() => el.remove()),
+)
+
+layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
+  it.effect("I1: a pointer that went down on the target keeps its moves, release and cancel", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 300, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointerup", { clientX: 310 }))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1, pointerId: 2 }))
+      document.body.dispatchEvent(pointerEvent("pointercancel", { clientX: 320, pointerId: 2 }))
+      const events = yield* sub.collect(5)
+      expect(events.map((e) => `${e.type}@${e.x}`)).toEqual(["down@0", "move@300", "up@310", "down@0", "cancel@320"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I2: a held pointer's move on the target itself arrives once", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+      el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, buttons: 1 }))
+      el.dispatchEvent(pointerEvent("pointerup", { clientX: 5 }))
+      const events = yield* sub.collect(3)
+      expect(events.map((e) => e.type)).toEqual(["down", "move", "up"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I3: a page-wide move in the down's own task arrives (the listeners are added inside its dispatch)", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 200, buttons: 1 }))
+      const events = yield* sub.collect(2)
+      expect(events.map((e) => `${e.type}@${e.x}`)).toEqual(["down@0", "move@200"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I4: the release, a cancel or a move with no button pressed ends it", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      for (const ending of ["pointerup", "pointercancel", "pointermove"] as const) {
+        const el = yield* attachedTarget
+        const sub = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+        document.body.dispatchEvent(pointerEvent(ending, { clientX: 100, buttons: 0 }))
+        document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 200, buttons: 0 }))
+        const events = yield* sub.collect(2)
+        const kind = ending === "pointerup" ? "up" : ending === "pointercancel" ? "cancel" : "move"
+        expect(events.map((e) => `${e.type}@${e.x}`), `ended by a ${ending}`).toEqual(["down@0", `${kind}@100`])
+        yield* sub.close
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I5: page-wide listeners only while a pointer is held", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const spy = spyWindowPointer()
+      try {
+        const sub = yield* subscribeIn(input.pointer(el))
+        expect(spy.adds(), "none at subscribe").toBe(0)
+        el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+        yield* sub.collect(1)
+        expect(spy.adds(), "move, up, cancel and down at the down").toBe(4)
+        document.body.dispatchEvent(pointerEvent("pointerup", { clientX: 0 }))
+        yield* sub.collect(2)
+        expect(spy.removes(), "all four at the release").toBe(4)
+        yield* sub.close
+      } finally {
+        spy.restore()
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I6: two held pointers share one page-wide set until both are released", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const spy = spyWindowPointer()
+      try {
+        const sub = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 1 }))
+        el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 2, isPrimary: false }))
+        yield* sub.collect(2)
+        expect(spy.adds(), "one set for both").toBe(4)
+        document.body.dispatchEvent(pointerEvent("pointerup", { pointerId: 1 }))
+        yield* sub.collect(3)
+        expect(spy.removes(), "kept while pointer 2 is held").toBe(0)
+        document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 50, buttons: 1, pointerId: 2, isPrimary: false }))
+        document.body.dispatchEvent(pointerEvent("pointerup", { pointerId: 2, isPrimary: false }))
+        const events = yield* sub.collect(5)
+        expect(events.map((e) => `${e.type}#${e.pointerId}`)).toEqual(["down#1", "down#2", "up#1", "move#2", "up#2"])
+        expect(spy.removes(), "removed at the last release").toBe(4)
+        yield* sub.close
+      } finally {
+        spy.restore()
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I7: pointerType, button and isPrimary are mapped from the DOM event", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { pointerType: "pen", isPrimary: false, button: 2, buttons: 2 }))
+      el.dispatchEvent(pointerEvent("pointerup", { pointerType: "pen", isPrimary: false, button: 2, buttons: 0 }))
+      const events = yield* sub.collect(2)
+      expect(events.map((e) => ({ type: e.type, pointerType: e.pointerType, button: e.button, isPrimary: e.isPrimary }))).toEqual([
+        { type: "down", pointerType: "pen", button: 2, isPrimary: false },
+        { type: "up", pointerType: "pen", button: 2, isPrimary: false },
+      ])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I8: a pointer that never went down on the target doesn't reach it from the page", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 70, buttons: 1, pointerId: 3 }))
+      document.body.dispatchEvent(pointerEvent("pointerup", { pointerId: 3 }))
+      const events = yield* sub.collect(1)
+      expect(events.map((e) => `${e.type}#${e.pointerId}`)).toEqual(["down#1"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I10: a page-wide press after a lost release ends the hold; a press on the target arrives after it", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 40, buttons: 1 }))
+      // The release is lost; the same pointer presses elsewhere on the page.
+      document.body.dispatchEvent(pointerEvent("pointerdown", { clientX: 300, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 320, buttons: 1 }))
+      // Later it presses the target itself.
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, buttons: 1 }))
+      const events = yield* sub.collect(4)
+      expect(events.map((e) => `${e.type}@${e.x}/${e.buttons}`)).toEqual(["down@0/1", "move@40/1", "move@40/0", "down@5/1"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
+  it.effect("I9: two subscribers share one target listener-set and one page-wide set", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const target = spyTarget(el)
+      const page = spyWindowPointer()
+      try {
+        const a = yield* subscribeIn(input.pointer(el))
+        const b = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1 }))
+        document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 90, buttons: 1 }))
+        expect((yield* a.collect(2)).map((e) => e.type)).toEqual(["down", "move"])
+        expect((yield* b.collect(2)).map((e) => e.type)).toEqual(["down", "move"])
+        expect(target.adds(), "one target listener-set").toBe(6)
+        expect(page.adds(), "one page-wide set while held").toBe(4)
+        yield* a.close
+        expect(page.removes(), "kept while a subscriber remains").toBe(0)
+        yield* b.close
+        expect(target.removes(), "the target's set goes with the last subscriber").toBe(6)
+        expect(page.removes(), "and so does the page-wide set").toBe(4)
+      } finally {
+        page.restore()
+      }
+    }).pipe(Effect.scoped))
+})

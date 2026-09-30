@@ -42,7 +42,7 @@ For a projection node the renderer **ignores the element's own `x`/`y`**: when `
   - A node grabbed mid-animation jumps to its slot plus the pointer offset (#30).
   - A retarget mid-flight doubles its first move and then stalls (#28).
   - Nested draggables have no drag lock (#29).
-  - The drag has no pointer capture: a move off the element stops it, and a release outside never ends it (#31).
+  - The drag has no pointer capture: a move off the element stops it, and a release outside never ends it (#31). Fixed by ADR-0019.
   - Pointer input reaches the drag one scheduler hop late in a real page (#32).
   - A running node inside a `layoutRoot` inside a FLIPing parent counts the parent's motion twice, which a released drag triggers (#33).
   - A dragged `layoutId` lead with a follower re-crossfades on release (#34).

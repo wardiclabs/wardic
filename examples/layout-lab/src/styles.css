@@ -391,10 +391,10 @@ body {
 }
 
 /*
- * A drag card's result (issue #26): six label/value lines in two columns, in the
- * same fixed-height footer. Six 18px lines and five 2px gaps take 118px of the
- * 127px inside it. A value too long for its column ends in an ellipsis; its whole
- * text is the value's title.
+ * A drag card's result (issue #26): seven label/value lines in two columns (#31
+ * added `gesture ends`), in the same fixed-height footer. Seven 16px lines and six
+ * 2px gaps take 124px of the 127px inside it. A value too long for its column ends in
+ * an ellipsis; its whole text is the value's title.
  */
 .card-result.drag {
   display: grid;
@@ -408,13 +408,13 @@ body {
 }
 
 .card-result.drag .result-label {
-  font: 11px/18px var(--lab-mono);
+  font: 11px/16px var(--lab-mono);
 }
 
 .card-result.drag .result-value {
   overflow: hidden;
   text-overflow: ellipsis;
-  font: 700 12px/18px var(--lab-mono);
+  font: 700 12px/16px var(--lab-mono);
 }
 
 /* ---- Sidebar panels ---------------------------------------------------- */

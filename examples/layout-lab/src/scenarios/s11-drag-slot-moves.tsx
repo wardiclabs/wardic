@@ -14,13 +14,16 @@
  * The recorder (`drag-recorder.ts`) samples every frame of the press and the release,
  * and the card checks the drag run: D under the pointer, 0 frames behind it, C1 and C2
  * glued to D, each mid-drag pass seeding only S with D's tree drag-blocked, the
- * release moving on its first painted frame and ending on the slot.
+ * release moving on its first painted frame and ending on the slot. The "lose the
+ * next release" toggle (L while D is held, or its checkbox) swallows the press's
+ * pointerup, so the card's `gesture ends` line shows whether the gesture ends anyway
+ * (#31, ADR-0019).
  *
  * @module
  */
 import { LayoutGroup, wardic } from "@wardic/solid"
 import { createSignal, For, type JSX, onCleanup, onMount } from "solid-js"
-import { CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
+import { Checkbox, CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
 import { attachDragRecorder } from "./drag-recorder.ts"
 import type { ScenarioDef } from "./types.ts"
 
@@ -59,7 +62,7 @@ const siblingStyle = (height: number): JSX.CSSProperties => ({ width: "200px", h
 /**
  * D: 160x80, positioned so its children sit inside it, and raised above S. After a
  * swap S follows D in the DOM, so while its FLIP gives it a transform it would paint
- * over D and take the pointer's events, which Wardic's drag then misses (#31). A
+ * over D and take a press meant for it (before #31's fix, a held drag's moves too). A
  * `<Reorder>` item needs the same (Motion's `Reorder.Item` sets `zIndex: 1` while it
  * is offset).
  */
@@ -95,6 +98,7 @@ const View: ScenarioDef["View"] = (props) => {
   const [mode, setMode] = createSignal<Mode>("resize")
   const [tall, setTall] = createSignal(false)
   const [order, setOrder] = createSignal<ReadonlyArray<"s" | "d">>(["s", "d"])
+  const [loseNext, setLoseNext] = createSignal(false)
   let stage: HTMLDivElement | undefined
   let item: HTMLElement | undefined
   let c1: HTMLElement | undefined
@@ -103,6 +107,7 @@ const View: ScenarioDef["View"] = (props) => {
   let dragging = false
 
   let noteLayoutChange = (): void => {}
+  let pressing = (): boolean => false
 
   /** Moves D's slot once, the current mode's way. */
   const moveSlot = (): void => {
@@ -116,6 +121,7 @@ const View: ScenarioDef["View"] = (props) => {
   }
   const onKey = (e: KeyboardEvent): void => {
     if (dragging && (e.key === "r" || e.key === "R")) moveSlot()
+    else if (pressing() && (e.key === "l" || e.key === "L")) setLoseNext((v) => !v)
   }
 
   onMount(() => {
@@ -135,8 +141,10 @@ const View: ScenarioDef["View"] = (props) => {
         }
       },
       record: (input) => props.ctx.recordDragRun(input),
+      loseNextRelease: { armed: loseNext, disarm: () => setLoseNext(false) },
     })
     noteLayoutChange = recorder.noteLayoutChange
+    pressing = recorder.pressing
     window.addEventListener("keydown", onKey)
     onCleanup(() => {
       recorder.detach()
@@ -184,10 +192,11 @@ const View: ScenarioDef["View"] = (props) => {
       </div>
       <div style={CONTROLS_STYLE}>
         <Select label="Mode" name="mode" options={MODES} value={mode()} onChange={changeMode} />
+        <Checkbox label="lose the next release (L while held)" name="lose-next-release" checked={loseNext()} onChange={setLoseNext} />
       </div>
       <p style={NOTE_STYLE}>
-        Grab the blue item near its centre. While you hold it, the slot moves every 600 ms, or press R. Keep the
-        pointer on the item: Wardic's drag loses a pointer that leaves it.
+        Grab the blue item near its centre. While you hold it, the slot moves every 600 ms, or press R; L loses its
+        release.
       </p>
     </div>
   )
@@ -222,6 +231,8 @@ export const s11: ScenarioDef = {
     maxSeededPerPass: 1,
     releaseHeldMax: { default: 1, microtask: 0 },
     endsOnSlotMaxPx: 0.5,
+    // #31: no gesture moves the item once it should have ended (ADR-0019).
+    gestureEndsMaxPx: 1,
   },
   View,
 }

@@ -42,13 +42,13 @@ layer(DomLive)("DomLive", (it) => {
       const sub = yield* subscribeIn(drag(el) as Stream.Stream<DragSample, never, never>)
 
       // pointerdown claims the gesture (no emission yet).
-      el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, buttons: 1, pointerId: 1 }))
+      el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true }))
       // move past the 3px threshold → "start".
-      el.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 0, buttons: 1, pointerId: 1 }))
+      el.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true }))
       // further move → "move".
-      el.dispatchEvent(new PointerEvent("pointermove", { clientX: 20, clientY: 0, buttons: 1, pointerId: 1 }))
+      el.dispatchEvent(new PointerEvent("pointermove", { clientX: 20, clientY: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true }))
       // release → "end".
-      el.dispatchEvent(new PointerEvent("pointerup", { clientX: 20, clientY: 0, buttons: 0, pointerId: 1 }))
+      el.dispatchEvent(new PointerEvent("pointerup", { clientX: 20, clientY: 0, buttons: 0, pointerId: 1, pointerType: "mouse", isPrimary: true }))
 
       const samples = yield* sub.collect()
 

@@ -18,6 +18,7 @@ import {
   createTransform,
   WardicProvider,
 } from "@wardic/solid"
+import { retryGesture } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -75,16 +76,22 @@ describe("createDrag", () => {
 
     expect(sample!()).toBeNull()
 
-    // Re-dispatch down+move inside waitFor until the recognizer fiber's DOM
-    // listener is live. `down` claims the gesture (re-sends are ignored while
-    // owned); the `move` to x=10 crosses the 3px threshold -> a "start" sample.
-    await waitFor(() => {
-      el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, buttons: 1, pointerId: 1 }))
-      el.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 0, buttons: 1, pointerId: 1 }))
-      const s = sample!()
-      expect(s).not.toBeNull()
-      expect(s!.phase).toBe("start")
-    })
+    // Retry until the recognizer fiber's DOM listener is live: `down` claims the
+    // gesture and the `move` to x=10 crosses the 3px threshold -> a "start" sample.
+    // `retryGesture` never presses again once it has started (a second down from the
+    // pointer that holds a drag would end it and start another).
+    const mouse = { pointerId: 1, pointerType: "mouse", isPrimary: true }
+    await retryGesture(
+      () => {
+        el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, buttons: 1, ...mouse }))
+        el.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 0, buttons: 1, ...mouse }))
+      },
+      () => el.dispatchEvent(new PointerEvent("pointerup", { clientX: 10, clientY: 0, buttons: 0, ...mouse })),
+      () => sample!() !== null,
+    )
+    const s = sample!()
+    expect(s).not.toBeNull()
+    expect(s!.phase).toBe("start")
   })
 })
 

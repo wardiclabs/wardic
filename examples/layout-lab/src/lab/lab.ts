@@ -461,8 +461,14 @@ export const makeLab = (options: LabOptions): Lab => {
       }),
     recordDragRun: (input) => {
       const spans = timeline.window(input.grabAt, input.endedAt).spans
+      // The scenario's run before this one: whether this press started on a gesture it
+      // left on (#31, `GestureEnd.inheritedPx`).
+      let previous: DragRun | undefined
+      for (let i = dragRuns.length - 1; i >= 0 && previous === undefined; i--) {
+        if (dragRuns[i].scenarioId === id) previous = dragRuns[i]
+      }
       // Attributed to this context's scenario, like every mark and run it starts.
-      const run = dragRunOf({ ...input, scenarioId: id }, spans)
+      const run = dragRunOf({ ...input, scenarioId: id }, spans, previous)
       dragRuns.push(run)
       if (dragRuns.length > MAX_RUNS) dragRuns.splice(0, dragRuns.length - MAX_RUNS)
       for (const cb of dragListeners) {

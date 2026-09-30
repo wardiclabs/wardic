@@ -11,6 +11,9 @@
 > #26 checked the engine against a mid-drag Measure pass (which ADR-0018 made routine) and
 > fixed what it found: ADR-0016 *Amendment (#26)*. The `<Reorder>` section now lists the
 > engine questions still open for its grill.
+>
+> **Update (2026-09-30, #31).** A drag now keeps its pointer until its release (ADR-0019),
+> which `<Reorder>` needed; what's left of the drag's input is below.
 
 ## Landed (committed)
 
@@ -90,14 +93,25 @@ Engine questions left open by #26 (each with measurements in its issue):
   - **Retarget:** a running FLIP retargeted mid-flight doubles its first move, then
     stalls, and a glued child jumps (#28). `<Reorder>` retargets displaced siblings
     constantly.
-- **The drag's input** (#31, #32; both matter for every `<Reorder>` item):
-  - There is no pointer capture, so a move off the item stops the drag and a release
-    outside never ends it (#31). A mid-drag slot move seen only by the engine's
-    observer leaves the item's hit box off by the move for one frame, which can trigger it.
+- **The drag's input** (#31 fixed, #32 open; both matter for every `<Reorder>` item):
+  - Since ADR-0019 a pointer that went down on an item is a Held pointer: the drag follows
+    it anywhere on the page, a release anywhere ends it, a lost release ends at the next
+    unpressed move or the next press anywhere, and only the Primary pointer drags. After the down, the
+    item's hit box no longer matters (the lab's resize mode lost the pointer in 2 of 8
+    runs before, 0 of 8 after); a press still hit-tests.
   - Pointer input reaches the drag one `setTimeout(0)` hop late in a real page: one frame
-    of lag (#32).
+    of lag (#32), unchanged by #31.
+  - `Reorder.Item` still needs `zIndex: 1` while offset (Motion's): a FLIPing sibling that
+    paints over it takes a press meant for it.
+  - Wardic sets no `touch-action` on a drag element (Motion sets `none`, or `pan-x`/`pan-y`
+    for an axis): with `touch-action: auto` Chromium takes a touch drag for scrolling and
+    cancels it after the first move. A touch `<Reorder>` needs it (#36).
+  - After a lost release, pressing a `layout` item again restarts the drag from its slot
+    (#30's grab mid-flight jump).
 - **Nested draggables** have no drag lock (#29): grabbing an inner draggable also drags
-  its draggable ancestor.
+  its draggable ancestor. ADR-0019's **Drag activity** (a core `Context.Reference`
+  counting active drags) is the lock's seed: #29 turns its claim into Motion's
+  `setDragLock`, refusable and per axis.
 - **Released-drag edges:** a running node inside a `layoutRoot` inside a FLIPing parent
   counts the parent's motion twice (#33), and a `layoutId` lead with followers
   re-crossfades on every FLIP, its release included (#34).

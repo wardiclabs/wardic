@@ -17,6 +17,21 @@
  * to the stage. It hands the lab one input per press through `ctx.recordDragRun`,
  * and the lab adds the `wardic.*` spans that started in `[grabAt, endedAt]`.
  *
+ * Not every press is a whole drag (#31's lab fix, from Devin's desktop log of
+ * 2026-09-29). A press that never moves past the drag threshold is a click, and the
+ * card reads it as one. A run the next press cut short while its release was still
+ * settling (`endedBy`) has no settled last frame, so the card doesn't judge where it
+ * ended.
+ *
+ * #31's own line, `gesture ends`, reads whether the press's gesture ended where
+ * ADR-0019 says a gesture ends: at its release, or, when the release was lost, at the
+ * pointer's first unpressed move (a Stale gesture's rule A) or its next press (rule
+ * B). It fails when a gesture went on moving the item after that point: following the
+ * unpressed pointer, never flying the item to its slot, dragging it between two presses
+ * (the next run inherits it), or dragging it under a press of a pointer that isn't the
+ * Primary pointer. The lab's "lose the next release" toggle makes a lost release on
+ * purpose (`releaseLost`), as the regression tests do.
+ *
  * Every move and every frame carries the recorder's frame counter, so which moves a
  * frame could show is exact: a move handled before a frame's rAF callback has a
  * smaller counter than that frame. No timestamp is compared there, because Firefox
@@ -73,7 +88,7 @@ export interface Point {
   readonly y: number
 }
 
-/** One pointer move the recorder handled while the item was pressed. */
+/** One pointer move the recorder handled: while the item was pressed (`moves`), or after the release (`releaseMoves`). */
 export interface DragMove {
   /** When the move was handled (`performance.now()`, ms). */
   readonly t: number
@@ -87,6 +102,11 @@ export interface DragMove {
   readonly dx: number
   /** The pointer's vertical offset from where it went down, in px. */
   readonly dy: number
+  /**
+   * The pointer's pressed buttons (`PointerEvent.buttons`): 1 or more while pressed, 0
+   * once released. Left out in a log from before #31's lab fix.
+   */
+  readonly buttons?: number
 }
 
 /** One frame, read after its paint. */
@@ -103,9 +123,17 @@ export interface DragFrame {
   readonly slot: Box
   /** Each watched child's painted box, by name. A child missing from a frame is not judged in it. */
   readonly children: Readonly<Record<string, Box>>
+  /**
+   * Painted boxes no check judges, by name, for a scenario that records one (scenario
+   * 12's M, which moves by design: #38). Left out otherwise.
+   */
+  readonly watched?: Readonly<Record<string, Box>>
   /** Painted opacities, by name, for a scenario that watches them (a dragged `layoutId` lead). */
   readonly opacity?: Readonly<Record<string, number>>
 }
+
+/** Why a drag scenario's recorder stopped after the release (see {@link DragRunInput.endedBy}). */
+export type DragRunEnd = "settled" | "timeout" | "next-press"
 
 /**
  * What a drag scenario's recorder hands `ctx.recordDragRun` for one press. Every
@@ -123,19 +151,51 @@ export interface DragRunInput {
   readonly grabBox: Box
   /** The pointer moves while pressed, oldest first. */
   readonly moves: ReadonlyArray<DragMove>
+  /**
+   * The pointer's moves after the release until the recorder stopped, oldest first,
+   * with their `buttons`: what the item did once its gesture should have ended. Left
+   * out in a log from before #31's lab fix.
+   */
+  readonly releaseMoves?: ReadonlyArray<DragMove>
+  /**
+   * The pointer that pressed: its `pointerType`, the `button` that went down, and
+   * `isPrimary`. Only the Primary pointer drags (ADR-0019: a mouse's left button, or
+   * the first touch or pen contact), so a press of another moves nothing. Left out in a
+   * log from before #31's lab fix, whose presses read as primary.
+   */
+  readonly pointer?: { readonly type: string; readonly button: number; readonly isPrimary: boolean }
   /** One sample per frame painted after the grab, oldest first, through the settle after the release. */
   readonly frames: ReadonlyArray<DragFrame>
   /** Each watched child's painted offset from the dragged element at the grab, by name. */
   readonly childOffsets: Readonly<Record<string, Point>>
   /** When the pointer went up (ms), or `null` when the press never ended in a release. */
   readonly releaseAt: number | null
-  /** When the recorder stopped (ms). */
+  /**
+   * Whether the release never reached the page's listeners: the scenario's "lose the
+   * next release" toggle swallowed the pointerup (#31, as another page script could),
+   * or the browser never sent one (a release outside the window, where headless
+   * Firefox sent only moves with no button pressed in #31's checks; the first is taken
+   * as the release). `releaseAt` is still when it happened. Left out when the release
+   * arrived.
+   */
+  readonly releaseLost?: boolean
+  /** When the recorder stopped (ms). {@link endedBy} says why. */
   readonly endedAt: number
   /**
+   * Why the recorder stopped after the release: `settled` (the item's painted box stood
+   * still for the recorder's `STILL_FRAMES` frames), `timeout` (its `SETTLE_MS` passed
+   * first) or `next-press` (the next press started while the release was still
+   * settling: the run was cut short, so its last frame may still be on the way to the
+   * slot). Left out in a log from before #31's lab fix, whose runs are judged as if they
+   * had settled.
+   */
+  readonly endedBy?: DragRunEnd
+  /**
    * Whether a pointer event of the press landed outside the dragged element (a move
-   * too fast for it, or the release). Wardic's drag listens on the element itself, so
-   * from there it stops following and a release outside doesn't end it: the run then
-   * shows that, not the Measure pass. Left out when it never happened.
+   * too fast for it, or the release). Before #31's fix Wardic's drag listened on the
+   * element itself, so from there it stopped following and a release outside didn't
+   * end it; since ADR-0019 the drag keeps its pointer, and this is information only.
+   * Left out when it never happened.
    */
   readonly pointerLeft?: boolean
   /**
@@ -168,6 +228,73 @@ export interface DragPasses {
   readonly dragBlocked: number
   /** Each of them, oldest first. */
   readonly perPass: ReadonlyArray<DragPass>
+}
+
+/**
+ * What the `gesture ends` line reads (#31, ADR-0019): where the press's gesture should
+ * have ended, and each sign that a gesture moved the item when none should have (a
+ * Stale gesture, or the press of a pointer that isn't the Primary pointer). Every field
+ * is JSON-safe.
+ */
+export interface GestureEnd {
+  /**
+   * Where the gesture should end: its `release`, or, with a lost release, its first
+   * `unpressed move` (rule A). `null` with no release, or a lost release no unpressed
+   * move followed before the recorder stopped: the next press ends it (rule B), and
+   * that press's run judges it ({@link pressOnOpen}).
+   */
+  readonly at: "release" | "unpressed move" | null
+  /** How many frames were painted after that point (0 with no such point). */
+  readonly framesAfter: number
+  /**
+   * How far the item followed the unpressed pointer after that point, in px: the
+   * largest distance of its painted centre from where it was at that point, over the
+   * frames that sat where the pointer put it (within 1px, off the slot, two frames in a
+   * row, once the pointer had moved more than 1px from its last pressed point). 0 when
+   * it never did.
+   */
+  readonly followedPx: number
+  /**
+   * How far off its slot the item stayed, in px, when no frame after that point moved:
+   * the gesture never ended (a release with nowhere to go, already on its slot, isn't
+   * stuck). `null` otherwise, and for a run the next press cut short (too soon to say).
+   */
+  readonly stuckPx: number | null
+  /**
+   * How far the item moved between the end of this scenario's previous run (its last
+   * frame) and this grab, in px, when that run left its gesture on
+   * ({@link openAtEnd}): a Stale gesture following the unpressed pointer between the
+   * two presses. 0 when the item was back on its slot at the grab (the gesture ended in
+   * between, at an unpressed move, and flew it there). `null` with no previous run, one
+   * whose gesture ended, or one this press cut short (no time in between).
+   */
+  readonly inheritedPx: number | null
+  /**
+   * For a press on a gesture the previous run left on ({@link openAtEnd}): whether this
+   * press ended it (rule B), read from the frames after its down and before its drag
+   * started or it was released. `ended` when the item moved without following the
+   * pointer (a release flying it to its slot), or was already on its slot; `not ended`
+   * when it stood still or moved exactly as the pointer did (the old gesture); `unseen`
+   * with no such frame. `null` for any other press.
+   */
+  readonly pressOnOpen: "ended" | "not ended" | "unseen" | null
+  /**
+   * How far a press of a pointer that isn't the Primary pointer moved the item before
+   * its release, in px (the largest `boxDistance` from the grab box). 0 for a primary
+   * press.
+   */
+  readonly notPrimaryPx: number
+  /**
+   * Whether the gesture was still on when the recorder stopped: a lost release no
+   * unpressed move ended, a stuck item, or one still following the unpressed pointer.
+   * The scenario's next press then starts on it ({@link inheritedPx}, {@link pressOnOpen}).
+   */
+  readonly openAtEnd: boolean
+  /**
+   * The largest of {@link followedPx}, {@link inheritedPx} and {@link notPrimaryPx}: how
+   * far a gesture moved the item when none should have been moving it.
+   */
+  readonly stalePx: number
 }
 
 /**
@@ -223,15 +350,19 @@ export interface DragRun extends DragRunInput {
    * nothing moved although the held box was off the slot (stuck, the F2 case).
    * `>=` on `releaseAt`: a frame in the release's own millisecond (Firefox's coarse
    * timer) counts as after it, since the pointer's event is handled before the
-   * frame's rAF callbacks.
+   * frame's rAF callbacks. With a lost release it counts from where the gesture
+   * should end instead ({@link GestureEnd.at}: its first unpressed move, by frame
+   * counter), and is `null` when no such move came.
    */
   readonly releaseHeld: number | null
   /**
    * The distance between the last frame's painted box and its slot, in px (the
    * largest difference over x, y, width and height). `null` with no release or no
-   * frame after it.
+   * frame after it (after a lost release's first unpressed move).
    */
   readonly endsOnSlotPx: number | null
+  /** What the `gesture ends` line reads (#31). */
+  readonly gestureEnd: GestureEnd
   /** The recorded `wardic.*` spans that started in `[grabAt, endedAt]`, as the lab joined them. */
   readonly spans: ReadonlyArray<SpanRecord>
 }
@@ -264,6 +395,12 @@ export interface DragExpect {
   readonly releaseHeldMax?: PerScheduler
   /** The most {@link DragRun.endsOnSlotPx} may read, in px. */
   readonly endsOnSlotMaxPx?: number
+  /**
+   * The most {@link GestureEnd.stalePx} may read, in px (#31): how far a gesture may
+   * move the item when none should be moving it. Given, a gesture that never ends
+   * (stuck, or not ended by the press on it) fails the line too.
+   */
+  readonly gestureEndsMaxPx?: number
 }
 
 /** The card's drag lines, in display order. {@link dragChecksOf} returns one check per name. */
@@ -274,10 +411,33 @@ export const DRAG_CHECK_NAMES = [
   "passes",
   "release held",
   "ends on slot",
+  "gesture ends",
 ] as const
 
 /** One of {@link DRAG_CHECK_NAMES}. */
 export type DragCheckName = (typeof DRAG_CHECK_NAMES)[number]
+
+/** The six lines of a drag (#26's), which a press that isn't a drag doesn't judge. */
+const DRAG_LINE_NAMES = DRAG_CHECK_NAMES.filter((name) => name !== "gesture ends")
+
+/** Every drag line of a press that never moved past {@link DRAG_THRESHOLD_PX}: no drag started. */
+const CLICK_TEXT = "click, no drag"
+
+/** Every drag line of a press of a pointer that isn't the Primary pointer, which must not drag. */
+const NOT_PRIMARY_TEXT = "not the primary pointer, no drag"
+
+/** The `release held` and `ends on slot` note of a run the next press cut short (`endedBy: "next-press"`). */
+const CUT_SHORT_TEXT = "cut short by the next press"
+
+/** The `release held` and `ends on slot` text of a lost release no unpressed move followed: its gesture hadn't ended. */
+const LOST_OPEN_TEXT = "lost release, no unpressed move"
+
+/**
+ * How closely a Stale gesture moves the item with the pointer, in px: exactly, since it
+ * applies the pointer's offset. A release flying the item to its slot matches the
+ * pointer's offset to within this only by chance.
+ */
+const EXACT_PX = 0.25
 
 /**
  * One card line: its text, and whether it met the scenario's expectation (`true`
@@ -327,14 +487,40 @@ const dragPassesOf = (spans: ReadonlyArray<SpanRecord>, from: number, to: number
   return { count: perPass.length, seeding, dragBlocked, perPass }
 }
 
-/** {@link DragRun.releaseHeld} (see there). */
-const releaseHeldOf = (frames: ReadonlyArray<DragFrame>, releaseAt: number | null): number | null => {
-  if (releaseAt === null) return null
+/** Whether the press was the Primary pointer's (Motion's `isPrimaryPointer`); a log from before #31's lab fix reads as primary. */
+const isPrimaryPress = (input: DragRunInput): boolean =>
+  input.pointer === undefined || (input.pointer.type === "mouse" ? input.pointer.button <= 0 : input.pointer.isPrimary)
+
+/** Where a press's gesture should end ({@link GestureEnd.at}) and when. */
+interface EndPoint {
+  readonly at: "release" | "unpressed move"
+  readonly t: number
+  /** The unpressed move's frame counter. A release has none: its frames go by time (see {@link DragRun.releaseHeld}). */
+  readonly frame: number | undefined
+  /** The index in `releaseMoves` of the first move from the end point on (0 for a release). */
+  readonly from: number
+}
+
+/** Whether frame `f` was painted after `end`: by frame counter after a move, by time (`>=`) after a release. */
+const isAfter = (f: DragFrame, end: EndPoint): boolean => (end.frame === undefined ? f.frameAt >= end.t : f.frame > end.frame)
+
+/** The press's end point (see {@link GestureEnd.at}), or `null` when it has none. */
+const endPointOf = (input: DragRunInput): EndPoint | null => {
+  if (input.releaseAt === null) return null
+  if (input.releaseLost !== true) return { at: "release", t: input.releaseAt, frame: undefined, from: 0 }
+  const moves = input.releaseMoves ?? []
+  const i = moves.findIndex((m) => m.buttons === 0)
+  return i === -1 ? null : { at: "unpressed move", t: moves[i].t, frame: moves[i].frame, from: i }
+}
+
+/** {@link DragRun.releaseHeld} (see there), counted from the press's end point. */
+const releaseHeldOf = (frames: ReadonlyArray<DragFrame>, end: EndPoint | null): number | null => {
+  if (end === null) return null
   let heldBox: Box | undefined
   let last: DragFrame | undefined
   let held = 0
   for (const f of frames) {
-    if (f.frameAt < releaseAt) {
+    if (!isAfter(f, end)) {
       heldBox = f.d
       continue
     }
@@ -349,13 +535,120 @@ const releaseHeldOf = (frames: ReadonlyArray<DragFrame>, releaseAt: number | nul
 }
 
 /**
+ * {@link DragRun.gestureEnd} (see {@link GestureEnd} for each field). `previous` is the
+ * scenario's run before this one, `hop` the input's scheduler hop in frames (see
+ * `dragRunOf`).
+ */
+const gestureEndOf = (
+  input: DragRunInput,
+  end: EndPoint | null,
+  previous: DragRun | undefined,
+  hop: number,
+): GestureEnd => {
+  const { frames, grabBox, releaseAt } = input
+  const grabCentre = centreOf(grabBox)
+  const targetOf = (m: DragMove): Point => ({ x: grabCentre.x + m.dx, y: grabCentre.y + m.dy })
+  const lastMove = input.moves[input.moves.length - 1]
+  // The pointer's last pressed point: where a Stale gesture's rule A ends the drag.
+  const pressedAt = lastMove === undefined ? grabCentre : targetOf(lastMove)
+
+  // After the end point: whether any frame moved, and the frames that sat where the
+  // unpressed pointer put the item (the latest move each frame could show, or the one
+  // before it with the scheduler's hop).
+  let framesAfter = 0
+  let followedPx = 0
+  let moved = false
+  let endBox = grabBox
+  if (end !== null) {
+    const unpressed = (input.releaseMoves ?? []).slice(end.from).filter((m) => m.buttons === 0)
+    const sitsAt = (centre: Point, m: DragMove | undefined): boolean =>
+      m !== undefined && pointDistance(targetOf(m), pressedAt) > NEAR_PX && pointDistance(centre, targetOf(m)) <= NEAR_PX
+    let visible = 0
+    let reachable = 0
+    let inARow = 0
+    for (const f of frames) {
+      if (!isAfter(f, end)) {
+        endBox = f.d
+        continue
+      }
+      framesAfter++
+      if (boxDistance(f.d, endBox) > MOVED_PX) moved = true
+      while (visible < unpressed.length && unpressed[visible].frame < f.frame) visible++
+      while (reachable < unpressed.length && unpressed[reachable].frame < f.frame - hop) reachable++
+      const centre = centreOf(f.d)
+      const sits =
+        boxDistance(f.d, f.slot) > NEAR_PX && (sitsAt(centre, unpressed[visible - 1]) || sitsAt(centre, unpressed[reachable - 1]))
+      inARow = sits ? inARow + 1 : 0
+      if (inARow >= 2) followedPx = Math.max(followedPx, pointDistance(centre, centreOf(endBox)))
+    }
+  }
+  const lastSlot = frames[frames.length - 1]?.slot
+  const offAtEnd = lastSlot === undefined ? 0 : boxDistance(endBox, lastSlot)
+  const stuckPx = framesAfter > 0 && !moved && input.endedBy !== "next-press" && offAtEnd > NEAR_PX ? offAtEnd : null
+
+  let notPrimaryPx = 0
+  if (!isPrimaryPress(input)) {
+    for (const f of frames) {
+      if (releaseAt === null || f.frameAt < releaseAt) notPrimaryPx = Math.max(notPrimaryPx, boxDistance(f.d, grabBox))
+    }
+  }
+
+  // A press on a gesture the scenario's previous run left on.
+  const firstSlot = frames[0]?.slot
+  const offSlotAtGrab = firstSlot === undefined || boxDistance(grabBox, firstSlot) > NEAR_PX
+  let inheritedPx: number | null = null
+  let pressOnOpen: GestureEnd["pressOnOpen"] = null
+  if (previous !== undefined && previous.gestureEnd.openAtEnd) {
+    const previousEnd = previous.frames[previous.frames.length - 1]?.d ?? previous.grabBox
+    if (previous.endedBy !== "next-press") inheritedPx = offSlotAtGrab ? boxDistance(grabBox, previousEnd) : 0
+    if (!offSlotAtGrab) pressOnOpen = "ended"
+    else {
+      // Rule B: this down ends the old gesture, whose release then flies the item to its
+      // slot. Read before this press's own drag starts, or its release.
+      const start = dragMovesOf(input.moves)[0]
+      const before = frames.filter(
+        (f) => (start === undefined || f.frame <= start.frame) && (releaseAt === null || f.frameAt < releaseAt),
+      )
+      let flew = false
+      let followed = false
+      for (const f of before) {
+        if (boxDistance(f.d, grabBox) <= MOVED_PX) continue
+        flew = true
+        // The old gesture moves the item by exactly the pointer's offset.
+        const dx = f.d.x - grabBox.x
+        const dy = f.d.y - grabBox.y
+        if (input.moves.some((m) => m.frame < f.frame && Math.abs(m.dx - dx) <= EXACT_PX && Math.abs(m.dy - dy) <= EXACT_PX)) {
+          followed = true
+        }
+      }
+      pressOnOpen = before.length === 0 ? "unseen" : flew && !followed ? "ended" : "not ended"
+    }
+  }
+
+  const lostOpen = input.releaseLost === true && releaseAt !== null && end === null
+  return {
+    at: end?.at ?? null,
+    framesAfter,
+    followedPx,
+    stuckPx,
+    inheritedPx,
+    pressOnOpen,
+    notPrimaryPx,
+    openAtEnd: lostOpen || stuckPx !== null || followedPx > 0,
+    stalePx: Math.max(followedPx, inheritedPx ?? 0, notPrimaryPx),
+  }
+}
+
+/**
  * Reads a {@link DragRun} from one press's `input` and the spans the lab joined for
  * it (the recorded spans that started in `[input.grabAt, input.endedAt]`; any
- * others are ignored for `passes` but kept in `spans`). Each field's doc on
- * {@link DragRun} says how it is computed. `input.moves` and `input.frames` are
- * oldest first. Runs once per drag, never per frame.
+ * others are ignored for `passes` but kept in `spans`). `previous` is the same
+ * scenario's run before it, if any: whether this press started on a gesture that run
+ * left on (#31, {@link GestureEnd.inheritedPx}). Each field's doc on {@link DragRun}
+ * says how it is computed. `input.moves` and `input.frames` are oldest first. Runs
+ * once per drag, never per frame.
  */
-export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>): DragRun => {
+export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>, previous?: DragRun): DragRun => {
   const { frames, releaseAt } = input
   const moves = dragMovesOf(input.moves)
   const grabCentre = centreOf(input.grabBox)
@@ -422,9 +715,10 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>)
     if (max !== undefined) childGlueMaxPx[name] = max
   }
 
+  // Where the gesture should end: the release, or a lost release's first unpressed move.
+  const end = endPointOf(input)
   const last = frames[frames.length - 1]
-  const endsOnSlotPx =
-    releaseAt === null || last === undefined || last.frameAt < releaseAt ? null : boxDistance(last.d, last.slot)
+  const endsOnSlotPx = end === null || last === undefined || !isAfter(last, end) ? null : boxDistance(last.d, last.slot)
 
   return {
     ...input,
@@ -434,8 +728,9 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>)
     framesBehindMoves,
     childGlueMaxPx,
     passes: dragPassesOf(spans, input.grabAt, input.endedAt),
-    releaseHeld: releaseHeldOf(frames, releaseAt),
+    releaseHeld: releaseHeldOf(frames, end),
     endsOnSlotPx,
+    gestureEnd: gestureEndOf(input, end, previous, hop),
     spans,
   }
 }
@@ -460,24 +755,79 @@ const lineOf = (name: DragCheckName, value: string, expected: string | undefined
 }
 
 /**
+ * The `gesture ends` line (#31): the gesture's {@link GestureEnd.stalePx}, what the press
+ * was (`click`, `not the primary pointer`, `lost release`), and each thing that
+ * shows a gesture going on when it should have ended (`follows the unpressed pointer`,
+ * `inherited a stale gesture`, `dragged it`, `never ends, … off its slot`, `the press
+ * doesn't end the stale gesture`). Any of those fails it, a distance only past `bound`
+ * (1px when left out). A click, a lost release no unpressed move followed, and a run
+ * the next press cut short before any frame after its end point have nothing to judge
+ * unless one of those shows.
+ */
+const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined): DragCheck => {
+  const g = run.gestureEnd
+  const limit = bound ?? NEAR_PX
+  const primary = isPrimaryPress(run)
+  const notes: Array<string> = []
+  if (!primary) notes.push("not the primary pointer")
+  else if (click) notes.push("click")
+  if (run.releaseLost === true) notes.push("lost release")
+  const misses: Array<string> = []
+  if (g.followedPx > limit) misses.push("follows the unpressed pointer")
+  if (g.inheritedPx !== null && g.inheritedPx > limit) misses.push("inherited a stale gesture")
+  if (g.notPrimaryPx > limit) misses.push("dragged it")
+  if (g.stuckPx !== null) misses.push(`never ends, ${px(g.stuckPx)} off its slot`)
+  if (g.pressOnOpen === "not ended") misses.push("the press doesn't end the stale gesture")
+  if (g.pressOnOpen === "unseen") misses.push("? whether the press ends the stale gesture")
+  const expected = bound === undefined ? undefined : `≤ ${bound} px, and an end`
+  if (misses.length === 0) {
+    if (run.releaseAt === null) return lineOf("gesture ends", "?", expected, false)
+    if (primary && click) {
+      const rest = notes.filter((n) => n !== "click").map((n) => ` · ${n}`)
+      return lineOf("gesture ends", `${CLICK_TEXT}${rest.join("")}`, undefined, true)
+    }
+    if (g.at === null) {
+      const text = `${LOST_OPEN_TEXT}${run.endedBy === "next-press" ? " before the next press" : ""}`
+      return lineOf("gesture ends", text, undefined, true)
+    }
+    if (g.framesAfter === 0 && run.endedBy === "next-press") return lineOf("gesture ends", CUT_SHORT_TEXT, undefined, true)
+  }
+  return lineOf("gesture ends", [px(g.stalePx), ...notes, ...misses].join(" · "), expected, misses.length === 0)
+}
+
+/**
  * Checks `run` against `expect`: one {@link DragCheck} per name in
- * {@link DRAG_CHECK_NAMES}, in that order. A value the run could not measure reads
- * `?` and fails its check (the expected drag did not happen), as a `null` hold does
- * on a trigger card. A held pass fails the `passes` check when it seeded more than
+ * {@link DRAG_CHECK_NAMES}, in that order. A press with no move past the drag
+ * threshold is a click, not a drag: every drag line reads `click, no drag` and none
+ * is judged. So does a press of a pointer that isn't the Primary pointer, which reads
+ * `not the primary pointer, no drag` (ADR-0019: it must not drag). In a drag, a value
+ * the run could not measure reads `?` and fails its check (the expected drag did not
+ * happen), as a `null` hold does on a trigger card. A
+ * held pass fails the `passes` check when it seeded more than
  * `expect.maxSeededPerPass` nodes, and the held passes fail it when none of them
  * drag-blocked anything (one pass may find nothing left to change: a resize both a
  * `layoutDependency` and the engine's ResizeObserver report runs two). A held pass started after the
  * drag's first move past the threshold (a pass at the pointerdown comes before the
- * drag) and before the release.
+ * drag) and before the release. A run the next press cut short
+ * (`endedBy: "next-press"`) stopped while its release was still settling, so its
+ * `ends on slot` shows the last frame's distance `· cut short by the next press` and
+ * is not judged, nor is a `release held` it couldn't read (`? · cut short by the next
+ * press`); a run that timed out is judged. A lost release no unpressed move followed
+ * never reached its end in the run, so both read `lost release, no unpressed move`,
+ * not judged. The `gesture ends` line is judged for every press (see `gestureLineOf`).
  */
 export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck> => {
+  // The drag's start: its first move past the threshold. A press with none is a click.
+  const startMove = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
+  const gesture = gestureLineOf(run, startMove === undefined, expect.gestureEndsMaxPx)
+  if (!isPrimaryPress(run)) return [...DRAG_LINE_NAMES.map((name) => ({ name, ok: true, text: NOT_PRIMARY_TEXT })), gesture]
+  if (startMove === undefined) return [...DRAG_LINE_NAMES.map((name) => ({ name, ok: true, text: CLICK_TEXT })), gesture]
   const under = run.heldFrameCount === 0 ? undefined : run.underPointerMaxPx
   const glue = Object.entries(run.childGlueMaxPx)
   const releaseAt = run.releaseAt
-  // A held pass ran while the item was dragged: from the drag's start (its first move
-  // past the threshold; a pass at the pointerdown, before it, drag-blocks nothing) to
-  // the release.
-  const started = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)?.t ?? run.grabAt
+  // A held pass ran while the item was dragged: from the drag's start (a pass at the
+  // pointerdown, before it, drag-blocks nothing) to the release.
+  const started = startMove.t
   const heldPasses = run.passes.perPass.filter(
     (p) => p.start >= started && (releaseAt === null || p.start < releaseAt),
   )
@@ -489,6 +839,9 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   } = expect
   const behindMax = forScheduler(expect.framesBehindMax, run)
   const releaseHeldMax = forScheduler(expect.releaseHeldMax, run)
+  // A lost release no unpressed move followed: its gesture's end never came in the run.
+  const lostOpen = run.releaseLost === true && run.gestureEnd.at === null
+  const cut = run.endedBy === "next-press"
   return [
     lineOf(
       "under pointer",
@@ -518,17 +871,33 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
         heldPasses.every((p) => p.seeded <= seededMax) &&
         (heldPasses.length === 0 || heldPasses.some((p) => p.dragBlocked >= 1)),
     ),
-    lineOf(
-      "release held",
-      run.releaseHeld === null ? "?" : String(run.releaseHeld),
-      releaseHeldMax === undefined ? undefined : `≤ ${releaseHeldMax}`,
-      run.releaseHeld !== null && releaseHeldMax !== undefined && run.releaseHeld <= releaseHeldMax,
-    ),
-    lineOf(
-      "ends on slot",
-      run.endsOnSlotPx === null ? "?" : px(run.endsOnSlotPx),
-      slotMax === undefined ? undefined : `≤ ${slotMax} px`,
-      run.endsOnSlotPx !== null && slotMax !== undefined && run.endsOnSlotPx <= slotMax,
-    ),
+    lostOpen
+      ? lineOf("release held", LOST_OPEN_TEXT, undefined, true)
+      : run.releaseHeld === null && cut
+        ? // Cut before the release's first moving frame: too soon to read.
+          lineOf("release held", `? · ${CUT_SHORT_TEXT}`, undefined, true)
+        : lineOf(
+            "release held",
+            run.releaseHeld === null ? "?" : String(run.releaseHeld),
+            releaseHeldMax === undefined ? undefined : `≤ ${releaseHeldMax}`,
+            run.releaseHeld !== null && releaseHeldMax !== undefined && run.releaseHeld <= releaseHeldMax,
+          ),
+    lostOpen
+      ? lineOf("ends on slot", LOST_OPEN_TEXT, undefined, true)
+      : cut
+        ? // Still settling when the next press came: the last frame is not where the release ends.
+          lineOf(
+            "ends on slot",
+            run.endsOnSlotPx === null ? CUT_SHORT_TEXT : `${px(run.endsOnSlotPx)} · ${CUT_SHORT_TEXT}`,
+            undefined,
+            true,
+          )
+        : lineOf(
+            "ends on slot",
+            run.endsOnSlotPx === null ? "?" : px(run.endsOnSlotPx),
+            slotMax === undefined ? undefined : `≤ ${slotMax} px`,
+            run.endsOnSlotPx !== null && slotMax !== undefined && run.endsOnSlotPx <= slotMax,
+          ),
+    gesture,
   ]
 }

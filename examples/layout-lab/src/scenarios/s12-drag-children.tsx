@@ -9,13 +9,16 @@
  * release. A sibling above D can move D's slot while it is held: every 900 ms, or on
  * S. A fifth child, M, starts a slow FLIP across D when you grab it (the "animate a
  * child on grab" toggle): it should keep animating on D, with no jump, which the eye
- * checks (its offset changes by design, so it is not in the glue check).
+ * checks (its offset changes by design, so it is not in the glue check; each frame
+ * records its box in `watched`, for #38's release stutter). The "lose
+ * the next release" toggle (L while D is held, or its checkbox) swallows the press's
+ * pointerup, for the card's `gesture ends` line (#31, ADR-0019).
  *
  * @module
  */
 import { wardic } from "@wardic/solid"
 import { createSignal, type JSX, onCleanup, onMount } from "solid-js"
-import { CONTROLS_STYLE, NOTE_STYLE } from "./controls.tsx"
+import { Checkbox, CONTROLS_STYLE, NOTE_STYLE } from "./controls.tsx"
 import { attachDragRecorder } from "./drag-recorder.ts"
 import type { ScenarioDef } from "./types.ts"
 
@@ -63,15 +66,18 @@ const View: ScenarioDef["View"] = (props) => {
   const [tall, setTall] = createSignal(false)
   const [mRight, setMRight] = createSignal(false)
   const [animateOnGrab, setAnimateOnGrab] = createSignal(true)
+  const [loseNext, setLoseNext] = createSignal(false)
   let stage: HTMLDivElement | undefined
   let item: HTMLElement | undefined
   let c1: HTMLElement | undefined
   let c2: HTMLElement | undefined
   let r: HTMLElement | undefined
   let g: HTMLElement | undefined
+  let m: HTMLElement | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   let dragging = false
   let noteLayoutChange = (): void => {}
+  let pressing = (): boolean => false
 
   const moveSlot = (): void => {
     noteLayoutChange()
@@ -83,6 +89,7 @@ const View: ScenarioDef["View"] = (props) => {
   }
   const onKey = (e: KeyboardEvent): void => {
     if (dragging && (e.key === "s" || e.key === "S")) moveSlot()
+    else if (pressing() && (e.key === "l" || e.key === "L")) setLoseNext((v) => !v)
   }
   const onGrab = (): void => {
     if (animateOnGrab()) setMRight((v) => !v) // M starts its FLIP as the press begins
@@ -93,6 +100,8 @@ const View: ScenarioDef["View"] = (props) => {
       stage: () => stage,
       item: () => item,
       children: () => ({ c1, c2, r, g }),
+      // M moves by design, so it is recorded for the log but not glue-checked (#38).
+      watched: () => ({ m }),
       mode: () => (animateOnGrab() ? "animate-on-grab" : "resting"),
       onPhase: (phase) => {
         if (phase === "start") {
@@ -105,8 +114,10 @@ const View: ScenarioDef["View"] = (props) => {
         }
       },
       record: (input) => props.ctx.recordDragRun(input),
+      loseNextRelease: { armed: loseNext, disarm: () => setLoseNext(false) },
     })
     noteLayoutChange = recorder.noteLayoutChange
+    pressing = recorder.pressing
     item?.addEventListener("pointerdown", onGrab)
     window.addEventListener("keydown", onKey)
     onCleanup(() => {
@@ -133,7 +144,8 @@ const View: ScenarioDef["View"] = (props) => {
               {/* eslint-disable-next-line solid/reactivity */}
               <wardic.div layout ref={(el: HTMLElement) => (g = el)} style={G_STYLE} />
             </wardic.div>
-            <wardic.div layout layoutDependency={mRight()} transition={M_TRANSITION} style={mStyle(mRight())} />
+            {/* eslint-disable-next-line solid/reactivity */}
+            <wardic.div layout layoutDependency={mRight()} transition={M_TRANSITION} ref={(el: HTMLElement) => (m = el)} style={mStyle(mRight())} />
           </wardic.div>
         </div>
       </div>
@@ -142,10 +154,11 @@ const View: ScenarioDef["View"] = (props) => {
           <input type="checkbox" name="animate-on-grab" checked={animateOnGrab()} onChange={(e) => setAnimateOnGrab(e.currentTarget.checked)} />
           animate a child on grab (M, by eye)
         </label>
+        <Checkbox label="lose the next release (L while held)" name="lose-next-release" checked={loseNext()} onChange={setLoseNext} />
       </div>
       <p style={NOTE_STYLE}>
-        Grab the blue item near its centre and hold it. Its slot moves every 900 ms, or press S. Every child should
-        stay on it. Keep the pointer on the item (#31).
+        Grab the blue item near its centre and hold it. Its slot moves every 900 ms, or press S; L loses its release.
+        Every child should stay on it.
       </p>
     </div>
   )
@@ -176,6 +189,8 @@ export const s12: ScenarioDef = {
     maxSeededPerPass: 1,
     releaseHeldMax: { default: 1, microtask: 0 },
     endsOnSlotMaxPx: 0.5,
+    // #31: no gesture moves the item once it should have ended (ADR-0019).
+    gestureEndsMaxPx: 1,
   },
   View,
 }

@@ -1,11 +1,13 @@
 // Issue #26's drag runs (`dragRunOf`, `dragChecksOf`, `formatDragPasses`) and the
 // lab's drag-run log (`ctx.recordDragRun`, `Lab.dragRuns`, `Lab.subscribeDragRuns`),
-// in the node test tier. No hand-driven drag has been saved yet, so the fixtures are
-// synthetic, built on the scene of the #26 browser suite
-// (`packages/solid/test/drag-measure-pass.browser.test.tsx`): a 160x80 item D with a
-// `layout` child C1 at (10,10) and a plain child C2 at (60,10). The recorder's first
-// rAF after the grab is frame 1, frames are 16 ms apart, and each pointer move is
-// handled between one frame's paint and the next frame's rAF, as real input is.
+// in the node test tier. The fixtures are synthetic, built on the scene of the #26
+// browser suite (`packages/solid/test/drag-measure-pass.browser.test.tsx`): a 160x80
+// item D with a `layout` child C1 at (10,10) and a plain child C2 at (60,10). The
+// recorder's first rAF after the grab is frame 1, frames are 16 ms apart, and each
+// pointer move is handled between one frame's paint and the next frame's rAF, as real
+// input is. #31's cases (a click, a run the next press cut short) are small inputs
+// shaped like runs of Devin's desktop log 2026-09-29T16-07-41-550Z (Chrome), numbered
+// as the log analyzer numbers them (0-based `dragRuns` order).
 import * as Effect from "effect/Effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
@@ -136,7 +138,7 @@ const oldFrames: ReadonlyArray<DragFrame> = [
 ]
 const oldSpans: ReadonlyArray<SpanRecord> = [span(MEASURE, PASS_AT, PASS_AT + 1, { nodes: 5, active: 1, seeded: 3, rounds: 1 })]
 
-/** Scenario 11's expectations (task.json `lab_s11`). */
+/** Scenario 11's expectations (task.json `lab_s11`), with #31's `gesture ends` bound. */
 const S11_EXPECT: DragExpect = {
   underPointerMaxPx: 1,
   framesBehindMax: 0,
@@ -144,7 +146,11 @@ const S11_EXPECT: DragExpect = {
   maxSeededPerPass: 1,
   releaseHeldMax: 0,
   endsOnSlotMaxPx: 0.5,
+  gestureEndsMaxPx: 1,
 }
+
+/** The `gesture ends` line of a press whose gesture ended at its release (#31). */
+const GESTURE_OK = ["gesture ends", true, "0.00 px ✓"]
 
 describe("dragRunOf", () => {
   it("reads a drag since #26's fix: under the pointer, 0 frames behind, children glued, release held 0, on the slot", () => {
@@ -355,6 +361,7 @@ describe("dragChecksOf", () => {
       ["passes", true, "1 (1 seeding, 2 drag-blocked) ✓"],
       ["release held", true, "0 ✓"],
       ["ends on slot", true, "0.00 px ✓"],
+      GESTURE_OK,
     ])
   })
 
@@ -367,6 +374,7 @@ describe("dragChecksOf", () => {
       ["passes", false, "1 (1 seeding, 0 drag-blocked) ✗ expected seeded ≤ 1 per held pass, drag-blocked ≥ 1 over them"],
       ["release held", false, "1 ✗ expected ≤ 0"],
       ["ends on slot", true, "0.00 px ✓"],
+      GESTURE_OK,
     ])
   })
 
@@ -399,7 +407,9 @@ describe("dragChecksOf", () => {
   })
 
   it("fails what a run could not measure (`?`), and shows a line with no expectation unchecked", () => {
-    const still = dragRunOf(input(cleanHeld, { moves: [], releaseAt: null, childOffsets: {} }), [])
+    // A drag with nothing to read: its one move past the threshold came after the last
+    // frame (no held frame), with no release and no child sampled.
+    const still = dragRunOf(input(cleanHeld, { moves: [moveOf(6)], releaseAt: null, childOffsets: {} }), [])
     expect(textsOf(still, S11_EXPECT)).toEqual([
       ["under pointer", false, "? ✗ expected ≤ 1 px"],
       ["frames behind", false, "? ✗ expected ≤ 0"],
@@ -407,6 +417,7 @@ describe("dragChecksOf", () => {
       ["passes", true, "0 ✓"],
       ["release held", false, "? ✗ expected ≤ 0"],
       ["ends on slot", false, "? ✗ expected ≤ 0.5 px"],
+      ["gesture ends", false, "? ✗ expected ≤ 1 px, and an end"],
     ])
     expect(textsOf(dragRunOf(input(oldFrames), oldSpans), {})).toEqual([
       ["under pointer", true, "10.00 px"],
@@ -415,6 +426,7 @@ describe("dragChecksOf", () => {
       ["passes", true, "1 (1 seeding, 0 drag-blocked)"],
       ["release held", true, "1"],
       ["ends on slot", true, "0.00 px"],
+      ["gesture ends", true, "0.00 px"],
     ])
   })
 
@@ -444,6 +456,13 @@ describe("dragChecksOf", () => {
     expect(passes?.ok).toBe(true)
   })
 
+  it("keeps a watched box in the frames and judges nothing by it (#38)", () => {
+    const watched = cleanFrames.map((f, i) => ({ ...f, watched: { m: box(40 * i, 3, 40, 20) } }))
+    const run = dragRunOf(input(watched), cleanSpans)
+    expect(run.frames[3]?.watched).toEqual({ m: box(120, 3, 40, 20) })
+    expect(dragChecksOf(run, S11_EXPECT)).toEqual(dragChecksOf(dragRunOf(input(cleanFrames), cleanSpans), S11_EXPECT))
+  })
+
   it("reads a stuck release as `?` and off the slot", () => {
     const moves: ReadonlyArray<DragMove> = [
       { t: 1008, frame: 0, dx: 20, dy: 0 },
@@ -459,6 +478,305 @@ describe("dragChecksOf", () => {
       ok: false,
       text: "10.00 px ✗ expected ≤ 0.5 px",
     })
+  })
+
+  /** The clean run's seven lines against scenario 11's expectations (see the first case above). */
+  const CLEAN_TEXTS = [
+    ["under pointer", true, "0.00 px ✓"],
+    ["frames behind", true, "0 · 6 moves ✓"],
+    ["child glued", true, "c1 0.00 · c2 0.00 px ✓"],
+    ["passes", true, "1 (1 seeding, 2 drag-blocked) ✓"],
+    ["release held", true, "0 ✓"],
+    ["ends on slot", true, "0.00 px ✓"],
+    GESTURE_OK,
+  ]
+
+  it("reads a press with no move past the threshold as a click on every line, none judged (#21, #25)", () => {
+    // Run #21: a press with no move, released 168 ms after the grab (frame 10 here);
+    // its pointerup ended a gesture a lost release had left on (#31), so the item then
+    // flew from where it was grabbed to its slot.
+    const slot = box(96, 36)
+    const grabbed = box(77, 25)
+    const releaseAt = frameAtOf(10) + 8
+    const frames = [
+      ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((k) => frameOf(k, grabbed, slot)),
+      ...[0.3, 0.7, 1, 1, 1, 1].map((f, i) => frameOf(11 + i, toward(grabbed, slot, f), slot)),
+    ]
+    const click = { moves: [], grabBox: grabbed, releaseAt, endedAt: frameAtOf(16) + 10, endedBy: "settled" } as const
+    const clickTexts = DRAG_CHECK_NAMES.map((name) => [name, true, "click, no drag"])
+    expect(textsOf(dragRunOf(input(frames, click), []), S11_EXPECT)).toEqual(clickTexts)
+    // Moves within the drag threshold (3px, straight-line) are still a click.
+    const jitter: ReadonlyArray<DragMove> = [
+      { t: frameAtOf(3) + 8, frame: 3, dx: 2, dy: 1 },
+      { t: frameAtOf(5) + 8, frame: 5, dx: 2.5, dy: -1.5 },
+    ]
+    expect(textsOf(dragRunOf(input(frames, { ...click, moves: jitter }), []), S11_EXPECT)).toEqual(clickTexts)
+    // One move past it starts a drag: that press is judged, and with no held frame reads `?`.
+    const late: DragMove = { t: frameAtOf(10) + 4, frame: 10, dx: 4, dy: 0 }
+    const dragged = textsOf(dragRunOf(input(frames, { ...click, moves: [...jitter, late] }), []), S11_EXPECT)
+    expect(dragged[0]).toEqual(["under pointer", false, "? ✗ expected ≤ 1 px"])
+  })
+
+  /**
+   * Run #14: the next press came 662 ms after the release, while the release's spring
+   * was still in its tail, 0.56 px short of the slot (in y), and ended the recording.
+   */
+  const TAIL = moved(SLOT_B, 0, 0.56)
+  const cutFrames: ReadonlyArray<DragFrame> = [
+    ...cleanHeld,
+    ...[0.1, 0.4, 0.8].map((f, i) => frameOf(7 + i, toward(HELD_BOX, SLOT_B, f), SLOT_B)),
+    frameOf(10, TAIL, SLOT_B),
+  ]
+  const cutInput = (endedBy: DragRunInput["endedBy"]): DragRunInput => {
+    const cut = input(cutFrames, { endedAt: frameAtOf(10) + 10, endedBy })
+    if (endedBy !== undefined) return cut
+    // A log from before #31's lab fix: no `endedBy` at all.
+    const { endedBy: _, ...old } = cut
+    return old
+  }
+
+  it("does not judge where a run the next press cut short ended (#14, #22)", () => {
+    const run = dragRunOf(cutInput("next-press"), cleanSpans)
+    expect(run.endsOnSlotPx).toBeCloseTo(0.56, 10)
+    expect(textsOf(run, S11_EXPECT)).toEqual([
+      ...CLEAN_TEXTS.slice(0, 5),
+      ["ends on slot", true, "0.56 px · cut short by the next press"],
+      GESTURE_OK,
+    ])
+    expect(JSON.parse(JSON.stringify(run))).toStrictEqual(run)
+    // Cut before any frame after the release: no distance to show.
+    const early = dragRunOf(input(cleanHeld, { endedAt: RELEASE_AT + 2, endedBy: "next-press" }), cleanSpans)
+    expect(dragChecksOf(early, S11_EXPECT).find((c) => c.name === "ends on slot")).toEqual({
+      name: "ends on slot",
+      ok: true,
+      text: "cut short by the next press",
+    })
+  })
+
+  it("still judges the same last frame when the run timed out, settled, or predates `endedBy`", () => {
+    for (const endedBy of ["timeout", "settled", undefined] as const) {
+      const ends = dragChecksOf(dragRunOf(cutInput(endedBy), cleanSpans), S11_EXPECT).find((c) => c.name === "ends on slot")
+      expect(ends).toEqual({ name: "ends on slot", ok: false, text: "0.56 px ✗ expected ≤ 0.5 px" })
+    }
+  })
+
+  it("leaves a whole #26 drag's lines as they were, however the recording ended", () => {
+    const failing = textsOf(dragRunOf(input(oldFrames), oldSpans), S11_EXPECT)
+    for (const endedBy of ["settled", "timeout", "next-press", undefined] as const) {
+      const clean = dragRunOf(input(cleanFrames, endedBy === undefined ? {} : { endedBy }), cleanSpans)
+      const lines = textsOf(clean, S11_EXPECT)
+      // A cut-short run only notes it on `ends on slot`, still ok (0.00 px here).
+      expect(lines).toEqual(
+        endedBy === "next-press"
+          ? [...CLEAN_TEXTS.slice(0, 5), ["ends on slot", true, "0.00 px · cut short by the next press"], GESTURE_OK]
+          : CLEAN_TEXTS,
+      )
+      if (endedBy === "next-press") continue
+      const old = dragRunOf(input(oldFrames, endedBy === undefined ? {} : { endedBy }), oldSpans)
+      expect(textsOf(old, S11_EXPECT)).toEqual(failing)
+    }
+  })
+})
+
+describe("the gesture ends line (#31)", () => {
+  const gestureOf = (run: DragRun) => dragChecksOf(run, S11_EXPECT).find((c) => c.name === "gesture ends")
+  const byName = (run: DragRun) => Object.fromEntries(dragChecksOf(run, S11_EXPECT).map((c) => [c.name, c.text]))
+  const textsFor = (run: DragRun) => dragChecksOf(run, S11_EXPECT).map((c) => [c.name, c.ok, c.text])
+
+  /** Unpressed move j after the release: handled after frame 6 + j's paint, the pointer 5px further right each time. */
+  const unpressedOf = (j: number): DragMove => ({
+    t: frameAtOf(6 + j) + 10,
+    frame: 6 + j,
+    dx: MOVES[5].dx + 5 * (j + 1),
+    dy: MOVES[5].dy,
+    buttons: 0,
+  })
+  const UNPRESSED = [0, 1, 2, 3, 4].map(unpressedOf)
+
+  /** Before #31's fix, a lost release left the gesture on: each unpressed move drags the item on. */
+  const followingInput = input(
+    [
+      ...cleanHeld,
+      ...UNPRESSED.map((m, j) => frameOf(7 + j, at(m), SLOT_B)),
+      ...[12, 13, 14].map((k) => frameOf(k, at(UNPRESSED[4]), SLOT_B)),
+    ],
+    { releaseLost: true, releaseMoves: UNPRESSED, endedAt: frameAtOf(14) + 10, endedBy: "settled" },
+  )
+
+  /** A release nothing ended: the item stays at the held box, 35px off its slot, while the pointer moves away. */
+  const stuckFrames = [...cleanHeld, ...[7, 8, 9, 10, 11].map((k) => frameOf(k, HELD_BOX, SLOT_B))]
+  const stuckInput = (over: Partial<DragRunInput>) =>
+    input(stuckFrames, { releaseMoves: [unpressedOf(1)], endedAt: frameAtOf(11) + 10, endedBy: "settled", ...over })
+
+  it("fails a gesture that follows the unpressed pointer after a lost release", () => {
+    const run = dragRunOf(followingInput, cleanSpans)
+    expect(run.gestureEnd).toMatchObject({ at: "unpressed move", followedPx: 25, stuckPx: null, openAtEnd: true, stalePx: 25 })
+    expect(gestureOf(run)).toEqual({
+      name: "gesture ends",
+      ok: false,
+      text: "25.00 px · lost release · follows the unpressed pointer ✗ expected ≤ 1 px, and an end",
+    })
+  })
+
+  it("passes a gesture that ends at its release, however the pointer moves after it", () => {
+    const run = dragRunOf(input(cleanFrames, { releaseMoves: UNPRESSED }), cleanSpans)
+    expect(run.gestureEnd).toMatchObject({ at: "release", followedPx: 0, stuckPx: null, inheritedPx: null, openAtEnd: false })
+    expect(gestureOf(run)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px ✓" })
+    // The six #26 lines read the same with the moves after the release recorded.
+    expect(dragChecksOf(run, S11_EXPECT)).toEqual(dragChecksOf(dragRunOf(input(cleanFrames), cleanSpans), S11_EXPECT))
+  })
+
+  it("passes a lost release its first unpressed move ends (rule A), and reads the release from that move", () => {
+    // After #31's fix: the item holds while the gesture is on (frame 7), the pointer's
+    // first unpressed move (after frame 7) ends it, and frame 8 flies it to its slot.
+    const frames = [
+      ...cleanHeld,
+      frameOf(7, HELD_BOX, SLOT_B),
+      ...FLIGHT.map((f, i) => frameOf(8 + i, toward(HELD_BOX, SLOT_B, f), SLOT_B)),
+    ]
+    const releaseMoves = [unpressedOf(1), unpressedOf(2), unpressedOf(3)]
+    const run = dragRunOf(input(frames, { releaseLost: true, releaseMoves, endedAt: frameAtOf(12) + 10, endedBy: "settled" }), cleanSpans)
+    expect(run).toMatchObject({ releaseHeld: 0, endsOnSlotPx: 0 })
+    expect(run.gestureEnd).toMatchObject({ at: "unpressed move", framesAfter: 5, followedPx: 0, stuckPx: null, openAtEnd: false })
+    expect(byName(run)).toMatchObject({
+      "release held": "0 ✓",
+      "ends on slot": "0.00 px ✓",
+      "gesture ends": "0.00 px · lost release ✓",
+    })
+  })
+
+  it("fails a gesture that never ends: nothing moves after its end point although the item is off its slot", () => {
+    // A lost release whose unpressed moves never reach the gesture, and (#31's R8, before
+    // the fix) a release outside the item that Wardic's drag never saw.
+    const lost = dragRunOf(stuckInput({ releaseLost: true }), cleanSpans)
+    expect(lost.gestureEnd).toMatchObject({ at: "unpressed move", stuckPx: 35, openAtEnd: true })
+    expect(gestureOf(lost)?.text).toBe("0.00 px · lost release · never ends, 35.00 px off its slot ✗ expected ≤ 1 px, and an end")
+    const outside = dragRunOf(stuckInput({ pointerLeft: true }), cleanSpans)
+    expect(outside.gestureEnd).toMatchObject({ at: "release", stuckPx: 35, openAtEnd: true })
+    expect(gestureOf(outside)).toMatchObject({ ok: false, text: "0.00 px · never ends, 35.00 px off its slot ✗ expected ≤ 1 px, and an end" })
+    // Cut short by the next press, it is too soon to say.
+    expect(dragRunOf(stuckInput({ endedBy: "next-press" }), cleanSpans).gestureEnd.stuckPx).toBeNull()
+  })
+
+  it("does not judge a lost release no unpressed move followed; the next press does", () => {
+    const run = dragRunOf(
+      input([...cleanHeld, frameOf(7, HELD_BOX, SLOT_B)], { releaseLost: true, releaseMoves: [], endedAt: frameAtOf(7) + 10, endedBy: "next-press" }),
+      cleanSpans,
+    )
+    expect(run.gestureEnd).toMatchObject({ at: null, openAtEnd: true })
+    expect(byName(run)).toMatchObject({
+      "release held": "lost release, no unpressed move",
+      "ends on slot": "lost release, no unpressed move",
+      "gesture ends": "lost release, no unpressed move before the next press",
+    })
+    expect(dragChecksOf(run, S11_EXPECT).every((c) => c.ok)).toBe(true)
+  })
+
+  /** A press that went down on an item a stale gesture left at `grabBox`: a click, released 168 ms later (#21). */
+  const clickOn = (grabBox: Box, before: (k: number) => Box): DragRunInput =>
+    input(
+      [
+        ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((k) => frameOf(k, before(k), SLOT_B)),
+        ...[0.3, 0.7, 1, 1, 1].map((f, i) => frameOf(11 + i, toward(before(10), SLOT_B, f), SLOT_B)),
+      ],
+      { moves: [], grabBox, releaseAt: frameAtOf(10) + 8, endedAt: frameAtOf(15) + 10, endedBy: "settled" },
+    )
+
+  it("fails a press that inherited a stale gesture, and a click on one (#12, #20, #21, #25)", () => {
+    const stuck = dragRunOf(stuckInput({ pointerLeft: true }), cleanSpans)
+    // #21: between the presses the stale gesture dragged the item 28.64px up; the click's
+    // own release is what ended it, so the item sat still until the pointerup.
+    const lifted = moved(HELD_BOX, 0, -28.64)
+    const click = dragRunOf(clickOn(lifted, () => lifted), [], stuck)
+    expect(click.gestureEnd).toMatchObject({ inheritedPx: 28.64, pressOnOpen: "not ended", stalePx: 28.64 })
+    expect(textsFor(click)).toEqual([
+      ...DRAG_CHECK_NAMES.slice(0, 6).map((name) => [name, true, "click, no drag"]),
+      [
+        "gesture ends",
+        false,
+        "28.64 px · click · inherited a stale gesture · the press doesn't end the stale gesture ✗ expected ≤ 1 px, and an end",
+      ],
+    ])
+    // #12, a drag: the item follows the new press's moves as the old gesture's.
+    const up = (b: Box) => moved(b, 0, -28.64)
+    const drag = dragRunOf(input(cleanFrames.map((f) => ({ ...f, d: up(f.d), children: glued(up(f.d)) })), { grabBox: up(GRAB) }), cleanSpans, stuck)
+    // From the stuck run's last frame (the held box, 67,96) to this grab (32,59.36).
+    expect(drag.gestureEnd.inheritedPx).toBeCloseTo(36.64, 10)
+    expect(gestureOf(drag)).toMatchObject({ ok: false })
+    expect(gestureOf(drag)?.text).toContain("inherited a stale gesture")
+  })
+
+  it("inherits nothing from a previous run whose gesture ended, or when the item is back on its slot", () => {
+    const ended = dragRunOf(input(cleanFrames), cleanSpans)
+    const lifted = moved(HELD_BOX, 0, -28.64)
+    const click = dragRunOf(clickOn(lifted, () => lifted), [], ended)
+    expect(click.gestureEnd).toMatchObject({ inheritedPx: null, pressOnOpen: null })
+    expect(gestureOf(click)).toEqual({ name: "gesture ends", ok: true, text: "click, no drag" })
+    // After #31's fix a stuck run can't happen, but a lost one no move ended can, and a
+    // later unpressed move ends it and flies the item to its slot before the next press.
+    const lost = dragRunOf(stuckInput({ releaseLost: true, releaseMoves: [], endedBy: "timeout" }), cleanSpans)
+    const onSlot = dragRunOf(clickOn(SLOT_B, () => SLOT_B), [], lost)
+    expect(onSlot.gestureEnd).toMatchObject({ inheritedPx: 0, pressOnOpen: "ended" })
+    expect(gestureOf(onSlot)?.ok).toBe(true)
+  })
+
+  it("judges whether a press ends the gesture a lost release left on (rule B, #31's R10)", () => {
+    const lost = dragRunOf(
+      input([...cleanHeld, frameOf(7, HELD_BOX, SLOT_B)], { releaseLost: true, releaseMoves: [], endedAt: frameAtOf(7) + 10, endedBy: "next-press" }),
+      cleanSpans,
+    )
+    // Before #31's fix: the down is ignored, and the item sits still until the click's pointerup ends the old gesture.
+    const ignored = dragRunOf(clickOn(HELD_BOX, () => HELD_BOX), [], lost)
+    expect(ignored.gestureEnd).toMatchObject({ inheritedPx: null, pressOnOpen: "not ended" })
+    expect(gestureOf(ignored)).toMatchObject({ ok: false, text: "0.00 px · click · the press doesn't end the stale gesture ✗ expected ≤ 1 px, and an end" })
+    // After it: the down ends the old gesture, and its release flies the item to its slot at once.
+    const ended = dragRunOf(clickOn(HELD_BOX, (k) => toward(HELD_BOX, SLOT_B, k / 10)), [], lost)
+    expect(ended.gestureEnd.pressOnOpen).toBe("ended")
+    expect(gestureOf(ended)).toEqual({ name: "gesture ends", ok: true, text: "click, no drag" })
+    // A press whose drag started before any frame could show the down: unseen, and failed.
+    const quick = dragRunOf(input(cleanFrames, { grabBox: HELD_BOX }), cleanSpans, lost)
+    expect(quick.gestureEnd.pressOnOpen).toBe("unseen")
+    expect(gestureOf(quick)?.text).toContain("? whether the press ends the stale gesture")
+  })
+
+  it("fails a press of a pointer that isn't the Primary pointer when it drags, and reads no drag lines (#31's R11)", () => {
+    const right = { type: "mouse", button: 2, isPrimary: true }
+    const dragged = dragRunOf(input(cleanFrames, { pointer: right }), cleanSpans)
+    expect(dragged.gestureEnd.notPrimaryPx).toBe(35)
+    expect(textsFor(dragged)).toEqual([
+      ...DRAG_CHECK_NAMES.slice(0, 6).map((name) => [name, true, "not the primary pointer, no drag"]),
+      ["gesture ends", false, "35.00 px · not the primary pointer · dragged it ✗ expected ≤ 1 px, and an end"],
+    ])
+    // After #31's fix it moves nothing.
+    const still = dragRunOf(input(cleanFrames.map((f) => ({ ...f, d: GRAB, slot: GRAB, children: glued(GRAB) })), { pointer: right }), [])
+    expect(gestureOf(still)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px · not the primary pointer ✓" })
+    // A second finger is not the Primary pointer either; the left button is.
+    expect(dragRunOf(input(cleanFrames, { pointer: { type: "touch", button: 0, isPrimary: false } }), cleanSpans).gestureEnd.notPrimaryPx).toBe(35)
+    expect(gestureOf(dragRunOf(input(cleanFrames, { pointer: { type: "mouse", button: 0, isPrimary: true } }), cleanSpans))?.text).toBe("0.00 px ✓")
+  })
+
+  it("does not judge a release held the next press cut before its first moving frame", () => {
+    const early = dragRunOf(input(cleanHeld, { endedAt: RELEASE_AT + 2, endedBy: "next-press" }), cleanSpans)
+    const oneHeld = dragRunOf(input([...cleanHeld, frameOf(7, HELD_BOX, SLOT_B)], { endedAt: frameAtOf(7) + 10, endedBy: "next-press" }), cleanSpans)
+    for (const run of [early, oneHeld]) {
+      expect(run.releaseHeld).toBeNull()
+      expect(dragChecksOf(run, S11_EXPECT).find((c) => c.name === "release held")).toEqual({
+        name: "release held",
+        ok: true,
+        text: "? · cut short by the next press",
+      })
+    }
+    expect(byName(early)["gesture ends"]).toBe("cut short by the next press")
+    // Not cut short, the same release is judged.
+    expect(dragChecksOf(dragRunOf(input(cleanHeld, { endedAt: RELEASE_AT + 2, endedBy: "timeout" }), cleanSpans), S11_EXPECT)[4]?.ok).toBe(false)
+  })
+
+  it("survives a JSON round trip with #31's fields", () => {
+    const stuck = dragRunOf(stuckInput({ pointerLeft: true }), cleanSpans)
+    const pointer = { type: "mouse", button: 0, isPrimary: true }
+    for (const run of [dragRunOf(followingInput, cleanSpans), dragRunOf({ ...clickOn(HELD_BOX, () => HELD_BOX), pointer }, [], stuck)]) {
+      expect(JSON.parse(JSON.stringify(run))).toStrictEqual(run)
+    }
   })
 })
 
@@ -534,5 +852,21 @@ describe("Lab.recordDragRun", () => {
     expect(kept).toHaveLength(200)
     expect(kept[0].endedAt).toBe(ENDED_AT + 1)
     expect(kept[199].endedAt).toBe(ENDED_AT + 200)
+  })
+
+  it("reads each run against its own scenario's previous run (#31: a press on a gesture that run left on)", () => {
+    const other: ScenarioDef = { ...def, id: "drag-other" }
+    const { lab } = labWith(def)
+    // A release nothing ended: the item stays 35px off its slot.
+    const stuck = input([...cleanHeld, ...[7, 8, 9, 10].map((k) => frameOf(k, HELD_BOX, SLOT_B))], { endedBy: "settled" })
+    lab.context(def).recordDragRun(stuck)
+    // Another scenario's press in between is not this scenario's previous run.
+    lab.context(other).recordDragRun(input(cleanFrames))
+    const lifted = moved(HELD_BOX, 0, -20)
+    lab.context(def).recordDragRun(input(cleanFrames.map((f) => ({ ...f, d: lifted })), { moves: [], grabBox: lifted }))
+    const [first, between, last] = lab.dragRuns()
+    expect(first.gestureEnd).toMatchObject({ stuckPx: 35, openAtEnd: true })
+    expect(between.gestureEnd.inheritedPx).toBeNull()
+    expect(last.gestureEnd.inheritedPx).toBe(20)
   })
 })

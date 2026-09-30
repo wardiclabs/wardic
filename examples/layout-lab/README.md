@@ -195,8 +195,8 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     #32, and **frames behind** reports that lag). Centres, so a slot that resizes
     mid-drag, which the item paints at the new size about the same centre, reads 0.
     `· the pointer left the item` means a pointer event of the press landed outside
-    the item: Wardic's drag then loses the pointer (#31), and the run shows that,
-    not the Measure pass.
+    the item. Before #31's fix the drag lost such a pointer; since ADR-0019 it keeps
+    it, so the note is information only.
   - **frames behind**: for each move, how many painted frames it took for the item
     to show it (within 1px), and how many moves that measured: `1 · 41 moves`. A
     move the next one replaced before any frame could show it is skipped. Expected
@@ -222,12 +222,55 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     off its slot reads `?`.
   - **ends on slot**: the distance, in px, between the last frame's painted box
     and its slot.
+  - **gesture ends** (#31): whether the press's gesture ended where ADR-0019 says
+    a gesture ends, and how far, in px, a gesture moved the item when none should
+    have: `0.00 px ✓`. A gesture ends at its release; with a lost release (below),
+    at the pointer's first move with no button pressed (a **Stale gesture**'s
+    rule A) or at its next press (rule B). The recorder keeps sampling after the
+    release, and records the pointer's moves (`releaseMoves`, with `buttons`),
+    until the item settles; after a lost release the settle starts at that first
+    unpressed move. The line fails, each with its reason, when:
+    `follows the unpressed pointer` (a frame after the gesture's end sat where the
+    unpressed pointer put the item, two in a row); `never ends, … off its slot`
+    (nothing moved after its end although the item was off its slot); `inherited a
+    stale gesture` (the scenario's previous run left its gesture on, and the item
+    moved between that run's last frame and this grab); `the press doesn't end the
+    stale gesture` (after such a run, the item neither flew toward its slot nor
+    rested on it after this press's down, before its drag started or its release;
+    `?` when no frame came in between); or `not the primary pointer · dragged it`
+    (a press of a right button or a second finger moved the item: only the
+    **Primary pointer** drags). `· the pointer left the item` stays on the under
+    pointer line, for information: the gesture line judges what the item did.
 
-  A value the run could not measure reads `?` and fails its check. A new press
-  while the last release is still settling ends that run first. Each drag run
-  keeps its whole recording (the moves, the frames, the spans), and the saved log
-  carries every kept drag run in `dragRuns`, beside `runs`. Nothing about a drag
-  run feeds the flash counter or the timeline panel.
+  A value the run could not measure reads `?` and fails its check. Some presses
+  aren't a whole drag, and read what they are instead, not judged:
+
+  - `click, no drag` on the six drag lines: the pointer never moved past the
+    drag threshold. Its `gesture ends` line is still judged, so a click on an
+    item a stale gesture left off its slot fails it.
+  - `not the primary pointer, no drag` on the six drag lines: a press that
+    shouldn't drag at all. Its `gesture ends` line fails if it did.
+  - `cut short by the next press` on `ends on slot` (after the last frame's
+    distance) and `? · cut short by the next press` on a `release held` it
+    couldn't read: a new press while the last release is still settling ends
+    that run first. A run that timed out (1.5 s) is judged.
+  - `lost release, no unpressed move` on `release held` and `ends on slot`: the
+    release was lost and the pointer didn't move before the recorder stopped, so
+    the gesture's end never came in the run; the next press judges it.
+
+  **Lose the next release.** Each drag scenario has a `lose the next release`
+  checkbox, and L toggles it while you hold the item. While it is on, a window
+  listener added when the scenario mounted, before any listener a press adds,
+  swallows the press's pointerup (`stopImmediatePropagation`, as another page
+  script could, and as the regression tests' `loseNextRelease` does), and turns
+  itself off. The run records `releaseLost: true` and still records when the
+  release happened. A release the browser never sends (let go outside the
+  window: headless Firefox sent only moves with no button pressed in #31's
+  checks) counts as lost too, at the first such move.
+
+  Each drag run keeps its whole recording (the moves, the frames, the spans), and
+  the saved log carries every kept drag run in `dragRuns`, beside `runs`. Nothing
+  about a drag run feeds the flash counter or the timeline panel.
 
 ## Scenarios
 
@@ -314,7 +357,7 @@ never goes through Effect's scheduler.
 
 Scenarios 11 to 13 are issue #26's check: what a Measure pass does to a dragged
 item and its children, and what the release does (ADR-0016 *Amendment (#26)*, the
-**Drag block**). Each press is a drag run with six checks (see **Drag runs** under
+**Drag block**). Each press is a drag run with seven checks (see **Drag runs** under
 Method); the expected card, with a browser's own scheduler:
 
 | Check | Expected | Before #26 |
@@ -325,6 +368,7 @@ Method); the expected card, with a browser's own scheduler:
 | passes | each seeds the sibling (or parent) only; the dragged tree drag-blocked | the dragged item and its children seeded at every pass |
 | release held | ≤ 1 (0 with `?scheduler=microtask`) | 1 or 2 |
 | ends on slot | ≤ 0.5 px | stuck off the slot when the last move landed on it |
+| gesture ends | ≤ 1 px, and the gesture ends | (#31's line) |
 
 - **11, drag while the slot moves.** The mode select picks how the slot moves:
   `resize` (the orange sibling grows or shrinks by 60px; only the engine's
@@ -333,29 +377,33 @@ Method); the expected card, with a browser's own scheduler:
   the end of the task, as a `<Reorder>` would). While you hold the item the slot
   moves every 600 ms, or press R. The item has `z-index: 1`: after a swap the
   sibling follows it in the DOM, and while the sibling's FLIP gives it a transform
-  it would paint over the item and take the pointer's events (#31), as a `<Reorder>`
-  item would without Motion's `zIndex: 1`.
+  it would paint over the item and take a press meant for it, as a `<Reorder>` item
+  would without Motion's `zIndex: 1` (before #31's fix it also took a held drag's
+  moves and release).
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
   and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
   900 ms, or press S. M (grey) starts a slow FLIP across the item when you grab it
   (the toggle): it should keep animating on the item, with no jump. Its offset
-  changes by design, so the eye checks it, not the card.
+  changes by design, so the eye checks it, not the card; each frame of the saved
+  log records its box under `watched`, for #38 (M steps back as the released item
+  settles on its slot).
 - **13, release and pointer lag.** The item sits in a `layout` parent. While you
   hold it, Z resizes its own slot (it should paint its new size under the pointer,
   about the same centre) and P FLIPs its parent 60px right (it should stay under the
   pointer). The release lines are the point: let go still, while moving, and back
   where you grabbed while still moving (the release that used to stay stuck).
 
-Known and not fixed by #26, so they don't surprise you:
+Known and not fixed yet, so they don't surprise you:
 
-- **Keep the pointer on the item.** Wardic's drag has no pointer capture: a move
-  that leaves the item stops the drag, and a release outside never ends it, so the
-  item can keep following the pointer after you let go (#31). The card flags such a
-  run with `· the pointer left the item`. In `resize` mode, from the slot move
-  until the next frame's ResizeObserver pass, the item's hit box sits off by the
-  slot move, so a move or a release in that window can miss it even with the
-  pointer still: once in 24 headless Firefox runs, a release landed there and the
-  drag never ended.
+- **A press still hit-tests.** Since #31 a drag keeps its pointer anywhere on the
+  page and a release anywhere ends it (ADR-0019), so the moves and the release no
+  longer depend on the item's hit box. In `resize` mode, from the slot move until
+  the next frame's ResizeObserver pass, the hit box still sits off by the slot
+  move, so a press in that window can miss the item.
+- **A restart after a lost release grabs from the slot (#30).** With L, pressing
+  the item again and dragging ends the old gesture and starts a new one; a
+  `layout` item is flying back to its slot by then, so it jumps to the slot plus
+  the pointer offset, as any grab mid-flight does.
 - A move paints one frame after it with a browser's scheduler (#32).
 - A flick doesn't carry into the release (the release has no velocity), and
   grabbing the item while it is still flying back jumps it (#30).
@@ -371,6 +419,10 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R5 | 11 either | move away, come back to where you grabbed, release while still moving | 3 |
 | R6 | 12 | hold while the slot moves (S too), release; once with M animating | 3 |
 | R7 | 13 | hold, press Z, then P, release; then a release while moving, and R5 | 3 |
+| R8 | 11 or 13 | flick off the item and release outside it; once more, releasing outside the browser window | 3 |
+| R9 | any | hold, press L, release, then move over the item without pressing | 3 |
+| R10 | any | hold, press L, release, then press again where you are without moving, and release (a click) | 3 |
+| R11 | any | drag with the right button (after #31's fix: no drag) | 3 |
 
 ## Scheduler note
 

@@ -5,7 +5,7 @@ import type { DecayOptions } from "../options.ts"
 import { MAX_DT } from "../primitives/frame.ts"
 import { decayStep, initDecay } from "../primitives/stepper.ts"
 import { Clock } from "../services/Clock.ts"
-import { InputSource } from "../services/InputSource.ts"
+import { InputSource, isPrimaryPointer } from "../services/InputSource.ts"
 import { drag, type Vec2 } from "./drag.ts"
 import { axisLock, type DragBounds, withinBounds } from "./shaping.ts"
 
@@ -72,8 +72,9 @@ type MomentumMode = "idle" | "drag" | "fling"
  *
  * - `position`: the live absolute position emitted to consumers.
  * - `base`: the position the current drag's `offset` is measured from. Captured
- *   on every re-grab, so a drag (or a drag that interrupts a fling) continues
- *   from where the surface currently sits instead of snapping back to origin.
+ *   at each drag's `"start"`, so a drag (or a drag that interrupts a fling)
+ *   continues from where the surface currently sits instead of snapping back to
+ *   origin.
  * - `mode`: idle / drag / fling — bookkeeping only.
  */
 interface MomentumState {
@@ -87,7 +88,7 @@ const initial: MomentumState = { position: ORIGIN, base: ORIGIN, mode: "idle" }
 
 /**
  * The merged event the machine switches over: either a fresh drag sample, or a
- * bare "grab" (a pointer-down) used purely to rebase + interrupt any fling.
+ * bare "grab" (a pointer-down) used purely to interrupt any fling.
  */
 type Event = { readonly _tag: "sample"; readonly s: import("./drag.ts").DragSample } | { readonly _tag: "grab" }
 
@@ -111,22 +112,24 @@ const inner = (
   options: MomentumOptions,
 ): Stream.Stream<Vec2, never, Clock> => {
   if (event._tag === "grab") {
-    // Rebase: the next drag measures its offset from wherever we are now, and
-    // returning an empty inner cancels any in-flight decay (switchMap interrupts
-    // the previous inner). Position is held — no emission, no jump.
-    return Stream.fromEffect(
-      Ref.update(ref, (st) => ({ ...st, base: st.position, mode: "idle" as const })),
-    ).pipe(Stream.drain)
+    // Returning an empty inner cancels any in-flight decay (switchMap interrupts
+    // the previous inner), so the fling stops where it reached. Position is held —
+    // no emission, no jump. The next drag rebases at its "start", not here: a new
+    // down from a pointer whose release was lost also ends the old gesture (a Stale
+    // gesture, ADR-0019), and that "end" and this grab arrive in either order.
+    return Stream.fromEffect(Ref.update(ref, (st) => ({ ...st, mode: "idle" as const }))).pipe(Stream.drain)
   }
 
   const sample = event.s
 
   if (sample.phase === "start" || sample.phase === "move") {
-    // Absolute position = base (captured at grab) + the drag's accumulated offset.
+    // Absolute position = base + the drag's accumulated offset. A "start" rebases to
+    // wherever the surface sits now, so the drag continues from there.
     return Stream.fromEffect(
       Ref.modify(ref, (st) => {
-        const p: Vec2 = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
-        return [p, { ...st, position: p, mode: "drag" as const }] as const
+        const base = sample.phase === "start" ? st.position : st.base
+        const p: Vec2 = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+        return [p, { base, position: p, mode: "drag" as const }] as const
       }),
     )
   }
@@ -160,12 +163,13 @@ const inner = (
  * Built as a `Stream.unwrap` over an `Effect.gen` that resolves `InputSource`,
  * creates the single state ref, and merges two derived streams:
  *   - `samples`: the (optionally shaped) `drag(target)` output, tagged.
- *   - `grabs`: bare pointer-downs, used to rebase and to interrupt a fling.
+ *   - `grabs`: bare pointer-downs from the **Primary pointer**, used to interrupt a
+ *     fling.
  *
  * `Stream.switchMap` over the merge gives the core behaviour: each new event's
  * inner replaces the running one. A re-grab mid-fling therefore *interrupts* the
- * decay inner (stopping the fling) and rebases the next drag onto the position
- * the fling had reached — no snap back to origin, no continued decay.
+ * decay inner (stopping the fling), and the next drag's `"start"` rebases onto the
+ * position the fling had reached — no snap back to origin, no continued decay.
  *
  * Dependency surface is `InputSource | Clock`: `drag` brings `InputSource`, the
  * decay tail brings `Clock`. (Element-bounds shaping would add `Probe`, but the
@@ -198,7 +202,7 @@ export const withMomentum = (
 
       const samples = shaped.pipe(Stream.map((s) => ({ _tag: "sample" as const, s })))
       const grabs = input.pointer(target).pipe(
-        Stream.filter((e) => e.type === "down"),
+        Stream.filter((e) => e.type === "down" && isPrimaryPointer(e)),
         Stream.map(() => ({ _tag: "grab" as const })),
       )
 

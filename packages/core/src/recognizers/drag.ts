@@ -1,7 +1,8 @@
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import type { PointerLikeEvent } from "../services/InputSource.ts"
-import { InputSource } from "../services/InputSource.ts"
+import { InputSource, isPrimaryPointer } from "../services/InputSource.ts"
+import { DragActivity } from "./drag-activity.ts"
 
 /** A 2D vector — pointer position and the per-axis quantities derived from it. */
 export interface Vec2 {
@@ -18,7 +19,9 @@ export interface Vec2 {
  * - `delta`: `point - lastPoint`, the change since the previous emitted event.
  * - `velocity`: a per-axis, time-windowed estimate in units per second.
  * - `phase`: `"start"` on activation, `"move"` while dragging, `"end"` on
- *   release/cancel.
+ *   release/cancel. A **Stale gesture** (its release was lost, ADR-0019) also ends:
+ *   at the owning pointer's first move with no button pressed, or its next down,
+ *   with an `"end"` at the last pressed point, no delta and no velocity.
  */
 export interface DragSample {
   readonly point: Vec2
@@ -99,38 +102,72 @@ const windowVelocity = (history: ReadonlyArray<HistorySample>): Vec2 => {
   }
 }
 
+/** Why a Stale gesture ended: its owner moved with no button pressed (rule A), or went down again (rule B). */
+type StaleRule = "unpressed move" | "second down"
+
+/**
+ * The `"end"` samples that close a Stale gesture, and why (read by {@link drag}'s
+ * cold-path log). A WeakMap, so the fold stays pure and allocates nothing more.
+ */
+const staleEnds = new WeakMap<DragSample, StaleRule>()
+
+/**
+ * The end of a Stale gesture: an `"end"` at its last pressed point, with no delta and
+ * no velocity (a lost release carries no Fling). A gesture that never started (below
+ * the threshold) just resets and emits nothing.
+ */
+const staleEnd = (state: DragState, rule: StaleRule): ReadonlyArray<DragSample> => {
+  if (state.phase !== "active") return []
+  const sample: DragSample = {
+    point: state.last,
+    offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
+    delta: { x: 0, y: 0 },
+    velocity: { x: 0, y: 0 },
+    phase: "end",
+  }
+  staleEnds.set(sample, rule)
+  return [sample]
+}
+
+/** A gesture claimed by `event`, a down. */
+const claimedBy = (event: PointerLikeEvent, point: Vec2): DragState => ({
+  phase: "idle",
+  ownerId: event.pointerId,
+  origin: point,
+  last: point,
+  history: [{ x: point.x, y: point.y, t: event.timeStamp }],
+})
+
 /**
  * Fold one pointer event into the drag state, emitting zero or more samples.
  *
- * Zero-or-more output: activation/sub-threshold/non-owner events emit `[]`;
- * threshold crossing emits one `"start"`; subsequent moves emit one `"move"`;
- * release/cancel emits one `"end"`. This is the hot path — no logging here.
+ * Only the **Primary pointer** counts (Motion's `isPrimaryPointer`): a right-click or a
+ * second finger is ignored. Zero-or-more output: activation/sub-threshold/non-owner
+ * events emit `[]`; threshold crossing emits one `"start"`; subsequent moves emit one
+ * `"move"`; release/cancel emits one `"end"`. A Stale gesture (ADR-0019) ends at the
+ * owner's move with `buttons === 0` (rule A) or its next down (rule B, which then
+ * claims the new gesture): see {@link staleEnd}. This is the hot path — no logging here.
  */
 const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, ReadonlyArray<DragSample>] => {
+  if (!isPrimaryPointer(event)) return [state, []] as const
   const point: Vec2 = { x: event.x, y: event.y }
 
-  // --- Activation: first "down" claims the gesture. ---
+  // --- Activation: a "down" claims the gesture. ---
   if (event.type === "down") {
-    if (state.ownerId !== null) {
-      // Already owned (e.g. a second pointer pressing) — ignore.
-      return [state, []] as const
-    }
-    return [
-      {
-        phase: "idle",
-        ownerId: event.pointerId,
-        origin: point,
-        last: point,
-        history: [{ x: point.x, y: point.y, t: event.timeStamp }],
-      },
-      [],
-    ] as const
+    if (state.ownerId === null) return [claimedBy(event, point), []] as const
+    // Another pointer while one owns the gesture — ignore.
+    if (event.pointerId !== state.ownerId) return [state, []] as const
+    // Rule B: the owner went down again, so its release was lost.
+    return [claimedBy(event, point), staleEnd(state, "second down")] as const
   }
 
   // No owner yet, or event from a non-owning pointer — ignore.
   if (state.ownerId === null || event.pointerId !== state.ownerId) {
     return [state, []] as const
   }
+
+  // Rule A: the owner moved with no button pressed, so its release was lost.
+  if (event.type === "move" && event.buttons === 0) return [initState, staleEnd(state, "unpressed move")] as const
 
   // --- Release / cancel from the owner: emit final "end", reset. ---
   if (event.type === "up" || event.type === "cancel") {
@@ -196,6 +233,11 @@ const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, R
  * and folds the pointer stream with `Stream.mapAccum`. The whole stream runs in
  * a `wardic.drag` span; per-sample folding stays silent (hot path).
  *
+ * The drag claims the runtime's **Drag activity** at its `"start"` and releases it at
+ * its `"end"`, or when the stream is interrupted mid-gesture, so a hover or press
+ * elsewhere can't start while it is on (ADR-0019). A Stale gesture's end is the one
+ * cold-path log: `wardic.drag: stale gesture` with its rule.
+ *
  * Velocity is a time-windowed (~30ms) per-axis estimate read from event
  * `timeStamp`s, so the recognizer needs no `Clock` — only `InputSource`.
  */
@@ -204,8 +246,31 @@ export const drag = (target: unknown): Stream.Stream<DragSample, never, InputSou
   return Stream.unwrap(
     Effect.gen(function* () {
       const input = yield* InputSource
+      const activity = yield* DragActivity
       yield* Effect.logDebug("wardic.drag: subscribe").pipe(Effect.annotateLogs(attributes))
-      return input.pointer(target).pipe(Stream.mapAccum(() => initState, step))
+      // This subscription's claim on the Drag activity, held from "start" to "end".
+      let release: (() => void) | undefined
+      const unclaim = (): void => {
+        release?.()
+        release = undefined
+      }
+      return input.pointer(target).pipe(
+        Stream.mapAccum(() => initState, step),
+        Stream.tap((sample) => {
+          if (sample.phase === "start") {
+            unclaim()
+            release = activity.claim()
+            return Effect.void
+          }
+          if (sample.phase !== "end") return Effect.void
+          unclaim()
+          const rule = staleEnds.get(sample)
+          return rule === undefined
+            ? Effect.void
+            : Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ rule }))
+        }),
+        Stream.ensuring(Effect.sync(unclaim)),
+      )
     }).pipe(Effect.annotateLogs(attributes)),
   ).pipe(Stream.withSpan("wardic.drag", { attributes }))
 }

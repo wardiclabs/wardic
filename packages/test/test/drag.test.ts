@@ -1,25 +1,19 @@
-import { drag } from "@wardic/core"
+import { drag, makePointerLikeEvent } from "@wardic/core"
 import type { DragSample, PointerLikeEvent } from "@wardic/core"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 
-/** Build a PointerLikeEvent with sensible defaults; override per-event. */
+/** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release. */
 const ev = (
   type: PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   pointerId = 1,
-): PointerLikeEvent => ({
-  type,
-  pointerId,
-  x,
-  y,
-  buttons: type === "up" || type === "cancel" ? 0 : 1,
-  timeStamp: t,
-})
+): PointerLikeEvent =>
+  makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
 
 const collect = (events: ReadonlyArray<PointerLikeEvent>) =>
   Stream.runCollect(drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
