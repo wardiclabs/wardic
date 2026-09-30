@@ -333,6 +333,23 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       yield* sub.close
     }).pipe(Effect.scoped))
 
+  it.effect("I10: a page-wide press after a lost release ends the hold; a press on the target arrives after it", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const el = yield* attachedTarget
+      const sub = yield* subscribeIn(input.pointer(el))
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 40, buttons: 1 }))
+      // The release is lost; the same pointer presses elsewhere on the page.
+      document.body.dispatchEvent(pointerEvent("pointerdown", { clientX: 300, buttons: 1 }))
+      document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 320, buttons: 1 }))
+      // Later it presses the target itself.
+      el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, buttons: 1 }))
+      const events = yield* sub.collect(4)
+      expect(events.map((e) => `${e.type}@${e.x}/${e.buttons}`)).toEqual(["down@0/1", "move@40/1", "move@40/0", "down@5/1"])
+      yield* sub.close
+    }).pipe(Effect.scoped))
+
   it.effect("I9: two subscribers share one target listener-set and one page-wide set", () =>
     Effect.gen(function* () {
       const input = yield* InputSource

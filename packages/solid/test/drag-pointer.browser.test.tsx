@@ -445,6 +445,154 @@ describe("primary pointer", () => {
   })
 })
 
+/**
+ * The stale-gesture scene (S1, S2): a free draggable D (`whileDrag` opacity 0.5) and a
+ * second draggable Y with `whileTap`, both `touch-action: none`. Y can be laid out
+ * under a still pointer (`setYAt`).
+ */
+const mountPair = async () => {
+  const [d, setD] = createSignal<HTMLElement>()
+  const [y, setY] = createSignal<HTMLElement>()
+  const [yAt, setYAt] = createSignal<Pt | undefined>(undefined)
+  const samples: Array<DragSample> = []
+  const ySamples: Array<DragSample> = []
+  let yPressed: () => boolean = () => false
+  function Recorder(props: { readonly d: HTMLElement; readonly y: HTMLElement }) {
+    // eslint-disable-next-line solid/reactivity
+    const sd = createDrag(props.d)
+    // eslint-disable-next-line solid/reactivity
+    const sy = createDrag(props.y)
+    // eslint-disable-next-line solid/reactivity
+    yPressed = createPress(props.y)
+    createEffect(() => {
+      const v = sd()
+      if (v !== null) samples.push(v)
+    })
+    createEffect(() => {
+      const v = sy()
+      if (v !== null) ySamples.push(v)
+    })
+    return null
+  }
+  render(() => (
+    <WardicProvider env={DomLive}>
+      <wardic.div
+        ref={(n: HTMLElement) => setD(n)}
+        drag
+        dragMomentum={false}
+        animate={{ opacity: 1 }}
+        whileDrag={{ opacity: 0.5 }}
+        style={{ position: "absolute", left: "40px", top: "40px", width: "120px", height: "80px", "touch-action": "none" }}
+      />
+      <wardic.div
+        ref={(n: HTMLElement) => setY(n)}
+        drag
+        dragMomentum={false}
+        animate={{ scale: 1 }}
+        whileTap={{ scale: 0.8 }}
+        style={{
+          position: "absolute",
+          left: `${yAt()?.x ?? 320}px`,
+          top: `${yAt()?.y ?? 40}px`,
+          width: "120px",
+          height: "80px",
+          "touch-action": "none",
+          "z-index": "2",
+        }}
+      />
+      <Show when={d() && y()}>{(_) => <Recorder d={d()!} y={y()!} />}</Show>
+    </WardicProvider>
+  ))
+  await settle()
+  const dLeft = d()!.getBoundingClientRect().left
+  return {
+    samples,
+    ySamples,
+    yPressed: () => yPressed(),
+    dDx: () => r1(d()!.getBoundingClientRect().left - dLeft),
+    yLeft: () => y()!.getBoundingClientRect().left,
+    dOpacity: () => r2(Number(getComputedStyle(d()!).opacity)),
+    setYAt,
+  }
+}
+
+// A lost release that the owning pointer can't end itself: a lifted finger sends no more
+// moves, and a new finger has a new pointer id; a mouse pressed again elsewhere keeps
+// `buttons ≥ 1`. A new press anywhere on the page, by the same pointer or a new primary
+// pointer of its type, ends it (ADR-0019, decision 7).
+describe("a press elsewhere after a lost release", () => {
+  it.skipIf(!cdpTouch)("S1: touch: a tap on another element presses it, and a new touch drag on D works", async () => {
+    const s = await mountPair()
+    disposers.push(loseNextRelease())
+    const g = { x: 60, y: 80 }
+    await commands.realTouch("touchStart", [finger(1, g)])
+    for (let k = 1; k <= 8; k++) {
+      await commands.realTouch("touchMove", [finger(1, { x: g.x + 5 * k, y: g.y })])
+      await wait(20)
+    }
+    await wait(100)
+    await commands.realTouch("touchEnd", []) // swallowed
+    await wait(300)
+    const lost = { dx: s.dDx(), opacity: s.dOpacity() }
+    // Chromium can swallow the first touch after an earlier touch gesture: tap off both first.
+    await commands.realTouch("touchStart", [finger(3, { x: 5, y: 300 })])
+    await commands.realTouch("touchEnd", [])
+    await wait(100)
+    await commands.realTouch("touchStart", [finger(4, { x: 380, y: 80 })])
+    await wait(200)
+    const yPressed = s.yPressed()
+    await commands.realTouch("touchEnd", [])
+    await wait(300)
+    const afterTap = { dx: s.dDx(), opacity: s.dOpacity() }
+    const mark = s.samples.length
+    const g2 = { x: 100, y: 80 }
+    await commands.realTouch("touchStart", [finger(5, g2)])
+    for (let k = 1; k <= 6; k++) {
+      await commands.realTouch("touchMove", [finger(5, { x: g2.x + 5 * k, y: g2.y })])
+      await wait(20)
+    }
+    await wait(150)
+    const dragged = s.dDx()
+    await commands.realTouch("touchEnd", [])
+    await wait(300)
+    expect.soft(lost.opacity, "the lost release leaves the drag on").toBeLessThan(0.6)
+    expect.soft(yPressed, "a tap on another element presses it").toBe(true)
+    expect.soft(afterTap.opacity, "the tap ended the stale drag (whileDrag off)").toBeGreaterThan(0.95)
+    expect.soft(afterTap.dx, "D rests at its last pressed point").toBeCloseTo(40, 0)
+    expect.soft(phases(s.samples, mark).startsWith("start"), "a new touch drag on D starts").toBe(true)
+    expect.soft(dragged, "and moves D 30 px").toBeCloseTo(70, 0)
+  })
+
+  it("S2: mouse: a press on an element laid out under the still pointer drags only it", async () => {
+    const s = await mountPair()
+    disposers.push(loseNextRelease())
+    const g = { x: 60, y: 80 }
+    await mouse.down(g)
+    await glide(g, { x: g.x + 40, y: g.y }, 8)
+    await wait(150)
+    const at = { x: g.x + 40, y: g.y }
+    await mouse.up(at) // swallowed
+    await wait(200)
+    const mark = s.samples.length
+    s.setYAt({ x: at.x - 60, y: at.y - 40 }) // Y under the pointer, which doesn't move
+    await settle()
+    const yStart = s.yLeft()
+    await mouse.down(at, { move: false })
+    await wait(100)
+    const yPressed = s.yPressed()
+    await glide(at, { x: at.x + 30, y: at.y }, 6)
+    await wait(150)
+    const held = { dDx: s.dDx(), yMoved: r1(s.yLeft() - yStart) }
+    await mouse.up({ x: at.x + 30, y: at.y })
+    await wait(600)
+    expect.soft(yPressed, "the press on Y presses it").toBe(true)
+    expect.soft(phases(s.samples, mark), "the press ends D's stale drag, and D follows nothing after").toBe("end")
+    expect.soft(held.dDx, "D stays at its last pressed point").toBeCloseTo(40, 0)
+    expect.soft(held.yMoved, "Y drags 30 px").toBeCloseTo(30, 0)
+    expect.soft(s.dOpacity(), "D's whileDrag has ended").toBeGreaterThan(0.95)
+  })
+})
+
 interface StateScene {
   readonly el: HTMLElement
   readonly centre: Pt

@@ -204,6 +204,54 @@ describe("heldPointerSource", () => {
       yield* Fiber.interrupt(fiber)
     }))
 
+  it.effect("C13: a page-wide down from the held pointer ends its hold with an unpressed move at its last position", () =>
+    Effect.gen(function* () {
+      const target = makeFeed()
+      const global = makeFeed()
+      const { seen, fiber } = yield* start(target, global)
+      target.push(ev({ type: "down", x: 1 }))
+      global.push(ev({ type: "move", x: 40 }), {})
+      // The release is lost; the same pointer goes down elsewhere on the page.
+      const elsewhere = {}
+      global.push(ev({ type: "down", x: 200, timeStamp: 50 }), elsewhere)
+      // Ended at once: an unpressed move at the last position, and global is released.
+      expect(global.unsubscribes()).toBe(1)
+      yield* settle
+      expect(seen.map(key)).toEqual(["down1@1", "move1@40", "move1@40"])
+      const ended = seen[2]!
+      expect(ended.buttons).toBe(0)
+      expect(ended.timeStamp).toBe(50)
+      // A later down on the target itself holds it again (the page-wide feed is off by then).
+      target.push(ev({ type: "down", x: 60 }))
+      yield* settle
+      expect(seen.map(key).slice(3)).toEqual(["down1@60"])
+      expect(global.subscribed()).toBe(true)
+      yield* Fiber.interrupt(fiber)
+    }))
+
+  it.effect("C14: a page-wide down from a new primary pointer of the same type ends a held primary pointer's hold", () =>
+    Effect.gen(function* () {
+      const target = makeFeed()
+      const global = makeFeed()
+      const { seen, fiber } = yield* start(target, global)
+      const touch = (init: Omit<Parameters<typeof makePointerLikeEvent>[0], "pointerType">) =>
+        ev({ pointerType: "touch", ...init })
+      target.push(touch({ type: "down", pointerId: 1, x: 1 }))
+      global.push(touch({ type: "move", pointerId: 1, x: 30 }), {})
+      // A second finger (not primary) and a mouse (another type) don't end it.
+      global.push(touch({ type: "down", pointerId: 2, x: 90, isPrimary: false }), {})
+      global.push(ev({ type: "down", pointerId: 7, x: 90 }), {})
+      expect(global.unsubscribes()).toBe(0)
+      // A new primary touch means the first finger lifted: its hold ends.
+      global.push(touch({ type: "down", pointerId: 3, x: 300 }), {})
+      expect(global.unsubscribes()).toBe(1)
+      yield* settle
+      expect(seen.map(key)).toEqual(["down1@1", "move1@30", "move1@30"])
+      expect(seen[2]!.buttons).toBe(0)
+      expect(seen[2]!.pointerType).toBe("touch")
+      yield* Fiber.interrupt(fiber)
+    }))
+
   describe("C12: without global, and at the stream's end", () => {
     it.effect("C12: with no global, events pass through unchanged and interrupting unsubscribes target", () =>
       Effect.gen(function* () {
