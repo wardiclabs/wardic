@@ -1,25 +1,19 @@
-import { focus, hover, inView, press } from "@wardic/core"
+import { focus, hover, inView, makePointerLikeEvent, press } from "@wardic/core"
 import type { FocusLikeEvent, PointerLikeEvent } from "@wardic/core"
 import { TestInput, TestProbe } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 
-/** Build a PointerLikeEvent with sensible defaults; override per-event. */
+/** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release or a leave. */
 const ev = (
   type: PointerLikeEvent["type"],
   x = 0,
   y = 0,
   t = 0,
   pointerId = 1,
-): PointerLikeEvent => ({
-  type,
-  pointerId,
-  x,
-  y,
-  buttons: type === "up" || type === "cancel" || type === "leave" ? 0 : 1,
-  timeStamp: t,
-})
+): PointerLikeEvent =>
+  makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" || type === "leave" ? 0 : 1, timeStamp: t })
 
 /** Build a FocusLikeEvent. */
 const focusEvent = (type: FocusLikeEvent["type"], t = 0): FocusLikeEvent => ({ type, timeStamp: t })

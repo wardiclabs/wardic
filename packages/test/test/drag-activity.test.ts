@@ -1,4 +1,4 @@
-import { DragActivity, drag, hover, makeDragActivity, press } from "@wardic/core"
+import { DragActivity, drag, hover, makeDragActivity, makePointerLikeEvent, press } from "@wardic/core"
 import type { DragActivityShape, InputSource, PointerLikeEvent } from "@wardic/core"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -11,34 +11,20 @@ import * as Stream from "effect/Stream"
 // drags. `drag` claims at its `start` sample and releases at every `end` and in a
 // finalizer; hover ignores an enter while active; press can't START while active.
 // Each test provides a FRESH activity with Effect.provideService, so nothing is shared.
-//
-// Note: the imports above are missing at e57c54e (missing-api red); `typecheck:tests`
-// fails on them until ticket 08 lands.
 
 interface EventOptions {
   readonly pointerId?: number
   readonly buttons?: number
 }
 
-/** Local builder with mouse defaults (as `makePointerLikeEvent`): buttons 1 on down/move, else 0. */
+/** A primary mouse (`makePointerLikeEvent`): pressed on a down or move, released otherwise. */
 const ev = (
   type: PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   o: EventOptions = {},
-): PointerLikeEvent =>
-  ({
-    type,
-    pointerId: o.pointerId ?? 1,
-    x,
-    y,
-    buttons: o.buttons ?? (type === "down" || type === "move" ? 1 : 0),
-    timeStamp: t,
-    pointerType: "mouse",
-    button: type === "down" || type === "up" ? 0 : -1,
-    isPrimary: true,
-  }) as PointerLikeEvent
+): PointerLikeEvent => makePointerLikeEvent({ type, x, y, timeStamp: t, ...o })
 
 /**
  * Subscribe `streams` (each in its own forked fiber) to ONE pushable input, all under the

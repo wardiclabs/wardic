@@ -1,4 +1,4 @@
-import { drag, hover, press, withMomentum } from "@wardic/core"
+import { drag, hover, makePointerLikeEvent, press, withMomentum } from "@wardic/core"
 import type { DragSample, PointerLikeEvent, Vec2 } from "@wardic/core"
 import { TestClock, TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -21,29 +21,14 @@ interface EventOptions {
   readonly buttons?: number
 }
 
-/**
- * Local builder (a cast, so this file compiles and runs before the new fields exist).
- * Mouse defaults as `makePointerLikeEvent`: button 0 on down/up, -1 otherwise; buttons 1
- * on down/move, 0 otherwise. Ticket 08 swaps this for `makePointerLikeEvent`.
- */
+/** A primary mouse by default (`makePointerLikeEvent`): pressed on a down or move, released otherwise. */
 const ev = (
   type: PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   o: EventOptions = {},
-): PointerLikeEvent =>
-  ({
-    type,
-    pointerId: o.pointerId ?? 1,
-    x,
-    y,
-    buttons: o.buttons ?? (type === "down" || type === "move" ? 1 : 0),
-    timeStamp: t,
-    pointerType: o.pointerType ?? "mouse",
-    button: o.button ?? (type === "down" || type === "up" ? 0 : -1),
-    isPrimary: o.isPrimary ?? true,
-  }) as PointerLikeEvent
+): PointerLikeEvent => makePointerLikeEvent({ type, x, y, timeStamp: t, ...o })
 
 const finger = (extra: EventOptions = {}): EventOptions => ({ pointerType: "touch", ...extra })
 const secondFinger: EventOptions = { pointerId: 2, pointerType: "touch", isPrimary: false }

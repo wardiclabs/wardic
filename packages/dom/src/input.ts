@@ -46,6 +46,9 @@ const toPointer = (type: PointerLikeEvent["type"]) =>
     y: ev.clientY,
     buttons: ev.buttons,
     timeStamp: ev.timeStamp,
+    pointerType: ev.pointerType,
+    button: ev.button,
+    isPrimary: ev.isPrimary,
   })
 
 const toFocus = (type: FocusLikeEvent["type"]) =>

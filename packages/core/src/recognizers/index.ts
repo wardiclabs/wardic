@@ -1,4 +1,5 @@
 export * from "./drag.ts"
+export * from "./drag-activity.ts"
 export * from "./momentum.ts"
 export * from "./shaping.ts"
 export { focus, hover, inView, press } from "./state.ts"

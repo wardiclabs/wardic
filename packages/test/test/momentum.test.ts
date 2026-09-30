@@ -1,4 +1,4 @@
-import { withMomentum } from "@wardic/core"
+import { makePointerLikeEvent, withMomentum } from "@wardic/core"
 import type { PointerLikeEvent, Vec2 } from "@wardic/core"
 import { TestClock, TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -7,21 +7,15 @@ import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 
-/** Build a PointerLikeEvent with sensible defaults; override per-event. */
+/** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release. */
 const ev = (
   type: PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   pointerId = 1,
-): PointerLikeEvent => ({
-  type,
-  pointerId,
-  x,
-  y,
-  buttons: type === "up" || type === "cancel" ? 0 : 1,
-  timeStamp: t,
-})
+): PointerLikeEvent =>
+  makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
 
 /**
  * Spin up a momentum surface driven by push-based input + clock. Returns the
