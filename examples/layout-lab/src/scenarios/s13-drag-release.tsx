@@ -14,13 +14,15 @@
  * The card's release lines are the point of the plain runs: a release from a
  * pointerup moves on its first painted frame, and it always ends on the slot, even when
  * you let go back where you grabbed while still moving (the release that used to stay
- * stuck off its slot).
+ * stuck off its slot). The "lose the next release" toggle (L while D is held, or its
+ * checkbox) swallows the press's pointerup, for the card's `gesture ends` line (#31,
+ * ADR-0019).
  *
  * @module
  */
 import { wardic } from "@wardic/solid"
 import { createSignal, type JSX, onCleanup, onMount } from "solid-js"
-import { NOTE_STYLE } from "./controls.tsx"
+import { Checkbox, CONTROLS_STYLE, NOTE_STYLE } from "./controls.tsx"
 import { attachDragRecorder } from "./drag-recorder.ts"
 import type { ScenarioDef } from "./types.ts"
 
@@ -62,13 +64,16 @@ const C1_STYLE: JSX.CSSProperties = {
 const View: ScenarioDef["View"] = (props) => {
   const [tall, setTall] = createSignal(false)
   const [right, setRight] = createSignal(false)
+  const [loseNext, setLoseNext] = createSignal(false)
   let stage: HTMLDivElement | undefined
   let item: HTMLElement | undefined
   let c1: HTMLElement | undefined
   let dragging = false
   let noteLayoutChange = (): void => {}
+  let pressing = (): boolean => false
 
   const onKey = (e: KeyboardEvent): void => {
+    if (pressing() && (e.key === "l" || e.key === "L")) setLoseNext((v) => !v)
     if (!dragging) return
     if (e.key === "z" || e.key === "Z") {
       noteLayoutChange()
@@ -90,8 +95,10 @@ const View: ScenarioDef["View"] = (props) => {
         else if (phase === "release") dragging = false
       },
       record: (input) => props.ctx.recordDragRun(input),
+      loseNextRelease: { armed: loseNext, disarm: () => setLoseNext(false) },
     })
     noteLayoutChange = recorder.noteLayoutChange
+    pressing = recorder.pressing
     window.addEventListener("keydown", onKey)
     onCleanup(() => {
       recorder.detach()
@@ -118,9 +125,13 @@ const View: ScenarioDef["View"] = (props) => {
           </wardic.div>
         </wardic.div>
       </div>
+      <div style={CONTROLS_STYLE}>
+        <Checkbox label="lose the next release (L while held)" name="lose-next-release" checked={loseNext()} onChange={setLoseNext} />
+      </div>
       <p style={NOTE_STYLE}>
-        Grab the blue item near its centre. While you hold it: Z resizes its slot, P moves its parent. Release still,
-        release while moving, and release back where you grabbed while moving. Keep the pointer on the item (#31).
+        Grab the blue item near its centre. While you hold it: Z resizes its slot, P moves its parent, L loses its
+        release. Release still, release while moving, and release back where you grabbed while moving. Keep the
+        pointer on the item (#31).
       </p>
     </div>
   )
@@ -153,6 +164,8 @@ export const s13: ScenarioDef = {
     maxSeededPerPass: 1,
     releaseHeldMax: { default: 1, microtask: 0 },
     endsOnSlotMaxPx: 0.5,
+    // #31: no gesture moves the item once it should have ended (ADR-0019).
+    gestureEndsMaxPx: 1,
   },
   View,
 }

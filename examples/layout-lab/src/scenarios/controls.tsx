@@ -1,6 +1,7 @@
 /**
  * Scenario controls shared by the scenarios that take options (free play and
- * scenario 7): a labelled select plus the row and note styles around it.
+ * scenario 7, and the drag scenarios' "lose the next release" toggle): a labelled
+ * select, a labelled checkbox, and the row and note styles around them.
  *
  * @module
  */
@@ -65,5 +66,29 @@ export const Select = <T extends string>(props: {
         )}
       </For>
     </select>
+  </label>
+)
+
+/** One labelled checkbox: the box, then its text. */
+const CHECKBOX_STYLE: JSX.CSSProperties = {
+  display: "flex",
+  gap: "6px",
+  "align-items": "center",
+  "font-size": "12px",
+}
+
+/**
+ * A labelled checkbox. Every prop is a static value: the View passes
+ * `checked={signal()}`, and Solid's prop getter keeps it reactive.
+ */
+export const Checkbox = (props: {
+  readonly label: string
+  readonly name: string
+  readonly checked: boolean
+  readonly onChange: (checked: boolean) => void
+}): JSX.Element => (
+  <label style={CHECKBOX_STYLE}>
+    <input type="checkbox" name={props.name} checked={props.checked} onChange={(e) => props.onChange(e.currentTarget.checked)} />
+    {props.label}
   </label>
 )
