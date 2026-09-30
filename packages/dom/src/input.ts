@@ -10,6 +10,15 @@
  * whole Environment). A consumer attaching `hover` + `press` + `drag` to one
  * element therefore shares a single pointer listener-set, not three.
  *
+ * `pointer(target)` also carries every **Held pointer**'s events (ADR-0019): core's
+ * `heldPointerSource` adds a page-wide set (the target's window, capture phase) inside
+ * the target's `pointerdown` dispatch and removes it at the pointer's release, so a
+ * drag or a press keeps its pointer anywhere on the page. It is part of the element's
+ * one shared lookup, so every subscriber to the element shares it too. No pointer
+ * capture: capturing at the down would retarget a click on a child `<button>` to the
+ * element, and it allows one capturer per pointer, which nested draggables (#29) would
+ * fight over.
+ *
  * `Layer.effect` runs `make` in the layer's own scope (it `Exclude`s `Scope`
  * from the requirements, effect 4's scoped-layer idiom — there is no separate
  * `Layer.scoped`), which the helpers' `RcMap`/`RcRef` need: the ref-counting
@@ -19,8 +28,8 @@
  * already carry a `wardic.dom.shared.*` span + a debug-log on subscribe; the
  * per-event mapping path is deliberately unlogged — it is the hot path.
  */
-import type { FocusLikeEvent, KeyboardLikeEvent, PointerLikeEvent, WheelLikeEvent } from "@wardic/core"
-import { InputSource } from "@wardic/core"
+import type { FocusLikeEvent, KeyboardLikeEvent, PointerFeed, PointerLikeEvent, WheelLikeEvent } from "@wardic/core"
+import { heldPointerSource, InputSource } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
@@ -38,18 +47,38 @@ const POINTER_TYPE: Record<string, PointerLikeEvent["type"]> = {
 
 const POINTER_EVENTS = Object.keys(POINTER_TYPE)
 
-const toPointer = (type: PointerLikeEvent["type"]) =>
-  (ev: PointerEvent): PointerLikeEvent => ({
-    type,
-    pointerId: ev.pointerId ?? 1,
-    x: ev.clientX,
-    y: ev.clientY,
-    buttons: ev.buttons,
-    timeStamp: ev.timeStamp,
-    pointerType: ev.pointerType,
-    button: ev.button,
-    isPrimary: ev.isPrimary,
-  })
+/** The page-wide events a Held pointer keeps: its moves, release and cancel. */
+const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel"]
+
+const toPointer = (type: PointerLikeEvent["type"], ev: PointerEvent): PointerLikeEvent => ({
+  type,
+  pointerId: ev.pointerId ?? 1,
+  x: ev.clientX,
+  y: ev.clientY,
+  buttons: ev.buttons,
+  timeStamp: ev.timeStamp,
+  pointerType: ev.pointerType,
+  button: ev.button,
+  isPrimary: ev.isPrimary,
+})
+
+/**
+ * A {@link PointerFeed} of `types` on `target`: each DOM event emitted as its
+ * Like-event with the DOM event as `raw`; the returned function removes the listeners.
+ */
+const feedOf = (target: EventTarget, types: ReadonlyArray<string>, options?: AddEventListenerOptions): PointerFeed =>
+(emit) => {
+  const listener = (ev: Event): void => emit(toPointer(POINTER_TYPE[ev.type]!, ev as PointerEvent), ev)
+  for (const type of types) target.addEventListener(type, listener, options)
+  return () => {
+    for (const type of types) target.removeEventListener(type, listener, options)
+  }
+}
+
+/** The window an element's page-wide events reach: its own document's (an iframe's element has its own). */
+const windowOf = (target: unknown): EventTarget =>
+  (target as { readonly ownerDocument?: { readonly defaultView?: Window | null } | null } | undefined)?.ownerDocument
+    ?.defaultView ?? window
 
 const toFocus = (type: FocusLikeEvent["type"]) =>
   (ev: FocusEvent): FocusLikeEvent => ({ type, timeStamp: ev.timeStamp })
@@ -71,21 +100,18 @@ const toKeyboard = (type: KeyboardLikeEvent["type"]) =>
   })
 
 /**
- * One `fromEventListener` per DOM event type, mapped to a Like-event. The shared
- * helpers want `Effect<Stream<A>, never, Scope>`; `fromEventListener` is a plain
- * `Stream`, so each `lookup` simply succeeds with the merged stream.
+ * One `fromEventListener` per DOM event type, mapped to a Like-event, except
+ * `pointer`, whose target and page-wide feeds go through core's `heldPointerSource`
+ * (one ordered callback). The shared helpers want `Effect<Stream<A>, never, Scope>`;
+ * these are plain `Stream`s, so each `lookup` simply succeeds with the stream.
  */
 const make = Effect.gen(function* () {
   const pointer = yield* makeSharedByTarget((target) =>
     Effect.succeed(
-      Stream.mergeAll(
-        POINTER_EVENTS.map((type) =>
-          Stream.fromEventListener<PointerEvent>(target as Stream.EventListener<PointerEvent>, type).pipe(
-            Stream.map(toPointer(POINTER_TYPE[type]!)),
-          )
-        ),
-        { concurrency: "unbounded" },
-      ),
+      heldPointerSource({
+        target: feedOf(target as EventTarget, POINTER_EVENTS),
+        global: feedOf(windowOf(target), HELD_POINTER_EVENTS, { capture: true, passive: true }),
+      }),
     )
   )
 
