@@ -31,12 +31,17 @@
  *     *commit sink* (`{ kind: "commit", target }`) runs `Renderer.commit(target,
  *     patch)` via a forwarded ref (used for `wardic.create(Component)` wraps).
  *     Both share the same merge + one-`project`-per-frame + single-`batch()`.
+ *     A commit sink also removes a key its last patch had and this one doesn't (a
+ *     dragged node's `z-index` once its raise is dropped, ADR-0016 *Amendment
+ *     (Reorder)*), restoring the element's own inline value, saved before the gate
+ *     first wrote the key. A signal sink needs nothing: its next patch lacks the key.
  *
  * Observability (CONTEXT.md convention): the hot path (`write`/`flush`) is the
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
  * `tick` — it stays quiet (no span, no per-call log).
  */
 import { type Patch, Renderer } from "@wardic/core"
+import { dashCase } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import { batch } from "solid-js"
@@ -60,7 +65,17 @@ interface Entry {
   readonly sink: FlushSink
   /** Whether a `write` has landed since the last flush. */
   dirty: boolean
+  /**
+   * A commit sink's keys its last patch wrote, each with the element's own inline value
+   * from before the gate first wrote it (`""` for none), to restore when the key drops
+   * out. Unused by a signal sink.
+   */
+  readonly committed: Map<string, string>
 }
+
+/** The element's own inline value for a patch key (`""` for none, or a target with no style). */
+const inlineValueOf = (target: unknown, key: string): string =>
+  (target as { readonly style?: CSSStyleDeclaration } | undefined)?.style?.getPropertyValue(dashCase(key)) ?? ""
 
 /** The provider-owned flush gate (one per `WardicProvider`). */
 export interface FlushGate {
@@ -122,12 +137,23 @@ export const makeFlushGate = (
   /** Project and apply one dirty entry (once per element per flush), marking it clean. */
   const apply = (entry: Entry): void => {
     const patch = project(entry.values)
+    entry.dirty = false
     if (entry.sink.kind === "signal") {
       entry.sink.set(patch)
-    } else {
-      runtime.runSync(commit(entry.sink.target, patch))
+      return
     }
-    entry.dirty = false
+    const target = entry.sink.target
+    const committed = entry.committed
+    // A key the last patch wrote and this one doesn't: the element gets its own value back.
+    let restore: Patch | undefined
+    for (const [key, own] of committed) {
+      if (key in patch) continue
+      ;(restore ??= {})[key] = own
+      committed.delete(key)
+    }
+    for (const key in patch) if (!committed.has(key)) committed.set(key, inlineValueOf(target, key))
+    if (restore !== undefined) runtime.runSync(commit(target, restore))
+    runtime.runSync(commit(target, patch))
   }
 
   const flush = (): void => {
@@ -147,7 +173,7 @@ export const makeFlushGate = (
   }
 
   const register: FlushGate["register"] = (id, sink) => {
-    accumulator.set(id, { values: {}, sink, dirty: false })
+    accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map() })
     return () => {
       accumulator.delete(id)
     }
