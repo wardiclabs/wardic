@@ -53,10 +53,12 @@ const runFixture = async (name: FixtureName): Promise<Run> => {
   const code = FIXTURES[name]
   const hydrated = await hydrateFixture(name, code)
   const { host } = hydrated
-  // The server's markup, from the snapshot taken before hydration.
-  const startEl = hydrated.before.find((e) => e.getAttribute("data-k") === expected.startK) ?? null
-  const serverStyle = styleOf(startEl)
-  const serverAttrs = Object.fromEntries(Object.keys(expected.startingAttrs ?? {}).map((a) => [a, startEl?.getAttribute(a) ?? "(missing)"]))
+  // The server's markup: the attributes captured before hydration (the nodes are live, and
+  // hydration and the end-of-task Measure pass write to them).
+  const startEl = hydrated.before.find((e) => hydrated.serverAttributes.get(e)?.["data-k"] === expected.startK)
+  const startAttrs = (startEl !== undefined ? hydrated.serverAttributes.get(startEl) : undefined) ?? {}
+  const serverStyle = styleOf(startAttrs.style)
+  const serverAttrs = Object.fromEntries(Object.keys(expected.startingAttrs ?? {}).map((a) => [a, startAttrs[a] ?? "(missing)"]))
   const structure = structureOf(host)
   const after = [...host.querySelectorAll("*")]
   const clientOnly = renderClientOnly(code)

@@ -41,6 +41,8 @@ export interface Hydrated {
   readonly html: string
   /** Every element under `host` before hydration, in document order. */
   readonly before: ReadonlyArray<Element>
+  /** Each of those elements' attributes as the server rendered them (read before hydration). */
+  readonly serverAttributes: ReadonlyMap<Element, Readonly<Record<string, string>>>
   /** What `hydrate` threw, `""` if nothing. */
   readonly threw: string
   /** Stop capturing `console.error`; returns everything it saw since hydration started. */
@@ -61,6 +63,7 @@ export const hydrateFixture = async (name: string, code: () => JSX.Element): Pro
   host.innerHTML = html
   document.body.append(host)
   const before = [...host.querySelectorAll("*")]
+  const serverAttributes = new Map(before.map((el) => [el, Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]))]))
   // A delegated event or a mismatch marks hydration done, after which `hydrate` only renders.
   ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
   sharedConfig.done = false
@@ -76,6 +79,7 @@ export const hydrateFixture = async (name: string, code: () => JSX.Element): Pro
     host,
     html,
     before,
+    serverAttributes,
     threw,
     stopErrors,
     dispose: () => {
@@ -124,10 +128,10 @@ export const structureOf = (root: Element): string => {
   return out.join("\n")
 }
 
-/** An element's inline style attribute, parsed into `{ property: value }`. */
-export const styleOf = (el: Element | null): Readonly<Record<string, string>> =>
+/** An element's inline style attribute (or a `style` string), parsed into `{ property: value }`. */
+export const styleOf = (el: Element | string | null | undefined): Readonly<Record<string, string>> =>
   Object.fromEntries(
-    (el?.getAttribute("style") ?? "")
+    ((typeof el === "string" ? el : el?.getAttribute("style")) ?? "")
       .split(";")
       .map((d) => d.trim())
       .filter((d) => d !== "")
