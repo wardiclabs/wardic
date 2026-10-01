@@ -1,7 +1,7 @@
 import { playwright } from "@vitest/browser-playwright"
 import type { CDPSession } from "playwright"
 import solidPlugin from "vite-plugin-solid"
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
 
 // Real-browser test project for @wardic/solid — layout/projection behaviours that
@@ -89,6 +89,8 @@ export default defineConfig({
   test: {
     name: "browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],
+    // The hydration tests need the hydratable compile: they're vitest.hydrate.config.ts's.
+    exclude: [...configDefaults.exclude, "test/**/*.hydrate.browser.test.tsx"],
     // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).
     setupFiles: ["./test/browser-setup.ts"],
     server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },

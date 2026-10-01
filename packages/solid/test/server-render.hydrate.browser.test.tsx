@@ -1,0 +1,188 @@
+// Server render → hydration, in Chromium (ADR-0021, decision 10). Each fixture is rendered
+// on the server in Node (Solid's server build, through the project's Vite) and hydrated
+// here, then checked for what a user would see, per fixture:
+//
+//   HY1  the hydrated structure equals a client-only render's (tags, attributes, text);
+//   HY2  every element the server rendered is the node hydration kept, in place;
+//   HY3  the server's markup carries the Starting style (and F6's / F8's attributes);
+//   HY4  at the first paint after hydration nothing has jumped: each tracked number is at
+//        most a quarter of the way to its target, each readout still the server's;
+//   HY5  it settles at its target within 2 s;
+//   HY6  hydration threw nothing and nothing was logged to console.error.
+//
+// HY-L1 to HY-L3: a custom Renderer that projects the Starting style differently from the
+// DOM's is flagged during hydration by one `wardic.hydration:` debug log (decision 2).
+//
+// Test names are `<check> <fixture>: <label>`, so `-t 'F8:'` runs one fixture.
+import { Renderer } from "@wardic/core"
+import { DomLive, RendererDomLive } from "@wardic/dom"
+import type { WardicEnv } from "@wardic/solid"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
+import * as References from "effect/References"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { EXPECTED, FIXTURES, type FixtureName, LOG, setLogEnv } from "./hydrate-fixtures.tsx"
+import {
+  atNextPaint,
+  type Hydrated,
+  hydrateFixture,
+  renderClientOnly,
+  settle,
+  structureOf,
+  styleOf,
+} from "./hydrate-harness.ts"
+
+/** What one fixture's hydration showed, recorded once and asserted by HY1 to HY6. */
+interface Run {
+  readonly hydrated: Hydrated
+  readonly structure: string
+  readonly clientStructure: string
+  readonly after: ReadonlyArray<Element>
+  readonly serverStyle: Readonly<Record<string, string>>
+  readonly serverAttrs: Readonly<Record<string, string>>
+  readonly firstPaint: { readonly tracks: ReadonlyArray<number>; readonly texts: ReadonlyArray<string>; readonly style: Readonly<Record<string, string>> }
+  readonly settled: { readonly tracks: ReadonlyArray<number>; readonly texts: ReadonlyArray<string>; readonly style: Readonly<Record<string, string>> }
+  readonly errors: ReadonlyArray<string>
+}
+
+const textOf = (host: HTMLElement, k: string): string => host.querySelector(`[data-k="${k}"]`)?.textContent ?? "(missing)"
+
+const runFixture = async (name: FixtureName): Promise<Run> => {
+  const expected = EXPECTED[name]
+  const code = FIXTURES[name]
+  const hydrated = await hydrateFixture(name, code)
+  const { host } = hydrated
+  // The server's markup, from the snapshot taken before hydration.
+  const startEl = hydrated.before.find((e) => e.getAttribute("data-k") === expected.startK) ?? null
+  const serverStyle = styleOf(startEl)
+  const serverAttrs = Object.fromEntries(Object.keys(expected.startingAttrs ?? {}).map((a) => [a, startEl?.getAttribute(a) ?? "(missing)"]))
+  const structure = structureOf(host)
+  const after = [...host.querySelectorAll("*")]
+  const clientOnly = renderClientOnly(code)
+  const clientStructure = structureOf(clientOnly.host)
+  clientOnly.dispose()
+  const startNow = () => styleOf(host.querySelector(`[data-k="${expected.startK}"]`))
+  const firstPaint = await atNextPaint(() => ({
+    tracks: expected.tracks.map((t) => t.read(host)),
+    texts: (expected.texts ?? []).map((t) => textOf(host, t.k)),
+    style: startNow(),
+  }))
+  const tracks: Array<number> = []
+  for (const t of expected.tracks) tracks.push(await settle(() => t.read(host), t.to, t.label === "cx" ? 0.5 : 0.02))
+  if (expected.tracks.length === 0) await new Promise((r) => setTimeout(r, 300))
+  const settled = { tracks, texts: (expected.texts ?? []).map((t) => textOf(host, t.k)), style: startNow() }
+  const errors = hydrated.stopErrors()
+  return { hydrated, structure, clientStructure, after, serverStyle, serverAttrs, firstPaint, settled, errors }
+}
+
+for (const name of Object.keys(FIXTURES) as Array<FixtureName>) {
+  describe(name, () => {
+    const expected = EXPECTED[name]
+    let run: Run
+    beforeAll(async () => {
+      run = await runFixture(name)
+    }, 15000)
+    afterAll(() => run?.hydrated.dispose())
+
+    it(`HY1 ${name}: the hydrated structure equals a client-only render's`, () => {
+      expect(run.structure).toBe(run.clientStructure)
+    })
+
+    it(`HY2 ${name}: every server element is the node hydration kept, in place`, () => {
+      expect(run.after.length, "element count").toBe(run.hydrated.before.length)
+      run.hydrated.before.forEach((node, i) => expect(run.after[i] === node, `element ${i} <${node.tagName.toLowerCase()}>`).toBe(true))
+    })
+
+    it(`HY3 ${name}: the server markup carries the Starting style`, () => {
+      for (const [key, value] of Object.entries(expected.starting)) expect(run.serverStyle[key], `style ${key}`).toBe(value)
+      for (const [a, value] of Object.entries(expected.startingAttrs ?? {})) expect(run.serverAttrs[a], `attribute ${a}`).toBe(value)
+      // An SVG key the server writes as an attribute isn't in its style too.
+      for (const a of Object.keys(expected.startingAttrs ?? {})) if (a !== "draggable") expect(run.serverStyle[a], `style ${a}`).toBeUndefined()
+    })
+
+    it(`HY4 ${name}: nothing jumps at the first paint after hydration`, () => {
+      expected.tracks.forEach((t, i) => {
+        const value = run.firstPaint.tracks[i]!
+        if (t.to === t.from) expect(Math.abs(value - t.from), `${t.label} at the first paint`).toBeLessThanOrEqual(0.01)
+        else expect((value - t.from) / (t.to - t.from), `${t.label} at the first paint (${value})`).toBeLessThanOrEqual(0.25)
+      })
+      ;(expected.texts ?? []).forEach((t, i) => expect(run.firstPaint.texts[i], `${t.k} at the first paint`).toBe(t.server))
+      if (expected.tracks.length === 0 && (expected.texts ?? []).length === 0) {
+        for (const [key, value] of Object.entries(expected.starting)) expect(run.firstPaint.style[key], `style ${key}`).toBe(value)
+      }
+    })
+
+    it(`HY5 ${name}: it settles at its target`, () => {
+      expected.tracks.forEach((t, i) => {
+        expect(Math.abs(run.settled.tracks[i]! - t.to), `${t.label} settled at ${run.settled.tracks[i]}`).toBeLessThanOrEqual(t.label === "cx" ? 0.5 : 0.02)
+      })
+      ;(expected.texts ?? []).forEach((t, i) => expect(run.settled.texts[i], `${t.k} after mount`).toBe(t.settled))
+      if (expected.tracks.length === 0 && (expected.texts ?? []).length === 0) {
+        for (const [key, value] of Object.entries(expected.starting)) expect(run.settled.style[key], `style ${key}`).toBe(value)
+      }
+    })
+
+    it(`HY6 ${name}: hydration threw nothing and logged no console error`, () => {
+      expect(run.hydrated.threw).toBe("")
+      expect(run.errors).toEqual([])
+    })
+  })
+}
+
+describe("a custom Renderer's Starting style (decision 2)", () => {
+  interface Captured {
+    readonly message: string
+    readonly annotations: Readonly<Record<string, unknown>>
+  }
+  const domRenderer = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer }), RendererDomLive))
+  /** `base` plus a debug-level logger that appends each log to `logs`. */
+  const capturing = (base: WardicEnv, logs: Array<Captured>): WardicEnv =>
+    Layer.mergeAll(
+      base,
+      Logger.layer([
+        Logger.map(Logger.formatStructured, (s) => {
+          logs.push({ message: String(s.message), annotations: s.annotations })
+        }),
+      ]),
+      Layer.succeed(References.MinimumLogLevel, "Debug"),
+    )
+  /** DomLive with a Renderer whose `project` adds a key the DOM's doesn't. */
+  const custom: WardicEnv = Layer.merge(
+    DomLive,
+    Layer.succeed(Renderer, { project: (v) => ({ ...domRenderer.project(v), "--custom": "1" }), commit: domRenderer.commit }),
+  )
+  const hydrationLogs = (logs: ReadonlyArray<Captured>) => logs.filter((l) => l.message.startsWith("wardic.hydration:"))
+  const settleLogs = () => new Promise((r) => setTimeout(r, 100))
+
+  it("HY-L1: hydrating under it logs one wardic.hydration message with the id, keys, server and client", async () => {
+    const logs: Array<Captured> = []
+    setLogEnv(capturing(custom, logs))
+    const hydrated = await hydrateFixture("LOG", LOG)
+    await settleLogs()
+    hydrated.stopErrors()
+    hydrated.dispose()
+    const flagged = hydrationLogs(logs)
+    expect(flagged).toHaveLength(1)
+    expect(Object.keys(flagged[0]!.annotations)).toEqual(expect.arrayContaining(["id", "keys", "server", "client"]))
+  })
+
+  it("HY-L2: hydrating under plain DomLive logs none", async () => {
+    const logs: Array<Captured> = []
+    setLogEnv(capturing(DomLive, logs))
+    const hydrated = await hydrateFixture("LOG", LOG)
+    await settleLogs()
+    hydrated.stopErrors()
+    hydrated.dispose()
+    expect(hydrationLogs(logs)).toEqual([])
+  })
+
+  it("HY-L3 (guard): a client-only render under it logs none", async () => {
+    const logs: Array<Captured> = []
+    setLogEnv(capturing(custom, logs))
+    const rendered = renderClientOnly(LOG)
+    await settleLogs()
+    rendered.dispose()
+    expect(hydrationLogs(logs)).toEqual([])
+  })
+})
