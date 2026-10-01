@@ -38,6 +38,14 @@ export {
   type ProjectionSystem,
   type RegisterNodeOptions,
 } from "./projection.ts"
+// The Reorder group's controller (ADR-0020): the framework-free half of <Reorder>.
+export {
+  makeReorderController,
+  REORDER_GROUP_STYLE,
+  type ReorderController,
+  type ReorderControllerOptions,
+  type ReorderItemDriver,
+} from "./reorder.ts"
 // Scale-correction registry (ADR-0011) — borderRadius/boxShadow visual correction.
 export {
   borderRadiusCorrector,
