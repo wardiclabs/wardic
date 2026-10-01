@@ -425,6 +425,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   let triggeredDuringPass = false
   let leftover: ReturnType<typeof setTimeout> | undefined
   let disposed = false
+  // The Resize block (ADR-0018 *Amendment (#39)*): the window width last seen, whether
+  // the next Measure pass is blocked, and the timer that runs it if nothing else does.
+  let resizeListening = false
+  let lastWidth = 0
+  let resizeBlocked = false
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
@@ -1053,7 +1059,30 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // {@link measurePass} wraps its rounds in the `wardic.projection.measure` span.
   // Every node it (re)starts is added to `seeded`, for the Priming step; every node of
   // a dragged subtree whose box changed is added to `dragBlocked` instead.
-  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>): void => {
+  /**
+   * The slot-only update a blocked node takes (a dragged subtree's, or every node's
+   * after a resize): its box becomes its slot, no animation starts or restarts, and a
+   * running one keeps its delta (its origin moves with its box). A first measure writes
+   * the identity projection. Returns whether the slot changed, so the node is
+   * re-derived and flushed with its group.
+   */
+  const slotOnly = (node: NodeState, prev: Box | undefined, newBox: Box): boolean => {
+    if (prev === undefined) {
+      node.lastDelta = IDENTITY_DELTA
+      writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
+      return false
+    }
+    if (boxesEqual(prev, newBox)) return false
+    if (!node.dragging && node.animating && node.origin !== undefined) {
+      const from = centreOf(node.layoutBox ?? prev)
+      const to = centreOf(newBox)
+      node.origin = offsetBox(node.origin, { x: to.x - from.x, y: to.y - from.y })
+    }
+    node.layoutBox = newBox
+    return true
+  }
+
+  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain, and the depth order makes every phase below
     // ancestors-first, so each scroll container's offset is sampled before a
@@ -1178,21 +1207,15 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // its group in this pass, but it is not seeded and takes no Priming step. A
       // running descendant's origin moves with its box, so its animation keeps its delta
       // and doesn't jump (Motion keeps the running `targetDelta` of a blocked node).
-      if (inDraggedTree(node)) {
-        if (prev === undefined) {
-          node.lastDelta = IDENTITY_DELTA
-          writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
-          continue
-        }
-        if (!boxesEqual(prev, newBox)) {
-          if (!node.dragging && node.animating && node.origin !== undefined) {
-            const from = centreOf(node.layoutBox ?? prev)
-            const to = centreOf(newBox)
-            node.origin = offsetBox(node.origin, { x: to.x - from.x, y: to.y - from.y })
-          }
-          node.layoutBox = newBox
+      //
+      // RESIZE-BLOCKED (ADR-0018 *Amendment (#39)*): the first pass after a window width
+      // change gives every node the same slot-only update, so the reflow the resize
+      // caused doesn't animate (Motion's `updateBlockedByResize`: it measures every node
+      // and notifies none, create-projection-node.ts:728-748 at 16c6122).
+      if (blocked || inDraggedTree(node)) {
+        if (slotOnly(node, prev, newBox)) {
           changed.add(node)
-          dragBlocked.add(node)
+          if (inDraggedTree(node)) dragBlocked.add(node)
         }
         continue
       }
@@ -1280,19 +1303,27 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * the microtasks the rounds queued (a Cold start's Priming tick among them), the
    * Priming step. Traced as one `wardic.projection.measure` span annotated with the
    * node counts, how many nodes it seeded, how many it gave a slot-only update in a
-   * dragged subtree (`dragBlocked`), and how many rounds it ran.
+   * dragged subtree (`dragBlocked`), how many rounds it ran, and whether a window
+   * resize blocked it (`blocked`: every node took a slot-only update).
    */
   const measurePass: Effect.Effect<void> = Effect.suspend(() => {
     passQueued = false
     const seeded = new Set<NodeState>()
     const dragBlocked = new Set<NodeState>()
+    // The Resize block: this pass takes it and clears it.
+    const blocked = resizeBlocked
+    resizeBlocked = false
+    if (resizeTimer !== undefined) {
+      clearTimeout(resizeTimer)
+      resizeTimer = undefined
+    }
     let rounds = 0
     inPass = true
     try {
       do {
         triggeredDuringPass = false
         rounds++
-        sink.flushPass(() => runMeasurePass(seeded, dragBlocked))
+        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, blocked))
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
@@ -1311,6 +1342,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       seeded: seeded.size,
       dragBlocked: dragBlocked.size,
       rounds,
+      blocked,
     }).pipe(
       Effect.andThen(nextMicrotask),
       Effect.andThen(Effect.sync(() => primingStep(seeded))),
@@ -1435,6 +1467,51 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       }
     }
     if (active.size === 0) stopTicking()
+  }
+
+  /**
+   * A window resize (ADR-0018 *Amendment (#39)*; Motion's resize listener,
+   * create-projection-node.ts:459-487 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
+   * Only a width change counts, as Motion's: it finishes every running layout
+   * animation but a dragged node's (which keeps following the pointer), and blocks the
+   * next Measure pass for 250 ms, so the reflow the resize causes snaps instead of
+   * animating from boxes measured before it. Motion only lifts its block at 250 ms;
+   * here the timer runs the blocked pass itself if none ran, so the boxes are fresh
+   * for the next trigger (and a drag start runs it at once, see `dragStart`).
+   */
+  const onResize = (): void => {
+    if (disposed) return
+    const width = window.innerWidth
+    if (width === lastWidth) return
+    lastWidth = width
+    const finished: Array<NodeState> = []
+    for (const node of active) if (!node.dragging) finished.push(node)
+    if (finished.length > 0) {
+      // At rest on their slots, derived while still active (as a tick derives a node
+      // before it settles), so each writes its resting projection; then settled.
+      for (const node of finished) {
+        node.origin = undefined
+        node.spring = undefined
+        node.animating = false
+      }
+      deriveGroup(groupOf(new Set(finished)))
+      finishSettled(finished)
+      debug("resize finish", { finished: finished.length })
+    }
+    resizeBlocked = true
+    if (resizeTimer !== undefined) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => {
+      resizeTimer = undefined
+      if (resizeBlocked) scheduleMeasure()
+    }, 250)
+  }
+
+  /** Run a pending blocked pass now, synchronously (its rounds run before the fiber's first async step). */
+  const runBlockedPass = (): void => {
+    if (!resizeBlocked || inPass || disposed) return
+    runtime.runFork(
+      measurePass.pipe(Effect.tapCause((cause) => Effect.logError("wardic.projection: blocked pass failed", cause))),
+    )
   }
 
   const ensureRunning = (): void => {
@@ -1647,6 +1724,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (ro === undefined && typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => scheduleMeasure())
     }
+    if (!resizeListening && typeof window !== "undefined") {
+      resizeListening = true
+      lastWidth = window.innerWidth
+      window.addEventListener("resize", onResize)
+    }
     ro?.observe(node.element)
     // Seed retained + write the identity projection on the next frame.
     scheduleMeasure()
@@ -1656,6 +1738,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // --- drag (ADR-0016) -----------------------------------------------------
       dragStart: () => {
         if (node.dragging) return // idempotent — a re-fired start must not re-anchor mid-drag
+        // A width change since the last pass left every box stale: run the blocked pass
+        // first, so the grab anchors at the slot the node has now (#39).
+        runBlockedPass()
         // Anchor at the grab-time slot; the node then tracks `grabBox + dragDelta`.
         node.grabBox = node.layoutBox ?? node.retained
         if (node.grabBox === undefined) return // not measured yet — nothing to anchor
@@ -1770,6 +1855,14 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (leftover !== undefined) {
       clearTimeout(leftover)
       leftover = undefined
+    }
+    if (resizeTimer !== undefined) {
+      clearTimeout(resizeTimer)
+      resizeTimer = undefined
+    }
+    if (resizeListening) {
+      resizeListening = false
+      window.removeEventListener("resize", onResize)
     }
     stopTicking()
     // Interrupt any end-of-task hold still pending, then drop what they held.
