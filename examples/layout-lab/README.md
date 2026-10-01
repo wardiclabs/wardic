@@ -294,6 +294,7 @@ and the card's `passes`.
 | 11 | Drag while the slot moves | Hold the item; its slot moves every 600 ms or on R: the sibling resizes (the engine ResizeObserver's pass) or the two swap under a `LayoutGroup` (a task's pass). | safe | drag card | each pass seeds the sibling only; the dragged tree drag-blocked |
 | 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms or on S) and the release. | safe | drag card | as 11 |
 | 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent. | safe | drag card | a pass seeds the parent at most |
+| 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code. | safe | drag card + reorder lines | each pass seeds the displaced items only |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
 
 Why each path holds what it does. The browser runs a frame's rAF callbacks, then
@@ -423,6 +424,86 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R9 | any | hold, press L, release, then move over the item without pressing | 3 |
 | R10 | any | hold, press L, release, then press again where you are without moving, and release (a click) | 3 |
 | R11 | any | drag with the right button (after #31's fix: no drag) | 3 |
+
+## Reorder scenario (#44)
+
+Scenario 14 is `<Reorder>` (ADR-0020): a `Reorder.Group` of six text items keyed
+with `<For>`, built only from the public API. The **layout** select picks a `y`
+list, an `x` row, an `xy` grid, an rtl row, or `row-reverse` / `column-reverse` (the
+reversed and rtl rows are where motion/react 13.4.6 never reorders). **In a scroll
+container** puts the list in a plain `overflow: auto` box (not `layoutScroll`);
+without it the list sits on the page. **Lift** adds `whileDrag: { scale: 1.05 }`.
+
+While an item is held, **S** scrolls the container (or the page) 60 px; holding it
+within 50 px of the container's (or the window's) edge Auto-scrolls it. **M** (not
+while held) moves the first item to the end in code: the app sets `values` itself,
+as `move()` does through `onReorder`, and the items should animate there.
+
+Two toggles break it on purpose:
+
+- **items via .map** renders the items without `<For>`: each reorder remounts them,
+  the console shows one `wardic.reorder` warning naming `<For>`, and a reorder
+  doesn't animate.
+- **touch-action: auto on items** overrides the drag default (#36): a touch drag
+  (devtools touch emulation) gets taken for a scroll and cancelled, and ends where
+  it was, not at the viewport's corner.
+
+Each press is a drag run. The card keeps the drag lines (no `child glued`: the
+items have no children) and adds four reorder lines (`lab/reorder-run.ts`). The
+expected card, with a browser's own scheduler:
+
+| Check | Expected | At `4d2fa2b` (the probe evidence) |
+| ----- | -------- | --------------------------------- |
+| under pointer | ≤ 1 px | 60 px after a scroll mid-drag; 100 px after a window resize |
+| frames behind | 1 (0 with `?scheduler=microtask`) | the same |
+| passes | each seeds the displaced items only; the dragged item drag-blocked | the same |
+| release held | ≤ 1 (0 with `?scheduler=microtask`) | the same |
+| ends on slot | ≤ 0.5 px | the same |
+| gesture ends | ≤ 1 px, and the gesture ends | touch cancelled after 8 moves |
+| reorders | one place each on a single axis; the drop reported | (no `<Reorder>`) |
+| uninvolved still | ≤ 1 px | 58.4 px in a scrolled container, 97.4 px after a resize |
+| raised | the dragged item on top every frame it's at the pointer | under a sibling on 16-23% of frames |
+| auto-scrolled | reported | (no Auto-scroll) |
+
+How the lines read a reorder:
+
+- **under pointer** compares the gesture's axis alone (an `x` row's item rightly
+  doesn't follow a vertical page scroll), and accepts a frame that shows the newest
+  move with no hop: a reorder's Measure pass flushes the item at once.
+- **frames behind** and **under pointer** skip frames in a scroll's wake: an
+  Auto-scroll step lands in the frame before the drag's compensation for it, so the
+  item trails by the step there, as Motion's does (motion/react 13.4.6 trails by up
+  to 24 px).
+- **reorders** reports where the item was dropped (`dropped on the nearest slot`, or
+  how many slots from it); a flick released while moving can let go past a
+  neighbour's centre before its reorder, so it isn't judged.
+- **raised** reads the items at the pointer (`elementsFromPoint`): a frame with the
+  dragged item clipped by its container there shows nothing about the raise.
+
+Known and not fixed yet:
+
+- **A grab mid-flight jumps (#30).** Grabbing an item while it still settles, or a
+  displaced sibling still flying, starts it at its slot plus the pointer offset;
+  Motion slides it from where it is.
+- A move paints one frame after it with a browser's scheduler (#32).
+- The release has no velocity: a flick doesn't carry into the flight back.
+- There is no keyboard reorder yet (#43).
+
+Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
+
+| Run | Layout | What to do | Times |
+| --- | ------ | ---------- | ----- |
+| R12 | `y` | drag an item slowly past one neighbour, hold, release | 3 |
+| R13 | `y` | drag an item slowly past several, release | 3 |
+| R14 | `y` | flick an item across the list, releasing while moving | 3 |
+| R15 | `x`, `xy` | as R12 and R13 (in the grid, into the next row) | 2 each |
+| R16 | rtl, `row-reverse`, `column-reverse` | drag toward the next item, and a little the other way | 2 each |
+| R17 | `y`, in a scroll container | grab, press S, keep dragging, release | 3 |
+| R18 | `y`, on the page | as R17 | 3 |
+| R19 | `y` | resize the window (the lab's cards reflow, moving the list), then drag past one neighbour: nothing flies from where it was before the resize (#39) | 2 |
+| R20 | `y`, in a scroll container | drag to the container's bottom edge and hold still (Auto-scroll), release | 3 |
+| R21 | `y` | touch via devtools emulation: drag past one neighbour; then with "touch-action: auto" on | 2 each |
+| R22 | any | press M twice; then once with "items via .map" on (watch the console) | 1 |
 
 ## Scheduler note
 
