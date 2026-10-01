@@ -26,6 +26,8 @@ export { RendererDomLive } from "./renderer.ts"
 
 // Layout/projection engine (ADR-0009) — framework-agnostic; a binding wires it
 // with its own flush gate (as a ProjectionSink) + a runtime providing Clock.
+export { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
+export { DRAG_DEFAULT_ATTRIBUTES, type DragDefaultStyle, dragDefaultStyle, reorderTouchAction } from "./drag-defaults.ts"
 export { measureLayoutBox } from "./measure.ts"
 export {
   type DragProjectionHandle,
