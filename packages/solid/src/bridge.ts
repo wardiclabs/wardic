@@ -19,8 +19,9 @@
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { AtomRegistry, type Atom } from "effect/unstable/reactivity"
-import { type Accessor, createSignal, from } from "solid-js"
+import { type Accessor, createSignal, from, onCleanup, onMount } from "solid-js"
 import { runScoped, useWardicRuntime, type WardicServices } from "./provider.tsx"
+import { isHydrating, isServer } from "./server.ts"
 
 /**
  * Bridge a core `Stream` into a Solid `Accessor`.
@@ -61,10 +62,31 @@ export const streamToSignal = <A>(
  * non-`undefined`. `set(() => v)` is used so object/function values are stored
  * as-is rather than treated as a Solid updater.
  *
+ * A server has no registry (it builds no runtime, ADR-0021), so pass `serverValue` for an
+ * atom read during a server render: the server renders it, and a hydrating client keeps it
+ * until mount, then reads and subscribes to the atom (the Hydration hold, decision 8).
+ * Without one, a server render reads the atom through the Environment, which DomLive
+ * refuses with its client-only error. A client-only render reads the atom at once.
+ *
  * @param atom the reactive service input (e.g. `Probe.prefersReducedMotion`).
+ * @param options.serverValue the value a server renders, and a hydrating client until mount.
  */
-export const fromAtom = <A>(atom: Atom.Atom<A>): Accessor<A> => {
+export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
+  const held = options !== undefined && "serverValue" in options
+  if (held && isServer) {
+    const serverValue = options.serverValue as A
+    return () => serverValue
+  }
+  if (held && isHydrating()) {
+    const [value, setValue] = createSignal<A>(options.serverValue as A)
+    onMount(() => {
+      const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+      setValue(() => registry.get(atom))
+      onCleanup(registry.subscribe(atom, (v) => setValue(() => v)))
+    })
+    return value
+  }
   // A `Context.Service` key is itself an `Effect<Shape, never, Identifier>`,
   // so running it on the provider runtime yields the registry instance.
   const registry = runtime.runSync(AtomRegistry.AtomRegistry)

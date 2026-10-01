@@ -28,6 +28,7 @@ import * as Stream from "effect/Stream"
 import { type Accessor, createMemo } from "solid-js"
 import { fromAtom, streamToSignal } from "./bridge.ts"
 import { useWardicRuntime } from "./provider.tsx"
+import { isServer } from "./server.ts"
 
 /**
  * `true` while the pointer is inside `target`, `false` once it leaves. Wraps the
@@ -100,13 +101,21 @@ export const createDrag = (target: unknown, options?: CreateDragOptions): Access
  * Reactive `prefers-reduced-motion` preference as a boolean `Accessor`. Resolves
  * `Probe` from the provider runtime to get its `prefersReducedMotion` Atom, then
  * bridges it via {@link fromAtom}.
+ *
+ * A server can't know the preference: it renders `false`, and a hydrating client keeps
+ * `false` until mount, then switches to the live value (the Hydration hold, ADR-0021
+ * decision 8), so markup that depends on it hydrates without a mismatch. Motion's
+ * `useReducedMotion` returns `null` on a server and the live value on the client's first
+ * render, which can break hydration. Animations honour the preference either way: the
+ * engine reads it itself when one starts.
  */
 export const createReducedMotion = (): Accessor<boolean> => {
   const runtime = useWardicRuntime()
+  if (isServer) return () => false
   // Resolve the Probe service once to read its reactive atom; a Context.Service
   // key is itself an Effect, so running it yields the service instance.
   const probe = runtime.runSync(Probe)
-  return fromAtom(probe.prefersReducedMotion)
+  return fromAtom(probe.prefersReducedMotion, { serverValue: false })
 }
 
 /**

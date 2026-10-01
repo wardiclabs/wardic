@@ -57,9 +57,9 @@ const expectStartingStyle = (tag: Tag | undefined, values: Record<string, unknow
   for (const key in patch) expect(tag?.style[key], `${tag?.name} style ${key}`).toBe(String(patch[key]))
 }
 
-/** The text inside `<i data-s="name">`, with Solid's hydration markers stripped. */
+/** The text inside `<i … data-s="name">` (a root `<i>` carries `data-hk` first), with Solid's hydration markers stripped. */
 const readout = (html: string, name: string): string | undefined =>
-  new RegExp(`<i data-s="${name}"[^>]*>(.*?)</i>`).exec(html)?.[1]?.replace(/<!--[^>]*-->/g, "")
+  new RegExp(`<i[^>]*\\sdata-s="${name}"[^>]*>(.*?)</i>`).exec(html)?.[1]?.replace(/<!--[^>]*-->/g, "")
 
 /** What `f` threw, or `undefined`. */
 const thrownBy = (f: () => unknown): unknown => {

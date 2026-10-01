@@ -164,21 +164,18 @@ function ReducedMotion(): JSX.Element {
 }
 export const F11 = live(() => <ReducedMotion />)
 
+/** The readout runs inside its target, so the target's ref is set when createHover runs. */
+function HoverReadout(props: { readonly target: () => HTMLElement | undefined }): JSX.Element {
+  // On a server the ref is never set and nothing starts (ADR-0021, decision 8).
+  const hovered = createHover(props.target())
+  return <span data-k="hv">{String(hovered())}</span>
+}
 function Hover(): JSX.Element {
-  // The target is the element itself: created first, so the ref is set on the client
-  // when createHover runs (on a server it stays undefined, and nothing starts).
   let target: HTMLDivElement | undefined
-  const view = (
-    <div data-k="hover-target" ref={target}>
-      hover me
-    </div>
-  )
-  const hovered = createHover(target)
   return (
-    <p>
-      {view}
-      <span data-k="hv">{String(hovered())}</span>
-    </p>
+    <div data-k="hover-target" ref={target}>
+      hover me <HoverReadout target={() => target} />
+    </div>
   )
 }
 export const F12 = live(() => <Hover />)
