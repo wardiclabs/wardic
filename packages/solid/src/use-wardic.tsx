@@ -29,6 +29,7 @@ import {
   type AnimateOptions,
   animateValues,
   type DragBounds,
+  type DragSample,
   type Patch,
   Renderer,
   resolveOverrides,
@@ -437,6 +438,26 @@ const numericOf = (values: Values): Record<string, number> => {
 }
 
 /** Options for the internal {@link runSpine} helper. */
+/**
+ * What a `<Reorder>` item adds to the spine (ADR-0020; internal, D9: nothing in
+ * {@link WardicConfig}):
+ *
+ * - `dragAxis`: the gesture's axis, read at each drag's start and held until its end
+ *   (`true` = free); it makes the element draggable without a `drag` config.
+ * - `onDragSample`: each drag sample, after its projection write.
+ * - `onLayoutHandle`: the projection node's handle, once registered.
+ * - `raiseWhileDragged`: raise the node while dragged.
+ * - `baseStyle`: style under the user's, above the drag defaults (the item's
+ *   `touch-action`), read reactively.
+ */
+export interface SpineInternals {
+  readonly dragAxis?: (() => boolean | "x" | "y") | undefined
+  readonly onDragSample?: ((sample: DragSample) => void) | undefined
+  readonly onLayoutHandle?: ((handle: ProjectionNodeHandle) => void) | undefined
+  readonly raiseWhileDragged?: boolean | undefined
+  readonly baseStyle?: (() => JSX.CSSProperties | undefined) | undefined
+}
+
 export interface RunSpineOptions {
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
@@ -477,6 +498,8 @@ export interface RunSpineOptions {
    * Read at Retarget time. Optional — omitted = no extra delay.
    */
   readonly extraDelay?: (() => number) | undefined
+  /** A `<Reorder>` item's additions (internal; see {@link SpineInternals}). */
+  readonly internal?: SpineInternals | undefined
   /**
    * Builds the {@link FlushSink} for the registered element — the ONE thing that
    * differs between callers: `useWardic` supplies a SIGNAL sink (sets a style
@@ -503,7 +526,7 @@ export interface RunSpineOptions {
  * Must be called within a Solid owner (it registers `createEffect` / `onCleanup`).
  */
 export function runSpine(opts: RunSpineOptions): void {
-  const { canStart, cfg, el, extraDelay, gate, id, makeSink, onFrame, parent, runtime } = opts
+  const { canStart, cfg, el, extraDelay, gate, id, internal, makeSink, onFrame, parent, runtime } = opts
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -542,9 +565,21 @@ export function runSpine(opts: RunSpineOptions): void {
       // A commit sink has no style prop to carry a drag element's defaults
       // (ADR-0019 *Amendment (Reorder)*): set each one the element's inline style
       // doesn't already, and the attribute unless it has one, once at mount.
-      const dragAxis = untrack(cfg).drag
-      if (sink.kind === "commit" && dragAxis !== undefined && dragAxis !== false) {
-        applyDragDefaults(element, dragDefaultStyle(dragAxis))
+      if (sink.kind === "commit") {
+        const base = internal?.baseStyle
+        if (base !== undefined) {
+          // The base style goes under the user's: a key the element's own inline style
+          // sets at mount is the user's, and is never written.
+          const own = new Set<string>()
+          for (let i = 0; i < element.style.length; i++) own.add(element.style.item(i))
+          createEffect(() => {
+            const style = base() as Record<string, unknown> | undefined
+            if (style === undefined) return
+            for (const key in style) if (!own.has(key)) element.style.setProperty(key, String(style[key]))
+          })
+        }
+        const dragAxis = dragAxisOf(untrack(cfg), internal)
+        if (dragAxis !== undefined) applyDragDefaults(element, dragDefaultStyle(dragAxis))
       }
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
@@ -602,7 +637,9 @@ export function runSpine(opts: RunSpineOptions): void {
           ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
           ...(c0.layoutRoot === true ? { layoutRoot: true } : {}),
           ...(c0.layoutAnchor !== undefined ? { layoutAnchor: c0.layoutAnchor } : {}),
+          ...(internal?.raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
         })
+        internal?.onLayoutHandle?.(layoutHandle)
       }
 
       // --- Drag track (ADR-0004) ----------------------------------------------
@@ -612,9 +649,9 @@ export function runSpine(opts: RunSpineOptions): void {
       // gates the whileDrag override + the translate-key strip below); the drag
       // CONFIG is static — read ONCE here (untrack), since drag config is a
       // document. The track's single fiber is scoped to this owner's onCleanup.
-      const dragCfg = untrack(cfg).drag
+      const dragCfg = dragAxisOf(untrack(cfg), internal)
       const [dragging, setDragging] = createSignal(false)
-      if (dragCfg) {
+      if (dragCfg !== undefined) {
         const c0d = untrack(cfg)
         const trackConfig: DragTrackConfig = {
           axis: dragCfg,
@@ -637,6 +674,8 @@ export function runSpine(opts: RunSpineOptions): void {
           // ignores a projected element's raw x/y), so the dragged item follows the
           // pointer and FLIPs to its slot on release. Free drag (no handle) is unchanged.
           ...(layoutHandle !== undefined ? { projection: layoutHandle } : {}),
+          ...(internal?.dragAxis !== undefined ? { axisAt: internal.dragAxis } : {}),
+          ...(internal?.onDragSample !== undefined ? { onSample: internal.onDragSample } : {}),
         })
       }
 
@@ -850,6 +889,14 @@ export function runSpine(opts: RunSpineOptions): void {
  * @returns a callable `ward` to spread onto a JSX element.
  */
 export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
+  return useWardicWith(config, undefined)
+}
+
+/**
+ * {@link useWardic} with a `<Reorder>` item's additions (internal, ADR-0020; not
+ * exported from the package).
+ */
+export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals | undefined): Ward {
   const runtime = useWardicRuntime()
   const gate = useWardicGate()
   // Owner-scoped, SSR/hydration-stable unique id for this element's gate entry
@@ -991,6 +1038,7 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
     extraDelay,
     canStart,
     onFrame,
+    internal,
     // SIGNAL sink (ADR-0014): split the projected Patch — CSS `style` keys feed
     // the declarative style signal (preserving the user-style merge + SSR seed),
     // SVG `attrs` are applied imperatively via setAttribute. For an HTML element
@@ -1047,8 +1095,9 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
   // Provider as a property, and the cast aligns it with the `Ward` type.
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
-  const dragAxis = untrack(cfg).drag
-  const dragDefaults = dragAxis !== undefined && dragAxis !== false ? dragDefaultStyle(dragAxis) : undefined
+  const dragAxis = dragAxisOf(untrack(cfg), internal)
+  const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
+  const baseStyle = internal?.baseStyle
 
   const ward: Ward = Object.assign(
     (userProps?: WardUserProps): WardProps => ({
@@ -1058,7 +1107,7 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
       // Getter so spreading {...ward()} stays reactive (Solid tracks the access).
       // The user's static style is the base; ward's animated keys merge ON TOP.
       get style() {
-        return mergeStyle(userProps?.style, style(), dragDefaults)
+        return mergeStyle(userProps?.style, style(), dragDefaults, baseStyle?.())
       },
       ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),
     }),
@@ -1078,9 +1127,14 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
  * `animated` is the gate's projected {@link Patch} (transform/opacity/etc.); its
  * keys are valid CSS props, so the result is cast to `JSX.CSSProperties`.
  */
-const mergeStyle = (user: JSX.CSSProperties | undefined, animated: Patch, defaults?: DragDefaultStyle): JSX.CSSProperties => {
-  if (defaults === undefined) return (user !== undefined ? { ...user, ...animated } : animated) as JSX.CSSProperties
-  const merged: Record<string, unknown> = { ...defaults, ...user, ...animated }
+const mergeStyle = (
+  user: JSX.CSSProperties | undefined,
+  animated: Patch,
+  defaults?: DragDefaultStyle,
+  base?: JSX.CSSProperties,
+): JSX.CSSProperties => {
+  if (defaults === undefined && base === undefined) return (user !== undefined ? { ...user, ...animated } : animated) as JSX.CSSProperties
+  const merged: Record<string, unknown> = { ...defaults, ...base, ...user, ...animated }
   // `user-select` and `-webkit-user-select` are one property in Chromium: the user's
   // value for either is the value for both, or the default left on the other wins.
   const users = user as Record<string, unknown> | undefined
@@ -1093,6 +1147,13 @@ const mergeStyle = (user: JSX.CSSProperties | undefined, animated: Patch, defaul
   }
   return merged as JSX.CSSProperties
 }
+
+/**
+ * The drag axis a spine runs with: its static `drag` config, else `true` for a
+ * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
+ */
+const dragAxisOf = (config: WardicConfig, internal: SpineInternals | undefined): boolean | "x" | "y" | undefined =>
+  config.drag !== undefined && config.drag !== false ? config.drag : internal?.dragAxis !== undefined ? true : undefined
 
 /**
  * Set each of a drag element's defaults its inline style doesn't already set, and

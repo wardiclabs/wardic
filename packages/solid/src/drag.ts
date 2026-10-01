@@ -102,6 +102,29 @@ export interface RunDragTrackOptions {
    * `dragEnd` (FLIP to slot — the momentum/snap tail is skipped). Absent ⇒ free drag.
    */
   readonly projection?: DragProjectionHandle | undefined
+  /**
+   * The gesture's axis, read at each gesture's "start" and held until its "end"
+   * (`true` = free), in place of `config.axis`'s lock (internal: a `<Reorder>` item,
+   * whose group decides the axis per gesture, D5).
+   */
+  readonly axisAt?: (() => boolean | "x" | "y") | undefined
+  /**
+   * Each sample, after its projection write: after `dragMove` for "start" and
+   * "move", after `dragEnd` for "end", so a reader of the handle's `dragOffset()`
+   * sees this sample (internal: a `<Reorder>` item's group).
+   */
+  readonly onSample?: ((sample: DragSample) => void) | undefined
+}
+
+/** `sample` with its off-axis offset, delta and velocity zeroed (core's `axisLock`, for one sample). */
+const lockTo = (sample: DragSample, axis: "x" | "y"): DragSample => {
+  const off = axis === "x" ? "y" : "x"
+  return {
+    ...sample,
+    offset: { ...sample.offset, [off]: 0 },
+    delta: { ...sample.delta, [off]: 0 },
+    velocity: { ...sample.velocity, [off]: 0 },
+  }
 }
 
 /**
@@ -205,6 +228,7 @@ const inner = (
             // `dragMove`; `directSet` then routes the offset to `dragMove`.
             if (opts.projection !== undefined && sample.phase === "start") opts.projection.dragStart()
             directSet(opts, p)
+            opts.onSample?.(sample)
           }),
         ),
       ),
@@ -245,9 +269,12 @@ const settleGesture = (
   if (sample.phase !== "end") return Effect.void
   return Ref.update(ref, (st) => ({ ...st, held: false })).pipe(
     Effect.andThen(
-      opts.projection === undefined ? Effect.void : Effect.sync(() => {
-        opts.projection!.dragEnd()
-        opts.setDragging(false)
+      Effect.sync(() => {
+        if (opts.projection !== undefined) {
+          opts.projection.dragEnd()
+          opts.setDragging(false)
+        }
+        opts.onSample?.(sample)
       }),
     ),
   )
@@ -340,7 +367,20 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
       // axis), then withinBounds (clamp the followed offset). Same fixed order as
       // momentum.ts / sensors.ts. Probe-free numeric form (ADR-0004).
       let shaped: Stream.Stream<DragSample, never, InputSource> = dragRecognizer(element)
-      if (config.axis === "x" || config.axis === "y") shaped = shaped.pipe(axisLock(config.axis))
+      const axisAt = opts.axisAt
+      if (axisAt !== undefined) {
+        // The gesture's axis, read at its "start" and held to its "end" (one fiber reads
+        // the samples in order, so a plain variable is enough).
+        let gestureAxis: boolean | "x" | "y" = true
+        shaped = shaped.pipe(
+          Stream.map((s) => {
+            if (s.phase === "start") gestureAxis = axisAt()
+            const out = gestureAxis === "x" || gestureAxis === "y" ? lockTo(s, gestureAxis) : s
+            if (s.phase === "end") gestureAxis = true
+            return out
+          }),
+        )
+      } else if (config.axis === "x" || config.axis === "y") shaped = shaped.pipe(axisLock(config.axis))
       if (config.constraints !== undefined) {
         shaped = shaped.pipe(
           withinBounds(
