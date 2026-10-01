@@ -36,7 +36,7 @@
  *
  * @module
  */
-import { Reorder, wardic } from "@wardic/solid"
+import { LayoutGroup, Reorder, wardic } from "@wardic/solid"
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 import type { Box, Point } from "../lab/drag-run.ts"
 import type { ReorderEvent, ReorderFrame } from "../lab/reorder-run.ts"
@@ -287,16 +287,22 @@ const View: ScenarioDef["View"] = (props) => {
     </Reorder.Item>
   )
 
+  // The layout select and the layout child change the items' boxes with no size change
+  // the engine's ResizeObserver could see (x / rtl / row-reverse, y / column-reverse share
+  // an item size), so they are the list's layout dependency: a switch FLIPs the items to
+  // their new places, as Motion's re-render would, and the next reorder reads fresh boxes.
   const list = (): JSX.Element => (
-    <Reorder.Group
-      // eslint-disable-next-line solid/reactivity
-      ref={(el: HTMLElement) => (group = el)}
-      values={order()}
-      onReorder={onReorder}
-      style={groupStyle(layout())}
-    >
-      {viaMap() ? order().map((value) => item(value)) : <For each={order()}>{(value) => item(value)}</For>}
-    </Reorder.Group>
+    <LayoutGroup layoutDependency={[layout(), layoutChild()]}>
+      <Reorder.Group
+        // eslint-disable-next-line solid/reactivity
+        ref={(el: HTMLElement) => (group = el)}
+        values={order()}
+        onReorder={onReorder}
+        style={groupStyle(layout())}
+      >
+        {viaMap() ? order().map((value) => item(value)) : <For each={order()}>{(value) => item(value)}</For>}
+      </Reorder.Group>
+    </LayoutGroup>
   )
 
   return (

@@ -433,6 +433,11 @@ list, an `x` row, an `xy` grid, an rtl row, or `row-reverse` / `column-reverse` 
 reversed and rtl rows are where motion/react 13.4.6 never reorders). **In a scroll
 container** puts the list in a plain `overflow: auto` box (not `layoutScroll`);
 without it the list sits on the page. **Lift** adds `whileDrag: { scale: 1.05 }`.
+The layout select (and the layout child below) is the list's `layoutDependency`, through
+a `LayoutGroup`: a switch FLIPs the items to their new places, as Motion's re-render
+would. Without it, a switch between layouts of the same item size (`x` / `rtl` /
+`row-reverse`, `y` / `column-reverse`) left every box stale, and the next reorder flew
+every item from where it was in the old layout (Devin's Firefox run, 2026-10-01).
 
 While an item is held, **S** scrolls the container (or the page) 60 px; holding it
 within 50 px of the container's (or the window's) edge Auto-scrolls it. **M** (not
