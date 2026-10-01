@@ -223,3 +223,18 @@ export const makeFlushGate = (
 
   return { register, write, flushPass, dispose }
 }
+
+const noop = (): void => {}
+
+/**
+ * The gate a server render gets (ADR-0021, decision 9): a server builds no runtime and
+ * flushes nothing, so `register` returns a no-op unregister and `write` / `flushPass` /
+ * `dispose` do nothing. Code that grabs the gate at setup and uses it after mount keeps
+ * working on the server. Internal (not a package export).
+ */
+export const INERT_GATE: FlushGate = Object.freeze({
+  register: () => noop,
+  write: noop,
+  flushPass: noop,
+  dispose: noop,
+})
