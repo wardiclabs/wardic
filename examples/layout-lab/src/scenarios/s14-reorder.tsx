@@ -139,14 +139,21 @@ const View: ScenarioDef["View"] = (props) => {
   let pressing = (): boolean => false
   let currentFrame = (): number => 0
 
-  // The press's reorder data, gathered while it lasts.
-  let reorders: Array<ReorderEvent> = []
-  let orderAtGrab: ReadonlyArray<string> = VALUES
-  let scrollAtGrab: Point = { x: 0, y: 0 }
-  let scrolledByHand: Point = { x: 0, y: 0 }
-  let layoutAtGrab: Layout = "y"
-  let childAtGrab = false
-  let recording = false
+  /** One press's reorder data, gathered from its pointerdown until the recorder records its run. */
+  interface PressData {
+    readonly dragged: string
+    readonly reorders: Array<ReorderEvent>
+    readonly orderAtGrab: ReadonlyArray<string>
+    readonly scrollAtGrab: Point
+    scrolledByHand: Point
+    readonly layoutAtGrab: Layout
+    readonly childAtGrab: boolean
+  }
+  // The press being recorded, and the one before it while a new press cuts its run short:
+  // the recorder records that run from its own pointerdown, after `pick` (capture) began
+  // the new press, so the run takes its own press's data, not the new one's.
+  let current: PressData | undefined
+  let cutShort: PressData | undefined
 
   const scrollNow = (): Point =>
     inContainer() && container !== undefined
@@ -154,7 +161,7 @@ const View: ScenarioDef["View"] = (props) => {
       : { x: window.scrollX, y: window.scrollY }
 
   const onReorder = (values: Array<string>): void => {
-    if (recording) reorders.push({ t: performance.now(), frame: currentFrame(), order: [...values] })
+    current?.reorders.push({ t: performance.now(), frame: currentFrame(), order: [...values] })
     setOrder(values)
   }
 
@@ -166,7 +173,7 @@ const View: ScenarioDef["View"] = (props) => {
     if (inContainer() && container !== undefined) container.scrollBy(onX ? 60 : 0, onX ? 0 : 60)
     else window.scrollBy(0, 60)
     const after = scrollNow()
-    scrolledByHand = { x: scrolledByHand.x + after.x - before.x, y: scrolledByHand.y + after.y - before.y }
+    if (current !== undefined) current.scrolledByHand = { x: current.scrolledByHand.x + after.x - before.x, y: current.scrolledByHand.y + after.y - before.y }
   }
 
   const onKey = (e: KeyboardEvent): void => {
@@ -202,17 +209,22 @@ const View: ScenarioDef["View"] = (props) => {
   onMount(() => {
     // Picks the pressed item before the recorder's own pointerdown (bubbling) on the group.
     const pick = (e: PointerEvent): void => {
+      // A second pointer during a press is ignored, as the recorder ignores it.
+      if (pressing()) return
       const el = (e.target as Element | null)?.closest<HTMLElement>("[data-value]")
       // A press off the items records nothing (the recorder finds no item).
       pressed = el ?? undefined
       if (pressed === undefined) return
-      reorders = []
-      orderAtGrab = order()
-      scrollAtGrab = scrollNow()
-      scrolledByHand = { x: 0, y: 0 }
-      layoutAtGrab = layout()
-      childAtGrab = layoutChild()
-      recording = true
+      if (current !== undefined) cutShort = current
+      current = {
+        dragged: pressed.dataset.value ?? "",
+        reorders: [],
+        orderAtGrab: order(),
+        scrollAtGrab: scrollNow(),
+        scrolledByHand: { x: 0, y: 0 },
+        layoutAtGrab: layout(),
+        childAtGrab: layoutChild(),
+      }
     }
     const area = stage!
     area.addEventListener("pointerdown", pick, { capture: true, passive: true })
@@ -225,22 +237,24 @@ const View: ScenarioDef["View"] = (props) => {
       scroller: () => (inContainer() ? container : window),
       mode: () => `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}`,
       record: (input) => {
-        recording = false
-        const dragged = pressed?.dataset.value ?? ""
-        const axis = axisOf(layoutAtGrab)
+        const press = cutShort ?? current
+        if (press === undefined) return
+        if (press === cutShort) cutShort = undefined
+        else current = undefined
+        const axis = axisOf(press.layoutAtGrab)
         props.ctx.recordDragRun({
           ...input,
           ...(axis === "xy" ? {} : { lock: axis }),
           reorder: {
-            layout: layoutAtGrab,
+            layout: press.layoutAtGrab,
             axis,
-            dragged,
-            orderAtGrab,
-            reorders,
-            scrollAtGrab,
+            dragged: press.dragged,
+            orderAtGrab: press.orderAtGrab,
+            reorders: press.reorders,
+            scrollAtGrab: press.scrollAtGrab,
             scrollAtEnd: scrollNow(),
-            scrolledByHand,
-            nodesPerItem: childAtGrab ? 2 : 1,
+            scrolledByHand: press.scrolledByHand,
+            nodesPerItem: press.childAtGrab ? 2 : 1,
           },
         })
       },
