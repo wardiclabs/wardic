@@ -17,7 +17,8 @@
 // known one-frame lag of a move (#32) doesn't enter it.
 import type { ReorderAxis } from "@wardic/core"
 import { createSignal, type JSX } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { page } from "vitest/browser"
 import { until } from "./browser-helpers.ts"
 import {
   add,
@@ -36,6 +37,18 @@ import {
 } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
+
+// The evidence runs' rows are 440 px wide at left 40: an rtl or reversed row's first
+// value is its rightmost box, past the test iframe's default 414 px. Widen it.
+let viewport = { width: 0, height: 0 }
+beforeAll(async () => {
+  viewport = { width: window.innerWidth, height: window.innerHeight }
+  await page.viewport(1000, viewport.height)
+  await wait(50)
+})
+afterAll(async () => {
+  await page.viewport(viewport.width, viewport.height)
+})
 
 /** Press on `value`'s centre, glide by (dx, dy) in `steps`, hold `holdMs`, and return the grab. */
 const drag = async (
