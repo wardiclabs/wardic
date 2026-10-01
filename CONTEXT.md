@@ -94,6 +94,21 @@ _Avoid_: stuck drag.
 The number of drags active on the page, counted in one core `Context.Reference`. A drag claims it once past its threshold and releases it at its end or when interrupted. While it is non-zero, no hover and no press starts. The nested-drag lock (#29) grows out of it (ADR-0019).
 _Avoid_: drag lock (#29's claim), dragging (a projection node's flag, ADR-0016).
 
+**Reorder group**:
+The items a drag can reorder, and the rules that do it. Core's `makeReorderGroup` holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
+_Avoid_: sortable, list (the element), reorder context.
+
+**Crossover**:
+The point at which a dragged item has moved far enough past a neighbour to take its place, which changes the order.
+- On a single axis: its leading edge passes the centre of the neighbour on the side it's moving toward, the direction coming from a 100 ms window of its drag.
+- In `"xy"`: its centre is nearer another line of items, or another item's box.
+It's Motion's rule, with the neighbour chosen by position rather than by index (ADR-0020).
+_Avoid_: swap (one outcome), collision (dnd-kit's term for a different model).
+
+**Auto-scroll**:
+While a **Reorder group** item is dragged toward, and within 50 px of, its scroll container's visible edge, the container scrolls, faster the nearer the edge. It stops at the scroll range it had when it started. Because each scroll moves the **Held pointer**, it keeps going while the pointer holds still (Motion's; ADR-0020).
+_Avoid_: edge scroll, drag scroll.
+
 ### Layout
 
 **Measurement**:
@@ -113,7 +128,7 @@ A layout-enabled element's entry in the **projection tree** — a parent link by
 _Avoid_: layout member (the prior flat name), FLIP node.
 
 **Measure pass**:
-The projection engine's end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. Then the nodes it seeded take a **Priming step**. A running animation whose box didn't change is left alone. A dragged node and its subtree get a slot-only update (**Drag block**). A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018).
+The projection engine's end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. Then the nodes it seeded take a **Priming step**. A running animation whose box didn't change is left alone. A dragged node and its subtree get a slot-only update (**Drag block**). After a window resize, the next pass is a **Resize block**. A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018).
 _Avoid_: commit (the Renderer's write), layout update (Motion's name).
 
 **Priming step**:
@@ -121,7 +136,7 @@ The first step of a layout animation, given by the **Measure pass** that seeded 
 _Avoid_: Priming tick (the Clock's), first tick.
 
 **Drag block**:
-While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, and stays so after the release until it settles, so the subtree rides the drag and the flight back (ADR-0016, *Amendment (#26)*).
+While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, and stays so after the release until it settles, so the subtree rides the drag and the flight back (ADR-0016, *Amendment (#26)*). A dragged node that opts in (a **Reorder group**'s items do) is also raised above its siblings, `z-index: 1`, until its release settles (ADR-0016, *Amendment (Reorder)*).
 _Avoid_: held (the layout lab's held frames), drag lock (claiming the gesture between nested draggables, #29).
 
 **Shared layout**:
@@ -149,12 +164,16 @@ The point (0–1 per axis, default top-left) in a relativeParent that a node anc
 _Avoid_: origin (reserve for the scale transform-origin in the delta math).
 
 **Scroll-stable frame** (`layoutScroll`):
-The coordinate frame a **Projection node**'s box is stored in so scroll never leaks into a layout animation: the viewport box plus the scroll offsets of its scroll-container ancestors (the root's scroll always; a nested container only when marked `layoutScroll`), sampled at measure. Two measures taken at *different* scrolls then yield the same box if the layout didn't change, so the delta is layout-only. A `position: fixed` element is a **scroll root** — its subtree is viewport-relative and folds in no outer (or root) scroll. Scroll changing *during* a transition is the documented limit (offsets are sampled at measure, not per frame).
+The coordinate frame a **Projection node**'s box is stored in so scroll never leaks into a layout animation: the viewport box plus the scroll offsets of its scroll-container ancestors (the root's scroll always, and that of every scrollable ancestor, one whose overflow isn't `visible` or `clip`; `layoutScroll` marks a container that is itself a projection node, ADR-0012 *Amendment (Reorder)*), sampled at measure. Two measures taken at *different* scrolls then yield the same box if the layout didn't change, so the delta is layout-only. A `position: fixed` element is a **scroll root** — its subtree is viewport-relative and folds in no outer (or root) scroll. Scroll changing *during* a transition is the documented limit (offsets are sampled at measure, not per frame).
 _Avoid_: scroll compensation, document frame (reserve "stable" for this specific fold).
 
 **Root frame**:
 The coordinate frame **Shared layout** twins are compared in: a box's viewport position plus the scroll of the projection tree's root (the page, in a browser), with nested `layoutScroll` container scroll left as rendered — Motion's `measuredBox`. Unlike the **Scroll-stable frame**, it doesn't depend on which containers a node sits in, so two twins' boxes are directly comparable. A Switch seed is captured in it and converted into the enterer's scroll-stable frame at first measure. A **scroll root** cuts its subtree off from the root's scroll, so no root scroll is added there (ADR-0012, *Amendment (#13)*).
 _Avoid_: page frame, document frame (browser words for the same thing).
+
+**Resize block**:
+After a change of the window's width, running layout animations finish, and the next **Measure pass** (within 250 ms) updates every node's slot and starts no animation. If none runs, the engine runs one itself at 250 ms, or at a drag's start, so no box from before the resize is left (ADR-0018, *Amendment (#39)*).
+_Avoid_: resize freeze, blocked update (Motion's name).
 
 ### Environment
 
@@ -168,7 +187,7 @@ The Clock's loop ends at the first Refresh frame after its last subscriber leave
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Held pointer**:
-A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its type. DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `heldPointerSource` implements it for any Environment (ADR-0019).
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its type. A scroll of the page or of a scrollable ancestor while it is held moves it too: the Environment reports the scroll, and `heldPointerSource` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `heldPointerSource` implements it for any Environment (ADR-0019).
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:

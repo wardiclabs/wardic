@@ -48,3 +48,29 @@ Every layout trigger in a task (a node registering, the shared `ResizeObserver`,
 
 - A node in a dragged subtree (a **Drag block**, ADR-0016 *Amendment (#26)*) is never seeded and takes no Priming step. A pass updates its slot and re-derives it with its group. `wardic.projection.measure` counts the ones whose box changed, which the pass updated slot-only instead of seeding, in a new `dragBlocked` attribute beside `seeded` (0 when nothing is dragged).
 - A drag's release is the one layout animation that doesn't come from a Measure pass, and it gets the same Priming step at the end of its task (traced as `wardic.projection.releasePriming`).
+
+## Amendment (#39, 2026-09-30): a window resize blocks the next Measure pass
+
+A window resize moved every node's layout, and nothing re-measured, so each node's `retained` box went stale until something else triggered a pass. That pass then animated every node from where it had been before the resize.
+
+- In the `<Reorder>` evidence (a centred list, the window 200 px narrower), the first reorder flew every other item 97.4 px from its pre-resize box, and the dragged item sat 100 px off the pointer for the rest of the drag, because its grab box was stale (ADR-0016). This was 3/3 in Chromium and Firefox.
+- In the layout lab, 23 of 24 nodes were seeded at a grab after a resize, and the dragged item flew in from about 2,900 px away (#39).
+- Motion: 0. It snapshots each "before" box fresh at every update, so it has nothing to keep up to date.
+
+What changes:
+
+- **The engine listens for window resize itself**, as it owns its `ResizeObserver`. Only a change of `window.innerWidth` counts; a height-only change, such as a mobile URL bar, doesn't. That's Motion's filter ([create-projection-node.ts:459-487](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L459-L487)).
+- **A width change finishes running layout animations**, if any ran since the last one. A node flying back from a release snaps to its slot. A dragged node keeps following the pointer.
+- **The next Measure pass after a width change, within 250 ms, is blocked.**
+  - Every node takes the Drag block's slot-only update: a fresh `retained` and `layoutBox`, nothing seeded or primed.
+  - The pass clears the block, as Motion's blocked `update()` does (motion-dom 13.4.5, `update()`). Each new width change arms it again.
+- **Wardic's addition:**
+  - If no pass has run 250 ms after the last width change, the engine runs the blocked pass itself, so the next ordinary pass never compares against a box from before the resize.
+  - A drag that starts while boxes are stale runs it first.
+  - Motion doesn't need either, because it re-snapshots.
+- **Traced:** a blocked pass carries a `blocked` attribute on `wardic.projection.measure`, and the finish is a debug log.
+- **Cost:** a flag and a timer per resize event, and one whole-tree read per resize burst (0.4–0.8 ms at 50 nodes and 6–10 ms at 1,000, as measured for ADR-0018).
+
+Considered:
+- **A refresh after every width change, with no block.** Rejected: a whole-tree read per resize frame, and a layout change the app makes in response (a breakpoint's `matchMedia` listener) would animate, where Motion suppresses it.
+- **Fixing only the drag** (re-measuring the dragged node at its start). Rejected: every other node would still fly.

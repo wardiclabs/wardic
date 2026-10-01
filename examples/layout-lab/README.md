@@ -378,9 +378,9 @@ Method); the expected card, with a browser's own scheduler:
   the end of the task, as a `<Reorder>` would). While you hold the item the slot
   moves every 600 ms, or press R. The item has `z-index: 1`: after a swap the
   sibling follows it in the DOM, and while the sibling's FLIP gives it a transform
-  it would paint over the item and take a press meant for it, as a `<Reorder>` item
-  would without Motion's `zIndex: 1` (before #31's fix it also took a held drag's
-  moves and release).
+  it would paint over the item and take a press meant for it (before #31's fix it
+  also took a held drag's moves and release). A `<Reorder>` item doesn't need the
+  style: it is raised while dragged (scenario 14).
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
   and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
   900 ms, or press S. M (grey) starts a slow FLIP across the item when you grab it

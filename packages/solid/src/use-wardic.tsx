@@ -244,9 +244,9 @@ export interface WardicConfig {
    * `draggable="false"`, so a touch drag isn't taken for a scroll and a drag
    * starting on text isn't a native drag. The element's own `style` overrides them.
    *
-   * NOT SUPPORTED WITH {@link layoutId} (LOW-2): combining `drag` and `layoutId`
-   * on the SAME element makes both drive `x`/`y` (a one-time dev warning fires).
-   * Use `<Reorder>` for drag + layout (planned).
+   * With {@link layout} or {@link layoutId} the drag moves the projection target
+   * instead of `x`/`y`, and the release FLIPs to the slot (ADR-0016). To drag the
+   * items of a list or grid into a new order, use `<Reorder>` (ADR-0020).
    */
   readonly drag?: boolean | "x" | "y"
   /**
@@ -296,9 +296,8 @@ export interface WardicConfig {
    * and the element's `animate` (the FLIP keys merge into the same gate id and
    * project once, ADR-0006). Static field (read once, untracked at mount).
    *
-   * NOT SUPPORTED WITH {@link drag} (LOW-2): combining `layoutId` with `drag` on
-   * the same element makes both drive `x`/`y` (a one-time dev warning fires). Use
-   * `<Reorder>` for drag + layout (planned).
+   * With {@link drag} the drag moves the projection target (ADR-0016). To drag the
+   * items of a list or grid into a new order, use `<Reorder>` (ADR-0020).
    */
   readonly layoutId?: string
   /**

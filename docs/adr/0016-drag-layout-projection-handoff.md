@@ -49,3 +49,14 @@ For a projection node the renderer **ignores the element's own `x`/`y`**: when `
 
   Velocity across grab, release and retarget is to be decided with `<Reorder>`.
 - **Pinned by** `packages/solid/test/drag-measure-pass.browser.test.tsx` (T1–T18: children through passes and the release, a child animating at grab, snaps inside the dragged node, a dragged `layoutId` lead's opacity, a slot resize, release timing and the release on the slot, real-mouse input through a `realMouse` browser command, a dragged node inside a FLIPing parent, the drag start's subtree derive, a dragged `layoutRoot`, running descendants through a pass and the release, and a `layoutAnchor: false` child through the release) and `packages/dom/test/projection-drag.browser.test.ts` (N1–N7, against a fake sink: nothing seeded in the dragged tree and `dragBlocked`, no per-frame writes for resting descendants, `dragMove` writing at once, the release's Priming step, the release on the slot, the release after several slot moves, and `dragBlocked` 0 with nothing dragged). The layout lab's drag scenarios (11–13) show each by hand.
+
+## Amendment (Reorder, 2026-09-30): the handle reports its box; a dragged node can be raised
+
+- **The handle reports its node's geometry**, for a caller that decides something from it (ADR-0020's group):
+  - `layoutBox()`: the slot, in the Scroll-stable frame;
+  - `dragOffset()`: from `dragTargetOf`, the painted box minus the slot, so the anchoring rules stay in one place;
+  - `layoutVersion()`: bumped whenever a pass measures the node. This was Motion's name (`create-projection-node.ts:927`), since removed in motion-dom 13.4.5.
+  - They're plain reads. Nothing is pushed.
+- **A dragged node can be raised** (a registration option; `<Reorder>` turns it on). From the drag's start until its release settles, the node's projection value carries `raise: 1`, which the renderer writes as `z-index`; the settle's last projection write carries none. A commit sink now removes a key that drops out of its patch and puts back the element's own inline value, so an app's `z-index` returns at rest. The signal path needed no change. Without it, a dragged `<Reorder>` item was painted under a displaced sibling in 16–23% of a reversal's frames.
+- **A drag's axis can be decided per gesture.** The drag track reads it at each gesture's start (internal, for `<Reorder>`); the public `drag` prop stays static.
+- **Q3c's "scrolling during a drag isn't reconciled" is fixed** by ADR-0019's and ADR-0012's *Amendments (Reorder)*.

@@ -14,6 +14,11 @@
 >
 > **Update (2026-09-30, #31).** A drag now keeps its pointer until its release (ADR-0019),
 > which `<Reorder>` needed; what's left of the drag's input is below.
+>
+> **Update (2026-09-30, #44).** `<Reorder>` is built (ADR-0020), with the four engine fixes
+> it needed: the resize block (#39), the scroll fold of every scrollable ancestor, a drag
+> that follows a scroll, and the drag defaults (#36). The frontier is now the velocity
+> grill; what's left is under **Next**.
 
 ## Landed (committed)
 
@@ -50,77 +55,62 @@ The box-projection engine is feature-complete through P4 and several follow-on A
   (it's the ADR-0006 reactive bridge). See memory `wardic-projection-coordinator-belongs-in-dom`.
 - **`layoutId` on the box tree** — shared-element migrated onto the one tree, with
   leaving-Follower handling coupled to presence (`handleLeave`, deferred-clear).
+- **ADR-0020** — `<Reorder>` (#44), headless first: core `makeReorderGroup` (the
+  Crossover is Motion's `checkReorder`, the direction a 100 ms trailing velocity, the axis
+  `detectAxis`'d at each drag's start unless set, Auto-scroll at 50 px / 25 px a frame),
+  `@wardic/solid`'s `createReorderGroup` / `createReorderItem` / `reorderItem`, and
+  `Reorder.Group` / `Reorder.Item` on top. The items are plain `layout` + `drag` elements;
+  the group reads boxes through the handle's `layoutBox` / `dragOffset` / `layoutVersion`
+  getters. It came with: the **Resize block** (ADR-0018 *Amendment (#39)*), the fold of
+  every scrollable ancestor's scroll (ADR-0012 *Amendment (Reorder)*), a held pointer that
+  follows a scroll and the drag defaults (ADR-0019 *Amendment (Reorder)*, #36), the raise
+  inside `@projection` (ADR-0016 *Amendment (Reorder)*), a projected element's own scale
+  (ADR-0009 *Amendment (Reorder)*), and a cancel that ends at the last move. Lab
+  scenario 14.
 
-## Next — `<Reorder>` (the frontier)
+## Next — the velocity grill (the frontier)
 
-The drag→projection handoff (ADR-0016) is landed, and since #26 (ADR-0016 *Amendment
-(#26)*) a Measure pass during a drag is safe: the dragged item stays under the pointer
-(and paints each pointer move in the frame it is delivered), its subtree rides the drag
-and is drag-blocked (CONTEXT.md **Drag block**), and the release FLIPs to the latest slot
-with a Priming step. `<Reorder>` is a component-level build on top of that, but its grill
-should start from the engine questions below. Grill it against Motion's `Reorder.Group` /
-`Reorder.Item` before implementing. Rough shape:
-
-1. **`Reorder.Group`** — owns the ordered `values` array (controlled via `onReorder`),
-   provides a context with the axis + a registry of item layout boxes.
-2. **`Reorder.Item`** — a `wardic` `layout` + `drag` element (reuses the ADR-0016 path).
-   While dragging, it reports its live position to the group.
-3. **Crossover detection** — the group compares the dragged item's position against
-   sibling layout boxes; when it passes a neighbor's midpoint, it reorders the `values`
-   array → DOM reorders → the projection FLIPs the displaced siblings to their new slots
-   (already works), while the dragged item stays under the pointer (grab-anchor).
-4. **Release** — `dragEnd` (already) FLIPs the dragged item into its final slot, with a
-   Priming step (#26).
-5. **Tests (browser)** — drag an item past a neighbor → `values` reorders and siblings
-   animate; the dragged item tracks the pointer; on release it settles into the new slot.
-   Synthetic pointer events for the logic; the `realMouse` browser command
-   (`packages/solid/vitest.browser.config.ts`, #26) where input timing matters. The
-   layout lab's drag scenarios (s11–s13, #26) are the by-hand check.
-
-Open sub-questions for the grill: axis (`"y"` default vs `"x"`), keyboard reordering
-(parity nicety, likely deferred), and whether `Reorder.Item` needs `layoutId` (probably
-plain `layout` is enough within one group).
-
-Engine questions left open by #26 (each with measurements in its issue):
+`<Reorder>` (ADR-0020) is built on the drag→projection handoff (ADR-0016) and the held
+pointer (ADR-0019). Grill each item below against Motion before implementing.
 
 - **Velocity across the handoffs** — one rule for all three. Motion carries velocity
   through each of them; Wardic carries none.
   - **Grab:** a node grabbed mid-animation jumps to its slot + the pointer offset, where
-    Motion keeps the animation running under the drag (#30).
+    Motion keeps the animation running under the drag (#30). In a reorder that's 8–11 px
+    for a settling item and 34–38 px for a displaced sibling (ADR-0020). After a lost
+    release, pressing a `layout` item again restarts the drag from its slot, the same jump.
   - **Release:** the release carries no drag velocity (ADR-0016 Q3c). #26 prototyped a
     seeded progress spring (C1, ~11 lines) and a per-axis release (C2, ~80 lines); the
-    numbers are in #30. Motion averages drag velocity over 100 ms where Wardic uses 30 ms.
+    numbers are in #30. Motion's `Reorder.Item` release is an inertia with the drag's
+    velocity: it carried a flick 16–40 px past the release point, and settles on a slower
+    200/40 bounce spring (ADR-0020, decision 12). Motion averages drag velocity over
+    100 ms where Wardic's drag uses 30 ms (the Reorder group already uses 100 ms for its
+    direction).
   - **Retarget:** a running FLIP retargeted mid-flight doubles its first move, then
-    stalls, and a glued child jumps (#28). `<Reorder>` retargets displaced siblings
-    constantly.
-- **The drag's input** (#31 fixed, #32 open; both matter for every `<Reorder>` item):
-  - Since ADR-0019 a pointer that went down on an item is a Held pointer: the drag follows
-    it anywhere on the page, a release anywhere ends it, a lost release ends at the next
-    unpressed move or the next press anywhere, and only the Primary pointer drags. After the down, the
-    item's hit box no longer matters (the lab's resize mode lost the pointer in 2 of 8
-    runs before, 0 of 8 after); a press still hit-tests.
-  - Pointer input reaches the drag one `setTimeout(0)` hop late in a real page: one frame
-    of lag (#32), unchanged by #31.
-  - `Reorder.Item` still needs `zIndex: 1` while offset (Motion's): a FLIPing sibling that
-    paints over it takes a press meant for it.
-  - Wardic sets no `touch-action` on a drag element (Motion sets `none`, or `pan-x`/`pan-y`
-    for an axis): with `touch-action: auto` Chromium takes a touch drag for scrolling and
-    cancels it after the first move. A touch `<Reorder>` needs it (#36).
-  - After a lost release, pressing a `layout` item again restarts the drag from its slot
-    (#30's grab mid-flight jump).
+    stalls, and a glued child jumps (#28). #44's runtime comparison found it doesn't bite
+    a reorder's siblings (at a reversal the sibling carries on 1.8 px, then moves); the
+    nested-child case is still open.
+- **The drag's input:** pointer input reaches the drag one `setTimeout(0)` hop late in a
+  real page: one frame of lag (#32), unchanged by #31 and #44.
 - **Nested draggables** have no drag lock (#29): grabbing an inner draggable also drags
   its draggable ancestor. ADR-0019's **Drag activity** (a core `Context.Reference`
   counting active drags) is the lock's seed: #29 turns its claim into Motion's
   `setDragLock`, refusable and per axis.
+- **Reorder follow-ups:** a server-side `DomLive` (#41: today every Wardic element throws
+  on the server, so the server-render test uses a server-safe environment), Motion's
+  layout modes and `Reorder.Item`'s `layout` prop with them (#42), and built-in keyboard
+  reordering + announcements (#43; `move(value, toIndex)` already lets an app add its own).
 - **Released-drag edges:** a running node inside a `layoutRoot` inside a FLIPing parent
-  counts the parent's motion twice (#33), and a `layoutId` lead with followers
-  re-crossfades on every FLIP, its release included (#34).
+  counts the parent's motion twice (#33), a `layoutId` lead with followers
+  re-crossfades on every FLIP, its release included (#34), and a running layout child
+  steps back when its released drag parent settles (#38).
 - **Unchanged projection writes** still cost a full gate apply every frame (#27).
-- **#9's "resize blocks rather than triggers"** item (Motion's `updateBlockedByResize`).
+- The rest of **#9's parity backlog** (Safari rounding, `treeScale` snapping, render
+  gating); its resize item is ADR-0018's Resize block (#39).
 
 ## Also pending — `@wardic/path-morph` (tier-2 morphing, own grill)
 
-Independent of `<Reorder>`. Arbitrary-structure path morphing (aligning `d`/`points`
+Independent of the projection track. Arbitrary-structure path morphing (aligning `d`/`points`
 with *different* command counts: parse → normalize segment counts → match subpaths/rings
 → rotate start point → blend). A **standalone, dependency-free package** (flubber/
 polymorph-class, useful outside animation) wired into Wardic purely as an **opt-in

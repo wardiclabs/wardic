@@ -59,3 +59,29 @@ The rest of the grill, for the record:
 - **The hit box no longer matters after the down.** A slot move seen only by the engine's `ResizeObserver` leaves the item's hit box off by the move until the next frame's Measure pass (ADR-0018). In the layout lab's resize mode, `e57c54e` lost the pointer in 2 of 8 held runs there (scenario 11, R1, Chromium); since this change, 0 of 8, and 0 of 48 ordinary runs across Chromium and Firefox. A press still hit-tests, and a move still paints one frame behind with a browser's own scheduler (frames behind: median 1 before and after), so #32 is unchanged.
 - **The layout lab reads a release in the same frame as a slot move.** That timing lost the release before; now Chromium runs the release's input task between a frame's paint and its read, and the recorder notes the release as a layout change so that read isn't counted as a held frame.
 - **Pinned by** `packages/solid/test/drag-pointer.browser.test.tsx` (P0–P7 for layout and free drag, R1, M1, M3, Q0–Q2, H0–H3, S1, S2; M1, M3, H2 and S1 need Chromium's DevTools touch), `packages/dom/test/input.browser.test.ts` (I1–I10), `packages/core/test/pointer.test.ts` and `held-pointer-source.test.ts` (C1–C14), and `packages/test/test/pointer-rules.test.ts` (N1–N13) and `drag-activity.test.ts` (A1–A6). The layout lab's drag scenarios (11–13) show #31 by hand: the `gesture ends` line, the L toggle that loses the next release, and hand runs R8–R11; headless, every run of them passes in Chromium and Firefox (66 each), where `e57c54e` failed every #31 case.
+
+## Amendment (Reorder, 2026-09-30): a scroll moves a held pointer; drag elements get their defaults
+
+**A scroll during a gesture.**
+- A page or container scroll of 60 px in the middle of a drag left the dragged item 60 px off the pointer: 8 of 8 runs, page and plain container, Chromium and Firefox, 2026-09-30. The offset only knew about pointer moves.
+- Motion compensates inside its gesture ([PanSession.ts:176-263](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L176-L263)): a window scroll shifts the last point, an element scroll shifts the origin, and either schedules a move.
+- Now, while a pointer is held, the Environment also reports scrolls of the window and of the target's scrollable ancestors. The DOM wires one capture-phase `scroll` listener on the window plus the window's own `scroll`, the two Motion uses, only while a pointer is held.
+- `heldPointerSource` records those scroll positions at the down. At each scroll it emits a move of the held pointer, shifted by the distance scrolled, so `drag`'s offset includes it and every drag, free or layout, stays under the pointer.
+- A plain `position: fixed` element stops the feed. The ancestor walk ends at it (its own scroll still counts) and the window isn't tracked, because neither moves the element. Motion's walk records every scrollable ancestor and the window ([PanSession.ts:185-222](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L185-L222)), so by its source a scroll under a fixed draggable shifts its drag.
+- The move also counts toward the drag's velocity, as a window scroll does in Motion.
+- An Environment whose scroll views own their gestures supplies nothing.
+- It's also what keeps `<Reorder>`'s auto-scroll going while the pointer holds still (ADR-0020).
+
+**Drag elements get Motion's defaults (#36).**
+- With `touch-action: auto`, Chromium takes a touch drag for scrolling and cancels it after its first moves (3/3 runs).
+- The first mouse drag of an element with text selects that text. In Chromium, a second drag that starts on it becomes a native `dragstart`, which cancels the pointer (6/6); Firefox only highlights it.
+- Every `drag` element now gets, as Motion's draggables do (`render/html/use-props.ts:57-73`):
+  - `touch-action: none`, or `pan-y` for `drag="x"` and `pan-x` for `drag="y"`;
+  - `user-select`, `-webkit-user-select` and `-webkit-touch-callout` set to `none`;
+  - `draggable="false"`.
+- The style map is a `@wardic/dom` helper any DOM binding reuses. `@wardic/solid` merges it under the user's style (`{ ...defaults, ...user, ...animated }`) and renders the attribute, so both are in SSR markup.
+- Unlike Motion, which writes them after the user's style, the user's `style` can override them (for example to keep text selectable). `Reorder.Item` sets its `touch-action` from its axis through that same layer.
+
+**A cancelled drag ends where the pointer was.**
+- Chromium's `pointercancel` carries (0, 0), so a drag the browser took over (a touch scroll, a native `dragstart`) ended with its last sample at (0, 0).
+- A cancel now ends at the last move's point with a zero delta, and its velocity comes from the moves, as Motion's pan session does ([PanSession.ts:329-333](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L329-L333)). A release is unchanged.

@@ -44,3 +44,29 @@ A **Scroll-stable frame** depends on the node's own `layoutScroll` ancestry. Tha
 **Residual of B.** The seed is fixed at capture. If the leaver's container scrolls between the capture and the enterer's first measure, the enterer starts from where the leaver was painted at capture, off by that scroll. For the ordinary `<Show>` swap the capture (the leaver's dispose) and the enterer's registration fall in the same flush, so the residual is about 0. A change in the root's scroll over the same gap cancels, because both the seed and the enterer's box carry the root's scroll. Twins on opposite sides of a scroll root (one under a `position: fixed` `layoutScroll` container, one not) differ by the root's scroll; this is a limit, shared with Motion's `measurePageBox`, which also skips the root's scroll inside a scroll root.
 
 **Pinned by** `packages/solid/test/layout-id-scroll.browser.test.tsx`, which includes twins in two differently scrolled `layoutScroll` containers (the case that separates B from A).
+
+## Amendment (Reorder, 2026-09-30): every scrollable ancestor is folded
+
+The Scroll-stable frame folded out only the page's scroll and the scroll of projection nodes marked `layoutScroll`. A plain scroll container (`<div style="overflow:auto">`) isn't a node, so its scroll went into every box inside it. The next pass compared against boxes measured before the scroll, and animated the difference.
+
+- Plain `layout` elements with no drag, in a container scrolled 60 px, flew 58.4 px at the next unrelated layout change.
+- In a `<Reorder>` list, the first reorder after the scroll flew the uninvolved items 58.4 px (87.6 px for a horizontal list scrolled 90 px), and the dragged item sat 60 px off the pointer.
+- Nested plain containers and an `overflow: hidden` container scrolled from code behaved the same.
+- These numbers match in Chromium and Firefox, 2 runs each, 2026-09-30. Marking the container `layoutScroll` removed the leak (0), which confirmed the cause.
+- Motion needs no fold here, because it snapshots at each update. Its own Reorder test pages use a plain `overflow: auto` container (`dev/react/src/tests/reorder-auto-scroll-container.tsx:49-50`).
+
+What changes:
+
+- **At each Measure pass, the engine folds the scroll of every scrollable DOM ancestor of a node**, as it already did for `layoutScroll` containers.
+  - "Scrollable" means `overflow-x` or `overflow-y` is neither `visible` nor `clip`, cached per element. That's wider than Motion's `auto | scroll` test, because a `hidden` container can be scrolled from code.
+  - The scroll is sampled in the pass's read phase, with the boxes.
+  - `layoutScroll` keeps its meaning, including the `position: fixed` scroll-root rule. The fold now also covers every other scrollable ancestor.
+- **A plain `position: fixed` element stops the fold.** When a node's own element or an ancestor is fixed, no scroll above that element folds into the node's box, neither a container's nor the page's, because neither moves it. Its position is cached with the scrollable answer, so it goes stale the same way. Motion subtracts the page's scroll from every box outside a `layoutScroll` scroll root ([create-projection-node.ts:1024-1043](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L1024-L1043)), so by its source a plain fixed element there takes the page's scroll.
+- **A scroll between passes never reaches a box.** A drag's grab box stays valid through a scroll made before the drag. Together with ADR-0019's *Amendment (Reorder)*, the dragged item also stays under the pointer through a scroll during the drag.
+- **Cost:** one DOM ancestor walk per node per pass, plus one scroll read per scrollable ancestor, in the read phase. With the list 15 wrapper `div`s deep in a plain container scrolled 60 px, a pass's median went 0.3 → 0.3 ms at 50 nodes and 0.6 → 0.8 ms at 200 in Chromium. At 1,000 it went 2.0–2.4 → 2.8–3.7 ms, where identical runs vary by up to 0.7 ms. The fold's own loop is 0.1 ms of that, and with the fold switched off the pass read 2.8–3.0 ms, so the rest isn't the fold (not traced further). Firefox's 1 ms clock doesn't resolve it (1 / 1 / 3–5 → 1 / 1 / 4 ms).
+- **Scroll anchoring:** when content above a scroll container's visible area grows, the browser moves the container's scroll by the growth so the visible items stay put. The fold folds that scroll, so the items below animate the growth: 40 px for a 40 px growth. That's the same curve Motion gives a `layoutScroll` container (39.9 px in Chromium, 39.4 in Firefox). Motion leaves a plain container still (0 px): it doesn't fold that scroll, and nothing moved on screen. Before the fold, Wardic flew them 200 px, the scroll made before the change. `overflow-anchor: none` on the container avoids it; `Reorder.Group` sets it, as Motion's does ([Group.tsx:187-195](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/Group.tsx#L187-L195)).
+- **Not handled:** a container whose `overflow` changes while nodes live in it, since the cache keeps its first answer. It's documented, not re-checked: re-checking at each ResizeObserver delivery would cost a `getComputedStyle` per ancestor per delivery. Marking the container `layoutScroll`, or remounting it, reads it afresh.
+
+Considered:
+- **Shifting boxes when something scrolls.** Rejected: an always-on page-wide `scroll` listener doing work at rest.
+- **Requiring `layoutScroll`.** Rejected: every plain container stays broken, including the one Motion's own tests use.
