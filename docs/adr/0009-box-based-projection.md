@@ -42,3 +42,10 @@ Issue #2 measured the frame-batched pass painting a flash for every layout chang
 - **Triggers.** Coalesced into one Measure pass per task, not per frame. A trigger during the pass's own flush repeats the pass, at most 5 rounds; the rest runs in the next task.
 - **Unchanged running nodes.** A pass leaves a running node whose box didn't change alone (no restart, no write, no Priming step) unless one of its ancestors restarted; a seeded node is re-derived with the subtree of its highest running ancestor. Before, every pass restarted every animating node at zero velocity (#18).
 - **Unchanged:** the measure scope (the whole registered tree per pass) and the measure-pass phase separation (write → read → write, the restore in the same synchronous pass).
+
+## Amendment (Reorder, 2026-09-30): a projected element renders its own scale
+
+- A `layout` element's own `scale` / `scaleX` / `scaleY` were dropped while it was projected, so a `whileDrag` scale on a `<Reorder>` item never showed. They now multiply the projection's element scale per axis.
+- Motion renders a projected node into its target with the element's own transforms applied ([create-projection-node.ts:1825-1845](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L1825-L1845), [delta-apply.ts:186-205](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/geometry/delta-apply.ts#L186-L205)). About the box centre, Motion's default origin, that is this product.
+- **Unchanged:** `x` / `y` stay the projection's (ADR-0016), though Motion's `transformBox` applies them too.
+- **Pinned by** `packages/dom/test/projection-transform.browser.test.ts` (PT1–PT4) and `packages/solid/test/reorder.browser.test.tsx` RO17.

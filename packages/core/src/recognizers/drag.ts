@@ -19,9 +19,13 @@ export interface Vec2 {
  * - `delta`: `point - lastPoint`, the change since the previous emitted event.
  * - `velocity`: a per-axis, time-windowed estimate in units per second.
  * - `phase`: `"start"` on activation, `"move"` while dragging, `"end"` on
- *   release/cancel. A **Stale gesture** (its release was lost, ADR-0019) also ends:
+ *   release/cancel. A cancel ends at the last move's point with the moves' velocity
+ *   (a `pointercancel`'s own coordinates aren't the pointer's: Chromium's carries
+ *   (0, 0)). A **Stale gesture** (its release was lost, ADR-0019) also ends:
  *   at the owning pointer's first move with no button pressed, or its next down,
  *   with an `"end"` at the last pressed point, no delta and no velocity.
+ * - `timeStamp`: the time (ms) of the event that produced it (a scroll-driven move
+ *   carries the scroll's; a Stale gesture's end carries the event that ended it).
  */
 export interface DragSample {
   readonly point: Vec2
@@ -29,6 +33,7 @@ export interface DragSample {
   readonly delta: Vec2
   readonly velocity: Vec2
   readonly phase: "start" | "move" | "end"
+  readonly timeStamp: number
 }
 
 /**
@@ -116,7 +121,7 @@ const staleEnds = new WeakMap<DragSample, StaleRule>()
  * no velocity (a lost release carries no Fling). A gesture that never started (below
  * the threshold) just resets and emits nothing.
  */
-const staleEnd = (state: DragState, rule: StaleRule): ReadonlyArray<DragSample> => {
+const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number): ReadonlyArray<DragSample> => {
   if (state.phase !== "active") return []
   const sample: DragSample = {
     point: state.last,
@@ -124,6 +129,7 @@ const staleEnd = (state: DragState, rule: StaleRule): ReadonlyArray<DragSample> 
     delta: { x: 0, y: 0 },
     velocity: { x: 0, y: 0 },
     phase: "end",
+    timeStamp,
   }
   staleEnds.set(sample, rule)
   return [sample]
@@ -158,7 +164,7 @@ const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, R
     // Another pointer while one owns the gesture — ignore.
     if (event.pointerId !== state.ownerId) return [state, []] as const
     // Rule B: the owner went down again, so its release was lost.
-    return [claimedBy(event, point), staleEnd(state, "second down")] as const
+    return [claimedBy(event, point), staleEnd(state, "second down", event.timeStamp)] as const
   }
 
   // No owner yet, or event from a non-owning pointer — ignore.
@@ -167,13 +173,27 @@ const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, R
   }
 
   // Rule A: the owner moved with no button pressed, so its release was lost.
-  if (event.type === "move" && event.buttons === 0) return [initState, staleEnd(state, "unpressed move")] as const
+  if (event.type === "move" && event.buttons === 0) return [initState, staleEnd(state, "unpressed move", event.timeStamp)] as const
 
   // --- Release / cancel from the owner: emit final "end", reset. ---
   if (event.type === "up" || event.type === "cancel") {
     // Only an active (already started) gesture produces an "end" sample; a
     // release before threshold is a tap and emits nothing.
     if (state.phase === "active") {
+      // A cancel's coordinates aren't the pointer's (Chromium's pointercancel carries
+      // (0, 0)), so it ends at the last move's point, with the moves' velocity, as
+      // Motion's pan session does (PanSession.ts:329-333 at 16c6122).
+      if (event.type === "cancel") {
+        const sample: DragSample = {
+          point: state.last,
+          offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
+          delta: { x: 0, y: 0 },
+          velocity: windowVelocity(state.history),
+          phase: "end",
+          timeStamp: event.timeStamp,
+        }
+        return [initState, [sample]] as const
+      }
       const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
       const sample: DragSample = {
         point,
@@ -181,6 +201,7 @@ const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, R
         delta: { x: point.x - state.last.x, y: point.y - state.last.y },
         velocity: windowVelocity(history),
         phase: "end",
+        timeStamp: event.timeStamp,
       }
       return [initState, [sample]] as const
     }
@@ -206,6 +227,7 @@ const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, R
         delta,
         velocity: windowVelocity(history),
         phase: "start",
+        timeStamp: event.timeStamp,
       }
       return [{ ...state, phase: "active", last: point, history }, [sample]] as const
     }
@@ -217,6 +239,7 @@ const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, R
       delta,
       velocity: windowVelocity(history),
       phase: "move",
+      timeStamp: event.timeStamp,
     }
     return [{ ...state, last: point, history }, [sample]] as const
   }

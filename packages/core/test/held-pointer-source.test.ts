@@ -45,12 +45,47 @@ const settle = Effect.gen(function* () {
   for (let i = 0; i < 20; i++) yield* Effect.yieldNow
 })
 
+type ScrollEmit = (source: unknown, position: { readonly x: number; readonly y: number }, timeStamp: number) => void
+
+/**
+ * A fake scroll feed (ADR-0019, *Amendment (Reorder)*): each source has a scroll
+ * position; subscribing emits every source's current position at once (the baselines),
+ * and `scrollTo` moves one and emits it while subscribed.
+ */
+const makeScrollFeed = (initial: ReadonlyArray<readonly [unknown, { readonly x: number; readonly y: number }]>) => {
+  const positions = new Map(initial)
+  let emit: ScrollEmit | undefined
+  let subscribes = 0
+  let unsubscribes = 0
+  const feed = (next: ScrollEmit): (() => void) => {
+    emit = next
+    subscribes++
+    for (const [source, position] of positions) next(source, position, 0)
+    return () => {
+      unsubscribes++
+      emit = undefined
+    }
+  }
+  return {
+    feed,
+    subscribes: () => subscribes,
+    unsubscribes: () => unsubscribes,
+    subscribed: () => emit !== undefined,
+    scrollTo: (source: unknown, x: number, y: number, timeStamp: number): void => {
+      positions.set(source, { x, y })
+      emit?.(source, { x, y }, timeStamp)
+    },
+  }
+}
+
+type ScrollFeedFake = ReturnType<typeof makeScrollFeed>
+
 /** Run the stream into an array; resolves once it has subscribed `target`. */
-const start = (target: Feed, global?: Feed) =>
+const start = (target: Feed, global?: Feed, scroll?: ScrollFeedFake) =>
   Effect.gen(function* () {
     const seen: Array<PointerLikeEvent> = []
     const fiber = yield* Effect.forkChild(
-      Stream.runForEach(heldPointerSource({ target: target.feed, global: global?.feed }), (event) =>
+      Stream.runForEach(heldPointerSource({ target: target.feed, global: global?.feed, scroll: scroll?.feed }), (event) =>
         Effect.sync(() => {
           seen.push(event)
         })),
@@ -251,6 +286,202 @@ describe("heldPointerSource", () => {
       expect(seen[2]!.pointerType).toBe("touch")
       yield* Fiber.interrupt(fiber)
     }))
+
+  describe("C15-C23: a scroll during a hold moves the held pointer (ADR-0019, *Amendment (Reorder)*)", () => {
+    const at = (event: PointerLikeEvent): string => `${event.type}${event.pointerId}@${event.x},${event.y}`
+    const page = { name: "page" }
+    const list = { name: "list" }
+
+    it.effect("C15: the scroll feed is subscribed only while a pointer is held, synchronously inside the down", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[page, { x: 0, y: 0 }]])
+        const { fiber } = yield* start(target, global, scroll)
+        expect(scroll.subscribes()).toBe(0)
+        target.push(ev({ type: "move" }))
+        expect(scroll.subscribes()).toBe(0)
+        target.push(ev({ type: "down" }))
+        expect(scroll.subscribes()).toBe(1)
+        expect(global.subscribes()).toBe(1)
+        yield* Fiber.interrupt(fiber)
+        // With no global feed, the scroll feed still comes with the hold.
+        const lone = makeFeed()
+        const loneScroll = makeScrollFeed([[page, { x: 0, y: 0 }]])
+        const second = yield* start(lone, undefined, loneScroll)
+        lone.push(ev({ type: "down" }))
+        expect(loneScroll.subscribes()).toBe(1)
+        yield* Fiber.interrupt(second.fiber)
+      }))
+
+    it.effect("C16: the positions the feed reports on subscribe are baselines, not scrolls", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const scroll = makeScrollFeed([
+          [page, { x: 0, y: 300 }],
+          [list, { x: 0, y: 40 }],
+        ])
+        const { seen, fiber } = yield* start(target, makeFeed(), scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20"])
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C17: a scroll emits a move of the held pointer at its last point shifted by the scroll", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, makeFeed(), scroll)
+        target.push(ev({ type: "down", x: 10, y: 20, timeStamp: 5 }))
+        target.push(ev({ type: "move", x: 10, y: 20, timeStamp: 10 }))
+        scroll.scrollTo(list, 0, 60, 40)
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80"])
+        const moved = seen[2]!
+        expect(moved.buttons).toBe(1)
+        expect(moved.button).toBe(-1)
+        expect(moved.pointerType).toBe("mouse")
+        expect(moved.isPrimary).toBe(true)
+        expect(moved.timeStamp).toBe(40)
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C18: after a scroll, the held pointer's later moves and its release arrive shifted too", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 11, y: 21 }))
+        scroll.scrollTo(list, 0, 60, 40)
+        target.push(ev({ type: "move", x: 12, y: 22 }))
+        global.push(ev({ type: "move", x: 14, y: 24 }), {})
+        global.push(ev({ type: "up", x: 15, y: 25, buttons: 0 }), {})
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@11,21", "move1@11,81", "move1@12,82", "move1@14,84", "up1@15,85"])
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C19: scrolls of two sources add up", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const scroll = makeScrollFeed([
+          [page, { x: 0, y: 100 }],
+          [list, { x: 0, y: 0 }],
+        ])
+        const { seen, fiber } = yield* start(target, makeFeed(), scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 60, 30)
+        scroll.scrollTo(page, 10, 130, 40)
+        target.push(ev({ type: "move", x: 11, y: 21 }))
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "move1@20,110", "move1@21,111"])
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C20: the release unsubscribes the feed; the next hold starts from fresh baselines with no shift", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 60, 30)
+        global.push(ev({ type: "up", x: 10, y: 20, buttons: 0 }), {})
+        expect(scroll.unsubscribes()).toBe(1)
+        // Scrolled again while nothing is held: not reported, and not a shift later.
+        scroll.scrollTo(list, 0, 200, 50)
+        target.push(ev({ type: "down", x: 30, y: 40 }))
+        target.push(ev({ type: "move", x: 31, y: 41 }))
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "up1@10,80", "down1@30,40", "move1@31,41"])
+        expect(scroll.subscribes()).toBe(2)
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C21: a scroll report with no change emits nothing", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 40 }]])
+        const { seen, fiber } = yield* start(target, makeFeed(), scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 40, 30)
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20"])
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C22: with a scroll feed but no scroll, events pass through as the very same objects", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, makeFeed(), scroll)
+        const down = ev({ type: "down", x: 1 })
+        const move = ev({ type: "move", x: 2 })
+        target.push(down)
+        target.push(move)
+        yield* settle
+        expect(seen).toEqual([down, move])
+        expect(seen[1]).toBe(move)
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C23: a lost release still ends at the shifted point (decision 7's move and rule A's)", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 60, 30)
+        // The same pointer goes down elsewhere: the hold ends with an unpressed move at the
+        // last (shifted) point.
+        global.push(ev({ type: "down", x: 300, y: 300, timeStamp: 50 }), {})
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "move1@10,80"])
+        expect(seen[3]!.buttons).toBe(0)
+        // Rule A's end, an unpressed move from the feed, arrives shifted too.
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 100, 60)
+        global.push(ev({ type: "move", x: 12, y: 22, buttons: 0 }), {})
+        yield* settle
+        expect(seen.map(at).slice(4)).toEqual(["down1@10,20", "move1@10,20", "move1@10,60", "move1@12,62"])
+        expect(seen.at(-1)!.buttons).toBe(0)
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C24: a scroll before the held pointer's first move emits nothing; that move carries it, and later scrolls emit moves", () =>
+      Effect.gen(function* () {
+        // Motion's pan session updates nothing until the first pointermove
+        // (PanSession.ts:271-272 at 16c6122), so a press held still while the page
+        // scrolls stays a press.
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 60, 30)
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20"])
+        global.push(ev({ type: "move", x: 11, y: 21 }), {})
+        scroll.scrollTo(list, 0, 70, 40)
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@11,81", "move1@11,91"])
+        // A second down for the held pointer starts over: no move yet, no shift.
+        target.push(ev({ type: "down", x: 30, y: 40 }))
+        scroll.scrollTo(list, 0, 100, 50)
+        target.push(ev({ type: "move", x: 31, y: 41 }))
+        yield* settle
+        expect(seen.map(at).slice(3)).toEqual(["down1@30,40", "move1@31,71"])
+        yield* Fiber.interrupt(fiber)
+      }))
+  })
 
   describe("C12: without global, and at the stream's end", () => {
     it.effect("C12: with no global, events pass through unchanged and interrupting unsubscribes target", () =>

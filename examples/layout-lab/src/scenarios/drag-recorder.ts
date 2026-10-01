@@ -43,12 +43,21 @@
  *   item stands still until then by design: the settle starts from that move, which it
  *   waits for at most {@link SETTLE_MS} ms.
  *
+ * - **Scrolls (#44).** Boxes are relative to the stage, so a move's offset is too: the
+ *   pointer's client offset plus the page's scroll since the down (the stage moves with
+ *   the page; no layout read). A page scroll during a press is recorded as a move of
+ *   the pointer by the scrolled distance, as Wardic's Held pointer treats it (ADR-0019
+ *   *Amendment (Reorder)*), so the drag checks follow it. A slot is the layout box less
+ *   the scroll of the ancestors between the item and the stage (offsets ignore it), so
+ *   an item in a scrolled container (scenario 14) reads its slot where it paints.
+ *
  * Layouts should keep whole-pixel positions and sizes: `offsetLeft` and friends are
  * rounded, so a fractional slot would read up to half a pixel off.
  *
  * @module
  */
 import type { Box, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
+import type { ReorderFrame } from "../lab/reorder-run.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
 
 /** How many frames in a row the released item's box must stand still to count as settled. */
@@ -67,8 +76,27 @@ const DRAG_THRESHOLD_PX = 3
 export interface DragRecorderOptions {
   /** The scenario's `.stage`: every box is relative to its padding box. */
   readonly stage: () => HTMLElement | undefined
-  /** The dragged item, which is also where a press starts. */
+  /**
+   * The dragged item, which is also where a press starts. With {@link pressArea}, the
+   * item the press is on: read at each press, after the scenario's own capture-phase
+   * `pointerdown` on the area has picked it.
+   */
   readonly item: () => HTMLElement | undefined
+  /**
+   * Where a press starts, when that's any of several items (scenario 14's group); the
+   * item itself when left out. Read once, at attach.
+   */
+  readonly pressArea?: () => HTMLElement | undefined
+  /**
+   * A `<Reorder>` scenario's per-frame read (optional), given the pointer's latest
+   * client position (its down until it moves): stored as the frame's `reorder`.
+   */
+  readonly reorderFrame?: (pointer: Point) => ReorderFrame
+  /**
+   * The scenario's scroller (optional: an element, or the window for the page). Given,
+   * each frame records whether it scrolled since the previous read (`scrolled`).
+   */
+  readonly scroller?: () => Element | Window | undefined
   /** The children whose glue to the item the run checks, by name. */
   readonly children: () => Readonly<Record<string, HTMLElement | undefined>>
   /**
@@ -106,10 +134,17 @@ const paintedBox = (el: Element, stage: HTMLElement): Box => {
   return { x: r.left - s.left - stage.clientLeft, y: r.top - s.top - stage.clientTop, width: r.width, height: r.height }
 }
 
-/** `el`'s layout box, which transforms don't move, relative to `stage`'s padding box. */
+/**
+ * `el`'s layout box, which transforms don't move, relative to `stage`'s padding box: its
+ * offsets, less the scroll of the ancestors between it and the stage (offsets ignore it).
+ */
 const layoutBox = (el: HTMLElement, stage: HTMLElement): Box => {
   let x = 0
   let y = 0
+  for (let at = el.parentElement; at !== null && at !== stage; at = at.parentElement) {
+    x -= at.scrollLeft
+    y -= at.scrollTop
+  }
   let at: HTMLElement | null = el
   while (at !== null && at !== stage) {
     x += at.offsetLeft
@@ -130,6 +165,8 @@ export interface DragRecorder {
   readonly noteLayoutChange: () => void
   /** Whether a press of the item is on (down, not yet released): a scenario's keys act only then. */
   readonly pressing: () => boolean
+  /** The recorder's frame counter now, to stamp a scenario's own events (scenario 14's reorders). */
+  readonly currentFrame: () => number
   /** Stop listening (for `onCleanup`). */
   readonly detach: () => void
 }
@@ -141,6 +178,12 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         readonly pointerId: number
         readonly downX: number
         readonly downY: number
+        /** The pointer's latest client position. */
+        pointer: Point
+        /** The page's scroll at the down: a move's offset adds the page's scroll since. */
+        readonly scrollAtDown: Point
+        /** The latest move's buttons, for a scroll's move. */
+        buttons: number
         readonly input: {
           scenarioId: string
           mode: string
@@ -169,6 +212,19 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   let frame = 0
   let frameAt = 0
   let rafId = 0
+  /**
+   * The current frame loop. A tick posts it, and the read drops a message from an earlier
+   * loop: one in flight when a new press began would otherwise arm a second loop, which
+   * reads every frame twice (and three still reads come at once after a release).
+   */
+  let loop = 0
+  /** The scroller's scroll at the previous read, for `scrolled`. */
+  let lastScroll: Point | undefined
+  const scrollOf = (): Point | undefined => {
+    const s = opts.scroller?.()
+    if (s === undefined) return undefined
+    return s instanceof Element ? { x: s.scrollLeft, y: s.scrollTop } : { x: s.scrollX, y: s.scrollY }
+  }
   /** How many layout changes have been noted, and how many had been by the last rAF callback. */
   let changes = 0
   let changesAtTick = 0
@@ -183,8 +239,10 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   const finish = (endedBy: DragRunEnd): void => {
     const p = press
     press = undefined
+    loop += 1
     cancelAnimationFrame(rafId)
     window.removeEventListener("pointermove", onMove, true)
+    window.removeEventListener("scroll", onScroll, true)
     if (p === undefined) return
     p.input.endedAt = performance.now()
     p.input.endedBy = endedBy
@@ -192,7 +250,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     opts.onPhase?.("end")
   }
 
-  channel.port1.onmessage = () => {
+  channel.port1.onmessage = (e: MessageEvent<number>) => {
+    if (e.data !== loop) return
     const p = press
     const stage = opts.stage()
     const item = opts.item()
@@ -204,6 +263,9 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     }
     const d = paintedBox(item, stage)
     const opacities = opts.opacity?.()
+    const scroll = scrollOf()
+    const scrolled = scroll !== undefined && lastScroll !== undefined && (scroll.x !== lastScroll.x || scroll.y !== lastScroll.y)
+    lastScroll = scroll
     const sample: DragFrame = {
       frame,
       frameAt,
@@ -211,6 +273,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       d,
       slot: layoutBox(item, stage),
       children: boxesOf(opts.children(), stage),
+      ...(opts.reorderFrame === undefined ? {} : { reorder: opts.reorderFrame(p.pointer) }),
+      ...(scroll === undefined ? {} : { scrolled }),
       ...(opts.watched === undefined ? {} : { watched: boxesOf(opts.watched(), stage) }),
       ...(opacities === undefined
         ? {}
@@ -245,7 +309,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     frame += 1
     frameAt = performance.now()
     changesAtTick = changes
-    channel.port2.postMessage(undefined)
+    channel.port2.postMessage(loop)
   }
 
   /** Records the press's release (`lost`: it never reached the page's listeners); the moves go on being recorded. */
@@ -264,10 +328,30 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     opts.onPhase?.("release")
   }
 
+  /** A move of the press's pointer to client `(x, y)`: its offset from the down, in the stage's frame. */
+  const moveOf = (p: NonNullable<typeof press>, x: number, y: number, buttons: number): DragMove => ({
+    t: performance.now(),
+    frame,
+    dx: x - p.downX + (window.scrollX - p.scrollAtDown.x),
+    dy: y - p.downY + (window.scrollY - p.scrollAtDown.y),
+    buttons,
+  })
+
+  /** A page scroll during a press: the pointer moved on the page by the scrolled distance. */
+  const onScroll = (e: Event): void => {
+    const p = press
+    if (p === undefined || (e.target !== document && e.target !== window)) return
+    const move = moveOf(p, p.pointer.x, p.pointer.y, p.buttons)
+    if (p.input.releaseAt !== null) p.input.releaseMoves.push(move)
+    else p.input.moves.push(move)
+  }
+
   const onMove = (e: PointerEvent): void => {
     const p = press
     if (p === undefined || e.pointerId !== p.pointerId) return
-    const move: DragMove = { t: performance.now(), frame, dx: e.clientX - p.downX, dy: e.clientY - p.downY, buttons: e.buttons }
+    const move = moveOf(p, e.clientX, e.clientY, e.buttons)
+    p.pointer = { x: e.clientX, y: e.clientY }
+    p.buttons = e.buttons
     if (p.input.releaseAt === null && e.buttons === 0) {
       // Released where the page never heard it (outside the window, where headless
       // Firefox sent no pointerup): this move is the release, lost, and the first
@@ -328,6 +412,9 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       pointerId: e.pointerId,
       downX: e.clientX,
       downY: e.clientY,
+      pointer: { x: e.clientX, y: e.clientY },
+      scrollAtDown: { x: window.scrollX, y: window.scrollY },
+      buttons: e.buttons,
       input: {
         scenarioId: "",
         mode: opts.mode(),
@@ -348,13 +435,15 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       still: 0,
       endAt: undefined,
     }
+    lastScroll = scrollOf()
     window.addEventListener("pointermove", onMove, { capture: true, passive: true })
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true })
     window.addEventListener("pointerup", onUp, { capture: true, passive: true })
     window.addEventListener("pointercancel", onUp, { capture: true, passive: true })
     rafId = requestAnimationFrame(tick)
   }
 
-  const item = opts.item()
+  const item = opts.pressArea?.() ?? opts.item()
   item?.addEventListener("pointerdown", onDown, { passive: true })
   item?.addEventListener("contextmenu", onContextMenu)
   if (opts.loseNextRelease !== undefined) window.addEventListener("pointerup", onLoseUp, { capture: true, passive: true })
@@ -363,13 +452,16 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       changes += 1
     },
     pressing: () => press !== undefined && press.input.releaseAt === null,
+    currentFrame: () => frame,
     detach: () => {
       item?.removeEventListener("pointerdown", onDown)
       item?.removeEventListener("contextmenu", onContextMenu)
       window.removeEventListener("pointerup", onLoseUp, true)
       window.removeEventListener("pointermove", onMove, true)
+      window.removeEventListener("scroll", onScroll, true)
       window.removeEventListener("pointerup", onUp, true)
       window.removeEventListener("pointercancel", onUp, true)
+      loop += 1
       cancelAnimationFrame(rafId)
       channel.port1.close()
       press = undefined

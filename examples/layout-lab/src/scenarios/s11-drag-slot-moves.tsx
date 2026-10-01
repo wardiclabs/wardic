@@ -63,8 +63,7 @@ const siblingStyle = (height: number): JSX.CSSProperties => ({ width: "200px", h
  * D: 160x80, positioned so its children sit inside it, and raised above S. After a
  * swap S follows D in the DOM, so while its FLIP gives it a transform it would paint
  * over D and take a press meant for it (before #31's fix, a held drag's moves too). A
- * `<Reorder>` item needs the same (Motion's `Reorder.Item` sets `zIndex: 1` while it
- * is offset).
+ * `<Reorder>` item is raised while dragged instead (ADR-0016, *Amendment (Reorder)*).
  */
 const ITEM_STYLE: JSX.CSSProperties = {
   position: "relative",

@@ -26,6 +26,8 @@ export { RendererDomLive } from "./renderer.ts"
 
 // Layout/projection engine (ADR-0009) — framework-agnostic; a binding wires it
 // with its own flush gate (as a ProjectionSink) + a runtime providing Clock.
+export { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
+export { DRAG_DEFAULT_ATTRIBUTES, type DragDefaultStyle, dragDefaultStyle, reorderTouchAction } from "./drag-defaults.ts"
 export { measureLayoutBox } from "./measure.ts"
 export {
   type DragProjectionHandle,
@@ -36,6 +38,14 @@ export {
   type ProjectionSystem,
   type RegisterNodeOptions,
 } from "./projection.ts"
+// The Reorder group's controller (ADR-0020): the framework-free half of <Reorder>.
+export {
+  makeReorderController,
+  REORDER_GROUP_STYLE,
+  type ReorderController,
+  type ReorderControllerOptions,
+  type ReorderItemDriver,
+} from "./reorder.ts"
 // Scale-correction registry (ADR-0011) — borderRadius/boxShadow visual correction.
 export {
   borderRadiusCorrector,

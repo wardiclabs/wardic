@@ -1,11 +1,13 @@
 import { defineConfig } from "vitest/config"
 
-// Fast node test tier — run via `bun run test`.
+// Fast node test tier — run via `bun run test`. Two projects:
 //
-// Scope: @wardic/core + @wardic/test, plus the layout lab's classifier tests
-// (examples/layout-lab/test — pure functions from a module that touches no DOM at
-// import). All of it is pure logic (no DOM), so it runs in the `node` environment
-// with no Solid JSX transform and no browser.
+// - `node`: @wardic/core + @wardic/test, plus the layout lab's classifier tests
+//   (examples/layout-lab/test — pure functions from a module that touches no DOM at
+//   import). All of it is pure logic (no DOM), so it runs in the `node` environment
+//   with no Solid JSX transform and no browser.
+// - `ssr` (packages/solid/vitest.ssr.config.ts): @wardic/solid rendered with Solid's
+//   server build in the `node` environment, as on a server (ADR-0003, ADR-0020).
 //
 // Everything DOM-related lives in the canonical browser tier (run via
 // `bun run test:browser`, vitest.browser.config.ts):
@@ -17,11 +19,18 @@ import { defineConfig } from "vitest/config"
 // gates run in CI; both must pass.
 export default defineConfig({
   test: {
-    name: "node",
-    include: [
-      "packages/core/test/**/*.test.ts",
-      "packages/test/test/**/*.test.ts",
-      "examples/layout-lab/test/**/*.test.ts",
+    projects: [
+      {
+        test: {
+          name: "node",
+          include: [
+            "packages/core/test/**/*.test.ts",
+            "packages/test/test/**/*.test.ts",
+            "examples/layout-lab/test/**/*.test.ts",
+          ],
+        },
+      },
+      "packages/solid/vitest.ssr.config.ts",
     ],
   },
 })

@@ -1,4 +1,4 @@
-import { drag, hover, makePointerLikeEvent, press, withMomentum } from "@wardic/core"
+import { drag, heldPointerSource, hover, InputSource, makePointerLikeEvent, press, withMomentum } from "@wardic/core"
 import type { DragSample, PointerLikeEvent, Vec2 } from "@wardic/core"
 import { TestClock, TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -6,7 +6,6 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
-import type { InputSource } from "@wardic/core"
 
 // Recognizer rules for issue #31 (ADR-0019, decisions D3, D3b, D4, D5), pinned at the
 // node tier with TestInput. Rule A: a move with `buttons === 0` from the owning pointer
@@ -328,4 +327,85 @@ it.effect("N13: a deferred hover end resolves at a cancel and at a buttons-0 mov
     yield* c.push(ev("enter", 0, 0, 0))
     yield* c.push(ev("leave", 200, 0, 10))
     expect(yield* c.seen).toEqual([true, false])
+  }))
+
+// ------------------------------------------------ a scroll during a hold (D14)
+
+// ADR-0019, *Amendment (Reorder)*: a scroll of the page or of a scrollable ancestor while
+// a pointer is held reaches `drag` as a move of that pointer, so the drag's offset and
+// velocity include it. An InputSource whose `pointer` is core's `heldPointerSource` over
+// fake feeds (the Test Environment's own input is unchanged).
+
+const scrolledInput = () => {
+  let emitPointer: ((event: PointerLikeEvent, raw: unknown) => void) | undefined
+  let emitScroll: ((source: unknown, position: { x: number; y: number }, timeStamp: number) => void) | undefined
+  const scroller = { name: "list" }
+  let position = { x: 0, y: 0 }
+  const layer = Layer.succeed(InputSource, {
+    pointer: () =>
+      heldPointerSource({
+        target: (emit) => {
+          emitPointer = emit
+          return () => (emitPointer = undefined)
+        },
+        scroll: (emit) => {
+          emitScroll = emit
+          emit(scroller, position, 0)
+          return () => (emitScroll = undefined)
+        },
+      }),
+    keyboard: () => Stream.empty,
+    wheel: () => Stream.empty,
+    focus: () => Stream.empty,
+  })
+  return {
+    layer,
+    point: (event: PointerLikeEvent) => emitPointer?.(event, {}),
+    scrollTo: (y: number, t: number) => {
+      position = { x: 0, y }
+      emitScroll?.(scroller, position, t)
+    },
+  }
+}
+
+const dragOver = (input: ReturnType<typeof scrolledInput>) =>
+  Effect.gen(function* () {
+    const seen = yield* Ref.make<ReadonlyArray<DragSample>>([])
+    yield* Stream.runForEach(drag(undefined), (s) => Ref.update(seen, (xs) => [...xs, s])).pipe(
+      Effect.provide(input.layer),
+      Effect.forkChild,
+    )
+    yield* Effect.yieldNow
+    yield* Effect.yieldNow
+    return Ref.get(seen)
+  })
+
+it.effect("N14: a scroll of 60 px mid-drag is a move sample whose offset includes the scroll, with no pointer move", () =>
+  Effect.gen(function* () {
+    const input = scrolledInput()
+    const seen = yield* dragOver(input)
+    input.point(ev("down", 0, 0, 0))
+    input.point(ev("move", 0, 10, 10))
+    input.scrollTo(60, 20)
+    for (let i = 0; i < 10; i++) yield* Effect.yieldNow
+    const samples = yield* seen
+    expect(samples.map((s) => s.phase)).toEqual(["start", "move"])
+    expect(samples[1]!.offset).toEqual({ x: 0, y: 70 })
+    expect(samples[1]!.point).toEqual({ x: 0, y: 70 })
+  }))
+
+it.effect("N15: the scroll-driven move counts toward the drag's velocity", () =>
+  Effect.gen(function* () {
+    const input = scrolledInput()
+    const seen = yield* dragOver(input)
+    input.point(ev("down", 0, 0, 0))
+    input.point(ev("move", 0, 10, 10))
+    input.scrollTo(60, 20)
+    for (let i = 0; i < 10; i++) yield* Effect.yieldNow
+    const samples = yield* seen
+    // The scroll-driven move is a sample of its own, and drag's 30 ms window measures it:
+    // (70 - 0) px over 20 ms.
+    const moved = samples.find((s) => s.phase === "move")
+    expect(moved?.velocity.y).toBeCloseTo(3500, 6)
+    expect(moved?.velocity.x).toBe(0)
   }))

@@ -63,6 +63,7 @@ import {
   placeRelativeBox,
   type Point,
   PROJECTION_KEY,
+  type ProjectionValue,
   Renderer,
   type SpringOptions,
   type SpringState,
@@ -75,7 +76,7 @@ import * as FiberSet from "effect/FiberSet"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox } from "./measure.ts"
+import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox, readScrollStyle, type ScrollStyle } from "./measure.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
 /**
@@ -173,9 +174,12 @@ export interface RegisterNodeOptions {
    */
   readonly layoutId?: string
   /**
-   * Mark this element as a scroll container (ADR-0012, Motion's `layoutScroll`):
-   * its scroll offset is sampled at measure and folded out of its descendants'
-   * boxes, so a scroll change BETWEEN triggers doesn't leak into their FLIP delta.
+   * Mark this element a scroll container that is itself a projection node (ADR-0012,
+   * Motion's `layoutScroll`): its scroll offset is sampled at measure and folded out
+   * of its descendants' boxes, so a scroll change BETWEEN triggers doesn't leak into
+   * their FLIP delta, and as a `position: fixed` scroll root its style is read every
+   * pass. Every other ancestor that can scroll is folded too, unmarked (*Amendment
+   * (Reorder)*).
    */
   readonly layoutScroll?: boolean
   /**
@@ -190,6 +194,14 @@ export interface RegisterNodeOptions {
    * `{0,0}`). `false` opts out of relative projection (force absolute).
    */
   readonly layoutAnchor?: Point | false
+  /**
+   * Raise the node while it's dragged (ADR-0016, *Amendment (Reorder)*): from the drag
+   * start until its release settles (at once for a release in place) its projection
+   * carries a raise the renderer emits as `z-index: 1`, so it paints above its
+   * siblings, as Motion's Reorder items do; then one last write drops it. A
+   * `<Reorder>` item sets it.
+   */
+  readonly raiseWhileDragged?: boolean
 }
 
 /**
@@ -215,6 +227,24 @@ export interface DragProjectionHandle {
 export interface ProjectionNodeHandle extends DragProjectionHandle {
   /** Request a (coalesced) measure pass — e.g. this node's `layoutDependency` changed. */
   readonly notify: () => void
+  /**
+   * The node's slot (its layout box) in the Scroll-stable frame, as of its last
+   * Measure pass; `undefined` before the first (ADR-0016, *Amendment (Reorder)*). A
+   * plain read: no layout read.
+   */
+  readonly layoutBox: () => Box | undefined
+  /**
+   * How far the node paints from its slot while dragged (the drag target minus the
+   * slot, per axis); `{ x: 0, y: 0 }` otherwise, the release flight included.
+   */
+  readonly dragOffset: () => Point
+  /**
+   * A count that rises with every Measure pass round that measures the node (a
+   * blocked one included); 0 before the first. A **Reorder group** waits on it after
+   * a reorder, as on Motion's former `layoutVersion` counter (removed in motion-dom
+   * 13.4.5).
+   */
+  readonly layoutVersion: () => number
   /** Unregister the node, finalising any in-flight animation. */
   readonly dispose: () => void
 }
@@ -267,6 +297,16 @@ interface NodeState {
   scroll: Point
   /** Whether this (scroll) node is `position: fixed` — a scroll root (resets the fold). */
   isScrollRoot: boolean
+  /** The scroll folded out of this node's box at its last pass (ADR-0012): see {@link Fold}. */
+  fold: Fold
+  /** Whether this (plain) node's element is `position: fixed`, read once; `undefined` until then. */
+  ownFixed: boolean | undefined
+  /** How many Measure pass rounds have measured this node (the handle's `layoutVersion`). */
+  layoutVersion: number
+  /** Whether the node is raised while dragged (its `raiseWhileDragged` option). */
+  readonly raiseWhileDragged: boolean
+  /** Whether its projection carries the raise now: from its drag start until its release settles. */
+  raised: boolean
   /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the subtree, persistent relativeParent. */
   readonly layoutRoot: boolean
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
@@ -355,6 +395,51 @@ interface HeldSeed {
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point = { x: 0, y: 0 }
 
+/** A container whose scroll is folded out of a node's box, and its scroll at that pass. */
+interface FoldedContainer {
+  readonly element: HTMLElement
+  readonly scroll: Point
+}
+
+/**
+ * The scroll folded out of a node's box (ADR-0012, *Amendment (Reorder)*): every
+ * container between it and the page that can scroll, nearest first, with their summed
+ * scroll, up to the first `position: fixed` element (a scroll root: nothing outside it
+ * folds), and whether the page's scroll folds too (no scroll root on the way).
+ */
+interface Fold {
+  readonly containers: ReadonlyArray<FoldedContainer>
+  readonly x: number
+  readonly y: number
+  readonly root: boolean
+}
+
+/** No container, the page's scroll folds: a node at the top level. */
+const ROOT_FOLD: Fold = { containers: [], x: 0, y: 0, root: true }
+/** Nothing folds: a node that is itself, or sits right under, a scroll root. */
+const NO_FOLD: Fold = { containers: [], x: 0, y: 0, root: false }
+
+/** Each system's pass-end listeners ({@link onPassEnd}). */
+const passEnds = new WeakMap<ProjectionSystem, Set<() => void>>()
+
+/**
+ * Run `listener` at the end of every Measure pass of `system`: once per pass, after
+ * every round's boxes are stored (a blocked pass and one whose flush triggered more
+ * rounds included), before its Priming step. Returns the unsubscribe. A listener that
+ * throws is logged and doesn't stop the pass or the others.
+ *
+ * @internal for the Reorder controller (ADR-0020): not exported from `@wardic/dom`, so
+ * there is no public push hook (ADR-0020 decision 2).
+ */
+export const onPassEnd = (system: ProjectionSystem, listener: () => void): (() => void) => {
+  const listeners = passEnds.get(system)
+  if (listeners === undefined) return () => {}
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
 /**
  * Build a projection system against a binding's `runtime` (providing {@link Clock})
  * and its {@link ProjectionSink} (its flush gate).
@@ -363,6 +448,8 @@ const ZERO_POINT: Point = { x: 0, y: 0 }
  * its own teardown (e.g. the provider's `onCleanup`).
  */
 export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: ProjectionSink): ProjectionSystem => {
+  // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
+  const passEndListeners = new Set<() => void>()
   const nodes = new Set<NodeState>()
   const active = new Set<NodeState>()
   // Element -> node, for the DOM-ancestry parent walk.
@@ -396,6 +483,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   let triggeredDuringPass = false
   let leftover: ReturnType<typeof setTimeout> | undefined
   let disposed = false
+  // The Resize block (ADR-0018 *Amendment (#39)*): the window width last seen, whether
+  // the next Measure pass is blocked, and the timer that runs it if nothing else does.
+  let resizeListening = false
+  let lastWidth = 0
+  let resizeBlocked = false
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
@@ -467,7 +560,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     opacity?: number,
     corrected?: Record<string, string>,
   ): void => {
-    const value = opacity !== undefined ? { delta, treeScale, opacity } : { delta, treeScale }
+    const value: ProjectionValue = node.raised
+      ? opacity !== undefined ? { delta, treeScale, opacity, raise: 1 } : { delta, treeScale, raise: 1 }
+      : opacity !== undefined
+      ? { delta, treeScale, opacity }
+      : { delta, treeScale }
     const patch = corrected !== undefined ? { [PROJECTION_KEY]: value, ...corrected } : { [PROJECTION_KEY]: value }
     if (node.leaving) {
       runtime.runSync(renderer.commit(node.element, renderer.project(patch)))
@@ -827,74 +924,124 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   /**
-   * The scroll the fold adds to `node`'s box (ADR-0012): each `layoutScroll`
-   * ancestor's scroll (Motion's `removeElementScroll` adds the offset back to undo
-   * the scroll's visual effect), stopping at a `position: fixed` scroll-root
-   * ancestor, plus `rootScroll` unless the node sits in a scroll root. Reads the last
-   * pass's scroll samples. With `ZERO_POINT` as `rootScroll` it is the containers'
-   * share alone: what rebases a Root-frame Switch seed into the node's Scroll-stable
-   * frame.
+   * Whether `el` can scroll and whether it is `position: fixed`, read once per element
+   * for the system's life (ADR-0012, *Amendment (Reorder)*). An element whose
+   * `overflow` or `position` changes while nodes live in it keeps its first answer;
+   * a remount reads it afresh.
+   */
+  const scrollStyles = new WeakMap<Element, ScrollStyle>()
+  const scrollStyleOf = (el: Element): ScrollStyle => {
+    let style = scrollStyles.get(el)
+    if (style === undefined) {
+      style = readScrollStyle(el)
+      scrollStyles.set(el, style)
+    }
+    return style
+  }
+
+  /**
+   * The fold of everything from `el` up to the page (inclusive of `el`), memoized per
+   * pass by element so the nodes under one container share it and each container's
+   * scroll is read once. A `layoutScroll` node contributes its sampled scroll and is a
+   * scroll root when fixed; any other element contributes its scroll when it can
+   * scroll, and is a scroll root when it is `position: fixed`. Read phase only.
+   */
+  const foldFrom = (el: HTMLElement | null, memo: Map<Element, Fold>): Fold => {
+    if (el === null) return ROOT_FOLD
+    const doc = el.ownerDocument
+    if (el === doc.body || el === doc.documentElement) return ROOT_FOLD
+    const hit = memo.get(el)
+    if (hit !== undefined) return hit
+    const node = elementToNode.get(el)
+    let scroll: Point | undefined
+    let stop: boolean
+    if (node?.isScroll === true) {
+      scroll = node.scroll
+      stop = node.isScrollRoot
+    } else {
+      const style = scrollStyleOf(el)
+      scroll = style.scrollable ? measureScroll(el) : undefined
+      stop = style.fixed
+    }
+    const above = stop ? NO_FOLD : foldFrom(el.parentElement, memo)
+    const fold: Fold = scroll === undefined
+      ? above
+      : { containers: [{ element: el, scroll }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
+    memo.set(el, fold)
+    return fold
+  }
+
+  /** `node`'s fold this pass: nothing when it is itself a scroll root, else its ancestors'. */
+  const foldOf = (node: NodeState, memo: Map<Element, Fold>): Fold => {
+    // A plain node's own `position: fixed`, read once (the cache's answer, kept on the node).
+    const ownRoot = node.isScroll ? node.isScrollRoot : (node.ownFixed ??= scrollStyleOf(node.element).fixed)
+    return ownRoot ? NO_FOLD : foldFrom(node.element.parentElement, memo)
+  }
+
+  /**
+   * The scroll the fold adds to `node`'s box (ADR-0012): its containers' scroll at
+   * its last pass (Motion's `removeElementScroll` adds the offset back to undo the
+   * scroll's visual effect; every container that can scroll counts, not only
+   * `layoutScroll` ones), plus `rootScroll` unless a scroll root is on the way. With
+   * `ZERO_POINT` as `rootScroll` it is the containers' share alone: what rebases a
+   * Root-frame Switch seed into the node's Scroll-stable frame.
    */
   const scrollOffset = (node: NodeState, rootScroll: Point): Point => {
-    if (node.isScroll && node.isScrollRoot) return ZERO_POINT // a fixed node is itself viewport-relative
-    let dx = 0
-    let dy = 0
-    let rootApplies = true
-    for (let p = node.parent; p !== undefined; p = p.parent) {
-      if (!p.isScroll) continue
-      dx += p.scroll.x
-      dy += p.scroll.y
-      if (p.isScrollRoot) {
-        // A fixed scroll-root ancestor: its own scroll applies, but its subtree is
-        // viewport-relative — nothing OUTSIDE it (further containers, the root) does.
-        rootApplies = false
-        break
-      }
-    }
-    if (rootApplies) {
-      dx += rootScroll.x
-      dy += rootScroll.y
-    }
+    const fold = node.fold
+    const dx = fold.x + (fold.root ? rootScroll.x : 0)
+    const dy = fold.y + (fold.root ? rootScroll.y : 0)
     return dx === 0 && dy === 0 ? ZERO_POINT : { x: dx, y: dy }
   }
 
   /**
    * Fold scroll out of `box` (ADR-0012) → a scroll-stable (content-frame) box. No-op
-   * on the non-scroll path (no isScroll ancestors + zero root scroll ⇒ box
-   * unchanged), so it never perturbs ordinary layout animation.
+   * on the non-scroll path (no container + zero root scroll ⇒ box unchanged), so it
+   * never perturbs ordinary layout animation. `box` is the pass's freshly read box,
+   * which nothing else holds, so it is moved in place: no allocation per node.
    */
   const foldScroll = (node: NodeState, box: Box, rootScroll: Point): Box => {
-    const offset = scrollOffset(node, rootScroll)
-    return offset === ZERO_POINT ? box : offsetBox(box, offset)
+    const fold = node.fold
+    const dx = fold.x + (fold.root ? rootScroll.x : 0)
+    const dy = fold.y + (fold.root ? rootScroll.y : 0)
+    if (dx === 0 && dy === 0) return box
+    const fresh = box as { readonly x: { min: number; max: number }; readonly y: { min: number; max: number } }
+    fresh.x.min += dx
+    fresh.x.max += dx
+    fresh.y.min += dy
+    fresh.y.max += dy
+    return box
   }
 
   /**
    * Whether the root's scroll is part of `node`'s frame (ADR-0012; CONTEXT.md **Root
-   * frame**): not when the node, or one of its `layoutScroll` ancestors, is a
-   * `position: fixed` scroll root. Walks the LIVE DOM ancestry and reads computed
-   * style — it serves a node at dispose, when the last pass's parent links and
-   * samples may be stale — so call it inside a read window.
+   * frame**): not when the node, or one of its ancestors, is a `position: fixed`
+   * scroll root (a fixed `layoutScroll` node's style read live, any other element's
+   * from the cache). Walks the LIVE DOM ancestry — it serves a node at dispose, when
+   * the last pass's parent links and samples may be stale — so call it inside a read
+   * window.
    */
+  const isRootAt = (el: HTMLElement): boolean =>
+    elementToNode.get(el)?.isScroll === true ? isScrollRoot(el) : scrollStyleOf(el).fixed
   const rootScrollApplies = (node: NodeState): boolean => {
-    if (node.isScroll && isScrollRoot(node.element)) return false
-    for (let el = node.element.parentElement; el !== null; el = el.parentElement) {
-      if (elementToNode.get(el)?.isScroll === true && isScrollRoot(el)) return false
+    if (isRootAt(node.element)) return false
+    const doc = node.element.ownerDocument
+    for (let el = node.element.parentElement; el !== null && el !== doc.body && el !== doc.documentElement; el = el.parentElement) {
+      if (isRootAt(el)) return false
     }
     return true
   }
 
   /**
    * `node`'s box in the **Root frame** (CONTEXT.md; ADR-0012 *Amendment (#13)*): the
-   * viewport box plus the root's scroll, nested `layoutScroll` scroll left as
-   * rendered — Motion's `measuredBox`. While the element is connected it is read
-   * fresh: own transform cleared and every read inside one write → read → restore
-   * window, so it costs the one forced layout the binding's seed read used to. Once
-   * disconnected it is derived from the last measured (Scroll-stable) box by taking
-   * the containers' share of the fold back out — at each container's LIVE scroll
-   * while it is still connected (its last-pass sample otherwise), so a container
-   * scrolled since the last pass doesn't shift the seed. The root's scroll needs no
-   * such care: the Root frame carries it, so it cancels. `undefined` when there is
-   * neither.
+   * viewport box plus the root's scroll, containers' scroll left as rendered —
+   * Motion's `measuredBox`. While the element is connected it is read fresh: own
+   * transform cleared and every read inside one write → read → restore window, so it
+   * costs the one forced layout the binding's seed read used to. Once disconnected it
+   * is derived from the last measured (Scroll-stable) box by taking the containers'
+   * share of the fold back out — at each container's LIVE scroll while it is still
+   * connected (its last-pass sample otherwise), so a container scrolled since the
+   * last pass doesn't shift the seed. The root's scroll needs no such care: the Root
+   * frame carries it, so it cancels. `undefined` when there is neither.
    */
   const rootFrameBox = (node: NodeState): Box | undefined => {
     const el = node.element
@@ -910,15 +1057,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     }
     const stable = node.layoutBox ?? node.retained
     if (stable === undefined) return undefined
-    if (node.isScroll && node.isScrollRoot) return stable // a fixed node folds nothing (see scrollOffset)
     let dx = 0
     let dy = 0
-    for (let p = node.parent; p !== undefined; p = p.parent) {
-      if (!p.isScroll) continue
-      const scroll = p.element.isConnected ? measureScroll(p.element) : p.scroll
+    for (const container of node.fold.containers) {
+      const scroll = container.element.isConnected ? measureScroll(container.element) : container.scroll
       dx += scroll.x
       dy += scroll.y
-      if (p.isScrollRoot) break
     }
     return dx === 0 && dy === 0 ? stable : offsetBox(stable, { x: -dx, y: -dy })
   }
@@ -989,7 +1133,30 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // {@link measurePass} wraps its rounds in the `wardic.projection.measure` span.
   // Every node it (re)starts is added to `seeded`, for the Priming step; every node of
   // a dragged subtree whose box changed is added to `dragBlocked` instead.
-  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>): void => {
+  /**
+   * The slot-only update a blocked node takes (a dragged subtree's, or every node's
+   * after a resize): its box becomes its slot, no animation starts or restarts, and a
+   * running one keeps its delta (its origin moves with its box). A first measure writes
+   * the identity projection. Returns whether the slot changed, so the node is
+   * re-derived and flushed with its group.
+   */
+  const slotOnly = (node: NodeState, prev: Box | undefined, newBox: Box): boolean => {
+    if (prev === undefined) {
+      node.lastDelta = IDENTITY_DELTA
+      writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
+      return false
+    }
+    if (boxesEqual(prev, newBox)) return false
+    if (!node.dragging && node.animating && node.origin !== undefined) {
+      const from = centreOf(node.layoutBox ?? prev)
+      const to = centreOf(newBox)
+      node.origin = offsetBox(node.origin, { x: to.x - from.x, y: to.y - from.y })
+    }
+    node.layoutBox = newBox
+    return true
+  }
+
+  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain, and the depth order makes every phase below
     // ancestors-first, so each scroll container's offset is sampled before a
@@ -1052,6 +1219,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         // documented v0.1 limit.)
         if (node.correctorBases === undefined) node.correctorBases = readBases(node.element)
       }
+      // Each node's fold (ADR-0012, *Amendment (Reorder)*), now every `layoutScroll`
+      // sample is in: every container that can scroll, read once this pass.
+      const folds = new Map<Element, Fold>()
+      for (const node of ordered) node.fold = foldOf(node, folds)
     } finally {
       // --- WRITE: restore the transforms we cleared. --------------------------
       // `deriveAll()` at the tail re-derives the inline transform from the new delta
@@ -1077,6 +1248,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       const newBox = foldScroll(node, viewportBoxes[i], documentScroll)
       const prev = node.retained
       node.retained = newBox
+      node.layoutVersion++
       // A Switch seed only ever serves a node's first measure (ADR-0010 *Amendment
       // (#13)*); take it now, whichever branch below handles the node.
       const seed = node.seed
@@ -1096,6 +1268,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         node.origin = undefined
         node.spring = undefined
         node.animating = false
+        // A released layoutRoot's flight ends here, so its raise goes with this write.
+        node.releasing = false
+        node.raised = false
         active.delete(node)
         node.lastDelta = IDENTITY_DELTA
         writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
@@ -1110,21 +1285,15 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // its group in this pass, but it is not seeded and takes no Priming step. A
       // running descendant's origin moves with its box, so its animation keeps its delta
       // and doesn't jump (Motion keeps the running `targetDelta` of a blocked node).
-      if (inDraggedTree(node)) {
-        if (prev === undefined) {
-          node.lastDelta = IDENTITY_DELTA
-          writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
-          continue
-        }
-        if (!boxesEqual(prev, newBox)) {
-          if (!node.dragging && node.animating && node.origin !== undefined) {
-            const from = centreOf(node.layoutBox ?? prev)
-            const to = centreOf(newBox)
-            node.origin = offsetBox(node.origin, { x: to.x - from.x, y: to.y - from.y })
-          }
-          node.layoutBox = newBox
+      //
+      // RESIZE-BLOCKED (ADR-0018 *Amendment (#39)*): the first pass after a window width
+      // change gives every node the same slot-only update, so the reflow the resize
+      // caused doesn't animate (Motion's `updateBlockedByResize`: it measures every node
+      // and notifies none, create-projection-node.ts:728-748 at 16c6122).
+      if (blocked || inDraggedTree(node)) {
+        if (slotOnly(node, prev, newBox)) {
           changed.add(node)
-          dragBlocked.add(node)
+          if (inDraggedTree(node)) dragBlocked.add(node)
         }
         continue
       }
@@ -1148,8 +1317,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         }
         // (2) SWITCH: a disposed twin left this node a seed — no live twin in the
         //     stack. The seed is in the Root frame; rebase it into this node's
-        //     Scroll-stable frame by adding its own `layoutScroll`-ancestor scroll
-        //     (sampled this pass), then FLIP from it to the measured box (a move, no
+        //     Scroll-stable frame by adding its containers' scroll (sampled this
+        //     pass), then FLIP from it to the measured box (a move, no
         //     crossfade — the leaver is gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
         if (seed !== undefined) {
           const containers = scrollOffset(node, ZERO_POINT)
@@ -1212,22 +1381,37 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * the microtasks the rounds queued (a Cold start's Priming tick among them), the
    * Priming step. Traced as one `wardic.projection.measure` span annotated with the
    * node counts, how many nodes it seeded, how many it gave a slot-only update in a
-   * dragged subtree (`dragBlocked`), and how many rounds it ran.
+   * dragged subtree (`dragBlocked`), how many rounds it ran, and whether a window
+   * resize blocked it (`blocked`: every node took a slot-only update).
    */
   const measurePass: Effect.Effect<void> = Effect.suspend(() => {
     passQueued = false
     const seeded = new Set<NodeState>()
     const dragBlocked = new Set<NodeState>()
+    // The Resize block: this pass takes it and clears it.
+    const blocked = resizeBlocked
+    resizeBlocked = false
+    if (resizeTimer !== undefined) {
+      clearTimeout(resizeTimer)
+      resizeTimer = undefined
+    }
     let rounds = 0
     inPass = true
     try {
       do {
         triggeredDuringPass = false
         rounds++
-        sink.flushPass(() => runMeasurePass(seeded, dragBlocked))
+        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, blocked))
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
+    }
+    for (const listener of passEndListeners) {
+      try {
+        listener()
+      } catch (cause) {
+        runtime.runFork(Effect.logError("wardic.projection: pass-end listener failed", cause))
+      }
     }
     if (triggeredDuringPass && !disposed) {
       triggeredDuringPass = false
@@ -1243,6 +1427,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       seeded: seeded.size,
       dragBlocked: dragBlocked.size,
       rounds,
+      blocked,
     }).pipe(
       Effect.andThen(nextMicrotask),
       Effect.andThen(Effect.sync(() => primingStep(seeded))),
@@ -1357,6 +1542,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       node.origin = undefined
       node.lastDelta = IDENTITY_DELTA
       active.delete(node)
+      // A raised node's release has settled: one last write, at rest, drops the raise.
+      if (node.raised) {
+        node.raised = false
+        derive(node)
+      }
     }
     // 3b) A leaving Follower whose Lead just settled is done crossfading → remove it
     //     (fires onDone → presence removes the retained DOM node).
@@ -1367,6 +1557,54 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       }
     }
     if (active.size === 0) stopTicking()
+  }
+
+  /**
+   * A window resize (ADR-0018 *Amendment (#39)*; Motion's resize listener,
+   * create-projection-node.ts:459-487 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
+   * Only a width change counts, as Motion's: it finishes every running layout
+   * animation but a dragged node's (which keeps following the pointer), and blocks the
+   * next Measure pass for 250 ms, so the reflow the resize causes snaps instead of
+   * animating from boxes measured before it. Motion only lifts its block at 250 ms;
+   * here the timer runs the blocked pass itself if none ran, so the boxes are fresh
+   * for the next trigger (and a drag start runs it at once, see `dragStart`).
+   */
+  const onResize = (): void => {
+    if (disposed) return
+    const width = window.innerWidth
+    if (width === lastWidth) return
+    lastWidth = width
+    const finished: Array<NodeState> = []
+    for (const node of active) if (!node.dragging) finished.push(node)
+    if (finished.length > 0) {
+      // At rest on their slots, derived while still active (as a tick derives a node
+      // before it settles), so each writes its resting projection; then settled.
+      for (const node of finished) {
+        node.origin = undefined
+        node.spring = undefined
+        node.animating = false
+      }
+      deriveGroup(groupOf(new Set(finished)))
+      finishSettled(finished)
+      debug("resize finish", { finished: finished.length })
+    }
+    resizeBlocked = true
+    if (resizeTimer !== undefined) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => {
+      resizeTimer = undefined
+      if (resizeBlocked) scheduleMeasure()
+    }, 250)
+  }
+
+  /** Run a pending blocked pass now, synchronously (its rounds run before the fiber's first async step). */
+  const runBlockedPass = (): void => {
+    if (!resizeBlocked || inPass || disposed) return
+    FiberSet.addUnsafe(
+      taskFibers,
+      runtime.runFork(
+        measurePass.pipe(Effect.tapCause((cause) => Effect.logError("wardic.projection: blocked pass failed", cause))),
+      ),
+    )
   }
 
   const ensureRunning = (): void => {
@@ -1451,6 +1689,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     isScroll: false,
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
+    fold: ROOT_FOLD,
+    ownFixed: undefined,
+    layoutVersion: 0,
+    raiseWhileDragged: false,
+    raised: false,
     layoutRoot: false,
     layoutAnchor: undefined,
     dragging: false,
@@ -1541,6 +1784,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       isScroll: opts.layoutScroll === true,
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,
+      fold: ROOT_FOLD,
+      ownFixed: undefined,
+      layoutVersion: 0,
+      raiseWhileDragged: opts.raiseWhileDragged === true,
+      raised: false,
       layoutRoot: opts.layoutRoot === true,
       layoutAnchor: opts.layoutAnchor,
       dragging: false,
@@ -1577,21 +1825,39 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (ro === undefined && typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => scheduleMeasure())
     }
+    if (!resizeListening && typeof window !== "undefined") {
+      resizeListening = true
+      lastWidth = window.innerWidth
+      window.addEventListener("resize", onResize)
+    }
     ro?.observe(node.element)
     // Seed retained + write the identity projection on the next frame.
     scheduleMeasure()
 
     return {
       notify: scheduleMeasure,
+      // --- geometry (ADR-0016 *Amendment (Reorder)*): plain reads ------------------
+      layoutBox: () => node.layoutBox ?? node.retained,
+      dragOffset: () => {
+        if (!node.dragging || node.grabBox === undefined) return ZERO_POINT
+        const slot = node.layoutBox ?? node.grabBox
+        const target = dragTargetOf(node, slot)
+        return { x: target.x.min - slot.x.min, y: target.y.min - slot.y.min }
+      },
+      layoutVersion: () => node.layoutVersion,
       // --- drag (ADR-0016) -----------------------------------------------------
       dragStart: () => {
         if (node.dragging) return // idempotent — a re-fired start must not re-anchor mid-drag
+        // A width change since the last pass left every box stale: run the blocked pass
+        // first, so the grab anchors at the slot the node has now (#39).
+        runBlockedPass()
         // Anchor at the grab-time slot; the node then tracks `grabBox + dragDelta`.
         node.grabBox = node.layoutBox ?? node.retained
         if (node.grabBox === undefined) return // not measured yet — nothing to anchor
         debug("dragStart", { id: node.id })
         node.dragging = true
         node.releasing = false
+        node.raised = node.raiseWhileDragged
         node.dragDelta = { x: 0, y: 0 }
         node.spring = undefined
         node.origin = undefined
@@ -1646,6 +1912,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           node.spring = undefined
           node.origin = undefined
           node.releasing = false
+          node.raised = false
           deriveGroup(groupOf(new Set([node])))
           node.lastDelta = IDENTITY_DELTA
           active.delete(node)
@@ -1701,6 +1968,14 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       clearTimeout(leftover)
       leftover = undefined
     }
+    if (resizeTimer !== undefined) {
+      clearTimeout(resizeTimer)
+      resizeTimer = undefined
+    }
+    if (resizeListening) {
+      resizeListening = false
+      window.removeEventListener("resize", onResize)
+    }
     stopTicking()
     // Interrupt any end-of-task hold still pending, then drop what they held.
     runtime.runFork(Scope.close(scope, Exit.void))
@@ -1711,7 +1986,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     active.clear()
     nodes.clear()
     elementToNode.clear()
+    passEndListeners.clear()
   }
 
-  return { register, notify: scheduleMeasure, handleLeave, dispose }
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, dispose }
+  passEnds.set(system, passEndListeners)
+  return system
 }

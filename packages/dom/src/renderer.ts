@@ -144,9 +144,11 @@ const formatStyleValue = (key: string, value: unknown): unknown => {
  * User-animated transform funcs woven INTO a projection transform (ADR-0009,
  * Motion's `buildProjectionTransform`): `rotate`/`skew` compose with a layout
  * projection and are emitted between the inverse-tree-scale and the element
- * scale. Translate + scale are intentionally absent — the projection OWNS them,
- * so a layout element's animated `x`/`y`/`scale` are ignored (projection drives
- * those). `z` is folded into the projection's `translate3d` (handled inline).
+ * scale. Translate is intentionally absent — the projection OWNS it, so a layout
+ * element's animated `x`/`y` are ignored (ADR-0016: a drag feeds the projection).
+ * The element's own `scale`/`scaleX`/`scaleY` multiply the element scale instead
+ * (see {@link ownScale}). `z` is folded into the projection's `translate3d`
+ * (handled inline).
  */
 const PROJECTION_WOVEN: ReadonlyArray<{ readonly key: string; readonly fn: string }> = [
   { key: "rotate", fn: "rotate" },
@@ -156,6 +158,22 @@ const PROJECTION_WOVEN: ReadonlyArray<{ readonly key: string; readonly fn: strin
   { key: "skewX", fn: "skewX" },
   { key: "skewY", fn: "skewY" },
 ]
+
+/**
+ * The element's own scale on one axis (ADR-0009 *Amendment (Reorder)*): `scale` times
+ * `scaleX` (or `scaleY`), 1 for an absent or non-numeric value. Motion renders a
+ * projected node with the delta to its target with the element's own transforms
+ * applied (`transformBox(targetWithTransforms, latestValues)`,
+ * create-projection-node.ts:1820-1845 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8);
+ * scaled about the box centre, that multiplies the element scale by this factor and
+ * leaves the translate alone (delta-apply.ts:18-30). So a `whileDrag: { scale }` on a
+ * `layout` element shows, and its children scale with it through CSS, as in Motion.
+ */
+const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY"): number => {
+  const both = latest.scale
+  const axis = latest[axisKey]
+  return (typeof both === "number" ? both : 1) * (typeof axis === "number" ? axis : 1)
+}
 
 /**
  * Assemble a projection transform string (ADR-0009), ported from Motion's
@@ -184,8 +202,8 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
     if (Object.hasOwn(latest, key)) funcs.push(`${fn}(${formatTransformValue(key, latest[key])})`)
   }
 
-  const sx = delta.x.scale * treeScale.x
-  const sy = delta.y.scale * treeScale.y
+  const sx = delta.x.scale * treeScale.x * ownScale(latest, "scaleX")
+  const sy = delta.y.scale * treeScale.y * ownScale(latest, "scaleY")
   if (sx !== 1 || sy !== 1) funcs.push(`scale(${sx}, ${sy})`)
 
   return funcs.length > 0 ? funcs.join(" ") : "none"
@@ -197,8 +215,9 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
  *   - PROJECTION (ADR-0009): when the reserved {@link PROJECTION_KEY} is present,
  *     the transform is assembled by {@link buildProjectionTransform} from that
  *     node's `delta`/`treeScale`, weaving the element's own animated
- *     `rotate`/`skew` (read from the same value-map). The element's `x`/`y`/`scale`
- *     transform keys are skipped — the projection owns translate + scale.
+ *     `rotate`/`skew` and multiplying in its own `scale`/`scaleX`/`scaleY` (read
+ *     from the same value-map). The element's `x`/`y` are skipped — the projection
+ *     owns translate.
  *   - NORMAL: group all present transform keys into one canonical `transform`
  *     string (the value-spine path).
  *
@@ -225,6 +244,9 @@ const project = (values: Record<string, unknown>): Patch => {
       const user = typeof values.opacity === "number" ? values.opacity : 1
       patch.opacity = user * projection.opacity
     }
+    // A dragged node's raise (ADR-0016 *Amendment (Reorder)*): kebab-case, as the
+    // scale correctors' keys are, so the commit's `setProperty` takes it.
+    if (projection.raise !== undefined) patch["z-index"] = projection.raise
     return patch
   }
 

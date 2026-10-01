@@ -58,6 +58,8 @@ export interface UseLayoutMemberOptions {
   readonly layoutRoot?: boolean
   /** This element's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
   readonly layoutAnchor?: Point | false
+  /** Raise the node while it's dragged (ADR-0016 *Amendment (Reorder)*; internal, a `<Reorder>` item's). */
+  readonly raiseWhileDragged?: boolean
 }
 
 /**
@@ -81,7 +83,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
-  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutRoot, layoutScroll, transition } = opts
+  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutRoot, layoutScroll, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 
   const handle = projection.register({
@@ -92,6 +94,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     ...(layoutScroll === true ? { layoutScroll: true } : {}),
     ...(layoutRoot === true ? { layoutRoot: true } : {}),
     ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
+    ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))

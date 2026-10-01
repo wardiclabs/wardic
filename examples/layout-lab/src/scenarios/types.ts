@@ -32,6 +32,7 @@
  */
 import type { Component } from "solid-js"
 import type { DragExpect, DragRunInput } from "../lab/drag-run.ts"
+import type { ReorderExpect } from "../lab/reorder-run.ts"
 
 /**
  * What the scenario author expects before running it.
@@ -157,6 +158,12 @@ export interface ScenarioDef {
    * numbers with no check. A trigger scenario leaves it out.
    */
   readonly dragExpect?: DragExpect
+  /**
+   * What a `<Reorder>` drag scenario expects of every press, which the card's reorder
+   * lines check (scenario 14, see `reorderChecksOf` in `lab/reorder-run.ts`). Given,
+   * the card shows those lines after the drag lines.
+   */
+  readonly reorderExpect?: ReorderExpect
   /**
    * The scenario's UI: a `.stage` holding the watched element, and a Run button (a
    * drag scenario: its drag handle). It receives its context as a static prop (see
