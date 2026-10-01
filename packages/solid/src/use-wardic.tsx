@@ -44,6 +44,7 @@ import {
   dragDefaultStyle,
   type DragDefaultStyle,
   mergeStyle,
+  project as domProject,
   type ProjectionNodeHandle,
   resolveInitial,
   setSvgAttrs,
@@ -74,7 +75,7 @@ import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
 import { runScoped, useWardicGate, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
-import { isServer } from "./server.ts"
+import { isHydrating, isServer } from "./server.ts"
 import {
   type WardicChildRegistration,
   type WardicStaggerConfig,
@@ -919,7 +920,11 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // carries the initial style (no flash). The gate's signal sink updates it. An
   // svg-inner tag's attribute keys are split off and set once as attributes, as the
   // server renders them (ADR-0021); the sink's setSvgAttrs takes over at mount.
-  const seed = splitPatchForTag(internal?.tag, project(initialValues))
+  const projected = project(initialValues)
+  // Hydrating server markup the DOM's project rendered (ADR-0021, decision 2): flag an
+  // Environment Renderer whose Starting style differs, once per element (cold path).
+  if (isHydrating()) flagStartingStyle(runtime, id, domProject(initialValues), projected)
+  const seed = splitPatchForTag(internal?.tag, projected)
   const [style, setStyle] = createSignal<Patch>(seed.style)
 
   // The element, available only after ref-mount. The spine is gated on it.
@@ -1106,6 +1111,24 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
     { Provider },
   )
   return ward
+}
+
+/**
+ * Log, at debug level, the keys whose Starting style the Environment's Renderer projects
+ * differently from the DOM's `project`, which rendered the server markup: hydration
+ * would then show the server's value until the first frame. Hydration only.
+ */
+const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Patch, client: Patch): void => {
+  const keys: Array<string> = []
+  for (const key in server) if (String(server[key]) !== String(client[key])) keys.push(key)
+  for (const key in client) if (!(key in server)) keys.push(key)
+  if (keys.length === 0) return
+  const pick = (patch: Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
+  runtime.runFork(
+    Effect.logDebug("wardic.hydration: the Environment's Renderer projects the Starting style differently from the DOM's").pipe(
+      Effect.annotateLogs({ id, keys, server: pick(server), client: pick(client) }),
+    ),
+  )
 }
 
 /** A registration that does nothing: a server render has no orchestration to join. */
