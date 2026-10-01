@@ -5,25 +5,21 @@
  * plain element) reorders the same way; `Reorder.Group` / `Reorder.Item` are built on
  * them.
  *
- * The **Reorder group** is core's `makeReorderGroup`: it reads each item's slot, drag
- * offset and layout version from its projection node's handle, runs the **Crossover**
- * on each drag sample, and calls the app's `onReorder`; the app owns `values` and keys
- * its items with `<For>`. Each item is a `layout` node with a drag the group's axis
- * decides per gesture, raised while dragged, and its group's scroller **Auto-scroll**s
- * while it's held near an edge. A `values` change re-measures, so a reorder the app
- * makes itself animates.
+ * The **Reorder group** is `@wardic/dom`'s `makeReorderController` (core's
+ * `makeReorderGroup` underneath): it reads each item's slot, drag offset and layout
+ * version from its projection node's handle, runs the **Crossover** on each drag
+ * sample, calls the app's `onReorder`, runs **Auto-scroll**, and detects the axis after
+ * every Measure pass. This file adds Solid's half: the reactive config, the lifecycle,
+ * the elements and the components. The app owns `values` and keys its items with
+ * `<For>`. Each item is a `layout` node with a drag the group's axis decides per
+ * gesture, raised while dragged, whose `touch-action` follows the group's axis. A
+ * `values` change re-measures, so a reorder the app makes itself animates.
  *
- * Observability: the group's and the Auto-scroll's events are `wardic.reorder:` debug
- * logs (cold path: once per reorder, wait, gesture or edge, never per sample).
+ * Observability: the controller's events are `wardic.reorder:` debug logs (cold path:
+ * once per reorder, wait, gesture, edge or axis change, never per sample).
  */
-import {
-  autoScrollAxis,
-  makeReorderGroup,
-  type ReorderAxis,
-  type ReorderGroup as CoreReorderGroup,
-  type ReorderItemSource,
-} from "@wardic/core"
-import { type AutoScroller, makeAutoScroller, type ProjectionNodeHandle, reorderTouchAction } from "@wardic/dom"
+import type { ReorderAxis, ReorderGroup as CoreReorderGroup } from "@wardic/core"
+import { makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Effect from "effect/Effect"
 import {
@@ -36,7 +32,6 @@ import {
   type JSX,
   on,
   onCleanup,
-  onMount,
   splitProps,
   untrack,
   useContext,
@@ -73,21 +68,12 @@ export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWa
   readonly group: CoreReorderGroup<V>
   readonly axis: Accessor<ReorderAxis>
   readonly move: (value: V, toIndex: number) => void
-  /** @internal for the items: the group's Auto-scroll (after the group's element mounts) and its item hooks. */
-  readonly items: ReorderItemsHooks<V>
-}
-
-/** @internal What a group gives its items. */
-export interface ReorderItemsHooks<V> {
-  readonly autoScroller: () => AutoScroller | undefined
-  readonly register: (value: V, handle: ProjectionNodeHandle) => () => void
+  /** @internal for the items: the group's controller. */
+  readonly controller: ReorderController<V>
 }
 
 /** A `<Reorder>` item's config: its `value`, plus any motion config but `layout`, `layoutId` and `drag`. */
 export type ReorderItemConfig<V> = { readonly value: V } & Omit<WardicConfig, "layout" | "layoutId" | "drag">
-
-/** How many frames the axis re-resolve waits for the items' next Measure pass. */
-const RESOLVE_FRAMES = 20
 
 const debugOf = (runtime: WardicRuntime) => (event: string, annotations: Record<string, unknown>): void => {
   runtime.runFork(Effect.logDebug(`wardic.reorder: ${event}`).pipe(Effect.annotateLogs(annotations)))
@@ -97,175 +83,77 @@ const debugOf = (runtime: WardicRuntime) => (event: string, annotations: Record<
  * Create a **Reorder group** (ADR-0020). Spread the result onto the list's element
  * (`<ul {...group()}>`): it gives the element `overflow-anchor: none` (under the
  * user's style, as Motion's Group.tsx:187-195 at 16c6122 does), so the browser's
- * scroll anchoring doesn't shift the page as items move. Items are made with {@link createReorderItem}
- * or `use:reorderItem`, keyed with `<For>`.
+ * scroll anchoring doesn't shift the page as items move. Items are made with
+ * {@link createReorderItem} or `use:reorderItem`, keyed with `<For>`.
  *
- * The group's `axis` is the config's, else detected from the items' boxes; it's
- * re-resolved after mount, after each `values` change and after a window width change,
- * once the items' next Measure pass is in (for their `touch-action`). A drag resolves
- * its own axis at its start.
+ * The group's `axis` is the config's, else detected from the items' boxes after every
+ * Measure pass (for their `touch-action`). A drag resolves its own axis at its start.
  *
  * Client and server: on a server it renders the element's style and nothing else.
  */
 export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> {
   const cfg: Accessor<ReorderGroupConfig<V>> = typeof config === "function" ? config : () => config
   const runtime = useWardicRuntime()
-  const projection = useWardicProjection()
-  const debug = debugOf(runtime)
-
-  let element: HTMLElement | undefined
-  let autoScroller: AutoScroller | undefined
-  const group = makeReorderGroup<V>({
+  const [detected, setDetected] = createSignal<ReorderAxis>("y")
+  const controller = makeReorderController<V>({
+    projection: useWardicProjection(),
     values: () => untrack(cfg).values,
     onReorder: (values) => untrack(cfg).onReorder(values),
     axis: () => untrack(cfg).axis,
-    // Read once per drag start (Motion reads it on every sample, Group.tsx:142-147 at 16c6122).
-    direction: () => (element !== undefined && getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr"),
-    debug,
+    onAxis: setDetected,
+    onRemount: (value) => {
+      runtime.runFork(
+        Effect.logWarning("wardic.reorder: an item remounted with the same value in one task (key items with <For>)").pipe(
+          Effect.annotateLogs({ value: String(value) }),
+        ),
+      )
+    },
+    debug: debugOf(runtime),
   })
-
-  // The items' handles by value, for the re-resolve and the `.map` warning.
-  const handles = new Map<V, ProjectionNodeHandle>()
-  // Values whose item was disposed in this task, and whether the `.map` warning fired.
-  const disposedThisTask = new Set<V>()
-  let warned = false
-
-  const [detected, setDetected] = createSignal<ReorderAxis>("y")
+  onCleanup(controller.dispose)
   const axis: Accessor<ReorderAxis> = () => cfg().axis ?? detected()
-
-  // The re-resolve (Q4): wait, frame by frame, until every item's layoutVersion moves
-  // past where it was at the trigger (its next Measure pass is in), then read the axis.
-  let resolveFrame = 0
-  const scheduleResolve = (): void => {
-    if (typeof requestAnimationFrame === "undefined") return
-    if (resolveFrame !== 0) cancelAnimationFrame(resolveFrame)
-    const at = new Map<V, number>()
-    for (const [value, handle] of handles) at.set(value, handle.layoutVersion())
-    let frames = 0
-    const check = (): void => {
-      resolveFrame = 0
-      frames++
-      let ready = true
-      for (const [value, handle] of handles) {
-        const before = at.get(value)
-        if (before !== undefined && handle.layoutVersion() <= before) ready = false
-      }
-      if (ready || frames >= RESOLVE_FRAMES) {
-        setDetected(group.resolveAxis())
-        return
-      }
-      resolveFrame = requestAnimationFrame(check)
-    }
-    resolveFrame = requestAnimationFrame(check)
-  }
-
-  onMount(() => {
-    scheduleResolve()
-    let width = window.innerWidth
-    const onResize = (): void => {
-      if (window.innerWidth === width) return
-      width = window.innerWidth
-      scheduleResolve()
-    }
-    window.addEventListener("resize", onResize)
-    onCleanup(() => {
-      window.removeEventListener("resize", onResize)
-      if (resolveFrame !== 0) cancelAnimationFrame(resolveFrame)
-    })
-  })
 
   // A `values` change re-measures, so the items animate to their new slots whoever
   // reordered them (as LayoutGroup's layoutDependency does).
+  createEffect(on(() => cfg().values, () => controller.valuesChanged(), { defer: true }))
+  // The app's axis cleared: no Measure pass comes with that, so detect now.
   createEffect(
     on(
-      () => cfg().values,
-      () => {
-        projection.notify()
-        scheduleResolve()
+      () => cfg().axis,
+      (a) => {
+        if (a === undefined) controller.resolve()
       },
       { defer: true },
     ),
   )
 
-  const items: ReorderItemsHooks<V> = {
-    autoScroller: () => autoScroller,
-    register: (value, handle) => {
-      if (disposedThisTask.has(value) && !warned) {
-        warned = true
-        runtime.runFork(
-          Effect.logWarning("wardic.reorder: an item remounted with the same value in one task (key items with <For>)").pipe(
-            Effect.annotateLogs({ value: String(value) }),
-          ),
-        )
-      }
-      handles.set(value, handle)
-      const unregister = group.register(value, handle satisfies ReorderItemSource)
-      return () => {
-        unregister()
-        if (handles.get(value) === handle) handles.delete(value)
-        if (disposedThisTask.size === 0) queueMicrotask(() => disposedThisTask.clear())
-        disposedThisTask.add(value)
-      }
-    },
-  }
-
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
-    ref: mergeRefs(userProps?.ref, (el: HTMLElement) => {
-      element = el
-      autoScroller = makeAutoScroller(el, debug)
-    }),
+    ref: mergeRefs(userProps?.ref, (el: HTMLElement) => controller.attach(el)),
     get style() {
-      return { "overflow-anchor": "none", ...userProps?.style } as JSX.CSSProperties
+      return { ...REORDER_GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties
     },
   })
 
-  return Object.assign(ward, { group, axis, move: group.move, items })
+  return Object.assign(ward, { group: controller.group, axis, move: controller.group.move, controller })
 }
 
 /**
  * The spine additions of an item with `value` in `group` (D8: shared by
  * {@link createReorderItem} and `use:reorderItem`): a `layout` node registered with the
- * group, raised while dragged, whose drag takes the group's axis at each start, feeds
- * the group's Crossover and its Auto-scroll, and whose `touch-action` follows the
- * group's axis.
+ * group, raised while dragged, whose drag takes the group's axis at each start and
+ * feeds the controller its samples, and whose `touch-action` follows the group's axis.
  */
 const itemInternals = <V,>(group: ReorderGroupWard<V>, value: V, element: Accessor<HTMLElement | undefined>): SpineInternals => {
-  // The gesture's axis (core's, fixed at its start) for Auto-scroll's axis.
-  let gestureAxis: ReorderAxis = "y"
-  // Whether a gesture is between its start and end samples. An item unmounted mid-gesture
-  // gets no end sample, so its cleanup ends the gesture (the group's and Auto-scroll's).
-  let inGesture = false
-  const endGesture = (): void => {
-    inGesture = false
-    group.group.dragEnd(value)
-    group.items.autoScroller()?.reset()
-  }
-  onCleanup(() => {
-    if (inGesture) endGesture()
-  })
+  const driver = group.controller.item(value, element)
+  // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture.
+  onCleanup(driver.dispose)
   return {
     dragAxis: () => {
-      const a = group.group.resolveAxis()
+      const a = driver.dragAxis()
       return a === "xy" ? true : a
     },
-    onDragSample: (sample) => {
-      if (sample.phase === "start") {
-        inGesture = true
-        gestureAxis = group.group.dragStart(value, sample.point, sample.timeStamp)
-        return
-      }
-      if (sample.phase === "move") {
-        const velocity = group.group.dragMove(value, sample.point, sample.timeStamp)
-        const scroller = group.items.autoScroller()
-        if (scroller !== undefined) {
-          const on = autoScrollAxis(gestureAxis, velocity)
-          scroller.update(sample.point, on, velocity[on], element())
-        }
-        return
-      }
-      endGesture()
-    },
-    onLayoutHandle: (handle) => onCleanup(group.items.register(value, handle)),
+    onDragSample: driver.onSample,
+    onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
     raiseWhileDragged: true,
     baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }),
   }

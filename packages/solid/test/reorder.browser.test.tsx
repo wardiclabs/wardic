@@ -304,6 +304,30 @@ describe("Reorder.Group and Reorder.Item", () => {
     expect(now.top - start.top, "y").toBeCloseTo(20, 0)
   })
 
+  it("RO20: a window width change that wraps a row into a grid updates touch-action, with no reorder", async () => {
+    // 5 items 80 px wide, 10 px apart (440 px) in a group 500 px narrower than the window.
+    const s = await mountReorder({ layout: "x", groupStyle: () => ({ "flex-wrap": "wrap", width: "calc(100vw - 500px)" }) })
+    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
+    try {
+      await page.viewport(900, window.innerHeight)
+      await until(() => s.item("a").style.getPropertyValue("touch-action") === "none", 1500)
+      expect(s.item("a").style.getPropertyValue("touch-action")).toBe("none")
+      expect(s.reorders).toEqual([])
+    } finally {
+      await page.viewport(1000, window.innerHeight)
+      await wait(50)
+    }
+  })
+
+  it("RO21: clearing the axis prop detects the axis at once", async () => {
+    const [axis, setAxis] = createSignal<ReorderAxis | undefined>("x")
+    const s = await mountReorder({ axis })
+    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
+    setAxis(undefined)
+    await settle()
+    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-x")
+  })
+
   it("RO19: Reorder.Item's style prop stays reactive", async () => {
     const [color, setColor] = createSignal("rgb(1, 2, 3)")
     const s = await mountReorder({ itemStyle: () => ({ color: color() }) })
