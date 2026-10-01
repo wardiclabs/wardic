@@ -109,6 +109,9 @@ pointer (ADR-0019). Grill each item below against Motion before implementing.
 - **Unchanged projection writes** still cost a full gate apply every frame (#27).
 - The rest of **#9's parity backlog** (Safari rounding, `treeScale` snapping, render
   gating); its resize item is ADR-0018's Resize block (#39).
+- **The Resize block on Effect** (#45): its timers as fibers in `taskFibers`, and the
+  window width from `Probe.viewport` instead of the engine's own `resize` listener (with
+  #16's routing of the engine's reads through `Probe`).
 
 ## Also pending — `@wardic/path-morph` (tier-2 morphing, own grill)
 
