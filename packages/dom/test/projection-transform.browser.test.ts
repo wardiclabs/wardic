@@ -41,11 +41,44 @@ describe("RendererDomLive.project — projection branch (ADR-0009)", () => {
     })
   })
 
-  it("weaves the element's animated rotate between inverse-scale and element-scale; ignores x/scale (projection owns translate+scale)", () => {
-    // x:999 and scale:5 are owned by the projection -> ignored; rotate woven; opacity copied through.
+  it("weaves the element's animated rotate between inverse-scale and element-scale; ignores x (projection owns translate) and multiplies its scale in", () => {
+    // x:999 is owned by the projection -> ignored; rotate woven; scale:5 multiplies the
+    // element scale (Motion's targetWithTransforms); opacity copied through.
     expect(renderer.project({ ...proj(delta(-50, -20, 1, 1), treeScale(1, 1)), x: 999, scale: 5, rotate: 45, opacity: 0.5 })).toEqual({
-      transform: "translate3d(-50px, -20px, 0px) rotate(45deg)",
+      transform: "translate3d(-50px, -20px, 0px) rotate(45deg) scale(5, 5)",
       opacity: 0.5,
+    })
+  })
+
+  // The element's own scale on a projected node (ADR-0009 *Amendment (Reorder)*): Motion
+  // renders a node with the delta to its target with the element's own transforms applied
+  // (`transformBox(targetWithTransforms, latestValues)`, create-projection-node.ts:1820-1845
+  // at 16c61222c4166bbef5ff6ab0051192faa79fa8c8); about the box centre that multiplies the
+  // element scale by `scale x scaleX` (or `scaleY`), delta-apply.ts:18-30.
+  it("PT1: the element's own scale multiplies the projection's element scale", () => {
+    expect(renderer.project({ ...proj(delta(50, 50, 2, 2), treeScale(1, 1)), scale: 1.5 })).toEqual({
+      transform: "translate3d(50px, 50px, 0px) scale(3, 3)",
+    })
+  })
+
+  it("PT2: scaleX / scaleY scale their own axis, times scale", () => {
+    expect(renderer.project({ ...proj(delta(0, 0, 1, 1), treeScale(1, 1)), scale: 2, scaleX: 1.5 })).toEqual({
+      transform: "scale(3, 2)",
+    })
+    expect(renderer.project({ ...proj(delta(0, 0, 1, 1), treeScale(1, 1)), scaleY: 0.5 })).toEqual({
+      transform: "scale(1, 0.5)",
+    })
+  })
+
+  it("PT3: under a tree scale the own scale joins the element term, after the inverse tree scale", () => {
+    expect(renderer.project({ ...proj(delta(-50, -20, 1, 1), treeScale(2, 2)), scale: 1.5 })).toEqual({
+      transform: "translate3d(-25px, -10px, 0px) scale(0.5, 0.5) scale(3, 3)",
+    })
+  })
+
+  it("PT4 (guard): an own scale of 1 adds nothing", () => {
+    expect(renderer.project({ ...proj(delta(0, 0, 1, 1), treeScale(1, 1)), scale: 1, scaleX: 1 })).toEqual({
+      transform: "none",
     })
   })
 

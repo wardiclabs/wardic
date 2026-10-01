@@ -283,7 +283,14 @@ describe("Reorder.Group and Reorder.Item", () => {
     const s = await mountReorder({ whileDrag: { scale: 1.1 } })
     const b = s.item("b")
     await drag(s, "b", 0, 10, 5)
-    await until(() => b.getBoundingClientRect().width > 219)
+    // The scale springs in: wait until the width holds still between frames.
+    let previous = 0
+    await until(() => {
+      const width = b.getBoundingClientRect().width
+      const settled = width > 215 && Math.abs(width - previous) < 0.01
+      previous = width
+      return settled
+    })
     expect(b.getBoundingClientRect().width).toBeCloseTo(220, 0)
   })
 
