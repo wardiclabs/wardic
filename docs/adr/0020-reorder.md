@@ -1,9 +1,10 @@
 # `<Reorder>`: drag to reorder, headless first, on the projection engine
 
-`<Reorder>` lets a user drag the items of a list or grid into a new order (#44). It's built in three layers:
+`<Reorder>` lets a user drag the items of a list or grid into a new order (#44). It's built in four layers:
 
 - **Core** (`@wardic/core`): `makeReorderGroup`, which has no framework in it. It decides when a dragged item has passed a neighbour (the **Crossover**) and what the new order is.
-- **`@wardic/solid`**: `createReorderGroup`, `createReorderItem` and `reorderItem` bind it to elements.
+- **`@wardic/dom`**: `makeReorderController`, the half every DOM binding shares. It owns core's group, reads the group element's `direction`, runs Auto-scroll, routes each item's drag samples, and detects the axis after every Measure pass.
+- **`@wardic/solid`**: `createReorderGroup`, `createReorderItem` and `reorderItem`: Solid's reactivity, lifecycle and elements over the controller.
 - **Components**: `Reorder.Group` / `Reorder.Item`, built on those.
 
 The items are ordinary `layout` + `drag` elements. The projection engine keeps the dragged item under the pointer and animates the displaced siblings to their new slots (ADR-0016). The group reads each item's box from its projection handle and hands the new order to the app through `onReorder`.
@@ -56,7 +57,7 @@ The same work fixes four engine problems that broke a reorder outright. Each has
 - **The axis is detected (decision 5).**
   - `axis` is optional. Without it the group runs Motion's `detectAxis` on the items' boxes at each drag's start: `"x"`, `"y"`, or `"xy"` when they are separated on both axes. An `axis` prop overrides that, and can change at runtime (Motion #3022).
   - The axis is fixed for the whole gesture. The item's drag reads it at the gesture's start, and the public `drag` prop stays static.
-  - `touch-action` has to be right before a touch starts, so the group also resolves the axis after the first Measure pass after mount, after each reorder, and after a resize. Items take Motion's mapping: `pan-x` for `"y"`, `pan-y` for `"x"`, `none` for `"xy"`.
+  - `touch-action` has to be right before a touch starts, so the controller also detects the axis at the end of every Measure pass, through an engine listener `@wardic/dom` doesn't export: none while the app sets `axis`, and at once when the app clears it. Mount, a reorder and a resize each end in a pass. Motion detects on every item's every measurement (Group.tsx:121-133). Items take Motion's mapping: `pan-x` for `"y"`, `pan-y` for `"x"`, `none` for `"xy"`.
 - **The dragged item is raised until it lands (decision 10).** `Reorder.Item` opts its node in, and the engine then writes `z-index: 1` with the node's projection from the drag's start until its release settles (ADR-0016, *Amendment (Reorder)*). Motion raises while its drag offset is non-zero (`Item.tsx:83-85`). Unlike Motion, a user's own `z-index` shows at rest.
 - **Auto-scroll (decision 16), Motion's algorithm** ([auto-scroll.ts](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/auto-scroll.ts)):
   - within 50 px of the scroller's visible edge it scrolls 25 px × (1 − distance/50)² per drag update;
@@ -99,10 +100,11 @@ The same work fixes four engine problems that broke a reorder outright. Each has
 
 - **New surface:**
   - core `makeReorderGroup` and its pure helpers (`checkReorder`, `detectAxis`, the 100 ms direction, the auto-scroll math), Tier 2;
+  - `@wardic/dom`'s `makeReorderController` and `REORDER_GROUP_STYLE`, Tier 2, and the engine's internal pass-end listener (not exported);
   - `@wardic/solid`'s `createReorderGroup` / `createReorderItem` / `reorderItem`, and `Reorder` (`{ Group, Item }`) with the named `ReorderGroup` / `ReorderItem`;
   - the handle's three getters and the raise option (ADR-0016);
   - core's `DragSample` gains a required `timeStamp` (the triggering event's; a scroll-driven move carries the scroll event's). A hand-built sample must carry one.
-- **The group's own cost:** per drag sample, it reads n handles and runs the Crossover (a single axis is constant time after a `findIndex`; `"xy"` is O(n)). At each drag start it runs `detectAxis` over pairs, stopping once both axes are found (≤ 4,950 comparisons at 100 items; Motion runs it on every item's every measurement). Auto-scroll finds its scroller once per gesture, then reads a container scroller's rect on every drag update (the page needs none), as Motion's does (`auto-scroll.ts:64-69`). Nothing at rest. *(Benchmarks, 2026-09-30, medians: a drag sample costs the group 0.3–0.7 µs on a single axis at 10–100 items and 2.2 µs in `"xy"` at 100 items; `detectAxis`'s worst case, 100 items in one column, is 6.9 µs; bun, `.tmp/reorder/bench-group.ts`.)*
+- **The group's own cost:** per drag sample, it reads n handles and runs the Crossover (a single axis is constant time after a `findIndex`; `"xy"` is O(n)). At each drag start it runs `detectAxis` over pairs, stopping once both axes are found (≤ 4,950 comparisons at 100 items; Motion runs it on every item's every measurement). Auto-scroll finds its scroller once per gesture, then reads a container scroller's rect on every drag update (the page needs none), as Motion's does (`auto-scroll.ts:64-69`). After each Measure pass, one `detectAxis` (none while the app sets the axis). Nothing at rest. *(Benchmarks, 2026-09-30, medians: a drag sample costs the group 0.3–0.7 µs on a single axis at 10–100 items and 2.2 µs in `"xy"` at 100 items; `detectAxis`'s worst case, 100 items in one column, is 6.9 µs; bun, `.tmp/reorder/bench-group.ts`.)*
 - **Deferred:**
   - #30 (a grab mid-flight jumps to the slot plus the pointer offset: 8–11 px off for a settling item, 34–38 px for a displaced sibling, where Motion slides) and the release velocity, together as the velocity grill;
   - #28's nested-child case;
@@ -110,6 +112,7 @@ The same work fixes four engine problems that broke a reorder outright. Each has
   - #32 (one frame behind the pointer with a browser's scheduler) and #29 (the design stays compatible with Motion's `setDragLock`) are out of scope.
 - **Pinned by:**
   - core: `check-reorder.test.ts` (CR1–CR11, Motion's own five cases among them), `trailing-velocity.test.ts`, `auto-scroll.test.ts` and `reorder-group.test.ts`;
-  - `packages/solid/test/reorder.browser.test.tsx` (RO1–RO18), `reorder-headless.browser.test.tsx` (RH1–RH9) and `reorder-engine.browser.test.tsx` (RE1–RE9: through a resize, a scroll, Auto-scroll, touch and text selection), with Playwright's real mouse and Chromium's DevTools touch;
+  - `@wardic/dom`: `reorder-controller.browser.test.ts` (RC1–RC8) and `projection-pass-end.browser.test.ts` (PE1–PE5);
+  - `packages/solid/test/reorder.browser.test.tsx` (RO1–RO21), `reorder-headless.browser.test.tsx` (RH1–RH10) and `reorder-engine.browser.test.tsx` (RE1–RE10: through a resize, a scroll, Auto-scroll, touch and text selection), with Playwright's real mouse and Chromium's DevTools touch;
   - the server-render test `packages/solid/test/reorder.ssr.test.tsx` (SS0–SS6);
   - the layout lab's scenario 14, with its checks in `lab/reorder-run.ts` (`test/reorder-run.test.ts`): headless, every layout on the page and in a scroll container, 48/48 clean in Chromium and in Firefox.

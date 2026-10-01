@@ -58,8 +58,10 @@ The box-projection engine is feature-complete through P4 and several follow-on A
 - **ADR-0020** — `<Reorder>` (#44), headless first: core `makeReorderGroup` (the
   Crossover is Motion's `checkReorder`, the direction a 100 ms trailing velocity, the axis
   `detectAxis`'d at each drag's start unless set, Auto-scroll at 50 px / 25 px a frame),
-  `@wardic/solid`'s `createReorderGroup` / `createReorderItem` / `reorderItem`, and
-  `Reorder.Group` / `Reorder.Item` on top. The items are plain `layout` + `drag` elements;
+  `@wardic/dom`'s `makeReorderController` (the half every DOM binding shares: direction,
+  Auto-scroll, sample routing, the axis after every Measure pass through an unexported
+  pass-end listener), `@wardic/solid`'s `createReorderGroup` / `createReorderItem` /
+  `reorderItem` over it, and `Reorder.Group` / `Reorder.Item` on top. The items are plain `layout` + `drag` elements;
   the group reads boxes through the handle's `layoutBox` / `dragOffset` / `layoutVersion`
   getters. It came with: the **Resize block** (ADR-0018 *Amendment (#39)*), the fold of
   every scrollable ancestor's scroll (ADR-0012 *Amendment (Reorder)*), a held pointer that

@@ -95,7 +95,7 @@ The number of drags active on the page, counted in one core `Context.Reference`.
 _Avoid_: drag lock (#29's claim), dragging (a projection node's flag, ADR-0016).
 
 **Reorder group**:
-The items a drag can reorder, and the rules that do it. Core's `makeReorderGroup` holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
+The items a drag can reorder, and the rules that do it. Core's `makeReorderGroup` holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
 _Avoid_: sortable, list (the element), reorder context.
 
 **Crossover**:
