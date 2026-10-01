@@ -63,6 +63,7 @@ import {
   placeRelativeBox,
   type Point,
   PROJECTION_KEY,
+  type ProjectionValue,
   Renderer,
   type SpringOptions,
   type SpringState,
@@ -193,6 +194,14 @@ export interface RegisterNodeOptions {
    * `{0,0}`). `false` opts out of relative projection (force absolute).
    */
   readonly layoutAnchor?: Point | false
+  /**
+   * Raise the node while it's dragged (ADR-0016, *Amendment (Reorder)*): from the drag
+   * start until its release settles (at once for a release in place) its projection
+   * carries a raise the renderer emits as `z-index: 1`, so it paints above its
+   * siblings, as Motion's Reorder items do; then one last write drops it. A
+   * `<Reorder>` item sets it.
+   */
+  readonly raiseWhileDragged?: boolean
 }
 
 /**
@@ -218,6 +227,24 @@ export interface DragProjectionHandle {
 export interface ProjectionNodeHandle extends DragProjectionHandle {
   /** Request a (coalesced) measure pass — e.g. this node's `layoutDependency` changed. */
   readonly notify: () => void
+  /**
+   * The node's slot (its layout box) in the Scroll-stable frame, as of its last
+   * Measure pass; `undefined` before the first (ADR-0016, *Amendment (Reorder)*). A
+   * plain read: no layout read.
+   */
+  readonly layoutBox: () => Box | undefined
+  /**
+   * How far the node paints from its slot while dragged (the drag target minus the
+   * slot, per axis); `{ x: 0, y: 0 }` otherwise, the release flight included.
+   */
+  readonly dragOffset: () => Point
+  /**
+   * A count that rises with every Measure pass round that measures the node (a
+   * blocked one included); 0 before the first. A **Reorder group** waits on it after
+   * a reorder, as on Motion's former `layoutVersion` counter (removed in motion-dom
+   * 13.4.5).
+   */
+  readonly layoutVersion: () => number
   /** Unregister the node, finalising any in-flight animation. */
   readonly dispose: () => void
 }
@@ -272,6 +299,12 @@ interface NodeState {
   isScrollRoot: boolean
   /** The scroll folded out of this node's box at its last pass (ADR-0012): see {@link Fold}. */
   fold: Fold
+  /** How many Measure pass rounds have measured this node (the handle's `layoutVersion`). */
+  layoutVersion: number
+  /** Whether the node is raised while dragged (its `raiseWhileDragged` option). */
+  readonly raiseWhileDragged: boolean
+  /** Whether its projection carries the raise now: from its drag start until its release settles. */
+  raised: boolean
   /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the subtree, persistent relativeParent. */
   readonly layoutRoot: boolean
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
@@ -502,7 +535,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     opacity?: number,
     corrected?: Record<string, string>,
   ): void => {
-    const value = opacity !== undefined ? { delta, treeScale, opacity } : { delta, treeScale }
+    const value: ProjectionValue = node.raised
+      ? opacity !== undefined ? { delta, treeScale, opacity, raise: 1 } : { delta, treeScale, raise: 1 }
+      : opacity !== undefined
+      ? { delta, treeScale, opacity }
+      : { delta, treeScale }
     const patch = corrected !== undefined ? { [PROJECTION_KEY]: value, ...corrected } : { [PROJECTION_KEY]: value }
     if (node.leaving) {
       runtime.runSync(renderer.commit(node.element, renderer.project(patch)))
@@ -1174,6 +1211,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       const newBox = foldScroll(node, viewportBoxes[i], documentScroll)
       const prev = node.retained
       node.retained = newBox
+      node.layoutVersion++
       // A Switch seed only ever serves a node's first measure (ADR-0010 *Amendment
       // (#13)*); take it now, whichever branch below handles the node.
       const seed = node.seed
@@ -1457,6 +1495,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       node.origin = undefined
       node.lastDelta = IDENTITY_DELTA
       active.delete(node)
+      // A raised node's release has settled: one last write, at rest, drops the raise.
+      if (node.raised) {
+        node.raised = false
+        derive(node)
+      }
     }
     // 3b) A leaving Follower whose Lead just settled is done crossfading → remove it
     //     (fires onDone → presence removes the retained DOM node).
@@ -1597,6 +1640,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
     fold: ROOT_FOLD,
+    layoutVersion: 0,
+    raiseWhileDragged: false,
+    raised: false,
     layoutRoot: false,
     layoutAnchor: undefined,
     dragging: false,
@@ -1688,6 +1734,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,
       fold: ROOT_FOLD,
+      layoutVersion: 0,
+      raiseWhileDragged: opts.raiseWhileDragged === true,
+      raised: false,
       layoutRoot: opts.layoutRoot === true,
       layoutAnchor: opts.layoutAnchor,
       dragging: false,
@@ -1735,6 +1784,15 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
     return {
       notify: scheduleMeasure,
+      // --- geometry (ADR-0016 *Amendment (Reorder)*): plain reads ------------------
+      layoutBox: () => node.layoutBox ?? node.retained,
+      dragOffset: () => {
+        if (!node.dragging || node.grabBox === undefined) return ZERO_POINT
+        const slot = node.layoutBox ?? node.grabBox
+        const target = dragTargetOf(node, slot)
+        return { x: target.x.min - slot.x.min, y: target.y.min - slot.y.min }
+      },
+      layoutVersion: () => node.layoutVersion,
       // --- drag (ADR-0016) -----------------------------------------------------
       dragStart: () => {
         if (node.dragging) return // idempotent — a re-fired start must not re-anchor mid-drag
@@ -1747,6 +1805,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         debug("dragStart", { id: node.id })
         node.dragging = true
         node.releasing = false
+        node.raised = node.raiseWhileDragged
         node.dragDelta = { x: 0, y: 0 }
         node.spring = undefined
         node.origin = undefined
@@ -1801,6 +1860,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           node.spring = undefined
           node.origin = undefined
           node.releasing = false
+          node.raised = false
           deriveGroup(groupOf(new Set([node])))
           node.lastDelta = IDENTITY_DELTA
           active.delete(node)

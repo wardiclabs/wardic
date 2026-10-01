@@ -91,6 +91,13 @@ export interface ProjectionValue {
    * the user's opacity passes through untouched.
    */
   readonly opacity?: number
+  /**
+   * Optional stacking raise (ADR-0016, *Amendment (Reorder)*): while present the
+   * renderer emits it as `z-index`, so a dragged node paints above its siblings (Motion's
+   * Reorder item, `zIndex: 1` while it's off its slot). Absent at rest, so the element's
+   * own z-index shows.
+   */
+  readonly raise?: number
 }
 
 /**

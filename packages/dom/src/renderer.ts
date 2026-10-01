@@ -225,6 +225,9 @@ const project = (values: Record<string, unknown>): Patch => {
       const user = typeof values.opacity === "number" ? values.opacity : 1
       patch.opacity = user * projection.opacity
     }
+    // A dragged node's raise (ADR-0016 *Amendment (Reorder)*): kebab-case, as the
+    // scale correctors' keys are, so the commit's `setProperty` takes it.
+    if (projection.raise !== undefined) patch["z-index"] = projection.raise
     return patch
   }
 
