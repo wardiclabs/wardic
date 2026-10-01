@@ -144,14 +144,22 @@ export const makeFlushGate = (
     }
     const target = entry.sink.target
     const committed = entry.committed
-    // A key the last patch wrote and this one doesn't: the element gets its own value back.
-    let restore: Patch | undefined
-    for (const [key, own] of committed) {
-      if (key in patch) continue
-      ;(restore ??= {})[key] = own
-      committed.delete(key)
+    const before = committed.size
+    let kept = 0
+    for (const key in patch) {
+      if (committed.has(key)) kept++
+      else committed.set(key, inlineValueOf(target, key))
     }
-    for (const key in patch) if (!committed.has(key)) committed.set(key, inlineValueOf(target, key))
+    // A key the last patch wrote and this one doesn't: the element gets its own value
+    // back. Only looked for when one dropped out (the usual frame keeps every key).
+    let restore: Patch | undefined
+    if (kept < before) {
+      for (const [key, own] of committed) {
+        if (key in patch) continue
+        ;(restore ??= {})[key] = own
+        committed.delete(key)
+      }
+    }
     if (restore !== undefined) runtime.runSync(commit(target, restore))
     runtime.runSync(commit(target, patch))
   }
