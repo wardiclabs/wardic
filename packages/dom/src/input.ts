@@ -19,6 +19,14 @@
  * element, and it allows one capturer per pointer, which nested draggables (#29) would
  * fight over.
  *
+ * A scroll moves a Held pointer (ADR-0019, *Amendment (Reorder)*): while one is held,
+ * the target's scroll feed reports the scroll of each of its scrollable ancestors and
+ * of its window, and `heldPointerSource` turns each change into a move of the pointer
+ * shifted by it. Two passive `scroll` listeners on the target's window come with the
+ * hold and go at its release: one in the capture phase for element scrolls (they don't
+ * bubble), one for the window's own. Nothing listens for scroll at rest. The feed also
+ * keeps each held target's total shift, for the auto-scroller ({@link heldScrollShift}).
+ *
  * `Layer.effect` runs `make` in the layer's own scope (it `Exclude`s `Scope`
  * from the requirements, effect 4's scoped-layer idiom — there is no separate
  * `Layer.scoped`), which the helpers' `RcMap`/`RcRef` need: the ref-counting
@@ -28,11 +36,20 @@
  * already carry a `wardic.dom.shared.*` span + a debug-log on subscribe; the
  * per-event mapping path is deliberately unlogged — it is the hot path.
  */
-import type { FocusLikeEvent, KeyboardLikeEvent, PointerFeed, PointerLikeEvent, WheelLikeEvent } from "@wardic/core"
+import type {
+  FocusLikeEvent,
+  KeyboardLikeEvent,
+  Point,
+  PointerFeed,
+  PointerLikeEvent,
+  ScrollFeed,
+  WheelLikeEvent,
+} from "@wardic/core"
 import { heldPointerSource, InputSource } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
+import { scrollableAncestors } from "./measure.ts"
 import { makeSharedByTarget, makeSharedGlobal } from "./shared.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */
@@ -79,9 +96,79 @@ const feedOf = (target: EventTarget, types: ReadonlyArray<string>, options?: Add
 }
 
 /** The window an element's page-wide events reach: its own document's (an iframe's element has its own). */
-const windowOf = (target: unknown): EventTarget =>
+const windowOf = (target: unknown): Window =>
   (target as { readonly ownerDocument?: { readonly defaultView?: Window | null } | null } | undefined)?.ownerDocument
     ?.defaultView ?? window
+
+/** Whether `target` is an element (by `nodeType`, so an iframe's elements count too). */
+const isElement = (target: unknown): target is Element =>
+  typeof target === "object" && target !== null && (target as { readonly nodeType?: number }).nodeType === 1
+
+const CAPTURE_PASSIVE: AddEventListenerOptions = { capture: true, passive: true }
+const PASSIVE: AddEventListenerOptions = { passive: true }
+const ZERO: Point = { x: 0, y: 0 }
+
+/** Each held target's scroll since its hold began, while it's held (Q1: one per hold). */
+const heldShifts = new WeakMap<object, { x: number; y: number }>()
+
+/**
+ * The scroll since `target`'s current hold began, summed over its window and its
+ * scrollable ancestors: a held drag's point minus this is the pointer's viewport
+ * position. `{ x: 0, y: 0 }` when nothing is held on it.
+ *
+ * @internal for the auto-scroller.
+ */
+export const heldScrollShift = (target: unknown): Point =>
+  (typeof target === "object" && target !== null ? heldShifts.get(target) : undefined) ?? ZERO
+
+/**
+ * The {@link ScrollFeed} of a pointer target: its scrollable ancestors' scroll
+ * (`scrollLeft`/`scrollTop`) and its window's (`scrollX`/`scrollY`). On subscribe it
+ * reports each one's current position, then listens on the target's window: a
+ * capture-phase listener for element scrolls (only the tracked ancestors report) and
+ * one for the window's own scroll (the document's scroll event reaches the capture
+ * listener too, so only this one reports it).
+ */
+const scrollFeedOf = (target: unknown): ScrollFeed => (emit) => {
+  const win = windowOf(target)
+  const doc = win.document
+  const last = new Map<EventTarget, { x: number; y: number }>()
+  const shift = { x: 0, y: 0 }
+  const key = typeof target === "object" && target !== null ? target : undefined
+  if (key !== undefined) heldShifts.set(key, shift)
+  const report = (source: EventTarget, x: number, y: number, timeStamp: number): void => {
+    const prev = last.get(source)
+    if (prev === undefined) last.set(source, { x, y })
+    else {
+      shift.x += x - prev.x
+      shift.y += y - prev.y
+      prev.x = x
+      prev.y = y
+    }
+    emit(source, { x, y }, timeStamp)
+  }
+  if (isElement(target)) {
+    // The positions at subscribe are the baselines (no event, so no time).
+    for (const el of scrollableAncestors(target)) report(el, el.scrollLeft, el.scrollTop, 0)
+  }
+  report(win, win.scrollX, win.scrollY, 0)
+  const onElement = (ev: Event): void => {
+    const el = ev.target as Element
+    if (el === (doc as unknown) || !last.has(el)) return
+    report(el, el.scrollLeft, el.scrollTop, ev.timeStamp)
+  }
+  const onWindow = (ev: Event): void => {
+    if (ev.target !== doc && ev.target !== win) return
+    report(win, win.scrollX, win.scrollY, ev.timeStamp)
+  }
+  win.addEventListener("scroll", onElement, CAPTURE_PASSIVE)
+  win.addEventListener("scroll", onWindow, PASSIVE)
+  return () => {
+    win.removeEventListener("scroll", onElement, CAPTURE_PASSIVE)
+    win.removeEventListener("scroll", onWindow, PASSIVE)
+    if (key !== undefined && heldShifts.get(key) === shift) heldShifts.delete(key)
+  }
+}
 
 const toFocus = (type: FocusLikeEvent["type"]) =>
   (ev: FocusEvent): FocusLikeEvent => ({ type, timeStamp: ev.timeStamp })
@@ -104,8 +191,8 @@ const toKeyboard = (type: KeyboardLikeEvent["type"]) =>
 
 /**
  * One `fromEventListener` per DOM event type, mapped to a Like-event, except
- * `pointer`, whose target and page-wide feeds go through core's `heldPointerSource`
- * (one ordered callback). The shared helpers want `Effect<Stream<A>, never, Scope>`;
+ * `pointer`, whose target, page-wide and scroll feeds go through core's
+ * `heldPointerSource` (one ordered callback). The shared helpers want `Effect<Stream<A>, never, Scope>`;
  * these are plain `Stream`s, so each `lookup` simply succeeds with the stream.
  */
 const make = Effect.gen(function* () {
@@ -113,7 +200,8 @@ const make = Effect.gen(function* () {
     Effect.succeed(
       heldPointerSource({
         target: feedOf(target as EventTarget, POINTER_EVENTS),
-        global: feedOf(windowOf(target), HELD_POINTER_EVENTS, { capture: true, passive: true }),
+        global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE),
+        scroll: scrollFeedOf(target),
       }),
     )
   )

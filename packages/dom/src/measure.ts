@@ -60,6 +60,33 @@ export const measureScroll = (el: HTMLElement): Point => ({ x: el.scrollLeft, y:
  */
 export const isScrollRoot = (el: HTMLElement): boolean => getComputedStyle(el).position === "fixed"
 
+/** The overflow values that never scroll: anything else can (`hidden` too, from code). */
+const UNSCROLLED = new Set(["visible", "clip"])
+
+/**
+ * Whether `el` can scroll on either axis: its `overflow-x` or `overflow-y` is neither
+ * `visible` nor `clip` (ADR-0012, *Amendment (Reorder)*). Motion's auto-scroll asks for
+ * `auto | scroll`; a `hidden` container can still be scrolled from code, so it counts.
+ * Uncached: one `getComputedStyle` per call.
+ */
+export const isScrollable = (el: Element): boolean => {
+  const style = getComputedStyle(el)
+  return !UNSCROLLED.has(style.overflowX) || !UNSCROLLED.has(style.overflowY)
+}
+
+/**
+ * `el`'s ancestors that can scroll ({@link isScrollable}), nearest first, stopping
+ * before `body` and `documentElement` (the page's own scroll is the window's).
+ */
+export const scrollableAncestors = (el: Element): Array<Element> => {
+  const doc = el.ownerDocument
+  const out: Array<Element> = []
+  for (let cur = el.parentElement; cur !== null && cur !== doc.body && cur !== doc.documentElement; cur = cur.parentElement) {
+    if (isScrollable(cur)) out.push(cur)
+  }
+  return out
+}
+
 /**
  * The document's scroll offset (the page/window scroll, ADR-0012, Motion's
  * `DocumentProjectionNode` root). Folded into every box unless it sits in a scroll
