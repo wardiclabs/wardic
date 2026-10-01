@@ -350,4 +350,19 @@ describe("every scrollable ancestor is folded (ADR-0012, Amendment (Reorder))", 
     expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
     e.dispose()
   })
+
+  it("AF11: a node that is itself plain position:fixed folds nothing: a page scroll between passes seeds nothing", async () => {
+    const e = makeEngine(makeSink().sink)
+    const root = stage()
+    const tall = document.createElement("div")
+    tall.style.cssText = "height:3000px"
+    root.append(tall)
+    const fixed = document.createElement("div")
+    fixed.style.cssText = "position:fixed;left:650px;top:20px;width:100px;height:50px"
+    root.append(fixed)
+    const [handle] = await mount(e.system, [fixed])
+    window.scrollTo(0, 100)
+    expect((await unrelatedPass(e, handle!))?.seeded).toBe(0)
+    e.dispose()
+  })
 })

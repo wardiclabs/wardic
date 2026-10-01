@@ -295,9 +295,11 @@ export interface WardicConfig {
    */
   readonly layoutId?: string
   /**
-   * Mark this a scroll container (ADR-0012): its scroll offset is folded out of its
-   * descendants' boxes, so a scroll change between triggers doesn't leak into their
-   * layout animation. Static (read once at mount).
+   * Mark this a scroll container that is itself a projection node (ADR-0012): its
+   * scroll offset is folded out of its descendants' boxes, so a scroll change between
+   * triggers doesn't leak into their layout animation. Any other container that can
+   * scroll is folded too without it (*Amendment (Reorder)*). Static (read once at
+   * mount).
    */
   readonly layoutScroll?: boolean
   /**
