@@ -17,6 +17,7 @@
  */
 import { createMemo, For, type JSX } from "solid-js"
 import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf } from "../lab/drag-run.ts"
+import { REORDER_CHECK_NAMES, type ReorderExpect, reorderChecksOf } from "../lab/reorder-run.ts"
 import { heldCheckOf } from "../lab/held-frames.ts"
 import type { LabRun } from "../lab/lab.ts"
 import { formatPasses, measurePassesOf } from "../lab/measure-passes.ts"
@@ -67,7 +68,7 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
       </p>
       <View ctx={props.ctx} />
       {drag ? (
-        <DragResult run={props.lastDragRun} expect={def.dragExpect} />
+        <DragResult run={props.lastDragRun} expect={def.dragExpect} reorderExpect={def.reorderExpect} />
       ) : (
         <TriggerResult def={def} lastRun={props.lastRun} />
       )}
@@ -124,19 +125,31 @@ interface DragResultProps {
   readonly run: DragRun | undefined
   /** The scenario's `dragExpect`; left out, every line shows its value with no check. */
   readonly expect: DragExpect | undefined
+  /** A `<Reorder>` scenario's `reorderExpect` (scenario 14): given, the reorder lines follow the drag lines. */
+  readonly reorderExpect: ReorderExpect | undefined
 }
 
 /**
  * A drag card's result: one line per drag check, `–` before the first press. A
  * missed check is coloured, and a line too long for the card ends in an ellipsis
  * with its whole text as the value's tooltip. The checks are recomputed once per
- * drag run.
+ * drag run. A scenario with no watched children (scenario 14's items) has no `child
+ * glued` line, and a `<Reorder>` scenario's reorder lines follow the drag lines.
  */
 const DragResult = (props: DragResultProps): JSX.Element => {
-  const checks = createMemo(() => (props.run === undefined ? undefined : dragChecksOf(props.run, props.expect ?? {})))
+  const checks = createMemo(() =>
+    props.run === undefined
+      ? undefined
+      : [...dragChecksOf(props.run, props.expect ?? {}), ...reorderChecksOf(props.run, props.reorderExpect ?? {})],
+  )
+  // `reorderExpect` is static: a reorder scenario's card always has its lines, and no child glue.
+  const names: ReadonlyArray<string> =
+    props.reorderExpect === undefined
+      ? DRAG_CHECK_NAMES
+      : [...DRAG_CHECK_NAMES.filter((name) => name !== "child glued"), ...REORDER_CHECK_NAMES]
   return (
     <footer class="card-result drag" aria-live="polite">
-      <For each={DRAG_CHECK_NAMES}>
+      <For each={names}>
         {(name) => {
           const check = () => checks()?.find((c) => c.name === name)
           return (

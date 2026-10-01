@@ -50,6 +50,7 @@
  * @module
  */
 import type { SpanRecord } from "../probe/timeline.ts"
+import type { ReorderFrame, ReorderRunData } from "./reorder-run.ts"
 
 /** The span that marks one Measure pass. */
 const MEASURE_SPAN = "wardic.projection.measure"
@@ -130,6 +131,15 @@ export interface DragFrame {
   readonly watched?: Readonly<Record<string, Box>>
   /** Painted opacities, by name, for a scenario that watches them (a dragged `layoutId` lead). */
   readonly opacity?: Readonly<Record<string, number>>
+  /** A `<Reorder>` scenario's reads of the frame (scenario 14, `lab/reorder-run.ts`); left out otherwise. */
+  readonly reorder?: ReorderFrame
+  /**
+   * Whether the scenario's scroller moved since the previous read (scenario 14). Such a
+   * frame isn't judged under pointer or frames behind: Auto-scroll's step lands in the
+   * frame before the drag's compensation for it, so the item trails by the step there,
+   * as Motion's does (motion/react 13.4.6 trails by up to 24px, #44). Left out otherwise.
+   */
+  readonly scrolled?: boolean
 }
 
 /** Why a drag scenario's recorder stopped after the release (see {@link DragRunInput.endedBy}). */
@@ -206,6 +216,15 @@ export interface DragRunInput {
    * `default`. Left out, `default`.
    */
   readonly scheduler?: "default" | "microtask"
+  /** A `<Reorder>` scenario's press (scenario 14, `lab/reorder-run.ts`); left out otherwise. */
+  readonly reorder?: ReorderRunData
+  /**
+   * The gesture's axis lock, when it has one (scenario 14's rows and lists: the group
+   * decides it per gesture). Under pointer and frames behind then compare that axis
+   * alone: the item rightly doesn't follow the pointer across it (a page scroll across
+   * an `x` row). Left out, both axes.
+   */
+  readonly lock?: "x" | "y"
 }
 
 /** One Measure pass that started during a drag run. */
@@ -313,9 +332,11 @@ export interface DragRun extends DragRunInput {
   readonly heldFrameCount: number
   /**
    * The largest distance, in px (the larger of x and y), between a held frame's
-   * painted centre and the grab box's centre moved by the latest pointer move
-   * handled before that frame's rAF callback (with the `default` scheduler, before
-   * the previous frame's: the input's hop, see {@link DragRunInput.scheduler}). Centres, so a slot resize mid-drag,
+   * painted centre and the grab box's centre moved by the nearest of the moves it
+   * could show: from the latest handled before that frame's rAF callback (with the
+   * `default` scheduler, before the previous frame's: the input's hop, see
+   * {@link DragRunInput.scheduler}) to the newest (a move a Measure pass flushed at
+   * once, or a scroll's, shows with no hop: #44). Centres, so a slot resize mid-drag,
    * which paints the new size about the same centre (ADR-0016 *Amendment (#26)*),
    * reads 0. 0 with no held frame.
    */
@@ -665,18 +686,32 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
   // so "could show" means handled before the frame before (see `scheduler`): the
   // under-pointer check then catches a position error, and `framesBehindMax` the lag.
   const hop = (input.scheduler ?? "default") === "default" ? 1 : 0
+  // The distance the checks compare: the gesture's locked axis alone, when it has one.
+  const lock = input.lock
+  const distance = (a: Point, b: Point): number =>
+    lock === "x" ? Math.abs(a.x - b.x) : lock === "y" ? Math.abs(a.y - b.y) : pointDistance(a, b)
+  // A frame in a scroll's wake (see `DragFrame.scrolled`): the scrolled frame, and with
+  // the default scheduler the next one too, which the compensation's hop reaches late.
+  const wake = held.map((f, k) => f.scrolled === true || (hop === 1 && k > 0 && held[k - 1]!.scrolled === true))
   let underPointerMaxPx = 0
   const newestShown: Array<number> = []
   let visible = 0
   let reachable = 0
-  for (const f of held) {
+  for (const [k, f] of held.entries()) {
     while (visible < moves.length && moves[visible].frame < f.frame) visible++
     while (reachable < moves.length && moves[reachable].frame < f.frame - hop) reachable++
     const centre = centreOf(f.d)
-    if (reachable > 0) underPointerMaxPx = Math.max(underPointerMaxPx, pointDistance(centre, targetOf(moves[reachable - 1])))
+    // Any move from the one the hop leaves it to the newest handled may be showing: a
+    // reorder's Measure pass flushes the item at once, and a scroll reaches the drag in
+    // the frame's own scroll steps (#44), so a frame can show the newest move.
+    if (reachable > 0 && !wake[k]!) {
+      let nearest = Number.POSITIVE_INFINITY
+      for (let j = reachable - 1; j < visible; j++) nearest = Math.min(nearest, distance(centre, targetOf(moves[j])))
+      underPointerMaxPx = Math.max(underPointerMaxPx, nearest)
+    }
     let shown = -1
     for (let j = visible - 1; j >= 0; j--) {
-      if (pointDistance(centre, targetOf(moves[j])) <= NEAR_PX) {
+      if (distance(centre, targetOf(moves[j])) <= NEAR_PX) {
         shown = j
         break
       }
@@ -694,6 +729,8 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     let measured = false
     for (let k = 0; k < held.length; k++) {
       if (held[k].frame <= move.frame) continue
+      // A frame in a scroll's wake shows the scroll before its compensation (see `scrolled`).
+      if (wake[k]!) continue
       measured = true
       if (newestShown[k] >= i) break
       behind++

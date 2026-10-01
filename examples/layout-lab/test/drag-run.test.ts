@@ -870,3 +870,86 @@ describe("Lab.recordDragRun", () => {
     expect(last.gestureEnd.inheritedPx).toBe(20)
   })
 })
+
+// #44 (scenario 14): a move can show with no hop. A reorder's Measure pass flushes the
+// dragged item at once (flushPass), and a scroll during the hold reaches the drag inside
+// the frame's own scroll steps, so a frame can show the newest move, not only the one the
+// default scheduler's hop leaves it. Under pointer accepts either: the item is where one
+// of the moves it could show put it.
+describe("dragRunOf: a move shown with no hop (#44)", () => {
+  const GRAB44: Box = box(16, 60, 180, 36)
+  const at = (dy: number): Box => moved(GRAB44, 0, dy)
+  const move44 = (frame: number, dy: number): DragMove => ({ t: 16 * frame + 8, frame, dx: 0, dy, buttons: 1 })
+  const frame44 = (frame: number, d: Box): DragFrame => ({ frame, frameAt: 16 * frame, t: 16 * frame + 4, d, slot: GRAB44, children: {} })
+  const input44 = (frames: ReadonlyArray<DragFrame>, moves: ReadonlyArray<DragMove>): DragRunInput => ({
+    scenarioId: "reorder",
+    mode: "y",
+    grabAt: 0,
+    grabBox: GRAB44,
+    moves,
+    frames,
+    childOffsets: {},
+    releaseAt: 16 * 9,
+    endedAt: 16 * 10,
+    scheduler: "default",
+  })
+
+  it("a frame showing the newest move (a pass flushed it at once) is under the pointer", () => {
+    // Moves of 6px at frames 1..6; frame 5 shows the move handled at frame 4 (no hop), the rest one frame late.
+    const moves = [1, 2, 3, 4, 5, 6].map((k) => move44(k, 6 * k))
+    const frames = [
+      frame44(2, at(6)),
+      frame44(3, at(12)),
+      frame44(4, at(18)),
+      frame44(5, at(24)),
+      frame44(6, at(30)),
+      frame44(7, at(36)),
+      frame44(8, at(36)),
+    ]
+    expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeLessThanOrEqual(1)
+  })
+
+  it("a frame whose scroller scrolled since the last read isn't judged under pointer or frames behind", () => {
+    // Auto-scroll paints its scroll a frame before the drag's compensation (as Motion's
+    // does): the item trails by the scroll step in that frame.
+    const moves = [1, 2, 3].map((k) => move44(k, 6 * k))
+    const frames = [
+      frame44(2, at(6)),
+      frame44(3, at(12)),
+      { ...frame44(4, at(2)), scrolled: true },
+      { ...frame44(5, at(4)), scrolled: true },
+      frame44(6, at(18)),
+    ]
+    const run = dragRunOf(input44(frames, moves), [])
+    expect(run.underPointerMaxPx).toBeLessThanOrEqual(1)
+    expect(run.framesBehindMax).toBeLessThanOrEqual(1)
+  })
+
+  it("with the default scheduler the frame after a scrolled one isn't judged either (the compensation's hop)", () => {
+    const moves = [1, 2, 3].map((k) => move44(k, 6 * k))
+    const frames = [
+      frame44(2, at(6)),
+      frame44(3, at(12)),
+      { ...frame44(4, at(2)), scrolled: true },
+      frame44(5, at(4)),
+      frame44(6, at(18)),
+    ]
+    expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeLessThanOrEqual(1)
+    // With no hop, the frame after is judged.
+    expect(dragRunOf({ ...input44(frames, moves), scheduler: "microtask" }, []).underPointerMaxPx).toBeGreaterThan(1)
+  })
+
+  it("an axis-locked drag is judged on its axis alone (a page scroll across it moves the pointer, not the item)", () => {
+    // A y move of 60 (the page scrolled) the x-locked item can't follow.
+    const moves = [move44(1, 0), { ...move44(2, 60), dx: 6 }]
+    const frames = [frame44(2, at(0)), frame44(3, moved(GRAB44, 6, 0)), frame44(4, moved(GRAB44, 6, 0))]
+    expect(dragRunOf({ ...input44(frames, moves), lock: "x" }, []).underPointerMaxPx).toBeLessThanOrEqual(1)
+    expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeGreaterThan(1)
+  })
+
+  it("a frame between the moves it could show is still off the pointer", () => {
+    const moves = [1, 2, 3, 4, 5, 6].map((k) => move44(k, 6 * k))
+    const frames = [frame44(2, at(6)), frame44(3, at(12)), frame44(4, at(15)), frame44(5, at(18)), frame44(6, at(30)), frame44(7, at(36))]
+    expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeCloseTo(3, 6)
+  })
+})
