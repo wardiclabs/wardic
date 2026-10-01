@@ -38,7 +38,7 @@ import {
   type StaggerOrigin,
   type Values,
 } from "@wardic/core"
-import { type ProjectionNodeHandle, setSvgAttrs, splitPatch } from "@wardic/dom"
+import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, type DragDefaultStyle, type ProjectionNodeHandle, setSvgAttrs, splitPatch } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -237,6 +237,12 @@ export interface WardicConfig {
    * {@link whileDrag} participates in the reactive override / `dragging` path. A
    * reactively-changed axis / constraints is NOT re-read in v0.1.
    *
+   * The element gets Motion's drag defaults (ADR-0019, *Amendment (Reorder)*):
+   * `touch-action` `none` (`pan-y` for an `x` drag, `pan-x` for a `y` drag),
+   * `user-select` and `-webkit-user-select` / `-webkit-touch-callout` `none`, and
+   * `draggable="false"`, so a touch drag isn't taken for a scroll and a drag
+   * starting on text isn't a native drag. The element's own `style` overrides them.
+   *
    * NOT SUPPORTED WITH {@link layoutId} (LOW-2): combining `drag` and `layoutId`
    * on the SAME element makes both drive `x`/`y` (a one-time dev warning fires).
    * Use `<Reorder>` for drag + layout (planned).
@@ -345,6 +351,8 @@ export interface WardProps {
    * valid CSS props).
    */
   readonly style: JSX.CSSProperties
+  /** `"false"` on a drag element (Motion's default, ADR-0019 *Amendment (Reorder)*); absent otherwise. */
+  readonly draggable?: "false"
 }
 
 /**
@@ -527,8 +535,17 @@ export function runSpine(opts: RunSpineOptions): void {
 
       // Register the element with the caller-supplied sink (ADR-0006): each
       // flushed frame's Patch is delivered through it (signal or commit).
-      const unregister = gate.register(id, makeSink(element))
+      const sink = makeSink(element)
+      const unregister = gate.register(id, sink)
       onCleanup(unregister)
+
+      // A commit sink has no style prop to carry a drag element's defaults
+      // (ADR-0019 *Amendment (Reorder)*): set each one the element's inline style
+      // doesn't already, and the attribute unless it has one, once at mount.
+      const dragAxis = untrack(cfg).drag
+      if (sink.kind === "commit" && dragAxis !== undefined && dragAxis !== false) {
+        applyDragDefaults(element, dragDefaultStyle(dragAxis))
+      }
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
@@ -1028,6 +1045,11 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
   // The callable + its `.Provider` property (ADR-0007). Object.assign keeps the
   // callable's merge API (ward() / ward({ ref, style })) intact while attaching
   // Provider as a property, and the cast aligns it with the `Ward` type.
+  // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
+  // style: `drag` is static, so they're chosen once.
+  const dragAxis = untrack(cfg).drag
+  const dragDefaults = dragAxis !== undefined && dragAxis !== false ? dragDefaultStyle(dragAxis) : undefined
+
   const ward: Ward = Object.assign(
     (userProps?: WardUserProps): WardProps => ({
       // Merge the user's ref (if any) with ward's internal element setter so BOTH
@@ -1036,8 +1058,9 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
       // Getter so spreading {...ward()} stays reactive (Solid tracks the access).
       // The user's static style is the base; ward's animated keys merge ON TOP.
       get style() {
-        return mergeStyle(userProps?.style, style())
+        return mergeStyle(userProps?.style, style(), dragDefaults)
       },
+      ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),
     }),
     { Provider },
   )
@@ -1045,7 +1068,8 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
 }
 
 /**
- * Merge the user's static style (base) with ward's animated style (on top).
+ * Merge the user's static style (base) with ward's animated style (on top), over a
+ * drag element's defaults (ADR-0019 *Amendment (Reorder)*) when it has them.
  *
  * - object user style: `{ ...user, ...animated }` — ward's animated keys win,
  *   the user's other keys are preserved.
@@ -1054,5 +1078,29 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
  * `animated` is the gate's projected {@link Patch} (transform/opacity/etc.); its
  * keys are valid CSS props, so the result is cast to `JSX.CSSProperties`.
  */
-const mergeStyle = (user: JSX.CSSProperties | undefined, animated: Patch): JSX.CSSProperties =>
-  (user !== undefined ? { ...user, ...animated } : animated) as JSX.CSSProperties
+const mergeStyle = (user: JSX.CSSProperties | undefined, animated: Patch, defaults?: DragDefaultStyle): JSX.CSSProperties => {
+  if (defaults === undefined) return (user !== undefined ? { ...user, ...animated } : animated) as JSX.CSSProperties
+  const merged: Record<string, unknown> = { ...defaults, ...user, ...animated }
+  // `user-select` and `-webkit-user-select` are one property in Chromium: the user's
+  // value for either is the value for both, or the default left on the other wins.
+  const users = user as Record<string, unknown> | undefined
+  if (users !== undefined) {
+    if (users["user-select"] !== undefined && users["-webkit-user-select"] === undefined) {
+      merged["-webkit-user-select"] = users["user-select"]
+    } else if (users["-webkit-user-select"] !== undefined && users["user-select"] === undefined) {
+      merged["user-select"] = users["-webkit-user-select"]
+    }
+  }
+  return merged as JSX.CSSProperties
+}
+
+/**
+ * Set each of a drag element's defaults its inline style doesn't already set, and
+ * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
+ */
+const applyDragDefaults = (element: HTMLElement, defaults: DragDefaultStyle): void => {
+  for (const key in defaults) {
+    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, defaults[key]!)
+  }
+  if (!element.hasAttribute("draggable")) element.setAttribute("draggable", DRAG_DEFAULT_ATTRIBUTES.draggable)
+}
