@@ -96,8 +96,8 @@ const debugOf = (runtime: WardicRuntime) => (event: string, annotations: Record<
 /**
  * Create a **Reorder group** (ADR-0020). Spread the result onto the list's element
  * (`<ul {...group()}>`): it gives the element `overflow-anchor: none` (under the
- * user's style, as Motion's Group.tsx:187-195 does), so the browser's scroll anchoring
- * doesn't shift the page as items move. Items are made with {@link createReorderItem}
+ * user's style, as Motion's Group.tsx:187-195 at 16c6122 does), so the browser's
+ * scroll anchoring doesn't shift the page as items move. Items are made with {@link createReorderItem}
  * or `use:reorderItem`, keyed with `<For>`.
  *
  * The group's `axis` is the config's, else detected from the items' boxes; it's
@@ -119,7 +119,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     values: () => untrack(cfg).values,
     onReorder: (values) => untrack(cfg).onReorder(values),
     axis: () => untrack(cfg).axis,
-    // Read once per drag start (Motion reads it on every sample, Group.tsx:138-144).
+    // Read once per drag start (Motion reads it on every sample, Group.tsx:142-147 at 16c6122).
     direction: () => (element !== undefined && getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr"),
     debug,
   })
@@ -232,6 +232,17 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
 const itemInternals = <V,>(group: ReorderGroupWard<V>, value: V, element: Accessor<HTMLElement | undefined>): SpineInternals => {
   // The gesture's axis (core's, fixed at its start) for Auto-scroll's axis.
   let gestureAxis: ReorderAxis = "y"
+  // Whether a gesture is between its start and end samples. An item unmounted mid-gesture
+  // gets no end sample, so its cleanup ends the gesture (the group's and Auto-scroll's).
+  let inGesture = false
+  const endGesture = (): void => {
+    inGesture = false
+    group.group.dragEnd(value)
+    group.items.autoScroller()?.reset()
+  }
+  onCleanup(() => {
+    if (inGesture) endGesture()
+  })
   return {
     dragAxis: () => {
       const a = group.group.resolveAxis()
@@ -239,6 +250,7 @@ const itemInternals = <V,>(group: ReorderGroupWard<V>, value: V, element: Access
     },
     onDragSample: (sample) => {
       if (sample.phase === "start") {
+        inGesture = true
         gestureAxis = group.group.dragStart(value, sample.point, sample.timeStamp)
         return
       }
@@ -251,8 +263,7 @@ const itemInternals = <V,>(group: ReorderGroupWard<V>, value: V, element: Access
         }
         return
       }
-      group.group.dragEnd(value)
-      group.items.autoScroller()?.reset()
+      endGesture()
     },
     onLayoutHandle: (handle) => onCleanup(group.items.register(value, handle)),
     raiseWhileDragged: true,
@@ -274,7 +285,15 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
   const [element, setElement] = createSignal<HTMLElement>()
   const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: true }), itemInternals(group, value, element))
   // The item's element, for Auto-scroll's held scroll shift.
-  return Object.assign((userProps?: WardUserProps) => ward({ ...userProps, ref: mergeRefs(userProps?.ref, setElement) }), {
+  // The user's style is passed on as a getter, so a live one stays live (WardUserProps).
+  const item = (userProps?: WardUserProps) =>
+    ward({
+      ref: mergeRefs(userProps?.ref, setElement),
+      get style() {
+        return userProps?.style
+      },
+    })
+  return Object.assign(item, {
     Provider: ward.Provider,
   }) as Ward
 }
@@ -331,7 +350,7 @@ declare module "solid-js" {
 
 // --- Components (ADR-0020, D8: built on the headless API) --------------------------
 
-const ReorderContext = createContext<ReorderGroupWard<unknown>>()
+const GroupContext = createContext<ReorderGroupWard<unknown>>()
 
 /** An element tag a `<Reorder>` group or item can render. */
 export type ReorderElementTag = keyof JSX.IntrinsicElements
@@ -412,11 +431,11 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
     },
   })
   return (
-    <ReorderContext.Provider value={group as ReorderGroupWard<unknown>}>
+    <GroupContext.Provider value={group as ReorderGroupWard<unknown>}>
       <Tag {...rest} {...spread}>
         {local.children}
       </Tag>
-    </ReorderContext.Provider>
+    </GroupContext.Provider>
   )
 }
 
@@ -425,7 +444,7 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
  * rendered as `as` (`"li"` by default). Outside a group it throws, as Motion's does.
  */
 export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V, Tag>): JSX.Element {
-  const group = useContext(ReorderContext) as ReorderGroupWard<V> | undefined
+  const group = useContext(GroupContext) as ReorderGroupWard<V> | undefined
   if (group === undefined) throw new Error("Reorder.Item must be a child of Reorder.Group")
   // The item consumes every motion prop name (layout / layoutId / drag included, though
   // its type omits them), so none reaches the DOM.

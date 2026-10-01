@@ -303,4 +303,13 @@ describe("Reorder.Group and Reorder.Item", () => {
     expect(Math.abs(now.left - start.left), "x").toBeLessThan(0.5)
     expect(now.top - start.top, "y").toBeCloseTo(20, 0)
   })
+
+  it("RO19: Reorder.Item's style prop stays reactive", async () => {
+    const [color, setColor] = createSignal("rgb(1, 2, 3)")
+    const s = await mountReorder({ itemStyle: () => ({ color: color() }) })
+    expect(s.item("b").style.color).toBe("rgb(1, 2, 3)")
+    setColor("rgb(4, 5, 6)")
+    await settle()
+    expect(s.item("b").style.color).toBe("rgb(4, 5, 6)")
+  })
 })

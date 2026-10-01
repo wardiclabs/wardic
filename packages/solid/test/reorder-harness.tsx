@@ -142,6 +142,8 @@ export interface SceneOptions {
   readonly itemAs?: "li" | "div" | "article"
   /** Extra group style, read reactively (the user's, over the scene's). */
   readonly groupStyle?: Accessor<JSX.CSSProperties>
+  /** Extra item style, read reactively (the user's, over the scene's). */
+  readonly itemStyle?: Accessor<JSX.CSSProperties>
   readonly whileDrag?: WardicValues
 }
 
@@ -217,7 +219,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
             data-value={value}
             {...(o.itemAs !== undefined ? { as: o.itemAs } : {})}
             {...(o.whileDrag !== undefined ? { whileDrag: o.whileDrag } : {})}
-            style={itemCss(o)}
+            style={{ ...itemCss(o), ...o.itemStyle?.() }}
           >
             {o.text === true ? `item ${value} text` : value}
           </Reorder.Item>

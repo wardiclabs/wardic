@@ -246,6 +246,41 @@ describe("the headless Reorder API", () => {
     expect(typeof ward!.Provider).toBe("function")
   })
 
+  it("RH10: createReorderItem's user style may be a live getter, and stays reactive", async () => {
+    const [color, setColor] = createSignal("rgb(1, 2, 3)")
+    let li: HTMLElement | undefined
+    function Probe(props: { readonly group: ReorderGroupWard<string> }): JSX.Element {
+      // eslint-disable-next-line solid/reactivity
+      const item = createReorderItem(props.group, { value: "a" })
+      // Called once, outside the JSX (as Reorder.Item does): only the getter carries the change.
+      const spread = item({
+        ref: (el: HTMLElement) => (li = el),
+        get style() {
+          return { ...ITEM, color: color() }
+        },
+      })
+      return <li {...spread} data-value="a" />
+    }
+    function List(): JSX.Element {
+      const group = createReorderGroup({ values: ["a"], onReorder: () => {} })
+      return (
+        <ul {...group({ style: GROUP })}>
+          <Probe group={group} />
+        </ul>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <List />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(li!.style.color).toBe("rgb(1, 2, 3)")
+    setColor("rgb(4, 5, 6)")
+    await settle()
+    expect(li!.style.color).toBe("rgb(4, 5, 6)")
+  })
+
   it("RH9: the group reads its container's direction once per drag start, not per sample", async () => {
     const h = await mountHeadless()
     const group = h.groupEl()

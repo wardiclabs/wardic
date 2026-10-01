@@ -182,6 +182,38 @@ describe("Auto-scroll (Motion's, D16)", () => {
     await wait(300)
     expect(window.scrollY).toBeGreaterThan(20)
   })
+
+  it("RE10: an item removed mid-gesture ends its Auto-scroll: the next drag in the edge zone, moving away from the edge, doesn't scroll", async () => {
+    const list = await mountReorder({ container: 300, n: 20 })
+    const sc = list.scroller!
+    const g = centreOf(list.item("c"))
+    const edge = sc.getBoundingClientRect().bottom
+    await mouse.down(g)
+    await glide(g, { x: g.x, y: edge - 15 }, 20)
+    await wait(150)
+    expect(sc.scrollTop, "the end edge is scrolling").toBeGreaterThan(20)
+    // The app removes the dragged item while it's held.
+    list.setOrder(list.order().filter((v) => v !== "c"))
+    await settle()
+    await mouse.up({ x: g.x, y: edge - 15 })
+    sc.scrollTop = 200
+    await settle()
+    // Press an item 14-38 px above the bottom edge and move up 10 px on it: still in the
+    // zone, moving toward the start, so no edge may start.
+    const itemAt = (y: number) => document.elementFromPoint(g.x, y)?.closest<HTMLElement>("[data-value]") ?? null
+    let at: { x: number; y: number } | undefined
+    for (let y = edge - 14; y >= edge - 38 && at === undefined; y--) {
+      const hit = itemAt(y)
+      if (hit !== null && itemAt(y - 10) === hit) at = { x: g.x, y }
+    }
+    expect(at, "an item in the edge zone").toBeDefined()
+    const before = sc.scrollTop
+    await mouse.down(at!)
+    await glide(at!, add(at!, 0, -10), 5)
+    await wait(150)
+    expect(sc.scrollTop).toBe(before)
+    await mouse.up(add(at!, 0, -10))
+  })
 })
 
 describe.skipIf(server.browser !== "chromium")("touch and text selection (#36, Chromium)", () => {
