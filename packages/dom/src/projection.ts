@@ -419,6 +419,27 @@ const ROOT_FOLD: Fold = { containers: [], x: 0, y: 0, root: true }
 /** Nothing folds: a node that is itself, or sits right under, a scroll root. */
 const NO_FOLD: Fold = { containers: [], x: 0, y: 0, root: false }
 
+/** Each system's pass-end listeners ({@link onPassEnd}). */
+const passEnds = new WeakMap<ProjectionSystem, Set<() => void>>()
+
+/**
+ * Run `listener` at the end of every Measure pass of `system`: once per pass, after
+ * every round's boxes are stored (a blocked pass and one whose flush triggered more
+ * rounds included), before its Priming step. Returns the unsubscribe. A listener that
+ * throws is logged and doesn't stop the pass or the others.
+ *
+ * @internal for the Reorder controller (ADR-0020): not exported from `@wardic/dom`, so
+ * there is no public push hook (ADR-0020 decision 2).
+ */
+export const onPassEnd = (system: ProjectionSystem, listener: () => void): (() => void) => {
+  const listeners = passEnds.get(system)
+  if (listeners === undefined) return () => {}
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
 /**
  * Build a projection system against a binding's `runtime` (providing {@link Clock})
  * and its {@link ProjectionSink} (its flush gate).
@@ -427,6 +448,8 @@ const NO_FOLD: Fold = { containers: [], x: 0, y: 0, root: false }
  * its own teardown (e.g. the provider's `onCleanup`).
  */
 export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: ProjectionSink): ProjectionSystem => {
+  // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
+  const passEndListeners = new Set<() => void>()
   const nodes = new Set<NodeState>()
   const active = new Set<NodeState>()
   // Element -> node, for the DOM-ancestry parent walk.
@@ -1383,6 +1406,13 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     } finally {
       inPass = false
     }
+    for (const listener of passEndListeners) {
+      try {
+        listener()
+      } catch (cause) {
+        runtime.runFork(Effect.logError("wardic.projection: pass-end listener failed", cause))
+      }
+    }
     if (triggeredDuringPass && !disposed) {
       triggeredDuringPass = false
       debug("measure round cap", { rounds })
@@ -1956,7 +1986,10 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     active.clear()
     nodes.clear()
     elementToNode.clear()
+    passEndListeners.clear()
   }
 
-  return { register, notify: scheduleMeasure, handleLeave, dispose }
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, dispose }
+  passEnds.set(system, passEndListeners)
+  return system
 }
