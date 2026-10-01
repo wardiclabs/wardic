@@ -361,19 +361,54 @@ export type ReorderItemProps<V, Tag extends ReorderElementTag = "li"> = {
  * `Reorder.Group` (ADR-0020): a {@link createReorderGroup} rendered as `wardic[as]`, with
  * the group in context for its `Reorder.Item`s. Key the items with `<For>`.
  */
+/**
+ * The props a component body reads, as plain records: instantiating the public prop
+ * types over every element tag (`WardicProps<keyof JSX.IntrinsicElements>`) makes a
+ * type checker build a union of every element's props, which a consumer's checker
+ * can run out of memory on.
+ */
+interface GroupLocal<V> {
+  readonly values: ReadonlyArray<V>
+  readonly onReorder: (values: Array<V>) => void
+  readonly axis?: ReorderAxis | undefined
+  readonly as?: string | undefined
+  readonly ref?: ((el: HTMLElement) => void) | undefined
+  readonly style?: JSX.CSSProperties | undefined
+  readonly children?: JSX.Element
+}
+interface ItemLocal<V> {
+  readonly value: V
+  readonly as?: string | undefined
+  readonly ref?: ((el: HTMLElement) => void) | undefined
+  readonly style?: JSX.CSSProperties | undefined
+  readonly children?: JSX.Element
+}
+
+/** The motion element for `tag` (`wardic[tag]`), typed as a plain component. */
+const wardicTag = (tag: string): Component<Record<string, unknown>> =>
+  (wardic as unknown as Record<string, Component<Record<string, unknown>>>)[tag]!
+
 export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps<V, Tag>): JSX.Element {
-  const [local, rest] = splitProps(props as ReorderGroupProps<V, ReorderElementTag>, ["values", "onReorder", "axis", "as", "ref", "style", "children"])
+  const [local, rest] = splitProps(props as unknown as GroupLocal<V> & Record<string, unknown>, [
+    "values",
+    "onReorder",
+    "axis",
+    "as",
+    "ref",
+    "style",
+    "children",
+  ])
   const group = createReorderGroup<V>(() => ({
     values: local.values,
     onReorder: local.onReorder,
     ...(local.axis !== undefined ? { axis: local.axis } : {}),
   }))
-  const Tag = wardic[untrack(() => local.as) ?? "ul"] as Component<Record<string, unknown>>
-  const userRef = (local as { readonly ref?: (el: HTMLElement) => void }).ref
+  const Tag = wardicTag(untrack(() => local.as) ?? "ul")
+  const userRef = local.ref
   const spread = group({
     ...(userRef !== undefined ? { ref: userRef } : {}),
     get style() {
-      return local.style as JSX.CSSProperties | undefined
+      return local.style
     },
   })
   return (
@@ -395,22 +430,22 @@ export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: Reor
   // The item consumes every motion prop name (layout / layoutId / drag included, though
   // its type omits them), so none reaches the DOM.
   const [local, motion, rest] = splitProps(
-    props as ReorderItemProps<V, ReorderElementTag> & WardicMotionProps,
+    props as unknown as ItemLocal<V> & WardicMotionProps & Record<string, unknown>,
     ["value", "as", "ref", "style", "children"],
     MOTION_PROPS,
   )
   const config = motionToConfig(motion as WardicMotionProps)
   const item = createReorderItem<V>(group, () => ({ ...config(), value: local.value }))
   const tag = untrack(() => local.as) ?? "li"
-  const userRef = (local as { readonly ref?: (el: HTMLElement) => void }).ref
+  const userRef = local.ref
   const spread = item({
     ...(userRef !== undefined ? { ref: userRef } : {}),
     get style() {
-      return local.style as JSX.CSSProperties | undefined
+      return local.style
     },
   })
   return (
-    <Dynamic component={tag as string} {...(rest as Record<string, unknown>)} {...spread}>
+    <Dynamic component={tag} {...rest} {...spread}>
       {local.children}
     </Dynamic>
   )
