@@ -212,6 +212,12 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   let frame = 0
   let frameAt = 0
   let rafId = 0
+  /**
+   * The current frame loop. A tick posts it, and the read drops a message from an earlier
+   * loop: one in flight when a new press began would otherwise arm a second loop, which
+   * reads every frame twice (and three still reads come at once after a release).
+   */
+  let loop = 0
   /** The scroller's scroll at the previous read, for `scrolled`. */
   let lastScroll: Point | undefined
   const scrollOf = (): Point | undefined => {
@@ -233,6 +239,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   const finish = (endedBy: DragRunEnd): void => {
     const p = press
     press = undefined
+    loop += 1
     cancelAnimationFrame(rafId)
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("scroll", onScroll, true)
@@ -243,7 +250,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     opts.onPhase?.("end")
   }
 
-  channel.port1.onmessage = () => {
+  channel.port1.onmessage = (e: MessageEvent<number>) => {
+    if (e.data !== loop) return
     const p = press
     const stage = opts.stage()
     const item = opts.item()
@@ -301,7 +309,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     frame += 1
     frameAt = performance.now()
     changesAtTick = changes
-    channel.port2.postMessage(undefined)
+    channel.port2.postMessage(loop)
   }
 
   /** Records the press's release (`lost`: it never reached the page's listeners); the moves go on being recorded. */
@@ -453,6 +461,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       window.removeEventListener("scroll", onScroll, true)
       window.removeEventListener("pointerup", onUp, true)
       window.removeEventListener("pointercancel", onUp, true)
+      loop += 1
       cancelAnimationFrame(rafId)
       channel.port1.close()
       press = undefined
