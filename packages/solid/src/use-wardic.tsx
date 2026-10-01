@@ -1169,7 +1169,7 @@ const noRef = (): void => {}
  * The drag axis a spine runs with: its static `drag` config, else `true` for a
  * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
  */
-const dragAxisOf = (config: WardicConfig, internal: SpineInternals | undefined): boolean | "x" | "y" | undefined =>
+export const dragAxisOf = (config: WardicConfig, internal: SpineInternals | undefined): boolean | "x" | "y" | undefined =>
   config.drag !== undefined && config.drag !== false ? config.drag : internal?.dragAxis !== undefined ? true : undefined
 
 /**
