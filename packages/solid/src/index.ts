@@ -77,6 +77,30 @@ export {
 } from "./use-wardic.tsx"
 
 /**
+ * `<Reorder>` (ADR-0020, ADR-0008 Tier 1): `Reorder.Group` / `Reorder.Item` (also
+ * named `ReorderGroup` / `ReorderItem`), built on the headless API: `createReorderGroup`
+ * and `createReorderItem` spread onto any elements, and the `use:reorderItem` directive
+ * (client-only). The app owns `values`, sets them from `onReorder`, and keys its items
+ * with `<For>`.
+ */
+export {
+  createReorderGroup,
+  createReorderItem,
+  Reorder,
+  type ReorderElementTag,
+  ReorderGroup,
+  type ReorderGroupProps,
+  ReorderItem,
+  type ReorderItemProps,
+  type ReorderGroupConfig,
+  type ReorderGroupWard,
+  type ReorderGroupWardProps,
+  type ReorderItemConfig,
+  type ReorderItemDirectiveValue,
+  reorderItem,
+} from "./reorder.tsx"
+
+/**
  * `runDragTrack` (ADR-0004): the binding-orchestrated drag track shared by both
  * the `useWardic` signal-sink path and the `wardic.create(Component)` commit-sink
  * path (it lives in `runSpine`, which both share). The pointer DIRECT-SETS `x`/`y`

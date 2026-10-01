@@ -52,9 +52,9 @@ import { useVariantContext } from "./variants.ts"
  * (`whileFocus` / `whileInView` / `exit` / `drag` / `dragConstraints` /
  * `layout` / `layoutId`) are accepted + split now but NOT yet wired (a
  * follow-up) — they are intentionally consumed so they don't render as DOM
- * attributes.
+ * attributes. Shared with `<Reorder>`'s item (internal, not a package export).
  */
-const MOTION_PROPS = [
+export const MOTION_PROPS = [
   "initial",
   "animate",
   "variants",
@@ -178,7 +178,7 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements> = JSX.Intrinsic
  * forbids an explicit `undefined` on the optional config fields, and an absent key
  * is exactly how the hook reads "no field".
  */
-const motionToConfig =
+export const motionToConfig =
   (motion: WardicMotionProps): Accessor<WardicConfig> =>
   () => {
     const config: { -readonly [K in keyof WardicConfig]: WardicConfig[K] } = {}
