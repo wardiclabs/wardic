@@ -11,6 +11,7 @@ const sample = (over: Partial<DragSample> = {}): DragSample => ({
   delta: { x: 0, y: 0 },
   velocity: { x: 0, y: 0 },
   phase: "move",
+  timeStamp: 0,
   ...over,
 })
 
