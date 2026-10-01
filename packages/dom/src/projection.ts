@@ -299,6 +299,8 @@ interface NodeState {
   isScrollRoot: boolean
   /** The scroll folded out of this node's box at its last pass (ADR-0012): see {@link Fold}. */
   fold: Fold
+  /** Whether this (plain) node's element is `position: fixed`, read once; `undefined` until then. */
+  ownFixed: boolean | undefined
   /** How many Measure pass rounds have measured this node (the handle's `layoutVersion`). */
   layoutVersion: number
   /** Whether the node is raised while dragged (its `raiseWhileDragged` option). */
@@ -947,8 +949,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   /** `node`'s fold this pass: nothing when it is itself a scroll root, else its ancestors'. */
-  const foldOf = (node: NodeState, memo: Map<Element, Fold>): Fold =>
-    (node.isScroll ? node.isScrollRoot : scrollStyleOf(node.element).fixed) ? NO_FOLD : foldFrom(node.element.parentElement, memo)
+  const foldOf = (node: NodeState, memo: Map<Element, Fold>): Fold => {
+    // A plain node's own `position: fixed`, read once (the cache's answer, kept on the node).
+    const ownRoot = node.isScroll ? node.isScrollRoot : (node.ownFixed ??= scrollStyleOf(node.element).fixed)
+    return ownRoot ? NO_FOLD : foldFrom(node.element.parentElement, memo)
+  }
 
   /**
    * The scroll the fold adds to `node`'s box (ADR-0012): its containers' scroll at
@@ -968,11 +973,20 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   /**
    * Fold scroll out of `box` (ADR-0012) → a scroll-stable (content-frame) box. No-op
    * on the non-scroll path (no container + zero root scroll ⇒ box unchanged), so it
-   * never perturbs ordinary layout animation.
+   * never perturbs ordinary layout animation. `box` is the pass's freshly read box,
+   * which nothing else holds, so it is moved in place: no allocation per node.
    */
   const foldScroll = (node: NodeState, box: Box, rootScroll: Point): Box => {
-    const offset = scrollOffset(node, rootScroll)
-    return offset === ZERO_POINT ? box : offsetBox(box, offset)
+    const fold = node.fold
+    const dx = fold.x + (fold.root ? rootScroll.x : 0)
+    const dy = fold.y + (fold.root ? rootScroll.y : 0)
+    if (dx === 0 && dy === 0) return box
+    const fresh = box as { readonly x: { min: number; max: number }; readonly y: { min: number; max: number } }
+    fresh.x.min += dx
+    fresh.x.max += dx
+    fresh.y.min += dy
+    fresh.y.max += dy
+    return box
   }
 
   /**
@@ -1640,6 +1654,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
     fold: ROOT_FOLD,
+    ownFixed: undefined,
     layoutVersion: 0,
     raiseWhileDragged: false,
     raised: false,
@@ -1734,6 +1749,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,
       fold: ROOT_FOLD,
+      ownFixed: undefined,
       layoutVersion: 0,
       raiseWhileDragged: opts.raiseWhileDragged === true,
       raised: false,
