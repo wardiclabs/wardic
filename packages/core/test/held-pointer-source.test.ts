@@ -334,10 +334,11 @@ describe("heldPointerSource", () => {
         const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
         const { seen, fiber } = yield* start(target, makeFeed(), scroll)
         target.push(ev({ type: "down", x: 10, y: 20, timeStamp: 5 }))
+        target.push(ev({ type: "move", x: 10, y: 20, timeStamp: 10 }))
         scroll.scrollTo(list, 0, 60, 40)
         yield* settle
-        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,80"])
-        const moved = seen[1]!
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80"])
+        const moved = seen[2]!
         expect(moved.buttons).toBe(1)
         expect(moved.button).toBe(-1)
         expect(moved.pointerType).toBe("mouse")
@@ -353,12 +354,13 @@ describe("heldPointerSource", () => {
         const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
         const { seen, fiber } = yield* start(target, global, scroll)
         target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 11, y: 21 }))
         scroll.scrollTo(list, 0, 60, 40)
         target.push(ev({ type: "move", x: 12, y: 22 }))
         global.push(ev({ type: "move", x: 14, y: 24 }), {})
         global.push(ev({ type: "up", x: 15, y: 25, buttons: 0 }), {})
         yield* settle
-        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,80", "move1@12,82", "move1@14,84", "up1@15,85"])
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@11,21", "move1@11,81", "move1@12,82", "move1@14,84", "up1@15,85"])
         yield* Fiber.interrupt(fiber)
       }))
 
@@ -371,11 +373,12 @@ describe("heldPointerSource", () => {
         ])
         const { seen, fiber } = yield* start(target, makeFeed(), scroll)
         target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
         scroll.scrollTo(list, 0, 60, 30)
         scroll.scrollTo(page, 10, 130, 40)
         target.push(ev({ type: "move", x: 11, y: 21 }))
         yield* settle
-        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,80", "move1@20,110", "move1@21,111"])
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "move1@20,110", "move1@21,111"])
         yield* Fiber.interrupt(fiber)
       }))
 
@@ -386,6 +389,7 @@ describe("heldPointerSource", () => {
         const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
         const { seen, fiber } = yield* start(target, global, scroll)
         target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
         scroll.scrollTo(list, 0, 60, 30)
         global.push(ev({ type: "up", x: 10, y: 20, buttons: 0 }), {})
         expect(scroll.unsubscribes()).toBe(1)
@@ -394,7 +398,7 @@ describe("heldPointerSource", () => {
         target.push(ev({ type: "down", x: 30, y: 40 }))
         target.push(ev({ type: "move", x: 31, y: 41 }))
         yield* settle
-        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,80", "up1@10,80", "down1@30,40", "move1@31,41"])
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "up1@10,80", "down1@30,40", "move1@31,41"])
         expect(scroll.subscribes()).toBe(2)
         yield* Fiber.interrupt(fiber)
       }))
@@ -433,20 +437,48 @@ describe("heldPointerSource", () => {
         const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
         const { seen, fiber } = yield* start(target, global, scroll)
         target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
         scroll.scrollTo(list, 0, 60, 30)
         // The same pointer goes down elsewhere: the hold ends with an unpressed move at the
         // last (shifted) point.
         global.push(ev({ type: "down", x: 300, y: 300, timeStamp: 50 }), {})
         yield* settle
-        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,80", "move1@10,80"])
-        expect(seen[2]!.buttons).toBe(0)
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "move1@10,80"])
+        expect(seen[3]!.buttons).toBe(0)
         // Rule A's end, an unpressed move from the feed, arrives shifted too.
         target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 10, y: 20 }))
         scroll.scrollTo(list, 0, 100, 60)
         global.push(ev({ type: "move", x: 12, y: 22, buttons: 0 }), {})
         yield* settle
-        expect(seen.map(at).slice(3)).toEqual(["down1@10,20", "move1@10,60", "move1@12,62"])
+        expect(seen.map(at).slice(4)).toEqual(["down1@10,20", "move1@10,20", "move1@10,60", "move1@12,62"])
         expect(seen.at(-1)!.buttons).toBe(0)
+        yield* Fiber.interrupt(fiber)
+      }))
+
+    it.effect("C24: a scroll before the held pointer's first move emits nothing; that move carries it, and later scrolls emit moves", () =>
+      Effect.gen(function* () {
+        // Motion's pan session updates nothing until the first pointermove
+        // (PanSession.ts:271-272 at 16c6122), so a press held still while the page
+        // scrolls stays a press.
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        scroll.scrollTo(list, 0, 60, 30)
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20"])
+        global.push(ev({ type: "move", x: 11, y: 21 }), {})
+        scroll.scrollTo(list, 0, 70, 40)
+        yield* settle
+        expect(seen.map(at)).toEqual(["down1@10,20", "move1@11,81", "move1@11,91"])
+        // A second down for the held pointer starts over: no move yet, no shift.
+        target.push(ev({ type: "down", x: 30, y: 40 }))
+        scroll.scrollTo(list, 0, 100, 50)
+        target.push(ev({ type: "move", x: 31, y: 41 }))
+        yield* settle
+        expect(seen.map(at).slice(3)).toEqual(["down1@30,40", "move1@31,71"])
         yield* Fiber.interrupt(fiber)
       }))
   })

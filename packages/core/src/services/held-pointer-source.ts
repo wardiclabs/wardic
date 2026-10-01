@@ -29,9 +29,12 @@
  * moved, so it is somewhere else on the page, as Motion's pan session counts it
  * (PanSession.ts:176-263 at 16c6122). With a `scroll` {@link ScrollFeed}, subscribed
  * beside `global` and only while a pointer is held, each change of a scrolled source
- * emits a `move` of every held pointer, at its last point shifted by the change, and
- * every later event of that pointer arrives shifted by the scroll since its down. The
- * feed's first report of a source is its baseline, not a scroll.
+ * emits a `move` of every held pointer that has moved since its down, at its last point
+ * shifted by the change, and every later event of that pointer arrives shifted by the
+ * scroll since its down. Before its first move a scroll only adds to the shift, as
+ * Motion updates nothing until the first pointermove (PanSession.ts:271-272), so a press
+ * held still while the page scrolls stays a press. The feed's first report of a source
+ * is its baseline, not a scroll.
  *
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
  * authors, like `makeRefreshFrameClock`. Nothing here names a DOM type.
@@ -72,11 +75,15 @@ export interface HeldPointerSourceOptions {
   readonly scroll?: ScrollFeed | undefined
 }
 
-/** A held pointer: its last event as forwarded, and the scroll since its down (added to its events). */
+/**
+ * A held pointer: its last event as forwarded, the scroll since its down (added to its
+ * events), and whether it has moved since its down (until then a scroll emits nothing).
+ */
 interface Held {
   last: PointerLikeEvent
   dx: number
   dy: number
+  moved: boolean
 }
 
 /** `event` moved by `held`'s scroll shift: the same object when there is none. */
@@ -144,6 +151,7 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
           for (const h of held.values()) {
             h.dx += dx
             h.dy += dy
+            if (!h.moved) continue
             const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, button: -1, timeStamp }
             h.last = moved
             Queue.offerUnsafe(queue, moved)
@@ -166,7 +174,10 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
           const out = shifted(h, event)
           Queue.offerUnsafe(queue, out)
           if (endsHold(event)) unhold(event.pointerId)
-          else h.last = out
+          else {
+            h.last = out
+            if (event.type === "move") h.moved = true
+          }
         }
 
         const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
@@ -180,11 +191,12 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
             // from this down.
             const first = held.size === 0
             const h = held.get(event.pointerId)
-            if (h === undefined) held.set(event.pointerId, { last: event, dx: 0, dy: 0 })
+            if (h === undefined) held.set(event.pointerId, { last: event, dx: 0, dy: 0, moved: false })
             else {
               h.last = event
               h.dx = 0
               h.dy = 0
+              h.moved = false
             }
             if (first) {
               if (options.global !== undefined && stopGlobal === undefined) {
@@ -208,7 +220,10 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
           const out = shifted(h, event)
           Queue.offerUnsafe(queue, out)
           if (endsHold(event)) unhold(event.pointerId)
-          else h.last = out
+          else {
+            h.last = out
+            if (event.type === "move") h.moved = true
+          }
         }
 
         const stopTarget = options.target(fromTarget)

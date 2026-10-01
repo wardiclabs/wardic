@@ -449,11 +449,12 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       const { container, el } = yield* scrolledTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+      el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
       container.scrollTop += 60
       yield* nextFrame
-      const events = yield* sub.collect(2)
-      expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,66"])
-      expect(events[1]!.buttons).toBe(1)
+      const events = yield* sub.collect(3)
+      expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,6", "move@5,66"])
+      expect(events[2]!.buttons).toBe(1)
       yield* sub.close
     }).pipe(Effect.scoped))
 
@@ -467,10 +468,11 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         const { el } = yield* scrolledTarget
         const sub = yield* subscribeIn(input.pointer(el))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
         window.scrollBy(0, 60)
         yield* nextFrame
-        const events = yield* sub.collect(2)
-        expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,66"])
+        const events = yield* sub.collect(3)
+        expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,6", "move@5,66"])
         yield* sub.close
       } finally {
         window.scrollTo(0, 0)
@@ -485,9 +487,10 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       const other = yield* scrolledTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+      el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
       other.container.scrollTop += 60
       yield* nextFrame
-      expect((yield* sub.collect(1)).map((e) => e.type)).toEqual(["down"])
+      expect((yield* sub.collect(2)).map((e) => e.type)).toEqual(["down", "move"])
       yield* sub.close
     }).pipe(Effect.scoped))
 
@@ -529,13 +532,14 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         anchor.after(panel)
         const sub = yield* subscribeIn(input.pointer(el))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
         container.scrollTop += 60
         window.scrollBy(0, 60)
         yield* nextFrame
         panel.scrollTop += 30
         yield* nextFrame
-        const events = yield* sub.collect(2)
-        expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,36"])
+        const events = yield* sub.collect(3)
+        expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,6", "move@5,36"])
         yield* sub.close
       } finally {
         window.scrollTo(0, 0)
@@ -552,11 +556,12 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         const a = yield* subscribeIn(input.pointer(el))
         const b = yield* subscribeIn(input.pointer(el))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
         expect(spy.adds()).toBe(2)
         container.scrollTop += 60
         yield* nextFrame
-        expect((yield* a.collect(2)).map((e) => `${e.type}@${e.y}`)).toEqual(["down@6", "move@66"])
-        expect((yield* b.collect(2)).map((e) => `${e.type}@${e.y}`)).toEqual(["down@6", "move@66"])
+        expect((yield* a.collect(3)).map((e) => `${e.type}@${e.y}`)).toEqual(["down@6", "move@6", "move@66"])
+        expect((yield* b.collect(3)).map((e) => `${e.type}@${e.y}`)).toEqual(["down@6", "move@6", "move@66"])
         yield* a.close
         yield* b.close
       } finally {
