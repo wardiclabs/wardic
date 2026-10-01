@@ -6,8 +6,9 @@
 // The controller owns core's Reorder group, reads the group element's `direction` at
 // each drag start, builds its Auto-scroll, routes each item's samples (start, moves
 // with Auto-scroll, end; an unmount mid-gesture ends it), detects the axis after every
-// Measure pass (not while the app sets one), and reports an item re-registered with the
-// same value in one task (the signature of a list keyed by index).
+// Measure pass (not while the app sets one), and warns once when an item re-registers
+// with the same value in one task (the signature of a list keyed by index). It logs
+// its own `wardic.reorder:` events through the runtime, so a binding wires no logging.
 import type { DragSample, ReorderAxis } from "@wardic/core"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
@@ -45,9 +46,18 @@ interface List {
   readonly container: HTMLElement
   readonly reorders: Array<ReadonlyArray<string>>
   readonly axes: Array<ReorderAxis>
-  readonly remounts: Array<string>
-  readonly logs: Array<{ readonly event: string; readonly annotations: Record<string, unknown> }>
+  /** The controller's `wardic.reorder:` logs so far, by event. */
+  readonly logs: () => Array<Log>
 }
+
+interface Log {
+  readonly event: string
+  readonly annotations: Record<string, unknown>
+}
+
+const PREFIX = "wardic.reorder: "
+const reorderLogs = (e: Engine) => (): Array<Log> =>
+  e.logs.filter((l) => l.message.startsWith(PREFIX)).map((l) => ({ event: l.message.slice(PREFIX.length), annotations: l.annotations }))
 
 const mountList = async (
   e: Engine,
@@ -58,10 +68,9 @@ const mountList = async (
   let order: ReadonlyArray<string> = values
   const reorders: Array<ReadonlyArray<string>> = []
   const axes: Array<ReorderAxis> = []
-  const remounts: Array<string> = []
-  const logs: List["logs"] = []
   const container = el(o.parent ?? stage(), CONTAINER[kind])
   const c = makeReorderController<string>({
+    runtime: e.runtime,
     projection: e.system,
     values: () => order,
     onReorder: (next) => {
@@ -69,8 +78,6 @@ const mountList = async (
       order = next
     },
     onAxis: (axis) => axes.push(axis),
-    onRemount: (value) => remounts.push(value),
-    debug: (event, annotations) => logs.push({ event, annotations }),
     ...o.options,
   })
   c.attach(container)
@@ -83,7 +90,7 @@ const mountList = async (
   }
   await endOfTask()
   fireFrame()
-  return { c, items, container, reorders, axes, remounts, logs }
+  return { c, items, container, reorders, axes, logs: reorderLogs(e) }
 }
 
 const centre = (element: HTMLElement) => {
@@ -143,7 +150,7 @@ describe("the Reorder controller (ADR-0020)", () => {
     e.system.notify()
     await endOfTask()
     expect(list.axes).toEqual(["y", "x"])
-    expect(list.logs.filter((l) => l.event === "axis").map((l) => l.annotations.axis)).toEqual(["y", "x"])
+    expect(list.logs().filter((l) => l.event === "axis").map((l) => l.annotations.axis)).toEqual(["y", "x"])
     e.system.notify()
     await endOfTask()
     expect(list.axes).toEqual(["y", "x"])
@@ -195,17 +202,18 @@ describe("the Reorder controller (ADR-0020)", () => {
       b.handle.dragMove(offset)
       b.driver.onSample(sample("move", at, offset, 16 * k))
     }
-    expect(list.logs.some((l) => l.event === "auto-scroll start")).toBe(true)
+    expect(list.logs().some((l) => l.event === "auto-scroll start")).toBe(true)
     b.driver.dispose()
-    expect(list.logs.at(-1)?.event).toBe("auto-scroll stop")
+    expect(list.logs().at(-1)?.event).toBe("auto-scroll stop")
     expect(list.c.group.dragMove("b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
     list.c.dispose()
     e.dispose()
   })
 
-  it("RC6: an item re-registered with the same value in the same task is reported once per controller; in a later task it isn't", async () => {
+  it("RC6: an item re-registered with the same value in the same task is warned of once per controller, naming the binding's keying; in a later task it isn't", async () => {
     const e = makeEngine(makeSink().sink)
-    const list = await mountList(e, "column")
+    const list = await mountList(e, "column", { options: { keyedWith: "<For>" } })
+    const remounts = () => e.logs.filter((l) => l.message.includes("remounted with the same value"))
     const reRegister = (value: string): void => {
       const item = list.items.get(value)!
       item.unregister()
@@ -216,11 +224,12 @@ describe("the Reorder controller (ADR-0020)", () => {
     await endOfTask()
     const a = list.items.get("a")!
     list.c.item("a", () => a.element).register(e.system.register({ id: "a2", element: a.element, springOptions: () => ({}) }))
-    expect(list.remounts).toEqual([])
+    expect(remounts()).toEqual([])
     reRegister("b")
-    expect(list.remounts).toEqual(["b"])
+    expect(remounts().map((l) => l.annotations.value)).toEqual(["b"])
+    expect(remounts()[0]!.message).toContain("key items with <For>")
     reRegister("c")
-    expect(list.remounts).toEqual(["b"])
+    expect(remounts()).toHaveLength(1)
     list.c.dispose()
     e.dispose()
   })
@@ -246,7 +255,7 @@ describe("the Reorder controller (ADR-0020)", () => {
     list.container.style.direction = "rtl"
     const drag = dragY(list.items.get("b")!, 0, 1)
     drag.end()
-    const start = list.logs.find((l) => l.event === "reorder start")
+    const start = list.logs().find((l) => l.event === "reorder start")
     expect(start?.annotations.direction).toBe("rtl")
     list.c.dispose()
     e.dispose()

@@ -12,14 +12,16 @@
  * a change through `onAxis`; while the app sets the axis it detects nothing. Motion
  * detects on every item's every measurement (Group.tsx:121-133 at 16c6122).
  *
- * Observability: the group's and Auto-scroll's events, plus `axis` when the detected
- * axis changes, go to `debug` (cold path: never per sample).
+ * Observability: `wardic.reorder:` debug logs through the runtime, annotated: the
+ * group's and Auto-scroll's events, and `axis` when the detected axis changes (cold
+ * path: never per sample), plus one warning per controller for a remount (below).
  *
  * Tier 2 (ADR-0008): for DOM binding authors.
  */
 import { autoScrollAxis, type DragSample, makeReorderGroup, type ReorderAxis, type ReorderGroup } from "@wardic/core"
+import * as Effect from "effect/Effect"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import { onPassEnd, type ProjectionNodeHandle, type ProjectionSystem } from "./projection.ts"
+import { onPassEnd, type ProjectionNodeHandle, type ProjectionRuntime, type ProjectionSystem } from "./projection.ts"
 
 /**
  * The group element's style: no scroll anchoring, so the browser doesn't shift the
@@ -30,6 +32,8 @@ export const REORDER_GROUP_STYLE = Object.freeze({ "overflow-anchor": "none" } a
 
 /** {@link makeReorderController}'s options. */
 export interface ReorderControllerOptions<V> {
+  /** The runtime the controller logs through (the projection system's). */
+  readonly runtime: ProjectionRuntime
   /** The projection system the items are nodes of. */
   readonly projection: ProjectionSystem
   /** The app's values, in order. */
@@ -41,11 +45,12 @@ export interface ReorderControllerOptions<V> {
   /** Called when the detected axis changes (after a Measure pass, or {@link ReorderController.resolve}). */
   readonly onAxis?: ((axis: ReorderAxis) => void) | undefined
   /**
-   * Called once per controller when an item registers with a value an item of this
-   * group unregistered in the same task: the signature of a list keyed by index.
+   * How the binding keys its items, for the warning logged once per controller when an
+   * item registers with a value an item of this group unregistered in the same task
+   * (the signature of a list keyed by index): "key items with `keyedWith`". Solid's is
+   * `"<For>"`; by default "their value".
    */
-  readonly onRemount?: ((value: V) => void) | undefined
-  readonly debug?: ((event: string, annotations: Record<string, unknown>) => void) | undefined
+  readonly keyedWith?: string | undefined
 }
 
 /** One item of a {@link ReorderController}: its binding feeds it the item's handle and drag samples. */
@@ -80,7 +85,10 @@ export interface ReorderController<V> {
 
 /** Build a {@link ReorderController}: a **Reorder group** over `options.projection`'s nodes. */
 export const makeReorderController = <V>(options: ReorderControllerOptions<V>): ReorderController<V> => {
-  const { debug } = options
+  const { runtime } = options
+  const debug = (event: string, annotations: Record<string, unknown>): void => {
+    runtime.runFork(Effect.logDebug(`wardic.reorder: ${event}`).pipe(Effect.annotateLogs(annotations)))
+  }
   let element: Element | undefined
   let autoScroller: AutoScroller | undefined
   const group = makeReorderGroup<V>({
@@ -99,13 +107,13 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
     detected = group.resolveAxis()
     if (detected === reported) return
     reported = detected
-    debug?.("axis", { axis: detected })
+    debug("axis", { axis: detected })
     options.onAxis?.(detected)
   }
   // Every Measure pass measures every node, so its end is when the boxes are fresh.
   const stopPassEnd = onPassEnd(options.projection, resolve)
 
-  // Values whose item unregistered in this task, and whether a remount was reported.
+  // Values whose item unregistered in this task, and whether a remount was warned of.
   const unregisteredThisTask = new Set<V>()
   let remountReported = false
 
@@ -122,7 +130,11 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
       register: (handle) => {
         if (!remountReported && unregisteredThisTask.has(value)) {
           remountReported = true
-          options.onRemount?.(value)
+          runtime.runFork(
+            Effect.logWarning(
+              `wardic.reorder: an item remounted with the same value in one task (key items with ${options.keyedWith ?? "their value"})`,
+            ).pipe(Effect.annotateLogs({ value: String(value) })),
+          )
         }
         const unregister = group.register(value, handle)
         return () => {

@@ -15,13 +15,13 @@
  * gesture, raised while dragged, whose `touch-action` follows the group's axis. A
  * `values` change re-measures, so a reorder the app makes itself animates.
  *
- * Observability: the controller's events are `wardic.reorder:` debug logs (cold path:
- * once per reorder, wait, gesture, edge or axis change, never per sample).
+ * Observability: the controller logs its own `wardic.reorder:` events through the
+ * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
+ * sample); this file logs nothing.
  */
 import type { ReorderAxis, ReorderGroup as CoreReorderGroup } from "@wardic/core"
 import { makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
-import * as Effect from "effect/Effect"
 import {
   type Accessor,
   type Component,
@@ -37,7 +37,7 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { useWardicGate, useWardicProjection, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
+import { useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardUserProps } from "./use-wardic.tsx"
 import { useVariantContext } from "./variants.ts"
 import { MOTION_PROPS, motionToConfig, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
@@ -75,10 +75,6 @@ export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWa
 /** A `<Reorder>` item's config: its `value`, plus any motion config but `layout`, `layoutId` and `drag`. */
 export type ReorderItemConfig<V> = { readonly value: V } & Omit<WardicConfig, "layout" | "layoutId" | "drag">
 
-const debugOf = (runtime: WardicRuntime) => (event: string, annotations: Record<string, unknown>): void => {
-  runtime.runFork(Effect.logDebug(`wardic.reorder: ${event}`).pipe(Effect.annotateLogs(annotations)))
-}
-
 /**
  * Create a **Reorder group** (ADR-0020). Spread the result onto the list's element
  * (`<ul {...group()}>`): it gives the element `overflow-anchor: none` (under the
@@ -93,22 +89,15 @@ const debugOf = (runtime: WardicRuntime) => (event: string, annotations: Record<
  */
 export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> {
   const cfg: Accessor<ReorderGroupConfig<V>> = typeof config === "function" ? config : () => config
-  const runtime = useWardicRuntime()
   const [detected, setDetected] = createSignal<ReorderAxis>("y")
   const controller = makeReorderController<V>({
+    runtime: useWardicRuntime(),
     projection: useWardicProjection(),
     values: () => untrack(cfg).values,
     onReorder: (values) => untrack(cfg).onReorder(values),
     axis: () => untrack(cfg).axis,
     onAxis: setDetected,
-    onRemount: (value) => {
-      runtime.runFork(
-        Effect.logWarning("wardic.reorder: an item remounted with the same value in one task (key items with <For>)").pipe(
-          Effect.annotateLogs({ value: String(value) }),
-        ),
-      )
-    },
-    debug: debugOf(runtime),
+    keyedWith: "<For>",
   })
   onCleanup(controller.dispose)
   const axis: Accessor<ReorderAxis> = () => cfg().axis ?? detected()
