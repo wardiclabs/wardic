@@ -50,6 +50,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 import { scrollersOf } from "./measure.ts"
+import { requireGlobal } from "./require-global.ts"
 import { makeSharedByTarget, makeSharedGlobal } from "./shared.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */
@@ -198,6 +199,9 @@ const toKeyboard = (type: KeyboardLikeEvent["type"]) =>
  * these are plain `Stream`s, so each `lookup` simply succeeds with the stream.
  */
 const make = Effect.gen(function* () {
+  // Client-only (ADR-0021, decision 7): the keyboard stream below is built on `document`.
+  yield* requireGlobal("InputDomLive", "document")
+
   const pointer = yield* makeSharedByTarget((target) =>
     Effect.succeed(
       heldPointerSource({
@@ -251,6 +255,7 @@ const make = Effect.gen(function* () {
 /**
  * `InputSource` Layer backed by DOM event listeners. Built with `Layer.effect`
  * so `make` runs in the layer's scope and the shared helpers' `RcMap`/`RcRef`
- * caches live for the layer's lifetime.
+ * caches live for the layer's lifetime. Building it on a server (no `document`) fails
+ * with the client-only error (ADR-0021, decision 7).
  */
 export const InputDomLive: Layer.Layer<InputSource> = Layer.effect(InputSource)(make)

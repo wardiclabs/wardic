@@ -22,7 +22,7 @@ export const VERSION = "0.1.0-alpha.0"
 export { ClockDomLive } from "./clock.ts"
 export { InputDomLive } from "./input.ts"
 export { ProbeDomLive } from "./probe.ts"
-export { RendererDomLive } from "./renderer.ts"
+export { project, RendererDomLive } from "./renderer.ts"
 
 // Layout/projection engine (ADR-0009) — framework-agnostic; a binding wires it
 // with its own flush gate (as a ProjectionSink) + a runtime providing Clock.
@@ -54,8 +54,21 @@ export {
   SCALE_CORRECTORS,
 } from "./scale-correction.ts"
 // SVG attribute/style routing (ADR-0014) — the binding's signal-sink applies the
-// `style` half declaratively + the `attrs` half via `setSvgAttrs`.
-export { dashCase, isSvgInner, isSvgRoot, setSvgAttrs, type SplitPatch, splitPatch } from "./svg.ts"
+// `style` half declaratively + the `attrs` half via `setSvgAttrs`. The by-tag forms route
+// where there is no element yet (a server render, the Starting style; ADR-0021).
+export {
+  dashCase,
+  isSvgInner,
+  isSvgInnerTag,
+  isSvgRoot,
+  setSvgAttrs,
+  type SplitPatch,
+  splitPatch,
+  splitPatchForTag,
+} from "./svg.ts"
+// Starting style (ADR-0021): Tier 2, for binding authors. An element's style before its
+// first Frame, computed purely, the same on a server and on the client.
+export { type InitialConfig, mergeStyle, resolveInitial, startingStyle, toValues } from "./starting-style.ts"
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's
@@ -67,6 +80,9 @@ export { dashCase, isSvgInner, isSvgRoot, setSvgAttrs, type SplitPatch, splitPat
  * provided to them via `Layer.provideMerge` AND re-exposed in the output env,
  * exactly as the headless `testLayer` (packages/test) does. Provide this to
  * `WardicProvider` to run the full engine against the real DOM.
+ *
+ * Client-only: a server render builds no runtime, and building DomLive on a server fails
+ * with a clear error naming the Layer and the missing global (ADR-0021, decision 7).
  */
 export const DomLive: Layer.Layer<
   Clock | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry

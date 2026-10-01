@@ -223,8 +223,12 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
  *
  * Either way, non-transform keys are copied across with default-unit handling.
  * No side effects.
+ *
+ * Exported for a binding's server render, which builds no runtime and so projects with
+ * this function directly: the same one {@link RendererDomLive} provides (ADR-0021,
+ * decision 2). Tier 2, for binding authors.
  */
-const project = (values: Record<string, unknown>): Patch => {
+export const project = (values: Record<string, unknown>): Patch => {
   const patch: Patch = {}
 
   const projection = values[PROJECTION_KEY] as ProjectionValue | undefined

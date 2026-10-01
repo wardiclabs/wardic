@@ -104,9 +104,55 @@ export interface SplitPatch {
  *   an HTML one; `pathLength`/`pathSpacing`/`pathOffset` collapse to a normalised
  *   `stroke-dasharray`/`stroke-dashoffset` (+ `pathLength=1`), unitless.
  */
-export const splitPatch = (el: unknown, patch: Patch): SplitPatch => {
-  if (!isSvgInner(el)) return { style: patch as Record<string, unknown>, attrs: {} }
+export const splitPatch = (el: unknown, patch: Patch): SplitPatch =>
+  isSvgInner(el) ? routeSvgInner(patch) : { style: patch as Record<string, unknown>, attrs: {} }
 
+/**
+ * SVG's element names that HTML doesn't share, lowercase (Motion's list,
+ * framer-motion/src/render/svg/lowercase-elements.ts @ 16c6122, without the `svg` root).
+ * A name with a capital letter (`clipPath`, `linearGradient`, `feGaussianBlur` …) is SVG
+ * too, as Motion's `isSVGComponent` decides; `a`, `script`, `style` and `title` count as
+ * HTML, since a server has no namespace to tell them apart.
+ */
+const SVG_INNER_TAGS: ReadonlySet<string> = new Set([
+  "animate",
+  "circle",
+  "defs",
+  "desc",
+  "ellipse",
+  "g",
+  "image",
+  "line",
+  "filter",
+  "marker",
+  "mask",
+  "metadata",
+  "path",
+  "pattern",
+  "polygon",
+  "polyline",
+  "rect",
+  "stop",
+  "switch",
+  "symbol",
+  "text",
+  "tspan",
+  "use",
+  "view",
+])
+
+/** Whether `tag` names an svg-INNER element (any SVG element but the `<svg>` root), by name alone. */
+export const isSvgInnerTag = (tag: string): boolean => !tag.includes("-") && (SVG_INNER_TAGS.has(tag) || /[A-Z]/.test(tag))
+
+/**
+ * {@link splitPatch} by tag name, for where there is no element yet: a server render and
+ * the Starting style (ADR-0021). The same routing; `undefined` is an HTML element.
+ */
+export const splitPatchForTag = (tag: string | undefined, patch: Patch): SplitPatch =>
+  tag !== undefined && isSvgInnerTag(tag) ? routeSvgInner(patch) : { style: patch as Record<string, unknown>, attrs: {} }
+
+/** The svg-inner routing {@link splitPatch} and {@link splitPatchForTag} share. */
+const routeSvgInner = (patch: Patch): SplitPatch => {
   const style: Record<string, unknown> = {}
   const attrs: Record<string, string> = {}
   let hasTransform = false

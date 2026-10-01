@@ -1,6 +1,6 @@
 // SVG attribute/style routing (ADR-0014) — unit tests for the DOM applier's
 // router on REAL SVG elements (createElementNS, so `instanceof SVGElement` holds).
-import { dashCase, isSvgInner, isSvgRoot, setSvgAttrs, splitPatch } from "@wardic/dom"
+import { dashCase, isSvgInner, isSvgRoot, setSvgAttrs, splitPatch, splitPatchForTag } from "@wardic/dom"
 import { describe, expect, it } from "vitest"
 
 const SVGNS = "http://www.w3.org/2000/svg"
@@ -73,5 +73,19 @@ describe("splitPatch — SVG attribute/style routing (ADR-0014)", () => {
     expect(dashCase("transformBox")).toBe("transform-box")
     expect(dashCase("x1")).toBe("x1")
     expect(dashCase("fill")).toBe("fill")
+  })
+})
+
+// A server has no element to test, so the Starting style routes by tag (ADR-0021); the
+// tag's routing must be the element's.
+describe("splitPatchForTag — the same routing by tag name (ADR-0021)", () => {
+  it("SVG-T1: for each tag, splitPatchForTag equals splitPatch on a real element", () => {
+    const patch = { cx: 10, opacity: 0.5, transform: "translateX(5px)", transformOrigin: "0 0", pathLength: 0.5, attrX: 3 }
+    for (const tag of ["circle", "rect", "path", "g", "line", "ellipse", "polygon", "text", "svg"]) {
+      expect(splitPatchForTag(tag, patch), tag).toEqual(splitPatch(svg(tag), patch))
+    }
+    for (const tag of ["div", "a"]) {
+      expect(splitPatchForTag(tag, patch), tag).toEqual(splitPatch(document.createElement(tag), patch))
+    }
   })
 })

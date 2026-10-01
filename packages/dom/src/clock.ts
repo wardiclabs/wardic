@@ -9,6 +9,7 @@ import { Clock, makeRefreshFrameClock } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type { AtomRegistry } from "effect/unstable/reactivity"
+import { requireGlobal } from "./require-global.ts"
 
 /**
  * `Clock` Layer backed by `requestAnimationFrame`. Requires the Environment's
@@ -16,11 +17,14 @@ import type { AtomRegistry } from "effect/unstable/reactivity"
  * it via `AtomRegistry.layer`, exactly as `testLayer` does.
  *
  * The Refresh frame source is built when the Layer builds, not at module load, so
- * importing `@wardic/dom` never touches `requestAnimationFrame` (SSR-safe), and a
- * test that stubs the global before building the Layer drives this Clock.
+ * importing `@wardic/dom` never touches `requestAnimationFrame`, and a test that stubs
+ * the global before building the Layer drives this Clock. Building it on a server (no
+ * `requestAnimationFrame`) fails with the client-only error (ADR-0021, decision 7).
  */
 export const ClockDomLive: Layer.Layer<Clock, never, AtomRegistry.AtomRegistry> = Layer.effect(Clock)(
-  Effect.suspend(() =>
-    makeRefreshFrameClock({ requestFrame: requestAnimationFrame, cancelFrame: cancelAnimationFrame }),
+  requireGlobal("ClockDomLive", "requestAnimationFrame").pipe(
+    Effect.andThen(() =>
+      makeRefreshFrameClock({ requestFrame: requestAnimationFrame, cancelFrame: cancelAnimationFrame })
+    ),
   ),
 )
