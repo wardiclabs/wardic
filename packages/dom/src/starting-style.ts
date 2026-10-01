@@ -20,22 +20,25 @@ import { type SplitPatch, splitPatchForTag } from "./svg.ts"
  * properties included). `undefined` and anything else drop out, so the engine never sees
  * them.
  */
-export const toValues = (v: Readonly<Record<string, unknown>> | undefined): Values => {
+export const toValues = (v: object | undefined): Values => {
   const out: Record<string, number | string> = {}
   if (v) {
     for (const k in v) {
-      const val = v[k]
+      const val = (v as Record<string, unknown>)[k]
       if (val !== undefined && (typeof val === "number" || typeof val === "string")) out[k] = val
     }
   }
   return out
 }
 
-/** The part of an element's config its Starting style is resolved from. */
+/**
+ * The part of an element's config its Starting style is resolved from. Values maps are
+ * typed `object` so a binding's own value types (interfaces) fit as they are.
+ */
 export interface InitialConfig {
   /** A values map used as is, or the name of a `variants` entry. */
-  readonly initial?: Readonly<Record<string, unknown>> | string | undefined
-  readonly variants?: Readonly<Record<string, Readonly<Record<string, unknown>> | undefined>> | undefined
+  readonly initial?: object | string | undefined
+  readonly variants?: Readonly<Record<string, object | undefined>> | undefined
 }
 
 /**
@@ -57,20 +60,21 @@ export const resolveInitial = (config: InitialConfig): Values => {
  * style plus the animated keys, or the animated patch itself when the user has none.
  */
 export const mergeStyle = (
-  user: Readonly<Record<string, unknown>> | undefined,
+  user: object | undefined,
   animated: Patch,
   defaults?: DragDefaultStyle,
-  base?: Readonly<Record<string, unknown>>,
+  base?: object,
 ): Record<string, unknown> => {
   if (defaults === undefined && base === undefined) return user !== undefined ? { ...user, ...animated } : animated
   const merged: Record<string, unknown> = { ...defaults, ...base, ...user, ...animated }
   // `user-select` and `-webkit-user-select` are one property in Chromium: the user's
   // value for either is the value for both, or the default left on the other wins.
-  if (user !== undefined) {
-    if (user["user-select"] !== undefined && user["-webkit-user-select"] === undefined) {
-      merged["-webkit-user-select"] = user["user-select"]
-    } else if (user["-webkit-user-select"] !== undefined && user["user-select"] === undefined) {
-      merged["user-select"] = user["-webkit-user-select"]
+  const users = user as Readonly<Record<string, unknown>> | undefined
+  if (users !== undefined) {
+    if (users["user-select"] !== undefined && users["-webkit-user-select"] === undefined) {
+      merged["-webkit-user-select"] = users["user-select"]
+    } else if (users["-webkit-user-select"] !== undefined && users["user-select"] === undefined) {
+      merged["user-select"] = users["-webkit-user-select"]
     }
   }
   return merged

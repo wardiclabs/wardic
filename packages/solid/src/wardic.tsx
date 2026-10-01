@@ -32,12 +32,13 @@
  */
 import { mergeRefs } from "@solid-primitives/refs"
 import type { DragBounds } from "@wardic/core"
-import { type Accessor, type Component, createSignal, createUniqueId, type JSX, onMount, splitProps } from "solid-js"
+import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
+import { isServer } from "./server.ts"
 import {
   runSpine,
-  useWardic,
+  useWardicWith,
   type WardicConfig,
   type WardicTransition,
   type WardicValues,
@@ -308,14 +309,18 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
 
   const tag = arg
   return (props) => {
+    // A server render takes the lean path (ADR-0021, decision 4).
+    if (isServer) return serverElement(tag, props)
+
     // 3-way split: motion props (consumed, never leak), then ref+style (merged),
     // then everything else (rest) passes through to the DOM element.
     const [motion, refStyle, rest] = splitProps(props as WardicProps<keyof JSX.IntrinsicElements>, MOTION_PROPS, ["ref", "style"])
 
     // Reactive config accessor: motionToConfig reads each (reactive) prop getter
     // inside the accessor, so a changed `animate` / `whileHover` / `transition`
-    // (a tracked expression) drives a Retarget.
-    const ward = useWardic(motionToConfig(motion))
+    // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
+    // render its Starting style's attribute keys as attributes (ADR-0021).
+    const ward = useWardicWith(motionToConfig(motion), { tag })
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the
     // user's ref and ward's internal ref, and merges the user's style with ward's
@@ -337,6 +342,30 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
 
     return <Dynamic component={tag} {...rest} {...ward(userProps)} />
   }
+}
+
+/** The motion props, as a set for the server path's one pass. */
+const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)
+
+/**
+ * `wardic.<tag>` during a server render (ADR-0021, decision 4): the element with its
+ * Starting style and static attributes, built in one pass over the props. Solid's server
+ * `splitProps` and `mergeProps` cost most of a wrapped element's server time, and none of
+ * their reactivity matters there. The client's `createUniqueId` (inside `useWardicWith`)
+ * and its `Dynamic` boundary are kept, so every hydration key lands where the client's
+ * render puts it.
+ */
+const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element => {
+  // Everything but the motion props, `ref` and `style`; getters stay getters.
+  const descriptors = Object.getOwnPropertyDescriptors(props)
+  const out: Record<string, unknown> = {}
+  for (const key in descriptors) {
+    if (MOTION_KEYS.has(key) || key === "ref" || key === "style") continue
+    Object.defineProperty(out, key, descriptors[key]!)
+  }
+  const ward = useWardicWith(motionToConfig(props as WardicMotionProps), { tag })
+  Object.assign(out, ward({ style: props.style as JSX.CSSProperties | undefined }), { component: tag })
+  return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
 }
 
 /**
