@@ -49,7 +49,7 @@ import { heldPointerSource, InputSource } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
-import { scrollableAncestors } from "./measure.ts"
+import { scrollersOf } from "./measure.ts"
 import { makeSharedByTarget, makeSharedGlobal } from "./shared.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */
@@ -123,7 +123,8 @@ export const heldScrollShift = (target: unknown): Point =>
 
 /**
  * The {@link ScrollFeed} of a pointer target: its scrollable ancestors' scroll
- * (`scrollLeft`/`scrollTop`) and its window's (`scrollX`/`scrollY`). On subscribe it
+ * (`scrollLeft`/`scrollTop`) and its window's (`scrollX`/`scrollY`), stopping at a
+ * `position: fixed` element (no scroll outside it moves the target). On subscribe it
  * reports each one's current position, then listens on the target's window: a
  * capture-phase listener for element scrolls (only the tracked ancestors report) and
  * one for the window's own scroll (the document's scroll event reaches the capture
@@ -147,18 +148,19 @@ const scrollFeedOf = (target: unknown): ScrollFeed => (emit) => {
     }
     emit(source, { x, y }, timeStamp)
   }
-  if (isElement(target)) {
-    // The positions at subscribe are the baselines (no event, so no time).
-    for (const el of scrollableAncestors(target)) report(el, el.scrollLeft, el.scrollTop, 0)
-  }
-  report(win, win.scrollX, win.scrollY, 0)
+  // The positions at subscribe are the baselines (no event, so no time). Inside a
+  // `position: fixed` element only the scrollers up to it move the target, and the
+  // page doesn't.
+  const scrollers = isElement(target) ? scrollersOf(target) : { ancestors: [], page: true }
+  for (const el of scrollers.ancestors) report(el, el.scrollLeft, el.scrollTop, 0)
+  if (scrollers.page) report(win, win.scrollX, win.scrollY, 0)
   const onElement = (ev: Event): void => {
     const el = ev.target as Element
     if (el === (doc as unknown) || !last.has(el)) return
     report(el, el.scrollLeft, el.scrollTop, ev.timeStamp)
   }
   const onWindow = (ev: Event): void => {
-    if (ev.target !== doc && ev.target !== win) return
+    if ((ev.target !== doc && ev.target !== win) || !last.has(win)) return
     report(win, win.scrollX, win.scrollY, ev.timeStamp)
   }
   win.addEventListener("scroll", onElement, CAPTURE_PASSIVE)

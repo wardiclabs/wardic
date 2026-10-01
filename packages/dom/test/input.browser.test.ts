@@ -509,6 +509,40 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       }
     }).pipe(Effect.scoped))
 
+  it.effect("I17: inside a plain position:fixed element, neither the page's scroll nor an outer container's moves the pointer; the fixed element's own does", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource
+      const tall = document.createElement("div")
+      tall.style.cssText = "height:4000px"
+      document.body.append(tall)
+      try {
+        const { container, el: anchor } = yield* scrolledTarget
+        // A fixed scrolling panel inside the scrolled container, holding the target.
+        const panel = document.createElement("div")
+        panel.style.cssText = "position:fixed;left:300px;top:0;width:100px;height:100px;overflow:auto"
+        const panelContent = document.createElement("div")
+        panelContent.style.cssText = "height:400px"
+        const el = document.createElement("div")
+        el.style.cssText = "width:50px;height:50px"
+        panelContent.append(el)
+        panel.append(panelContent)
+        anchor.after(panel)
+        const sub = yield* subscribeIn(input.pointer(el))
+        el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        container.scrollTop += 60
+        window.scrollBy(0, 60)
+        yield* nextFrame
+        panel.scrollTop += 30
+        yield* nextFrame
+        const events = yield* sub.collect(2)
+        expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,36"])
+        yield* sub.close
+      } finally {
+        window.scrollTo(0, 0)
+        tall.remove()
+      }
+    }).pipe(Effect.scoped))
+
   it.effect("I16: two subscribers to one element share one pair of scroll listeners", () =>
     Effect.gen(function* () {
       const input = yield* InputSource
