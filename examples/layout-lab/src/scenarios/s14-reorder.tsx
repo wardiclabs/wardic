@@ -19,6 +19,11 @@
  * **M** (any time) moves the first item to the end in code: the app sets `values`
  * itself, as `move()` does through `onReorder`, and the items animate there.
  *
+ * "A layout child in each item" wraps each item's text in a `layout` `<p>` (#28's
+ * nested case, deferred in ADR-0020): a displaced item's pass then seeds its child
+ * too, so the drag lines' seeded bound doubles (the run's `nodesPerItem`); watch the
+ * children ride their items, and a retarget for #28's glued-child jump.
+ *
  * Two toggles break it on purpose: "items via .map" renders the items without
  * `<For>`, so each reorder remounts them (the console shows one warning, and the
  * reorder doesn't animate); "touch-action: auto on items" overrides the drag default
@@ -31,7 +36,7 @@
  *
  * @module
  */
-import { Reorder } from "@wardic/solid"
+import { Reorder, wardic } from "@wardic/solid"
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 import type { Box, Point } from "../lab/drag-run.ts"
 import type { ReorderEvent, ReorderFrame } from "../lab/reorder-run.ts"
@@ -107,6 +112,8 @@ const containerStyle = (layout: Layout): JSX.CSSProperties => {
 
 const LIFT = { scale: 1.05 } as const
 const NO_LIFT = {} as const
+/** The layout child: no margins, so the item looks the same with or without it. */
+const CHILD_STYLE: JSX.CSSProperties = { margin: "0" }
 
 /** A painted box relative to `of`'s box. */
 const relativeBox = (el: Element, of: DOMRect): Box => {
@@ -120,6 +127,7 @@ const View: ScenarioDef["View"] = (props) => {
   const [lift, setLift] = createSignal(false)
   const [viaMap, setViaMap] = createSignal(false)
   const [touchAuto, setTouchAuto] = createSignal(false)
+  const [layoutChild, setLayoutChild] = createSignal(false)
   const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES)
 
   let stage: HTMLDivElement | undefined
@@ -137,6 +145,7 @@ const View: ScenarioDef["View"] = (props) => {
   let scrollAtGrab: Point = { x: 0, y: 0 }
   let scrolledByHand: Point = { x: 0, y: 0 }
   let layoutAtGrab: Layout = "y"
+  let childAtGrab = false
   let recording = false
 
   const scrollNow = (): Point =>
@@ -202,6 +211,7 @@ const View: ScenarioDef["View"] = (props) => {
       scrollAtGrab = scrollNow()
       scrolledByHand = { x: 0, y: 0 }
       layoutAtGrab = layout()
+      childAtGrab = layoutChild()
       recording = true
     }
     const area = stage!
@@ -213,7 +223,7 @@ const View: ScenarioDef["View"] = (props) => {
       children: () => ({}),
       reorderFrame,
       scroller: () => (inContainer() ? container : window),
-      mode: () => `${layout()}${inContainer() ? " · container" : ""}`,
+      mode: () => `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}`,
       record: (input) => {
         recording = false
         const dragged = pressed?.dataset.value ?? ""
@@ -230,6 +240,7 @@ const View: ScenarioDef["View"] = (props) => {
             scrollAtGrab,
             scrollAtEnd: scrollNow(),
             scrolledByHand,
+            nodesPerItem: childAtGrab ? 2 : 1,
           },
         })
       },
@@ -254,7 +265,11 @@ const View: ScenarioDef["View"] = (props) => {
       whileDrag={lift() ? LIFT : NO_LIFT}
       style={itemStyle(layout(), touchAuto())}
     >
-      item {value}
+      <Show when={layoutChild()} fallback={<>item {value}</>}>
+        <wardic.p layout style={CHILD_STYLE}>
+          item {value}
+        </wardic.p>
+      </Show>
     </Reorder.Item>
   )
 
@@ -286,6 +301,7 @@ const View: ScenarioDef["View"] = (props) => {
         <Checkbox label="lift (whileDrag scale)" name="reorder-lift" checked={lift()} onChange={setLift} />
         <Checkbox label="items via .map (breaks it)" name="reorder-map" checked={viaMap()} onChange={setViaMap} />
         <Checkbox label="touch-action: auto on items (breaks touch)" name="reorder-touch" checked={touchAuto()} onChange={setTouchAuto} />
+        <Checkbox label="a layout child in each item (#28)" name="reorder-child" checked={layoutChild()} onChange={setLayoutChild} />
       </div>
       <p style={NOTE_STYLE}>
         Drag an item past one neighbour, past several, and flick it. While you hold it: S scrolls the container (or the
@@ -317,6 +333,7 @@ export const s14: ScenarioDef = {
     underPointerMaxPx: 1,
     framesBehindMax: { default: 1, microtask: 0 },
     // A reorder's pass seeds the displaced items: one on a single axis, up to the other five on a grid's line move.
+    // Per item: with the layout-child toggle each item is two nodes, and the check scales by the run's nodesPerItem.
     maxSeededPerPass: 5,
     releaseHeldMax: { default: 1, microtask: 0 },
     endsOnSlotMaxPx: 0.5,

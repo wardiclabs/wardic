@@ -439,6 +439,12 @@ within 50 px of the container's (or the window's) edge Auto-scrolls it. **M** (n
 while held) moves the first item to the end in code: the app sets `values` itself,
 as `move()` does through `onReorder`, and the items should animate there.
 
+**A layout child in each item** wraps each item's text in a `layout` `<p>`: #28's
+nested case, which ADR-0020 defers. The children should ride their items through a
+drag, a reorder and the release. A displaced item's pass seeds its child too, so the
+`passes` line's bound doubles (the run's `nodesPerItem`); a retarget is where #28's
+glued-child jump would show. The mode reads `· child` while it's on.
+
 Two toggles break it on purpose:
 
 - **items via .map** renders the items without `<For>`: each reorder remounts them,
@@ -448,8 +454,8 @@ Two toggles break it on purpose:
   (devtools touch emulation) gets taken for a scroll and cancelled, and ends where
   it was, not at the viewport's corner.
 
-Each press is a drag run. The card keeps the drag lines (no `child glued`: the
-items have no children) and adds four reorder lines (`lab/reorder-run.ts`). The
+Each press is a drag run. The card keeps the drag lines (no `child glued`: it
+doesn't watch the items' children, even with the layout child on) and adds four reorder lines (`lab/reorder-run.ts`). The
 expected card, with a browser's own scheduler:
 
 | Check | Expected | At `4d2fa2b` (the probe evidence) |
@@ -504,6 +510,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R20 | `y`, in a scroll container | drag to the container's bottom edge and hold still (Auto-scroll), release | 3 |
 | R21 | `y` | touch via devtools emulation: drag past one neighbour; then with "touch-action: auto" on | 2 each |
 | R22 | any | press M twice; then once with "items via .map" on (watch the console) | 1 |
+| R23 | `y`, `xy` | with "a layout child in each item" on: as R13, then drag back and forth across one neighbour (a retarget); watch each child stay on its item | 2 each |
 
 ## Scheduler note
 

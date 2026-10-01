@@ -868,12 +868,9 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   const heldPasses = run.passes.perPass.filter(
     (p) => p.start >= started && (releaseAt === null || p.start < releaseAt),
   )
-  const {
-    underPointerMaxPx: underMax,
-    childGlueMaxPx: glueMax,
-    maxSeededPerPass: seededMax,
-    endsOnSlotMaxPx: slotMax,
-  } = expect
+  const { underPointerMaxPx: underMax, childGlueMaxPx: glueMax, endsOnSlotMaxPx: slotMax } = expect
+  // The bound is per displaced item: a reorder run's items may each carry a layout child.
+  const seededMax = expect.maxSeededPerPass === undefined ? undefined : expect.maxSeededPerPass * (run.reorder?.nodesPerItem ?? 1)
   const behindMax = forScheduler(expect.framesBehindMax, run)
   const releaseHeldMax = forScheduler(expect.releaseHeldMax, run)
   // A lost release no unpressed move followed: its gesture's end never came in the run.

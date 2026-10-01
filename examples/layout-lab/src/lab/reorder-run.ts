@@ -74,6 +74,12 @@ export interface ReorderRunData {
   readonly scrollAtEnd: Point
   /** How far the S key scrolled it during the press, px. */
   readonly scrolledByHand: Point
+  /**
+   * Projection nodes per item: 2 when each item holds a `layout` child (scenario 14's
+   * toggle), whose pass seeds it with its item. The drag lines' seeded bound is per
+   * item, so it scales by this. Left out, 1.
+   */
+  readonly nodesPerItem?: number
 }
 
 /** What a reorder scenario expects of every press (see {@link reorderChecksOf}). */

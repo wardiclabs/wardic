@@ -449,6 +449,30 @@ describe("dragChecksOf", () => {
     expect(passesOf([...cleanSpans, heldTwoSeeded])?.ok).toBe(false)
   })
 
+  it("scales the seeded bound by a reorder run's nodes per item (#44: scenario 14's layout-child toggle)", () => {
+    // A displaced item with a layout child moves two nodes, and its pass seeds both.
+    const reorder = {
+      layout: "xy",
+      axis: "xy",
+      dragged: "a",
+      orderAtGrab: ["a", "b", "c"],
+      reorders: [],
+      scrollAtGrab: { x: 0, y: 0 },
+      scrollAtEnd: { x: 0, y: 0 },
+      scrolledByHand: { x: 0, y: 0 },
+    }
+    const passesOf = (nodesPerItem: number | undefined, seeded: number) =>
+      dragChecksOf(
+        dragRunOf({ ...input(cleanFrames), reorder: nodesPerItem === undefined ? reorder : { ...reorder, nodesPerItem } }, [
+          span(MEASURE, 1070, 1071, { seeded, dragBlocked: 2 }),
+        ]),
+        { ...S11_EXPECT, maxSeededPerPass: 5 },
+      ).find((c) => c.name === "passes")
+    expect(passesOf(undefined, 6)?.ok).toBe(false)
+    expect(passesOf(2, 6)?.ok).toBe(true)
+    expect(passesOf(2, 11)?.text).toBe("1 (1 seeding, 2 drag-blocked) ✗ expected seeded ≤ 10 per held pass, drag-blocked ≥ 1 over them")
+  })
+
   it("does not count a pass before the drag started (at the pointerdown) as a held pass", () => {
     const firstMove = MOVES.find((m) => Math.hypot(m.dx, m.dy) > 3)!
     const atDown = span(MEASURE, firstMove.t - 5, firstMove.t - 4, { seeded: 1, dragBlocked: 0 })
