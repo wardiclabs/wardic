@@ -1245,6 +1245,9 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         node.origin = undefined
         node.spring = undefined
         node.animating = false
+        // A released layoutRoot's flight ends here, so its raise goes with this write.
+        node.releasing = false
+        node.raised = false
         active.delete(node)
         node.lastDelta = IDENTITY_DELTA
         writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
@@ -1566,8 +1569,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   /** Run a pending blocked pass now, synchronously (its rounds run before the fiber's first async step). */
   const runBlockedPass = (): void => {
     if (!resizeBlocked || inPass || disposed) return
-    runtime.runFork(
-      measurePass.pipe(Effect.tapCause((cause) => Effect.logError("wardic.projection: blocked pass failed", cause))),
+    FiberSet.addUnsafe(
+      taskFibers,
+      runtime.runFork(
+        measurePass.pipe(Effect.tapCause((cause) => Effect.logError("wardic.projection: blocked pass failed", cause))),
+      ),
     )
   }
 

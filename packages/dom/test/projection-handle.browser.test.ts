@@ -162,6 +162,29 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     e.dispose()
   })
 
+  it("PH10: a released layoutRoot whose flight a Measure pass ends (its self-snap) drops the raise in that write", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
+    const h = e.system.register({ id: "a", element: box, springOptions: () => ({}), raiseWhileDragged: true, layoutRoot: true })
+    await endOfTask()
+    fireFrame()
+    h.dragStart()
+    h.dragMove({ x: 80, y: 0 })
+    fireFrame()
+    h.dragEnd()
+    await endOfTask()
+    fireFrames(3)
+    expect(sk.of("a").at(-1)?.value.raise).toBe(1)
+    // A pass mid-flight: a layoutRoot snaps to its slot, ending the release.
+    h.notify()
+    await endOfTask()
+    expect(sk.of("a").at(-1)?.value.raise).toBeUndefined()
+    fireFrames(240)
+    expect(sk.of("a").at(-1)?.value.raise).toBeUndefined()
+    e.dispose()
+  })
+
   it("PH9: the getters are plain reads: no layout read, no pass", async () => {
     const e = makeEngine(makeSink().sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
