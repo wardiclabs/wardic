@@ -88,11 +88,11 @@ interface Scratch<V> {
  * boxes and the dragged item's offset from their sources, runs the **Crossover**
  * (Motion's `checkReorder`, with the single-axis neighbour chosen by position), and on
  * a new order maps it back onto `values`, keeping unmeasured values at their indexes
- * (Motion's Group.tsx:150-160 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), then calls
+ * (Motion's Group.tsx:160-166 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), then calls
  * `onReorder`. After a reorder it waits until the dragged item's `layoutVersion()`
  * rises, so a sample read against the boxes from before the reorder can't swap it
- * back; Motion waits for React's next commit (Group.tsx:163-165). The registry is a
- * plain `Map` keyed by value.
+ * back; Motion waits for React's next commit (its guard is set at Group.tsx:158 and
+ * cleared by an effect at :172-174). The registry is a plain `Map` keyed by value.
  *
  * Per sample it allocates only the velocity point (and a new order on a reorder).
  *
