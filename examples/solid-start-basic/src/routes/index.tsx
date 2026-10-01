@@ -11,6 +11,10 @@ export default function Home() {
       <main style={{ "font-family": "system-ui, sans-serif", "padding": "2rem", "max-width": "40rem" }}>
         <h1>Wardic dev sandbox</h1>
         <p>The packages are wired up and rendering through SSR. Start building primitives in @wardic/core.</p>
+        <p>
+          <a href="/ssr">/ssr</a>: every Wardic element rendered on the server, then hydrated, with a hydration
+          report (#41).
+        </p>
         <ul>
           <li>@wardic/core — v{coreVersion}</li>
           <li>@wardic/dom — v{domVersion}</li>
