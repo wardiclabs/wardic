@@ -86,3 +86,8 @@ The rest of the grill, for the record:
 **A cancelled drag ends where the pointer was.**
 - Chromium's `pointercancel` carries (0, 0), so a drag the browser took over (a touch scroll, a native `dragstart`) ended with its last sample at (0, 0).
 - A cancel now ends at the last move's point with a zero delta, and its velocity comes from the moves, as Motion's pan session does ([PanSession.ts:329-333](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L329-L333)). A release is unchanged.
+
+**Pinned by:**
+- a scroll during a hold: `packages/core/test/held-pointer-source.test.ts` (C15–C24), `packages/test/test/pointer-rules.test.ts` (N14–N15), `packages/dom/test/input.browser.test.ts` (I11–I17), `packages/solid/test/drag-scroll.browser.test.tsx` (DS1–DS4) and `reorder-engine.browser.test.tsx` RE3–RE4;
+- the drag defaults: `packages/dom/test/drag-defaults.browser.test.ts` (DD1–DD3), `packages/solid/test/drag-defaults.browser.test.tsx` (E1–E9), RE8–RE9, and the server-render test's SS1 and SS3–SS4;
+- the cancel point: `packages/test/test/drag.test.ts` ("a cancel ends at the last move's point").

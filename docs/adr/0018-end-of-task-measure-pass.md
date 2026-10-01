@@ -70,6 +70,7 @@ What changes:
   - Motion doesn't need either, because it re-snapshots.
 - **Traced:** a blocked pass carries a `blocked` attribute on `wardic.projection.measure`, and the finish is a debug log.
 - **Cost:** a flag and a timer per resize event, and one whole-tree read per resize burst (0.4–0.8 ms at 50 nodes and 6–10 ms at 1,000, as measured for ADR-0018).
+- **Pinned by** `packages/dom/test/projection-resize-block.browser.test.ts` (RB1–RB9) and `packages/solid/test/reorder-engine.browser.test.tsx` RE1–RE2 (a reorder and a grab after a window width change).
 
 Considered:
 - **A refresh after every width change, with no block.** Rejected: a whole-tree read per resize frame, and a layout change the app makes in response (a breakpoint's `matchMedia` listener) would animate, where Motion suppresses it.
