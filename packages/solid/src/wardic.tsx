@@ -311,6 +311,8 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         el,
         cfg,
         parent: useVariantContext(),
+        // The user's style is the style link of a key's Base value (ADR-0022).
+        styleOf: userStyle,
         makeSink: (element) => ({ kind: "commit", target: element, beforeFirstCommit: () => setCommitted(true) }),
       })
 
