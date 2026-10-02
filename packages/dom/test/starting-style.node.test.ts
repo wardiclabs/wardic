@@ -73,6 +73,17 @@ describe("Starting style helpers (ADR-0021)", () => {
     expect(mergeStyle({ "-webkit-user-select": "text" }, {}, defaults)["user-select"]).toBe("text")
   })
 
+  it("ST14: a string user style is parsed into its declarations (custom properties and parentheses kept)", () => {
+    expect(mergeStyle("color: red; background: url(a;b); --x: 1px", { opacity: 0 })).toEqual({
+      color: "red",
+      background: "url(a;b)",
+      "--x": "1px",
+      opacity: 0,
+    })
+    expect(mergeStyle("", { opacity: 0 })).toEqual({ opacity: 0 })
+    expect(mergeStyle("user-select: text", {}, dragDefaultStyle("x"))["-webkit-user-select"]).toBe("text")
+  })
+
   it("ST9: an HTML element's Starting style is all style", () => {
     const values = { opacity: 0, x: 10 }
     expect(startingStyle("div", values)).toEqual({ style: domProject(values), attrs: {} })

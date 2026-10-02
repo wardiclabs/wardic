@@ -43,7 +43,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 import { Atom } from "effect/unstable/reactivity"
-import { For, type JSX, Show } from "solid-js"
+import { createSignal, For, type JSX, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr-helpers.ts"
 
@@ -165,7 +165,7 @@ function Sensors(): JSX.Element {
 
 /**
  * The fixture's `data-hk` values in document order, recorded under TestLive at 9531ff4
- * (before #41's fix), saved in .tmp/tasks/issue-41-ssr/hk-9531ff4.json. A Solid upgrade
+ * (before #41's fix, when the server ran the client's full code path). A Solid upgrade
  * re-records it.
  */
 const HK_9531FF4: ReadonlyArray<string> = [
@@ -373,6 +373,24 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(caught).toBeInstanceOf(Error)
     expect((caught as Error).message).toContain("can't be built here")
     expect((caught as Error).message).toContain("ADR-0003")
+  })
+
+  it("SV17: a reactive prop named like a key Wardic sets renders, and Wardic's value wins (as on the client)", () => {
+    const [cx] = createSignal(5)
+    const [draggable] = createSignal<"true" | "false">("true")
+    const [, circle] = tagsOf(serve(() => <svg><wardic.circle cx={cx()} initial={{ cx: 10 }} /></svg>))
+    expect(circle?.attrs.cx).toBe("10")
+    const [div] = tagsOf(serve(() => <wardic.div drag="x" draggable={draggable()} />))
+    expect(div?.attrs.draggable).toBe("false")
+    const [article] = tagsOf(serve(() => <WCard drag="x" draggable={draggable()}>c</WCard>))
+    expect(article?.attrs.draggable).toBe("false")
+  })
+
+  it("SV18: a string style keeps its declarations under the Starting style", () => {
+    const [div] = tagsOf(serve(() => <wardic.div style="color: red; margin: 2px" initial={{ opacity: 0 }} />))
+    expect(div?.style).toEqual({ color: "red", margin: "2px", opacity: "0" })
+    const [article] = tagsOf(serve(() => <WCard style={"color: red" as unknown as JSX.CSSProperties} initial={{ opacity: 0 }}>c</WCard>))
+    expect(article?.style).toEqual({ color: "red", opacity: "0" })
   })
 
   it("SV15a (guard): under TestLive, the fixture's hydration keys are 9531ff4's", () => {

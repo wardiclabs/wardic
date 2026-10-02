@@ -389,6 +389,15 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
 /** The motion props, as a set for the server path's one pass. */
 const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)
 
+/**
+ * Set each of `values` on `out` as a plain data property. A key copied from the user's props
+ * may be a getter (a reactive prop like `cx={cx()}`), which an assignment can't overwrite;
+ * Wardic's value wins, as `mergeProps` makes it on the client.
+ */
+const override = (out: Record<string, unknown>, values: Record<string, unknown>): void => {
+  for (const key in values) Object.defineProperty(out, key, { value: values[key], enumerable: true, configurable: true, writable: true })
+}
+
 /** Everything in `props` but the motion props, `ref` and `style`, in one pass; getters stay getters. */
 const passThrough = (props: Record<string, unknown>): Record<string, unknown> => {
   const descriptors = Object.getOwnPropertyDescriptors(props)
@@ -413,10 +422,12 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   const config = motionToConfig(props as WardicMotionProps)()
   const axis = dragAxisOf(config, undefined)
   const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
-  out.style = mergeStyle(props.style as JSX.CSSProperties | undefined, startingStyle(undefined, resolveInitial(config)).style, dragDefaults)
-  if (dragDefaults !== undefined) out.draggable = DRAG_DEFAULT_ATTRIBUTES.draggable
-  if (props.ref !== undefined) out.ref = props.ref
-  out.component = Wrapped
+  override(out, {
+    style: mergeStyle(props.style as JSX.CSSProperties | string | undefined, startingStyle(undefined, resolveInitial(config)).style, dragDefaults),
+    ...(dragDefaults !== undefined ? { draggable: DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
+    ...(props.ref !== undefined ? { ref: props.ref } : {}),
+    component: Wrapped,
+  })
   return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
 }
 
@@ -431,7 +442,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
 const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element => {
   const out = passThrough(props)
   const ward = useWardicWith(motionToConfig(props as WardicMotionProps), { tag })
-  Object.assign(out, ward({ style: props.style as JSX.CSSProperties | undefined }), { component: tag })
+  override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component: tag })
   return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
 }
 

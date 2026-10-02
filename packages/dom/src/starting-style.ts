@@ -54,22 +54,56 @@ export const resolveInitial = (config: InitialConfig): Values => {
 }
 
 /**
+ * A CSS declaration list (`"color: red; background: url(a;b)"`) as `{ property: value }`.
+ * A `;` inside parentheses or quotes doesn't end a declaration.
+ */
+const parseCssText = (text: string): Record<string, string> => {
+  const out: Record<string, string> = {}
+  let depth = 0
+  let quote: string | undefined
+  let start = 0
+  const take = (end: number): void => {
+    const declaration = text.slice(start, end)
+    const colon = declaration.indexOf(":")
+    if (colon > 0) {
+      const key = declaration.slice(0, colon).trim()
+      const value = declaration.slice(colon + 1).trim()
+      if (key !== "" && value !== "") out[key] = value
+    }
+    start = end + 1
+  }
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote !== undefined) {
+      if (c === "\\") i++
+      else if (c === quote) quote = undefined
+    } else if (c === '"' || c === "'") quote = c
+    else if (c === "(") depth++
+    else if (c === ")") depth = Math.max(0, depth - 1)
+    else if (c === ";" && depth === 0) take(i)
+  }
+  take(text.length)
+  return out
+}
+
+/**
  * An element's style: the user's static style as the base, its animated keys on top, over
  * a drag element's defaults and a component's base style (ADR-0019 *Amendment
  * (Reorder)*): defaults < base < user < animated. With neither defaults nor base, the user's
- * style plus the animated keys, or the animated patch itself when the user has none.
+ * style plus the animated keys, or the animated patch itself when the user has none. A
+ * user style given as CSS text (`"color: red"`, which JSX allows) is parsed first.
  */
 export const mergeStyle = (
-  user: object | undefined,
+  user: object | string | undefined,
   animated: Patch,
   defaults?: DragDefaultStyle,
   base?: object,
 ): Record<string, unknown> => {
-  if (defaults === undefined && base === undefined) return user !== undefined ? { ...user, ...animated } : animated
-  const merged: Record<string, unknown> = { ...defaults, ...base, ...user, ...animated }
+  const users = (typeof user === "string" ? parseCssText(user) : user) as Readonly<Record<string, unknown>> | undefined
+  if (defaults === undefined && base === undefined) return users !== undefined ? { ...users, ...animated } : animated
+  const merged: Record<string, unknown> = { ...defaults, ...base, ...users, ...animated }
   // `user-select` and `-webkit-user-select` are one property in Chromium: the user's
   // value for either is the value for both, or the default left on the other wins.
-  const users = user as Readonly<Record<string, unknown>> | undefined
   if (users !== undefined) {
     if (users["user-select"] !== undefined && users["-webkit-user-select"] === undefined) {
       merged["-webkit-user-select"] = users["user-select"]
