@@ -55,7 +55,18 @@ import type { WardicServices } from "./provider.tsx"
  */
 export type FlushSink =
   | { readonly kind: "signal"; readonly set: (patch: Patch) => void }
-  | { readonly kind: "commit"; readonly target: unknown }
+  | {
+    readonly kind: "commit"
+    readonly target: unknown
+    /**
+     * Called once, just before the element's first commit in a frame flush (not a Measure
+     * pass's `flushPass`), outside the frame's `batch()` (ADR-0021, decision 6): a component
+     * wrap drops its Starting style from its `style` prop here, so Solid removes those keys
+     * and the commit writes the first frame in the same Refresh frame, with no paint in
+     * between.
+     */
+    readonly beforeFirstCommit?: (() => void) | undefined
+  }
 
 /** Accumulated pre-`project` state for one registered element. */
 interface Entry {
@@ -129,6 +140,8 @@ export const makeFlushGate = (
   )
 
   const accumulator = new Map<string, Entry>()
+  // Commit sinks waiting for their first commit's `beforeFirstCommit` (usually empty).
+  const firstCommits = new Set<string>()
   let scheduled = false
   let rafId = 0
   // The ids written while a `flushPass` pass runs; `undefined` otherwise.
@@ -164,8 +177,23 @@ export const makeFlushGate = (
     runtime.runSync(commit(target, patch))
   }
 
+  /**
+   * Run `beforeFirstCommit` for each waiting entry about to commit (dirty), outside the
+   * batch so Solid applies what it changes before the commit. A wrap that never commits
+   * stays waiting, so this loops over the wraps still waiting, once per frame flush.
+   */
+  const runFirstCommits = (): void => {
+    for (const id of firstCommits) {
+      const entry = accumulator.get(id)
+      if (entry === undefined || !entry.dirty) continue
+      firstCommits.delete(id)
+      if (entry.sink.kind === "commit") entry.sink.beforeFirstCommit?.()
+    }
+  }
+
   const flush = (): void => {
     scheduled = false
+    if (firstCommits.size > 0) runFirstCommits()
     // One batch() per frame for every dirty element. No auto-reschedule — the next
     // write() does. A write() from an effect running inside the batch requests the
     // next frame (it isn't stranded).
@@ -182,8 +210,10 @@ export const makeFlushGate = (
 
   const register: FlushGate["register"] = (id, sink) => {
     accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map() })
+    if (sink.kind === "commit" && sink.beforeFirstCommit !== undefined) firstCommits.add(id)
     return () => {
       accumulator.delete(id)
+      firstCommits.delete(id)
     }
   }
 
@@ -205,6 +235,9 @@ export const makeFlushGate = (
       recording = undefined
     }
     if (written.size === 0) return
+    // No `beforeFirstCommit` here: a Measure pass may write only a node's projection, and
+    // dropping the Starting style then would leave its animated keys unset until the frame
+    // flush (a frame later for an element mounted inside a frame). The frame flush switches.
     batch(() => {
       for (const id of written) {
         const entry = accumulator.get(id)
@@ -219,7 +252,23 @@ export const makeFlushGate = (
       scheduled = false
     }
     accumulator.clear()
+    firstCommits.clear()
   }
 
   return { register, write, flushPass, dispose }
 }
+
+const noop = (): void => {}
+
+/**
+ * The gate a server render gets (ADR-0021, decision 9): a server builds no runtime and
+ * flushes nothing, so `register` returns a no-op unregister and `write` / `flushPass` /
+ * `dispose` do nothing. Code that grabs the gate at setup and uses it after mount keeps
+ * working on the server. Internal (not a package export).
+ */
+export const INERT_GATE: FlushGate = Object.freeze({
+  register: () => noop,
+  write: noop,
+  flushPass: noop,
+  dispose: noop,
+})

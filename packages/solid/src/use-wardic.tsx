@@ -39,7 +39,20 @@ import {
   type StaggerOrigin,
   type Values,
 } from "@wardic/core"
-import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, type DragDefaultStyle, type ProjectionNodeHandle, setSvgAttrs, splitPatch } from "@wardic/dom"
+import {
+  DRAG_DEFAULT_ATTRIBUTES,
+  dragDefaultStyle,
+  type DragDefaultStyle,
+  mergeStyle,
+  project as domProject,
+  type ProjectionNodeHandle,
+  resolveInitial,
+  setSvgAttrs,
+  splitPatch,
+  splitPatchForTag,
+  startingStyle,
+  toValues,
+} from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -62,6 +75,7 @@ import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
 import { runScoped, useWardicGate, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
+import { isHydrating, isServer } from "./server.ts"
 import {
   type WardicChildRegistration,
   type WardicStaggerConfig,
@@ -141,24 +155,6 @@ export type WardicValues =
   & Omit<JSX.CSSProperties, keyof WardicTransformShorthands | keyof WardicSvgAttributes>
   & WardicTransformShorthands
   & WardicSvgAttributes
-
-/**
- * Strip a {@link WardicValues} object down to a clean core {@link Values} map:
- * drop `undefined`-valued keys (allowed by `exactOptionalPropertyTypes` /
- * optional props) and keep only `number | string` values. CSS custom props
- * (`--x`) and every defined key pass through. Applied at EVERY core boundary so
- * `resolveOverrides` / `splitTarget` / `project` never see `undefined`.
- */
-const toValues = (v: WardicValues | undefined): Values => {
-  const out: Record<string, number | string> = {}
-  if (v) {
-    for (const k in v) {
-      const val = (v as Record<string, unknown>)[k]
-      if (val !== undefined && (typeof val === "number" || typeof val === "string")) out[k] = val
-    }
-  }
-  return out
-}
 
 /**
  * Variant-orchestration fields (ADR-0007, step 21b), shared by both transition
@@ -376,20 +372,6 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
 }
 
 /**
- * Resolve the per-mount initial value map (ADR-0003). `initial` is a static
- * `WardicValues` map (used verbatim) or a string naming a `variants` entry. The
- * CALLER reads this inside `untrack(cfg)` at setup so the whole-config read is
- * untracked and one-shot — `initial` is the seed, never a live target.
- */
-const resolveInitial = (config: WardicConfig): Values => {
-  const initial = config.initial
-  if (initial === undefined) return {}
-  const variants = config.variants
-  if (typeof initial === "string") return toValues(variants?.[initial])
-  return toValues(initial)
-}
-
-/**
  * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
  * to a clean core {@link Values} map. Both arms funnel through {@link toValues}
  * so `resolveOverrides` / `splitTarget` never receive `undefined`-valued keys.
@@ -448,8 +430,12 @@ const numericOf = (values: Values): Record<string, number> => {
  * - `raiseWhileDragged`: raise the node while dragged.
  * - `baseStyle`: style under the user's, above the drag defaults (the item's
  *   `touch-action`), read reactively.
+ * - `tag`: the element's tag, set by `wardic.create(tag)`, so an svg-inner element's
+ *   Starting style renders its attribute keys as attributes (ADR-0021; a `useWardic`
+ *   spread doesn't know its tag and stays all style).
  */
 export interface SpineInternals {
+  readonly tag?: string | undefined
   readonly dragAxis?: (() => boolean | "x" | "y") | undefined
   readonly onDragSample?: ((sample: DragSample) => void) | undefined
   readonly onLayoutHandle?: ((handle: ProjectionNodeHandle) => void) | undefined
@@ -897,6 +883,8 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
  */
 export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals | undefined): Ward {
   const runtime = useWardicRuntime()
+  // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
+  if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()
   // Owner-scoped, SSR/hydration-stable unique id for this element's gate entry
   // (Solid's createUniqueId, not a module counter — see ADR note / no global state).
@@ -927,8 +915,18 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   const initialValues = resolveInitial(untrack(cfg))
 
   // The style signal: seeded to the projected SSR initial so pre-mount render
-  // carries the initial style (no flash). The gate's signal sink updates it.
-  const [style, setStyle] = createSignal<Patch>(project(initialValues))
+  // carries the initial style (no flash). The gate's signal sink updates it. An
+  // svg-inner tag's attribute keys are split off and set once as attributes, as the
+  // server renders them (ADR-0021); the sink's setSvgAttrs takes over at mount.
+  // While hydrating, seed with what the server rendered, the DOM's project (the Hydration
+  // hold, ADR-0021 decision 2): the Environment's Renderer takes over at the first frame,
+  // and a different Starting style from it is noted once (cold path).
+  const projected = project(initialValues)
+  const hydrating = isHydrating()
+  const startingPatch = hydrating ? domProject(initialValues) : projected
+  if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
+  const seed = splitPatchForTag(internal?.tag, startingPatch)
+  const [style, setStyle] = createSignal<Patch>(seed.style)
 
   // The element, available only after ref-mount. The spine is gated on it.
   const [el, setEl] = createSignal<HTMLElement>()
@@ -1106,8 +1104,9 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
       // Getter so spreading {...ward()} stays reactive (Solid tracks the access).
       // The user's static style is the base; ward's animated keys merge ON TOP.
       get style() {
-        return mergeStyle(userProps?.style, style(), dragDefaults, baseStyle?.())
+        return mergeStyle(userProps?.style, style(), dragDefaults, baseStyle?.()) as JSX.CSSProperties
       },
+      ...seed.attrs,
       ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),
     }),
     { Provider },
@@ -1116,42 +1115,88 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
 }
 
 /**
- * Merge the user's static style (base) with ward's animated style (on top), over a
- * drag element's defaults (ADR-0019 *Amendment (Reorder)*) when it has them.
- *
- * - object user style: `{ ...user, ...animated }` — ward's animated keys win,
- *   the user's other keys are preserved.
- * - `undefined` user style: just ward's animated style.
- *
- * `animated` is the gate's projected {@link Patch} (transform/opacity/etc.); its
- * keys are valid CSS props, so the result is cast to `JSX.CSSProperties`.
+ * Log, at debug level, the keys whose Starting style the Environment's Renderer projects
+ * differently from the DOM's `project`, which rendered the server markup. Hydration keeps
+ * the server's values (the Hydration hold); the Renderer's take over at the first frame.
+ * Hydration only, once per element. Internal.
  */
-const mergeStyle = (
-  user: JSX.CSSProperties | undefined,
-  animated: Patch,
-  defaults?: DragDefaultStyle,
-  base?: JSX.CSSProperties,
-): JSX.CSSProperties => {
-  if (defaults === undefined && base === undefined) return (user !== undefined ? { ...user, ...animated } : animated) as JSX.CSSProperties
-  const merged: Record<string, unknown> = { ...defaults, ...base, ...user, ...animated }
-  // `user-select` and `-webkit-user-select` are one property in Chromium: the user's
-  // value for either is the value for both, or the default left on the other wins.
-  const users = user as Record<string, unknown> | undefined
-  if (users !== undefined) {
-    if (users["user-select"] !== undefined && users["-webkit-user-select"] === undefined) {
-      merged["-webkit-user-select"] = users["user-select"]
-    } else if (users["-webkit-user-select"] !== undefined && users["user-select"] === undefined) {
-      merged["user-select"] = users["-webkit-user-select"]
-    }
-  }
-  return merged as JSX.CSSProperties
+export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Patch, client: Patch): void => {
+  const keys: Array<string> = []
+  for (const key in server) if (String(server[key]) !== String(client[key])) keys.push(key)
+  for (const key in client) if (!(key in server)) keys.push(key)
+  if (keys.length === 0) return
+  const pick = (patch: Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
+  runtime.runFork(
+    Effect.logDebug(
+      "wardic.hydration: the Environment's Renderer projects the Starting style differently from the DOM's; " +
+        "hydration keeps the server's until the first frame, and an element that never animates keeps it",
+    ).pipe(
+      Effect.annotateLogs({ id, keys, server: pick(server), client: pick(client) }),
+    ),
+  )
 }
+
+/** A registration that does nothing: a server render has no orchestration to join. */
+const INERT_REGISTRATION: WardicChildRegistration = Object.freeze({
+  index: () => 0,
+  total: () => 1,
+  setSettled: () => {},
+  dispose: () => {},
+})
+
+/**
+ * {@link useWardicWith} during a server render (ADR-0021, decisions 1 and 4): the element's
+ * Starting style and static attributes, computed purely, and nothing else: no runtime, no
+ * spine, no signals. Hydration keys must land where the client's render puts them, so it
+ * makes the client's one `createUniqueId` call in the same place, and its `.Provider`
+ * renders the same component nesting, with a variant context that carries the names and
+ * transitions but no orchestration.
+ */
+const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals | undefined): Ward => {
+  // The client's gate id: keeps every later hydration key in step.
+  createUniqueId()
+  const parent = useVariantContext()
+  const c = typeof config === "function" ? config() : config
+  const seed = startingStyle(internal?.tag, resolveInitial(c))
+  const dragAxis = dragAxisOf(c, internal)
+  const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
+  const t = c.transition
+  const value: WardicVariantContextValue = {
+    variant: () => (typeof c.animate === "string" ? c.animate : c.animate !== undefined ? undefined : parent?.variant()),
+    transition: () => t ?? parent?.transition(),
+    register: () => INERT_REGISTRATION,
+    stagger: () => ({
+      amount: t?.staggerChildren ?? 0,
+      delayChildren: t?.delayChildren ?? 0,
+      from: t?.from ?? "first",
+      direction: t?.staggerDirection ?? 1,
+    }),
+    when: () => t?.when,
+    childrenMayStart: () => true,
+    allChildrenSettled: () => true,
+  }
+  const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
+    <WardicVariantContext.Provider value={value}>{props.children}</WardicVariantContext.Provider>
+  )
+  return Object.assign(
+    (userProps?: WardUserProps): WardProps => ({
+      ref: userProps?.ref ?? noRef,
+      style: mergeStyle(userProps?.style, seed.style, dragDefaults, internal?.baseStyle?.()) as JSX.CSSProperties,
+      ...seed.attrs,
+      ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),
+    }),
+    { Provider },
+  )
+}
+
+/** A server render's `ref`: Solid never calls it there. */
+const noRef = (): void => {}
 
 /**
  * The drag axis a spine runs with: its static `drag` config, else `true` for a
  * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
  */
-const dragAxisOf = (config: WardicConfig, internal: SpineInternals | undefined): boolean | "x" | "y" | undefined =>
+export const dragAxisOf = (config: WardicConfig, internal: SpineInternals | undefined): boolean | "x" | "y" | undefined =>
   config.drag !== undefined && config.drag !== false ? config.drag : internal?.dragAxis !== undefined ? true : undefined
 
 /**

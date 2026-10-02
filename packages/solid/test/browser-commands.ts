@@ -1,4 +1,5 @@
-// The browser commands registered in packages/solid/vitest.browser.config.ts, typed
+// The browser commands registered in packages/solid/vitest.browser.config.ts (and
+// `serverRender`, in packages/solid/vitest.hydrate.config.ts), typed
 // once for every test file that imports this module (a second `declare module` block
 // with a different signature wouldn't compile).
 import type {} from "vitest/browser"
@@ -18,6 +19,14 @@ export interface RealTouchPoint {
   readonly id: number
 }
 
+/** What {@link BrowserCommands.serverRender} returns. */
+export interface ServerRender {
+  readonly html: string
+  readonly script: string
+  /** The server render's error, first line; `""` when it rendered. */
+  readonly error: string
+}
+
 declare module "vitest/browser" {
   interface BrowserCommands {
     /** Real Playwright mouse input at a client point in the test iframe. */
@@ -27,5 +36,13 @@ declare module "vitest/browser" {
      * the fingers down after the event; `touchEnd` lifts every finger.
      */
     realTouch: (type: "touchStart" | "touchMove" | "touchEnd", points: ReadonlyArray<RealTouchPoint>) => Promise<void>
+    /**
+     * Server-render `exportName` from `file` (relative to packages/solid) in Node with
+     * Solid's server build, under `renderId`: the markup and the hydration script, or the
+     * error's first line (the hydrate project only).
+     */
+    serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
+    /** Emulate `prefers-reduced-motion: reduce`, or clear it (the hydrate project only). */
+    emulateReducedMotion: (reduce: boolean) => Promise<void>
   }
 }

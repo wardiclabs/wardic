@@ -27,6 +27,7 @@ import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { requireGlobal } from "./require-global.ts"
 import { makeSharedByTarget } from "./shared.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
@@ -49,6 +50,9 @@ const toBounds = (r: DOMRect): Bounds => ({
  * which the shared helpers' `RcMap`s and the forked listeners need.
  */
 const make = Effect.gen(function* () {
+  // Client-only (ADR-0021, decision 7): the viewport below reads `window`.
+  yield* requireGlobal("ProbeDomLive", "window")
+
   // The shared Environment registry — the one consumers read these atoms from.
   const registry = yield* AtomRegistry.AtomRegistry
 
@@ -134,7 +138,8 @@ const make = Effect.gen(function* () {
  * (the registry consumers read `viewport`/`prefersReducedMotion` from); `DomLive`
  * provides it via `AtomRegistry.layer`, exactly as `ClockDomLive` does. Built
  * with `Layer.effect` so `make` runs in the layer's scope — the shared helpers'
- * `RcMap`s and the forked listeners live for the layer's lifetime.
+ * `RcMap`s and the forked listeners live for the layer's lifetime. Building it on a
+ * server (no `window`) fails with the client-only error (ADR-0021, decision 7).
  */
 export const ProbeDomLive: Layer.Layer<Probe, never, AtomRegistry.AtomRegistry> = Layer.effect(
   Probe,

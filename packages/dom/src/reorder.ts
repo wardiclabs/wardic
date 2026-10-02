@@ -18,7 +18,7 @@
  *
  * Tier 2 (ADR-0008): for DOM binding authors.
  */
-import { autoScrollAxis, type DragSample, makeReorderGroup, type ReorderAxis, type ReorderGroup } from "@wardic/core"
+import { autoScrollAxis, type DragSample, makeReorderGroup, type Point, type ReorderAxis, type ReorderGroup } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
 import { onPassEnd, type ProjectionNodeHandle, type ProjectionRuntime, type ProjectionSystem } from "./projection.ts"
@@ -182,3 +182,30 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
     },
   }
 }
+
+const noop = (): void => {}
+
+/**
+ * A {@link ReorderController} for a server render (ADR-0021), where there's no projection
+ * system to drive and nothing to reorder: every call does nothing, the axis is `"y"`, and
+ * an item's driver is inert too. A binding's server path hands it to its group, so code
+ * that reads `group`, `move` or `controller` at setup works there. Tier 2, for binding
+ * authors.
+ */
+export const INERT_REORDER_CONTROLLER: ReorderController<never> = Object.freeze({
+  group: Object.freeze({
+    register: () => noop,
+    resolveAxis: () => "y" as const,
+    dragStart: () => "y" as const,
+    dragMove: (_value: never, point: Point) => point,
+    dragEnd: noop,
+    move: noop,
+  }),
+  axis: () => "y" as const,
+  attach: noop,
+  item: () => ({ register: () => noop, dragAxis: () => "y" as const, onSample: noop, dispose: noop }),
+  resolve: noop,
+  valuesChanged: noop,
+  dispose: noop,
+})
+

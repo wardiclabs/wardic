@@ -21,6 +21,7 @@ import type { Point, SpringOptions } from "@wardic/core"
 import type { ProjectionNodeHandle } from "@wardic/dom"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
+import { isServer } from "./server.ts"
 import type { WardicTransition } from "./use-wardic.tsx"
 
 /**
@@ -118,6 +119,8 @@ export function LayoutGroup(props: {
   /** A value/signal whose change requests a full projection re-measure (sibling reflow falls out). */
   readonly layoutDependency?: unknown
 }): JSX.Element {
+  // A server render has no projection system to re-measure (ADR-0021).
+  if (isServer) return props.children
   const projection = useWardicProjection()
   // A group-level dependency change re-measures the whole tree (Q5). `defer: true`
   // skips the mount read (nodes seed themselves on registration).

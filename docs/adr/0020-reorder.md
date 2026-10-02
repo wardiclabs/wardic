@@ -71,7 +71,7 @@ The same work fixes four engine problems that broke a reorder outright. Each has
 - **No `layout` prop on `Reorder.Item` yet (decision 11).** It always animates like `layout`. Motion's `layout: true | "position"` comes with the engine's layout modes (#42).
 - **SSR.**
   - The group renders its items in `values` order, with `overflow-anchor: none` and the drag defaults, as Motion's server markup does (`Reorder/__tests__/server.ssr.test.tsx`). Nothing measures or drags on the server.
-  - A server-render test pins it with a server-safe environment until `DomLive` builds on a server (#41).
+  - A server-render test pins it on DomLive (ADR-0021).
 - **Traced.**
   - Each reorder decision is a cold-path debug log carrying the value, its old and new index, the axis and the direction.
   - A reorder held back by the guard logs once per wait.
@@ -108,6 +108,7 @@ The same work fixes four engine problems that broke a reorder outright. Each has
 - **Deferred:**
   - #30 (a grab mid-flight jumps to the slot plus the pointer offset: 8–11 px off for a settling item, 34–38 px for a displaced sibling, where Motion slides) and the release velocity, together as the velocity grill;
   - #28's nested-child case;
+  - #47 (a `while*` key with no base value starts from 0 and never returns: scenario 14's "lift", `whileDrag: { scale: 1.05 }`, grows each item from 0 and leaves it at 1.05);
   - #41, #42, #43;
   - #32 (one frame behind the pointer with a browser's scheduler) and #29 (the design stays compatible with Motion's `setDragLock`) are out of scope.
 - **Pinned by:**

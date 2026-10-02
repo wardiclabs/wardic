@@ -31,13 +31,17 @@
  * signal flip in that expression re-runs the config accessor and drives a Retarget.
  */
 import { mergeRefs } from "@solid-primitives/refs"
-import type { DragBounds } from "@wardic/core"
-import { type Accessor, type Component, createSignal, createUniqueId, type JSX, onMount, splitProps } from "solid-js"
+import { type DragBounds, Renderer } from "@wardic/core"
+import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, resolveInitial, startingStyle } from "@wardic/dom"
+import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
+import { isHydrating, isServer } from "./server.ts"
 import {
+  dragAxisOf,
+  flagStartingStyle,
   runSpine,
-  useWardic,
+  useWardicWith,
   type WardicConfig,
   type WardicTransition,
   type WardicValues,
@@ -240,11 +244,14 @@ export type WardicWrappable = { ref?: (el: HTMLElement) => void }
  *     a SIGNAL sink ({@link useWardic}) — SSR-correct, the initial style is
  *     seeded synchronously on the very first render.
  *   - `create(Component)` (a component function): the wrapped component must
- *     forward `props.ref` to its single root element. Motion is driven through a
- *     COMMIT sink ({@link runSpine}) writing onto that forwarded element. Because
- *     the commit happens post-mount via the ref, this path FORFEITS SSR-correct
- *     `initial` (the first frame may flash) — consistent with ADR-0003's
- *     post-mount boundary. Use the element-string path for SSR-correct initial.
+ *     forward `props.ref` to its single root element; that is still the only
+ *     requirement. Motion is driven through a COMMIT sink ({@link runSpine})
+ *     writing onto that forwarded element. Until its first frame is committed
+ *     (so on a server and in the hydration render), the component also receives
+ *     `style` = the user's style + the Starting style + the drag defaults, and
+ *     `draggable`; then only the user's style (over the drag defaults). A component
+ *     that applies `props.style` renders its Starting style on a server; one that
+ *     doesn't still animates (ADR-0021, decision 6).
  *
  * @param arg an element tag string (e.g. `"div"`) OR a component forwarding `ref`.
  * @returns a Solid component accepting the element's / component's props + motion props.
@@ -254,15 +261,18 @@ export function create<P>(component: Component<P & WardicWrappable>): Component<
 export function create(tag: string): Component<WardicProps<keyof JSX.IntrinsicElements>>
 export function create(arg: string | Component<Record<string, unknown> & WardicWrappable>): Component<Record<string, unknown>> {
   // Component path (non-string arg): drive the forwarded element via a commit
-  // sink (ADR-0008 + ADR-0006). The wrapped component owns its root JSX, so
-  // there is NO style prop — the gate commits the projected Patch onto the
-  // element the component forwards its `ref` to.
+  // sink (ADR-0008 + ADR-0006). The wrapped component owns its root JSX; the gate
+  // commits the projected Patch onto the element it forwards its `ref` to. Until
+  // the first commit, `style` carries the Starting style (ADR-0021, decision 6).
   if (typeof arg !== "string") {
     const Wrapped = arg
     return (props) => {
-      // Split motion props (consumed, never forwarded) and the user's ref (merged
-      // with the spine's setter); everything else passes through to the component.
-      const [motion, refRest, rest] = splitProps(props as Record<string, unknown> & WardicMotionProps & WardicWrappable, MOTION_PROPS, ["ref"])
+      // A server render takes the lean path (ADR-0021).
+      if (isServer) return serverComponent(Wrapped, props)
+
+      // Split motion props (consumed, never forwarded) and the user's ref and style
+      // (merged); everything else passes through to the component.
+      const [motion, refStyle, rest] = splitProps(props as Record<string, unknown> & WardicMotionProps & WardicWrappable, MOTION_PROPS, ["ref", "style"])
 
       const runtime = useWardicRuntime()
       const gate = useWardicGate()
@@ -273,9 +283,27 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // Retarget). motionToConfig reads each prop getter inside its accessor.
       const cfg = motionToConfig(motion)
 
+      // The Starting style, the drag defaults, and whether the first frame has been
+      // committed: until then `style` carries the Starting style, so a component that
+      // applies it renders it on a server, while hydrating and before the first frame.
+      // While hydrating it's what the server rendered, the DOM's project (the Hydration
+      // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
+      const config = untrack(cfg)
+      const initialValues = resolveInitial(config)
+      const projected = runtime.runSync(Renderer).project(initialValues)
+      const hydrating = isHydrating()
+      const starting = hydrating ? domProject(initialValues) : projected
+      if (hydrating) flagStartingStyle(runtime, id, starting, projected)
+      const axis = dragAxisOf(config, undefined)
+      const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
+      const [committed, setCommitted] = createSignal(false)
+      const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
+
       // COMMIT sink: the gate runs Renderer.commit(target, patch) on the
       // provider runtime, driving the forwarded element directly each frame.
       // `parent` wires variant-name inheritance (ADR-0007) into the base target.
+      // Just before the first commit the Starting style leaves `style`: Solid removes
+      // those keys and the commit writes the first frame, with no paint in between.
       runSpine({
         runtime,
         gate,
@@ -283,7 +311,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         el,
         cfg,
         parent: useVariantContext(),
-        makeSink: (element) => ({ kind: "commit", target: element }),
+        makeSink: (element) => ({ kind: "commit", target: element, beforeFirstCommit: () => setCommitted(true) }),
       })
 
       // ADR-0008 ref-forwarding contract: if the component never forwarded its
@@ -300,22 +328,43 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       })
 
       // Merge the user's ref (if any) with the spine's setter so BOTH receive
-      // the forwarded element. NO style prop — the commit sink drives it.
-      const userRef = (refRest as { ref?: (el: HTMLElement) => void }).ref
-      return <Dynamic component={Wrapped} {...rest} ref={mergeRefs(userRef, setEl)} />
+      // the forwarded element. After the first commit, `style` is the user's style
+      // (over the drag defaults), or an empty style when there's neither: `undefined`
+      // would make Solid remove the whole attribute, inline styles Wardic didn't write
+      // included, where an empty style removes only the Starting style's keys.
+      const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
+      const style = (): JSX.CSSProperties | string =>
+        !committed()
+          ? (mergeStyle(userStyle(), starting, dragDefaults) as JSX.CSSProperties)
+          : dragDefaults !== undefined
+          ? (mergeStyle(userStyle(), {}, dragDefaults) as JSX.CSSProperties)
+          : (userStyle() ?? {})
+      return (
+        <Dynamic
+          component={Wrapped}
+          {...rest}
+          ref={mergeRefs(userRef, setEl)}
+          style={style()}
+          draggable={dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
+        />
+      )
     }
   }
 
   const tag = arg
   return (props) => {
+    // A server render takes the lean path (ADR-0021, decision 4).
+    if (isServer) return serverElement(tag, props)
+
     // 3-way split: motion props (consumed, never leak), then ref+style (merged),
     // then everything else (rest) passes through to the DOM element.
     const [motion, refStyle, rest] = splitProps(props as WardicProps<keyof JSX.IntrinsicElements>, MOTION_PROPS, ["ref", "style"])
 
     // Reactive config accessor: motionToConfig reads each (reactive) prop getter
     // inside the accessor, so a changed `animate` / `whileHover` / `transition`
-    // (a tracked expression) drives a Retarget.
-    const ward = useWardic(motionToConfig(motion))
+    // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
+    // render its Starting style's attribute keys as attributes (ADR-0021).
+    const ward = useWardicWith(motionToConfig(motion), { tag })
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the
     // user's ref and ward's internal ref, and merges the user's style with ward's
@@ -337,6 +386,66 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
 
     return <Dynamic component={tag} {...rest} {...ward(userProps)} />
   }
+}
+
+/** The motion props, as a set for the server path's one pass. */
+const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)
+
+/**
+ * Set each of `values` on `out` as a plain data property. A key copied from the user's props
+ * may be a getter (a reactive prop like `cx={cx()}`), which an assignment can't overwrite;
+ * Wardic's value wins, as `mergeProps` makes it on the client.
+ */
+const override = (out: Record<string, unknown>, values: Record<string, unknown>): void => {
+  for (const key in values) Object.defineProperty(out, key, { value: values[key], enumerable: true, configurable: true, writable: true })
+}
+
+/** Everything in `props` but the motion props, `ref` and `style`, in one pass; getters stay getters. */
+const passThrough = (props: Record<string, unknown>): Record<string, unknown> => {
+  const descriptors = Object.getOwnPropertyDescriptors(props)
+  const out: Record<string, unknown> = {}
+  for (const key in descriptors) {
+    if (MOTION_KEYS.has(key) || key === "ref" || key === "style") continue
+    Object.defineProperty(out, key, descriptors[key]!)
+  }
+  return out
+}
+
+/**
+ * `wardic.create(Component)` during a server render (ADR-0021, decisions 4 and 6): the
+ * component with `style` = the user's style + the Starting style + the drag defaults (and
+ * `draggable`), and nothing else. It keeps the client's `createUniqueId` call and its
+ * `Dynamic` boundary, so the hydration keys match.
+ */
+const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrappable>, props: Record<string, unknown>): JSX.Element => {
+  // The client's gate id: keeps every later hydration key in step.
+  createUniqueId()
+  const out = passThrough(props)
+  const config = motionToConfig(props as WardicMotionProps)()
+  const axis = dragAxisOf(config, undefined)
+  const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
+  override(out, {
+    style: mergeStyle(props.style as JSX.CSSProperties | string | undefined, startingStyle(undefined, resolveInitial(config)).style, dragDefaults),
+    ...(dragDefaults !== undefined ? { draggable: DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
+    ...(props.ref !== undefined ? { ref: props.ref } : {}),
+    component: Wrapped,
+  })
+  return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+}
+
+/**
+ * `wardic.<tag>` during a server render (ADR-0021, decision 4): the element with its
+ * Starting style and static attributes, built in one pass over the props. Solid's server
+ * `splitProps` and `mergeProps` cost most of a wrapped element's server time, and none of
+ * their reactivity matters there. The client's `createUniqueId` (inside `useWardicWith`)
+ * and its `Dynamic` boundary are kept, so every hydration key lands where the client's
+ * render puts it.
+ */
+const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element => {
+  const out = passThrough(props)
+  const ward = useWardicWith(motionToConfig(props as WardicMotionProps), { tag })
+  override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component: tag })
+  return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
 }
 
 /**

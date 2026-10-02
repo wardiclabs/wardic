@@ -219,6 +219,14 @@ _Avoid_: declarative path.
 How canvas/native and the low-level `createX`/`use:ward` consumers render — a Frame stream is pushed through Project→Commit via the `applyTo` combinator.
 _Avoid_: manual path.
 
+**Starting style**:
+An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A component wrap receives it through `style` until its first frame is committed (ADR-0021).
+_Avoid_: initial style (`initial` is its input, not its projected result), SSR seed.
+
+**Hydration hold**:
+From a server render until the element mounts, a client hydrating that markup renders exactly what the server rendered: the Starting style, and a client-only hook's server value (`false` for `createHover`, `createReducedMotion`, …). At mount it switches to live values and the engine starts. A client-only render has no hold (ADR-0021).
+_Avoid_: deferred hydration, two-pass render.
+
 ## Relationships
 
 - A **Primitive** emits a Stream of **Frames**; a **Physics primitive** emits **Physics frames**.

@@ -20,7 +20,7 @@
  * sample); this file logs nothing.
  */
 import type { ReorderAxis, ReorderGroup as CoreReorderGroup } from "@wardic/core"
-import { makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
+import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import {
   type Accessor,
@@ -39,6 +39,7 @@ import {
 import { Dynamic } from "solid-js/web"
 import { useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardUserProps } from "./use-wardic.tsx"
+import { isServer } from "./server.ts"
 import { useVariantContext } from "./variants.ts"
 import { MOTION_PROPS, motionToConfig, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
 
@@ -85,10 +86,15 @@ export type ReorderItemConfig<V> = { readonly value: V } & Omit<WardicConfig, "l
  * The group's `axis` is the config's, else detected from the items' boxes after every
  * Measure pass (for their `touch-action`). A drag resolves its own axis at its start.
  *
- * Client and server: on a server it renders the element's style and nothing else.
+ * Client and server: on a server it renders the element's style and nothing else (no
+ * controller, no runtime; its `group`, `move` and `controller` do nothing; ADR-0021).
  */
 export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> {
   const cfg: Accessor<ReorderGroupConfig<V>> = typeof config === "function" ? config : () => config
+  if (isServer) {
+    useWardicRuntime()
+    return serverReorderGroup(cfg)
+  }
   const [detected, setDetected] = createSignal<ReorderAxis>("y")
   const controller = makeReorderController<V>({
     runtime: useWardicRuntime(),
@@ -160,7 +166,12 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
   const cfg: Accessor<ReorderItemConfig<V>> = typeof config === "function" ? config : () => config
   const value = untrack(cfg).value
   const [element, setElement] = createSignal<HTMLElement>()
-  const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: true }), itemInternals(group, value, element))
+  // On a server the item renders the drag defaults with its group's touch-action and
+  // joins no controller (ADR-0021).
+  const internals: SpineInternals = isServer
+    ? { dragAxis: () => true, baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }) }
+    : itemInternals(group, value, element)
+  const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: true }), internals)
   // The item's element, for Auto-scroll's held scroll shift.
   // The user's style is passed on as a getter, so a live one stays live (WardUserProps).
   const item = (userProps?: WardUserProps) =>
@@ -173,6 +184,22 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
   return Object.assign(item, {
     Provider: ward.Provider,
   }) as Ward
+}
+
+const noop = (): void => {}
+
+/**
+ * {@link createReorderGroup} during a server render (ADR-0021): the group's element style
+ * (`overflow-anchor: none` under the user's) and the app's axis, else `"y"`; its `group`,
+ * `move` and `controller` do nothing.
+ */
+const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> => {
+  const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
+    ref: userProps?.ref ?? noop,
+    style: { ...REORDER_GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
+  })
+  const controller = INERT_REORDER_CONTROLLER as unknown as ReorderController<V>
+  return Object.assign(ward, { group: controller.group, axis: () => cfg().axis ?? ("y" as const), move: noop, controller })
 }
 
 const withoutValue = <V,>(config: ReorderItemConfig<V>): WardicConfig => {

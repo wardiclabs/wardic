@@ -38,6 +38,7 @@ import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
 import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { isServer } from "./server.ts"
 
 /**
  * A child's live presence registration. `snapshot` / `exit` are MUTABLE ref
@@ -97,6 +98,9 @@ const isEmpty = (values: Values): boolean => {
  */
 export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.Element {
   const runtime = useWardicRuntime()
+  // A server render has no exit to drive and no runtime to log on: the same component
+  // boundaries, with a context that registers nothing (ADR-0021).
+  if (isServer) return serverPresence(props)
   const projection = useWardicProjection()
   const { commit, project } = runtime.runSync(Renderer)
 
@@ -320,4 +324,15 @@ const pick = (source: Values, keysFrom: Values): Values => {
     if (v !== undefined) out[key] = v
   }
   return out
+}
+
+/** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
+const serverPresence = (props: { readonly children: JSX.Element }): JSX.Element => {
+  const ctx: PresenceContextValue = { register: () => () => {} }
+  const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
+  return (
+    <PresenceContext.Provider value={ctx}>
+      <Tracker />
+    </PresenceContext.Provider>
+  )
 }

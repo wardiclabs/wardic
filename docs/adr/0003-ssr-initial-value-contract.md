@@ -11,3 +11,7 @@ The initial style for an animated element is resolved **synchronously and purely
 ## Consequences
 
 Measurement-dependent initial (`%`→`px`, `layout`/FLIP starts) cannot be resolved on the server and will flash — a hard boundary, since layout is post-mount. A function `initial` silently forfeits SSR, so the binding should dev-warn when it sees one. The reactive render path writes a signal per frame (N writes/frame for N elements); the imperative `applyTo` path is cheaper at scale and exists partly for that reason.
+
+## Amendment (#41, 2026-10-01): the server builds nothing; a hydrating client holds the server's values
+
+The contract holds as written, and ADR-0021 implements it: a server render builds no runtime, and DomLive fails if it's built on a server. One addition: the Starting style is also what a hydrating client renders until the element mounts. So is every other value the server rendered, such as a client-only hook's `false` (the **Hydration hold**, ADR-0021, decision 8). The engine starts at mount from the Starting style, as before.

@@ -8,8 +8,8 @@ import { defineConfig } from "vitest/config"
 // tier (`bun run test`).
 //
 // The @wardic packages are bundled through Vite (their sources are TypeScript + JSX);
-// solid-js and effect stay single copies. The server-safe Environment is @wardic/test's
-// TestLive until DomLive builds on a server (#41).
+// solid-js and effect stay single copies. The Environment is DomLive: a server render
+// builds no runtime (ADR-0021).
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [solidPlugin({ ssr: true })],
