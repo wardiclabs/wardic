@@ -28,6 +28,7 @@ import {
 import type { FrameTrace, ObserverRecord } from "../probe/frame-trace.ts"
 import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, type Timeline } from "../probe/timeline.ts"
 import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
+import type { BoardRunInput } from "./base-values-board.ts"
 import { type DragRun, dragRunOf } from "./drag-run.ts"
 import { groupFrames, type InputJoin, joinInputs, type RefreshFrame } from "./frame-order.ts"
 import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
@@ -210,6 +211,8 @@ export interface LabLog {
   readonly runs: ReadonlyArray<LabRun>
   /** The kept drag runs (issue #26), oldest first: one per press of a drag scenario. */
   readonly dragRuns: ReadonlyArray<DragRun>
+  /** The kept board runs (#47), oldest first: one per gesture on a board scenario's cell. */
+  readonly boardRuns: ReadonlyArray<BoardRunInput>
 }
 
 /** Everything the lab is built from. Each piece is created once, at module scope. */
@@ -240,6 +243,10 @@ export interface Lab {
   readonly dragRuns: () => ReadonlyArray<DragRun>
   /** Calls `cb` once per recorded drag run. Returns an unsubscribe function. */
   readonly subscribeDragRuns: (cb: (run: DragRun) => void) => () => void
+  /** The kept board runs, oldest first (a copy). */
+  readonly boardRuns: () => ReadonlyArray<BoardRunInput>
+  /** Calls `cb` once per recorded board run. Returns an unsubscribe function. */
+  readonly subscribeBoardRuns: (cb: (run: BoardRunInput) => void) => () => void
   /** Flash totals since the last reset. */
   readonly flashCounts: () => FlashCounts
   /** Zeroes the flash counts and removes every ghost outline (flash and wrong-origin). */
@@ -354,6 +361,8 @@ export const makeLab = (options: LabOptions): Lab => {
   const runs: Array<LabRun> = []
   const listeners = new Set<(run: LabRun) => void>()
   const dragRuns: Array<DragRun> = []
+  const boardRuns: Array<BoardRunInput> = []
+  const boardListeners = new Set<(run: BoardRunInput) => void>()
   const dragListeners = new Set<(run: DragRun) => void>()
   let flashTotal = 0
   let flashPerScenario: Record<string, number> = {}
@@ -479,6 +488,18 @@ export const makeLab = (options: LabOptions): Lab => {
         }
       }
     },
+    recordBoardRun: (input) => {
+      const run: BoardRunInput = { ...input, scenarioId: id }
+      boardRuns.push(run)
+      if (boardRuns.length > MAX_RUNS) boardRuns.splice(0, boardRuns.length - MAX_RUNS)
+      for (const cb of boardListeners) {
+        try {
+          cb(run)
+        } catch (error) {
+          console.error("layout-lab: a board run listener threw", error)
+        }
+      }
+    },
   })
 
   const context: Lab["context"] = (def) => {
@@ -509,6 +530,13 @@ export const makeLab = (options: LabOptions): Lab => {
         dragListeners.delete(cb)
       }
     },
+    boardRuns: () => boardRuns.slice(),
+    subscribeBoardRuns: (cb) => {
+      boardListeners.add(cb)
+      return () => {
+        boardListeners.delete(cb)
+      }
+    },
     flashCounts: () => ({ total: flashTotal, perScenario: flashPerScenario }),
     resetCounts: () => {
       flashTotal = 0
@@ -528,6 +556,7 @@ export const makeLab = (options: LabOptions): Lab => {
       schedulerMode: currentLabScheduler(),
       runs: runs.slice(),
       dragRuns: dragRuns.slice(),
+      boardRuns: boardRuns.slice(),
     }),
   }
 }

@@ -31,6 +31,7 @@
  * @module
  */
 import type { Component } from "solid-js"
+import type { BoardRunInput } from "../lab/base-values-board.ts"
 import type { DragExpect, DragRunInput } from "../lab/drag-run.ts"
 import type { ReorderExpect } from "../lab/reorder-run.ts"
 
@@ -104,6 +105,13 @@ export interface ScenarioContext {
    * no sampling run and drops no mark.
    */
   readonly recordDragRun: (input: DragRunInput) => void
+  /**
+   * Records one gesture on a board scenario's cell (#47, scenario 15): call it once the
+   * gesture's value has stood still, with what its recorder sampled. The lab keeps it (the
+   * same cap as runs), attributes it to this context's scenario id and notifies
+   * `Lab.subscribeBoardRuns`. It starts no sampling run and drops no mark.
+   */
+  readonly recordBoardRun: (input: Omit<BoardRunInput, "scenarioId">) => void
 }
 
 /** A scenario's expected hold (see {@link ScenarioDef.expectedHeld}). */
@@ -120,9 +128,10 @@ export interface ScenarioDef {
    * `markTrigger`, and the lab samples the watched element; `drag` is driven by hand
    * (grab, hold or move, release), records one run per press through
    * `recordDragRun`, and its card shows the drag checks instead of the trigger
-   * results.
+   * results; `board` (#47) is a set of cells driven by hand, records one run per gesture
+   * through `recordBoardRun`, and its card shows the last run's checks.
    */
-  readonly kind?: "trigger" | "drag"
+  readonly kind?: "trigger" | "drag" | "board"
   /** A short human-readable title. */
   readonly title: string
   /** One line naming what schedules the layout-mutating write. */

@@ -295,6 +295,7 @@ and the card's `passes`.
 | 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms or on S) and the release. | safe | drag card | as 11 |
 | 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent. | safe | drag card | a pass seeds the parent at most |
 | 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code. | safe | drag card + reorder lines | each pass seeds the displaced items only |
+| 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets; each gesture is judged on where it starts and where it ends. | safe | board card | – |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
 
 Why each path holds what it does. The browser runs a frame's rAF callbacks, then
@@ -460,7 +461,7 @@ Two toggles break it on purpose:
   it was, not at the viewport's corner.
 
 Each press is a drag run. The card keeps the drag lines (no `child glued`: it
-doesn't watch the items' children, even with the layout child on) and adds four reorder lines (`lab/reorder-run.ts`). The
+doesn't watch the items' children, even with the layout child on) and adds five reorder lines (`lab/reorder-run.ts`). The
 expected card, with a browser's own scheduler:
 
 | Check | Expected | At `4d2fa2b` (the probe evidence) |
@@ -475,6 +476,7 @@ expected card, with a browser's own scheduler:
 | uninvolved still | ≤ 1 px | 58.4 px in a scrolled container, 97.4 px after a resize |
 | raised | the dragged item on top every frame it's at the pointer | under a sibling on 16-23% of frames |
 | auto-scrolled | reported | (no Auto-scroll) |
+| lift | with Lift on: lowest ≥ 0.99 · held 1.05 · after 1 (lift off without it) | at 18b1e86: lowest 0.12, after 1.05 (#47) |
 
 How the lines read a reorder:
 
@@ -499,9 +501,6 @@ Known and not fixed yet:
 - A move paints one frame after it with a browser's scheduler (#32).
 - The release has no velocity: a flick doesn't carry into the flight back.
 - There is no keyboard reorder yet (#43).
-- **Lift starts from 0 and stays (#47).** With **Lift** on, the first drag grows the
-  item from scale 0 to 1.05 rather than from 1, and the item keeps 1.05 after it lands:
-  `whileDrag` sets a key nothing else gives a base value.
 
 Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
@@ -519,6 +518,39 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R21 | `y` | touch via devtools emulation: drag past one neighbour; then with "touch-action: auto" on | 2 each |
 | R22 | any | press M twice; then once with "items via .map" on (watch the console) | 1 |
 | R23 | `y`, `xy` | with "a layout child in each item" on: as R13, then drag back and forth across one neighbour (a retarget); watch each child stay on its item | 2 each |
+| R24 | `y`, with Lift on | drag an item past one neighbour, hold, release: it lifts from 1 and lands at 1 | 3 |
+
+## Base values (#47)
+
+Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022):
+
+| Cell | Config | Starts at | Ends at |
+| ---- | ------ | --------- | ------- |
+| hover scale | `whileHover: { scale: 1.5 }` | 1 | 1 |
+| class opacity | a stylesheet's `opacity: 0.5`, `whileHover: { opacity: 1 }` | 0.5 | 0.5 |
+| style opacity | `style={{ opacity }}` (0.5, or 0.8 after **Style 0.5 ↔ 0.8**), `whileHover: { opacity: 1 }` | the style value | the style value |
+| tap scale | `whileTap: { scale: 0.8 }` | 1 | 1 |
+| fade, no initial | `animate: { opacity: 0.5 }`, no `initial`; **Remount fade** mounts it again | its own 1 | 0.5 |
+| exit | a stylesheet's `opacity: 0.5`, `exit: { opacity: 0 }`; **Exit** / **Enter** | 0.5 | gone, after a fade |
+
+Each gesture is one board run (`lab/base-values-board.ts`). The card shows the last run's cell and two lines:
+
+- **start**: the first frame that moved lies within a quarter of the way from the base to the target. A style change shows within three frames.
+- **end**: a gesture is back at its base (within 0.005), a mount settles at its target, an exit fades through before it goes, a style change stays.
+
+At `18b1e86`, every scale grew from 0 and stayed, every opacity started at 0, the fade rose from 0, and the exit vanished at once.
+
+Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
+
+| Run | Cell | What to do | Times |
+| --- | ---- | ---------- | ----- |
+| R25 | hover scale, class opacity, style opacity | hover until it settles, then leave | 3 each |
+| R26 | tap scale | press and hold until it settles, release | 3 |
+| R27 | style opacity | press **Style 0.5 ↔ 0.8**, then hover and leave | 2 |
+| R28 | fade, no initial | press **Remount fade** | 3 |
+| R29 | exit | press **Exit**, then **Enter** | 3 |
+
+Every run should read `start ✓` and `end ✓`.
 
 ## Scheduler note
 

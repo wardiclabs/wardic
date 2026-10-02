@@ -21,6 +21,11 @@
  *   container at the pointer shows nothing about it.
  * - **auto-scrolled**: how far the scroller moved during the press, past what the S key
  *   scrolled by hand (Auto-scroll, D16). Reported, not judged.
+ * - **lift**: with the Lift toggle on (`whileDrag: { scale }`), the dragged item's painted
+ *   scale (its painted box's width over its slot's): the lowest and the highest on a held
+ *   frame, and the last frame's. A lift starts at the item's own 1 and lands back at it
+ *   once the release settles (#47, ADR-0022): lowest ≥ 0.99, held within 0.01 of the lift,
+ *   after within 0.005 of 1.
  *
  * Pure (no DOM), so the node test tier imports it (`test/reorder-run.test.ts`).
  *
@@ -80,6 +85,8 @@ export interface ReorderRunData {
    * item, so it scales by this. Left out, 1.
    */
   readonly nodesPerItem?: number
+  /** The Lift toggle's `whileDrag` scale at the grab; left out with Lift off. */
+  readonly lift?: number
 }
 
 /** What a reorder scenario expects of every press (see {@link reorderChecksOf}). */
@@ -109,10 +116,14 @@ export interface ReorderRun {
   readonly raisedMisses: number
   /** How far the scroller moved during the press past the S key's scrolls, in px (the larger axis). */
   readonly autoScrolledPx: number
+  /** The dragged item's painted scale: the lowest and the highest on a held frame, the last frame's; `null` with no frame. */
+  readonly liftLowest: number | null
+  readonly liftHeld: number | null
+  readonly liftAfter: number | null
 }
 
 /** The card's reorder lines, in display order. */
-export const REORDER_CHECK_NAMES = ["reorders", "uninvolved still", "raised", "auto-scrolled"] as const
+export const REORDER_CHECK_NAMES = ["reorders", "uninvolved still", "raised", "auto-scrolled", "lift"] as const
 
 /** One of {@link REORDER_CHECK_NAMES}. */
 export type ReorderCheckName = (typeof REORDER_CHECK_NAMES)[number]
@@ -200,6 +211,14 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     }
   }
 
+  // The dragged item's painted scale on a frame: its painted width over its slot's.
+  const scaleOn = (f: (typeof frames)[number] | undefined): number | null => {
+    const painted = f?.reorder!.items[data.dragged]
+    const slotBox = f?.reorder!.slots[data.dragged]
+    return painted !== undefined && slotBox !== undefined && slotBox.width > 0 ? painted.width / slotBox.width : null
+  }
+  const heldScales = held.map(scaleOn).filter((r): r is number => r !== null)
+
   const moved = {
     x: data.scrollAtEnd.x - data.scrollAtGrab.x - data.scrolledByHand.x,
     y: data.scrollAtEnd.y - data.scrollAtGrab.y - data.scrolledByHand.y,
@@ -213,6 +232,9 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     raisedFrames: covering.length,
     raisedMisses,
     autoScrolledPx: Math.max(Math.abs(moved.x), Math.abs(moved.y)),
+    liftLowest: heldScales.length === 0 ? null : Math.min(...heldScales),
+    liftHeld: heldScales.length === 0 ? null : Math.max(...heldScales),
+    liftAfter: scaleOn(frames[frames.length - 1]),
   }
 }
 
@@ -277,5 +299,26 @@ export const reorderChecksOf = (input: DragRunInput, expect: ReorderExpect): Arr
       run.raisedMisses === 0,
     ),
     lineOf("auto-scrolled", px(run.autoScrolledPx), undefined, true),
+    liftLineOf(run, data.lift),
   ]
+}
+
+const scale3 = (r: number | null): string => (r === null ? "?" : r.toFixed(3))
+
+/** The lift line: `lift off` with Lift off; else the item's painted scale, judged (see the module doc). */
+const liftLineOf = (run: ReorderRun, lift: number | undefined): ReorderCheck => {
+  if (lift === undefined) return { name: "lift", ok: true, text: "lift off" }
+  const ok =
+    run.liftLowest !== null &&
+    run.liftHeld !== null &&
+    run.liftAfter !== null &&
+    run.liftLowest >= 0.99 &&
+    Math.abs(run.liftHeld - lift) <= 0.01 &&
+    Math.abs(run.liftAfter - 1) <= 0.005
+  return lineOf(
+    "lift",
+    `lowest ${scale3(run.liftLowest)} · held ${scale3(run.liftHeld)} · after ${scale3(run.liftAfter)}`,
+    `lowest ≥ 0.99 · held ${lift} · after 1`,
+    ok,
+  )
 }

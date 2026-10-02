@@ -148,6 +148,8 @@ const View: ScenarioDef["View"] = (props) => {
     scrolledByHand: Point
     readonly layoutAtGrab: Layout
     readonly childAtGrab: boolean
+    /** The Lift toggle's scale at the grab, for the card's lift line (#47); undefined with Lift off. */
+    readonly liftAtGrab: number | undefined
   }
   // The press being recorded, and the one before it while a new press cuts its run short:
   // the recorder records that run from its own pointerdown, after `pick` (capture) began
@@ -224,6 +226,7 @@ const View: ScenarioDef["View"] = (props) => {
         scrolledByHand: { x: 0, y: 0 },
         layoutAtGrab: layout(),
         childAtGrab: layoutChild(),
+        liftAtGrab: lift() ? LIFT.scale : undefined,
       }
     }
     const area = stage!
@@ -255,6 +258,7 @@ const View: ScenarioDef["View"] = (props) => {
             scrollAtEnd: scrollNow(),
             scrolledByHand: press.scrolledByHand,
             nodesPerItem: press.childAtGrab ? 2 : 1,
+            ...(press.liftAtGrab !== undefined ? { lift: press.liftAtGrab } : {}),
           },
         })
       },
