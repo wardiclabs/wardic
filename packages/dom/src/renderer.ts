@@ -16,7 +16,7 @@
  * per-frame hot path, so — exactly like core's `applyTo` per-frame writes and
  * the Clock's `tick` — they stay quiet (no span, no per-call log).
  */
-import { type Delta, type Patch, type Point, PROJECTION_KEY, type ProjectionValue, Renderer } from "@wardic/core"
+import { type Delta, type Patch, type Point, PROJECTION_KEY, type ProjectionValue, Renderer, TRANSFORM_IDENTITY } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import { dashCase, setSvgAttrs, splitPatch } from "./svg.ts"
 import * as Layer from "effect/Layer"
@@ -79,8 +79,11 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
   skewY: "deg",
 }
 
-/** Fast membership test for "is this key a transform key?". */
-const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(TRANSFORM_UNITS))
+/**
+ * Fast membership test for "is this key a transform key?": core's transform keys, the ones
+ * it gives an identity (ADR-0022), so the two lists can't drift. Every one has a unit above.
+ */
+const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(TRANSFORM_IDENTITY))
 
 /**
  * Non-transform CSS properties that take a length: a bare number is rendered

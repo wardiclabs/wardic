@@ -70,6 +70,10 @@ export {
 // Starting style (ADR-0021): Tier 2, for binding authors. An element's style before its
 // first Frame, computed purely, the same on a server and on the client.
 export { type InitialConfig, mergeStyle, resolveInitial, startingStyle, toValues } from "./starting-style.ts"
+// Base values (ADR-0022): Tier 2, for binding authors. An element's Own value for a key (read
+// once, at first need, on the client after mount) and the `style` link's lookup, for core's
+// `baseValueOf` / `startValueOf`.
+export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.ts"
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's
