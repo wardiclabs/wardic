@@ -499,6 +499,9 @@ Known and not fixed yet:
 - A move paints one frame after it with a browser's scheduler (#32).
 - The release has no velocity: a flick doesn't carry into the flight back.
 - There is no keyboard reorder yet (#43).
+- **Lift starts from 0 and stays (#47).** With **Lift** on, the first drag grows the
+  item from scale 0 to 1.05 rather than from 1, and the item keeps 1.05 after it lands:
+  `whileDrag` sets a key nothing else gives a base value.
 
 Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 

@@ -99,6 +99,17 @@ Two places carry timing guarantees that must be re-proven under Solid 2, not jus
   flushes. Its signal sinks assume a signal write set inside that `batch()` reaches the DOM
   before the frame paints. If Solid 2 defers updates, that assumption breaks.
 
+### Server rendering, from #41 (read at `solid-js` / `@solidjs/web` 2.0.0-rc.13, 2026-10-01)
+
+ADR-0021's mechanisms carry over; their Solid 1.9 hooks don't:
+
+- `onMount` is gone. `onSettled` runs after the owner and its async work settle, and does nothing on a server (`solid-js/dist/server.js:1828-1831`). The Hydration hold's switch (ADR-0021, decisions 6 and 8) moves there.
+- `createEffect(compute, effect)` runs `compute` on a server; `createRenderEffect` runs both halves (`server.js:998-1061`). Runtime work belongs in the `effect` half.
+- Every owner (a memo, an effect, `onSettled`, `createUniqueId`) and every element key draws from its parent owner's child counter (`allocateOwner` at `server.js:72-74`, `getNextContextId` at `:9-14`). `createComponent` is just `Comp(props)`. The lean server path (ADR-0021, decision 4) must create the same owners in the same order. Running each element's internals in one private owner keeps that to one.
+- `ssrSource: "client"` marks a computation client-only (`server.js:999-1002`). Its read needs a `<Loading>` boundary.
+- `isServer` comes from `@solidjs/web` (`server.js:4278`).
+- Not looked up yet: Solid 2's hydration flag (Solid 1.9's is `sharedConfig.context`).
+
 ### Decisions still open
 
 - **Packaging.** A separate package, a new major of `@wardic/solid`, or one package
