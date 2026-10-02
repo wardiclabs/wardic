@@ -468,3 +468,96 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
     }
   })
 })
+
+describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the element's own style", () => {
+  it("GR1: a signal sink's next patch lacks a released key and keeps the rest", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const patches: Array<Patch> = []
+      gate.register("a", { kind: "signal", set: (p) => patches.push(p) })
+      gate.write("a", { opacity: 0.5, scale: 1.2 })
+      fireFrame()
+      gate.release("a", ["opacity"])
+      fireFrame()
+      expect(patches[1]).toEqual({ transform: "scale(1.2)" })
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GR2: a commit sink writes the value it's handed for a released key", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const el = document.createElement("div")
+      el.style.setProperty("opacity", "0.3")
+      gate.register("el", { kind: "commit", target: el })
+      gate.write("el", { opacity: 0.5 })
+      fireFrame()
+      expect(el.style.opacity).toBe("0.5")
+      gate.release("el", ["opacity"], { opacity: "0.8" })
+      fireFrame()
+      expect(el.style.opacity).toBe("0.8")
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GR3: without one, a commit sink restores the inline value it overwrote", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const el = document.createElement("div")
+      el.style.setProperty("opacity", "0.3")
+      gate.register("el", { kind: "commit", target: el })
+      gate.write("el", { opacity: 0.5, x: 4 })
+      fireFrame()
+      gate.release("el", ["opacity"])
+      fireFrame()
+      expect(el.style.opacity).toBe("0.3")
+      expect(el.style.transform).toBe("translateX(4px)")
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GR4: releasing a key the entry doesn't hold, or an unknown id, schedules nothing", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      gate.register("a", { kind: "signal", set: () => {} })
+      gate.write("a", { opacity: 0.5 })
+      fireFrame()
+      const calls = rafSpy.mock.calls.length
+      gate.release("a", ["scale"])
+      gate.release("nobody", ["opacity"])
+      expect(rafSpy.mock.calls.length).toBe(calls)
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GR5: a write after a release brings the key back", () => {
+    const runtime = ManagedRuntime.make(DomLive)
+    try {
+      const gate = makeFlushGate(runtime)
+      const el = document.createElement("div")
+      gate.register("el", { kind: "commit", target: el })
+      gate.write("el", { opacity: 0.5 })
+      fireFrame()
+      gate.release("el", ["opacity"], { opacity: "0.8" })
+      fireFrame()
+      gate.write("el", { opacity: 0.6 })
+      fireFrame()
+      expect(el.style.opacity).toBe("0.6")
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+})

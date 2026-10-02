@@ -273,11 +273,34 @@ const opacity = (...ks: ReadonlyArray<string>) => (host: HTMLElement): number =>
     const node = el(host, k)
     return acc * (node === null ? 1 : Number(getComputedStyle(node).opacity))
   }, 1)
+/** The painted uniform scale: the computed transform matrix's x-axis length, 1 for none. */
+const scale = (k: string) => (host: HTMLElement): number => {
+  const node = el(host, k)
+  const t = node === null ? "none" : getComputedStyle(node).transform
+  if (t === "" || t === "none") return 1
+  const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
+  return Math.hypot(v[0]!, v[1]!)
+}
 const attr = (k: string, name: string) => (host: HTMLElement): number => Number(el(host, k)?.getAttribute(name) ?? NaN)
 
 const DRAG_X = { "touch-action": "pan-y", "user-select": "none", "-webkit-user-select": "none", "-webkit-touch-callout": "none" }
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12 } as const
+// #47 (ADR-0022): a key no `initial` sets has no Starting style; the client starts it from its
+// Own value after mount, so hydration shows no blink (F13), and a gesture-only key leaves the
+// markup and the first paint alone (F14).
+export const F13 = live(() => (
+  <wardic.div data-k="f13" animate={{ opacity: 0.5 }} transition={TWEEN}>
+    f13
+  </wardic.div>
+))
+
+export const F14 = live(() => (
+  <wardic.div data-k="f14" style={{ width: "40px" }} whileHover={{ scale: 1.5 }} whileTap={{ opacity: 0.5 }}>
+    f14
+  </wardic.div>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -313,4 +336,9 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F10: { startK: "f10", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f10"), from: 0, to: 1 }] },
   F11: { startK: "rm", starting: {}, tracks: [], texts: [{ k: "rm", server: "false", settled: "false" }] },
   F12: { startK: "hv", starting: {}, tracks: [], texts: [{ k: "hv", server: "false", settled: "false" }] },
+  // An `animate`-only key: no Starting style, and the first paint after hydration keeps the
+  // element's own opacity (1) on its way to 0.5: no blink to 0, no jump to the target.
+  F13: { startK: "f13", starting: {}, tracks: [{ label: "opacity", read: opacity("f13"), from: 1, to: 0.5 }] },
+  // A gesture-only key: the markup and the painted scale are untouched until a gesture.
+  F14: { startK: "f14", starting: { width: "40px" }, tracks: [{ label: "scale", read: scale("f14"), from: 1, to: 1 }] },
 }
