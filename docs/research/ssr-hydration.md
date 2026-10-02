@@ -125,7 +125,7 @@ props), `Dynamic` (4.5 µs) and the double spread, not the runtime (0.34 µs per
 - The SolidStart example: `/` and `/ssr` return 200 on the production build; the `/ssr` hydration
   report is 11/11 OK in Chromium 147 and Firefox 148, on the build and on dev.
 - `projection-resize-block` RB1 fails in the full browser gate on this branch and at `9531ff4`
-  alike (a fixed 50 ms wait for a `resize` event), and passes alone.
+  alike (a fixed 50 ms wait for a `resize` event), and passes alone (#53).
 
 ## Not checked
 

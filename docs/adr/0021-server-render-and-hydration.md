@@ -118,11 +118,11 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - every owner and element key draws from its parent's child counter, so decision 4's rule becomes "the same owners in the same order";
   - `ssrSource: "client"` is Solid 2's own client-only marker.
 - **Deferred:**
-  - server-live resume (ADR-0003's resumability option);
-  - the wrapper's own cost, and moving `wardic.div` onto the commit path;
-  - inheriting a parent's `initial` variant (ADR-0007);
-  - building the runtime lazily on the client;
-  - the gate's frames through the Environment;
+  - server-live resume (ADR-0003's resumability option, #48);
+  - the wrapper's own cost, and moving `wardic.div` onto the commit path (#49);
+  - inheriting a parent's `initial` variant (ADR-0007, #50);
+  - building the runtime lazily on the client (#51);
+  - the gate's frames through the Environment (#52);
   - #47.
 - **Pinned by:**
   - `@wardic/dom`, node tier: `server-guard.node.test.ts` (G1–G8: each Layer's client-only error, `project` exported, nothing read at import) and `starting-style.node.test.ts` (ST1–ST13); `svg.browser.test.ts`'s SVG-T1 (the split by tag equals the split by element);
