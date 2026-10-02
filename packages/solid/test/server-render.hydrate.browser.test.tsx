@@ -21,10 +21,13 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
+import { commands } from "vitest/browser"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { EXPECTED, FIXTURES, type FixtureName, LOG, setLogEnv } from "./hydrate-fixtures.tsx"
+import "./browser-commands.ts"
 import {
   atNextPaint,
+  FIXTURES_FILE,
   type Hydrated,
   hydrateFixture,
   renderClientOnly,
@@ -77,6 +80,13 @@ const runFixture = async (name: FixtureName): Promise<Run> => {
   const errors = hydrated.stopErrors()
   return { hydrated, structure, clientStructure, after, serverStyle, serverAttrs, firstPaint, settled, errors }
 }
+
+// The first server render loads the fixtures and the @wardic sources through Vite's server
+// transform: seconds on a busy machine. Pay for it once here, so each fixture's own hook
+// keeps a tight budget.
+beforeAll(async () => {
+  await commands.serverRender(FIXTURES_FILE, "F0", "warm-up")
+}, 60000)
 
 for (const name of Object.keys(FIXTURES) as Array<FixtureName>) {
   describe(name, () => {
