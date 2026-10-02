@@ -41,7 +41,8 @@ Under the page, a **hydration report** judges each element:
 design; its row is still OK.
 
 Run it in Chrome and Firefox, on `bun dev` (http://localhost:3000/ssr) and once on
-`bun run build && bun start`:
+`bun run build && WARDIC_SAVE_LOG=1 bun start` (the save-log route answers only in dev, or
+with that variable):
 
 1. **JavaScript disabled** (DevTools → Settings → Debugger → Disable JavaScript), reload:
    the server's paint, every element faded and to the left, nothing missing, no 500.
