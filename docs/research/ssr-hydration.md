@@ -120,8 +120,8 @@ props), `Dynamic` (4.5 µs) and the double spread, not the runtime (0.34 µs per
 
 ## After the fix
 
-- Node and server tiers: 391/391. The hydration project: 82/82 in Chromium, 81/81 in Firefox
-  (before HY-L4 was added). The component shapes: 8/8 in Firefox.
+- Node and server tiers: 394/394. The hydration project: 85/85 in Chromium and in Firefox. The
+  component shapes: 10/10 in Firefox. The full browser gate: 478/479, RB1 the only failure.
 - The SolidStart example: `/` and `/ssr` return 200 on the production build; the `/ssr` hydration
   report is 11/11 OK in Chromium 147 and Firefox 148, on the build and on dev.
 - `projection-resize-block` RB1 fails in the full browser gate on this branch and at `9531ff4`
