@@ -10,20 +10,23 @@
 //   HY5  it settles at its target within 2 s;
 //   HY6  hydration threw nothing and nothing was logged to console.error.
 //
-// HY-L1 to HY-L3: a custom Renderer that projects the Starting style differently from the
-// DOM's is flagged during hydration by one `wardic.hydration:` debug log (decision 2).
+// HY-L1 to HY-L4: a custom Renderer that projects the Starting style differently from the
+// DOM's (decision 2). While hydrating, the client seeds with the DOM's project too (the
+// Hydration hold), so hydration keeps the server's style; the Environment's Renderer takes
+// over at the first frame, and one `wardic.hydration:` debug log notes it.
 //
 // Test names are `<check> <fixture>: <label>`, so `-t 'F8:'` runs one fixture.
 import { Renderer } from "@wardic/core"
 import { DomLive, RendererDomLive } from "@wardic/dom"
 import type { WardicEnv } from "@wardic/solid"
+import type { JSX } from "solid-js"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
 import { commands } from "vitest/browser"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { EXPECTED, FIXTURES, type FixtureName, LOG, setLogEnv } from "./hydrate-fixtures.tsx"
+import { EXPECTED, FIXTURES, type FixtureName, LOG, LOG_CARD, setLogEnv } from "./hydrate-fixtures.tsx"
 import "./browser-commands.ts"
 import {
   atNextPaint,
@@ -166,17 +169,44 @@ describe("a custom Renderer's Starting style (decision 2)", () => {
   )
   const hydrationLogs = (logs: ReadonlyArray<Captured>) => logs.filter((l) => l.message.startsWith("wardic.hydration:"))
   const settleLogs = () => new Promise((r) => setTimeout(r, 100))
+  const frames = async (n: number) => {
+    for (let i = 0; i < n; i++) await new Promise<void>((r) => requestAnimationFrame(() => r()))
+  }
 
-  it("HY-L1: hydrating under it logs one wardic.hydration message with the id, keys, server and client", async () => {
+  /**
+   * Hydrate `code` under the custom Renderer: the `k` element's style as the server
+   * rendered it, right after hydration, and after two Refresh frames; and the logs.
+   */
+  const underCustom = async (name: string, code: () => JSX.Element, k: string) => {
     const logs: Array<Captured> = []
     setLogEnv(capturing(custom, logs))
-    const hydrated = await hydrateFixture("LOG", LOG)
+    const hydrated = await hydrateFixture(name, code)
+    const el = hydrated.host.querySelector(`[data-k="${k}"]`)!
+    const server = styleOf(hydrated.serverAttributes.get(el)?.style)
+    const afterHydrate = styleOf(el)
+    await frames(2)
+    const afterFrame = styleOf(el)
     await settleLogs()
     hydrated.stopErrors()
     hydrated.dispose()
-    const flagged = hydrationLogs(logs)
-    expect(flagged).toHaveLength(1)
-    expect(Object.keys(flagged[0]!.annotations)).toEqual(expect.arrayContaining(["id", "keys", "server", "client"]))
+    return { server, afterHydrate, afterFrame, flagged: hydrationLogs(logs) }
+  }
+
+  it("HY-L1: a wardic.div keeps the server's style through hydration, takes the Renderer's at the first frame, and logs once", async () => {
+    const run = await underCustom("LOG", LOG, "log")
+    expect(run.server["--custom"], "the server used the DOM's project").toBeUndefined()
+    expect(run.afterHydrate, "hydration keeps the server's style").toEqual(run.server)
+    expect(run.afterFrame["--custom"], "the Environment's Renderer from the first frame").toBe("1")
+    expect(run.flagged).toHaveLength(1)
+    expect(Object.keys(run.flagged[0]!.annotations)).toEqual(expect.arrayContaining(["id", "keys", "server", "client"]))
+  })
+
+  it("HY-L4: a component wrap keeps the server's style through hydration, takes the Renderer's at the first frame, and logs once", async () => {
+    const run = await underCustom("LOG_CARD", LOG_CARD, "log-card")
+    expect(run.server["--custom"], "the server used the DOM's project").toBeUndefined()
+    expect(run.afterHydrate, "hydration keeps the server's style").toEqual(run.server)
+    expect(run.afterFrame["--custom"], "the Environment's Renderer from the first frame").toBe("1")
+    expect(run.flagged).toHaveLength(1)
   })
 
   it("HY-L2: hydrating under plain DomLive logs none", async () => {
@@ -189,12 +219,14 @@ describe("a custom Renderer's Starting style (decision 2)", () => {
     expect(hydrationLogs(logs)).toEqual([])
   })
 
-  it("HY-L3 (guard): a client-only render under it logs none", async () => {
+  it("HY-L3 (guard): a client-only render under it seeds with its own Renderer and logs none", async () => {
     const logs: Array<Captured> = []
     setLogEnv(capturing(custom, logs))
     const rendered = renderClientOnly(LOG)
+    const seeded = styleOf(rendered.host.querySelector('[data-k="log"]'))
     await settleLogs()
     rendered.dispose()
+    expect(seeded["--custom"], "no hold without hydration").toBe("1")
     expect(hydrationLogs(logs)).toEqual([])
   })
 })

@@ -182,7 +182,7 @@ export const F12 = live(() => <Hover />)
 
 /** The Environment the log fixture hydrates under (DomLive on the server; HY-L1 swaps it). */
 let logEnv: WardicEnv = DomLive
-/** Set the client Environment for {@link LOG}; HY-L1 to HY-L3 call it before rendering. */
+/** Set the client Environment for {@link LOG} and {@link LOG_CARD}; HY-L1 to HY-L4 call it before rendering. */
 export const setLogEnv = (env: WardicEnv): void => {
   logEnv = env
 }
@@ -192,6 +192,21 @@ export const LOG = (): JSX.Element => (
     <wardic.div data-k="log" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={TWEEN}>
       log
     </wardic.div>
+  </WardicProvider>
+)
+
+const LogCardShape = (p: ShapeProps): JSX.Element => (
+  <div data-k="log-card" ref={p.ref} style={p.style}>
+    {p.children}
+  </div>
+)
+const WLogCard = wardic.create(LogCardShape)
+/** HY-L4: LOG's twin for a component wrap (the commit sink's path). */
+export const LOG_CARD = (): JSX.Element => (
+  <WardicProvider env={logEnv}>
+    <WLogCard initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={TWEEN}>
+      log card
+    </WLogCard>
   </WardicProvider>
 )
 

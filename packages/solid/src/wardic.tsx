@@ -32,13 +32,14 @@
  */
 import { mergeRefs } from "@solid-primitives/refs"
 import { type DragBounds, Renderer } from "@wardic/core"
-import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, resolveInitial, startingStyle } from "@wardic/dom"
+import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, resolveInitial, startingStyle } from "@wardic/dom"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { isServer } from "./server.ts"
+import { isHydrating, isServer } from "./server.ts"
 import {
   dragAxisOf,
+  flagStartingStyle,
   runSpine,
   useWardicWith,
   type WardicConfig,
@@ -282,12 +283,17 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // Retarget). motionToConfig reads each prop getter inside its accessor.
       const cfg = motionToConfig(motion)
 
-      // The Starting style (with the Environment's Renderer, as the client's seed is,
-      // ADR-0021 decision 2), the drag defaults, and whether the first frame has been
+      // The Starting style, the drag defaults, and whether the first frame has been
       // committed: until then `style` carries the Starting style, so a component that
       // applies it renders it on a server, while hydrating and before the first frame.
+      // While hydrating it's what the server rendered, the DOM's project (the Hydration
+      // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
       const config = untrack(cfg)
-      const starting = runtime.runSync(Renderer).project(resolveInitial(config))
+      const initialValues = resolveInitial(config)
+      const projected = runtime.runSync(Renderer).project(initialValues)
+      const hydrating = isHydrating()
+      const starting = hydrating ? domProject(initialValues) : projected
+      if (hydrating) flagStartingStyle(runtime, id, starting, projected)
       const axis = dragAxisOf(config, undefined)
       const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
       const [committed, setCommitted] = createSignal(false)
