@@ -15,6 +15,9 @@
 // Hydration hold), so hydration keeps the server's style; the Environment's Renderer takes
 // over at the first frame, and one `wardic.hydration:` debug log notes it.
 //
+// HY-H1 to HY-H3: the Hydration hold for client-only values (decisions 8 and 9): a hydrating
+// client renders the server's value until mount, though the live one differs.
+//
 // Test names are `<check> <fixture>: <label>`, so `-t 'F8:'` runs one fixture.
 import { Renderer } from "@wardic/core"
 import { DomLive, RendererDomLive } from "@wardic/dom"
@@ -26,7 +29,7 @@ import * as Logger from "effect/Logger"
 import * as References from "effect/References"
 import { commands } from "vitest/browser"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { EXPECTED, FIXTURES, type FixtureName, LOG, LOG_CARD, setLogEnv } from "./hydrate-fixtures.tsx"
+import { EXPECTED, FIXTURES, type FixtureName, HOLD_RM, HOLD_STREAM, LOG, LOG_CARD, seen, setLogEnv } from "./hydrate-fixtures.tsx"
 import "./browser-commands.ts"
 import {
   atNextPaint,
@@ -228,5 +231,47 @@ describe("a custom Renderer's Starting style (decision 2)", () => {
     rendered.dispose()
     expect(seeded["--custom"], "no hold without hydration").toBe("1")
     expect(hydrationLogs(logs)).toEqual([])
+  })
+})
+
+describe("the Hydration hold for client-only values (decisions 8 and 9)", () => {
+  const frames = async (n: number) => {
+    for (let i = 0; i < n; i++) await new Promise<void>((r) => requestAnimationFrame(() => r()))
+  }
+
+  it("HY-H1: under reduced motion, createReducedMotion renders false while hydrating, then true; the server's nodes are kept", async () => {
+    await commands.emulateReducedMotion(true)
+    try {
+      expect(matchMedia("(prefers-reduced-motion: reduce)").matches, "the page emulates it").toBe(true)
+      seen.reduced.length = 0
+      const hydrated = await hydrateFixture("HOLD_RM", HOLD_RM)
+      expect(hydrated.threw).toBe("")
+      expect(seen.reduced[0], "the hydration render saw the server's value").toBe(false)
+      await frames(2)
+      expect(hydrated.host.querySelector('[data-k="rm2"]')?.textContent, "after mount").toBe("true")
+      expect(hydrated.host.querySelector('[data-k="ok2"]'), "the motion-allowed branch is gone").toBeNull()
+      expect(hydrated.stopErrors()).toEqual([])
+      hydrated.dispose()
+    } finally {
+      await commands.emulateReducedMotion(false)
+    }
+  })
+
+  it("HY-H2: a stream that emits at once renders the server's value while hydrating, then its own", async () => {
+    seen.stream.length = 0
+    const hydrated = await hydrateFixture("HOLD_STREAM", HOLD_STREAM)
+    expect(hydrated.threw).toBe("")
+    expect(seen.stream[0], "the hydration render saw the server's value").toBe("server")
+    await frames(2)
+    expect(hydrated.host.querySelector('[data-k="st"]')?.textContent, "after mount").toBe("live")
+    expect(hydrated.stopErrors()).toEqual([])
+    hydrated.dispose()
+  })
+
+  it("HY-H3 (guard): client-only, that stream's value is there from the first render (so HY-H2 can fail)", () => {
+    seen.stream.length = 0
+    const rendered = renderClientOnly(HOLD_STREAM)
+    rendered.dispose()
+    expect(seen.stream[0]).toBe("live")
   })
 })

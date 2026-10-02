@@ -41,6 +41,11 @@ const serverRender: BrowserCommand<[file: string, exportName: string, renderId: 
   }
 }
 
+/** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames. */
+const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
+  await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
+}
+
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [solidPlugin({ ssr: true })],
@@ -63,7 +68,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { serverRender },
+      commands: { emulateReducedMotion, serverRender },
     },
   },
 })

@@ -16,6 +16,7 @@ import {
   AnimatePresence,
   createHover,
   createReducedMotion,
+  streamToSignal,
   LayoutGroup,
   Reorder,
   useWardic,
@@ -26,7 +27,8 @@ import {
 } from "@wardic/solid"
 import { TestLive } from "@wardic/test"
 import * as Effect from "effect/Effect"
-import { For, type JSX, Show } from "solid-js"
+import * as Stream from "effect/Stream"
+import { createRenderEffect, For, type JSX, Show } from "solid-js"
 
 const TWEEN: WardicTransition = { type: "tween", duration: 0.3 }
 
@@ -179,6 +181,37 @@ function Hover(): JSX.Element {
   )
 }
 export const F12 = live(() => <Hover />)
+
+/**
+ * What each render of HOLD_RM and HOLD_STREAM saw, in order (on the client; the server has
+ * its own copy of this module). Tests reset it before rendering.
+ */
+export const seen: { readonly reduced: Array<boolean>; readonly stream: Array<string> } = { reduced: [], stream: [] }
+
+function ReducedRecorder(): JSX.Element {
+  const reduced = createReducedMotion()
+  createRenderEffect(() => seen.reduced.push(reduced()))
+  return (
+    <p>
+      <span data-k="rm2">{String(reduced())}</span>
+      <Show when={!reduced()}>
+        <i data-k="ok2" />
+      </Show>
+    </p>
+  )
+}
+/** HY-H1: createReducedMotion, whose live value a test can make differ from the server's. */
+export const HOLD_RM = live(() => <ReducedRecorder />)
+
+function StreamRecorder(): JSX.Element {
+  // A stream that emits at once: without the hold, a hydrating client would show "live"
+  // in the hydration render, over the server's "server".
+  const value = streamToSignal(Stream.succeed("live"), "server")
+  createRenderEffect(() => seen.stream.push(value()))
+  return <span data-k="st">{value()}</span>
+}
+/** HY-H2 and HY-H3: streamToSignal over a stream that emits at once. */
+export const HOLD_STREAM = live(() => <StreamRecorder />)
 
 /** The Environment the log fixture hydrates under (DomLive on the server; HY-L1 swaps it). */
 let logEnv: WardicEnv = DomLive
