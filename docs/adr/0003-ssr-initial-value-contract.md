@@ -15,3 +15,7 @@ Measurement-dependent initial (`%`→`px`, `layout`/FLIP starts) cannot be resol
 ## Amendment (#41, 2026-10-01): the server builds nothing; a hydrating client holds the server's values
 
 The contract holds as written, and ADR-0021 implements it: a server render builds no runtime, and DomLive fails if it's built on a server. One addition: the Starting style is also what a hydrating client renders until the element mounts. So is every other value the server rendered, such as a client-only hook's `false` (the **Hydration hold**, ADR-0021, decision 8). The engine starts at mount from the Starting style, as before.
+
+## Amendment (#47, 2026-10-02): a key `initial` doesn't set starts from its Base value
+
+The seed holds for every key `initial` sets. A key it doesn't set (an `animate` key, a gesture's, an exit's) has no Starting style. The animation's `from` for it is its Base value's start links: its `style` value, else the element's Own value, read on the client after mount, never on a server (ADR-0022). Before, it started at 0, and a hydrating client blinked such a key to 0 at mount.

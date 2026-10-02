@@ -108,7 +108,6 @@ The same work fixes four engine problems that broke a reorder outright. Each has
 - **Deferred:**
   - #30 (a grab mid-flight jumps to the slot plus the pointer offset: 8–11 px off for a settling item, 34–38 px for a displaced sibling, where Motion slides) and the release velocity, together as the velocity grill;
   - #28's nested-child case;
-  - #47 (a `while*` key with no base value starts from 0 and never returns: scenario 14's "lift", `whileDrag: { scale: 1.05 }`, grows each item from 0 and leaves it at 1.05);
   - #41, #42, #43;
   - #32 (one frame behind the pointer with a browser's scheduler) and #29 (the design stays compatible with Motion's `setDragLock`) are out of scope.
 - **Pinned by:**
