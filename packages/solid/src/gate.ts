@@ -59,10 +59,11 @@ export type FlushSink =
     readonly kind: "commit"
     readonly target: unknown
     /**
-     * Called once, just before the element's first commit, outside the frame's `batch()`
-     * (ADR-0021, decision 6): a component wrap drops its Starting style from its `style`
-     * prop here, so Solid removes those keys and the commit writes the first frame in the
-     * same Refresh frame, with no paint in between.
+     * Called once, just before the element's first commit in a frame flush (not a Measure
+     * pass's `flushPass`), outside the frame's `batch()` (ADR-0021, decision 6): a component
+     * wrap drops its Starting style from its `style` prop here, so Solid removes those keys
+     * and the commit writes the first frame in the same Refresh frame, with no paint in
+     * between.
      */
     readonly beforeFirstCommit?: (() => void) | undefined
   }
@@ -177,13 +178,14 @@ export const makeFlushGate = (
   }
 
   /**
-   * Run `beforeFirstCommit` for each waiting entry about to commit (dirty, and in `only`
-   * when given), outside the batch so Solid applies what it changes before the commit.
+   * Run `beforeFirstCommit` for each waiting entry about to commit (dirty), outside the
+   * batch so Solid applies what it changes before the commit. A wrap that never commits
+   * stays waiting, so this loops over the wraps still waiting, once per frame flush.
    */
-  const runFirstCommits = (only?: ReadonlySet<string>): void => {
+  const runFirstCommits = (): void => {
     for (const id of firstCommits) {
       const entry = accumulator.get(id)
-      if (entry === undefined || !entry.dirty || (only !== undefined && !only.has(id))) continue
+      if (entry === undefined || !entry.dirty) continue
       firstCommits.delete(id)
       if (entry.sink.kind === "commit") entry.sink.beforeFirstCommit?.()
     }
@@ -233,7 +235,9 @@ export const makeFlushGate = (
       recording = undefined
     }
     if (written.size === 0) return
-    if (firstCommits.size > 0) runFirstCommits(written)
+    // No `beforeFirstCommit` here: a Measure pass may write only a node's projection, and
+    // dropping the Starting style then would leave its animated keys unset until the frame
+    // flush (a frame later for an element mounted inside a frame). The frame flush switches.
     batch(() => {
       for (const id of written) {
         const entry = accumulator.get(id)

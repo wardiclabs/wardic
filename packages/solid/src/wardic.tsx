@@ -297,7 +297,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       const axis = dragAxisOf(config, undefined)
       const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
       const [committed, setCommitted] = createSignal(false)
-      const userStyle = (): JSX.CSSProperties | undefined => (refStyle as { style?: JSX.CSSProperties }).style
+      const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
 
       // COMMIT sink: the gate runs Renderer.commit(target, patch) on the
       // provider runtime, driving the forwarded element directly each frame.
@@ -329,14 +329,16 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
 
       // Merge the user's ref (if any) with the spine's setter so BOTH receive
       // the forwarded element. After the first commit, `style` is the user's style
-      // (over the drag defaults): exactly what they passed when there's no drag.
+      // (over the drag defaults), or an empty style when there's neither: `undefined`
+      // would make Solid remove the whole attribute, inline styles Wardic didn't write
+      // included, where an empty style removes only the Starting style's keys.
       const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
-      const style = (): JSX.CSSProperties | undefined =>
+      const style = (): JSX.CSSProperties | string =>
         !committed()
           ? (mergeStyle(userStyle(), starting, dragDefaults) as JSX.CSSProperties)
           : dragDefaults !== undefined
           ? (mergeStyle(userStyle(), {}, dragDefaults) as JSX.CSSProperties)
-          : userStyle()
+          : (userStyle() ?? {})
       return (
         <Dynamic
           component={Wrapped}

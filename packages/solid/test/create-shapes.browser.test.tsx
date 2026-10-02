@@ -1,10 +1,11 @@
 // wardic.create(Component) across component shapes (ADR-0021, decision 6), client-only
 // under DomLive. Forwarding the ref stays the one requirement, and frames go through it
-// (ADR-0006's commit sink). Until mount the wrap passes the component `style` = the
-// user's style + the Starting style + the drag defaults (and `draggable`); from mount on,
-// only the user's style over the drag defaults. Solid's style() writes every key again on
-// a change, so the Starting style can't stay on the prop: a user-style change would reset
-// the animated keys.
+// (ADR-0006's commit sink). Until its first frame is committed the wrap passes the
+// component `style` = the user's style + the Starting style + the drag defaults (and
+// `draggable`); from then on, only the user's style over the drag defaults (an empty style
+// when there's neither, so Solid removes only the Starting style's keys). Solid's style()
+// writes every key again on a change, so the Starting style can't stay on the prop: a
+// user-style change would reset the animated keys.
 //
 // Each shape animates `opacity` 0 -> 1 with a short tween. The visible opacity is the
 // root's computed opacity times the inner element's (1 without one), read at the first
@@ -141,7 +142,7 @@ const enter = (timing: MountTiming): Promise<void> =>
   timing === "frame" ? raf() : new Promise((resolve) => setTimeout(resolve, 0))
 
 /** Mount `name` wrapped with opacity 0 -> 1 and a user style `{ color }` the test can change. */
-const mountShape = (name: ShapeName, options: { readonly drag?: "x" } = {}): Mounted => {
+const mountShape = (name: ShapeName, options: { readonly drag?: "x"; readonly layout?: true } = {}): Mounted => {
   const [color, setColor] = createSignal("red")
   let error: unknown
   const Wrapped = WRAPPED[name]
@@ -159,6 +160,7 @@ const mountShape = (name: ShapeName, options: { readonly drag?: "x" } = {}): Mou
           transition={TWEEN}
           style={{ color: color() }}
           {...(options.drag !== undefined ? { drag: options.drag } : {})}
+          {...(options.layout === true ? { layout: true } : {})}
         />
       </ErrorBoundary>
     </WardicProvider>
@@ -230,7 +232,7 @@ describe("wardic.create(Component) shapes (ADR-0021, decision 6)", () => {
     expect((error() as Error).message).toContain("did not forward its ref")
   })
 
-  it("CS6: the component's style and draggable props before mount, then after", async () => {
+  it("CS6: the component's style and draggable props before the first commit, then after", async () => {
     const spy = async (options: { readonly style?: JSX.CSSProperties; readonly drag?: "x" }) => {
       const log: Array<{ readonly style: Record<string, unknown> | undefined; readonly draggable: unknown }> = []
       const Spy = (p: ShapeProps): JSX.Element => {
@@ -262,20 +264,20 @@ describe("wardic.create(Component) shapes (ADR-0021, decision 6)", () => {
     const starting = domProject(INITIAL)
 
     const plain = await spy({ style: { color: "red" } })
-    expect(plain.before?.style, "before mount: the user's style + the Starting style").toEqual({ color: "red", ...starting })
+    expect(plain.before?.style, "before the first commit: the user's style + the Starting style").toEqual({ color: "red", ...starting })
     expect(plain.before?.draggable).toBeUndefined()
-    expect(plain.after?.style, "after mount: the user's style").toEqual({ color: "red" })
+    expect(plain.after?.style, "after it: the user's style").toEqual({ color: "red" })
     expect(plain.after?.draggable).toBeUndefined()
 
     const drag = await spy({ style: { color: "red" }, drag: "x" })
-    expect(drag.before?.style, "before mount, with drag: + the drag defaults").toEqual({ ...dragDefaultStyle("x"), color: "red", ...starting })
+    expect(drag.before?.style, "before the first commit, with drag: + the drag defaults").toEqual({ ...dragDefaultStyle("x"), color: "red", ...starting })
     expect(drag.before?.draggable).toBe("false")
-    expect(drag.after?.style, "after mount, with drag: the user's style over the drag defaults").toEqual({ ...dragDefaultStyle("x"), color: "red" })
+    expect(drag.after?.style, "after it, with drag: the user's style over the drag defaults").toEqual({ ...dragDefaultStyle("x"), color: "red" })
     expect(drag.after?.draggable).toBe("false")
 
     const bare = await spy({})
-    expect(bare.before?.style, "before mount, no user style: the Starting style").toEqual(starting)
-    expect(bare.after?.style, "after mount, no user style and no drag: exactly undefined").toBeUndefined()
+    expect(bare.before?.style, "before the first commit, no user style: the Starting style").toEqual(starting)
+    expect(bare.after?.style, "after it, no user style and no drag: an empty style (not undefined, which removes the attribute)").toEqual({})
     expect(bare.after?.draggable).toBeUndefined()
   })
 
@@ -302,5 +304,40 @@ describe("wardic.create(Component) shapes (ADR-0021, decision 6)", () => {
     expect(el.style.getPropertyValue("touch-action")).toBe("pan-y")
     expect(el.style.getPropertyValue("user-select")).toBe("none")
     expect(el.getAttribute("draggable")).toBe("false")
+  })
+
+  it("CS9: with no style of its own, the element keeps inline styles Wardic didn't write when the Starting style leaves", async () => {
+    let node: HTMLElement | undefined
+    const Wrapped = WRAPPED["ref + style on root"]
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Wrapped
+          ref={(el: HTMLElement) => {
+            node = el
+            el.style.setProperty("outline-color", "red")
+          }}
+          initial={INITIAL}
+          animate={ANIMATE}
+          transition={TWEEN}
+        />
+      </WardicProvider>
+    ))
+    for (let i = 0; i < 3; i++) await raf()
+    expect(node?.style.getPropertyValue("outline-color"), "the ref callback's own style").toBe("red")
+    expect(Number(node?.style.opacity), "and the commit's").toBeGreaterThan(0)
+  })
+
+  it("CS10: a layout component wrap mounted in a task or a frame: from the first paint, the visible opacity starts at 0 and never drops", async () => {
+    const flashes: Array<string> = []
+    for (const timing of ["task", "frame"] as const) {
+      await enter(timing)
+      const { host } = mountShape("ref + style on root", { layout: true })
+      const reads = [await atFirstPaint(() => visible(host)), ...(await afterPaints(3, () => visible(host)))]
+      const starts = reads[0]! <= FIRST_FRAME
+      const rises = reads.every((v, i) => i === 0 || v + 0.001 >= reads[i - 1]!)
+      if (!starts || !rises) flashes.push(`mounted in a ${timing}: ${reads.join(", ")}`)
+      cleanup()
+    }
+    expect(flashes).toEqual([])
   })
 })
