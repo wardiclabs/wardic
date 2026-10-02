@@ -31,7 +31,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - `env` stays a single Effect Layer, extended the Effect way. `Layer.merge(DomLive, X)` adds or replaces a service, and the later Layer wins (effect 4.0.0-rc.117).
   - A Layer can only be built whole (`Layer.ts:54-57`). So on a server the binding projects with `@wardic/dom`'s `project`, the function DomLive's Renderer wraps, as Motion's binding imports `buildHTMLStyles`.
   - The client keeps the Environment's Renderer.
-  - A custom Renderer that projects the Starting style differently from the DOM's: while hydrating, the client seeds with the DOM's `project` as well (the Hydration hold), so hydration keeps the server's style. The Environment's Renderer takes over at the first frame, which a cold-path `wardic.hydration` debug log notes.
+  - A custom Renderer that projects the Starting style differently from the DOM's: while hydrating, the client seeds with the DOM's `project` as well (the Hydration hold), so hydration keeps the server's style. The Environment's Renderer takes over at the first frame, which a cold-path `wardic.hydration` debug log notes. An element that never animates keeps the server's projection.
 - **The binding knows it's on a server (decision 3).**
   - One `isServer` check, from `solid-js/web` (`@solidjs/web` in Solid 2). It reports what Solid is doing (rendering to a string), not which globals exist.
   - On a server the provider builds no gate and no projection system, and holds an unbuilt runtime (`ManagedRuntime.make`, 0.92 µs).
@@ -44,7 +44,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
 - **A component wrap gets its Starting style through `style` until mount (decision 6).**
   - `wardic.create(Component)` keeps the one requirement the v0.1 plan set: forward the ref. Frames still go through the ref (ADR-0006's commit sink).
   - Until its first frame is committed (on a server, in the hydration render, and on the client until the engine's first commit), the component receives `style` = the user's style + the Starting style + the drag defaults, and `draggable`.
-  - From then on it receives only the user's style, plus the drag defaults. The switch happens inside the first commit: the gate calls the commit sink's `beforeFirstCommit` just before its first patch, outside the frame's `batch()`, so Solid removes the Starting-style keys and the commit writes the first frame with no paint in between. Switching at mount painted the element without its Starting style when it mounted inside a frame callback, whose first commit is a frame later.
+  - From then on it receives only the user's style, plus the drag defaults (an empty style when there's neither: `undefined` would make Solid remove the whole attribute, inline styles Wardic didn't write included). The switch happens inside the first commit, in the frame flush, not in a Measure pass's: the gate calls the commit sink's `beforeFirstCommit` just before its first patch, outside the frame's `batch()`, so Solid removes the Starting-style keys and the commit writes the first frame with no paint in between. Switching at mount painted the element without its Starting style when it mounted inside a frame callback, whose first commit is a frame later; switching in a Measure pass, whose patch may carry only a `layout` node's projection, did the same.
   - Measured in Chromium 147 with five component shapes, each animating `opacity` 0 → 1, and the user's own style changed after it settles:
 
     | Component shape | Motion 13.5.0 | Copying Motion literally into Solid | This decision | `useWardic` on the component |
@@ -104,14 +104,14 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
 ## Consequences
 
 - **New surface:**
-  - `@wardic/dom` exports its pure `project` and the Starting-style helpers (Tier 2, for binding authors);
+  - `@wardic/dom` exports its pure `project`, the Starting-style helpers and an inert Reorder controller for a server render (Tier 2, for binding authors);
   - `fromAtom` gains an optional `serverValue`;
   - the gate's commit sink gains an internal `beforeFirstCommit`;
   - the provider, `useWardic`, the `wardic.*` wrapper and the client-only hooks gain a server branch.
   - Nothing changes on any per-frame path.
 - **Costs:**
   - on a server, 0.92 µs for the unbuilt runtime per provider and about 9 µs per element (a 100-element harness);
-  - on the client, one signal write per component wrap at its first commit, and per held hook at mount while hydrating; the gate checks one set's size per flush.
+  - on the client, one signal write per component wrap at its first commit, and per held hook at mount while hydrating; the gate loops, once per frame flush, over the component wraps still waiting for their first commit (usually none).
 - **Solid 2** ([upgrade-targets.md](../plans/upgrade-targets.md)):
   - `onMount` becomes `onSettled`;
   - an effect's `compute` half runs on a server, and so do both halves of a render effect;
@@ -125,8 +125,8 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - the gate's frames through the Environment (#52);
   - #47.
 - **Pinned by:**
-  - `@wardic/dom`, node tier: `server-guard.node.test.ts` (G1–G8: each Layer's client-only error, `project` exported, nothing read at import) and `starting-style.node.test.ts` (ST1–ST13); `svg.browser.test.ts`'s SVG-T1 (the split by tag equals the split by element);
-  - the server tier, on DomLive: `packages/solid/test/server.ssr.test.tsx` (SV1–SV16: every element kind's Starting style, the client-only hooks' server values, the Effect hooks, the client-only error, the hydration keys against `9531ff4`'s, and no runtime built) and `reorder.ssr.test.tsx` (SS0–SS6);
-  - the hydration project, `packages/solid/vitest.hydrate.config.ts`: `server-render.hydrate.browser.test.tsx` (HY1–HY6 for fixtures F0–F12, and HY-L1–HY-L4 for a custom Renderer), in Chromium and Firefox;
-  - `create-shapes.browser.test.tsx` (CS1–CS8: the component shapes, including a mount inside a frame callback);
+  - `@wardic/dom`, node tier: `server-guard.node.test.ts` (G1–G8: each Layer's client-only error, `project` exported, nothing read at import) and `starting-style.node.test.ts` (ST1–ST14); `svg.browser.test.ts`'s SVG-T1 (the split by tag equals the split by element);
+  - the server tier, on DomLive: `packages/solid/test/server.ssr.test.tsx` (SV1–SV18: every element kind's Starting style, the client-only hooks' server values, the Effect hooks, the client-only error, the hydration keys against `9531ff4`'s, no runtime built, reactive props over Wardic's keys, string styles) and `reorder.ssr.test.tsx` (SS0–SS6);
+  - the hydration project, `packages/solid/vitest.hydrate.config.ts`: `server-render.hydrate.browser.test.tsx` (HY1–HY6 for fixtures F0–F12, HY-L1–HY-L4 for a custom Renderer, and HY-H1–HY-H3 for the Hydration hold of client-only values), in Chromium (and in Firefox through a local config);
+  - `create-shapes.browser.test.tsx` (CS1–CS10: the component shapes, including a mount inside a frame callback, a `layout` wrap, and inline styles Wardic didn't write);
   - the SolidStart example's `/ssr` route and its hydration report (`examples/solid-start-basic`), the hand check.

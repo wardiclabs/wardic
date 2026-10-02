@@ -1129,7 +1129,7 @@ export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Pa
   runtime.runFork(
     Effect.logDebug(
       "wardic.hydration: the Environment's Renderer projects the Starting style differently from the DOM's; " +
-        "hydration keeps the server's until the first frame",
+        "hydration keeps the server's until the first frame, and an element that never animates keeps it",
     ).pipe(
       Effect.annotateLogs({ id, keys, server: pick(server), client: pick(client) }),
     ),
