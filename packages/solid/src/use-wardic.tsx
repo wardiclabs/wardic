@@ -156,7 +156,6 @@ export type WardicValues =
   & WardicTransformShorthands
   & WardicSvgAttributes
 
-
 /**
  * Variant-orchestration fields (ADR-0007, step 21b), shared by both transition
  * arms. They only take effect on the parent that renders `ward.Provider`; a
@@ -371,7 +370,6 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
    */
   readonly Provider: Component<{ readonly children?: JSX.Element }>
 }
-
 
 /**
  * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
@@ -1193,7 +1191,6 @@ const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: Spi
 
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = (): void => {}
-
 
 /**
  * The drag axis a spine runs with: its static `drag` config, else `true` for a

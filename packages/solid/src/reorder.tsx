@@ -19,8 +19,8 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
-import type { Point, ReorderAxis, ReorderGroup as CoreReorderGroup } from "@wardic/core"
-import { makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
+import type { ReorderAxis, ReorderGroup as CoreReorderGroup } from "@wardic/core"
+import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import {
   type Accessor,
@@ -188,27 +188,6 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
 
 const noop = (): void => {}
 
-/** Core's Reorder group during a server render: nothing to reorder, so every call does nothing. */
-const INERT_GROUP: CoreReorderGroup<never> = Object.freeze({
-  register: () => noop,
-  resolveAxis: () => "y" as const,
-  dragStart: () => "y" as const,
-  dragMove: (_value: never, point: Point) => point,
-  dragEnd: noop,
-  move: noop,
-})
-
-/** The controller during a server render: no projection system, so nothing to drive. */
-const INERT_CONTROLLER: ReorderController<never> = Object.freeze({
-  group: INERT_GROUP,
-  axis: () => "y" as const,
-  attach: noop,
-  item: () => ({ register: () => noop, dragAxis: () => "y" as const, onSample: noop, dispose: noop }),
-  resolve: noop,
-  valuesChanged: noop,
-  dispose: noop,
-})
-
 /**
  * {@link createReorderGroup} during a server render (ADR-0021): the group's element style
  * (`overflow-anchor: none` under the user's) and the app's axis, else `"y"`; its `group`,
@@ -219,7 +198,7 @@ const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGr
     ref: userProps?.ref ?? noop,
     style: { ...REORDER_GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
   })
-  const controller = INERT_CONTROLLER as unknown as ReorderController<V>
+  const controller = INERT_REORDER_CONTROLLER as unknown as ReorderController<V>
   return Object.assign(ward, { group: controller.group, axis: () => cfg().axis ?? ("y" as const), move: noop, controller })
 }
 

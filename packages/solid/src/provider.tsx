@@ -84,6 +84,9 @@ export function WardicProvider(props: {
     // builds nothing (0.92 µs), so code that grabs the runtime at setup and uses it after
     // mount keeps working. Same JSX as the client, so the hydration keys match.
     const runtime = ManagedRuntime.make(props.env)
+    // Nothing builds it here, but an Environment that builds on a server (TestLive) could
+    // be built by user code: dispose it with the render, as the client does on unmount.
+    onCleanup(() => void runtime.dispose())
     return (
       <WardicContext.Provider value={{ runtime, gate: INERT_GATE, projection: undefined }}>
         {props.children}

@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config"
 
 // Root config for the canonical DOM test tier — run via `bun run test:browser`.
 //
-// Composes the three real-browser projects so CI runs both in one pass:
+// Composes the three real-browser projects so CI runs them in one pass:
 //   - @wardic/dom    (packages/dom/vitest.browser.config.ts) — the DOM ports
 //     against real observers / geometry / event timing.
 //   - @wardic/solid  (packages/solid/vitest.browser.config.ts) — rendered

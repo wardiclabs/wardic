@@ -8,7 +8,7 @@
  * until the element mounts (the **Hydration hold**, decision 8), then runs as a
  * client-only render does.
  */
-import { type Accessor, createSignal, onMount, sharedConfig } from "solid-js"
+import { sharedConfig } from "solid-js"
 
 export { isServer } from "solid-js/web"
 
@@ -19,10 +19,3 @@ export { isServer } from "solid-js/web"
  * docs/plans/upgrade-targets.md).
  */
 export const isHydrating = (): boolean => sharedConfig.context != null
-
-/** `false` until the owner mounts, then `true`. A server never flips it. */
-export const createMounted = (): Accessor<boolean> => {
-  const [mounted, setMounted] = createSignal(false)
-  onMount(() => setMounted(true))
-  return mounted
-}

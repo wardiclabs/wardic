@@ -40,6 +40,7 @@ export {
 } from "./projection.ts"
 // The Reorder group's controller (ADR-0020): the framework-free half of <Reorder>.
 export {
+  INERT_REORDER_CONTROLLER,
   makeReorderController,
   REORDER_GROUP_STYLE,
   type ReorderController,

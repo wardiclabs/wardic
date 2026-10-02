@@ -12,8 +12,8 @@ export default function Home() {
         <h1>Wardic dev sandbox</h1>
         <p>The packages are wired up and rendering through SSR. Start building primitives in @wardic/core.</p>
         <p>
-          <a href="/ssr">/ssr</a>: every Wardic element rendered on the server, then hydrated, with a hydration
-          report (#41).
+          <a href="/ssr" rel="external">/ssr</a>: every Wardic element rendered on the server, then hydrated, with a hydration
+          report (#41). The link loads the page from the server; the router would render it client-side.
         </p>
         <ul>
           <li>@wardic/core — v{coreVersion}</li>
