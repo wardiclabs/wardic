@@ -34,6 +34,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
     With none, it doesn't return: it stays where it is, as before.
   - **Start:** a key with no value yet starts from its `style` value, else its Own value (`initial` already seeds the Snapshot, ADR-0003). With neither, it starts at its target, with no motion (Motion's `unresolvedKeyframes[0] = finalKeyframe`, `KeyframesResolver.ts:226-228`).
   - **Own value:** a transform key's Own value is its identity, pure. Any other key's is read from the element.
+  - **A transform key has no `style` link.** In a DOM style, `scale`, `translate` and `rotate` are CSS properties of their own, which compose with the element's transform rather than seed it: `style={{ scale: 0.8 }}` with `whileHover={{ scale: 1.5 }}` paints 0.8 → 1.2 → 0.8.
   - **#50:** an inherited `initial` variant later joins at the `initial` link.
 - **Every key with no value (decision 2).** `animate` keys included, as Motion does (C13–C16):
   - an `animate` key with no `initial` starts from its Own value;
@@ -48,7 +49,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
     All Tier 2, imported directly as #41's Starting-style helpers are.
   - **The binding** only wires them.
   - Not a third `Renderer` method: every Renderer would have to grow one for a case no binding has.
-- **The read (decision 4).** At first need, synchronously, once per key per element, kept, including a miss: a later CSS change doesn't move it (C12).
+- **The read (decision 4).** At first need, synchronously, once per key per element, kept, including a miss: a later CSS change doesn't move it (C12). Every key `initial` doesn't set is read at its first need, even one that starts from its `style` value, so a later return finds the element's value, not Wardic's own write (a colour from a class, C8).
   - **What it reads:**
     - a transform key: nothing;
     - on an svg-inner element, a key written as an attribute: its attribute (ADR-0014's routing), then the computed style;
@@ -64,6 +65,8 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
   - **Once settled:**
     - **A key back at its `style` value is handed back to the element** (the gate's `release`). A later `style` change then shows at once, and the next gesture starts from it (Motion's `liveStyle`, C7). A commit sink writes the user's current value back.
     - **Any other key rests inline at its base** and leaves the target. A later CSS change doesn't show (C4, C12).
+    - A key handed back stays the element's when a `when` gate (ADR-0007) reopens on the same target.
+    - A commit sink clears a key gone from the user's style by then, rather than restoring a stale value.
 - **The exit (decision 6).** `<AnimatePresence>` starts an exit key the element never animated from the same start links, read from the retained node. A string exit key then animates from its read value.
 - **The server (decision 7).**
   - Nothing reads the DOM on a server (ADR-0021).
@@ -112,10 +115,10 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
   - `whileFocus` / `whileInView`, which aren't wired (they get the chain once they are).
 - **Pinned by:**
   - core: `base-value.test.ts` (B1–B12);
-  - `@wardic/dom`: `base-value.node.test.ts` (D1–D8) and `own-values.browser.test.ts` (OV1–OV12);
+  - `@wardic/dom`: `base-value.node.test.ts` (D1–D9) and `own-values.browser.test.ts` (OV1–OV12);
   - `@wardic/solid`:
-    - `base-values.browser.test.tsx` (M1–M18: the Motion cases on `wardic.div`, a `useWardic` spread and `Reorder.Item`, with the real mouse and painted values every frame);
-    - `base-values-sinks.browser.test.tsx` (K1–K5: `wardic.create(Component)`, `use:ward`, `use:reorderItem`; X1–X2: the exit);
+    - `base-values.browser.test.tsx` (M1–M22: the Motion cases on `wardic.div`, a `useWardic` spread and `Reorder.Item`, with the real mouse and painted values every frame);
+    - `base-values-sinks.browser.test.tsx` (K1–K6: `wardic.create(Component)`, `use:ward`, `use:reorderItem`; X1–X2: the exit);
     - `gate.browser.test.tsx` (GR1–GR5);
     - `server.ssr.test.tsx` (SV19);
     - the hydrate project's F13 and F14;
