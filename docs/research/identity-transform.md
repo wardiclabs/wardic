@@ -138,6 +138,10 @@ against both gates, 2026-10-06:
   `:111`).
 - No server or hydration test moves: none renders an identity `initial`, and the hydrate project reads painted
   transforms through the computed matrix, which is the same for `none` and an identity function.
+- **A projected element's own scale already rests at `none`** (the red run of ADR-0023's pins at `3f6ea26`): a
+  `Reorder.Item`'s returned `whileDrag` scale leaves `translate3d(0px, 0.0294px, 0px)` 300 ms after its painted scale
+  is back within 0.004 of 1, while its flight to the slot finishes, and `none` 100 ms later, in three runs out of three.
+  The projection path leaves out an element scale of 1, so only its woven rotate and skew rested as functions.
 
 ## Not checked
 

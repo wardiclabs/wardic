@@ -8,7 +8,7 @@ This amends ADR-0009 (the projection transform's woven terms), ADR-0014 (an svg-
 
 - **An identity transform isn't `none` to CSS.** CSS Transforms 1, §3 (W3C Candidate Recommendation, 14 February 2019): "Any value other than none for the transform property results in the creation of a stacking context … also causes the element to establish a containing block for all descendants." So `scale(1)` paints the element as `none` does, but not its descendants: a `position: fixed` child is placed against the element instead of the viewport, and a child's `z-index` stacks inside it.
 - **Since #47 it reached most animated elements** (at `3f6ea26`, [identity-transform.md](../research/identity-transform.md)):
-  - every transform key a gesture sets returns to its identity and rests there (ADR-0022), so any element ever hovered, pressed or dragged on a transform key rested as a stacking context;
+  - every transform key a gesture sets returns to its identity and rests there (ADR-0022), so any element that isn't projected, once hovered, pressed or dragged on a transform key, rested as a stacking context (a projected one's own scale already rested at `none`, ADR-0009);
   - the house entrance, `initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}`, settles at `translateX(0px)`;
   - an identity `initial` server-rendered `transform: scale(1)`;
   - on the projection path, a returned `rotate` or `skew` rested at `rotate(0deg)`.
@@ -70,11 +70,10 @@ This amends ADR-0009 (the projection transform's woven terms), ADR-0014 (an svg-
 - **Where Wardic still differs from Motion:** with no transform key left, Motion writes `none` if it wrote a transform before (`build-styles.ts:59-65`). `project` is stateless, so it writes nothing then. A transform key the gate has written stays in its value-map (ADR-0022: a transform key has no `style` link to be handed back to), so its identity's `none` is what rests.
 - **Costs:** decision 7.
 - **Pinned by** (written red, before the fix):
-  - `@wardic/dom`, node tier: `identity-transform.node.test.ts` (IT1–: the normal path's identities, mixed keys, no transform key, decision 3's strings, all fifteen keys; the projection path's woven terms and `z`; an svg-inner element split by tag) and `starting-style.node.test.ts` (ST15–ST16: an identity `initial`'s Starting style, HTML and svg-inner);
-  - `renderer.browser.test.ts`: `{ x: 10, y: 0 }` now projects `translateX(10px)`, and a commit back to identity writes `none` over the transform before it;
+  - `@wardic/dom`, node tier: `identity-transform.node.test.ts` (IT1–IT11: each key at its identity, all fifteen, mixed keys, decision 3's strings and its exactness; the projection path's woven terms and `z`; an svg-inner element split by tag; IT4 and IT6 are guards) and `starting-style.node.test.ts` (ST15–ST16: an identity `initial`'s Starting style, HTML and svg-inner);
+  - `@wardic/dom`, in Chromium: `renderer.browser.test.ts` (`{ x: 10, y: 0 }` projects and commits `translateX(10px)`; a commit back to identity writes `none` over the transform before it) and `projection-transform.browser.test.ts` (PT5: the woven terms);
   - `@wardic/solid`, in Chromium:
-    - `base-values.browser.test.tsx` (M27–: `none` inline once C1, C2 and C10 return; C5's class transform still overridden; the house entrance settles to `none`; a `position: fixed` child placed against the viewport once a hover returns);
-    - `base-values-sinks.browser.test.tsx` (K7–: the commit sinks, `wardic.create(Component)` and `use:ward`);
-    - `projection-transform.browser.test.ts` (PT5: a `layout` element's returned rotate);
-  - the server tier: `server.ssr.test.tsx` (SV20: an identity `initial` renders `transform: none`, and with a non-identity key only that key's function);
-  - the hydrate project: F15 (an identity `initial` holds `none` through hydration, then animates from it).
+    - `base-values.browser.test.tsx` (M27–M33: `none` inline once C1's and C2's scale return; C5's class transform shown before the first gesture and overridden by `none` after it; the house entrance settles to `none`; a `position: fixed` child placed against the viewport once a hover returns; a `layout` element's returned rotate; M32, a `Reorder.Item` once its flight back lands, is a guard: the projection path already wrote `none`);
+    - `base-values-sinks.browser.test.tsx` (K7–K8: the commit sinks, `wardic.create(Component)` and `use:ward`);
+  - the server tier: `server.ssr.test.tsx` (SV20: an identity `initial` renders `transform: none` on `wardic.div`, an svg-inner element and a component wrap; with a non-identity key, only that key's function);
+  - the hydrate project: F15 (an identity `initial` holds `none` through hydration, then animates from it) and F16 (it keeps `none` at rest).
