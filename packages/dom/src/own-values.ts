@@ -10,7 +10,7 @@
  * Observability: per element and cold (once per key), so quiet; the spine logs what it
  * started from and returned to.
  */
-import { transformIdentity } from "@wardic/core"
+import { transformIdentity, unitOf } from "@wardic/core"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
 
@@ -30,8 +30,8 @@ const cssName = (key: string): string => (key.startsWith("--") ? key : dashCase(
  *    attribute, if it has one;
  * 3. otherwise the computed style (a custom property by its own name).
  *
- * Creating a reader reads nothing. Read values are raw strings; coerce them with
- * {@link valueLike}.
+ * Creating a reader reads nothing. A read from an element not in the document isn't kept.
+ * Read values are raw strings; coerce them with {@link valueLike}.
  */
 export const ownValues = (element: Element): OwnValue => {
   const cache = new Map<string, number | string | undefined>()
@@ -51,7 +51,9 @@ export const ownValues = (element: Element): OwnValue => {
   return (key) => {
     if (cache.has(key)) return cache.get(key)
     const value = read(key)
-    cache.set(key, value)
+    // An element not in the document has an empty computed style: that miss isn't the
+    // element's, so it isn't kept, and the key is read again once the element is in.
+    if (element.isConnected) cache.set(key, value)
     return value
   }
 }
@@ -86,13 +88,20 @@ const NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?(px)?\s*$/i
  *   (`"0.5"` → 0.5, `"120px"` → 120); anything else misses (`auto`, `50%`, `1em`, a colour),
  *   so the key starts at its target and doesn't return. Motion converts units by measuring
  *   the element; Wardic doesn't.
- * - a string target takes a string as is, or a finite number as a string.
+ * - a string target takes a string as is, or a finite number as a string, except a length
+ *   in another unit than the target's (`"120px"` for `"0%"`): the unit interpolator dies on
+ *   that pair, so it misses, as a numeric target misses `50%`.
  */
 export const valueLike = (raw: unknown, like: number | string): number | string | undefined => {
   if (typeof like === "number") {
     if (typeof raw === "number") return Number.isFinite(raw) ? raw : undefined
     return typeof raw === "string" && NUMERIC.test(raw) ? Number.parseFloat(raw) : undefined
   }
-  if (typeof raw === "string") return raw
+  if (typeof raw === "string") {
+    const want = unitOf(like)
+    const got = unitOf(raw)
+    const clash = want !== undefined && want !== "" && got !== undefined && got !== "" && got !== want
+    return clash ? undefined : raw
+  }
   return typeof raw === "number" && Number.isFinite(raw) ? String(raw) : undefined
 }

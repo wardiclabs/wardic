@@ -5,6 +5,7 @@ import {
   InterpolatorRegistryLive,
   numberInterpolator,
   unitInterpolator,
+  unitOf,
 } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -27,6 +28,15 @@ it("array entry interpolates element-wise", () => {
 it("unit entry preserves the unit", () => {
   expect(unitInterpolator.match("10px")).toBe(true)
   expect(unitInterpolator.interpolate("0px", "10px", 0.5)).toBe("5px")
+})
+
+it("unitOf reads the unit the unit entry parses: '' for a bare number, undefined for none", () => {
+  expect(unitOf(" 10px ")).toBe("px")
+  expect(unitOf("-100%")).toBe("%")
+  expect(unitOf("0.5em")).toBe("em")
+  expect(unitOf("120")).toBe("")
+  expect(unitOf("auto")).toBeUndefined()
+  expect(unitOf("rgb(0, 0, 0)")).toBeUndefined()
 })
 
 it("color interpolator does not match the CSS keyword 'auto'", () => {

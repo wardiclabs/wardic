@@ -130,4 +130,13 @@ describe("ownValues: an element's own value for a key (ADR-0022)", () => {
     expect(result).toBeUndefined()
     expect(reads).toBe(0)
   })
+
+  it("OV13: a read from an element not in the document isn't kept: once it's in, the key is read again", () => {
+    const el = document.createElement("div")
+    el.className = "half"
+    const own = ownValues(el)
+    expect(own("opacity"), "a disconnected element has no computed style").toBeUndefined()
+    mount(el)
+    expect(own("opacity")).toBe("0.5")
+  })
 })

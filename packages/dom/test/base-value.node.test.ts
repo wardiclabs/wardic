@@ -51,6 +51,17 @@ describe("base values: the DOM's pure helpers (ADR-0022)", () => {
     expect(valueLike(Number.NaN, "red")).toBeUndefined()
   })
 
+  it("D10: valueLike, string target with a unit: a length in another unit misses (the unit interpolator would die on the pair)", () => {
+    expect(valueLike("120px", "0%")).toBeUndefined()
+    expect(valueLike("0px", "-100%")).toBeUndefined()
+    expect(valueLike("16px", "0.5em")).toBeUndefined()
+    expect(valueLike("120px", "0px")).toBe("120px")
+    expect(valueLike("120", "0%")).toBe("120")
+    expect(valueLike("auto", "0%")).toBe("auto")
+    expect(valueLike("120px", "0")).toBe("120px")
+    expect(valueLike(5, "10px")).toBe("5")
+  })
+
   it("D7: a style value coerced to its target: the style link as the spine reads it", () => {
     expect(valueLike(styleValueOf({ opacity: "0.5" }, "opacity"), 1)).toBe(0.5)
     expect(valueLike(styleValueOf("width: 120px", "width"), 200)).toBe(120)

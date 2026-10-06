@@ -187,4 +187,20 @@ describe("a key with no base value (#47): the presence exit", () => {
     const frames = await exitFrames(() => document.querySelector<HTMLElement>("[data-exit]")!, () => setVisible(false), scaleOf)
     expect(frames.some((v) => v > 0.2 && v < 0.9), "it shrinks through, not from 0").toBe(true)
   })
+
+  it("X3: an exit length in another unit than the element's own value starts at its target, and the rest of the exit still plays", async () => {
+    const [visible, setVisible] = createSignal(true)
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <AnimatePresence>
+          <Show when={visible()}>
+            <wardic.div data-exit style={BOX} exit={{ opacity: 0, height: "0%" }} />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    await settle()
+    const frames = await exitFrames(() => document.querySelector<HTMLElement>("[data-exit]")!, () => setVisible(false), opacityOf)
+    expect(frames.some((v) => v > 0.1 && v < 0.9), "the opacity fades through, not cut short").toBe(true)
+  })
 })
