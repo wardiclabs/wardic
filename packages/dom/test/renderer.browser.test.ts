@@ -29,8 +29,15 @@ const renderer = await Effect.runPromise(
 
 describe("RendererDomLive.project (pure)", () => {
   it("groups x/y into a translate transform string in canonical order", () => {
+    expect(renderer.project({ x: 10, y: 4 })).toEqual({
+      transform: "translateX(10px) translateY(4px)",
+    })
+  })
+
+  // #57 (ADR-0023): a key at its Identity is left out, so `y: 0` writes nothing beside `x`.
+  it("leaves out a translate at its identity beside one that isn't", () => {
     expect(renderer.project({ x: 10, y: 0 })).toEqual({
-      transform: "translateX(10px) translateY(0px)",
+      transform: "translateX(10px)",
     })
   })
 
@@ -108,8 +115,20 @@ describe("RendererDomLive.commit (imperative)", () => {
       const patch = renderer.project({ x: 10, y: 0, opacity: 0.5 })
       yield* renderer.commit(el, patch)
 
-      expect(el.style.transform).toBe("translateX(10px) translateY(0px)")
+      expect(el.style.transform).toBe("translateX(10px)")
       expect(el.style.opacity).toBe("0.5")
+    }),
+  )
+
+  // #57 (ADR-0023 decision 2): back at its identity, the commit writes `none` over the
+  // transform before it, so no stale function stays inline.
+  it.effect("writes none over a transform once its keys are back at their identity", () =>
+    Effect.gen(function* () {
+      const el = document.createElement("div")
+      yield* renderer.commit(el, renderer.project({ scale: 1.2, x: 4 }))
+      expect(el.style.transform).toBe("translateX(4px) scale(1.2)")
+      yield* renderer.commit(el, renderer.project({ scale: 1, x: 0 }))
+      expect(el.style.transform).toBe("none")
     }),
   )
 

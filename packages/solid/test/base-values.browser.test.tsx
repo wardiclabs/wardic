@@ -15,7 +15,7 @@ import { useWardic, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
-import { BOX, hover, hoverAndLeave, last, leave, max, min, opacityOf, recorder, scaleOf, translateXOf, translateYOf, valuesIn } from "./base-values-harness.ts"
+import { BOX, hover, hoverAndLeave, inlineTransformAtRest, last, leave, max, min, opacityOf, recorder, scaleOf, translateXOf, translateYOf, valuesIn } from "./base-values-harness.ts"
 import { centreOf, glide, mountReorder, mouse, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(async () => {
@@ -496,5 +496,124 @@ describe("a translate key with no base value on a drag or layout element (#47, P
     await wait(800)
     const frames = rec.stop()
     expect(last(valuesIn(frames, "leave")), "not left lifted").toBeCloseTo(0, 2)
+  })
+})
+
+// #57 (ADR-0023): a transform key back at its Identity rests as `transform: none`, as Motion's
+// does (C1, C2, C10 leave `transform: none` inline), not as `scale(1)`: any other transform
+// makes the element a stacking context and the containing block of its fixed descendants
+// (CSS Transforms 1, §3).
+describe("an identity transform at rest is none (#57, ADR-0023)", () => {
+  /** The painted rotation in degrees (the computed matrix's angle), 0 for none. */
+  const rotationOf = (el: Element): number => {
+    const t = getComputedStyle(el).transform
+    if (t === "" || t === "none") return 0
+    const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
+    return (Math.atan2(v[1]!, v[0]!) * 180) / Math.PI
+  }
+
+  it("M27 (C1): a returned whileHover scale rests as none", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} whileHover={{ scale: 1.5 }} />
+      </WardicProvider>
+    ))
+    await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)
+    expect(await inlineTransformAtRest(el), "none, not scale(1)").toBe("none")
+  })
+
+  it("M28 (C2): a returned whileTap scale rests as none", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} whileTap={{ scale: 0.8 }} />
+      </WardicProvider>
+    ))
+    await settle()
+    const c = centreOf(el)
+    await mouse.move(c)
+    await mouse.down(c)
+    await until(() => scaleOf(el) < 0.81, 3000)
+    await wait(100)
+    await mouse.up(c)
+    await until(() => Math.abs(scaleOf(el) - 1) < 0.004, 3000)
+    expect(await inlineTransformAtRest(el), "none, not scale(1)").toBe("none")
+  })
+
+  it("M29 (C5): a class's transform shows until the first gesture, and stays overridden by none after it returns", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} class="bv-shrunk" style={BOX} whileHover={{ scale: 1.5 }} />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(el.style.transform, "nothing inline before a gesture").toBe("")
+    expect(scaleOf(el), "the class's scale(0.5) shows").toBeCloseTo(0.5, 3)
+    await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)
+    expect(await inlineTransformAtRest(el), "none, written: the class stays overridden").toBe("none")
+    expect(scaleOf(el)).toBe(1)
+  })
+
+  it("M30: the house entrance, initial x 10 to animate x 0, rests as none", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} />
+      </WardicProvider>
+    ))
+    await until(() => opacityOf(el) > 0.996 && Math.abs(translateXOf(el)) < 0.004, 3000)
+    expect(await inlineTransformAtRest(el), "none, not translateX(0px)").toBe("none")
+  })
+
+  it("M31: a position: fixed child is placed against the viewport again once its parent's hover returns", async () => {
+    let el!: HTMLElement
+    let child!: HTMLElement
+    // Away from the mouse's park (5, 5) and the box, so the child never takes the hover.
+    const FIXED: JSX.CSSProperties = { position: "fixed", left: "300px", top: "20px", width: "10px", height: "10px" }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} whileHover={{ scale: 1.5 }}>
+          <div ref={(n) => (child = n)} style={FIXED} />
+        </wardic.div>
+      </WardicProvider>
+    ))
+    await settle()
+    const before = child.getBoundingClientRect()
+    expect([before.left, before.top], "against the viewport before any hover").toEqual([300, 20])
+    await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)
+    await inlineTransformAtRest(el)
+    const after = child.getBoundingClientRect()
+    expect([after.left, after.top], "against the viewport, not the box (a transform's containing block)").toEqual([300, 20])
+  })
+
+  it("M32 (C10, guard): a Reorder.Item rests as none once its whileDrag scale and its flight back land", async () => {
+    // A projected item's transform comes from the projection path, which already wrote `none`
+    // with nothing left (ADR-0009); the flight to its slot runs about 400 ms past the scale.
+    const s = await mountReorder({ whileDrag: { scale: 1.05 } })
+    const el = s.item("a")
+    const ratio = (e: Element): number => e.getBoundingClientRect().width / (e as HTMLElement).offsetWidth
+    await settle()
+    const g = centreOf(el)
+    await mouse.down(g)
+    await glide(g, { x: g.x, y: g.y + 12 }, 6)
+    await until(() => ratio(el) > 1.045, 3000)
+    await wait(100)
+    await mouse.up({ x: g.x, y: g.y + 12 })
+    await until(() => Math.abs(ratio(el) - 1) < 0.004, 3000)
+    await until(() => el.style.transform === "none", 3000)
+    expect(el.style.transform, "none once the item lands").toBe("none")
+  })
+
+  it("M33: a layout element's returned whileHover rotate rests as none, not rotate(0deg)", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} layout whileHover={{ rotate: 10 }} />
+      </WardicProvider>
+    ))
+    await hoverAndLeave(el, rotationOf, (v) => v > 9.9, 0)
+    expect(await inlineTransformAtRest(el), "none, not rotate(0deg)").toBe("none")
   })
 })

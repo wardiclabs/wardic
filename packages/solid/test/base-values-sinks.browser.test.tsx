@@ -9,7 +9,7 @@ import { AnimatePresence, createReorderGroup, reorderItem, ward, wardic, WardicP
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
-import { BOX, hoverAndLeave, last, max, min, opacityOf, recorder, scaleOf, valuesIn } from "./base-values-harness.ts"
+import { BOX, hoverAndLeave, inlineTransformAtRest, last, max, min, opacityOf, recorder, scaleOf, valuesIn } from "./base-values-harness.ts"
 import { centreOf, glide, mouse, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 // The directives compile to bare calls: the imports must stay.
@@ -143,6 +143,33 @@ describe("a key with no base value (#47): the commit-sink paths", () => {
     expect(min(valuesIn(frames, "drag"))).toBeGreaterThan(0.99)
     expect(max(valuesIn(frames, "drag"))).toBeGreaterThan(1.045)
     expect(last(valuesIn(frames, "release"))).toBeCloseTo(1, 2)
+  })
+})
+
+// #57 (ADR-0023): the commit sinks write only the keys a patch has, so `none` must be written
+// over the last frame's transform once its keys are back at their Identity, or a stale
+// `scale(1.00…)` would stay inline.
+describe("an identity transform at rest is none (#57, ADR-0023): the commit sinks", () => {
+  it("K7: wardic.create(Component): a returned whileHover scale rests as none", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <WCard ref={(n: HTMLElement) => (el = n)} style={BOX} whileHover={{ scale: 1.5 }} />
+      </WardicProvider>
+    ))
+    await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)
+    expect(await inlineTransformAtRest(el), "none, not scale(1)").toBe("none")
+  })
+
+  it("K8: use:ward: a returned whileHover scale rests as none", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <div ref={(n) => (el = n)} use:ward={{ whileHover: { scale: 1.5 } }} style={BOX} />
+      </WardicProvider>
+    ))
+    await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)
+    expect(await inlineTransformAtRest(el), "none, not scale(1)").toBe("none")
   })
 })
 

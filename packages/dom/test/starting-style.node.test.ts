@@ -98,6 +98,22 @@ describe("Starting style helpers (ADR-0021)", () => {
     expect(style["transform-origin"]).toBe("50% 50%")
   })
 
+  // #57 (ADR-0023, ADR-0021's amendment): the Starting style is `project`'s, so an `initial`
+  // whose transform keys are all at their identity renders `transform: none`, Motion's server
+  // markup (`motion` 13.5.0: S1-S3, S10 in docs/research/identity-transform.md).
+  it("ST15: an identity initial's Starting style is transform: none; a non-identity key keeps only its own function", () => {
+    expect(startingStyle("div", { opacity: 0, scale: 1 })).toEqual({ style: { opacity: 0, transform: "none" }, attrs: {} })
+    expect(startingStyle(undefined, { x: 0, y: "0%", rotate: "0deg" })).toEqual({ style: { transform: "none" }, attrs: {} })
+    expect(startingStyle("div", { x: 10, scale: 1 })).toEqual({ style: { transform: "translateX(10px)" }, attrs: {} })
+  })
+
+  it("ST16: an svg-inner element's identity initial is transform: none, with transform-box and transform-origin", () => {
+    expect(startingStyle("circle", { scale: 1, cx: 10 })).toEqual({
+      style: { transform: "none", "transform-box": "fill-box", "transform-origin": "50% 50%" },
+      attrs: { cx: "10" },
+    })
+  })
+
   it("ST11: the svg root's Starting style is all style", () => {
     expect(startingStyle("svg", { opacity: 0 })).toEqual({ style: domProject({ opacity: 0 }), attrs: {} })
   })

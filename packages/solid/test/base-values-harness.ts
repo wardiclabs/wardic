@@ -60,6 +60,17 @@ export const min = (xs: ReadonlyArray<number>): number => Math.min(...xs)
 export const max = (xs: ReadonlyArray<number>): number => Math.max(...xs)
 export const last = (xs: ReadonlyArray<number>): number => xs[xs.length - 1]!
 
+/**
+ * `el`'s inline transform once a return has settled (#57, ADR-0023). A painted value within
+ * 0.004 of its base can still be a few frames from the spring's Settle, whose last frame
+ * lands exactly on the base, so wait those frames out first.
+ */
+export const inlineTransformAtRest = async (el: HTMLElement): Promise<string> => {
+  await wait(300)
+  await settle()
+  return el.style.transform
+}
+
 export const hover = (el: Element): Promise<void> => mouse.move(centreOf(el))
 export const leave = (): Promise<void> => mouse.move(PARK)
 
