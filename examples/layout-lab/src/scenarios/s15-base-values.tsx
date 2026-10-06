@@ -20,14 +20,16 @@
  * @module
  */
 import { AnimatePresence, wardic } from "@wardic/solid"
-import { createSignal, For, type JSX, Show } from "solid-js"
+import { createSignal, For, type JSX, onCleanup, Show } from "solid-js"
 import type { BoardRunKind } from "../lab/base-values-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
 const ID = "base-values"
 
-const sheet = document.createElement("style")
+// One sheet, found again by its id: a hot reload runs this module again.
+const SHEET_ID = "lab-s15-base-values"
+const sheet = document.getElementById(SHEET_ID) ?? Object.assign(document.createElement("style"), { id: SHEET_ID })
 sheet.textContent = ".bv-half { opacity: 0.5; }"
 document.head.append(sheet)
 
@@ -77,6 +79,8 @@ interface Recording {
  * until the gesture has ended and the value stood still, then record the run.
  */
 const makeRecorder = (ctx: ScenarioContext) => {
+  // The runs still sampling, closed unrecorded when the View goes.
+  const sampling = new Set<MessageChannel>()
   const start = (
     cell: string,
     kind: BoardRunKind,
@@ -87,10 +91,12 @@ const makeRecorder = (ctx: ScenarioContext) => {
   ): { readonly end: () => void } => {
     const rec: Recording = { cell, kind, base, target, before, startedAt: performance.now(), values: [], split: undefined, endAt: undefined }
     const channel = new MessageChannel()
+    sampling.add(channel)
     // A mount or a style change has no end event: every frame until it stands still is `during`.
     const open = kind === "mount" || kind === "style change"
     const finish = (): void => {
       channel.port1.close()
+      sampling.delete(channel)
       const split = open ? rec.values.length : (rec.split ?? rec.values.length)
       ctx.recordBoardRun({
         cell,
@@ -132,7 +138,12 @@ const makeRecorder = (ctx: ScenarioContext) => {
       },
     }
   }
-  return { start }
+  /** Stop every run still sampling, unrecorded. */
+  const dispose = (): void => {
+    for (const channel of sampling) channel.port1.close()
+    sampling.clear()
+  }
+  return { start, dispose }
 }
 
 /** The scenario View. */
@@ -142,24 +153,45 @@ const View: ScenarioDef["View"] = (props) => {
   const [fadeKey, setFadeKey] = createSignal(0)
   const [shown, setShown] = createSignal(true)
 
-  /** Wire a hover (enter/leave) or press (down/up) gesture on `el`. */
+  // A press ends at a release anywhere, as Wardic's press does (ADR-0019): a `pointerup`
+  // outside the cell, or a `pointercancel`, ends its run too.
+  const releases = new Set<() => void>()
+  const onRelease = (): void => {
+    for (const end of releases) end()
+  }
+  window.addEventListener("pointerup", onRelease, { capture: true, passive: true })
+  window.addEventListener("pointercancel", onRelease, { capture: true, passive: true })
+  onCleanup(() => {
+    window.removeEventListener("pointerup", onRelease, true)
+    window.removeEventListener("pointercancel", onRelease, true)
+    recorder.dispose()
+  })
+
+  /** Wire a hover (enter, then leave) or press (down, then a release anywhere) gesture on `el`. */
   const gestureOn = (
     el: HTMLElement,
     cell: string,
     read: (el: Element) => number,
     base: () => number,
     target: number,
-    events: readonly [string, string],
+    gesture: "hover" | "press",
   ): void => {
     let run: { readonly end: () => void } | undefined
-    el.addEventListener(events[0], () => {
+    const begin = (): void => {
       run?.end()
       run = recorder.start(cell, "gesture", () => read(el), base(), target, read(el))
-    }, { passive: true })
-    el.addEventListener(events[1], () => {
+    }
+    const end = (): void => {
       run?.end()
       run = undefined
-    }, { passive: true })
+    }
+    if (gesture === "hover") {
+      el.addEventListener("pointerenter", begin, { passive: true })
+      el.addEventListener("pointerleave", end, { passive: true })
+    } else {
+      el.addEventListener("pointerdown", begin, { passive: true })
+      releases.add(end)
+    }
   }
 
   const flipStyle = (): void => {
@@ -190,7 +222,7 @@ const View: ScenarioDef["View"] = (props) => {
           <div style={CELL}>
             <wardic.div
               data-cell="hover"
-              ref={(el: HTMLElement) => gestureOn(el, "hover scale", scaleOf, () => 1, 1.5, ["pointerenter", "pointerleave"])}
+              ref={(el: HTMLElement) => gestureOn(el, "hover scale", scaleOf, () => 1, 1.5, "hover")}
               style={BOX}
               whileHover={{ scale: 1.5 }}
             />
@@ -200,7 +232,7 @@ const View: ScenarioDef["View"] = (props) => {
             <wardic.div
               data-cell="class"
               class="bv-half"
-              ref={(el: HTMLElement) => gestureOn(el, "class opacity", opacityOf, () => 0.5, 1, ["pointerenter", "pointerleave"])}
+              ref={(el: HTMLElement) => gestureOn(el, "class opacity", opacityOf, () => 0.5, 1, "hover")}
               style={BOX}
               whileHover={{ opacity: 1 }}
             />
@@ -209,7 +241,7 @@ const View: ScenarioDef["View"] = (props) => {
           <div style={CELL}>
             <wardic.div
               data-cell="style"
-              ref={(el: HTMLElement) => gestureOn(el, "style opacity", opacityOf, styleOpacity, 1, ["pointerenter", "pointerleave"])}
+              ref={(el: HTMLElement) => gestureOn(el, "style opacity", opacityOf, styleOpacity, 1, "hover")}
               style={{ ...BOX, opacity: styleOpacity() }}
               whileHover={{ opacity: 1 }}
             />
@@ -218,7 +250,7 @@ const View: ScenarioDef["View"] = (props) => {
           <div style={CELL}>
             <wardic.div
               data-cell="tap"
-              ref={(el: HTMLElement) => gestureOn(el, "tap scale", scaleOf, () => 1, 0.8, ["pointerdown", "pointerup"])}
+              ref={(el: HTMLElement) => gestureOn(el, "tap scale", scaleOf, () => 1, 0.8, "press")}
               style={BOX}
               whileTap={{ scale: 0.8 }}
             />
