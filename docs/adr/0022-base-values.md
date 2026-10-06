@@ -54,7 +54,8 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
     - a transform key: nothing;
     - on an svg-inner element, a key written as an attribute: its attribute (ADR-0014's routing), then the computed style;
     - anything else: the computed style, a custom property by its own name.
-  - **Where:** the read runs in the spine's effect: after mount, never on a server (ADR-0021).
+  - **Where:** the read runs in the spine's effect: after mount, never on a server (ADR-0021). The Override stack's memo stays pure: the effect works out the returns, so a `when` gate (ADR-0007) holding it closed reads and records nothing.
+  - A read from an element not in the document isn't kept: its computed style is empty, so the key is read again once the element is in.
   - **Measured** (1000-element mounts, production builds, `.tmp/p47-bench/`):
     - **The fix keeps one style recalculation per mount on every sink kind.** `use:reorderItem` went to 1000 because its base style was written in an effect queued before each spine effect, so the item now writes it at mount (and on later changes).
     - **The timing deltas are within run-to-run noise**: −6 to +27 ms on 190–630 ms mounts. The reads (0.6–2.2 µs each, batched) sit below that noise.
@@ -67,6 +68,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
     - **Any other key rests inline at its base** and leaves the target. A later CSS change doesn't show (C4, C12).
     - A key handed back stays the element's when a `when` gate (ADR-0007) reopens on the same target.
     - A commit sink clears a key gone from the user's style by then, rather than restoring a stale value.
+  - **Translate keys.** A projected element's never return: the projection owns them (ADR-0016). On a drag element, the keys the drag moves leave the return while it runs, so they stay where it dropped them (C9) until a layer sets them again. A `whileHover` `y` on a drag element returns like any key, and one the drag's strip (ADR-0004) holds back mid-return returns once the drag lets go.
 - **The exit (decision 6).** `<AnimatePresence>` starts an exit key the element never animated from the same start links, read from the retained node. A string exit key then animates from its read value.
 - **The server (decision 7).**
   - Nothing reads the DOM on a server (ADR-0021).
@@ -90,7 +92,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
 ## Consequences
 
 - **New surface:**
-  - core's `TRANSFORM_IDENTITY`, `transformIdentity`, `baseValueOf`, `startValueOf` and their types (Tier 2);
+  - core's `TRANSFORM_IDENTITY`, `transformIdentity`, `baseValueOf`, `startValueOf` and their types (Tier 2), and `unitOf`, the unit the `unit` interpolator parses (`valueLike` uses it);
   - `@wardic/dom`'s `ownValues`, `styleValueOf`, `valueLike` (Tier 2);
   - the gate's `release(id, keys, restore?)`;
   - `PresenceRecord`'s optional `startOf`;
@@ -103,7 +105,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
   - per Retarget that starts or returns a key: one cold-path debug log (`wardic.base`), run at the head of the Retarget's first leg rather than in a fiber of its own. Forking one per element cost 10–20 µs each at a mount.
 - **Where Wardic still differs from Motion:**
   - **SVG attribute props.** A `cx` prop changed at rest shows at once, because Solid writes the attribute; Motion keeps its own value. The next gesture then starts from the first-read value (a jump) and returns there; Motion returns to the new prop (C17).
-  - **Units.** A numeric target takes only a plain number or `px` as an Own value. Motion measures the element to convert other units.
+  - **Units.** A numeric target takes only a plain number or `px` as an Own value, and a string target with a unit only a value in that unit (the unit interpolator dies on a mixed pair, so `exit={{ height: "0%" }}` starts at its target). Motion measures the element to convert other units.
   - Covered by their own issues:
     - string keys still snap through the spine (#56), so a colour returns by snapping;
     - an identity transform rests as `scale(1)`, where Motion writes `none` (#57);
@@ -115,10 +117,10 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
   - `whileFocus` / `whileInView`, which aren't wired (they get the chain once they are).
 - **Pinned by:**
   - core: `base-value.test.ts` (B1–B12);
-  - `@wardic/dom`: `base-value.node.test.ts` (D1–D9) and `own-values.browser.test.ts` (OV1–OV12);
+  - `@wardic/dom`: `base-value.node.test.ts` (D1–D10) and `own-values.browser.test.ts` (OV1–OV13);
   - `@wardic/solid`:
-    - `base-values.browser.test.tsx` (M1–M22: the Motion cases on `wardic.div`, a `useWardic` spread and `Reorder.Item`, with the real mouse and painted values every frame);
-    - `base-values-sinks.browser.test.tsx` (K1–K6: `wardic.create(Component)`, `use:ward`, `use:reorderItem`; X1–X2: the exit);
+    - `base-values.browser.test.tsx` (M1–M26: the Motion cases on `wardic.div`, a `useWardic` spread and `Reorder.Item`, with the real mouse and painted values every frame);
+    - `base-values-sinks.browser.test.tsx` (K1–K6: `wardic.create(Component)`, `use:ward`, `use:reorderItem`; X1–X3: the exit);
     - `gate.browser.test.tsx` (GR1–GR5);
     - `server.ssr.test.tsx` (SV19);
     - the hydrate project's F13 and F14;
