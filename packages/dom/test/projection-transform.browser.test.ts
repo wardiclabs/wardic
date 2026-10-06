@@ -82,6 +82,20 @@ describe("RendererDomLive.project — projection branch (ADR-0009)", () => {
     })
   })
 
+  // #57 (ADR-0009 *Amendment (#57)*, ADR-0023): a woven term at its Identity is left out, as
+  // Motion's projection transform leaves out a falsy rotate or skew
+  // (projection/styles/transform.ts:44-50 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), so a
+  // `layout` element whose rotate returned rests at `none`, not `rotate(0deg)`.
+  it("PT5: a woven rotate or skew at its identity, and z at 0, are left out", () => {
+    expect(renderer.project({ ...proj(delta(0, 0, 1, 1), treeScale(1, 1)), rotate: 0, skewY: 0, z: 0 })).toEqual({
+      transform: "none",
+    })
+    expect(renderer.project({ ...proj(delta(-50, -20, 1, 1), treeScale(1, 1)), rotate: 0, opacity: 0.5 })).toEqual({
+      transform: "translate3d(-50px, -20px, 0px)",
+      opacity: 0.5,
+    })
+  })
+
   it("an identity projection with no woven transform -> 'none'", () => {
     expect(renderer.project(proj(delta(0, 0, 1, 1), treeScale(1, 1)))).toEqual({
       transform: "none",

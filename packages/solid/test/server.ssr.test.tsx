@@ -408,6 +408,34 @@ describe("a server render on DomLive (ADR-0021)", () => {
     for (const tag of [hovered, animated, wrapped]) expect(tag?.style, `${tag?.name}`).toEqual({ width: "10px" })
   })
 
+  it("SV20 (#57): an initial whose transform keys are all at their identity renders transform: none", () => {
+    // ADR-0023 and ADR-0021's amendment: the Starting style is `project`'s, Motion's server
+    // markup (`motion` 13.5.0: S1-S3, S7, S10 in docs/research/identity-transform.md).
+    // Literal, not the DOM's projection: the markup is the point.
+    const [identity, strings, mixed, , circle, wrapped] = tagsOf(
+      serve(() => (
+        <>
+          <wardic.div initial={{ scale: 1, x: 0 }} animate={{ scale: 1.2 }} />
+          <wardic.div initial={{ rotate: "0deg", y: "0%" }} />
+          <wardic.div initial={{ opacity: 0, x: 10, scale: 1 }} />
+          <svg>
+            <wardic.circle initial={{ scale: 1 }} />
+          </svg>
+          <WCard initial={{ scale: 1 }}>c</WCard>
+        </>
+      )),
+    )
+    expect(identity?.style.transform).toBe("none")
+    expect(strings?.style.transform).toBe("none")
+    expect(mixed?.style.transform, "only the non-identity key's function").toBe("translateX(10px)")
+    expect(mixed?.style.opacity).toBe("0")
+    expect(circle?.name).toBe("circle")
+    expect(circle?.style.transform).toBe("none")
+    expect(circle?.style["transform-box"]).toBe("fill-box")
+    expect(circle?.style["transform-origin"]).toBe("50% 50%")
+    expect(wrapped?.style.transform, "a component wrap's Starting style through style").toBe("none")
+  })
+
   it("SV15a (guard): under TestLive, the fixture's hydration keys are 9531ff4's", () => {
     expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK_9531FF4)
   })

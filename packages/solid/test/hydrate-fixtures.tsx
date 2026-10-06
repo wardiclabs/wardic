@@ -300,7 +300,23 @@ export const F14 = live(() => (
   </wardic.div>
 ))
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14 } as const
+// #57 (ADR-0023, ADR-0021's amendment): an `initial` whose transform keys are all at their
+// Identity server-renders `transform: none`, Motion's markup. The hydrating client holds it and
+// animates from it (F15), or keeps it at rest (F16). Literal, not `projected`: the markup is
+// the point.
+export const F15 = live(() => (
+  <wardic.div data-k="f15" initial={{ scale: 1 }} animate={{ scale: 1.2 }} transition={TWEEN}>
+    f15
+  </wardic.div>
+))
+
+export const F16 = live(() => (
+  <wardic.div data-k="f16" initial={{ x: 0, scale: 1 }} whileHover={{ scale: 1.5 }}>
+    f16
+  </wardic.div>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -341,4 +357,8 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F13: { startK: "f13", starting: {}, tracks: [{ label: "opacity", read: opacity("f13"), from: 1, to: 0.5 }] },
   // A gesture-only key: the markup and the painted scale are untouched until a gesture.
   F14: { startK: "f14", starting: { width: "40px" }, tracks: [{ label: "scale", read: scale("f14"), from: 1, to: 1 }] },
+  // An identity `initial`: `none` in the markup, held at the first paint, then animated from 1.
+  F15: { startK: "f15", starting: { transform: "none" }, tracks: [{ label: "scale", read: scale("f15"), from: 1, to: 1.2 }] },
+  // An identity `initial` at rest: `none` in the markup, at the first paint and after mount.
+  F16: { startK: "f16", starting: { transform: "none" }, tracks: [] },
 }

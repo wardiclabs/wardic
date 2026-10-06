@@ -207,6 +207,10 @@ The first tick of a **Cold start**. It's delivered at the end of the subscribing
 The pure half of the Renderer — translating engine values into the environment's representation (e.g. grouping `x`/`y`/`scale` into one DOM `transform` string), with no side effect.
 _Avoid_: render, format, serialize.
 
+**Identity** (a transform key's):
+The value at which a transform key leaves the element untransformed: 1 for `scale`, `scaleX` and `scaleY`, 0 for the rest. An element whose transform keys are all at their identity is projected with no transform (ADR-0023).
+_Avoid_: default (Motion's `defaultTransformValue`), zero, rest value.
+
 **Commit**:
 The imperative half of the Renderer — writing a projected patch onto a target.
 _Avoid_: apply, flush, paint.
@@ -229,10 +233,10 @@ _Avoid_: deferred hydration, two-pass render.
 
 **Base value**:
 The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change.
-_Avoid_: default (a transform key's identity, which is one kind of Own value), fallback.
+_Avoid_: default (a transform key's Identity, which is one kind of Own value), fallback.
 
 **Own value**:
-An element's value for a key before Wardic writes it. For a transform key it's the key's identity: 1 for `scale`, `scaleX` and `scaleY`, 0 for the rest, pure and in core. For any other key, the element's Environment reads it from the element (in the DOM, the computed style or an SVG attribute), once, when the key first needs it, on the client after mount. It's never read on a server (ADR-0021).
+An element's value for a key before Wardic writes it. For a transform key it's the key's **Identity**, pure and in core. For any other key, the element's Environment reads it from the element (in the DOM, the computed style or an SVG attribute), once, when the key first needs it, on the client after mount. It's never read on a server (ADR-0021).
 _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 
 ## Relationships
