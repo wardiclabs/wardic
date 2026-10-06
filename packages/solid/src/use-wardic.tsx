@@ -417,6 +417,16 @@ const splitTarget = (target: Values): SplitTarget => {
 /** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
 const TRANSLATE_KEYS: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY"])
 
+/** The Override stack resolved: the spine effect's input. */
+interface Resolution {
+  /** Each key's value from the highest active layer. */
+  readonly resolved: Values
+  /** The base layer, the first link of a key's Base value (ADR-0022). */
+  readonly base: Values
+  /** Whether a drag holds the translate keys (ADR-0004's strip). */
+  readonly dragging: boolean
+}
+
 /** Pull a numeric subset (the spring snapshot keys) out of a `Values` map. */
 const numericOf = (values: Values): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -661,7 +671,6 @@ export function runSpine(opts: RunSpineOptions): void {
         }
         gate.release(id, handedBack, restore)
         for (const key of handedBack) {
-          released.add(key)
           delete snapshot.values[key]
           delete snapshot.velocities[key]
           if (presenceRec !== undefined) delete presenceRec.snapshot.current[key]
@@ -748,23 +757,26 @@ export function runSpine(opts: RunSpineOptions): void {
       const hovered = createHover(element)
       const pressed = createPress(element)
 
-      // The keys a target carried, each with its last target value (its shape), and the
-      // ones returning to their Base value until that return settles (ADR-0022). A
-      // Retarget mid-return carries them again, so a return is never frozen half-way. The
-      // translate keys never return on a drag element (the drag owns them) or a projected
-      // one (the projection does, ADR-0016).
+      // The keys a Retarget drove, each with its last target value (its shape), and the
+      // ones returning to their Base value until that return settles (ADR-0022). Both are
+      // the spine effect's: a Retarget mid-return carries them again, so a return is never
+      // frozen half-way, and a key that settled has left them, so a Retarget of the same
+      // target (a `when` gate reopening, ADR-0007) leaves it be. The translate keys never
+      // return on a projected element (the projection owns them, ADR-0016). On a drag
+      // element, the keys the drag moves leave the return while it runs, so they stay where
+      // it dropped them (C9) until a layer sets them again.
       const driven = new Map<string, number | string>()
       let returning = new Map<string, BaseSource>()
-      // Keys handed back since the target was last resolved: a Retarget of that same target
-      // (a `when` gate reopening, ADR-0007) must not take them back.
-      const released = new Set<string>()
-      const ownsTranslate = dragCfg !== undefined || layoutHandle !== undefined
+      const projected = layoutHandle !== undefined
+      const dragMoves: ReadonlyArray<string> =
+        projected || dragCfg === undefined ? [] : dragCfg === "x" ? ["x"] : dragCfg === "y" ? ["y"] : ["x", "y"]
 
       // Override stack (ascending priority): base (animate, or initial when no
       // animate) -> whileHover -> whileTap. resolveOverrides picks the last
       // active entry per key. The memo DEPENDS on cfg() (read inside), so a
-      // reactive config change recomputes target() and drives a Retarget.
-      const target = createMemo<Values>(() => {
+      // reactive config change recomputes target() and drives a Retarget. Pure: the
+      // returns, the drag strip and every read are the spine effect's.
+      const target = createMemo<Resolution>(() => {
         const c = cfg()
         // Read each field directly off the whole-config snapshot. Reactivity is
         // via cfg() itself: a signal touched inside the config accessor recomputes
@@ -796,35 +808,7 @@ export function runSpine(opts: RunSpineOptions): void {
           // after release. Read dragging() so a flip recomputes this memo.
           { active: dragging(), values: toValues(c.whileDrag) },
         ])
-        // A key the target carried and no layer sets now returns to its Base value; with
-        // none, it stays where it is (as before #47).
-        released.clear()
-        const next = new Map<string, BaseSource>()
-        for (const key in resolved) if (!(ownsTranslate && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key]!)
-        for (const [key, like] of driven) {
-          if (Object.hasOwn(resolved, key)) continue
-          const r = baseValueOf(key, { base, initial: initialValues, ...linksFor(like) })
-          if (r === undefined) driven.delete(key)
-          else {
-            resolved[key] = r.value
-            next.set(key, r.source)
-          }
-        }
-        returning = next
-        // MULTI-OWNER strip (ADR-0004): while dragging, x/y are DIRECT-SET by the
-        // drag track, so strip the translate keys from the spring's target — the
-        // spring must never fight the direct-set. Once dragging() is false the
-        // keys re-enter normally (post-drag handoff: the spring continues x/y only
-        // if `animate` sets them, from the snapshot's rested position).
-        if (dragging()) {
-          const stripped: Values = {}
-          for (const k in resolved) {
-            if (TRANSLATE_KEYS.has(k)) continue
-            stripped[k] = resolved[k]!
-          }
-          return stripped
-        }
-        return resolved
+        return { resolved, base, dragging: dragging() }
       })
 
       // The spine: on each target change, interrupt the previous fiber(s) and
@@ -849,7 +833,7 @@ export function runSpine(opts: RunSpineOptions): void {
             canStart?.()
             return t
           },
-          (resolvedTarget) => {
+          ({ resolved, base, dragging: held }) => {
             interruptPrev()
 
             // `when` start-gate (ADR-0007): when canStart() is false, freeze at the
@@ -862,12 +846,28 @@ export function runSpine(opts: RunSpineOptions): void {
               return
             }
 
-            // A key handed back since this target was resolved stays the element's (ADR-0022).
-            let t = resolvedTarget
-            if (released.size > 0) {
-              t = {}
-              for (const key in resolvedTarget) if (!released.has(key)) t[key] = resolvedTarget[key]!
+            // A key a Retarget drove and no layer sets now returns to its Base value
+            // (ADR-0022); with none, it stays where it is (as before #47).
+            const t: Values = { ...resolved }
+            for (const key in resolved) if (!(projected && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key]!)
+            if (held) for (const key of dragMoves) driven.delete(key)
+            returning = new Map()
+            for (const [key, like] of driven) {
+              // A translate key the strip below holds back returns once the drag lets go.
+              if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) continue
+              const r = baseValueOf(key, { base, initial: initialValues, ...linksFor(like) })
+              if (r === undefined) driven.delete(key)
+              else {
+                t[key] = r.value
+                returning.set(key, r.source)
+              }
             }
+            // MULTI-OWNER strip (ADR-0004): while dragging, x/y are DIRECT-SET by the
+            // drag track, so strip the translate keys from the spring's target — the
+            // spring must never fight the direct-set. Once dragging() is false the
+            // keys re-enter normally (post-drag handoff: the spring continues x/y only
+            // if `animate` sets them, from the snapshot's rested position).
+            if (held) for (const key of TRANSLATE_KEYS) delete t[key]
             // Every key's Own value is read at its first need, before anything writes it, so a
             // return later finds the element's value, not Wardic's (ADR-0022, D3). The read is
             // kept: a later need is a lookup. A transform key reads nothing.
@@ -880,8 +880,13 @@ export function runSpine(opts: RunSpineOptions): void {
             for (const key in numeric) {
               if (snapshot.values[key] !== undefined) continue
               const s = startOf(key, numeric[key]!)
-              snapshot.values[key] = s !== undefined ? (s.value as number) : numeric[key]!
-              started[key] = s?.source ?? "target"
+              if (s !== undefined && typeof s.value === "number") {
+                snapshot.values[key] = s.value
+                started[key] = s.source
+              } else {
+                snapshot.values[key] = numeric[key]!
+                started[key] = "target"
+              }
             }
             // The keys this Retarget returns; once every leg settles, a key back at its
             // `style` value is handed back to the element's style (D4) and the rest rest inline.

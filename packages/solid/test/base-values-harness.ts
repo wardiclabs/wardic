@@ -35,6 +35,13 @@ export const translateXOf = (el: Element): number => {
   const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
   return t.startsWith("matrix3d") ? v[12]! : v[4]!
 }
+/** The painted translateY (the computed matrix's f). */
+export const translateYOf = (el: Element): number => {
+  const t = getComputedStyle(el).transform
+  if (t === "" || t === "none") return 0
+  const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
+  return t.startsWith("matrix3d") ? v[13]! : v[5]!
+}
 
 /** Sample `read(el)` after every painted frame, tagged with the phase current at that frame. */
 export const recorder = (el: Element, read: (el: Element) => number) => {

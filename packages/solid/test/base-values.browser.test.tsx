@@ -15,7 +15,7 @@ import { useWardic, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
-import { BOX, hover, hoverAndLeave, last, leave, max, min, opacityOf, recorder, scaleOf, translateXOf, valuesIn } from "./base-values-harness.ts"
+import { BOX, hover, hoverAndLeave, last, leave, max, min, opacityOf, recorder, scaleOf, translateXOf, translateYOf, valuesIn } from "./base-values-harness.ts"
 import { centreOf, glide, mountReorder, mouse, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(async () => {
@@ -409,5 +409,92 @@ describe("a key with no base value (#47): review cases", () => {
     setO(0.8)
     await until(() => Math.abs(opacityOf(parentEl) - 0.8) < 0.004, 1000)
     expect(opacityOf(parentEl), "the style change still shows at rest").toBeCloseTo(0.8, 2)
+  })
+})
+
+describe("a translate key with no base value on a drag or layout element (#47, PR #58's review)", () => {
+  it("M23: on a drag element, whileHover's y starts at 0 and returns to 0", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag whileHover={{ y: -4 }} />
+      </WardicProvider>
+    ))
+    const frames = await hoverAndLeave(el, translateYOf, (v) => v < -3.99, 0)
+    expect(max(valuesIn(frames, "hover")), "lifts from 0").toBeLessThan(0.01)
+    expect(last(valuesIn(frames, "leave")), "back at 0, not left lifted").toBeCloseTo(0, 2)
+  })
+
+  it("M24: on a drag element, a whileTap y the drag then moves stays where it was dropped", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag dragMomentum={false} whileTap={{ y: 2 }} />
+      </WardicProvider>
+    ))
+    await settle()
+    const g = centreOf(el)
+    await mouse.down(g)
+    await wait(300)
+    await glide(g, { x: g.x + 40, y: g.y + 30 }, 8)
+    await mouse.up({ x: g.x + 40, y: g.y + 30 })
+    await wait(800)
+    expect(translateXOf(el), "x where dropped").toBeCloseTo(40, 0)
+    expect(translateYOf(el), "y where dropped, not sprung back to 0").toBeGreaterThan(29)
+  })
+
+  it("M26: on an x drag, a whileHover y that ends mid-fling returns once the fling lets go, though the hover's scale settled first", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div
+          ref={(n: HTMLElement) => (el = n)}
+          style={BOX}
+          drag="x"
+          whileHover={{ y: -4, scale: 1.1 }}
+          transition={{ type: "tween", duration: 0.05 }}
+        />
+      </WardicProvider>
+    ))
+    // Synthetic input: a real mouse's moves arrive coalesced per frame, and a flick's
+    // release velocity (a 30 ms window) can miss them in a busy run.
+    const pointer = (type: string, x: number, buttons: number): PointerEvent =>
+      new PointerEvent(type, { clientX: x, clientY: 0, buttons, pointerId: 1, pointerType: "mouse", isPrimary: true })
+    await settle()
+    el.dispatchEvent(pointer("pointerenter", 0, 0))
+    await until(() => translateYOf(el) < -3.99 && scaleOf(el) > 1.099, 3000)
+    el.dispatchEvent(pointer("pointerdown", 0, 1))
+    for (const x of [10, 30, 50, 70]) {
+      el.dispatchEvent(pointer("pointermove", x, 1))
+      await wait(8)
+    }
+    el.dispatchEvent(pointer("pointerup", 80, 0))
+    // The hover ends mid-fling: its scale returns and settles while the fling holds the drag.
+    el.dispatchEvent(pointer("pointerleave", 80, 0))
+    await wait(300)
+    expect(translateXOf(el), "flung on past the release").toBeGreaterThan(90)
+    // The fling lets go once it all but stops (a decay rests below 0.1 px/s), seconds on.
+    await until(() => Math.abs(translateYOf(el)) < 0.004, 10000)
+    expect(scaleOf(el)).toBeCloseTo(1, 2)
+    expect(translateYOf(el), "y back at 0 once the fling lets go, not left lifted").toBeCloseTo(0, 2)
+  }, 15000)
+
+  it("M25: on a layout element, whileHover's y returns to 0", async () => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} layout whileHover={{ y: -4 }} />
+      </WardicProvider>
+    ))
+    const rec = recorder(el, translateYOf)
+    await settle()
+    rec.phase = "hover"
+    await hover(el)
+    await wait(600)
+    rec.phase = "leave"
+    await leave()
+    await wait(800)
+    const frames = rec.stop()
+    expect(last(valuesIn(frames, "leave")), "not left lifted").toBeCloseTo(0, 2)
   })
 })
