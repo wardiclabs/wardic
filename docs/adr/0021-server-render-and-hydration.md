@@ -129,3 +129,10 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - the hydration project, `packages/solid/vitest.hydrate.config.ts`: `server-render.hydrate.browser.test.tsx` (HY1–HY6 for fixtures F0–F12, HY-L1–HY-L4 for a custom Renderer, and HY-H1–HY-H3 for the Hydration hold of client-only values), in Chromium (and in Firefox through a local config);
   - `create-shapes.browser.test.tsx` (CS1–CS10: the component shapes, including a mount inside a frame callback, a `layout` wrap, and inline styles Wardic didn't write);
   - the SolidStart example's `/ssr` route and its hydration report (`examples/solid-start-basic`), the hand check.
+
+## Amendment (#57, 2026-10-06): an identity `initial` server-renders `transform: none`
+
+- The Starting style stays `project(resolveInitial(config))`, and `project` now writes `transform: none` when every transform key is at its **Identity** (ADR-0023). So `initial={{ scale: 1 }}` (or `x: 0`, `z: 0`, `rotate: "0deg"`) server-renders `transform: none`, where it rendered `transform: scale(1)`, and an `initial` with a non-identity key renders only that key's function. It's Motion's server markup (`motion` 13.5.0, `renderToString`: S1–S3, S6, S7, S11, S12 in [identity-transform.md](../research/identity-transform.md)).
+- The hydrating client holds the same Starting style (the Hydration hold), and a custom Renderer's hydration seed is the DOM's `project` (decision 2), so server and client still agree by construction. The first frame after mount continues from `none`.
+- Not taken: opting the Starting style out to keep the identity functions. It would no longer be `project(resolveInitial(config))`, and the first frame after mount would switch `scale(1)` to `none`.
+- **Pinned by** `starting-style.node.test.ts` ST15–ST16, `server.ssr.test.tsx` SV20 and the hydrate project's F15.

@@ -131,3 +131,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
     - scenario 15's board, judged by `lab/base-values-board.ts`;
     - their node tests (`reorder-run.test.ts` L12–L16, `base-values-board.test.ts` BV1–BV9);
     - the hand runs.
+
+## Amendment (#57, 2026-10-06): a transform key at rest at its identity writes `none`
+
+The Consequences left #57 open: a transform key that returned to its Own value, its **Identity** (CONTEXT.md), rested as `scale(1)` or `translateX(0px)`, where Motion writes `none` (C1, C2, C10). ADR-0023 closes it in `project`: a transform at its identity is left out, and `transform: none` is written when nothing is left. Decision 5's state at rest is unchanged: the key still rests inline at its base and stays in the gate's value-map, and the `none` it projects keeps a class's transform overridden (C5).

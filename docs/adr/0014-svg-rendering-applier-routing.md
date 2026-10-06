@@ -34,3 +34,7 @@ The *vector values* (`cx`/`r`/`fill`/`pathLength`/a path's geometry) are meaning
 - The value/spring/interpolation layer is untouched — SVG numbers and colors already animate.
 - **Deferred (own grill+build next):** **path morphing** (`d` between shapes — needs a path normalize+interpolate engine), `points` list interpolation, and `viewBox` numeric interpolation on the root.
 - Browser-tier tests (real Chromium) cover: attr routing (a `<circle cx>` animates as an attribute, not style), SVG transform with `transform-box`, color `fill`, and `pathLength` line-draw.
+
+## Amendment (#57, 2026-10-06): `transform: none` is a transform
+
+`project` now writes `transform: none` when every transform key is at its **Identity** (ADR-0023). The router treats it like any other `transform`: an svg-inner element that receives it still gets `transform-box: fill-box` and `transform-origin: 50% 50%` unless set. Motion does the same, since its check is the built transform's truthiness ([build-attrs.ts:59-71](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/render/svg/utils/build-attrs.ts#L59-L71); `motion` 13.5.0 server-renders `<motion.circle initial={{ scale: 1 }}>` as `transform:none;transform-origin:50% 50%;transform-box:fill-box`). Neither property does anything without a transform, and they stay put while the transform switches between `none` and a function. The routing is unchanged. **Pinned by** `starting-style.node.test.ts` ST16 and `identity-transform.node.test.ts`.
