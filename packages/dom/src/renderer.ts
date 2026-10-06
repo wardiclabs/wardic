@@ -24,13 +24,15 @@ import * as Layer from "effect/Layer"
 /**
  * CSS transform functions in their canonical emission order: translate group,
  * then scale, then rotate, then skew. `project` walks this list and emits a
- * func for each key that is present in `values`, so the resulting `transform`
- * string is always grouped in this order regardless of input key order.
+ * func for each key that is present in `values` and not at its identity, so the
+ * resulting `transform` string is always grouped in this order regardless of
+ * input key order.
  *
  * `key` is the property name accepted on engine values (shorthands `x`/`y`/`z`
- * included); `fn` is the CSS function name it renders as.
+ * included); `fn` is the CSS function name it renders as; `identity` is core's
+ * (ADR-0022), the value at which `project` leaves the key out (ADR-0023).
  */
-const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string }> = [
+const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string; readonly identity: number }> = [
   // translate group — shorthands x/y/z map onto translateX/Y/Z
   { key: "x", fn: "translateX" },
   { key: "y", fn: "translateY" },
@@ -50,7 +52,17 @@ const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string
   // skew group
   { key: "skewX", fn: "skewX" },
   { key: "skewY", fn: "skewY" },
-]
+].map((f) => ({ ...f, identity: TRANSFORM_IDENTITY[f.key]! }))
+
+/**
+ * Whether a transform value is at its identity (ADR-0023), Motion's test
+ * (motion-dom build-transform.ts:42-48 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8):
+ * a number equal to it, or a string `parseFloat` takes to it (`"0px"`, `"0%"`,
+ * `"0deg"`; never `"calc(0px)"` or `"var(--x)"`). Exact: a settled spring lands on
+ * its target, and a value next to the identity mid-flight is still written.
+ */
+const isIdentity = (value: unknown, identity: number): boolean =>
+  typeof value === "number" ? value === identity : typeof value === "string" && Number.parseFloat(value) === identity
 
 /** Default unit appended to a bare numeric transform value, by transform key. */
 type TransformUnit = "px" | "deg" | ""
@@ -147,7 +159,7 @@ const formatStyleValue = (key: string, value: unknown): unknown => {
  * User-animated transform funcs woven INTO a projection transform (ADR-0009,
  * Motion's `buildProjectionTransform`): `rotate`/`skew` compose with a layout
  * projection and are emitted between the inverse-tree-scale and the element
- * scale. Translate is intentionally absent — the projection OWNS it, so a layout
+ * scale, each left out at its identity, 0 (ADR-0009 *Amendment (#57)*). Translate is intentionally absent — the projection OWNS it, so a layout
  * element's animated `x`/`y` are ignored (ADR-0016: a drag feeds the projection).
  * The element's own `scale`/`scaleX`/`scaleY` multiply the element scale instead
  * (see {@link ownScale}). `z` is folded into the projection's `translate3d`
@@ -192,7 +204,7 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
   const tx = delta.x.translate / treeScale.x
   const ty = delta.y.translate / treeScale.y
   const z = latest["z"]
-  if (tx !== 0 || ty !== 0 || (z !== undefined && z !== 0)) {
+  if (tx !== 0 || ty !== 0 || (z !== undefined && !isIdentity(z, 0))) {
     const zArg = z === undefined ? "0px" : formatTransformValue("z", z)
     funcs.push(`translate3d(${tx}px, ${ty}px, ${zArg})`)
   }
@@ -202,7 +214,7 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
   }
 
   for (const { key, fn } of PROJECTION_WOVEN) {
-    if (Object.hasOwn(latest, key)) funcs.push(`${fn}(${formatTransformValue(key, latest[key])})`)
+    if (Object.hasOwn(latest, key) && !isIdentity(latest[key], 0)) funcs.push(`${fn}(${formatTransformValue(key, latest[key])})`)
   }
 
   const sx = delta.x.scale * treeScale.x * ownScale(latest, "scaleX")
@@ -222,7 +234,9 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
  *     from the same value-map). The element's `x`/`y` are skipped — the projection
  *     owns translate.
  *   - NORMAL: group all present transform keys into one canonical `transform`
- *     string (the value-spine path).
+ *     string (the value-spine path), leaving out each at its identity; with
+ *     every one at its identity, `none` (ADR-0023). With no transform key, no
+ *     `transform`, so a class's shows.
  *
  * Either way, non-transform keys are copied across with default-unit handling.
  * No side effects.
@@ -257,14 +271,19 @@ export const project = (values: Record<string, unknown>): Patch => {
     return patch
   }
 
-  // Grouped transform: walk the canonical order, emitting a func per present key.
+  // Grouped transform: walk the canonical order, emitting a func per present key not at
+  // its identity. `none` when every present key is (ADR-0023): written, so a class's
+  // transform stays overridden and a commit sink's last transform doesn't stay inline.
   const funcs: Array<string> = []
-  for (const { key, fn } of TRANSFORM_FUNCS) {
-    if (Object.hasOwn(values, key)) {
-      funcs.push(`${fn}(${formatTransformValue(key, values[key])})`)
-    }
+  let present = false
+  for (const { key, fn, identity } of TRANSFORM_FUNCS) {
+    if (!Object.hasOwn(values, key)) continue
+    present = true
+    const value = values[key]
+    if (isIdentity(value, identity)) continue
+    funcs.push(`${fn}(${formatTransformValue(key, value)})`)
   }
-  if (funcs.length > 0) patch.transform = funcs.join(" ")
+  if (present) patch.transform = funcs.length > 0 ? funcs.join(" ") : "none"
 
   // Non-transform keys: copy across with default-unit handling.
   for (const key in values) {
