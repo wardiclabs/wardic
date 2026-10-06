@@ -227,6 +227,14 @@ _Avoid_: initial style (`initial` is its input, not its projected result), SSR s
 From a server render until the element mounts, a client hydrating that markup renders exactly what the server rendered: the Starting style, and a client-only hook's server value (`false` for `createHover`, `createReducedMotion`, …). At mount it switches to live values and the engine starts. A client-only render has no hold (ADR-0021).
 _Avoid_: deferred hydration, two-pass render.
 
+**Base value**:
+The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change.
+_Avoid_: default (a transform key's identity, which is one kind of Own value), fallback.
+
+**Own value**:
+An element's value for a key before Wardic writes it. For a transform key it's the key's identity: 1 for `scale`, `scaleX` and `scaleY`, 0 for the rest, pure and in core. For any other key, the element's Environment reads it from the element (in the DOM, the computed style or an SVG attribute), once, when the key first needs it, on the client after mount. It's never read on a server (ADR-0021).
+_Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
+
 ## Relationships
 
 - A **Primitive** emits a Stream of **Frames**; a **Physics primitive** emits **Physics frames**.
@@ -239,6 +247,7 @@ _Avoid_: deferred hydration, two-pass render.
 - A **Fling** composes the `drag` Sample recognizer with a `decay` Primitive — the proof that Recognizer+Primitive composition is core, not binding.
 - Stacked gesture states resolve through an **Override stack** to the target that feeds the multi-value Primitives (`springValues`/`animateValues`).
 - **FLIP** animates from a prior **Measurement** to the current one; a **Measurement** is geometry and a **Snapshot** is a motion value — never interchanged.
+- A key that leaves the target animates to its **Base value**, whose last link is the element's **Own value**.
 
 ## Example dialogue
 

@@ -15,6 +15,13 @@ const parse = (input: string): ParsedUnit | undefined => {
 }
 
 /**
+ * The unit of a number-with-unit string as the `unit` interpolator parses it (`""` for a bare
+ * number), or `undefined` when `value` isn't one (`"auto"`, a colour). Two strings whose units
+ * are both non-empty and differ are a pair the registry dies on (registry.ts `bind`).
+ */
+export const unitOf = (value: string): string | undefined => parse(value)?.unit
+
+/**
  * Interpolates a numeric value carrying a unit suffix, e.g. `"10px" → "20px"`,
  * `"0%" → "100%"`. The unit is taken from whichever endpoint has one.
  */

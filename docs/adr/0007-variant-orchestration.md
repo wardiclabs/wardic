@@ -20,3 +20,7 @@ Variant orchestration is a binding concern built on a small pure core surface. T
 - A child that inherits a variant name it doesn't define simply has nothing to animate for that transition (no-op), which is also how a child opts into inheriting only some states.
 - `<AnimatePresence>` exit (binding-only, on `onSettle`) composes with this: an exiting child can inherit the parent's `exit` variant by the same name-propagation path; exit stagger is the same snapshot mechanism with a reversed/own ordering.
 - A future `@wardic/react` binding reuses the same model over React context + its own child-registration; only the registration plumbing differs, not the stagger math or the sequencing composition.
+
+## Amendment (#47, 2026-10-02): below the base, each key falls back to its Base value
+
+The priority above resolves the base layer as a whole: local `animate`, else the parent's variant, else `initial`. A key that no layer sets any more, including one the base layer drops, then returns to the key's `initial` value, else its `style` value, else the element's Own value (ADR-0022). #50's inherited `initial` will join at the `initial` link.

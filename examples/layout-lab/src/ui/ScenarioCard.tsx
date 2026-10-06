@@ -8,7 +8,10 @@
  * A drag scenario's card (`kind: "drag"`, issue #26) shows its last drag run
  * instead, one line per check against the scenario's `dragExpect` (see
  * `dragChecksOf` in `lab/drag-run.ts`), and has no Timeline button: a drag run is
- * not a sampling run, so the timeline panel has nothing to draw for it.
+ * not a sampling run, so the timeline panel has nothing to draw for it. A board
+ * scenario's card (`kind: "board"`, #47) shows its last board run's cell and its
+ * `start` / `end` lines (`boardChecksOf` in `lab/base-values-board.ts`), with no
+ * Timeline button either.
  *
  * The result area has a fixed height and is always rendered, so a result arriving
  * never changes the card's height and never moves a `.stage` below it.
@@ -16,6 +19,7 @@
  * @module
  */
 import { createMemo, For, type JSX } from "solid-js"
+import { BOARD_CHECK_NAMES, type BoardRunInput, boardChecksOf } from "../lab/base-values-board.ts"
 import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf } from "../lab/drag-run.ts"
 import { REORDER_CHECK_NAMES, type ReorderExpect, reorderChecksOf } from "../lab/reorder-run.ts"
 import { heldCheckOf } from "../lab/held-frames.ts"
@@ -31,6 +35,8 @@ export interface ScenarioCardProps {
   readonly lastRun: LabRun | undefined
   /** A drag scenario's most recent drag run, if any. */
   readonly lastDragRun: DragRun | undefined
+  /** A board scenario's most recent board run, if any. */
+  readonly lastBoardRun: BoardRunInput | undefined
   /** Whether the timeline panel is showing this card's last run. */
   readonly selected: boolean
   /** Shows this card's last run in the timeline panel. */
@@ -43,6 +49,7 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
   const View = def.View
   // `def` is static, so the card's kind is fixed for its lifetime.
   const drag = def.kind === "drag"
+  const board = def.kind === "board"
   return (
     <article class="card" classList={{ selected: props.selected }}>
       <header class="card-head">
@@ -51,7 +58,7 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
           <h2 class="card-title">{def.title}</h2>
           <p class="card-mechanism">{def.mechanism}</p>
         </div>
-        {drag ? null : (
+        {drag || board ? null : (
           <button
             type="button"
             class="btn secondary small card-timeline"
@@ -67,7 +74,9 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
         <span class="card-rationale">{def.rationale}</span>
       </p>
       <View ctx={props.ctx} />
-      {drag ? (
+      {board ? (
+        <BoardResult run={props.lastBoardRun} />
+      ) : drag ? (
         <DragResult run={props.lastDragRun} expect={def.dragExpect} reorderExpect={def.reorderExpect} />
       ) : (
         <TriggerResult def={def} lastRun={props.lastRun} />
@@ -150,6 +159,35 @@ const DragResult = (props: DragResultProps): JSX.Element => {
   return (
     <footer class="card-result drag" aria-live="polite">
       <For each={names}>
+        {(name) => {
+          const check = () => checks()?.find((c) => c.name === name)
+          return (
+            <div class="result-cell">
+              <span class="result-label">{name}</span>
+              <span class="result-value" classList={{ "check-miss": check()?.ok === false }} title={check()?.text}>
+                {check()?.text ?? "–"}
+              </span>
+            </div>
+          )
+        }}
+      </For>
+    </footer>
+  )
+}
+
+/**
+ * A board card's result (#47): the last run's cell and gesture, then its `start` and `end`
+ * lines, `–` before the first run. Props are static values; `run` is a tracked prop getter.
+ */
+const BoardResult = (props: { readonly run: BoardRunInput | undefined }): JSX.Element => {
+  const checks = createMemo(() => (props.run === undefined ? undefined : boardChecksOf(props.run)))
+  return (
+    <footer class="card-result drag" aria-live="polite">
+      <div class="result-cell">
+        <span class="result-label">cell</span>
+        <span class="result-value">{props.run === undefined ? "–" : `${props.run.cell} · ${props.run.kind}`}</span>
+      </div>
+      <For each={BOARD_CHECK_NAMES}>
         {(name) => {
           const check = () => checks()?.find((c) => c.name === name)
           return (

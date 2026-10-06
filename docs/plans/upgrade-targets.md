@@ -109,6 +109,7 @@ ADR-0021's mechanisms carry over; their Solid 1.9 hooks don't:
 - `ssrSource: "client"` marks a computation client-only (`server.js:999-1002`). Its read needs a `<Loading>` boundary.
 - `isServer` comes from `@solidjs/web` (`server.js:4278`).
 - Not looked up yet: Solid 2's hydration flag (Solid 1.9's is `sharedConfig.context`).
+- Base values (#47, ADR-0022): the spine reads an element's Own value in its effect, at a key's first need. In Solid 2 that read belongs in the `effect` half, never `compute`, which runs on a server.
 
 ### Decisions still open
 

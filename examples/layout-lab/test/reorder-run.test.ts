@@ -170,3 +170,57 @@ describe("reorder runs (#44, scenario 14)", () => {
     expect(l.raised).toEqual({ name: "raised", ok: true, text: "? · the pointer never covered it" })
   })
 })
+
+describe("the lift line (#47, scenario 14's Lift)", () => {
+  /** b painted at its grab slot scaled by `r` about its centre, `dy` below. */
+  const scaled = (r: number, dy = 0): Box => {
+    const s = slot(1)
+    return { x: s.x - (s.width * (r - 1)) / 2, y: s.y + dy - (s.height * (r - 1)) / 2, width: s.width * r, height: s.height * r }
+  }
+  /** A press of b with Lift at `lift` (absent: off): `held` ratios while held, `after` ratios once released. */
+  const liftRun = (held: ReadonlyArray<number>, after: ReadonlyArray<number>, lift?: number): DragRunInput => {
+    const base = pressOf()
+    const ratios = [...held, ...after]
+    const frames: Array<DragFrame> = ratios.map((r, i) => {
+      const reorder = frameOf(VALUES, { dragged: "b", paint: scaled(r, i < held.length ? 4 * i : 4 * held.length) })
+      return { frame: i + 1, frameAt: 16 * (i + 1), t: 16 * (i + 1) + 4, d: reorder.items.b!, slot: slot(1), children: {}, reorder }
+    })
+    const moves = Array.from({ length: held.length }, (_, k): DragMove => ({ t: 8 + 16 * k, frame: k, dx: 0, dy: 4 * (k + 1), buttons: 1 }))
+    return {
+      ...base,
+      moves,
+      frames,
+      releaseAt: 16 * (held.length + 1) - 4,
+      endedAt: 16 * (ratios.length + 1),
+      reorder: { ...base.reorder!, reorders: [], ...(lift !== undefined ? { lift } : {}) },
+    }
+  }
+  const liftLine = (input: DragRunInput) => reorderChecksOf(input, EXPECT).find((c) => c.name === "lift")
+
+  it("L12: with Lift off, the line says so and judges nothing", () => {
+    expect(liftLine(liftRun([1, 1, 1, 1], [1, 1]))).toEqual({ name: "lift", ok: true, text: "lift off" })
+  })
+
+  it("L13: a lift from 1 to 1.05 that lands back at 1 passes", () => {
+    const line = liftLine(liftRun([1, 1, 1.01, 1.03, 1.045, 1.05, 1.05], [1.04, 1.02, 1.005, 1, 1], 1.05))
+    expect(line).toEqual({ name: "lift", ok: true, text: "lowest 1.000 · held 1.050 · after 1.000 ✓" })
+  })
+
+  it("L14: a lift that grows from 0 fails (#47 before its fix)", () => {
+    const line = liftLine(liftRun([1, 0.12, 0.35, 0.7, 0.95, 1.05, 1.05], [1.05, 1.05, 1.05], 1.05))
+    expect(line?.ok).toBe(false)
+    expect(line?.text).toBe("lowest 0.120 · held 1.050 · after 1.050 ✗ expected lowest ≥ 0.99 · held 1.05 · after 1")
+  })
+
+  it("L15: a lift that never lands back at 1 fails", () => {
+    const line = liftLine(liftRun([1, 1, 1.03, 1.05, 1.05], [1.05, 1.05, 1.05], 1.05))
+    expect(line?.ok).toBe(false)
+    expect(line?.text).toMatch(/after 1\.050 ✗/)
+  })
+
+  it("L16: a press that never moves past the threshold reads click, as every line does", () => {
+    const run = liftRun([1], [1], 1.05)
+    const click = { ...run, moves: [{ t: 8, frame: 0, dx: 1, dy: 1, buttons: 1 }] }
+    expect(liftLine(click)).toEqual({ name: "lift", ok: true, text: "click, no drag" })
+  })
+})

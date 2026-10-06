@@ -52,6 +52,13 @@ export interface PresenceRecord {
   readonly snapshot: { current: Values }
   /** The exit target, kept current by the child while alive. */
   readonly exit: { current: Values }
+  /**
+   * Where an exit key with no value in `snapshot` starts (ADR-0022): its `style` value, else
+   * the element's Own value, read from the retained node at the exit, in the shape of `like`
+   * (the key's exit target). `undefined` starts it at its target. Optional: a record without
+   * it starts such a key at its target.
+   */
+  readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
 }
 
 /** The value `<AnimatePresence>` publishes to descendant `useWardic` spines. */
@@ -174,8 +181,15 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     }
 
     // Split the exit target into numeric (spring) + string (tween) keys; seed
-    // from the child's last snapshot so the exit departs continuously.
-    const from = rec.snapshot.current
+    // from the child's last snapshot so the exit departs continuously. An exit key the
+    // child never animated starts from its Base value's start links (ADR-0022), else at
+    // its target.
+    const from: Values = { ...rec.snapshot.current }
+    for (const key in exit) {
+      if (from[key] !== undefined) continue
+      const start = rec.startOf?.(key, exit[key]!)
+      from[key] = start ?? exit[key]!
+    }
     const numericTo: Record<string, number> = {}
     const stringTo: Values = {}
     for (const key in exit) {

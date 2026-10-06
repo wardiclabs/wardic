@@ -78,7 +78,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
 - **Nothing reads the DOM on a server.**
   - During a server render, nothing reads the DOM, the Environment or the runtime.
   - An element's own value (a computed style, an attribute) can only be read on the client, after mount.
-  - A base value for a key no config sets (#47) must come from the config or from pure defaults on a server, and can be read from the element only after mount.
+  - A base value for a key no config sets must come from the config or from pure defaults on a server, and can be read from the element only after mount (#47, ADR-0022).
 - **Tested by hydrating, not by Solid's warnings (decision 10).**
   - Solid 1.9.13 doesn't report most hydration mismatches: an element with a different tag under the same key keeps the server's node, and a different style is patched silently (measured). Only a key with no node throws, in its development build.
   - So a browser test project renders fixtures on the server in Node, through the project's Vite, and hydrates them in Chromium. It checks:
@@ -122,8 +122,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - the wrapper's own cost, and moving `wardic.div` onto the commit path (#49);
   - inheriting a parent's `initial` variant (ADR-0007, #50);
   - building the runtime lazily on the client (#51);
-  - the gate's frames through the Environment (#52);
-  - #47.
+  - the gate's frames through the Environment (#52).
 - **Pinned by:**
   - `@wardic/dom`, node tier: `server-guard.node.test.ts` (G1–G8: each Layer's client-only error, `project` exported, nothing read at import) and `starting-style.node.test.ts` (ST1–ST14); `svg.browser.test.ts`'s SVG-T1 (the split by tag equals the split by element);
   - the server tier, on DomLive: `packages/solid/test/server.ssr.test.tsx` (SV1–SV18: every element kind's Starting style, the client-only hooks' server values, the Effect hooks, the client-only error, the hydration keys against `9531ff4`'s, no runtime built, reactive props over Wardic's keys, string styles) and `reorder.ssr.test.tsx` (SS0–SS6);

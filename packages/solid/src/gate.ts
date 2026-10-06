@@ -114,6 +114,15 @@ export interface FlushGate {
    */
   readonly flushPass: (pass: () => void) => void
   /**
+   * Hand `keys` back to the element's own style (ADR-0022): drop each from the element's
+   * value-map and schedule a flush. A signal sink's next patch lacks them, so the user's
+   * style shows; a commit sink writes `restore[key]` (CSS text) for a key it had written, or
+   * else the inline value it overwrote. A key the entry doesn't hold, or an unknown id, is
+   * a no-op. The spine releases a key back at its `style` value, so a later `style` change
+   * shows at rest. A later `write` brings the key back.
+   */
+  readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
+  /**
    * Cancel any pending frame and clear the accumulator. Wired into the
    * provider's `onCleanup`.
    */
@@ -246,6 +255,23 @@ export const makeFlushGate = (
     })
   }
 
+  const release: FlushGate["release"] = (id, keys, restore) => {
+    const entry = accumulator.get(id)
+    if (entry === undefined) return
+    let released = false
+    for (const key of keys) {
+      if (!Object.hasOwn(entry.values, key)) continue
+      delete entry.values[key]
+      released = true
+      // The drop-out path in `apply` writes the saved value back: make it the one handed in.
+      const value = restore?.[key]
+      if (value !== undefined && entry.committed.has(key)) entry.committed.set(key, value)
+    }
+    if (!released) return
+    entry.dirty = true
+    scheduleFlush()
+  }
+
   const dispose: FlushGate["dispose"] = () => {
     if (scheduled) {
       cancelAnimationFrame(rafId)
@@ -255,7 +281,7 @@ export const makeFlushGate = (
     firstCommits.clear()
   }
 
-  return { register, write, flushPass, dispose }
+  return { register, write, flushPass, release, dispose }
 }
 
 const noop = (): void => {}
@@ -263,12 +289,13 @@ const noop = (): void => {}
 /**
  * The gate a server render gets (ADR-0021, decision 9): a server builds no runtime and
  * flushes nothing, so `register` returns a no-op unregister and `write` / `flushPass` /
- * `dispose` do nothing. Code that grabs the gate at setup and uses it after mount keeps
+ * `release` / `dispose` do nothing. Code that grabs the gate at setup and uses it after mount keeps
  * working on the server. Internal (not a package export).
  */
 export const INERT_GATE: FlushGate = Object.freeze({
   register: () => noop,
   write: noop,
   flushPass: noop,
+  release: noop,
   dispose: noop,
 })

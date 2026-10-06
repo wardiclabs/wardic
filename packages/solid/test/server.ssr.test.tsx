@@ -393,6 +393,21 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(article?.style).toEqual({ color: "red", opacity: "0" })
   })
 
+  it("SV19 (guard, #47): a key only a gesture or animate sets renders nothing on the server", () => {
+    // ADR-0021: nothing reads the DOM on a server, so a key with no `initial` value has no
+    // Starting style; its Base value is read on the client after mount (ADR-0022).
+    const [hovered, animated, wrapped] = tagsOf(
+      serve(() => (
+        <>
+          <wardic.div style="width: 10px" whileHover={{ scale: 1.5, opacity: 1 }} whileTap={{ scale: 0.9 }} />
+          <wardic.div style="width: 10px" animate={{ opacity: 0.5, scale: 1.2 }} />
+          <WCard style={{ width: "10px" }} whileHover={{ opacity: 1 }}>c</WCard>
+        </>
+      )),
+    )
+    for (const tag of [hovered, animated, wrapped]) expect(tag?.style, `${tag?.name}`).toEqual({ width: "10px" })
+  })
+
   it("SV15a (guard): under TestLive, the fixture's hydration keys are 9531ff4's", () => {
     expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK_9531FF4)
   })

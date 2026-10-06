@@ -55,9 +55,10 @@ export const resolveInitial = (config: InitialConfig): Values => {
 
 /**
  * A CSS declaration list (`"color: red; background: url(a;b)"`) as `{ property: value }`.
- * A `;` inside parentheses or quotes doesn't end a declaration.
+ * A `;` inside parentheses or quotes doesn't end a declaration. Internal (not in the
+ * package index): `own-values.ts`'s style lookup shares it.
  */
-const parseCssText = (text: string): Record<string, string> => {
+export const parseCssText = (text: string): Record<string, string> => {
   const out: Record<string, string> = {}
   let depth = 0
   let quote: string | undefined

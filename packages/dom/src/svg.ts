@@ -77,6 +77,20 @@ export const dashCase = (key: string): string => key.replace(/[A-Z]/g, (m) => `-
 /** The attribute name for an engine key: dash-cased unless it's a known camelCase attr. */
 const attrName = (key: string): string => (CAMEL_CASE_ATTRS.has(key) ? key : dashCase(key))
 
+/**
+ * The attribute an svg-inner element's `key` is written as (the routing below), or
+ * `undefined` for a key that stays style ({@link SVG_STYLE_KEYS}) or collapses into the
+ * stroke dash (`pathLength` / `pathSpacing` / `pathOffset`). Internal: the Own-value read
+ * reads the attribute a key is written as (ADR-0022).
+ */
+export const svgAttrNameOf = (key: string): string | undefined => {
+  if (key === "pathLength" || key === "pathSpacing" || key === "pathOffset") return undefined
+  const alias = ATTR_ALIASES[key]
+  if (alias !== undefined) return alias
+  if (SVG_STYLE_KEYS.has(key)) return undefined
+  return attrName(key)
+}
+
 /** A real `<svg>` ROOT (`SVGSVGElement`) — styled like HTML (it has a CSS box). */
 export const isSvgRoot = (el: unknown): boolean =>
   typeof SVGSVGElement !== "undefined" && el instanceof SVGSVGElement
