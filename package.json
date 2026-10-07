@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "bench:core": "bun packages/core/bench/run.ts",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "bun run build && changeset publish"
