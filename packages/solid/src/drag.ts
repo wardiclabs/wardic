@@ -50,14 +50,14 @@ import type { FlushGate } from "./gate.ts"
 import { runScoped, type WardicRuntime } from "./provider.tsx"
 
 /**
- * The spine's mutable Snapshot object (the SAME object `runSpine` holds): the
- * last emitted spring frame's per-key values + velocities. The drag track reads
- * `values.x`/`values.y` to continue from the rested position and writes them
- * (plus zeroed velocities) each direct-set frame so the post-drag handoff
- * continues from where the drag left the element.
+ * The spine's mutable Snapshot object (the SAME object `runSpine` holds): each
+ * key's last emitted value, a number or a string (ADR-0024), plus the numeric
+ * velocities. The drag track reads `values.x`/`values.y` to continue from the
+ * rested position and writes them (plus zeroed velocities) each direct-set frame
+ * so the post-drag handoff continues from where the drag left the element.
  */
 export interface DragSnapshot {
-  values: Record<string, number>
+  values: Values
   velocities: Record<string, number>
 }
 
@@ -146,14 +146,15 @@ const ORIGIN: Vec2 = { x: 0, y: 0 }
 type Event = { readonly _tag: "sample"; readonly s: DragSample } | { readonly _tag: "grab" }
 
 /**
- * Read the current rested `x`/`y` off the snapshot (defaulting to 0). Captured at a
- * drag's "start" so a drag (or a re-grab mid-release) continues from where the element
- * currently sits instead of snapping to origin.
+ * Read the current rested `x`/`y` off the snapshot (defaulting to 0, as for a string
+ * translate the drag can't continue from). Captured at a drag's "start" so a drag (or a
+ * re-grab mid-release) continues from where the element currently sits instead of
+ * snapping to origin.
  */
-const snapshotPos = (snapshot: DragSnapshot): Vec2 => ({
-  x: snapshot.values.x ?? 0,
-  y: snapshot.values.y ?? 0,
-})
+const snapshotPos = (snapshot: DragSnapshot): Vec2 => {
+  const { x, y } = snapshot.values
+  return { x: typeof x === "number" ? x : 0, y: typeof y === "number" ? y : 0 }
+}
 
 /**
  * Direct-set `x`/`y` onto the element + the shared snapshot for one drag frame.

@@ -338,7 +338,7 @@ describe("a key with no base value (#47): review cases", () => {
     await leave()
     await until(() => bg() === before, 3000)
     await settle()
-    // A string key still snaps through the spine (#56); it must land back on its own value.
+    // A string key animates both ways since #56 (string-keys SK5); it must land back on its own value.
     expect(bg()).toBe(before)
   })
 
