@@ -1,0 +1,118 @@
+import { type Frame, type MultiPhysicsFrame, springBlend, type SpringOptions, springValues, type Values } from "@wardic/core"
+import { TestClock, testLayer } from "@wardic/test"
+import { expect, it } from "@effect/vitest"
+import * as Effect from "effect/Effect"
+import * as Stream from "effect/Stream"
+
+// `springBlend` (ADR-0024 decision 5): a spring's string keys follow the spring. One spring with the
+// transition's options runs on a 0→100 progress from rest, and each key is blended through the
+// registry at progress / 100, as Motion runs a spring on a string (motion-dom
+// animation/JSAnimation.ts:132-148 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8). A colour holds at its
+// target past 1 (culori clamps); a unit string overshoots. Each call starts from rest: no velocity.
+
+const ticks = TestClock.frames(400, 1 / 60)
+
+const blend = (from: Values, to: Values, options?: SpringOptions) =>
+  Stream.runCollect(springBlend(from, to, options)).pipe(
+    Effect.provide(testLayer(ticks)),
+    Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame<Values>>),
+  )
+/** The reference: a numeric key springing 0 → 100 with the same options. */
+const reference = (options: SpringOptions = {}) =>
+  Stream.runCollect(springValues({ x: 100 }, options, { x: 0 }, { x: 0 })).pipe(
+    Effect.provide(testLayer(ticks)),
+    Effect.map((frames) => (Array.from(frames) as ReadonlyArray<MultiPhysicsFrame>).map((f) => f.value.x!)),
+  )
+const red = (colour: unknown): number => Number(/^rgba?\((\d+)/.exec(String(colour))![1])
+
+it.effect("SB1: a colour and a unit string share a numeric key's progress, frame for frame, and land on their targets", () =>
+  Effect.gen(function* () {
+    const options = { stiffness: 170, damping: 26 }
+    const frames = yield* blend({ bg: "#000", w: "0px" }, { bg: "#fff", w: "100px" }, options)
+    const xs = yield* reference(options)
+    expect(frames.length).toBe(xs.length)
+    frames.forEach((frame, i) => {
+      expect(Number.parseFloat(String(frame.value.w)), `frame ${i}`).toBeCloseTo(xs[i]!, 6)
+      expect(Math.abs(red(frame.value.bg) - (255 * Math.min(xs[i]!, 100)) / 100), `frame ${i}`).toBeLessThanOrEqual(0.5)
+    })
+    expect(frames.filter((f) => red(f.value.bg) > 0 && red(f.value.bg) < 255).length).toBeGreaterThan(5)
+    expect(frames.at(-1)).toEqual({ value: { bg: "rgb(255, 255, 255)", w: "100px" }, done: true })
+  }),
+)
+
+it.effect("SB2: the transition's delay holds the start, as it holds the numeric spring", () =>
+  Effect.gen(function* () {
+    const options = { delay: 0.1 }
+    const frames = yield* blend({ bg: "#000" }, { bg: "#fff" }, options)
+    const xs = yield* reference(options)
+    expect(frames.length).toBe(xs.length)
+    for (let i = 0; i < 5; i++) expect(frames[i]!.value.bg, `frame ${i}`).toBe("rgb(0, 0, 0)")
+    frames.forEach((frame, i) => {
+      expect(Math.abs(red(frame.value.bg) - (255 * Math.min(xs[i]!, 100)) / 100), `frame ${i}`).toBeLessThanOrEqual(0.5)
+    })
+  }),
+)
+
+it.effect("SB3: under an underdamped spring a colour holds at its target past 1, and dims on the swing back", () =>
+  Effect.gen(function* () {
+    const options = { stiffness: 100, damping: 5 }
+    const frames = yield* blend({ bg: "#000" }, { bg: "#fff" }, options)
+    const xs = yield* reference(options)
+    const past = xs.flatMap((x, i) => (x > 100 ? [i] : []))
+    expect(past.length).toBeGreaterThan(0)
+    for (const i of past) expect(frames[i]!.value.bg, `frame ${i}`).toBe("rgb(255, 255, 255)")
+    const firstPast = past[0]!
+    expect(frames.slice(firstPast).some((f) => red(f.value.bg) < 250)).toBe(true)
+    expect(frames.at(-1)?.value.bg).toBe("rgb(255, 255, 255)")
+  }),
+)
+
+it.effect("SB4: a unit string overshoots like a numeric key", () =>
+  Effect.gen(function* () {
+    const frames = yield* blend({ w: "10px" }, { w: "100px" }, { stiffness: 100, damping: 5 })
+    const widths = frames.map((f) => Number.parseFloat(String(f.value.w)))
+    expect(Math.max(...widths)).toBeGreaterThan(110)
+    expect(frames.at(-1)?.value.w).toBe("100px")
+  }),
+)
+
+it.effect("SB5: display turns none only on the settle frame, with no flicker under a bouncy spring", () =>
+  Effect.gen(function* () {
+    const frames = yield* blend({ display: "block", opacity: 1 }, { display: "none", opacity: 0 }, { stiffness: 100, damping: 5 })
+    expect(frames.length).toBeGreaterThan(30)
+    frames.slice(0, -1).forEach((f, i) => expect(f.value.display, `frame ${i}`).toBe("block"))
+    expect(frames.at(-1)).toMatchObject({ value: { display: "none", opacity: 0 }, done: true })
+  }),
+)
+
+it.effect("SB6: a Discrete pair switches on the first frame past the delay", () =>
+  Effect.gen(function* () {
+    const now = yield* blend({ overflow: "visible" }, { overflow: "hidden" })
+    expect(now.map((f) => f.value.overflow).every((v) => v === "hidden")).toBe(true)
+    const delayed = yield* blend({ overflow: "visible" }, { overflow: "hidden" }, { delay: 0.1 })
+    for (let i = 0; i < 5; i++) expect(delayed[i]!.value.overflow, `frame ${i}`).toBe("visible")
+    expect(delayed.at(-1)?.value.overflow).toBe("hidden")
+  }),
+)
+
+it.effect("SB7: rest thresholds apply to the 0–100 progress, as to a numeric key travelling 100", () =>
+  Effect.gen(function* () {
+    const options = { restDelta: 1, restVelocity: 1 }
+    expect((yield* blend({ bg: "#000" }, { bg: "#fff" }, options)).length).toBe((yield* reference(options)).length)
+  }),
+)
+
+it.effect("SB8: it starts from rest whatever the options say: from and velocity don't move the progress", () =>
+  Effect.gen(function* () {
+    const plain = yield* blend({ bg: "#000" }, { bg: "#fff" })
+    const seeded = yield* blend({ bg: "#000" }, { bg: "#fff" }, { from: 50, velocity: 1000 })
+    expect(seeded).toEqual(plain)
+  }),
+)
+
+it.effect("SB9: a key missing from `from` starts at its target", () =>
+  Effect.gen(function* () {
+    const frames = yield* blend({}, { bg: "#fff" })
+    expect(frames.every((f) => f.value.bg === "rgb(255, 255, 255)")).toBe(true)
+  }),
+)

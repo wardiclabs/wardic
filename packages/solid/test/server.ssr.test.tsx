@@ -436,6 +436,23 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(wrapped?.style.transform, "a component wrap's Starting style through style").toBe("none")
   })
 
+  it("SV21 (guard, #56): a string initial renders as it is; a string key only animate sets renders nothing", () => {
+    // ADR-0024 decision 6: a string `initial` was already in the Starting style, and nothing reads
+    // on a server (ADR-0021). The client starts the animate-only key from its Own value.
+    const [colour, keywords, wrapped] = tagsOf(
+      serve(() => (
+        <>
+          <wardic.div initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff", color: "rgb(255, 0, 0)" }} />
+          <wardic.div initial={{ display: "none", height: "10px" }} animate={{ display: "block", height: "40px" }} />
+          <WCard initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff" }}>c</WCard>
+        </>
+      )),
+    )
+    expect(colour?.style).toEqual({ "background-color": "#000" })
+    expect(keywords?.style).toEqual({ display: "none", height: "10px" })
+    expect(wrapped?.style, "a component wrap's Starting style through style").toEqual({ "background-color": "#000" })
+  })
+
   it("SV15a (guard): under TestLive, the fixture's hydration keys are 9531ff4's", () => {
     expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK_9531FF4)
   })

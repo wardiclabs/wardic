@@ -28,14 +28,15 @@ it("interpolates a multi-part box-shadow / filter string", () => {
   expect(complexInterpolator.interpolate("0px 0px 0px", "10px 20px 4px", 0.5)).toBe("5px 10px 2px")
 })
 
-it("snaps (discrete) when the templates differ — mismatched command structure", () => {
-  // Different command (L vs C) → templates differ → cannot blend.
-  expect(complexInterpolator.interpolate("M0,0 L10,10", "M0,0 C1,1 2,2 3,3", 0.5)).toBe("M0,0 L10,10")
+it("snaps (discrete) at the first frame when the templates differ — mismatched command structure", () => {
+  // Different command (L vs C) → templates differ → cannot blend: a Discrete pair (ADR-0024).
+  expect(complexInterpolator.interpolate("M0,0 L10,10", "M0,0 C1,1 2,2 3,3", 0)).toBe("M0,0 L10,10")
+  expect(complexInterpolator.interpolate("M0,0 L10,10", "M0,0 C1,1 2,2 3,3", 0.5)).toBe("M0,0 C1,1 2,2 3,3")
   expect(complexInterpolator.interpolate("M0,0 L10,10", "M0,0 C1,1 2,2 3,3", 1)).toBe("M0,0 C1,1 2,2 3,3")
 })
 
-it("snaps when number counts differ even with the same leading commands", () => {
-  expect(complexInterpolator.interpolate("M0,0 L10,10", "M0,0 L10,10 L20,20", 0.5)).toBe("M0,0 L10,10")
+it("snaps at the first frame when number counts differ even with the same leading commands", () => {
+  expect(complexInterpolator.interpolate("M0,0 L10,10", "M0,0 L10,10 L20,20", 0.5)).toBe("M0,0 L10,10 L20,20")
 })
 
 // Registry-backed: resolution order — `complex` only catches what the specific

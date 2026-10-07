@@ -141,18 +141,20 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
     }),
   )
 
-  it.effect("resolve('auto', 'left') falls back to discrete: 'auto' while t<1, 'left' at t=1", () =>
+  it.effect("resolve('auto', 'left') is a Discrete pair: 'auto' at t=0, 'left' from the first frame past it (ADR-0024)", () =>
     Effect.gen(function* () {
       // Arrange
       const registry = yield* InterpolatorRegistry
       const fn = yield* registry.resolve("auto", "left")
 
       // Act
-      const beforeEnd = fn(0.5)
+      const atStart = fn(0)
+      const midway = fn(0.5)
       const atEnd = fn(1)
 
       // Assert
-      expect(beforeEnd).toBe("auto")
+      expect(atStart).toBe("auto")
+      expect(midway).toBe("left")
       expect(atEnd).toBe("left")
     }),
   )
