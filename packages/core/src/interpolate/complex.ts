@@ -32,7 +32,8 @@ const numberCount = (input: string): number => input.match(NUMBER_RE)?.length ??
  * carrying ≥2 embedded numbers — an SVG `d`/`points`, a `filter`, a multi-part
  * `box-shadow`, … — interpolated number-by-number WHEN both endpoints share the
  * same non-numeric template (identical structure + number count). On a template
- * mismatch it can't blend and falls back to discrete (snap at `t=1`).
+ * mismatch it can't blend: a Discrete pair, which snaps to `to` at the first frame
+ * past 0 (ADR-0024, amending ADR-0015's snap at `t=1`).
  *
  * This is the **same-structure tier of path morphing** (ADR-0015): two `d`/`points`
  * with the same command sequence morph for free. **Arbitrary-structure** morphing
@@ -55,7 +56,7 @@ export const complexInterpolator: InterpolatorEntry<string> = {
     const a = parse(from)
     const b = parse(to)
     if (a.template !== b.template || a.numbers.length !== b.numbers.length) {
-      return t < 1 ? from : to // structure mismatch → discrete (tier-2 territory)
+      return t > 0 ? to : from // structure mismatch → a Discrete pair, switched at the first frame (ADR-0024; tier-2 territory)
     }
     const parts = a.template.split(SLOT) // length === numbers.length + 1
     let out = parts[0]!

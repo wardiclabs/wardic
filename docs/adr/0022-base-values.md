@@ -135,3 +135,7 @@ This amends ADR-0003 (the `from` of a key `initial` doesn't set), ADR-0005 (the 
 ## Amendment (#57, 2026-10-06): a transform key at rest at its identity writes `none`
 
 The Consequences left #57 open: a transform key that returned to its Own value, its **Identity** (CONTEXT.md), rested as `scale(1)` or `translateX(0px)`, where Motion writes `none` (C1, C2, C10). ADR-0023 closes it in `project`: a transform at its identity is left out, and `transform: none` is written when nothing is left. Decision 5's state at rest is unchanged: the key still rests inline at its base and stays in the gate's value-map, and the `none` it projects keeps a class's transform overridden (C5).
+
+## Amendment (#56, 2026-10-07): string keys start and return by animating
+
+The Consequences left #56 open: string keys snapped through the spine, so a colour returned by snapping. ADR-0024 gives the Snapshot strings, starts a string key with no value from its `style` value, else its Own value (decision 1's start links, now wired for strings), and drives it under a spring by the spring's progress. A string key that leaves the target now returns through the chain by animating, and decision 5's state at rest is unchanged. A pair that can't blend (an Own value of `auto` for a length target) switches at its leg's first frame (ADR-0024, decision 3).

@@ -281,6 +281,13 @@ const scale = (k: string) => (host: HTMLElement): number => {
   const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
   return Math.hypot(v[0]!, v[1]!)
 }
+/** The painted background's red channel, 0 to 1. */
+const red = (k: string) => (host: HTMLElement): number => {
+  const node = el(host, k)
+  const c = node === null ? "" : getComputedStyle(node).backgroundColor
+  const m = /\((\d+)/.exec(c)
+  return m === null ? Number.NaN : Number(m[1]) / 255
+}
 const attr = (k: string, name: string) => (host: HTMLElement): number => Number(el(host, k)?.getAttribute(name) ?? NaN)
 
 const DRAG_X = { "touch-action": "pan-y", "user-select": "none", "-webkit-user-select": "none", "-webkit-touch-callout": "none" }
@@ -316,7 +323,15 @@ export const F16 = live(() => (
   </wardic.div>
 ))
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16 } as const
+// #56 (ADR-0024): a string `initial` server-renders as it is; the hydrating client holds it at the
+// first paint, then animates from it rather than snapping to its target.
+export const F17 = live(() => (
+  <wardic.div data-k="f17" initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff" }} transition={TWEEN}>
+    f17
+  </wardic.div>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -361,4 +376,6 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F15: { startK: "f15", starting: { transform: "none" }, tracks: [{ label: "scale", read: scale("f15"), from: 1, to: 1.2 }] },
   // An identity `initial` at rest: `none` in the markup, at the first paint and after mount.
   F16: { startK: "f16", starting: { transform: "none" }, tracks: [] },
+  // A string `initial`: in the markup, held at the first paint, then animated (not snapped) to white.
+  F17: { startK: "f17", starting: projected({ "background-color": "#000" }), tracks: [{ label: "red", read: red("f17"), from: 0, to: 1 }] },
 }

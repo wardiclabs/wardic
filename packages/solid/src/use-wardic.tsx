@@ -22,8 +22,8 @@
  * Scope (v0.1, this step): `initial` / `animate` / `whileHover` / `whileTap`.
  * NO variant-tree propagation, NO drag, NO exit/layout. Mixed numeric+string
  * targets are handled by routing numeric keys through `springValues` and any
- * string/color keys through `animateValues` (both writing into the same gate
- * id) — see {@link splitTarget}.
+ * string/color keys through `springBlend`, the same spring on a progress (both
+ * writing into the same gate id) — see {@link splitTarget}.
  */
 import {
   type AnimateOptions,
@@ -37,6 +37,7 @@ import {
   resolveOverrides,
   type SpringOptions,
   stagger as coreStagger,
+  springBlend,
   springValues,
   type StaggerOrigin,
   startValueOf,
@@ -391,7 +392,7 @@ const resolveValues = (
   return toValues(entry)
 }
 
-/** A target split into its numeric (spring-able) and string (tween-only) keys. */
+/** A target split into its numeric (spring-able) and string (blended by a progress) keys. */
 interface SplitTarget {
   readonly numeric: Record<string, number>
   readonly strings: Values
@@ -399,9 +400,9 @@ interface SplitTarget {
 
 /**
  * Partition a resolved target into numeric keys (driven by `springValues` when
- * the transition is a spring) and string/color keys (always routed through
- * `animateValues`, which goes via the InterpolatorRegistry). Both halves write
- * into the same gate id, so they collapse into one projected `Patch`.
+ * the transition is a spring) and string/color keys (blended through the
+ * InterpolatorRegistry by the spring's progress, `springBlend`, ADR-0024). Both
+ * halves write into the same gate id, so they collapse into one projected `Patch`.
  */
 const splitTarget = (target: Values): SplitTarget => {
   const numeric: Record<string, number> = {}
@@ -425,16 +426,6 @@ interface Resolution {
   readonly base: Values
   /** Whether a drag holds the translate keys (ADR-0004's strip). */
   readonly dragging: boolean
-}
-
-/** Pull a numeric subset (the spring snapshot keys) out of a `Values` map. */
-const numericOf = (values: Values): Record<string, number> => {
-  const out: Record<string, number> = {}
-  for (const key in values) {
-    const v = values[key]!
-    if (typeof v === "number") out[key] = v
-  }
-  return out
 }
 
 /** Options for the internal {@link runSpine} helper. */
@@ -552,11 +543,12 @@ export function runSpine(opts: RunSpineOptions): void {
   // Snapshot so frame 1 flows continuously out of it (no snap).
   const initialValues = resolveInitial(untrack(cfg))
 
-  // Plain (non-reactive) Snapshot ref: the last emitted spring frame's values +
-  // velocities, seeded from the SSR initial (velocities 0). Used to retarget
-  // with momentum carried across the seam (ADR-0005).
-  const snapshot: { values: Record<string, number>; velocities: Record<string, number> } = {
-    values: numericOf(initialValues),
+  // Plain (non-reactive) Snapshot ref: each key's last emitted value, a number or a
+  // string, + the numeric velocities, seeded from the SSR initial (velocities 0). Used
+  // to retarget from where each key is, with momentum carried across the seam
+  // (ADR-0005, ADR-0024).
+  const snapshot: { values: Values; velocities: Record<string, number> } = {
+    values: { ...initialValues },
     velocities: {},
   }
 
@@ -873,21 +865,30 @@ export function runSpine(opts: RunSpineOptions): void {
             // kept: a later need is a lookup. A transform key reads nothing.
             for (const key in t) if (!Object.hasOwn(initialValues, key)) ownValue(key)
             const { numeric, strings } = splitTarget(t)
-            // A numeric key with no value yet starts from its Base value's start links, read
-            // here at its first need (ADR-0022, D3); with none, it starts at its target (no
-            // motion). String keys keep their start (#56).
+            // Each key starts from its Snapshot value, coerced to its target's shape (ADR-0024,
+            // D1). A key with no value yet, or one whose value can't take that shape, starts
+            // from its Base value's start links, read here at its first need (ADR-0022, D3);
+            // with none, it starts at its target (no motion).
             const started: Record<string, string> = {}
-            for (const key in numeric) {
-              if (snapshot.values[key] !== undefined) continue
-              const s = startOf(key, numeric[key]!)
-              if (s !== undefined && typeof s.value === "number") {
+            for (const key in t) {
+              const like = t[key]!
+              const current = snapshot.values[key]
+              const coerced = current !== undefined ? valueLike(current, like) : undefined
+              if (coerced !== undefined) {
+                snapshot.values[key] = coerced
+                continue
+              }
+              const s = startOf(key, like)
+              if (s !== undefined && typeof s.value === typeof like) {
                 snapshot.values[key] = s.value
                 started[key] = s.source
               } else {
-                snapshot.values[key] = numeric[key]!
+                snapshot.values[key] = like
                 started[key] = "target"
               }
             }
+            const from: Values = {}
+            for (const key in t) from[key] = snapshot.values[key]!
             // The keys this Retarget returns; once every leg settles, a key back at its
             // `style` value is handed back to the element's style (D4) and the rest rest inline.
             const returns = [...returning]
@@ -899,6 +900,14 @@ export function runSpine(opts: RunSpineOptions): void {
             const legDone = Effect.sync(() => {
               if (--legs === 0) settleReturns(returns)
             })
+            // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
+            // numeric one, so each leg's frames report, and only the last leg's settle reports done.
+            let reporting = 0
+            let settled = 0
+            const report = (done: boolean): void => {
+              if (done) settled++
+              onFrame?.(settled === reporting)
+            }
             const leg = <R,>(program: Effect.Effect<void, never, R>): Effect.Effect<void, never, R> => {
               legs++
               const log = pendingLog
@@ -923,8 +932,8 @@ export function runSpine(opts: RunSpineOptions): void {
             if (useTween) {
               // Tween: animateValues drives ALL keys (numeric + string) from the
               // current snapshot values; no velocity (snapshot.velocities stays {}).
-              const from: Values = { ...snapshot.values, ...strings }
               const options = transition as Partial<AnimateOptions>
+              reporting = 1
               prevFibers.push(
                 runScoped(
                   runtime,
@@ -940,26 +949,30 @@ export function runSpine(opts: RunSpineOptions): void {
                         // the snapshot rather than replacing it, so the drag's
                         // direct-set x/y survive alongside the tween's keys and the
                         // post-drag handoff continues from the rested position.
-                        snapshot.values = { ...snapshot.values, ...numericOf(frame.value) }
+                        snapshot.values = { ...snapshot.values, ...frame.value }
                         gate.write(id, frame.value)
                         recordFrame(frame.value)
-                        onFrame?.(frame.done)
+                        report(frame.done)
                       }),
                   )),
                 ),
               )
             } else {
               // Spring (default): numeric keys via springValues (velocity-carrying
-              // retarget); any string/color keys via animateValues into the same
-              // gate id.
+              // retarget); any string/color keys via springBlend, the same spring on a
+              // 0→100 progress (ADR-0024, D5), into the same gate id.
               const springOpts = (transition ?? {}) as SpringOptions
               const hasNumeric = Object.keys(numeric).length > 0
+              const hasStrings = Object.keys(strings).length > 0
+              reporting = (hasNumeric ? 1 : 0) + (hasStrings ? 1 : 0)
               if (hasNumeric) {
+                const fromNumeric: Record<string, number> = {}
+                for (const key in numeric) fromNumeric[key] = from[key] as number
                 prevFibers.push(
                   runScoped(
                     runtime,
                     leg(Stream.runForEach(
-                      springValues(numeric, springOpts, snapshot.values, snapshot.velocities),
+                      springValues(numeric, springOpts, fromNumeric, snapshot.velocities),
                       (frame) =>
                         Effect.sync(() => {
                           // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
@@ -971,26 +984,24 @@ export function runSpine(opts: RunSpineOptions): void {
                           snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
                           gate.write(id, frame.value)
                           recordFrame(frame.value)
-                          // The numeric spring is the primary settle signal.
-                          onFrame?.(frame.done)
+                          report(frame.done)
                         }),
                     )),
                   ),
                 )
               }
-              if (Object.keys(strings).length > 0) {
+              if (hasStrings) {
                 const fromStrings: Values = {}
-                for (const key in strings) fromStrings[key] = strings[key]!
+                for (const key in strings) fromStrings[key] = from[key]!
                 prevFibers.push(
                   runScoped(
                     runtime,
-                    leg(Stream.runForEach(animateValues(fromStrings, strings), (frame) =>
+                    leg(Stream.runForEach(springBlend(fromStrings, strings, springOpts), (frame) =>
                       Effect.sync(() => {
+                        snapshot.values = { ...snapshot.values, ...frame.value }
                         gate.write(id, frame.value)
                         recordFrame(frame.value)
-                        // Report settle from the string leg ONLY when there is no
-                        // numeric driver (otherwise numeric owns the settle signal).
-                        if (!hasNumeric) onFrame?.(frame.done)
+                        report(frame.done)
                       }))),
                   ),
                 )

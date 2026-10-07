@@ -7,6 +7,7 @@ import { wardic, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
+import { sampleFrames } from "./reorder-harness.tsx"
 
 afterEach(cleanup)
 
@@ -103,9 +104,12 @@ it("morphs a same-structure path `d` end-to-end (complex interpolator → setAtt
     </WardicProvider>
   ))
   const path = container.querySelector("[data-p]") as SVGPathElement
-  await until(() => {
-    const m = (path.getAttribute("d") ?? "").match(/L([\d.]+),/)
-    return m !== null && Number.parseFloat(m[1]!) > 79
-  })
+  // Before #56 the string leg started at its target, so the `d` snapped; it now morphs from
+  // `initial` under the spring (ADR-0024), so sample it and wait for it to land.
+  const lOf = (): number => Number.parseFloat((path.getAttribute("d") ?? "").match(/L([\d.]+),/)?.[1] ?? "NaN")
+  const s = sampleFrames(lOf)
+  await until(() => path.getAttribute("d") === "M10,10 L80,80")
+  const ls = s.stop().map((f) => f.v)
+  expect(ls.filter((l) => l > 21 && l < 79).length, "the path is painted mid-morph").toBeGreaterThanOrEqual(3)
   expect(path.getAttribute("d")).toBe("M10,10 L80,80")
 })

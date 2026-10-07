@@ -32,7 +32,7 @@
  * exiting INTERRUPTS the exiting node (its fiber is interrupted + node removed);
  * full mid-exit reuse is deferred.
  */
-import { type Patch, Renderer, animateValues, springValues, type Values } from "@wardic/core"
+import { type Patch, Renderer, springBlend, springValues, type Values } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
@@ -180,8 +180,9 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
       return
     }
 
-    // Split the exit target into numeric (spring) + string (tween) keys; seed
-    // from the child's last snapshot so the exit departs continuously. An exit key the
+    // Split the exit target into numeric (spring) + string keys, which follow the same
+    // spring's progress (springBlend, ADR-0024); seed from the child's last snapshot so the
+    // exit departs continuously. An exit key the
     // child never animated starts from its Base value's start links (ADR-0022), else at
     // its target.
     const from: Values = { ...rec.snapshot.current }
@@ -212,7 +213,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
             commitValues(el, latest)
           }),
         )
-      : Stream.runForEach(animateValues({ ...from }, { ...exit }), (frame) =>
+      : Stream.runForEach(springBlend({ ...from }, { ...exit }), (frame) =>
           Effect.sync(() => {
             Object.assign(latest, frame.value)
             commitValues(el, latest)
@@ -225,7 +226,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
       hasNumeric && hasStrings
         ? Effect.zip(
             program,
-            Stream.runForEach(animateValues(pick(from, stringTo), stringTo), (frame) =>
+            Stream.runForEach(springBlend(pick(from, stringTo), stringTo), (frame) =>
               Effect.sync(() => {
                 Object.assign(latest, frame.value)
                 commitValues(el, latest)

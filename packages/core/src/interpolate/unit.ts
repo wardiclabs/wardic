@@ -31,7 +31,7 @@ export const unitInterpolator: InterpolatorEntry<string> = {
   interpolate: (from, to, t) => {
     const a = parse(from)
     const b = parse(to)
-    if (a === undefined || b === undefined) return t < 1 ? from : to
+    if (a === undefined || b === undefined) return t > 0 ? to : from // a Discrete pair (ADR-0024)
     return `${lerp(a.value, b.value, t)}${a.unit || b.unit}`
   },
 }
