@@ -25,9 +25,17 @@ const isInvisible: Predicate.Refinement<unknown, string> = Predicate.compose(
   (value: string) => INVISIBLE.has(value.trim()),
 )
 
-/** A `display` or `visibility` pair that hides: from a visible value to `none` or `hidden`. */
-const hides = (key: string, from: number | string, to: number | string): boolean =>
-  VISIBILITY_KEYS.has(key) && isInvisible(to) && Predicate.not(isInvisible)(from)
+/** One key with the values it blends from and to. */
+type KeyedPair = readonly [key: string, from: number | string, to: number | string]
+
+/** A `display` or `visibility` key. */
+const isVisibilityKey: Predicate.Predicate<string> = (key) => VISIBILITY_KEYS.has(key)
+
+/** A pair that hides: a `display` or `visibility` key, from a visible value to `none` or `hidden`. */
+const hides: Predicate.Predicate<KeyedPair> = Predicate.Tuple([isVisibilityKey, Predicate.not(isInvisible), isInvisible])
+
+/** A hiding pair's blender: it shows `from` until the leg's last frame, then `to`. */
+const holdUntilDone = (from: number | string, to: number | string): Blender => (_t, done) => (done ? to : from)
 
 /**
  * Each key's blender from `from[key]` (its target when absent) to `to[key]`, resolved through
@@ -47,9 +55,13 @@ const blendersFor = (
     return yield* Effect.all(
       Rec.map(to, (b, key): Effect.Effect<Blender> => {
         const a = Option.getOrElse(Rec.get(from, key), () => b)
-        return hides(key, a, b)
-          ? Effect.succeed((_t, done) => (done ? b : a))
-          : Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t))
+        return Option.liftPredicate([key, a, b] as const, hides).pipe(
+          Option.map(([, shown, hidden]) => holdUntilDone(shown, hidden)),
+          Option.match({
+            onNone: () => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)),
+            onSome: Effect.succeed,
+          }),
+        )
       }),
     )
   })
