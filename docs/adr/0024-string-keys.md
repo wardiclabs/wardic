@@ -85,9 +85,14 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
   - **Units:** as ADR-0022. A numeric Snapshot value under a `%` target is coerced to a bare number, which the `unit` interpolator reads in `%`.
 - **Deferred:** #61 (animatable `none`); #55 (`var()` values and custom properties: a `var()` target is a Discrete pair and switches at the first frame).
 - **Pinned by** (written red, before the fix):
-  - core, node: `discrete-pair.test.ts` (a Discrete pair at `t > 0` in the registry, `unit` and `complex`; the `display` / `visibility` rule in `animateValues`) and `spring-blend.test.ts` (the progress matches `springValues`' normalized output; the delay; a colour held at its target under an underdamped spring; a unit string's overshoot; the visibility rule at the settle frame), with `interpolate.test.ts` and `complex-interpolate.test.ts` moved off t = 1;
-  - `@wardic/solid`, in Chromium: `string-keys.browser.test.tsx` (SK: a colour sharing an `x`'s progress every painted frame under a spring and a tween; C8 there and back; a Retarget mid-flight; the commit sinks; the exit; `overflow` on the first frame; `display` out at the end with no flicker, and in on the first frame), with `base-values.browser.test.tsx`'s M19 no longer expecting a snap;
-  - the server tier: `server.ssr.test.tsx` and the hydrate project (a string `initial` renders and hydrates as before, then animates).
+  - core, node: `discrete-pair.test.ts` (DP1–DP9: a Discrete pair at `t > 0` in the `complex` and `unit` tiers and through the registry, keywords, a colour and a keyword, unparseable units, a number and a keyword, two paths; DP3, below 0, and DP9, a pair that blends, are guards), with `interpolate.test.ts` and `complex-interpolate.test.ts` moved off t = 1;
+  - `@wardic/test`, node: `visibility-keys.test.ts` (DV1–DV7: `animateValues`' `display` / `visibility` rule, by key, through a delay; DV1 and DV7, a turn to `none` on the last frame, are guards: t = 1 already did it) and `spring-blend.test.ts` (SB1–SB9: a colour and a unit string sharing `springValues`' progress frame for frame; the delay; a colour held at its target under an underdamped spring and dimming on the swing back; a unit string's overshoot; `display` on the settle frame only; a Discrete pair at the first frame past the delay; rest thresholds on the 0–100 progress; no `from` or `velocity`; a key missing from `from`);
+  - `@wardic/solid`, in Chromium:
+    - `string-keys.browser.test.tsx` (SK1–SK14: a colour sharing an `x`'s progress on every painted frame under the default spring, a tween and a delay; a length string from its own value with `overflow` on the first frame; C8 there and back; a Retarget mid-flight; the commit sinks, `wardic.create(Component)`, `use:ward` and `use:reorderItem`; the exit from a hover left mid-flight; `display` out under a tween and a bouncy spring, with no flicker; `visibility` out; SK13, `display` in on the first frame, is a guard);
+    - `svg.browser.test.tsx`'s path morph, which passed before the fix only because the `d` snapped: it now waits for the landing and checks the morph is painted;
+    - `base-values.browser.test.tsx`'s M19, whose comment no longer expects a snap;
+  - the server tier: `server.ssr.test.tsx` (SV21, a guard: a string `initial` renders as it is);
+  - the hydrate project: F17 (a string `initial` held at the first paint after hydration, then animated, not snapped, to its target).
 
 ## Amendment to ADR-0005, ADR-0015 and ADR-0022
 
