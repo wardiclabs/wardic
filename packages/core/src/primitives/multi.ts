@@ -1,4 +1,7 @@
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import * as Stream from "effect/Stream"
 import type { AnimateOptions, SpringOptions, Values } from "../options.ts"
 import { Clock } from "../services/Clock.ts"
@@ -15,7 +18,16 @@ type Blender = (t: number, done: boolean) => number | string
 /** The keys whose turn to `none` or `hidden` waits for the leg's last frame (ADR-0024, decision 4). */
 const VISIBILITY_KEYS: ReadonlySet<string> = new Set(["display", "visibility"])
 const INVISIBLE: ReadonlySet<string> = new Set(["none", "hidden"])
-const isInvisible = (value: number | string): boolean => typeof value === "string" && INVISIBLE.has(value.trim())
+
+/** A `none` or `hidden` value: what a `display` or `visibility` key turns to when it hides. */
+const isInvisible: Predicate.Refinement<unknown, string> = Predicate.compose(
+  Predicate.isString,
+  (value: string) => INVISIBLE.has(value.trim()),
+)
+
+/** A `display` or `visibility` pair that hides: from a visible value to `none` or `hidden`. */
+const hides = (key: string, from: number | string, to: number | string): boolean =>
+  VISIBILITY_KEYS.has(key) && isInvisible(to) && Predicate.not(isInvisible)(from)
 
 /**
  * Each key's blender from `from[key]` (its target when absent) to `to[key]`, resolved through
@@ -26,29 +38,27 @@ const isInvisible = (value: number | string): boolean => typeof value === "strin
  * 16c61222c4166bbef5ff6ab0051192faa79fa8c8), keyed on the frame's `done` rather than on progress
  * 1, so a spring's progress crossing 1 and back can't flicker it.
  */
-const blendersFor = (from: Values, to: Values): Effect.Effect<Record<string, Blender>, never, InterpolatorRegistry> =>
+const blendersFor = (
+  from: Values,
+  to: Values,
+): Effect.Effect<Rec.ReadonlyRecord<string, Blender>, never, InterpolatorRegistry> =>
   Effect.gen(function* () {
     const registry = yield* InterpolatorRegistry
-    const blenders: Record<string, Blender> = {}
-    for (const key in to) {
-      const a = from[key] ?? to[key]!
-      const b = to[key]!
-      if (VISIBILITY_KEYS.has(key) && isInvisible(b) && !isInvisible(a)) {
-        blenders[key] = (_t, done) => (done ? b : a)
-      } else {
-        const blend = yield* registry.resolve(a, b)
-        blenders[key] = (t) => blend(t) as number | string
-      }
-    }
-    return blenders
+    return yield* Effect.all(
+      Rec.map(to, (b, key): Effect.Effect<Blender> => {
+        const a = Option.getOrElse(Rec.get(from, key), () => b)
+        return hides(key, a, b)
+          ? Effect.succeed((_t, done) => (done ? b : a))
+          : Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t))
+      }),
+    )
   })
 
 /** Every key's blend at one progress frame. */
-const blendAt = (blenders: Record<string, Blender>, t: number, done: boolean): Frame<Values> => {
-  const out: Record<string, number | string> = {}
-  for (const key in blenders) out[key] = blenders[key]!(t, done)
-  return { value: out, done }
-}
+const blendAt = (blenders: Rec.ReadonlyRecord<string, Blender>, t: number, done: boolean): Frame<Values> => ({
+  value: Rec.map(blenders, (blend) => blend(t, done)),
+  done,
+})
 
 /**
  * Animate a bag of values from `from` to `to`, interpolating each key through
