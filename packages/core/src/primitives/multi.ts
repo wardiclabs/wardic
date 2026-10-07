@@ -9,18 +9,60 @@ import { initSpring, type SpringState, springStep } from "./stepper.ts"
 
 const DEFAULT_DURATION: AnimateOptions = { duration: 0.3 }
 
+/** One key's blend at a progress `t`, given whether that progress frame is the leg's last. */
+type Blender = (t: number, done: boolean) => number | string
+
+/** The keys whose turn to `none` or `hidden` waits for the leg's last frame (ADR-0024, decision 4). */
+const VISIBILITY_KEYS: ReadonlySet<string> = new Set(["display", "visibility"])
+const INVISIBLE: ReadonlySet<string> = new Set(["none", "hidden"])
+const isInvisible = (value: number | string): boolean => typeof value === "string" && INVISIBLE.has(value.trim())
+
+/**
+ * Each key's blender from `from[key]` (its target when absent) to `to[key]`, resolved through
+ * the `InterpolatorRegistry` once. A pair the registry can't blend is a Discrete pair and
+ * switches at the first frame past 0 (ADR-0024, decision 3). `display` and `visibility`, by
+ * name, turning from any other value to `none` or `hidden`, switch on the leg's last frame
+ * instead (decision 4): Motion's `mixVisibility` (motion-dom utils/mix/visibility.ts:1-14 at
+ * 16c61222c4166bbef5ff6ab0051192faa79fa8c8), keyed on the frame's `done` rather than on progress
+ * 1, so a spring's progress crossing 1 and back can't flicker it.
+ */
+const blendersFor = (from: Values, to: Values): Effect.Effect<Record<string, Blender>, never, InterpolatorRegistry> =>
+  Effect.gen(function* () {
+    const registry = yield* InterpolatorRegistry
+    const blenders: Record<string, Blender> = {}
+    for (const key in to) {
+      const a = from[key] ?? to[key]!
+      const b = to[key]!
+      if (VISIBILITY_KEYS.has(key) && isInvisible(b) && !isInvisible(a)) {
+        blenders[key] = (_t, done) => (done ? b : a)
+      } else {
+        const blend = yield* registry.resolve(a, b)
+        blenders[key] = (t) => blend(t) as number | string
+      }
+    }
+    return blenders
+  })
+
+/** Every key's blend at one progress frame. */
+const blendAt = (blenders: Record<string, Blender>, t: number, done: boolean): Frame<Values> => {
+  const out: Record<string, number | string> = {}
+  for (const key in blenders) out[key] = blenders[key]!(t, done)
+  return { value: out, done }
+}
+
 /**
  * Animate a bag of values from `from` to `to`, interpolating each key through
  * the `InterpolatorRegistry` (so numbers, colors and unit-strings all work). A
  * single `animate(0, 1, options)` progress stream drives every key, so all
  * modifiers (`reverse`, `repeat`, `yoyo`, including `repeat: Infinity`) apply
  * uniformly to the multi form. `done` is threaded straight from the underlying
- * progress frame.
+ * progress frame. A Discrete pair switches at the first frame; `display` and
+ * `visibility` turn `none` / `hidden` on the last (ADR-0024).
  *
  * Hot-path shape: the registry is consulted **once** at stream construction —
- * each key resolves to a pure `(t: number) => unknown` that's stored in a
- * lookup map. Per-tick work is `keys.length` direct function calls, no Effect
- * round-trips and no service access in the inner loop.
+ * each key resolves to a pure blender that's stored in a lookup map. Per-tick
+ * work is `keys.length` direct function calls, no Effect round-trips and no
+ * service access in the inner loop.
  */
 export const animateValues = (
   from: Values,
@@ -29,27 +71,43 @@ export const animateValues = (
 ): Stream.Stream<Frame<Values>, never, Clock | InterpolatorRegistry> =>
   Stream.unwrap(
     Effect.gen(function* () {
-      const keys = Object.keys(to)
       yield* Effect.logDebug("wardic.animateValues: subscribe").pipe(
-        Effect.annotateLogs({ keys, duration: options.duration }),
+        Effect.annotateLogs({ keys: Object.keys(to), duration: options.duration }),
       )
-      const registry = yield* InterpolatorRegistry
-      const blenders: Record<string, (t: number) => unknown> = {}
-      for (const key of keys) {
-        const a = from[key] ?? to[key]!
-        blenders[key] = yield* registry.resolve(a, to[key]!)
-      }
-      return animate(0, 1, options).pipe(
-        Stream.map((progress) => {
-          const out: Record<string, number | string> = {}
-          for (const key of keys) {
-            out[key] = blenders[key]!(progress.value) as number | string
-          }
-          return { value: out as Values, done: progress.done } satisfies Frame<Values>
-        }),
-      )
+      const blenders = yield* blendersFor(from, to)
+      return animate(0, 1, options).pipe(Stream.map((progress) => blendAt(blenders, progress.value, progress.done)))
     }),
   ).pipe(Stream.withSpan("wardic.animateValues", { attributes: { keys: Object.keys(to).length } }))
+
+/**
+ * Blend a bag of values from `from` to `to` by one spring's progress (ADR-0024, decision 5):
+ * a spring with `options` (stiffness, damping, mass, rest thresholds, `delay`) runs from rest on
+ * a 0→100 progress, and each key is blended through the `InterpolatorRegistry` at progress / 100.
+ * It's how a spring's string keys follow the spring, as Motion runs a spring on a string
+ * (motion-dom animation/JSAnimation.ts:132-148 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
+ *
+ * - The progress spans 0–100 as a numeric key travelling 100 would, so `restDelta` and
+ *   `restVelocity` mean the same for both, and a colour beside an `x` going 0 → 100 lands with it.
+ * - It always starts from rest: `options.from` and `options.velocity` don't move it. A velocity
+ *   in a key's units has no meaning on the progress.
+ * - Past 1, a colour holds at its target (culori clamps its progress) and a unit string or
+ *   number overshoots. A Discrete pair switches at the first frame past the delay; `display`
+ *   and `visibility` turn `none` / `hidden` on the settle frame.
+ */
+export const springBlend = (
+  from: Values,
+  to: Values,
+  options: SpringOptions = {},
+): Stream.Stream<Frame<Values>, never, Clock | InterpolatorRegistry> =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      yield* Effect.logDebug("wardic.springBlend: subscribe").pipe(Effect.annotateLogs({ keys: Object.keys(to) }))
+      const blenders = yield* blendersFor(from, to)
+      return springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }).pipe(
+        Stream.map((frame) => blendAt(blenders, frame.value.progress! / 100, frame.done)),
+      )
+    }),
+  ).pipe(Stream.withSpan("wardic.springBlend", { attributes: { keys: Object.keys(to).length } }))
 
 /**
  * Spring a bag of numeric values toward `target`. Each key runs its own spring

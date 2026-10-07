@@ -49,7 +49,8 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
  * endpoint (so `(0, "10px")` resolves to the unit interpolator, not number).
  *
  * Returns `undefined` when no entry matches either endpoint, signalling the
- * discrete-fallback path.
+ * discrete-fallback path: a Discrete pair, which switches to `to` at the first
+ * frame past 0 (`t > 0 ? to : from`, ADR-0024 decision 3; Motion's `mixImmediate`).
  */
 const selectEntry = (
   entries: ReadonlyArray<InterpolatorEntry<any>>,
@@ -101,7 +102,7 @@ const bind = <From, To>(
       const b = parseUnit(to)
       if (a === undefined || b === undefined) {
         // Non-parseable string (e.g. "auto"): fall through to discrete.
-        return Effect.succeed((t: number) => (t < 1 ? from : to) as R)
+        return Effect.succeed((t: number) => (t > 0 ? to : from) as R)
       }
       if (a.unit !== "" && b.unit !== "" && a.unit !== b.unit) {
         return Effect.die(
@@ -117,7 +118,7 @@ const bind = <From, To>(
     if (fromIsNumber && typeof to === "string") {
       const b = parseUnit(to)
       if (b === undefined) {
-        return Effect.succeed((t: number) => (t < 1 ? from : to) as R)
+        return Effect.succeed((t: number) => (t > 0 ? to : from) as R)
       }
       const aValue = from as number
       return Effect.succeed((t: number) => `${lerp(aValue, b.value, t)}${b.unit}` as R)
@@ -126,7 +127,7 @@ const bind = <From, To>(
     if (toIsNumber && typeof from === "string") {
       const a = parseUnit(from)
       if (a === undefined) {
-        return Effect.succeed((t: number) => (t < 1 ? from : to) as R)
+        return Effect.succeed((t: number) => (t > 0 ? to : from) as R)
       }
       const bValue = to as number
       return Effect.succeed((t: number) => `${lerp(a.value, bValue, t)}${a.unit}` as R)
@@ -136,7 +137,7 @@ const bind = <From, To>(
   // Default: if the entry doesn't match both endpoints, fall back to discrete
   // (the entry's `interpolate` is only contracted for matching inputs).
   if (!entry.match(from) || !entry.match(to)) {
-    return Effect.succeed((t: number) => (t < 1 ? from : to) as R)
+    return Effect.succeed((t: number) => (t > 0 ? to : from) as R)
   }
 
   return Effect.succeed((t: number) => entry.interpolate(from, to, t) as R)
@@ -163,7 +164,7 @@ export const makeInterpolatorRegistry = (
     ): Effect.Effect<(t: number) => From | To> => {
       const entry = selectEntry(entries, from, to)
       if (entry === undefined) {
-        return Effect.succeed((t: number) => (t < 1 ? from : to))
+        return Effect.succeed((t: number) => (t > 0 ? to : from))
       }
       return bind(entry, from, to)
     }
