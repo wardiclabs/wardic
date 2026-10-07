@@ -43,7 +43,7 @@ Replacing a running Primitive with a fresh one seeded from its last Frame. A Phy
 _Avoid_: restart, cancel (those name the mechanism, not the intent).
 
 **Snapshot**:
-The last Frame a binding has cached for a running Primitive — the seed read at the moment of a Retarget.
+The last value a binding has cached for each key it drives, a number or a string, with a Physics primitive's velocities: the seed read at the moment of a Retarget.
 _Avoid_: state, current value.
 
 ### Value blending
@@ -55,6 +55,10 @@ _Avoid_: easing (distinct — see ambiguities), tween.
 **Easing**:
 A reshaping of normalized time `t`∈[0,1]→[0,1] applied by Definite primitives; orthogonal to interpolation.
 _Avoid_: curve, interpolator.
+
+**Discrete pair**:
+A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two paths of different structure). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
+_Avoid_: instant animation (Motion's), snap.
 
 **Override stack**:
 An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`resolveOverrides`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
@@ -265,5 +269,5 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 - **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (in-core `effect/unstable/reactivity`) appears only on service *inputs* (`Clock.time`, `Probe.viewport`) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
-- **"color string"** (what matches the color Interpolator) — Resolved: a string is a color iff culori's `parse` accepts it. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors and fall through to the registry's discrete fallback. A prior regex-based matcher (`[a-z]+$`) was too greedy and is being replaced.
+- **"color string"** (what matches the color Interpolator) — Resolved: a string is a color iff culori's `parse` accepts it. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors: paired with a color they make a **Discrete pair**. A prior regex-based matcher (`[a-z]+$`) was too greedy and is being replaced.
 - **Reduced-motion policy ownership** — `Probe.prefersReducedMotion` is exposed but no primitive currently reads it. Resolved: core ships a `respectReducedMotion(stream)` combinator (snap to target by default, preference read once at stream start); bindings apply it by default; users opt out per-call via `transition.respectReducedMotion: false`.
