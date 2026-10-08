@@ -3,9 +3,11 @@ import * as Equivalence from "effect/Equivalence"
 import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
 import { lerp } from "../math/index.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
+import { parseAndFormat } from "./codec.ts"
 import { discrete } from "./discrete.ts"
 
 /** A single number token: optional sign, int/decimal, optional exponent. */
@@ -38,6 +40,54 @@ const numberCount = (input: string): number =>
 /** A string carrying two or more numbers. */
 const isComplexString: Predicate.Predicate<unknown> = Predicate.compose(Predicate.isString, (value: string) =>
   numberCount(value) >= 2,
+)
+
+/**
+ * A complex value, decoded (CONTEXT.md): the pieces around its numbers, and the numbers, in
+ * document order. `parts.length === numbers.length + 1`.
+ */
+type Complex = { readonly parts: ReadonlyArray<string>; readonly numbers: ReadonlyArray<number> }
+
+/** Two or more numeric tokens: what makes a string a complex value. */
+const twoOrMore: Predicate.Predicate<ReadonlyArray<string>> = (tokens) => tokens.length >= 2
+
+/** Parse a complex value: a string carrying two or more numbers, or `None`. */
+const parseComplex = (input: string): Option.Option<Complex> =>
+  pipe(
+    input,
+    Str.match(NUMBER_RE),
+    Option.filter(twoOrMore),
+    Option.map((tokens) => ({
+      parts: Str.split(input, NUMBER_RE),
+      numbers: Arr.map(tokens, (token) => Number.parseFloat(token)),
+    })),
+  )
+
+/**
+ * A complex value's parts and numbers, interleaved: the complex codec's plain encode (ADR-0026).
+ * On the per-frame path: a counted loop, and nothing allocated but the string.
+ */
+const formatComplex = (parts: ReadonlyArray<string>, numbers: ReadonlyArray<number>): string => {
+  let out = Arr.getUnsafe(parts, 0)
+  for (let i = 0; i < numbers.length; i++) out += String(Arr.getUnsafe(numbers, i)) + Arr.getUnsafe(parts, i + 1)
+  return out
+}
+
+/**
+ * A complex value (ADR-0015, ADR-0026; CONTEXT.md) ↔ its parts and numbers: a string carrying two
+ * or more numbers, an SVG `d` or `points`, a `filter`, a multi-part `box-shadow`. It encodes with
+ * `formatComplex`, the function the frame calls; numbers come back in JavaScript's shortest form,
+ * so `"M0.50,1e3"` encodes back as `"M0.5,1000"`.
+ */
+export const ComplexString: Schema.Codec<Complex, string> = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.Struct({ parts: Schema.Array(Schema.String), numbers: Schema.Array(Schema.Number) }),
+    parseAndFormat(
+      parseComplex,
+      (complex: Complex): string => formatComplex(complex.parts, complex.numbers),
+      "a string carrying two or more numbers",
+    ),
+  ),
 )
 
 /** Two parsed strings of one structure: the same template, and as many numbers. */

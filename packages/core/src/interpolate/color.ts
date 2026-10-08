@@ -1,9 +1,37 @@
 /// <reference path="../culori.d.ts" />
 import { formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
+import { parseAndFormat } from "./codec.ts"
+
+/**
+ * A colour as culori holds it: its colour space (`mode`) and its channels. Core's own type, so
+ * the declarations core emits don't lean on `culori.d.ts`.
+ */
+type Color = { readonly mode: string; readonly [channel: string]: number | string | undefined }
+
+/** A culori colour: an object tagged with its colour space. */
+const isColor = (value: unknown): value is Color => Predicate.hasProperty(value, "mode")
+
+/** Parse a colour string, trimmed, or `None` when culori rejects it (`"auto"`, `"#zzz"`). */
+const parseColor = (input: string): Option.Option<Color> =>
+  Option.filter(Option.fromUndefinedOr(culoriParse(Str.trim(input))), isColor)
+
+/**
+ * A colour string (ADR-0026; CONTEXT.md's "color string") ↔ a culori colour. A string is a colour
+ * iff culori's `parse` accepts it, trimmed. It encodes as `rgb(…)` / `rgba(…)` with culori's
+ * `formatRgb`, the function the frame calls, so `"#000"` round-trips to `"rgb(0, 0, 0)"`.
+ */
+export const ColorString: Schema.Codec<Color, string> = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.declare(isColor),
+    parseAndFormat(parseColor, (color: Color): string => formatRgb(color), "a colour culori parses"),
+  ),
+)
 
 /**
  * Cheap prefix fast-path — recognises the syntactically-unambiguous CSS color

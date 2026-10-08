@@ -19,6 +19,12 @@ export const parseUnit = (input: string): Option.Option<ParsedUnit> =>
     unit,
   }))
 
+/**
+ * A number with its unit, as a string: the unit codec's plain encode (ADR-0026). The frame calls
+ * it with a lerped value; `Schema.encode` never runs per frame.
+ */
+export const formatUnit = (value: number, unit: string): string => `${value}${unit}`
+
 /** A unit that is present (a bare number has none). */
 const hasUnit: Predicate.Predicate<ParsedUnit> = Predicate.mapInput(Str.isNonEmpty, (parsed: ParsedUnit) => parsed.unit)
 

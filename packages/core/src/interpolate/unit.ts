@@ -1,9 +1,36 @@
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import { lerp } from "../math/index.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
+import { parseAndFormat } from "./codec.ts"
 import { discrete } from "./discrete.ts"
-import { parseUnit, unitOfPair } from "./parse-unit.ts"
+import { formatUnit, type ParsedUnit, parseUnit, unitOfPair } from "./parse-unit.ts"
+
+/** An endpoint as the unit codec parses it: a bare number, like `"120"`, has no unit. */
+const parseEndpoint = (input: string | number): Option.Option<ParsedUnit> =>
+  Match.value(input).pipe(
+    Match.when(Predicate.isNumber, (value) => Option.some({ value, unit: "" })),
+    Match.orElse(parseUnit),
+  )
+
+/**
+ * A unit string (ADR-0026): a number with an optional unit suffix (`"10px"`, `"-0.5em"`, `"50%"`,
+ * `"120"`), or a bare number, ↔ its value and unit. A bare number decodes with no unit, as `"120"`
+ * does, so in a pair it takes the other endpoint's unit. It encodes with `formatUnit`, the
+ * function the frame calls.
+ */
+export const UnitString: Schema.Codec<ParsedUnit, string | number> = Schema.Union([Schema.String, Schema.Number]).pipe(
+  Schema.decodeTo(
+    Schema.Struct({ value: Schema.Number, unit: Schema.String }),
+    parseAndFormat(
+      parseEndpoint,
+      (parsed: ParsedUnit): string | number => formatUnit(parsed.value, parsed.unit),
+      "a number with an optional unit",
+    ),
+  ),
+)
 
 /**
  * The unit of a number-with-unit string as the `unit` interpolator parses it (`""` for a bare
