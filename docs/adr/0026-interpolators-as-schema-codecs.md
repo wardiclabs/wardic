@@ -135,28 +135,31 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 
     - Selection decodes through Schema, where a failed decode costs about 1 µs, and `blend` now builds what each frame used to (culori's interpolator, the numbers array).
     - For `animateValues`' four keys in the bench's order (a colour, a unit string, a keyword pair and a number per element), it's +7.3 ms (Node) and +2.8 ms (Bun) per 1,000 elements once warm, and +31 / +27 ms for the first 1,000 in a fresh process.
-    - The bench's start time grew more than that: +55 ms (Node), +19 ms (Bun) and +10 ms (Chromium) per 1,000 `animateValues` elements (below). `resolve`'s own time accounts for about 7 of Node's 55 ms once warm, and where the rest goes isn't measured.
-    - Start time is reported, not gated (ADR-0025, decision 4). It's paid once per leg, on mount and at each Retarget, in the frame the leg starts. In Chromium, `animateValues`' 10 ms per 1,000 elements is repaid by its per-frame saving (1.7 ms) in about 6 frames.
-  - **Per frame, measured:** `bun run bench:core --base 871a898` at the implementation, with the bytes fix below: 11 paired reps, 1,000 elements, median head / base ratio [p25–p75]. Every workload passes both gates, and every noise control is within ±3% (`ticksOnly`: −1.0% Bun, −1.2% Node, −0.7% Chromium).
+    - Before decision 9, the bench's start time grew more than that: +55 ms (Node), +19 ms (Bun) and +10 ms (Chromium) per 1,000 `animateValues` elements. `resolve`'s own time accounted for about 7 of Node's 55 ms once warm, and the rest was never attributed.
+    - **With decision 9, starts are below main's** (the gate run below): `animateValues` −15% (Bun), −17% (Node) and −12% (Chromium), and `springBlend` and `animateComplex` lower too.
+    - Start time is reported, not gated (ADR-0025, decision 4). It's paid once per leg, on mount and at each Retarget, in the frame the leg starts. 
+  - **Per frame, measured:** `bun run bench:core --base 871a898` at decision 9's commits, with the bytes fix below: 11 paired reps, 1,000 elements, median head / base ratio [p25–p75]. Every workload passes both gates. Noise controls: Bun −2.8%, Chromium +1.4%; Node's first run was too noisy (`ticksOnly` −13.1%), so its column is a Node-only rerun (−0.4%).
 
     | Workload | Bun | Node | Chromium | Node MB per frame | Start ms (Bun / Node / Chromium) |
     |---|---|---|---|---|---|
-    | `springValues` | −2.1% [−3.1% – +0.5%] | −4.0% [−9.4% – +3.2%] | −5.1% [−9.2% – +0.4%] | 5.50 → 5.50 | 110 → 112 / 104 → 102 / 58 → 59 |
-    | `animateValues` | −5.0% [−8.4% – −4.0%] | −10.3% [−12.9% – −6.6%] | −9.5% [−14.6% – −7.7%] | 10.80 → 7.10 | 316 → 335 / 267 → 321 / 166 → 176 |
-    | `springBlend` | −5.5% [−9.5% – −3.6%] | −0.2% [−4.1% – +1.6%] | −10.0% [−13.6% – −5.8%] | 10.26 → 6.56 | 248 → 269 / 200 → 238 / 134 → 148 |
-    | `chase` | +1.8% [−4.6% – +4.9%] | +1.6% [−1.7% – +3.4%] | +3.0% [−5.6% – +5.8%] | 4.51 → 4.51 | 98 → 98 / 79 → 81 / 44 → 44 |
-    | `animateComplex` | −21.5% [−25.4% – −20.5%] | −40.0% [−42.1% – −36.5%] | −23.5% [−30.1% – −22.9%] | 20.72 → 8.62 | 288 → 332 / 239 → 277 / 181 → 197 |
+    | `springValues` | −5.7% [−7.9% – −1.4%] | −3.1% [−4.4% – −0.2%] | +0.7% [−8.7% – +4.4%] | 5.50 → 5.50 | 67 → 64 / 60 → 57 / 43 → 43 |
+    | `animateValues` | −12.3% [−19.2% – −9.5%] | −25.9% [−29.3% – −24.8%] | −21.7% [−26.4% – −18.9%] | 10.80 → 7.10 | 176 → 149 / 156 → 129 / 129 → 114 |
+    | `springBlend` | −14.6% [−16.6% – −13.6%] | −9.9% [−10.9% – −8.4%] | −23.4% [−27.6% – −20.9%] | 10.26 → 6.56 | 141 → 133 / 117 → 115 / 100 → 81 |
+    | `chase` | +4.1% [+1.1% – +13.7%] | +3.0% [−7.2% – +3.9%] | +8.0% [−1.0% – +10.6%] | 4.51 → 4.51 | 57 → 60 / 43 → 46 / 32 → 32 |
+    | `animateComplex` | −26.8% [−29.0% – −22.8%] | −41.9% [−44.6% – −40.9%] | −37.6% [−40.5% – −36.0%] | 20.72 → 8.62 | 175 → 152 / 135 → 129 / 128 → 120 |
 
     - The complex tier gains most: no parse, no template split, and one numbers array per pair.
     - Node's bytes fall 34–58% on the three workloads that blend strings; the three that don't (`ticksOnly` at 3.09 MB, `springValues`, `chase`) are unchanged to the byte.
+    - **The per-frame gains are larger than at decisions 1–8** (that run: `animateValues` −5.0 / −10.3 / −9.5%, `springBlend` −5.5 / −0.2 / −10.0%, `animateComplex` −21.5 / −40.0 / −23.5%, in Bun / Node / Chromium). Decision 9 doesn't change what a frame runs. One possible reason is the cache: 1,000 elements share one colour closure and one culori interpolator, where each had its own. That isn't measured, and the two runs ran under different load (`ticksOnly` 4.31 → 2.11 ms in Chromium).
+    - **`chase` doesn't touch the registry,** so its +8.0% median in Chromium (p25 −1.0%, so it passes) and +4.1% in Bun are this run's noise.
 - **The bench's bytes gate counted wrong, and is fixed (`packages/core/bench/one.mjs`).** It skipped a round with a GC in its window, counting GCs with a `PerformanceObserver`, whose entries arrive as a task; a window only awaits microtasks, so it never saw one. Under `--trace-gc`, main's core scavenged in most `animateValues`, `springBlend` and `animateComplex` windows while the observer counted 0, and the heap delta lost what each scavenge freed. The core that allocated more was under-counted more, so this ADR's first gate run failed `animateValues`, `springBlend` and `animateComplex` on bytes (2.10 → 2.85 MB, 1.56 → 6.56, 3.34 → 8.62) that it had cut. The hook now counts the used heap plus every byte a GC has freed, from a `v8.GCProfiler`, which reports synchronously, and every round counts. Per blender, with nothing collected unseen: a colour 4,240 → 524 bytes per call, the bench's `d` 10,521 → 1,582, its `box-shadow` 3,708 → 571; unit strings, numbers and Discrete pairs unchanged.
 - **The per-frame path** (`docs/agents/effect-first.md`): "each Interpolator's `interpolate`" becomes "the closures each Interpolator's `blend` returns". `complex`'s blend keeps its counted loop, in `interpolate/complex.ts`, where lint already allows one.
 - **Pinned by:**
   - core, node:
-    - `codecs.test.ts`: each codec's decode, what it rejects, and its round trip through `Schema.decode` / `encode` against the plain format (a colour canonicalises to `rgb(…)`, idempotently; a complex value's numbers come back in their shortest form);
-    - `interpolate.test.ts`: each built-in decoding its kind and blending through `blend`; `resolve("10px", "20em")` as a Discrete pair with one warning, where it died; a custom entry in the new shape taking precedence;
+    - `codecs.test.ts`: each codec's decode, what it rejects (with Schema's bare issue, decision 9), and its round trip through `Schema.decode` / `encode` against the plain format (a colour canonicalises to `rgb(…)`, idempotently; a complex value's numbers come back in their shortest form);
+    - `interpolate.test.ts`: each built-in decoding its kind and blending through `blend`; `resolve("10px", "20em")` as a Discrete pair with one warning, where it died; a custom entry in the new shape taking precedence; the cache (decision 9): a pair of strings resolving to the same closure, numbers not kept, a shared path closure called interleaved, and `register` emptying it;
     - `complex-interpolate.test.ts`: `ComplexString` decoding two or more numbers, and `blend` returning `None` for two structures;
-    - `discrete-pair.test.ts` DP1–DP3 through `resolve`, and DP10–DP13: incompatible units, colours culori rejects, an untrimmed colour that blends, and the warning only for a pair an entry decodes both endpoints of;
+    - `discrete-pair.test.ts` DP1–DP3 through `resolve`, and DP10–DP14: incompatible units, colours culori rejects, an untrimmed colour that blends, the warning only for a pair an entry decodes both endpoints of (on a fresh registry), and once per registry for a kept pair;
   - unchanged, and passing: the rest of `interpolate.test.ts`'s and `discrete-pair.test.ts`' registry cases, `@wardic/test`'s `spring-blend` and `visibility-keys`, and solid's `string-keys.browser.test.tsx` and `svg.browser.test.tsx`'s path morph.
 
 ## Amendment to ADR-0015 and ADR-0024
