@@ -1,6 +1,6 @@
 # Interpolators as Schema codecs: decoded once when a stream is built, blended and encoded per frame
 
-Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` decodes both endpoints once, when a stream is built, and the entry's `blend` turns the two decoded values into the closure the frame calls, which lerps and encodes with the codec's plain encode function, never `Schema.encode`. Decoding is matching: an entry takes an endpoint its codec decodes. The `complex` tier stops parsing both strings on every frame, and the colour tier stops rebuilding culori's interpolator on every frame. `InterpolatorEntry` changes shape, a breaking change to Tier 2. This amends ADR-0015 and ADR-0024, and is ADR-0025's decision 6 for interpolation.
+Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` decodes both endpoints once, when a stream is built, and the entry's `blend` turns the two decoded values into the closure the frame calls, which lerps and encodes with the codec's plain encode function, never `Schema.encode`. Decoding is matching: an entry takes an endpoint its codec decodes, and a pair of strings is resolved once per registry and kept. The `complex` tier stops parsing both strings on every frame, and the colour tier stops rebuilding culori's interpolator on every frame. `InterpolatorEntry` changes shape, a breaking change to Tier 2. This amends ADR-0015 and ADR-0024, and is ADR-0025's decision 6 for interpolation.
 
 ## Why
 
@@ -48,7 +48,7 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 4. **The unit coercion is decoding, and incompatible units are a Discrete pair (amends ADR-0024).**
    - `UnitString` decodes a bare number too, to `{ value, unit: "" }`, the shape `"120"` decodes to, and `unit`'s `blend` takes the pair's unit from whichever endpoint has one. `0` → `"10px"` lands where it did, and `bindUnit`, `bindNumberToUnit`, `bindUnitToNumber` and the special case by name go. `number` comes before `unit`, so two numbers never reach it.
    - Two different units, both present (`"10px"` → `"1em"`), are a Discrete pair: `unit`'s `blend` returns `None`. They died at `resolve` before, and that defect failed the element's whole leg, so one key stopped every key. CONTEXT.md's Discrete pair is "a pair no Interpolator can blend", and two paths of different structure already were one. Motion doesn't die on it either: `mix("10px", "1em")` blends in the target's unit, `10em` → `1em` (`motion-dom`, #56's install).
-   - **A warning, once per pair, at `resolve`.** When an entry decodes both endpoints and its `blend` returns `None` (two units, two structures), `resolve` logs `Effect.logWarning` with the entry's name and both values. Motion warns on a pair it can't mix ("too different to mix"). A pair no entry decodes both of (`"auto"` → `"none"`, a colour and a keyword) stays silent: an ordinary switch. A warning, not a debug log, because debug is below Effect's default minimum level, and the `die` it replaces was loud.
+   - **A warning, once per pair, at `resolve`.** When an entry decodes both endpoints and its `blend` returns `None` (two units, two structures), `resolve` logs `Effect.logWarning` with the entry's name and both values. A pair of strings warns once per registry, since the registry keeps it (decision 9). Motion warns on a pair it can't mix ("too different to mix"). A pair no entry decodes both of (`"auto"` → `"none"`, a colour and a keyword) stays silent: an ordinary switch. A warning, not a debug log, because debug is below Effect's default minimum level, and the `die` it replaces was loud.
 5. **Colour.**
    - **One codec,** `ColorString`: a string ↔ a culori colour, decoded with culori's `parse` (trimmed) and encoded with `formatRgb`. A string culori rejects isn't a colour, the "color string" of CONTEXT.md. The prefix fast path goes: every colour is parsed once, at `resolve`.
    - **`mode` stays per entry:** `colorInterpolator(mode)`, named `color(${mode})`, over the one codec. The registry's default stays `"rgb"`: ADR-0024 keeps sRGB, as WAAPI does, and the v0.1 plan's OKLab line predates it. A colour space per call stays deferred.
@@ -56,7 +56,7 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
    - **Accepted per frame:** culori returns a new colour object on each call, beside `formatRgb`'s string (and, outside `"rgb"`, a conversion). Avoiding it means a lerp per mode of Wardic's own, matching culori's rounding, clamping and alpha fixups.
    - Culori clamps `t` to [0, 1], so a colour still holds at its target past 1 (ADR-0024, decision 5).
    - **Behaviour changes:** with a colour, `"#zzz"` and `"rgb(var(--x))"` are Discrete pairs, as ADR-0024 already says a `var()` target is, and `" #000 "` blends. All three died on the leg's first frame.
-6. **The one-shot `interpolate(from, to, t)` decodes on every call.** It stays `resolve` followed by the closure, in lock-step with `resolve`. Only tests call it. A cache would need a key over `unknown` endpoints, a bound, and invalidation on every `register`.
+6. **The one-shot `interpolate(from, to, t)` decodes on every call,** except a pair of strings the registry keeps (decision 9). It stays `resolve` followed by the closure, in lock-step with `resolve`. Only tests call it. The grill rejected a cache of its own: a key over `unknown` endpoints, a bound, and invalidation on every `register`. Decision 9's cache in `resolve` pays those costs, for a measured reason, and `interpolate` shares it.
 7. **A bench workload for the complex tier.** `animateComplex` (`packages/core/bench/harness.ts`) blends an icon-sized SVG `d` (20 numbers) and a `box-shadow` through `animateValues`, under the same 2 s tween as `animateValues`. None of the five workloads reached `complex`, so the per-frame parse this ADR removes didn't show. It landed in its own commit, with this baseline: main's core (`871a898`) against itself, 11 paired reps, 1,000 elements, medians of the base side.
 
    | Workload | Chromium 147 ms per frame | Bun 1.3 | Node 22 | Node MB per frame | Start ms (Chromium / Bun / Node) |
@@ -79,6 +79,26 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
    - `ComplexString` decodes to `parts`, the pieces around the numbers, split once (`parts.length === numbers.length + 1`). Its encode interleaves them, so the frame never splits a template.
    - `unitOf` stays, for dom's `valueLike`.
 
+9. **Construction cost: sync decodes, and a cache of string pairs (added after the gate run).** The gate run's start times grew: +10 ms (Chromium), +19 ms (Bun) and +55 ms (Node) per 1,000 `animateValues` elements. A probe timed `resolve` per key and three ways to cut it, each prototyped against this branch with the same output on 20 pairs at six progress values. ms per 1,000 elements, each resolving the bench's four keys (a colour, a unit string, a keyword pair, a number), warm / cold (the first 1,000 in a fresh process):
+
+   | Core | Node 22 | Bun 1.3 |
+   |---|---|---|
+   | main (`871a898`) | 6.6 / 27.3 | 9.9 / 26.7 |
+   | this ADR, decisions 1–8 | 13.3 / 59.7 | 12.7 / 55.7 |
+   | + a cache of string pairs | 4.2 / 22.2 | 4.1 / 25.2 |
+   | + the cache and sync decodes | 4.3 / 20.7 | 4.8 / 19.7 |
+
+   - **Sync decodes.**
+     - **The change:** `parseAndFormat` builds both directions from sync getters (`SchemaGetter.transformOptional` and `transform`) in place of `transformEffect`. A parse's `None` leaves the decode without a value, and Schema fails it with its bare `InvalidValue`.
+     - **Per key in Node:** a keyword pair 5.1 → 2.4 µs, a unit string 4.4 → 2.9, the bench's path 15.3 → 12.6, its `box-shadow` 8.4 → 5.7. With the cache in place, it matters for values that don't repeat (a width, a path per element), which still miss.
+     - **The cost:** a failed decode now says "Expected a valid value", where the codecs said "Expected a number with an optional unit". The descriptive issue was the cost: built in an effectful getter (`transformOptionalEffect`) or in a filter (`Schema.check(Schema.makeFilter(…, { expected }))`), each measured as slow as `transformEffect` or slower, and an `expected` or `message` annotation on the codec doesn't reach the bare issue. The registry discards issues, so only a direct `Schema.decode` of a codec sees the change.
+   - **A cache of string pairs, per registry.**
+     - **What it keeps:** each pair of strings `resolve` resolves, by `from` then `to` (two `Map`s, so nothing is built to look one up), up to 1,024 pairs. At capacity it starts over, and `register` empties it, since precedence changes. Numbers aren't kept, since they resolve in well under a microsecond, nor arrays, which are keyed by identity.
+     - **Why it pays:** elements often animate the same pair (a hover colour, `display`, a shared path). A hit costs 0.4–1.2 µs, against 2.5–15 µs to resolve.
+     - **Sharing is safe:** every stream that resolves a pair gets the same closure. The closures are pure, and `complex`'s, which reuses one numbers array, rewrites every number and formats them within each call.
+     - **The warning:** a kept pair that can't blend warns once per registry, not once per element: 1,000 elements given `10px` → `1em` log one warning (decision 4).
+   - **Not taken: a lighter check on each decode's output,** one property in place of the `Struct`: 0–2 ms per 1,000 elements warm, and nothing measurable cold.
+
 ## Considered Options
 
 - **Both shapes side by side, or an adapter for the old one** (decision 1). Rejected: two selection paths, or a non-decoding `match` and a per-frame `interpolate`, kept for no known user.
@@ -87,13 +107,17 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 - **A cheap `match` kept as a guard, decoding only the entry it picks** (decision 3). Rejected: two passes over each string again, and two definitions of what an entry takes, which can disagree, as the colour prefix did.
 - **Keeping the `die`, with `blend` throwing inside `Effect.sync`** (decision 4). Rejected: an implicit second channel in the entry's contract, and still one key failing a whole leg. **A typed error in `resolve`'s error channel:** rejected, a Tier 2 signature change and a unit-specific error in the generic registry, and `blendersFor` would still choose between dying and switching.
 - **An rgb lerp of Wardic's own** (decision 5). Rejected: a second implementation of culori's rounding, clamping and alpha handling, to save one object per frame.
-- **A cache for the one-shot `interpolate`** (decision 6). Rejected, as above.
+- **A cache for the one-shot `interpolate`** (decision 6). Rejected in the grill; decision 9's cache in `resolve`, which `interpolate` shares, supersedes it.
+- **Sync decodes that keep the descriptive issue** (decision 9): failing from `transformOptionalEffect`, a filter carrying `expected`, or an annotation on the codec. Rejected: the first two cost as much as `transformEffect`, and the annotation never reaches the issue.
+- **A lighter check on each decode's output** (decision 9). Not taken: too small to matter.
 - **The complex keys added to the existing string workloads** (decision 7). Rejected: one ratio would mix the colour's gain with the complex tier's.
 
 ## Consequences
 
 - **Breaking (Tier 2, ADR-0008):** `InterpolatorEntry`'s shape and `register`'s parameter; the built-in entries' fields, where `codec` and `blend` replace `match` and `interpolate`.
 - **Behaviour changes:**
+  - a pair of strings that can't blend warns once per registry, not once per `resolve` (decision 9);
+  - a codec's failed decode says "Expected a valid value" (decision 9);
   - `"10px"` → `"1em"`: a Discrete pair and a warning at `resolve`, where `resolve` died (decision 4);
   - two complex values of different structures: a warning at `resolve` beside the switch they already made;
   - `"#zzz"` and `"rgb(var(--x))"` with a colour: Discrete pairs; `" #000 "`: a blend. All three died on the first frame (decision 5).
