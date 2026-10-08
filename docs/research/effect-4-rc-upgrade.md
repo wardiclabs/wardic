@@ -174,6 +174,8 @@ local only).
 
 ## Re-checking at the next RC
 
+> For a bump from 4.0.2, use [the 4.0.2 read's checklist](effect-4-stable-upgrade.md#re-checking-at-the-next-bump), which re-reads this table there.
+
 1. `npm view effect dist-tags`, and `npm view @effect/vitest@<rc> peerDependencies`. Watch the `vitest` range.
 2. Diff the table's functions between the pinned tarball and the new one, and read the
    changelog sections in between for `Scheduler`, `fork`, `callback`, `runLoop` and `fiberCached`.

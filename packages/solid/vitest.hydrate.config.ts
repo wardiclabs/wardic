@@ -75,6 +75,7 @@ export default defineConfig({
       "effect/References",
       "effect/String",
       "effect/UndefinedOr",
+      "effect/reactivity",
     ],
   },
   test: {

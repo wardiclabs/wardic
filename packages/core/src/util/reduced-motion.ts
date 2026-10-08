@@ -2,7 +2,7 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
-import { Atom, type AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, type AtomRegistry } from "effect/reactivity"
 import type { Frame } from "../primitives/frame.ts"
 import { Probe } from "../services/Probe.ts"
 

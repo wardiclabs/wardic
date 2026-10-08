@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const ZERO_BOUNDS: Bounds = { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
 

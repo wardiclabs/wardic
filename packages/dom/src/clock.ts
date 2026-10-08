@@ -8,7 +8,7 @@
 import { Clock, makeRefreshFrameClock } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import type { AtomRegistry } from "effect/unstable/reactivity"
+import type { AtomRegistry } from "effect/reactivity"
 import { requireGlobal } from "./require-global.ts"
 
 /**

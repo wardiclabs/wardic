@@ -11,7 +11,7 @@
 import { InterpolatorRegistryLive } from "@wardic/core"
 import type { Clock, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
 import * as Layer from "effect/Layer"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
 import { InputDomLive } from "./input.ts"
 import { ProbeDomLive } from "./probe.ts"

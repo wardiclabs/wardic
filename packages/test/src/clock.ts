@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 /**
  * A deterministic Clock for frame-level tests. `ticks` replays the supplied `dt`

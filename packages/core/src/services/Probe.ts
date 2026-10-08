@@ -1,7 +1,7 @@
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import type * as Stream from "effect/Stream"
-import type { Atom } from "effect/unstable/reactivity"
+import type { Atom } from "effect/reactivity"
 
 /** Geometry of a measured target, in the environment's coordinate space. */
 export interface Bounds {

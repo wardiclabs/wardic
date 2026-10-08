@@ -17,7 +17,7 @@
  * `Atom`-returning shape the original plan described — see ADR-0001 in
  * `docs/adr/` for the rationale. Design decisions and project glossary live in
  * `CONTEXT.md` and `docs/adr/`; built on `effect` v4 and its in-core reactivity
- * at `effect/unstable/reactivity`.
+ * at `effect/reactivity`.
  */
 export const VERSION = "0.1.0-alpha.0"
 

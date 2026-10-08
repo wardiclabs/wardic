@@ -1,34 +1,40 @@
-# Upgrade targets: Effect 4 RC and Solid 2
+# Upgrade targets: Effect 4 and Solid 2
 
-> **Status (2026-09-28): the Effect half is done** — `effect` and `@effect/vitest` are on
-> `4.0.0-rc.117` (§1). **The Solid 2 half is still intent only, not scheduled** (§2): treat it as a
+> **Status (2026-10-07): the Effect half is done** — `effect` and `@effect/vitest` are on
+> `4.0.2`, the stable line (§1). **The Solid 2 half is still intent only, not scheduled** (§2): treat it as a
 > starting point, not a plan, and re-check every upstream fact before acting on it.
 
 Wardic will:
 
 1. **Move off the Effect v4 beta onto the Effect 4 release-candidate line**, and follow it to
-   4.0.0 stable.
+   4.0.0 stable. Done: 4.0.2 (§1).
 2. **Ship a Solid 2 build of the Solid binding**, targeting the Solid 2.0 release candidates
    and then 2.0 stable.
 
-## 1. Effect: `4.0.0-beta.71` → the 4.0 RC line
+## 1. Effect: `4.0.0-beta.71` → 4.x stable
 
 > **Done (2026-09-28): `4.0.0-rc.117`**, in PR #20. What changed, the re-verified timing internals and the before/after
 > numbers are in [`docs/research/effect-4-rc-upgrade.md`](../research/effect-4-rc-upgrade.md).
-> Next: follow the RCs to 4.0.0 stable, re-checking with that doc's last section.
+>
+> **Done (2026-10-07): `4.0.2`**, the stable line (4.0.0 shipped on 2026-10-01), in #64. What
+> changed, the timing internals re-read at 4.0.2 and the before/after numbers are in
+> [`docs/research/effect-4-stable-upgrade.md`](../research/effect-4-stable-upgrade.md).
+> Next: bump 4.x deliberately, one version at a time, re-checking with that doc's last section.
 
 ### Where we are
 
-`effect` is pinned **exactly** at `4.0.0-rc.117` in the root, in the `@wardic/core`,
-`@wardic/dom`, `@wardic/test` and `@wardic/solid` peers, in `@wardic/solid`'s dev dependencies,
-and in `examples/layout-lab`. `@effect/vitest` is pinned to the same exact version in the root.
+`effect` is pinned **exactly** at `4.0.2` in the root, in `@wardic/solid`'s dev dependencies and
+in `examples/layout-lab`, and `@effect/vitest` is pinned to the same exact version in the root.
+The `@wardic/core`, `@wardic/dom`, `@wardic/test` and `@wardic/solid` peers take **`^4.0.2`**.
 
-RCs are published from **`Effect-TS/effect`** (tag `effect@4.0.0-rc.117` = `14a3f140`), not from
-`effect-smol`. `.reference/effect` (the local, uncommitted Effect source copy) is that repository
-at that commit; re-download it from
+Effect is published from **`Effect-TS/effect`** (tag `effect@4.0.2` = `269a7c86`; rc.117 was
+`14a3f140`), not from `effect-smol`. `.reference/effect` (the local, uncommitted Effect source
+copy) is that repository at that commit; re-download it from
 `https://codeload.github.com/Effect-TS/effect/tar.gz/<tag commit>` at the next bump.
 
-### What the upgrade needed
+### What the upgrades needed
+
+**To rc.117 (PR #20):**
 
 - **`Stream.fromEventListener`** no longer infers its element type from the target (rc.113,
   #7443), so `dom/src/probe.ts` names it at both call sites.
@@ -38,19 +44,27 @@ at that commit; re-download it from
 - **Core's test tsconfig declares Node's types.** The Clock/microtask guard tests use host timers
   that vitest 3's types had been leaking in.
 
+**To 4.0.2 (#64):**
+
+- **`effect/unstable/*` is gone.** Reactivity's 19 imports moved to `effect/reactivity`, which
+  joined `optimizeDeps.include` in the three browser configs.
+- **`bench:core` runs a commit with its own `bun.lock` on its own dependencies,** so
+  `--base <the commit before the bump>` measures across the upgrade instead of running the
+  working tree's Effect on both sides.
+
 ### Constraints to keep
 
-- Exact pins (no `^`) while Effect is pre-1.0-of-v4. `effect` and `@effect/vitest` move together,
-  and `@effect/vitest`'s `vitest` peer range decides the vitest version.
+- **Pins.** The peers take a caret from the verified version (`^4.0.2`): an exact peer would fail
+  a consumer's install on any later 4.x, or push them to a second copy of `effect`. The repo's own
+  pins (the root, solid's dev dependency, the lab) stay exact, because Wardic's frame timing relies
+  on Effect internals semver doesn't cover; CI, the guards and the bench then run on one known
+  version, and each bump is a deliberate commit. `effect` and `@effect/vitest` move together, and
+  `@effect/vitest`'s `vitest` peer range decides the vitest version.
 - The observability convention (`wardic.*` spans, annotated debug logs) must survive unchanged.
-- `effect/unstable/reactivity` (imported by 12 source files under `packages/*/src`) is a
-  no-stability-guarantee namespace: check it first on any bump.
 - Wardic's frame timing relies on Effect internals (ADR-0017, ADR-0010's *Amendment (#13)*).
-  Re-run their guard tests and the layout-lab check (see the research doc) on every bump.
-
-### Not yet researched
-
-- Whether a stable `4.0.0` date has been announced.
+  Re-run their guard tests, the bench across the bump and the layout-lab check (see
+  [the 4.0.2 research doc](../research/effect-4-stable-upgrade.md#re-checking-at-the-next-bump))
+  on every bump.
 
 ## 2. Solid 2 build of `@wardic/solid`
 
@@ -116,9 +130,8 @@ ADR-0021's mechanisms carry over; their Solid 1.9 hooks don't:
 - **Packaging.** A separate package, a new major of `@wardic/solid`, or one package
   supporting both. This is not decided yet.
 - **Which Solid version v0.1 ships against.**
-- **Sequencing against the Effect upgrade.** The two are independent in code (Effect runs under
-  every package; Solid only under the binding). Lean: do Effect first, so the Solid 2 binding
-  isn't built on a beta that is about to change underneath it.
+- **Sequencing against the Effect upgrade.** Settled: Effect went first and is on 4.0.2 stable
+  (§1), so the Solid 2 binding builds on a stable Effect.
 
 ### Not yet researched
 
@@ -132,4 +145,5 @@ All registry facts were read on 2026-09-26 with `npm view <pkg> dist-tags`, `npm
 and `npm view <pkg>@<tag> peerDependencies`. Codebase facts (pins, import sites) come from this
 repo's `package.json` files and `packages/*/src` at the commit that adds this document.
 §1 was updated on 2026-09-28 from the sources pinned in
-[`docs/research/effect-4-rc-upgrade.md`](../research/effect-4-rc-upgrade.md).
+[`docs/research/effect-4-rc-upgrade.md`](../research/effect-4-rc-upgrade.md), and on 2026-10-07
+from those in [`docs/research/effect-4-stable-upgrade.md`](../research/effect-4-stable-upgrade.md).

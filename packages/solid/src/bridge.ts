@@ -18,7 +18,7 @@
  */
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
-import { AtomRegistry, type Atom } from "effect/unstable/reactivity"
+import { AtomRegistry, type Atom } from "effect/reactivity"
 import { type Accessor, createSignal, from, onCleanup, onMount } from "solid-js"
 import { runScoped, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
