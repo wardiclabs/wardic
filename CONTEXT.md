@@ -266,7 +266,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 
 ## Flagged ambiguities
 
-- **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (in-core `effect/unstable/reactivity`) appears only on service *inputs* (`Clock.time`, `Probe.viewport`) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
+- **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (Effect's `effect/reactivity`) appears only on service *inputs* (`Clock.time`, `Probe.viewport`) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
 - **"color string"** (what matches the color Interpolator) — Resolved: a string is a color iff culori's `parse` accepts it. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors: paired with a color they make a **Discrete pair**. A prior regex-based matcher (`[a-z]+$`) was too greedy and is being replaced.
