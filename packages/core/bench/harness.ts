@@ -41,19 +41,19 @@ export interface WorkloadResult {
   readonly p95Ms: number
   /** Median ms to start all N streams, through the Priming tick's frames. */
   readonly startMs: number
-  /** Bytes allocated per frame, when the host exposes it and no GC ran in the window. */
+  /** Bytes allocated per frame, when the host exposes it. */
   readonly bytesPerFrame?: number
 }
 
 /** A host hook for allocations: Node with `--expose-gc` (see `one.mjs`). */
 interface Mem {
   readonly gc: () => void
-  readonly heapUsed: () => number
-  readonly gcCount: () => number
+  /** Bytes allocated so far: the used heap plus every byte a GC has freed. */
+  readonly allocated: () => number
 }
 
 /** No heap hook: Bun and Chromium report no allocations. */
-const NO_MEM: Mem = { gc: () => {}, heapUsed: () => 0, gcCount: () => 0 }
+const NO_MEM: Mem = { gc: () => {}, allocated: () => 0 }
 
 interface Workload {
   readonly name: string
@@ -70,6 +70,20 @@ const STRING_FROM = (i: number) => ({
   opacity: 0,
 })
 const STRING_TO = { "background-color": "#ffffff", width: "200px", "pointer-events": "none", opacity: 1 }
+
+/**
+ * Two complex values of one structure each (ADR-0015): an icon-sized SVG `d` (20 numbers) and a
+ * `box-shadow`, whose rgba channels blend as plain numbers. Through `complex`, the only tier
+ * the string workloads above don't reach (#65).
+ */
+const COMPLEX_FROM = (i: number) => ({
+  d: `M${spread(i, 10, 4).toFixed(2)} 2 C6.48 2 2 6.48 2 12 S6.48 22 12 22 S22 17.52 22 12 S17.52 2 12 2 Z`,
+  "box-shadow": `0px 0px ${spread(i, 0, 4).toFixed(1)}px rgba(0,0,0,0)`,
+})
+const COMPLEX_TO = {
+  d: "M12 4 C8 4 4 8 4 12 S8 20 12 20 S20 16 20 12 S16 4 12 4 Z",
+  "box-shadow": "4px 8px 24px rgba(0,0,0,0.25)",
+}
 
 let chaseTarget = 0
 
@@ -105,6 +119,10 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   },
   { name: "springBlend", make: (core, i) => core.springBlend(STRING_FROM(i), STRING_TO) },
   { name: "chase", make: (core, i) => core.chase(() => chaseTarget + (i % 10)) },
+  {
+    name: "animateComplex",
+    make: (core, i) => core.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
+  },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
@@ -187,12 +205,11 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
   }
   for (let f = 0; f < options.warm; f++) await step()
 
-  // Allocations: only where the host hands over a heap hook (Node, `one.mjs`), and only for a
-  // round with no GC in its window, since a GC frees memory the heap delta can't see.
+  // Allocations: only where the host hands over a heap hook (Node, `one.mjs`). It counts what a
+  // GC frees inside the window too, so a scavenge there doesn't hide allocation (#65).
   const mem: Mem = (globalThis as { readonly __mem?: Mem }).__mem || NO_MEM
   mem.gc()
-  const heap0 = mem.heapUsed()
-  const gcs0 = mem.gcCount()
+  const allocated0 = mem.allocated()
   const times: Array<number> = []
   for (let f = 0; f < options.frames; f++) {
     const f0 = performance.now()
@@ -200,7 +217,7 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
     times.push(performance.now() - f0)
   }
   const bytes: Array<number> = []
-  if (mem !== NO_MEM && mem.gcCount() === gcs0) bytes.push((mem.heapUsed() - heap0) / options.frames)
+  if (mem !== NO_MEM) bytes.push((mem.allocated() - allocated0) / options.frames)
 
   await runtime.dispose()
   return { times, startMs, bytes }

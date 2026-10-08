@@ -19,13 +19,19 @@ export const parseUnit = (input: string): Option.Option<ParsedUnit> =>
     unit,
   }))
 
+/**
+ * A number with its unit, as a string: the unit codec's plain encode (ADR-0026). The frame calls
+ * it with a lerped value; `Schema.encode` never runs per frame.
+ */
+export const formatUnit = (value: number, unit: string): string => `${value}${unit}`
+
 /** A unit that is present (a bare number has none). */
 const hasUnit: Predicate.Predicate<ParsedUnit> = Predicate.mapInput(Str.isNonEmpty, (parsed: ParsedUnit) => parsed.unit)
 
 /** Two units that are not the same. */
 const differ: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = ([a, b]) => a.unit !== b.unit
 
-/** Two different units, both present (`"10px"`, `"1em"`): a pair the registry dies on. */
+/** Two different units, both present (`"10px"`, `"1em"`): a pair `unit` can't blend, so a Discrete pair (ADR-0026). */
 export const incompatible: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = Predicate.and(
   Predicate.Tuple([hasUnit, hasUnit]),
   differ,

@@ -14,6 +14,8 @@
  *   single Chromium pair swings ±17% and a workload's median ±7%, so the median alone would
  *   fail code that changed nothing.
  * - **Allocation gate.** Node's bytes per frame fail at +5%. On unchanged code they don't move.
+ *   They count what a GC frees inside the measured window too (`one.mjs`), so a scavenge there
+ *   doesn't hide allocation.
  * - `start` (construction) is reported, not gated.
  * - **Each side on its own dependencies.** A commit whose `bun.lock` differs from the working
  *   tree's is checked out and installed at `.tmp/bench-core/deps/<commit>`, and bundled with
@@ -210,7 +212,7 @@ for (const engine of engines) {
   if (engineNoisy) title += `: TOO NOISY (ticksOnly ${percent(floor)}), rerun`
   console.log(title)
   console.log(
-    `  ${"workload".padEnd(14)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
+    `  ${"workload".padEnd(16)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
   )
   for (const workload of Object.keys(runs.base[0]!)) {
     const median = (side: Side, field: keyof WorkloadResult) =>
@@ -232,7 +234,7 @@ for (const engine of engines) {
       mb = `${(median("base", "bytesPerFrame") / 1e6).toFixed(2)} → ${(median("head", "bytesPerFrame") / 1e6).toFixed(2)}`
     }
     console.log(
-      `  ${workload.padEnd(14)}${median("base", "frameMs").toFixed(2).padEnd(10)}${median("head", "frameMs").toFixed(2).padEnd(10)}` +
+      `  ${workload.padEnd(16)}${median("base", "frameMs").toFixed(2).padEnd(10)}${median("head", "frameMs").toFixed(2).padEnd(10)}` +
         `${`${percent(ratio)} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`.padEnd(28)}` +
         `${`${median("base", "startMs").toFixed(1)} → ${median("head", "startMs").toFixed(1)}`.padEnd(18)}${mb.padEnd(16)}${gate}`,
     )

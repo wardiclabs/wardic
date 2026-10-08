@@ -1,11 +1,10 @@
 import * as Arr from "effect/Array"
-import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Match from "effect/Match"
+import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import { lerp } from "../math/index.ts"
+import * as Schema from "effect/Schema"
 import { InterpolatorRegistry } from "../services/InterpolatorRegistry.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
 import { arrayInterpolator } from "./array.ts"
@@ -13,10 +12,9 @@ import { colorInterpolator } from "./color.ts"
 import { complexInterpolator } from "./complex.ts"
 import { discrete } from "./discrete.ts"
 import { numberInterpolator } from "./number.ts"
-import { incompatible, parseUnit, unitOfPair } from "./parse-unit.ts"
 import { unitInterpolator } from "./unit.ts"
 
-// The registry is heterogeneous by design: its entries are `InterpolatorEntry<any>`.
+// The registry is heterogeneous by design: its entries are `InterpolatorEntry<any, any>`.
 
 /**
  * The interpolators core ships with, in resolution order. `number` and `array`
@@ -25,7 +23,7 @@ import { unitInterpolator } from "./unit.ts"
  * catches multi-number structural strings (SVG `d`/`points`, `filter`,
  * `box-shadow`) the specific entries didn't claim (ADR-0015).
  */
-export const defaultInterpolators: ReadonlyArray<InterpolatorEntry<any>> = [
+export const defaultInterpolators: ReadonlyArray<InterpolatorEntry<any, any>> = [
   numberInterpolator,
   arrayInterpolator,
   colorInterpolator("rgb"),
@@ -42,165 +40,162 @@ const discreteBlend =
   (t) =>
     discrete(from, to, t)
 
-/** A number or an array: an endpoint with no type information of its own. */
-const isPlain: Predicate.Predicate<unknown> = Predicate.or(Predicate.isNumber, Arr.isArray)
+/** A registered entry, with its codec's decoder built once, when it's registered. */
+interface Registered {
+  readonly entry: InterpolatorEntry<any, any>
+  readonly decode: (value: unknown) => Option.Option<unknown>
+}
 
-/** An entry that matches `value`. */
-const matching =
-  (value: unknown): Predicate.Predicate<InterpolatorEntry<any>> =>
-  (entry) =>
-    entry.match(value)
+const registered = (entry: InterpolatorEntry<any, any>): Registered => ({
+  entry,
+  decode: Schema.decodeUnknownOption(entry.codec),
+})
 
-/** An entry that matches both endpoints. */
-const matchingBoth = (from: unknown, to: unknown): Predicate.Predicate<InterpolatorEntry<any>> =>
-  Predicate.and(matching(from), matching(to))
+/** A pair as the entry that takes it decodes it. */
+interface DecodedPair {
+  readonly entry: InterpolatorEntry<any, any>
+  readonly from: unknown
+  readonly to: unknown
+}
+
+/** Both endpoints, decoded by one entry's codec: `to` only once `from` decodes. */
+const decodedBy =
+  (from: unknown, to: unknown) =>
+  (registered: Registered): Option.Option<DecodedPair> =>
+    Option.flatMap(registered.decode(from), (decodedFrom) =>
+      Option.map(registered.decode(to), (decodedTo) => ({ entry: registered.entry, from: decodedFrom, to: decodedTo })),
+    )
+
+/**
+ * The entry a pair resolves to (ADR-0026, decision 3): the first, in registry precedence, whose
+ * codec decodes both endpoints, with what it decoded. Decoding is matching, so `0` → `"10px"`
+ * resolves to `unit`, whose codec decodes a bare number too.
+ *
+ * `None` when no entry decodes both: a Discrete pair, which switches to `to` at the first frame
+ * past 0 (ADR-0024 decision 3; Motion's `mixImmediate`).
+ */
+const select = (entries: ReadonlyArray<Registered>, from: unknown, to: unknown): Option.Option<DecodedPair> =>
+  Arr.findFirst(entries, decodedBy(from, to))
+
+/**
+ * A pair's blend from the entry that decodes both endpoints. When the entry can't blend them
+ * (two units, two structures), the pair is a Discrete pair, and `resolve` warns: Motion warns on a
+ * pair "too different to mix" (ADR-0026, decision 4). A pair of strings warns once per registry,
+ * since the cache keeps it (decision 9).
+ */
+const blendDecoded = <From, To>(decoded: DecodedPair, from: From, to: To): Effect.Effect<Blend<From, To>> =>
+  Option.match(decoded.entry.blend(decoded.from, decoded.to), {
+    onSome: (blend) => Effect.succeed(blend),
+    onNone: () =>
+      Effect.logWarning("wardic.interpolator: can't blend a pair it decodes; it switches at the first frame").pipe(
+        Effect.annotateLogs({ interpolator: decoded.entry.name, from, to }),
+        Effect.as(discreteBlend(from, to)),
+      ),
+  })
+
+/** How many string pairs a registry keeps resolved before it starts over (ADR-0026, decision 9). */
+const CACHE_CAPACITY = 1024
+
+/**
+ * Resolved blends of string pairs, by `from`, then `to` (ADR-0026, decision 9). Elements often
+ * animate the same pair (a hover colour, `display`), so each pair is decoded
+ * and built once per registry, and every stream that resolves it shares the closure. That's safe:
+ * the closures are pure, and `complex`'s, which reuses one numbers array, rewrites every number and
+ * formats them within each call.
+ *
+ * - Strings only: a number resolves in well under a microsecond, and an array is keyed by identity.
+ * - Two `Map`s rather than one string key, so nothing is built to look a pair up.
+ * - At capacity it starts over, and `register` empties it, since precedence changes.
+ */
+interface BlendCache {
+  readonly get: (from: string, to: string) => Option.Option<Blend<any, any>>
+  readonly set: (from: string, to: string, blend: Blend<any, any>) => void
+  readonly clear: () => void
+}
+
+const makeBlendCache = (capacity: number): BlendCache => {
+  const rows = new Map<string, Map<string, Blend<any, any>>>()
+  const size = MutableRef.make(0)
+  const clear = () => {
+    rows.clear()
+    MutableRef.set(size, 0)
+  }
+  /** `from`'s row, made when it has none. */
+  const rowOf = (from: string): Map<string, Blend<any, any>> =>
+    Option.getOrElse(Option.fromUndefinedOr(rows.get(from)), () => {
+      const row = new Map<string, Blend<any, any>>()
+      rows.set(from, row)
+      return row
+    })
+  return {
+    get: (from, to) => Option.flatMap(Option.fromUndefinedOr(rows.get(from)), (row) => Option.fromUndefinedOr(row.get(to))),
+    set: (from, to, blend) => {
+      if (MutableRef.get(size) >= capacity) clear()
+      rowOf(from).set(to, blend)
+      MutableRef.increment(size)
+    },
+    clear,
+  }
+}
 
 type Pair = readonly [from: unknown, to: unknown]
 
-/** A pair whose first endpoint carries the type: it isn't plain, and the other is. */
-const typedFirst: Predicate.Predicate<Pair> = Predicate.Tuple([Predicate.not(isPlain), isPlain])
-/** A pair whose second endpoint carries the type. */
-const typedSecond: Predicate.Predicate<Pair> = Predicate.Tuple([isPlain, Predicate.not(isPlain)])
-
-/** The endpoint that carries the pair's type: the one that isn't plain, when the other is. */
-const typedEnd = (pair: Pair): Option.Option<unknown> =>
-  Option.map(Option.liftPredicate(pair, typedFirst), ([from]) => from).pipe(
-    Option.orElse(() => Option.map(Option.liftPredicate(pair, typedSecond), ([, to]) => to)),
-  )
-
-/**
- * Pair-aware entry selection.
- *
- * An entry "matches a pair" iff it matches at least one endpoint. When
- * multiple entries match, the most type-bearing one wins — concretely, the
- * entry that matches a string endpoint beats one that only matches a numeric
- * endpoint (so `(0, "10px")` resolves to the unit interpolator, not number).
- *
- * `None` when no entry matches either endpoint, signalling the discrete-fallback
- * path: a Discrete pair, which switches to `to` at the first frame past 0
- * (ADR-0024 decision 3; Motion's `mixImmediate`).
- */
-const selectEntry = (
-  entries: ReadonlyArray<InterpolatorEntry<any>>,
-  from: unknown,
-  to: unknown,
-): Option.Option<InterpolatorEntry<any>> =>
-  // Pass 1: entry that matches both endpoints — strongest signal.
-  Arr.findFirst(entries, matchingBoth(from, to)).pipe(
-    // Pass 2: entry that matches the non-number/non-array endpoint — that side
-    // carries the type information, so it wins over a number/array matcher on
-    // the other endpoint.
-    Option.orElse(() => Option.flatMap(typedEnd([from, to]), (typed) => Arr.findFirst(entries, matching(typed)))),
-    // Pass 3: any entry that matches either endpoint, in registry precedence.
-    Option.orElse(() => Arr.findFirst(entries, Predicate.or(matching(from), matching(to)))),
-  )
-
-/** Two unit strings: incompatible units die; an unparseable one (`"auto"`) is a Discrete pair. */
-const bindUnitStrings = (from: string, to: string): Effect.Effect<Blend<string, string>> =>
-  Option.match(Option.all([parseUnit(from), parseUnit(to)]), {
-    onNone: () => Effect.succeed(discreteBlend(from, to)),
-    onSome: (units) =>
-      Bool.match(incompatible(units), {
-        onTrue: () =>
-          Effect.die(
-            new Error(
-              `wardic.interpolator: incompatible units "${units[0].unit}" and "${units[1].unit}" (from "${from}", to "${to}")`,
-            ),
-          ),
-        onFalse: () => {
-          const [a, b] = units
-          const unit = unitOfPair(a, b)
-          return Effect.succeed((t: number) => `${lerp(a.value, b.value, t)}${unit}`)
-        },
-      }),
-  })
-
-/** A bare number and a unit string: the number takes the string's unit. */
-const bindNumberToUnit = (from: number, to: string): Effect.Effect<Blend<number, string>> =>
-  Option.match(parseUnit(to), {
-    onNone: () => Effect.succeed(discreteBlend(from, to)),
-    onSome: (b) => Effect.succeed((t: number) => `${lerp(from, b.value, t)}${b.unit}`),
-  })
-
-/** A unit string and a bare number: the number takes the string's unit. */
-const bindUnitToNumber = (from: string, to: number): Effect.Effect<Blend<string, number>> =>
-  Option.match(parseUnit(from), {
-    onNone: () => Effect.succeed(discreteBlend(from, to)),
-    onSome: (a) => Effect.succeed((t: number) => `${lerp(a.value, to, t)}${a.unit}`),
-  })
-
-const bothStrings = Predicate.Tuple([Predicate.isString, Predicate.isString])
-const numberThenString = Predicate.Tuple([Predicate.isNumber, Predicate.isString])
-const stringThenNumber = Predicate.Tuple([Predicate.isString, Predicate.isNumber])
-
-/**
- * The unit interpolator's pairs, which it binds itself to enforce compatible units and coerce
- * bare numbers. `None` for any other pair, which takes the default binding.
- */
-const bindUnit = (pair: Pair): Option.Option<Effect.Effect<Blend<unknown, unknown>>> =>
-  Match.value(pair).pipe(
-    Match.when(bothStrings, ([from, to]) => bindUnitStrings(from, to)),
-    Match.when(numberThenString, ([from, to]) => bindNumberToUnit(from, to)),
-    Match.when(stringThenNumber, ([from, to]) => bindUnitToNumber(from, to)),
-    Match.option,
-  )
-
-/** The unit interpolator. */
-const isUnitEntry: Predicate.Predicate<InterpolatorEntry<any>> = (entry) => entry.name === "unit"
-
-/**
- * Resolves a pair to a pure `(t) => From | To` for the given entry. Handles
- * the mixed numeric `from` + unit-string `to` (and the symmetric) case by
- * coercing the bare number to the same unit as the string. Incompatible
- * unit pairs (e.g. `"10px"` + `"1em"`) produce an `Effect.die` with both
- * units in the message.
- */
-const bind = <From, To>(entry: InterpolatorEntry<any>, from: From, to: To): Effect.Effect<Blend<From, To>> =>
-  Option.liftPredicate(entry, isUnitEntry).pipe(
-    Option.flatMap(() => bindUnit([from, to])),
-    Option.map((unit) => unit as Effect.Effect<Blend<From, To>>),
-    // Default: if the entry doesn't match both endpoints, fall back to discrete
-    // (the entry's `interpolate` is only contracted for matching inputs).
-    Option.getOrElse(() =>
-      Bool.match(matchingBoth(from, to)(entry), {
-        onTrue: () => Effect.succeed((t: number): From | To => entry.interpolate(from, to, t)),
-        onFalse: () => Effect.succeed(discreteBlend(from, to)),
-      }),
-    ),
-  )
+/** Two strings: a pair the registry's cache keeps. */
+const stringPair: Predicate.Refinement<Pair, readonly [string, string]> = Predicate.Tuple([
+  Predicate.isString,
+  Predicate.isString,
+])
 
 /**
  * Builds the `InterpolatorRegistry` service shape over a mutable entry list.
  * `register` prepends, so later registrations take precedence over built-ins.
  *
- * `resolve` is the hot-path entry: it picks an entry once for a pair and
- * returns a pure `(t) => T`. `interpolate` is sugar — same selection logic,
- * one-shot application. Both share `selectEntry` + `bind`, so semantics stay
- * lock-step.
+ * `resolve` is the hot-path entry: it picks the first entry that decodes both
+ * endpoints, once, and returns the pure `(t) => From | To` its `blend` built,
+ * which only blends and encodes per frame (ADR-0026). A pair no entry decodes
+ * both endpoints of is a Discrete pair. A pair of strings is resolved once per
+ * registry and kept (decision 9). `interpolate` is sugar — the same `resolve`,
+ * applied once.
  */
-export const makeInterpolatorRegistry = (
-  initial: ReadonlyArray<InterpolatorEntry<any>> = defaultInterpolators,
-) =>
+export const makeInterpolatorRegistry = (initial: ReadonlyArray<InterpolatorEntry<any, any>> = defaultInterpolators) =>
   Effect.sync(() => {
-    const entries: Array<InterpolatorEntry<any>> = [...initial]
+    const entries: Array<Registered> = Arr.map(initial, registered)
+    const cache = makeBlendCache(CACHE_CAPACITY)
+
+    const resolveUncached = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> =>
+      Option.match(select(entries, from, to), {
+        onNone: () => Effect.succeed(discreteBlend(from, to)),
+        onSome: (decoded) => blendDecoded(decoded, from, to),
+      })
+
+    /** A pair of strings, from the cache, or resolved and kept. */
+    const resolveCached = ([from, to]: readonly [string, string]): Effect.Effect<Blend<any, any>> =>
+      Option.match(cache.get(from, to), {
+        onSome: (blend) => Effect.succeed(blend),
+        onNone: () => Effect.tap(resolveUncached(from, to), (blend) => Effect.sync(() => cache.set(from, to, blend))),
+      })
 
     const resolve = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> =>
-      Option.match(selectEntry(entries, from, to), {
-        onNone: () => Effect.succeed(discreteBlend(from, to)),
-        onSome: (entry) => bind(entry, from, to),
+      Effect.suspend(() => {
+        const pair: Pair = [from, to]
+        return Option.match(Option.liftPredicate(pair, stringPair), {
+          onNone: () => resolveUncached(from, to),
+          onSome: resolveCached,
+        })
       })
 
     return {
-      register: <T>(entry: InterpolatorEntry<T>) =>
+      register: <Decoded, Encoded>(entry: InterpolatorEntry<Decoded, Encoded>) =>
         Effect.gen(function* () {
-          entries.unshift(entry as InterpolatorEntry<any>)
+          entries.unshift(registered(entry))
+          cache.clear()
           yield* Effect.logDebug("wardic.interpolator: register").pipe(
             Effect.annotateLogs({ interpolator: entry.name }),
           )
         }),
       resolve,
       interpolate: <From, To>(from: From, to: To, t: number): Effect.Effect<From | To> =>
-        Effect.map(resolve(from, to), (fn) => fn(t)),
+        Effect.map(resolve(from, to), (blend) => blend(t)),
     }
   })
 

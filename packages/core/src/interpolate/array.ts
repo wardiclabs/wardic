@@ -1,13 +1,9 @@
 import * as Arr from "effect/Array"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import { lerp } from "../math/index.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
-
-/** An array. */
-const isArray: Predicate.Refinement<unknown, ReadonlyArray<unknown>> = Arr.isArray
-
-/** An array of numbers. */
-const isNumberArray: Predicate.Predicate<unknown> = Predicate.compose(isArray, Arr.every(Predicate.isNumber))
 
 /**
  * `to`'s number at `index`, or `fallback` past its end. On the per-frame path (ADR-0025): an
@@ -20,8 +16,8 @@ const endAt = (to: ReadonlyArray<number>, index: number, fallback: number): numb
 }
 
 /** Interpolates fixed-length numeric arrays element-wise (e.g. RGB tuples). */
-export const arrayInterpolator: InterpolatorEntry<ReadonlyArray<number>> = {
+export const arrayInterpolator: InterpolatorEntry<ReadonlyArray<number>, ReadonlyArray<number>> = {
   name: "array",
-  match: isNumberArray,
-  interpolate: (from, to, t) => Arr.map(from, (a, i) => lerp(a, endAt(to, i, a), t)),
+  codec: Schema.Array(Schema.Number),
+  blend: (from, to) => Option.some((t: number) => Arr.map(from, (a, i) => lerp(a, endAt(to, i, a), t))),
 }

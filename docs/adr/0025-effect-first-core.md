@@ -159,3 +159,8 @@ Core's code uses Effect's modules for its loops, its boolean checks and its miss
 - **Tier 1** is the bindings' API, plus the plain shapes and pure values core exports: option and config types, `Values`, the `Frame` types and `isPhysicsFrame`, the easings, `math/`, `springs` and `stagger`. These carry no Effect types because nothing in them is missing or effectful.
 - **Core's functional surface is Tier 2:** Effect-native (`Option`, `Effect`, `Stream`), for Environment and binding authors, and "stability tracks Effect". The "Effect-free Tier 2" label (`base-value.ts`, `reorder/group.ts`) is retired.
 - **The bindings keep ADR-0008's principle** that Effect is invisible to users.
+
+## Amendment (#65, 2026-10-07): the bytes gate counts what a GC frees
+
+Decision 4's bytes gate skipped a round with a GC in its window, but its `PerformanceObserver` reports as a task, and a window only awaits microtasks, so it never saw a scavenge inside one: the heap delta lost what the scavenge freed, without the round being skipped. A core that allocated enough to scavenge was under-counted, the more so the more it allocated, and the MB per frame figures above read low wherever a window scavenged (`ticksOnly` 3.09 MB per frame at `871a898`, not the 0.94 the gate printed). `one.mjs` now counts the used heap plus every byte a GC has freed, from a `v8.GCProfiler`, and every round counts (ADR-0026, Consequences). The +5% gate itself is unchanged.
+
