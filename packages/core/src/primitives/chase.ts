@@ -1,41 +1,17 @@
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import type { SpringOptions } from "../options.ts"
-import type { Clock } from "../services/Clock.ts"
+import { Clock } from "../services/Clock.ts"
 import { MAX_DT, type PhysicsFrame } from "./frame.ts"
-import { type Machine, toStream } from "./machine.ts"
 import { initSpring, resolveSpring, stepSpring } from "./stepper.ts"
-
-/**
- * `chase`'s machine (ADR-0027): the spring stepper toward `getTarget()`, read afresh on every
- * step, so a moving target is followed without stale snapshots. Its Frames report rest, but it
- * never settles: a run ends only when it's removed. `spring` runs the same steps, settling.
- */
-export const chaseMachine = (getTarget: () => number, options: SpringOptions = {}): Machine<PhysicsFrame> => {
-  const spring = resolveSpring(options)
-  return {
-    settles: false,
-    span: { name: "wardic.chase", attributes: { stiffness: spring.stiffness, damping: spring.damping } },
-    start: () => {
-      let state = initSpring(options)
-      // Per frame (ADR-0025): `dt` clamped at the engine boundary, the same jank protection every
-      // primitive inherits.
-      return (dt) => {
-        const result = stepSpring(state, Math.min(dt, MAX_DT), getTarget(), spring)
-        state = result.state
-        return { value: result.value, velocity: result.velocity, done: result.done }
-      }
-    },
-  }
-}
 
 /**
  * Shared dynamic-target spring core.
  *
  * `chaseCore` is the single underlying engine for both `spring` (static target)
- * and `chase` (continuously-moving target): {@link chaseMachine} over `Clock.ticks`,
- * reading the target afresh **per tick** via `getTarget()` so a moving target is
- * followed without stale snapshots.
+ * and `chase` (continuously-moving target). It integrates the spring stepper
+ * over `Clock.ticks`, reading the target afresh **per tick** via `getTarget()`
+ * so a moving target is followed without stale snapshots.
  *
  * The core itself emits indefinitely — it never terminates on its own. Each
  * primitive layered on top decides when to stop:
@@ -50,7 +26,29 @@ export const chaseMachine = (getTarget: () => number, options: SpringOptions = {
 export const chaseCore = (
   getTarget: () => number,
   options: SpringOptions = {},
-): Stream.Stream<PhysicsFrame, never, Clock> => toStream(chaseMachine(getTarget, options))
+): Stream.Stream<PhysicsFrame, never, Clock> =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const clock = yield* Clock
+      const spring = resolveSpring(options)
+      return clock.ticks.pipe(
+        Stream.mapAccum(
+          () => initSpring(options),
+          (state, dt) => {
+            // Clamp at the engine boundary — same jank protection every primitive inherits.
+            const clampedDt = Math.min(dt, MAX_DT)
+            const result = stepSpring(state, clampedDt, getTarget(), spring)
+            const frame: PhysicsFrame = {
+              value: result.value,
+              velocity: result.velocity,
+              done: result.done,
+            }
+            return [result.state, [frame]] as const
+          },
+        ),
+      )
+    }),
+  )
 
 /**
  * Physics primitive that follows a continuously-moving target indefinitely.

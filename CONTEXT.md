@@ -9,8 +9,8 @@ independent of any rendering environment.
 ### Motion production
 
 **Primitive**:
-A clock-driven piece of motion (`spring`, `tween`, `decay`, `animate`, `keyframes`, `chase`, and their multi-key forms) that produces one Frame per tick until it Settles. It runs as a Stream of Frames, or on the **Frame loop**.
-_Avoid_: animation (too broad), tweener, machine (its code form).
+A clock-driven engine function that produces a Stream of Frames for one piece of motion (`spring`, `tween`, `decay`, `animate`, `keyframes`).
+_Avoid_: animation (too broad), tweener.
 
 **Physics primitive**:
 A Primitive whose motion is governed by simulated forces and therefore carries velocity — `spring`, `decay`.
@@ -25,21 +25,17 @@ A Physics primitive that follows a continuously-moving target indefinitely — i
 _Avoid_: follow, track.
 
 **Frame**:
-One per-tick output of a Primitive — the current value plus whether motion has settled. Distinct from a **Refresh frame**.
+One per-tick emission of a Primitive — the current value plus whether motion has settled. Distinct from a **Refresh frame**.
 _Avoid_: tick, step, sample.
 
 **Physics frame**:
 A Frame that additionally carries `velocity`; emitted only by Physics primitives. The optional `velocity` is the discriminator a type guard narrows on.
 _Avoid_: snapshot (reserved — see below).
 
-**Frame loop**:
-The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it (ADR-0027).
-_Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator becomes one of its runs), ticker, driver, scheduler (Effect's).
-
 ### Lifecycle
 
 **Settle** (at rest):
-The point at which a Primitive reaches its rest thresholds; it produces a final Frame and completes.
+The point at which a Primitive reaches its rest thresholds; its Stream emits a final Frame and completes.
 _Avoid_: finish, end, stop.
 
 **Retarget** (interrupt):
@@ -49,10 +45,6 @@ _Avoid_: restart, cancel (those name the mechanism, not the intent).
 **Snapshot**:
 The last value a binding has cached for each key it drives, a number or a string, with a Physics primitive's velocities: the seed read at the moment of a Retarget.
 _Avoid_: state, current value.
-
-**Leg**:
-One Primitive run a Retarget starts: the numeric keys' and the string keys' are separate legs, and an element settles with its last.
-_Avoid_: segment (a piece of one `animate` or `keyframes` run), track.
 
 ### Value blending
 
@@ -257,8 +249,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 
 ## Relationships
 
-- A **Primitive** produces **Frames**; a **Physics primitive** produces **Physics frames**.
-- Every Primitive the binding starts runs on the **Frame loop**; a Primitive's Stream runs it on its own.
+- A **Primitive** emits a Stream of **Frames**; a **Physics primitive** emits **Physics frames**.
 - A **Retarget** seeds a new Primitive from a cached **Snapshot**.
 - A **Definite primitive** applies an **Easing**; the multi-value path blends each key through an **Interpolator**.
 - An **Environment** provides the services a Primitive depends on (every Primitive needs a **Clock**).

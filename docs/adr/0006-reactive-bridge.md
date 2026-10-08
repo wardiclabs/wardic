@@ -30,15 +30,3 @@ The skew this ADR rejected doesn't return in the form it described. The flush ha
 ## Amendment (#41, 2026-10-01): a component wrap's Starting style through `style` until its first frame
 
 A `wardic.create(Component)` wrap still drives its element through the commit sink, and forwarding the ref is still its only requirement. Until its first frame is committed (on a server, in the hydration render, and on the client until then), the wrap also passes the component `style` = the user's style + the Starting style + the drag defaults, and `draggable`. From then on, it passes only the user's style and the drag defaults (an empty style when there's neither, so Solid removes only the Starting style's keys): the gate calls a new `beforeFirstCommit` on the commit sink just before that first commit, in the frame flush and outside its `batch()`, so the switch and the first frame land in one Refresh frame. A component that applies `props.style` therefore renders its initial style on a server; one that doesn't still animates. The Starting style can't stay on the prop after the first commit: Solid's `style()` writes every key again on each change, which would reset animated keys (ADR-0021, decision 6).
-
-## Amendment (#68, 2026-10-08): the central coordinator, adopted as the Frame loop
-
-The *Central coordinator over steppers* option is adopted: measurement showed that fiber overhead dominates, as this ADR said it would have to (ADR-0027).
-- **The measurement:** at 1,000 elements, about 90% of a Primitive's per-frame cost was its own fiber and `Stream`. In a real page with this gate, the Frame loop cut JS per frame by 67–73%, and its frames stopped dropping.
-- **The binding's Primitives now run on one Frame loop per Environment,** reusing the same steppers. The public contract is unchanged: a Primitive's Tier 2 `Stream` runs the same machine (ADR-0001, amended).
-- **The option's three objections:**
-  - **(a) the per-Primitive spans:** each run on the loop keeps one, named after its Primitive;
-  - **(b) a second driving model:** accepted, with one definition per Primitive and a parity test between the drivers;
-  - **(c) optimising before measuring:** answered by the measurement.
-- **"Streams remain the single driving model"** in Consequences no longer holds for the reactive path.
-- **The flush gate is unchanged,** including its one frame of latency. Where a same-frame flush would go is #73.

@@ -17,9 +17,6 @@
  *   They count what a GC frees inside the measured window too (`one.mjs`), so a scavenge there
  *   doesn't hide allocation.
  * - `start` (construction) is reported, not gated.
- * - **Workloads only head has** (the Frame loop's, ADR-0027, until the base has them) are reported,
- *   not gated: head's ms against the base's figure for the same Primitive as one fiber per
- *   element, a comparison of the two models rather than of the two cores.
  * - **Each side on its own dependencies.** A commit whose `bun.lock` differs from the working
  *   tree's is checked out and installed at `.tmp/bench-core/deps/<commit>`, and bundled with
  *   that checkout's `harness.ts` and `node_modules`, so a dependency upgrade (#64's Effect bump)
@@ -183,27 +180,6 @@ const orderOf = (rep: number): ReadonlyArray<Side> => {
   return ["head", "base"]
 }
 
-/**
- * A workload only head runs (`springValues/loop`): head's ms and start, against the base's same
- * Primitive as one fiber per element (`springValues`), paired per rep. Not gated.
- */
-const reportOnly = (runs: Record<Side, Array<Results>>, workload: string): void => {
-  const fibers = workload.split("/")[0]!
-  const median = (side: Side, name: string, field: keyof WorkloadResult) =>
-    quantile(runs[side].map((results) => Number(results[name]![field])), 0.5)
-  const ratios = runs.head.map((head, r) => head[workload]!.frameMs / runs.base[r]![fibers]!.frameMs)
-  let mb = ""
-  if (!Number.isNaN(median("head", workload, "bytesPerFrame"))) {
-    mb = `${(median("base", fibers, "bytesPerFrame") / 1e6).toFixed(2)} → ${(median("head", workload, "bytesPerFrame") / 1e6).toFixed(2)}`
-  }
-  console.log(
-    `  ${workload.padEnd(22)}${median("base", fibers, "frameMs").toFixed(2).padEnd(10)}${median("head", workload, "frameMs").toFixed(2).padEnd(10)}` +
-      `${`${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`.padEnd(28)}` +
-      `${`${median("base", fibers, "startMs").toFixed(1)} → ${median("head", workload, "startMs").toFixed(1)}`.padEnd(18)}${mb.padEnd(16)}` +
-      `report only: against base's ${fibers}`,
-  )
-}
-
 let failed = false
 let noisy = false
 const dirty = execSync("git status --porcelain -- packages/core/src", { cwd: REPO }).toString().trim().length > 0
@@ -236,13 +212,9 @@ for (const engine of engines) {
   if (engineNoisy) title += `: TOO NOISY (ticksOnly ${percent(floor)}), rerun`
   console.log(title)
   console.log(
-    `  ${"workload".padEnd(22)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
+    `  ${"workload".padEnd(16)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
   )
-  for (const workload of Object.keys(runs.head[0]!)) {
-    if (!(workload in runs.base[0]!)) {
-      reportOnly(runs, workload)
-      continue
-    }
+  for (const workload of Object.keys(runs.base[0]!)) {
     const median = (side: Side, field: keyof WorkloadResult) =>
       quantile(runs[side].map((results) => Number(results[workload]![field])), 0.5)
     const ratios = ratioOf(workload)
@@ -262,7 +234,7 @@ for (const engine of engines) {
       mb = `${(median("base", "bytesPerFrame") / 1e6).toFixed(2)} → ${(median("head", "bytesPerFrame") / 1e6).toFixed(2)}`
     }
     console.log(
-      `  ${workload.padEnd(22)}${median("base", "frameMs").toFixed(2).padEnd(10)}${median("head", "frameMs").toFixed(2).padEnd(10)}` +
+      `  ${workload.padEnd(16)}${median("base", "frameMs").toFixed(2).padEnd(10)}${median("head", "frameMs").toFixed(2).padEnd(10)}` +
         `${`${percent(ratio)} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`.padEnd(28)}` +
         `${`${median("base", "startMs").toFixed(1)} → ${median("head", "startMs").toFixed(1)}`.padEnd(18)}${mb.padEnd(16)}${gate}`,
     )

@@ -164,10 +164,3 @@ Core's code uses Effect's modules for its loops, its boolean checks and its miss
 
 Decision 4's bytes gate skipped a round with a GC in its window, but its `PerformanceObserver` reports as a task, and a window only awaits microtasks, so it never saw a scavenge inside one: the heap delta lost what the scavenge freed, without the round being skipped. A core that allocated enough to scavenge was under-counted, the more so the more it allocated, and the MB per frame figures above read low wherever a window scavenged (`ticksOnly` 3.09 MB per frame at `871a898`, not the 0.94 the gate printed). `one.mjs` now counts the used heap plus every byte a GC has freed, from a `v8.GCProfiler`, and every round counts (ADR-0026, Consequences). The +5% gate itself is unchanged.
 
-
-## Amendment (#68, 2026-10-08): the Frame loop's per-frame path, and its bench workloads
-
-- **Decision 3's per-frame path gains the Frame loop's tick and every Primitive machine's step** (ADR-0027). A step and a sink are plain functions, typed so that an Effect can't be returned from either. A file whose per-frame code needs a loop joins `PER_FRAME_LOOPS`.
-- **Decision 4's bench gains loop workloads:** `springValues`, `springBlend`, `animateValues`, `animateComplex` and `chase`, at N = 1,000.
-  - They're report-only in #68, since main has no Frame loop, and gated from the next PR, after a baseline of head against itself (11 paired reps).
-  - The `Stream` workloads keep gating as before. `ticksOnly` stays the ±3% noise control.

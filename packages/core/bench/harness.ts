@@ -55,24 +55,10 @@ interface Mem {
 /** No heap hook: Bun and Chromium report no allocations. */
 const NO_MEM: Mem = { gc: () => {}, allocated: () => 0 }
 
-/** One fiber per element, each running a Primitive's `Stream` (the binding's shape before ADR-0027). */
-interface StreamWorkload {
+interface Workload {
   readonly name: string
   readonly make: (core: Core, i: number) => Stream.Stream<{ readonly done: boolean }, never, any>
 }
-
-/**
- * Every element on one Frame loop (ADR-0027): each a run of its Primitive's machine. Only a core
- * with a `FrameLoop` runs these; the runner reports them, without a gate, until the base has them.
- */
-interface LoopWorkload {
-  readonly name: string
-  readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine<CoreModule.Frame<unknown>>, never, any>
-}
-
-type Workload = StreamWorkload | LoopWorkload
-
-const isLoopWorkload = (workload: Workload): workload is LoopWorkload => "machine" in workload
 
 /** A value in [base, base + span), spread over the elements so no call site sees a constant. */
 const spread = (i: number, base: number, span: number): number => base + (((i * 7919) % 1000) / 1000) * span
@@ -137,29 +123,6 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     name: "animateComplex",
     make: (core, i) => core.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
   },
-  // The same five, on the Frame loop.
-  {
-    name: "springValues/loop",
-    machine: (core, i) =>
-      Effect.succeed(
-        core.springValuesMachine(
-          { x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 },
-          {},
-          { x: 0, y: 0, scale: 1, opacity: 0 },
-        ),
-      ),
-  },
-  {
-    name: "animateValues/loop",
-    machine: (core, i) => core.animateValuesMachine(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }),
-  },
-  { name: "springBlend/loop", machine: (core, i) => core.springBlendMachine(STRING_FROM(i), STRING_TO) },
-  { name: "chase/loop", machine: (core, i) => Effect.succeed(core.chaseMachine(() => chaseTarget + (i % 10))) },
-  {
-    name: "animateComplex/loop",
-    machine: (core, i) =>
-      core.animateValuesMachine(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
-  },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
@@ -191,14 +154,10 @@ const manualFrames = () => {
 
 const runRound = async (core: Core, workload: Workload, options: Options) => {
   const frames = manualFrames()
-  const services = Layer.mergeAll(
+  const layer = Layer.mergeAll(
     Layer.effect(core.Clock)(core.makeRefreshFrameClock(frames.source)),
     core.InterpolatorRegistryLive,
-  )
-  // Only the loop workloads build a Frame loop, so the Stream workloads' Environment is the same in both cores.
-  let environment: Layer.Layer<any, never, AtomRegistry.AtomRegistry> = services
-  if (isLoopWorkload(workload)) environment = core.FrameLoopLive.pipe(Layer.provideMerge(services))
-  const layer = environment.pipe(
+  ).pipe(
     Layer.provideMerge(AtomRegistry.layer),
     Layer.provideMerge(Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))),
   )
@@ -222,30 +181,17 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
       }
       if (received >= target) waiter.resolve()
     })
-  const receive = (): undefined => {
+  const sink = Effect.sync(() => {
     received++
     if (waiter !== undefined && received >= waiter.target) {
       const done = waiter
       waiter = undefined
       done.resolve()
     }
-    return undefined
-  }
-  const sink = Effect.sync(receive)
+  })
 
   const t0 = performance.now()
-  if (isLoopWorkload(workload)) {
-    for (let i = 0; i < options.n; i++) {
-      runtime.runFork(
-        Effect.gen(function* () {
-          const loop = yield* core.FrameLoop
-          return yield* loop.run(yield* workload.machine(core, i), receive)
-        }),
-      )
-    }
-  } else {
-    for (let i = 0; i < options.n; i++) runtime.runFork(Stream.runForEach(workload.make(core, i), () => sink))
-  }
+  for (let i = 0; i < options.n; i++) runtime.runFork(Stream.runForEach(workload.make(core, i), () => sink))
   await waitFor(options.n)
   const startMs = performance.now() - t0
 
@@ -284,8 +230,6 @@ export const register = (core: Core): void => {
   ): Promise<Record<string, WorkloadResult>> => {
     const out: Record<string, WorkloadResult> = {}
     for (const workload of WORKLOADS) {
-      // A core from before ADR-0027 has no Frame loop: its results have no loop workloads.
-      if (isLoopWorkload(workload) && !("FrameLoop" in core)) continue
       const times: Array<number> = []
       const starts: Array<number> = []
       const bytes: Array<number> = []

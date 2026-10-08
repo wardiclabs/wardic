@@ -9,7 +9,3 @@ Wardic's core animation primitives return `Stream<Frame>` — a finite, cancella
 ## Consequences
 
 The binding layer — not core — owns: caching the last frame (the **Snapshot**) to seed a Retarget; "compute once, observe many" (a cold Stream re-runs per subscriber, so the Clock Layer must decide whether `ticks` is shared); and SSR's synchronous initial value (a Stream emits nothing until the first tick). These are deliberate costs paid for a minimal, portable, traceable core.
-
-## Amendment (#68, 2026-10-08): the same Primitives also run on the Frame loop
-
-Primitives are still Streams of Frames, for Tier 2 consumers. Each is now defined once as a machine: options resolved once, an initial state, and a step from a tick's `dt` to its Frame. Its `Stream` runs that machine over `Clock.ticks`, and the binding hands the same machine to the Frame loop, which steps every running Primitive in one pass per tick (ADR-0027). The Frames are the same either way. Cancellation is still a Scope's teardown: interrupting a run on the loop removes it at once.

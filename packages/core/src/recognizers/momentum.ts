@@ -6,8 +6,7 @@ import * as Predicate from "effect/Predicate"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import type { DecayOptions } from "../options.ts"
-import { type Frame, MAX_DT } from "../primitives/frame.ts"
-import { type Machine, toStream } from "../primitives/machine.ts"
+import { MAX_DT } from "../primitives/frame.ts"
 import { initDecay, resolveDecay, stepDecay } from "../primitives/stepper.ts"
 import { Clock } from "../services/Clock.ts"
 import { InputSource, isPrimaryPointer, type PointerLikeEvent } from "../services/InputSource.ts"
@@ -32,32 +31,27 @@ export const decayVec = (
   velocity: Vec2,
   options: DecayOptions,
 ): Stream.Stream<Vec2, never, Clock> =>
-  toStream(decayVecMachine(initial, velocity, options)).pipe(Stream.map((frame) => frame.value))
-
-/**
- * `decayVec`'s machine (ADR-0027): both axes' decays stepped together, settling once both rest.
- * Its Frames carry the position; `decayVec` emits just the position.
- */
-export const decayVecMachine = (initial: Vec2, velocity: Vec2, options: DecayOptions): Machine<Frame<Vec2>> => {
-  const decay = resolveDecay(options)
-  return {
-    settles: true,
-    span: { name: "wardic.decayVec", attributes: { friction: decay.friction } },
-    start: () => {
-      let x = initDecay(initial.x, velocity.x)
-      let y = initDecay(initial.y, velocity.y)
-      // Per frame (ADR-0025): the decay resolved above, no allocation beyond the frame.
-      return (dt) => {
-        const clampedDt = Math.min(dt, MAX_DT)
-        const rx = stepDecay(x, clampedDt, decay)
-        const ry = stepDecay(y, clampedDt, decay)
-        x = rx.state
-        y = ry.state
-        return { value: { x: rx.value, y: ry.value }, done: rx.done && ry.done }
-      }
-    },
-  }
-}
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const clock = yield* Clock
+      const decay = resolveDecay(options)
+      return clock.ticks.pipe(
+        Stream.mapAccum(
+          () => ({ x: initDecay(initial.x, velocity.x), y: initDecay(initial.y, velocity.y) }),
+          // Per frame (ADR-0025): the decay resolved above, no allocation beyond the frame.
+          (state, dt) => {
+            const clampedDt = Math.min(dt, MAX_DT)
+            const rx = stepDecay(state.x, clampedDt, decay)
+            const ry = stepDecay(state.y, clampedDt, decay)
+            const frame = { value: { x: rx.value, y: ry.value } as Vec2, done: rx.done && ry.done }
+            return [{ x: rx.state, y: ry.state }, [frame]] as const
+          },
+        ),
+        Stream.takeUntil((frame: { value: Vec2; done: boolean }) => frame.done),
+        Stream.map((frame) => frame.value),
+      )
+    }),
+  )
 
 /**
  * Options for {@link withMomentum}. Shaping (`axis`, `bounds`, `elastic`) is
