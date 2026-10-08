@@ -98,7 +98,21 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
   - two complex values of different structures: a warning at `resolve` beside the switch they already made;
   - `"#zzz"` and `"rgb(var(--x))"` with a colour: Discrete pairs; `" #000 "`: a blend. All three died on the first frame (decision 5).
 - **Costs:**
-  - **When a stream is built:** selection decodes through Schema. Estimated per key from the probe above: a colour pair about 1 µs, a unit pair about 2.2 µs, two keywords about 3 µs (every entry fails `from`), against about 0.1, 1 and 2.5 µs at `871a898`. Start time is reported, not gated (ADR-0025, decision 4).
+  - **When a stream is built,** measured after the gate run (a probe, `resolve(from, to)` timed alone, median µs per call, warm):
+
+    | Pair | Node 22 (`871a898` → here) | Bun 1.3 |
+    |---|---|---|
+    | colour (`#000000` → `#ffffff`) | 0.40 → 2.42 | 0.60 → 2.50 |
+    | unit string (`15px` → `200px`) | 2.07 → 3.64 | 2.45 → 3.52 |
+    | two keywords (`auto` → `none`) | 2.87 → 4.73 | 3.36 → 4.04 |
+    | number | 0.26 → 0.59 | 0.29 → 0.37 |
+    | the bench's SVG `d` | 8.02 → 13.71 | 7.81 → 14.45 |
+    | the bench's `box-shadow` | 3.01 → 7.48 | 3.41 → 8.16 |
+
+    - Selection decodes through Schema, where a failed decode costs about 1 µs, and `blend` now builds what each frame used to (culori's interpolator, the numbers array).
+    - For `animateValues`' four keys in the bench's order (a colour, a unit string, a keyword pair and a number per element), it's +7.3 ms (Node) and +2.8 ms (Bun) per 1,000 elements once warm, and +31 / +27 ms for the first 1,000 in a fresh process.
+    - The bench's start time grew more than that: +55 ms (Node), +19 ms (Bun) and +10 ms (Chromium) per 1,000 `animateValues` elements (below). `resolve`'s own time accounts for about 7 of Node's 55 ms once warm, and where the rest goes isn't measured.
+    - Start time is reported, not gated (ADR-0025, decision 4). It's paid once per leg, on mount and at each Retarget, in the frame the leg starts. In Chromium, `animateValues`' 10 ms per 1,000 elements is repaid by its per-frame saving (1.7 ms) in about 6 frames.
   - **Per frame, measured:** `bun run bench:core --base 871a898` at the implementation, with the bytes fix below: 11 paired reps, 1,000 elements, median head / base ratio [p25–p75]. Every workload passes both gates, and every noise control is within ±3% (`ticksOnly`: −1.0% Bun, −1.2% Node, −0.7% Chromium).
 
     | Workload | Bun | Node | Chromium | Node MB per frame | Start ms (Bun / Node / Chromium) |
@@ -111,7 +125,6 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 
     - The complex tier gains most: no parse, no template split, and one numbers array per pair.
     - Node's bytes fall 34–58% on the three workloads that blend strings; the three that don't (`ticksOnly` at 3.09 MB, `springValues`, `chase`) are unchanged to the byte.
-    - **Start time grows more than the probe's estimate** of about 6 ms per 1,000 elements: +19 ms (Bun), +55 ms (Node) and +10 ms (Chromium) on `animateValues`. `resolve` now also builds what the frames used to (culori's interpolator, the numbers array) and validates each decode's output against its `Struct`. It's reported, not gated.
 - **The bench's bytes gate counted wrong, and is fixed (`packages/core/bench/one.mjs`).** It skipped a round with a GC in its window, counting GCs with a `PerformanceObserver`, whose entries arrive as a task; a window only awaits microtasks, so it never saw one. Under `--trace-gc`, main's core scavenged in most `animateValues`, `springBlend` and `animateComplex` windows while the observer counted 0, and the heap delta lost what each scavenge freed. The core that allocated more was under-counted more, so this ADR's first gate run failed `animateValues`, `springBlend` and `animateComplex` on bytes (2.10 → 2.85 MB, 1.56 → 6.56, 3.34 → 8.62) that it had cut. The hook now counts the used heap plus every byte a GC has freed, from a `v8.GCProfiler`, which reports synchronously, and every round counts. Per blender, with nothing collected unseen: a colour 4,240 → 524 bytes per call, the bench's `d` 10,521 → 1,582, its `box-shadow` 3,708 → 571; unit strings, numbers and Discrete pairs unchanged.
 - **The per-frame path** (`docs/agents/effect-first.md`): "each Interpolator's `interpolate`" becomes "the closures each Interpolator's `blend` returns". `complex`'s blend keeps its counted loop, in `interpolate/complex.ts`, where lint already allows one.
 - **Pinned by:**
