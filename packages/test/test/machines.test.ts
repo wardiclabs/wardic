@@ -1,4 +1,5 @@
 import {
+  type Machine,
   animate,
   animateMachine,
   animateValues,
@@ -11,6 +12,8 @@ import {
   decayVecMachine,
   easeInOutCubic,
   type Frame,
+  FrameLoop,
+  FrameLoopLive,
   InterpolatorRegistryLive,
   keyframes,
   keyframesMachine,
@@ -36,6 +39,9 @@ import * as Stream from "effect/Stream"
  * same Frames, tick for tick. The leaves' Streams run their machines; the composites' Streams
  * still compose the leaves' Streams (`Stream.concat`, `Stream.forever`, `Stream.map`), so these
  * pin the composite machines' seams against them.
+ *
+ * The last block runs each machine on the Frame loop instead (`FrameLoop.run`), against the same
+ * `Stream`: the two drivers of ADR-0027, Frame for Frame.
  *
  * The dts are uneven on purpose: 60, 30 and 120 Hz frames, a repeated timestamp (0), and two
  * above `MAX_DT`, which every leaf but `springValues` clamps (#78).
@@ -181,5 +187,71 @@ describe("composite machines against the composite Streams", () => {
       const [s, m] = yield* sideBySide(springBlend(FROM, TO, options), toStream(machine))
       expectSame(s, m, 10)
       expect(settledLast(s)).toBe(true)
+    }))
+})
+
+/**
+ * `stream` and `machine` side by side on one pushable Clock, the machine on the Frame loop. Each
+ * collects up to `DTS.length` Frames; a run that never settles is interrupted at the end.
+ */
+const onTheLoop = <A, F extends Frame<unknown>, R>(
+  stream: Stream.Stream<A, never, any>,
+  machine: Effect.Effect<Machine<F>, never, R>,
+) =>
+  Effect.gen(function* () {
+    const clock = yield* TestClock.pushable()
+    const layer = FrameLoopLive.pipe(Layer.provideMerge(Layer.merge(clock.layer, InterpolatorRegistryLive)))
+    return yield* Effect.gen(function* () {
+      const loop = yield* FrameLoop
+      const viaStream = yield* Stream.runCollect(stream.pipe(Stream.take(DTS.length))).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      )
+      const viaLoop: Array<F> = []
+      const run = yield* loop
+        .run(yield* machine, (frame) => {
+          if (viaLoop.length < DTS.length) viaLoop.push(frame)
+          return undefined
+        })
+        .pipe(Effect.forkChild({ startImmediately: true }))
+      for (const dt of DTS) yield* clock.advance(dt)
+      const fromStream = Array.from(yield* Fiber.join(viaStream))
+      yield* Fiber.interrupt(run)
+      return [fromStream, viaLoop] as const
+    }).pipe(Effect.provide(layer))
+  })
+
+describe("every machine on the Frame loop against its Stream", () => {
+  const OPTIONS = { duration: 0.3, repeat: 2, yoyo: true, delay: 0.05, easing: easeInOutCubic }
+  const FROM = { x: 0, "background-color": "#102030", width: "10px", "pointer-events": "auto", visibility: "visible" }
+  const TO = { x: 40, "background-color": "#ffffff", width: "200px", "pointer-events": "none", visibility: "hidden" }
+  let target = 0
+  let other = 0
+  const cases: ReadonlyArray<readonly [string, Stream.Stream<unknown, never, any>, Effect.Effect<Machine<any>, never, any>]> = [
+    ["tween", tween(0, 10, OPTIONS), Effect.succeed(tweenMachine(0, 10, OPTIONS))],
+    ["spring", spring(100, { stiffness: 300, damping: 12 }), Effect.succeed(springMachine(100, { stiffness: 300, damping: 12 }))],
+    ["chase", chase(() => (target += 0.5)), Effect.succeed(chaseMachine(() => (other += 0.5)))],
+    ["decay", decay(0, 500, { friction: 4 }), Effect.succeed(decayMachine(0, 500, { friction: 4 }))],
+    ["springValues", springValues({ x: 0, y: 10 }, {}, { x: 100, y: -20 }, { x: 50 }), Effect.succeed(springValuesMachine({ x: 0, y: 10 }, {}, { x: 100, y: -20 }, { x: 50 }))],
+    ["animate, repeat 2, yoyo, a delay", animate(-5, 20, OPTIONS), Effect.succeed(animateMachine(-5, 20, OPTIONS))],
+    ["animate, repeat Infinity", animate(-5, 20, { duration: 0.2, repeat: Infinity }), Effect.succeed(animateMachine(-5, 20, { duration: 0.2, repeat: Infinity }))],
+    ["keyframes", keyframes([0, 10, 5, 20], { duration: 0.6, delay: 0.05 }), Effect.succeed(keyframesMachine([0, 10, 5, 20], { duration: 0.6, delay: 0.05 }))],
+    ["animateValues", animateValues(FROM, TO, OPTIONS), animateValuesMachine(FROM, TO, OPTIONS)],
+    ["springBlend", springBlend(FROM, TO, { delay: 0.05 }), springBlendMachine(FROM, TO, { delay: 0.05 })],
+  ]
+  for (const [name, stream, machine] of cases) {
+    it.effect(name, () =>
+      Effect.gen(function* () {
+        const [s, m] = yield* onTheLoop(stream, machine)
+        expectSame(s, m, 5)
+      }))
+  }
+
+  it.effect("decayVec", () =>
+    Effect.gen(function* () {
+      const [s, m] = yield* onTheLoop(
+        decayVec({ x: 0, y: 5 }, { x: 300, y: -200 }, {}),
+        Effect.succeed(decayVecMachine({ x: 0, y: 5 }, { x: 300, y: -200 }, {})),
+      )
+      expectSame(s, m.map((frame) => frame.value), 5)
     }))
 })
