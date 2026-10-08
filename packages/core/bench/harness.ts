@@ -71,6 +71,20 @@ const STRING_FROM = (i: number) => ({
 })
 const STRING_TO = { "background-color": "#ffffff", width: "200px", "pointer-events": "none", opacity: 1 }
 
+/**
+ * Two complex values of one structure each (ADR-0015): an icon-sized SVG `d` (20 numbers) and a
+ * `box-shadow`, whose rgba channels blend as plain numbers. Through `complex`, the only tier
+ * the string workloads above don't reach (#65).
+ */
+const COMPLEX_FROM = (i: number) => ({
+  d: `M${spread(i, 10, 4).toFixed(2)} 2 C6.48 2 2 6.48 2 12 S6.48 22 12 22 S22 17.52 22 12 S17.52 2 12 2 Z`,
+  "box-shadow": `0px 0px ${spread(i, 0, 4).toFixed(1)}px rgba(0,0,0,0)`,
+})
+const COMPLEX_TO = {
+  d: "M12 4 C8 4 4 8 4 12 S8 20 12 20 S20 16 20 12 S16 4 12 4 Z",
+  "box-shadow": "4px 8px 24px rgba(0,0,0,0.25)",
+}
+
 let chaseTarget = 0
 
 /**
@@ -105,6 +119,10 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   },
   { name: "springBlend", make: (core, i) => core.springBlend(STRING_FROM(i), STRING_TO) },
   { name: "chase", make: (core, i) => core.chase(() => chaseTarget + (i % 10)) },
+  {
+    name: "animateComplex",
+    make: (core, i) => core.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
+  },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
