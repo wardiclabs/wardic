@@ -97,6 +97,8 @@ export default defineConfig({
       "effect/Latch",
       "effect/Match",
       "effect/MutableRef",
+      "effect/Number",
+      "effect/Order",
       "effect/Predicate",
       "effect/Record",
       "effect/String",

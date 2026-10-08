@@ -66,6 +66,8 @@ export default defineConfig({
       "effect/Logger",
       "effect/Match",
       "effect/MutableRef",
+      "effect/Number",
+      "effect/Order",
       "effect/Predicate",
       "effect/Record",
       "effect/References",

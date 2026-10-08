@@ -1,4 +1,5 @@
 import { type Box, makeReorderGroup, type ReorderAxis, type ReorderItemSource } from "@wardic/core"
+import * as Option from "effect/Option"
 import { describe, expect, it } from "@effect/vitest"
 
 // The Reorder group (ADR-0020): core's framework-free `makeReorderGroup`, checked
@@ -29,7 +30,7 @@ const fakeSource = (layout: Box | undefined): FakeSource => {
     layout,
     offset: { x: 0, y: 0 },
     version: layout === undefined ? 0 : 1,
-    layoutBox: () => s.layout,
+    layoutBox: () => Option.fromUndefinedOr(s.layout),
     dragOffset: () => s.offset,
     layoutVersion: () => s.version,
   }
@@ -58,7 +59,7 @@ const harness = <V,>(
       state.calls.push(next)
       state.values = next
     },
-    ...(options.axis !== undefined ? { axis: options.axis } : {}),
+    axis: () => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => Option.fromUndefinedOr(axis())),
     ...(options.direction !== undefined ? { direction: options.direction } : {}),
     debug: (event, annotations) => state.events.push({ event, annotations }),
   })

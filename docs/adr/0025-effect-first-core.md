@@ -99,7 +99,7 @@ Core's code uses Effect's modules for its loops, its boolean checks and its miss
    - **Not in #63:** a decode validates, and what to reject is a behaviour change. So #63 resolves options through `Option`.
    - **The codec measurement:** decoding a unit string through a Schema codec costs 433–491 ns, against 87–90 ns for the regex parse. That's fine when a stream is built. `Schema.encode` costs 155–236 ns, against 6–14 ns for a plain encode, which is why the frame calls the codec's plain encode function.
 7. **Core is Effect-native; the bindings hide Effect (amends ADR-0008).**
-   - **Core's functions use Effect types where they're natural.** `baseValueOf`, `startValueOf`, `transformIdentity` and `unitOf` return `Option`. So do the callbacks a binding passes in: `BaseSources.style` / `own`, and the reorder item's `layoutBox` / `axis`.
+   - **Core's functions use Effect types where they're natural.** `baseValueOf`, `startValueOf`, `transformIdentity` and `unitOf` return `Option`, and `autoScrollStep` takes and returns its state as one. So do the callbacks a binding passes in: `BaseSources.style` / `own`, and the reorder item's `layoutBox` / `axis`.
    - **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types.
    - **Pure values stay plain** because nothing in them is missing or effectful: the easings, `math/`, `springs`, `stagger`.
    - **dom and solid unwrap at their call sites,** in the commit that changes each signature.

@@ -1,7 +1,10 @@
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
 import type { Axis, Box } from "../layout/box.ts"
 import type { ReorderAxis } from "./types.ts"
 
-const isSeparated = (a: Axis, b: Axis): boolean => a.max <= b.min || b.max <= a.min
+const isSeparated = (a: Axis, b: Axis): boolean => Bool.or(a.max <= b.min, b.max <= a.min)
 
 /**
  * The axis a set of item boxes is laid out on: `"x"` if some pair doesn't overlap
@@ -15,14 +18,13 @@ const isSeparated = (a: Axis, b: Axis): boolean => a.max <= b.min || b.max <= a.
  * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
  */
 export const detectAxis = (layouts: ReadonlyArray<Box>): ReorderAxis => {
-  let x = false
-  let y = false
-  for (let i = 0; i < layouts.length; i++) {
-    for (let j = i + 1; j < layouts.length; j++) {
-      x ||= isSeparated(layouts[i]!.x, layouts[j]!.x)
-      y ||= isSeparated(layouts[i]!.y, layouts[j]!.y)
-      if (x && y) return "xy"
-    }
-  }
-  return x ? "x" : "y"
+  // Every unordered pair of boxes.
+  const pairs = Arr.flatMap(layouts, (a, i) => Arr.map(Arr.drop(layouts, i + 1), (b) => [a, b] as const))
+  const x = Arr.some(pairs, ([a, b]) => isSeparated(a.x, b.x))
+  const y = Arr.some(pairs, ([a, b]) => isSeparated(a.y, b.y))
+  return Match.value({ x, y }).pipe(
+    Match.when({ x: true, y: true }, (): ReorderAxis => "xy"),
+    Match.when({ x: true }, (): ReorderAxis => "x"),
+    Match.orElse((): ReorderAxis => "y"),
+  )
 }

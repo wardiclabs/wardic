@@ -1,4 +1,5 @@
 import { AUTO_SCROLL_MAX_SPEED, AUTO_SCROLL_THRESHOLD, autoScrollAxis, autoScrollStep } from "@wardic/core"
+import * as Option from "effect/Option"
 import { expect, it } from "@effect/vitest"
 
 // Auto-scroll's edge math (ADR-0020, grill decision 16): Motion's algorithm
@@ -17,29 +18,29 @@ const input = (pointer: number, velocity: number, scroll = 0, maxScroll: () => n
 })
 
 it("AS1: outside both edge zones nothing scrolls and there is no state", () => {
-  expect(autoScrollStep(undefined, input(100, 5))).toEqual({ amount: 0, state: undefined })
-  expect(autoScrollStep(undefined, input(50, 5))).toEqual({ amount: 0, state: undefined })
-  expect(autoScrollStep(undefined, input(150, 5))).toEqual({ amount: 0, state: undefined })
+  expect(autoScrollStep(Option.none(), input(100, 5))).toEqual({ amount: 0, state: Option.none() })
+  expect(autoScrollStep(Option.none(), input(50, 5))).toEqual({ amount: 0, state: Option.none() })
+  expect(autoScrollStep(Option.none(), input(150, 5))).toEqual({ amount: 0, state: Option.none() })
 })
 
 it("AS2: moving into an edge zone scrolls by 25 x (1 - d/50)^2 toward that edge and records the limit", () => {
   // 10 px from the end edge: intensity 0.8, amount 25 x 0.64 = 16.
-  const end = autoScrollStep(undefined, input(190, 5))
+  const end = autoScrollStep(Option.none(), input(190, 5))
   expect(end.amount).toBeCloseTo(16, 9)
-  expect(end.state).toEqual({ edge: "end", limit: 500 })
-  const start = autoScrollStep(undefined, input(10, -5))
+  expect(end.state).toEqual(Option.some({ edge: "end", limit: 500 }))
+  const start = autoScrollStep(Option.none(), input(10, -5))
   expect(start.amount).toBeCloseTo(-16, 9)
-  expect(start.state).toEqual({ edge: "start", limit: 500 })
+  expect(start.state).toEqual(Option.some({ edge: "start", limit: 500 }))
 })
 
 it("AS3: an edge doesn't activate with no velocity or velocity away from it", () => {
-  expect(autoScrollStep(undefined, input(190, 0))).toEqual({ amount: 0, state: undefined })
-  expect(autoScrollStep(undefined, input(190, -5))).toEqual({ amount: 0, state: undefined })
-  expect(autoScrollStep(undefined, input(10, 5))).toEqual({ amount: 0, state: undefined })
+  expect(autoScrollStep(Option.none(), input(190, 0))).toEqual({ amount: 0, state: Option.none() })
+  expect(autoScrollStep(Option.none(), input(190, -5))).toEqual({ amount: 0, state: Option.none() })
+  expect(autoScrollStep(Option.none(), input(10, 5))).toEqual({ amount: 0, state: Option.none() })
 })
 
 it("AS4: once an edge is active it keeps scrolling whatever the velocity", () => {
-  const active = autoScrollStep(undefined, input(190, 5)).state
+  const active = autoScrollStep(Option.none(), input(190, 5)).state
   expect(autoScrollStep(active, input(195, 0)).amount).toBeCloseTo(25 * 0.9 * 0.9, 9)
   expect(autoScrollStep(active, input(195, -3)).amount).toBeCloseTo(25 * 0.9 * 0.9, 9)
 })
@@ -50,8 +51,8 @@ it("AS5: scrolling toward the end stops at the limit recorded at activation, whi
     reads++
     return 300
   }
-  const first = autoScrollStep(undefined, input(190, 5, 0, maxScroll))
-  expect(first.state).toEqual({ edge: "end", limit: 300 })
+  const first = autoScrollStep(Option.none(), input(190, 5, 0, maxScroll))
+  expect(first.state).toEqual(Option.some({ edge: "end", limit: 300 }))
   expect(reads).toBe(1)
   expect(autoScrollStep(first.state, input(190, 5, 299, maxScroll)).amount).toBeGreaterThan(0)
   const capped = autoScrollStep(first.state, input(190, 5, 300, maxScroll))
@@ -61,11 +62,11 @@ it("AS5: scrolling toward the end stops at the limit recorded at activation, whi
 })
 
 it("AS6: leaving the zone clears the state, and coming back needs velocity toward the edge again", () => {
-  const active = autoScrollStep(undefined, input(190, 5)).state
+  const active = autoScrollStep(Option.none(), input(190, 5)).state
   const left = autoScrollStep(active, input(100, 5))
-  expect(left).toEqual({ amount: 0, state: undefined })
-  expect(autoScrollStep(left.state, input(190, 0))).toEqual({ amount: 0, state: undefined })
-  expect(autoScrollStep(left.state, input(190, 1)).state).toEqual({ edge: "end", limit: 500 })
+  expect(left).toEqual({ amount: 0, state: Option.none() })
+  expect(autoScrollStep(left.state, input(190, 0))).toEqual({ amount: 0, state: Option.none() })
+  expect(autoScrollStep(left.state, input(190, 1)).state).toEqual(Option.some({ edge: "end", limit: 500 }))
 })
 
 it("AS7: in xy the faster axis scrolls (a tie picks y, as Motion's > does); x and y pass through", () => {
