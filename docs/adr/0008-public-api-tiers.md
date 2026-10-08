@@ -31,3 +31,7 @@ Effect 4.0.0 shipped on 2026-10-01, and Wardic moved to 4.0.2. Reactivity is `ef
 
 - **An Effect major is a Tier 2 major.** A new Effect major changes the types Tier 2 exposes, so moving the `effect` peer range onto it is a breaking Wardic release.
 - **Tier 1 is untouched:** it carries no Effect types.
+
+## Amendment (#68, 2026-10-08): the machines and the Frame loop are Tier 2
+
+Each Primitive's machine (`springValuesMachine`, …), `toStream`, and the `FrameLoop` service with `FrameLoopLive` are Tier 2: Effect-typed, for binding and Environment authors, like `makeRefreshFrameClock` (ADR-0027). The Primitives' `Stream` signatures are unchanged.
