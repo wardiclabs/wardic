@@ -1,9 +1,14 @@
+import * as Bool from "effect/Boolean"
+
 /**
  * Pure cyclic/stochastic value generators. Each returns a `(t) => number`
  * sampler so it composes with `createTransform`-style mapping in the bindings.
  */
 
 const TAU = Math.PI * 2
+
+/** The angular frequency of `period`, or 0 for a zero period (no motion rather than `Infinity`). */
+const frequencyOf = (period: number): number => Bool.match(period === 0, { onTrue: () => 0, onFalse: () => TAU / period })
 
 /**
  * Deterministic 1D value noise in [-1, 1], smooth between integer samples.
@@ -26,7 +31,7 @@ export const noise = (seed = 0): ((x: number) => number) => {
 
 /** Sine wave of given `amplitude` and `period` (seconds): `(t) => number`. */
 export const wave = (amplitude: number, period: number): ((t: number) => number) => {
-  const freq = period === 0 ? 0 : TAU / period
+  const freq = frequencyOf(period)
   return (t) => amplitude * Math.sin(freq * t)
 }
 
@@ -35,6 +40,6 @@ export const wave = (amplitude: number, period: number): ((t: number) => number)
  * each cycle, 1 at the midpoint. `(t) => number`.
  */
 export const pulse = (period: number): ((t: number) => number) => {
-  const freq = period === 0 ? 0 : TAU / period
+  const freq = frequencyOf(period)
   return (t) => (1 - Math.cos(freq * t)) / 2
 }

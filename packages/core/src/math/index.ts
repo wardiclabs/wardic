@@ -1,5 +1,8 @@
+import * as Arr from "effect/Array"
+
 /**
- * Pure math utilities. No Effect, no services — usable anywhere.
+ * Pure math utilities. No services — usable anywhere. They run per frame (ADR-0025), so a
+ * piecewise result is a statement `if` with an early return.
  */
 
 /** A 2D point. */
@@ -12,12 +15,17 @@ export interface Point {
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
 
 /** Inverse of {@link lerp}: the `t` that produces `value` between `a` and `b`. */
-export const inverseLerp = (a: number, b: number, value: number): number =>
-  a === b ? 0 : (value - a) / (b - a)
+export const inverseLerp = (a: number, b: number, value: number): number => {
+  if (a === b) return 0
+  return (value - a) / (b - a)
+}
 
 /** Clamp `value` into the inclusive range [min, max]. */
-export const clamp = (value: number, min: number, max: number): number =>
-  value < min ? min : value > max ? max : value
+export const clamp = (value: number, min: number, max: number): number => {
+  if (value < min) return min
+  if (value > max) return max
+  return value
+}
 
 /**
  * Wrap `value` into the half-open range [min, max), cycling around.
@@ -46,18 +54,21 @@ export const damp = (current: number, target: number, lambda: number, dt: number
   lerp(current, target, 1 - Math.exp(-lambda * dt))
 
 /** Snap `value` to the nearest multiple of `step`. */
-export const snap = (value: number, step: number): number =>
-  step === 0 ? value : Math.round(value / step) * step
+export const snap = (value: number, step: number): number => {
+  if (step === 0) return value
+  return Math.round(value / step) * step
+}
 
 /** Snap `value` to the nearest entry in `points`. */
 export const snapTo = (value: number, points: ReadonlyArray<number>): number => {
   if (points.length === 0) return value
-  let best = points[0]!
+  let best = Arr.getUnsafe(points, 0)
   let bestDist = Math.abs(value - best)
   for (let i = 1; i < points.length; i++) {
-    const d = Math.abs(value - points[i]!)
+    const point = Arr.getUnsafe(points, i)
+    const d = Math.abs(value - point)
     if (d < bestDist) {
-      best = points[i]!
+      best = point
       bestDist = d
     }
   }

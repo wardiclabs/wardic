@@ -25,16 +25,15 @@ import { Renderer } from "../services/Renderer.ts"
  * stream starts. Per-frame work is deliberately un-logged — this is the
  * hot path.
  */
-export const applyTo = <T, E, R>(
+export const applyTo: <T, E, R>(
   target: T,
   stream: Stream.Stream<Frame<Record<string, unknown>>, E, R>,
-): Effect.Effect<void, E, R | Renderer> =>
-  Effect.gen(function* () {
-    const renderer = yield* Renderer
-    yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(
-      Effect.annotateLogs({ target: typeof target }),
-    )
-    yield* stream.pipe(
-      Stream.runForEach((frame) => renderer.commit(target, renderer.project(frame.value))),
-    )
-  }).pipe(Effect.withSpan("wardic.applyTo", { attributes: { target: typeof target } }))
+) => Effect.Effect<void, E, R | Renderer> = Effect.fn("wardic.applyTo")(function* <T, E, R>(
+  target: T,
+  stream: Stream.Stream<Frame<Record<string, unknown>>, E, R>,
+) {
+  yield* Effect.annotateCurrentSpan({ target: typeof target })
+  const renderer = yield* Renderer
+  yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(Effect.annotateLogs({ target: typeof target }))
+  yield* stream.pipe(Stream.runForEach((frame) => renderer.commit(target, renderer.project(frame.value))))
+})

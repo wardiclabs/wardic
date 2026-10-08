@@ -38,7 +38,7 @@ export const ownValues = (element: Element): OwnValue => {
   const cache = new Map<string, number | string | undefined>()
   let computed: CSSStyleDeclaration | undefined
   const read = (key: string): number | string | undefined => {
-    const identity = transformIdentity(key)
+    const identity = Option.getOrUndefined(transformIdentity(key))
     if (identity !== undefined) return identity
     if (isSvgInner(element)) {
       const name = svgAttrNameOf(key)
@@ -67,7 +67,7 @@ export const ownValues = (element: Element): OwnValue => {
  * compose with the element's transform rather than seed it.
  */
 export const styleValueOf = (style: object | string | undefined, key: string): unknown => {
-  if (style === undefined || style === null || transformIdentity(key) !== undefined) return undefined
+  if (style === undefined || style === null || Option.isSome(transformIdentity(key))) return undefined
   const map = (typeof style === "string" ? parseCssText(style) : style) as Readonly<Record<string, unknown>>
   const at = (k: string): unknown => {
     const v = Object.hasOwn(map, k) ? map[k] : undefined

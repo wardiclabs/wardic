@@ -7,8 +7,9 @@ import { Clock } from "../services/Clock.ts"
  * `dt` stream the primitives use, so delays advance with the animation clock
  * rather than wall-clock time. Traced as `wardic.delay`.
  */
-export const delay = (seconds: number): Effect.Effect<void, never, Clock> =>
-  Effect.gen(function* () {
+export const delay: (seconds: number) => Effect.Effect<void, never, Clock> = Effect.fn("wardic.delay")(
+  function* (seconds: number) {
+    yield* Effect.annotateCurrentSpan({ seconds })
     yield* Effect.logDebug("wardic.delay: start").pipe(Effect.annotateLogs({ seconds }))
     const clock = yield* Clock
     yield* clock.ticks.pipe(
@@ -22,18 +23,16 @@ export const delay = (seconds: number): Effect.Effect<void, never, Clock> =>
       Stream.takeUntil((elapsed: number) => elapsed >= seconds),
       Stream.runDrain,
     )
-  }).pipe(Effect.withSpan("wardic.delay", { attributes: { seconds } }))
+  },
+)
 
 /**
  * Run `values` until `predicate` holds for an emitted value, then complete
  * (consuming up to and including that value). Useful for "settle, then continue".
  * Traced as `wardic.wait`.
  */
-export const wait = <T, E, R>(
-  values: Stream.Stream<T, E, R>,
-  predicate: (value: T) => boolean,
-): Effect.Effect<void, E, R> =>
-  Effect.gen(function* () {
+export const wait: <T, E, R>(values: Stream.Stream<T, E, R>, predicate: (value: T) => boolean) => Effect.Effect<void, E, R> =
+  Effect.fn("wardic.wait")(function* <T, E, R>(values: Stream.Stream<T, E, R>, predicate: (value: T) => boolean) {
     yield* Effect.logDebug("wardic.wait: start")
     yield* values.pipe(Stream.takeUntil(predicate), Stream.runDrain)
-  }).pipe(Effect.withSpan("wardic.wait"))
+  })

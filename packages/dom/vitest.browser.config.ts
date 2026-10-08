@@ -22,6 +22,7 @@ export default defineConfig({
     include: [
       "effect/Array",
       "effect/Boolean",
+      "effect/Combiner",
       "effect/Equivalence",
       "effect/Function",
       "effect/Iterable",
