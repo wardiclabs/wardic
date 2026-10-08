@@ -15,11 +15,16 @@
  *   fail code that changed nothing.
  * - **Allocation gate.** Node's bytes per frame fail at +5%. On unchanged code they don't move.
  * - `start` (construction) is reported, not gated.
+ * - **Each side on its own dependencies.** A commit whose `bun.lock` differs from the working
+ *   tree's is checked out and installed at `.tmp/bench-core/deps/<commit>`, and bundled with
+ *   that checkout's `harness.ts` and `node_modules`, so a dependency upgrade (#64's Effect bump)
+ *   is measured across, not on the working tree's versions on both sides. There, `ticksOnly`
+ *   runs the same core on two Effects, so its ratio is the upgrade's own cost plus noise.
  *
  * Exits 0 when every workload passes, 1 when one fails, and 2 when the run is too noisy.
  */
 import { execSync, spawnSync } from "node:child_process"
-import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
@@ -48,20 +53,23 @@ const options: Options = { n: Number(arg("n", "1000")), warm: 5, frames: 30, rou
 type Side = "base" | "head"
 type Results = Record<string, WorkloadResult>
 
-/** Put a core's `src` at `.tmp/bench-core/<side>`, and bundle it with the harness. */
-const bundle = (side: Side, fill: (src: string) => void): string => {
+/**
+ * Put a core's `src` at `.tmp/bench-core/<side>`, and bundle it with the harness and the
+ * `node_modules` of `deps`: the repo, or a commit's own checkout.
+ */
+const bundle = (side: Side, fill: (src: string) => void, deps: string): string => {
   const root = join(OUT, side)
   rmSync(root, { recursive: true, force: true })
   const core = join(root, "packages/core")
   mkdirSync(core, { recursive: true })
   fill(join(core, "src"))
-  symlinkSync(join(REPO, "packages/core/node_modules"), join(core, "node_modules"))
+  symlinkSync(join(deps, "packages/core/node_modules"), join(core, "node_modules"))
   const entry = join(root, "entry.ts")
   writeFileSync(
     entry,
     [
       `import * as core from "./packages/core/src/index.ts"`,
-      `import { register } from ${JSON.stringify(join(BENCH, "harness.ts"))}`,
+      `import { register } from ${JSON.stringify(join(deps, "packages/core/bench/harness.ts"))}`,
       `register(core)`,
       ``,
     ].join("\n"),
@@ -81,18 +89,45 @@ const fromCommit = (side: Side, commit: string) => (src: string) => {
   execSync(`git archive ${commit} packages/core/src | tar -x -C ${JSON.stringify(join(OUT, side))}`, { cwd: REPO })
 }
 
+const installedLock = readFileSync(join(REPO, "bun.lock"), "utf8")
+
+/**
+ * Where a commit's dependencies come from: the repo's own install when its `bun.lock` matches
+ * the working tree's, or else a checkout of the commit at `.tmp/bench-core/deps/<commit>`,
+ * installed from its lockfile (once; later runs reuse it).
+ */
+const depsOf = (commit: string): string => {
+  const lock = execSync(`git show ${commit}:bun.lock`, { cwd: REPO, maxBuffer: 1 << 26 }).toString()
+  if (lock === installedLock) return REPO
+  const tree = join(OUT, "deps", commit)
+  if (!existsSync(tree)) {
+    execSync(`git worktree add --detach ${JSON.stringify(tree)} ${commit}`, { cwd: REPO, stdio: "ignore" })
+  }
+  if (!existsSync(join(tree, "node_modules"))) {
+    console.log(`bench:core: ${commit.slice(0, 7)} has its own bun.lock, installing it at ${tree}`)
+    execSync("bun install --frozen-lockfile", { cwd: tree, stdio: "ignore" })
+  }
+  if (!existsSync(join(tree, "packages/core/bench/harness.ts"))) {
+    throw new Error(`bench:core: ${commit.slice(0, 7)} has its own bun.lock but no bench harness`)
+  }
+  return tree
+}
+
 const commit = commitOf(base)
+const baseDeps = depsOf(commit)
 const headCommit = headRef.length > 0
 let head = `the working tree`
 let fillHead = (src: string) => cpSync(join(REPO, "packages/core/src"), src, { recursive: true })
+let headDeps = REPO
 if (headCommit) {
   const resolved = commitOf(headRef)
   head = `${headRef} (${resolved.slice(0, 7)})`
   fillHead = fromCommit("head", resolved)
+  headDeps = depsOf(resolved)
 }
 const bundles: Record<Side, string> = {
-  base: bundle("base", fromCommit("base", commit)),
-  head: bundle("head", fillHead),
+  base: bundle("base", fromCommit("base", commit), baseDeps),
+  head: bundle("head", fillHead, headDeps),
 }
 
 const runProcess = (runtime: "bun" | "node", side: Side): Results => {
@@ -148,6 +183,8 @@ let noisy = false
 const dirty = execSync("git status --porcelain -- packages/core/src", { cwd: REPO }).toString().trim().length > 0
 if (!headCommit && dirty) head = "the working tree (modified)"
 console.log(`bench:core: base ${base} (${commit.slice(0, 7)}) against ${head}`)
+if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
+if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
 console.log(`${options.n} elements, ${options.frames} frames × ${options.rounds - 1} rounds per run, ${reps} paired reps\n`)
 
 for (const engine of engines) {
