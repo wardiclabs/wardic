@@ -88,7 +88,19 @@ export default defineConfig({
   },
   // Pre-bundled up front: Vite otherwise discovers a test's first import of it mid-run
   // and reloads the page, failing that file (the provider imports it, ADR-0021).
-  optimizeDeps: { include: ["effect/Latch", "effect/Predicate", "effect/Record"] },
+  optimizeDeps: {
+    include: [
+      "effect/Array",
+      "effect/Boolean",
+      "effect/Equivalence",
+      "effect/Function",
+      "effect/Latch",
+      "effect/Match",
+      "effect/Predicate",
+      "effect/Record",
+      "effect/String",
+    ],
+  },
   test: {
     name: "browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],

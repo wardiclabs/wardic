@@ -1,37 +1,35 @@
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import { lerp } from "../math/index.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
-
-const UNIT_RE = /^(-?\d*\.?\d+)([a-z%]*)$/i
-
-interface ParsedUnit {
-  readonly value: number
-  readonly unit: string
-}
-
-const parse = (input: string): ParsedUnit | undefined => {
-  const match = UNIT_RE.exec(input.trim())
-  if (match === null) return undefined
-  return { value: Number.parseFloat(match[1]!), unit: match[2] ?? "" }
-}
+import { discrete } from "./discrete.ts"
+import { parseUnit, unitOfPair } from "./parse-unit.ts"
 
 /**
  * The unit of a number-with-unit string as the `unit` interpolator parses it (`""` for a bare
- * number), or `undefined` when `value` isn't one (`"auto"`, a colour). Two strings whose units
- * are both non-empty and differ are a pair the registry dies on (registry.ts `bind`).
+ * number), or `None` when `value` isn't one (`"auto"`, a colour). Two strings whose units are
+ * both non-empty and differ are a pair the registry dies on (registry.ts `bind`).
  */
-export const unitOf = (value: string): string | undefined => parse(value)?.unit
+export const unitOf = (value: string): Option.Option<string> => Option.map(parseUnit(value), (parsed) => parsed.unit)
+
+/** A string the `unit` interpolator parses. */
+const isUnitString: Predicate.Predicate<unknown> = Predicate.compose(Predicate.isString, (value: string) =>
+  Option.isSome(parseUnit(value)),
+)
 
 /**
  * Interpolates a numeric value carrying a unit suffix, e.g. `"10px" → "20px"`,
  * `"0%" → "100%"`. The unit is taken from whichever endpoint has one.
+ *
+ * It parses both endpoints on every call. The registry never calls it per frame: `resolve`
+ * parses a unit pair once and blends the parsed numbers (registry.ts `bind`).
  */
 export const unitInterpolator: InterpolatorEntry<string> = {
   name: "unit",
-  match: (value) => typeof value === "string" && parse(value) !== undefined,
-  interpolate: (from, to, t) => {
-    const a = parse(from)
-    const b = parse(to)
-    if (a === undefined || b === undefined) return t > 0 ? to : from // a Discrete pair (ADR-0024)
-    return `${lerp(a.value, b.value, t)}${a.unit || b.unit}`
-  },
+  match: isUnitString,
+  interpolate: (from, to, t) =>
+    Option.match(Option.all([parseUnit(from), parseUnit(to)]), {
+      onNone: () => discrete(from, to, t), // a Discrete pair (ADR-0024)
+      onSome: ([a, b]) => `${lerp(a.value, b.value, t)}${unitOfPair(a, b)}`,
+    }),
 }

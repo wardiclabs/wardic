@@ -18,7 +18,21 @@ export default defineConfig({
   root: import.meta.dirname,
   // Pre-bundled up front: Vite otherwise discovers a test's first import of it
   // mid-run and reloads the page once ("optimized dependencies changed. reloading").
-  optimizeDeps: { include: ["effect/Tracer", "effect/Logger", "effect/Predicate", "effect/Record", "effect/References"] },
+  optimizeDeps: {
+    include: [
+      "effect/Array",
+      "effect/Boolean",
+      "effect/Equivalence",
+      "effect/Function",
+      "effect/Logger",
+      "effect/Match",
+      "effect/Predicate",
+      "effect/Record",
+      "effect/References",
+      "effect/String",
+      "effect/Tracer",
+    ],
+  },
   test: {
     name: "dom-browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],

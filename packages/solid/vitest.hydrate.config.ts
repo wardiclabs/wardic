@@ -56,7 +56,21 @@ export default defineConfig({
   // The @wardic packages ship TypeScript + JSX source: bundle them for the server load too.
   ssr: { noExternal: [/@wardic\//] },
   // Pre-bundled up front, as the dom project does: a first import mid-run reloads the page.
-  optimizeDeps: { include: ["effect/Latch", "effect/Logger", "effect/Predicate", "effect/Record", "effect/References"] },
+  optimizeDeps: {
+    include: [
+      "effect/Array",
+      "effect/Boolean",
+      "effect/Equivalence",
+      "effect/Function",
+      "effect/Latch",
+      "effect/Logger",
+      "effect/Match",
+      "effect/Predicate",
+      "effect/Record",
+      "effect/References",
+      "effect/String",
+    ],
+  },
   test: {
     name: "hydrate",
     include: ["test/**/*.hydrate.browser.test.tsx"],

@@ -1,5 +1,8 @@
 /// <reference path="../culori.d.ts" />
 import { formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
+import { pipe } from "effect/Function"
+import * as Predicate from "effect/Predicate"
+import * as Str from "effect/String"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
 
 /**
@@ -12,17 +15,22 @@ import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
  * left to `culori.parse` so the matcher only accepts strings culori actually
  * understands.
  */
-const hasColorPrefix = (trimmed: string): boolean => {
-  if (trimmed.length === 0) return false
-  if (trimmed.charCodeAt(0) === 35 /* '#' */) return true
-  const head = trimmed.slice(0, 5).toLowerCase()
-  return (
-    head.startsWith("rgb(") ||
-    head.startsWith("rgba(") ||
-    head.startsWith("hsl(") ||
-    head.startsWith("hsla(")
-  )
-}
+const hasColorPrefix: Predicate.Predicate<string> = Predicate.or(
+  Str.startsWith("#"),
+  Predicate.mapInput(
+    Predicate.some([Str.startsWith("rgb("), Str.startsWith("rgba("), Str.startsWith("hsl("), Str.startsWith("hsla(")]),
+    (trimmed: string) => pipe(trimmed, Str.slice(0, 5), Str.toLowerCase),
+  ),
+)
+
+/** A string culori parses: a named colour, `lab()`, `oklch()`, … */
+const parsesAsColor: Predicate.Predicate<string> = (trimmed) => Predicate.isNotUndefined(culoriParse(trimmed))
+
+/** A colour string: by its prefix, else by culori's parse. */
+const isColorString: Predicate.Predicate<unknown> = Predicate.compose(
+  Predicate.isString,
+  Predicate.mapInput(Predicate.or(hasColorPrefix, parsesAsColor), Str.trim),
+)
 
 /**
  * Interpolates CSS color strings via culori. `mode` is the interpolation color
@@ -40,11 +48,6 @@ const hasColorPrefix = (trimmed: string): boolean => {
  */
 export const colorInterpolator = (mode = "rgb"): InterpolatorEntry<string> => ({
   name: `color(${mode})`,
-  match: (value) => {
-    if (typeof value !== "string") return false
-    const trimmed = value.trim()
-    if (hasColorPrefix(trimmed)) return true
-    return culoriParse(trimmed) !== undefined
-  },
+  match: isColorString,
   interpolate: (from, to, t) => formatRgb(culoriInterpolate([from, to], mode)(t)),
 })

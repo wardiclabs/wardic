@@ -1,5 +1,12 @@
+import * as Arr from "effect/Array"
+import * as Equivalence from "effect/Equivalence"
+import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Str from "effect/String"
 import { lerp } from "../math/index.ts"
 import type { InterpolatorEntry } from "../services/InterpolatorRegistry.ts"
+import { discrete } from "./discrete.ts"
 
 /** A single number token: optional sign, int/decimal, optional exponent. */
 const NUMBER_RE = /-?\d*\.?\d+(?:e[-+]?\d+)?/gi
@@ -25,7 +32,19 @@ const parse = (input: string): Parsed => {
 }
 
 /** Count numeric tokens in a string. */
-const numberCount = (input: string): number => input.match(NUMBER_RE)?.length ?? 0
+const numberCount = (input: string): number =>
+  pipe(input, Str.match(NUMBER_RE), Option.match({ onNone: () => 0, onSome: (tokens) => tokens.length }))
+
+/** A string carrying two or more numbers. */
+const isComplexString: Predicate.Predicate<unknown> = Predicate.compose(Predicate.isString, (value: string) =>
+  numberCount(value) >= 2,
+)
+
+/** Two parsed strings of one structure: the same template, and as many numbers. */
+const sameStructure: Equivalence.Equivalence<Parsed> = Equivalence.Struct({
+  template: Equivalence.String,
+  numbers: Equivalence.mapInput(Equivalence.Number, (numbers: ReadonlyArray<number>) => numbers.length),
+})
 
 /**
  * Generic "complex value" interpolator (Motion's complex value type): a string
@@ -48,20 +67,22 @@ const numberCount = (input: string): number => input.match(NUMBER_RE)?.length ??
  * Known limit (as Motion, without a path normalizer): SVG arc flags in an `A`/`a`
  * command are treated as plain numbers, so an arc path can interpolate through
  * invalid flag values — same-structure `M/L/C/S/Q/T/Z` morphing is sound.
+ *
+ * `interpolate` is on the per-frame path (ADR-0025): an early return for the Discrete pair,
+ * and a counted loop over the numbers. It still parses both strings on every call (#65).
  */
 export const complexInterpolator: InterpolatorEntry<string> = {
   name: "complex",
-  match: (value) => typeof value === "string" && numberCount(value) >= 2,
+  match: isComplexString,
   interpolate: (from, to, t) => {
     const a = parse(from)
     const b = parse(to)
-    if (a.template !== b.template || a.numbers.length !== b.numbers.length) {
-      return t > 0 ? to : from // structure mismatch → a Discrete pair, switched at the first frame (ADR-0024; tier-2 territory)
-    }
+    // A structure mismatch is a Discrete pair, switched at the first frame (ADR-0024; tier-2 territory).
+    if (!sameStructure(a, b)) return discrete(from, to, t)
     const parts = a.template.split(SLOT) // length === numbers.length + 1
-    let out = parts[0]!
+    let out = Arr.getUnsafe(parts, 0)
     for (let i = 0; i < a.numbers.length; i++) {
-      out += String(lerp(a.numbers[i]!, b.numbers[i]!, t)) + parts[i + 1]!
+      out += String(lerp(Arr.getUnsafe(a.numbers, i), Arr.getUnsafe(b.numbers, i), t)) + Arr.getUnsafe(parts, i + 1)
     }
     return out
   },

@@ -11,6 +11,7 @@
  * started from and returned to.
  */
 import { transformIdentity, unitOf } from "@wardic/core"
+import * as Option from "effect/Option"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
 
@@ -98,8 +99,8 @@ export const valueLike = (raw: unknown, like: number | string): number | string 
     return typeof raw === "string" && NUMERIC.test(raw) ? Number.parseFloat(raw) : undefined
   }
   if (typeof raw === "string") {
-    const want = unitOf(like)
-    const got = unitOf(raw)
+    const want = Option.getOrUndefined(unitOf(like))
+    const got = Option.getOrUndefined(unitOf(raw))
     const clash = want !== undefined && want !== "" && got !== undefined && got !== "" && got !== want
     return clash ? undefined : raw
   }
