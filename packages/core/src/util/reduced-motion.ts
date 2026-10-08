@@ -1,3 +1,4 @@
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
@@ -32,15 +33,19 @@ export const respectReducedMotion = <V, E, R>(
       yield* Effect.logDebug("wardic.respectReducedMotion: subscribe").pipe(
         Effect.annotateLogs({ prefersReducedMotion }),
       )
-      if (!prefersReducedMotion) return stream
-      return Stream.unwrap(
-        Stream.runLast(stream).pipe(
-          Effect.map((last) => {
-            const terminal = Option.getOrUndefined(last)
-            if (terminal === undefined) return Stream.empty as Stream.Stream<Frame<V>, E, never>
-            return Stream.succeed<Frame<V>>({ value: terminal.value, done: true })
-          }),
-        ),
-      )
+      return Bool.match(prefersReducedMotion, {
+        onFalse: () => stream,
+        onTrue: () =>
+          Stream.unwrap(
+            Stream.runLast(stream).pipe(
+              Effect.map(
+                Option.match({
+                  onNone: () => Stream.empty as Stream.Stream<Frame<V>, E, never>,
+                  onSome: (terminal) => Stream.succeed<Frame<V>>({ value: terminal.value, done: true }),
+                }),
+              ),
+            ),
+          ),
+      })
     }),
   ).pipe(Stream.withSpan("wardic.respectReducedMotion"))

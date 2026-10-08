@@ -20,6 +20,7 @@
  */
 import { autoScrollAxis, type DragSample, makeReorderGroup, type Point, type ReorderAxis, type ReorderGroup } from "@wardic/core"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
 import { onPassEnd, type ProjectionNodeHandle, type ProjectionRuntime, type ProjectionSystem } from "./projection.ts"
 
@@ -94,7 +95,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
   const group = makeReorderGroup<V>({
     values: options.values,
     onReorder: options.onReorder,
-    axis: options.axis,
+    axis: () => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => Option.fromUndefinedOr(axis())),
     // Read once per drag start (Motion reads it on every sample, Group.tsx:142-147 at 16c6122).
     direction: () => (element !== undefined && getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr"),
     debug,
@@ -136,7 +137,11 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
             ).pipe(Effect.annotateLogs({ value: String(value) })),
           )
         }
-        const unregister = group.register(value, handle)
+        const unregister = group.register(value, {
+          layoutBox: () => Option.fromUndefinedOr(handle.layoutBox()),
+          dragOffset: handle.dragOffset,
+          layoutVersion: handle.layoutVersion,
+        })
         return () => {
           unregister()
           if (unregisteredThisTask.size === 0) queueMicrotask(() => unregisteredThisTask.clear())

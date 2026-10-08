@@ -1,3 +1,6 @@
+import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import type { Point } from "../math/index.ts"
 import type { ReorderAxis } from "./types.ts"
 
@@ -48,7 +51,7 @@ export interface AutoScrollState {
  * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
  */
 export const autoScrollStep = (
-  state: AutoScrollState | undefined,
+  state: Option.Option<AutoScrollState>,
   input: {
     readonly pointer: number
     readonly start: number
@@ -57,31 +60,51 @@ export const autoScrollStep = (
     readonly scroll: number
     readonly maxScroll: () => number
   },
-): { readonly amount: number; readonly state: AutoScrollState | undefined } => {
-  const fromStart = input.pointer - input.start
-  const fromEnd = input.end - input.pointer
-  let edge: "start" | "end"
-  let amount: number
-  if (fromStart < AUTO_SCROLL_THRESHOLD) {
-    const intensity = 1 - fromStart / AUTO_SCROLL_THRESHOLD
-    edge = "start"
-    amount = -AUTO_SCROLL_MAX_SPEED * intensity * intensity
-  } else if (fromEnd < AUTO_SCROLL_THRESHOLD) {
-    const intensity = 1 - fromEnd / AUTO_SCROLL_THRESHOLD
-    edge = "end"
-    amount = AUTO_SCROLL_MAX_SPEED * intensity * intensity
-  } else {
-    return { amount: 0, state: undefined }
-  }
-  let next = state
-  if (next?.edge !== edge) {
-    const towardIt = (edge === "start" && input.velocity < 0) || (edge === "end" && input.velocity > 0)
-    if (!towardIt) return { amount: 0, state }
-    next = { edge, limit: input.maxScroll() }
-  }
-  if (amount > 0 && input.scroll >= next.limit) return { amount: 0, state: next }
-  return { amount, state: next }
+): { readonly amount: number; readonly state: Option.Option<AutoScrollState> } => {
+  /** A step that scrolls `amount` toward `next`'s edge, stopping at its limit. */
+  const scrollWithin = (next: AutoScrollState, amount: number) =>
+    Bool.match(Bool.and(amount > 0, input.scroll >= next.limit), {
+      onTrue: () => ({ amount: 0, state: Option.some(next) }),
+      onFalse: () => ({ amount, state: Option.some(next) }),
+    })
+  return Option.match(nearEdge(input.pointer - input.start, input.end - input.pointer), {
+    onNone: () => ({ amount: 0, state: Option.none() }),
+    onSome: ([edge, amount]) =>
+      Option.match(Option.filter(state, (current) => current.edge === edge), {
+        onSome: (current) => scrollWithin(current, amount),
+        // A start at an edge, or a switch to the other one, needs motion toward it; the limit
+        // is read once, at the start.
+        onNone: () =>
+          Bool.match(movingToward(edge, input.velocity), {
+            onTrue: () => scrollWithin({ edge, limit: input.maxScroll() }, amount),
+            onFalse: () => ({ amount: 0, state }),
+          }),
+      }),
+  })
 }
+
+/** Scroll toward an edge within the threshold: faster the nearer, as the square of the closeness. */
+const toward = (distance: number): number => {
+  const intensity = 1 - distance / AUTO_SCROLL_THRESHOLD
+  return AUTO_SCROLL_MAX_SPEED * intensity * intensity
+}
+
+/** The edge the pointer is within {@link AUTO_SCROLL_THRESHOLD} of, the start first, and the scroll toward it. */
+const nearEdge = (fromStart: number, fromEnd: number): Option.Option<readonly ["start" | "end", number]> =>
+  Option.map(Option.liftPredicate(fromStart, isNear), (d) => ["start", -toward(d)] as const).pipe(
+    Option.orElse(() => Option.map(Option.liftPredicate(fromEnd, isNear), (d) => ["end", toward(d)] as const)),
+  )
+
+/** Nearer an edge than {@link AUTO_SCROLL_THRESHOLD}. */
+const isNear = (distance: number): boolean => distance < AUTO_SCROLL_THRESHOLD
+
+/** A pointer moving toward `edge`. */
+const movingToward = (edge: "start" | "end", velocity: number): boolean =>
+  Match.value(edge).pipe(
+    Match.when("start", () => velocity < 0),
+    Match.when("end", () => velocity > 0),
+    Match.exhaustive,
+  )
 
 /**
  * The axis **Auto-scroll** follows: a single-axis group's own, and in a grid the axis
@@ -91,4 +114,9 @@ export const autoScrollStep = (
  * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
  */
 export const autoScrollAxis = (axis: ReorderAxis, velocity: Point): "x" | "y" =>
-  axis === "xy" ? (Math.abs(velocity.x) > Math.abs(velocity.y) ? "x" : "y") : axis
+  Match.value(axis).pipe(
+    Match.when("xy", () =>
+      Bool.match(Math.abs(velocity.x) > Math.abs(velocity.y), { onTrue: (): "x" | "y" => "x", onFalse: (): "x" | "y" => "y" }),
+    ),
+    Match.orElse((single) => single),
+  )

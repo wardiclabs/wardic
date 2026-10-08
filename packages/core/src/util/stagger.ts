@@ -1,3 +1,5 @@
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import type { Easing } from "../options.ts"
 
 /** Where a stagger originates within the set of children. */
@@ -10,18 +12,13 @@ export interface StaggerOptions {
   readonly ease?: Easing
 }
 
-const resolveOrigin = (from: StaggerOrigin, total: number): number => {
-  switch (from) {
-    case "first":
-      return 0
-    case "last":
-      return total - 1
-    case "center":
-      return (total - 1) / 2
-    default:
-      return from
-  }
-}
+const resolveOrigin = (from: StaggerOrigin, total: number): number =>
+  Match.value(from).pipe(
+    Match.when("first", () => 0),
+    Match.when("last", () => total - 1),
+    Match.when("center", () => (total - 1) / 2),
+    Match.orElse((index) => index),
+  )
 
 /**
  * Builds a per-child delay function: `(index, total) => delaySeconds`. Delay
@@ -40,8 +37,12 @@ export const stagger = (
   return (index, total) => {
     const origin = resolveOrigin(from, total)
     const dist = Math.abs(origin - index)
-    if (ease === undefined) return amount * dist
-    const max = Math.max(1, total - 1)
-    return amount * ease(dist / max) * max
+    return Option.match(Option.fromUndefinedOr(ease), {
+      onNone: () => amount * dist,
+      onSome: (easing) => {
+        const max = Math.max(1, total - 1)
+        return amount * easing(dist / max) * max
+      },
+    })
   }
 }

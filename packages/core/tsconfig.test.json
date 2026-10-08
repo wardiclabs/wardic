@@ -1,5 +1,5 @@
 {
-  "// note": "Test-only typecheck: includes test/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`.",
+  "// note": "Test-only typecheck: includes test/ and bench/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
@@ -10,5 +10,5 @@
     "composite": false,
     "rootDir": "."
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "bench"]
 }

@@ -10,6 +10,7 @@ import {
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Cause from "effect/Cause"
+import * as Option from "effect/Option"
 import { expect, it, layer } from "@effect/vitest"
 
 // Pure interpolator tests — no registry or Effect needed.
@@ -30,13 +31,13 @@ it("unit entry preserves the unit", () => {
   expect(unitInterpolator.interpolate("0px", "10px", 0.5)).toBe("5px")
 })
 
-it("unitOf reads the unit the unit entry parses: '' for a bare number, undefined for none", () => {
-  expect(unitOf(" 10px ")).toBe("px")
-  expect(unitOf("-100%")).toBe("%")
-  expect(unitOf("0.5em")).toBe("em")
-  expect(unitOf("120")).toBe("")
-  expect(unitOf("auto")).toBeUndefined()
-  expect(unitOf("rgb(0, 0, 0)")).toBeUndefined()
+it("unitOf reads the unit the unit entry parses: '' for a bare number, None for none", () => {
+  expect(unitOf(" 10px ")).toEqual(Option.some("px"))
+  expect(unitOf("-100%")).toEqual(Option.some("%"))
+  expect(unitOf("0.5em")).toEqual(Option.some("em"))
+  expect(unitOf("120")).toEqual(Option.some(""))
+  expect(unitOf("auto")).toEqual(Option.none())
+  expect(unitOf("rgb(0, 0, 0)")).toEqual(Option.none())
 })
 
 it("color interpolator does not match the CSS keyword 'auto'", () => {

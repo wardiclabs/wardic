@@ -1,4 +1,5 @@
 import * as Context from "effect/Context"
+import * as Match from "effect/Match"
 import type * as Stream from "effect/Stream"
 
 /**
@@ -50,8 +51,14 @@ export const makePointerLikeEvent = (
   timeStamp: 0,
   pointerType: "mouse",
   isPrimary: true,
-  button: init.type === "down" || init.type === "up" ? 0 : -1,
-  buttons: init.type === "down" || init.type === "move" ? 1 : 0,
+  button: Match.value(init.type).pipe(
+    Match.when(Match.is("down", "up"), () => 0),
+    Match.orElse(() => -1),
+  ),
+  buttons: Match.value(init.type).pipe(
+    Match.when(Match.is("down", "move"), () => 1),
+    Match.orElse(() => 0),
+  ),
   ...init,
 })
 
@@ -65,7 +72,10 @@ export const makePointerLikeEvent = (
  * Tier 2 (ADR-0008): for custom recognizers (ADR-0019).
  */
 export const isPrimaryPointer = (event: PointerLikeEvent): boolean =>
-  event.pointerType === "mouse" ? event.button <= 0 : event.isPrimary
+  Match.value(event).pipe(
+    Match.when({ pointerType: "mouse" }, (mouse) => mouse.button <= 0),
+    Match.orElse((other) => other.isPrimary),
+  )
 
 export interface KeyboardLikeEvent {
   readonly type: "down" | "up"

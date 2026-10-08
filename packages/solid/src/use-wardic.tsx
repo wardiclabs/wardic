@@ -63,6 +63,7 @@ import {
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
 import {
   type Accessor,
@@ -599,10 +600,13 @@ export function runSpine(opts: RunSpineOptions): void {
       // key's target (`like`).
       const ownValue = ownValues(element)
       const linksFor = (like: number | string) => ({
-        style: (key: string) => (styleOf !== undefined ? valueLike(styleValueOf(untrack(styleOf), key), like) : undefined),
-        own: (key: string) => valueLike(ownValue(key), like),
+        style: (key: string) =>
+          Option.flatMap(Option.fromUndefinedOr(styleOf), (of) =>
+            Option.fromUndefinedOr(valueLike(styleValueOf(untrack(of), key), like)),
+          ),
+        own: (key: string) => Option.fromUndefinedOr(valueLike(ownValue(key), like)),
       })
-      const startOf = (key: string, like: number | string) => startValueOf(key, linksFor(like))
+      const startOf = (key: string, like: number | string) => Option.getOrUndefined(startValueOf(key, linksFor(like)))
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
@@ -847,7 +851,7 @@ export function runSpine(opts: RunSpineOptions): void {
             for (const [key, like] of driven) {
               // A translate key the strip below holds back returns once the drag lets go.
               if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) continue
-              const r = baseValueOf(key, { base, initial: initialValues, ...linksFor(like) })
+              const r = Option.getOrUndefined(baseValueOf(key, { base, initial: initialValues, ...linksFor(like) }))
               if (r === undefined) driven.delete(key)
               else {
                 t[key] = r.value

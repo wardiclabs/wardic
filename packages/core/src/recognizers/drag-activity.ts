@@ -13,6 +13,7 @@
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect.
  */
 import * as Context from "effect/Context"
+import * as MutableRef from "effect/MutableRef"
 
 /** The Drag activity counter. */
 export interface DragActivityShape {
@@ -24,18 +25,17 @@ export interface DragActivityShape {
 
 /** A fresh Drag activity counter, with no drag active. */
 export const makeDragActivity = (): DragActivityShape => {
-  let active = 0
+  const active = MutableRef.make(0)
   return {
     claim: () => {
-      active++
-      let released = false
+      MutableRef.increment(active)
+      const released = MutableRef.make(false)
       return () => {
-        if (released) return
-        released = true
-        active--
+        // Counts off once: only the first call flips `released`.
+        if (MutableRef.compareAndSet(released, false, true)) MutableRef.decrement(active)
       }
     },
-    isDragActive: () => active > 0,
+    isDragActive: () => MutableRef.get(active) > 0,
   }
 }
 

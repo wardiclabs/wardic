@@ -3,12 +3,13 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { AnimateOptions, SpringOptions, Values } from "../options.ts"
 import { Clock } from "../services/Clock.ts"
 import { InterpolatorRegistry } from "../services/InterpolatorRegistry.ts"
 import type { Frame, MultiPhysicsFrame } from "./frame.ts"
 import { animate } from "./scalar.ts"
-import { initSpring, type SpringState, springStep } from "./stepper.ts"
+import { initSpring, resolveSpring, type SpringState, stepSpring } from "./stepper.ts"
 
 const DEFAULT_DURATION: AnimateOptions = { duration: 0.3 }
 
@@ -34,8 +35,13 @@ const isVisibilityKey: Predicate.Predicate<string> = (key) => VISIBILITY_KEYS.ha
 /** A pair that hides: a `display` or `visibility` key, from a visible value to `none` or `hidden`. */
 const hides: Predicate.Predicate<KeyedPair> = Predicate.Tuple([isVisibilityKey, Predicate.not(isInvisible), isInvisible])
 
-/** A hiding pair's blender: it shows `from` until the leg's last frame, then `to`. */
-const holdUntilDone = (from: number | string, to: number | string): Blender => (_t, done) => (done ? to : from)
+/** A hiding pair's blender: it shows `from` until the leg's last frame, then `to`. Per frame: a statement `if`. */
+const holdUntilDone =
+  (from: number | string, to: number | string): Blender =>
+  (_t, done) => {
+    if (done) return to
+    return from
+  }
 
 /**
  * Each key's blender from `from[key]` (its target when absent) to `to[key]`, resolved through
@@ -66,11 +72,20 @@ const blendersFor = (
     )
   })
 
-/** Every key's blend at one progress frame. */
-const blendAt = (blenders: Rec.ReadonlyRecord<string, Blender>, t: number, done: boolean): Frame<Values> => ({
-  value: Rec.map(blenders, (blend) => blend(t, done)),
-  done,
-})
+/**
+ * Every key's blend at one progress frame. On the per-frame path (ADR-0025): a loop over the
+ * `[key, blender]` pairs built with the stream, not `Rec.map`, which spreads the record and then
+ * reassigns every key (#63 measured `Rec.map` 1.6× this loop in Chromium, 2.3× in JSC).
+ */
+const blendAt = (
+  blenders: ReadonlyArray<readonly [key: string, blend: Blender]>,
+  t: number,
+  done: boolean,
+): Frame<Values> => {
+  const value: Record<string, number | string> = {}
+  for (const pair of blenders) value[pair[0]] = pair[1](t, done)
+  return { value, done }
+}
 
 /**
  * Animate a bag of values from `from` to `to`, interpolating each key through
@@ -96,7 +111,7 @@ export const animateValues = (
       yield* Effect.logDebug("wardic.animateValues: subscribe").pipe(
         Effect.annotateLogs({ keys: Object.keys(to), duration: options.duration }),
       )
-      const blenders = yield* blendersFor(from, to)
+      const blenders = Rec.toEntries(yield* blendersFor(from, to))
       return animate(0, 1, options).pipe(Stream.map((progress) => blendAt(blenders, progress.value, progress.done)))
     }),
   ).pipe(Stream.withSpan("wardic.animateValues", { attributes: { keys: Object.keys(to).length } }))
@@ -124,9 +139,9 @@ export const springBlend = (
   Stream.unwrap(
     Effect.gen(function* () {
       yield* Effect.logDebug("wardic.springBlend: subscribe").pipe(Effect.annotateLogs({ keys: Object.keys(to) }))
-      const blenders = yield* blendersFor(from, to)
+      const blenders = Rec.toEntries(yield* blendersFor(from, to))
       return springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }).pipe(
-        Stream.map((frame) => blendAt(blenders, frame.value.progress! / 100, frame.done)),
+        Stream.map((frame) => blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),
       )
     }),
   ).pipe(Stream.withSpan("wardic.springBlend", { attributes: { keys: Object.keys(to).length } }))
@@ -153,31 +168,38 @@ export const springValues = (
   from: Record<string, number> = {},
   velocity: Record<string, number> = {},
 ): Stream.Stream<MultiPhysicsFrame, never, Clock> => {
-  const keys = Object.keys(target)
+  const keys = Rec.keys(target)
+  /** A key's start: its own value, else the options', else 0. */
+  const startOf = (values: Record<string, number>, key: string, fallback: number | undefined): number =>
+    Option.fromNullishOr(values[key]).pipe(
+      Option.orElse(() => Option.fromNullishOr(fallback)),
+      Option.getOrElse(() => 0),
+    )
   return Stream.unwrap(
     Effect.gen(function* () {
       yield* Effect.logDebug("wardic.springValues: subscribe").pipe(Effect.annotateLogs({ keys }))
       const clock = yield* Clock
+      const spring = resolveSpring(options)
       return clock.ticks.pipe(
         Stream.mapAccum(
-          (): Record<string, SpringState> => {
-            const initial: Record<string, SpringState> = {}
-            for (const key of keys) {
-              initial[key] = initSpring({
+          (): Rec.ReadonlyRecord<string, SpringState> =>
+            Rec.map(target, (_, key) =>
+              initSpring({
                 ...options,
-                from: from[key] ?? options.from ?? 0,
-                velocity: velocity[key] ?? options.velocity ?? 0,
-              })
-            }
-            return initial
-          },
+                from: startOf(from, key, options.from),
+                velocity: startOf(velocity, key, options.velocity),
+              }),
+            ),
+          // Per frame (ADR-0025): a loop over the keys, every key's state and target present by
+          // construction. Records, as before: #63's bench measured an array of states, filled
+          // by `push` and destructured, at +18% bytes per frame.
           (states, dt) => {
             const nextStates: Record<string, SpringState> = {}
             const values: Record<string, number> = {}
             const velocities: Record<string, number> = {}
             let allDone = true
             for (const key of keys) {
-              const result = springStep(states[key]!, dt, target[key]!, options)
+              const result = stepSpring(UndefinedOr.getOrThrow(states[key]), dt, UndefinedOr.getOrThrow(target[key]), spring)
               nextStates[key] = result.state
               values[key] = result.value
               velocities[key] = result.velocity

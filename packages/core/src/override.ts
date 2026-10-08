@@ -1,3 +1,6 @@
+import * as Arr from "effect/Array"
+import * as Combiner from "effect/Combiner"
+import * as Rec from "effect/Record"
 import type { Values } from "./options.ts"
 
 /**
@@ -21,16 +24,14 @@ export interface Override {
  * names (recognition vs response — ADR-0004). The result feeds `springValues` /
  * `animateValues`.
  */
-export const resolveOverrides = (overrides: ReadonlyArray<Override>): Values => {
-  const out: Record<string, number | string> = {}
-  for (const override of overrides) {
-    if (!override.active) continue
-    for (const key in override.values) {
-      // Own-prop guard: value-maps are plain objects, but stay defensive.
-      if (Object.prototype.hasOwnProperty.call(override.values, key)) {
-        out[key] = override.values[key]!
-      }
-    }
-  }
-  return out
-}
+export const resolveOverrides = (overrides: ReadonlyArray<Override>): Values =>
+  Arr.reduce(Arr.filter(overrides, isActive), Rec.empty<string, number | string>(), (out, override) =>
+    // Own keys only (value-maps are plain objects, but stay defensive); a later entry's value wins.
+    Rec.union(out, override.values, lastWins.combine),
+  )
+
+/** An entry that contributes: one whose state is on. */
+const isActive = (override: Override): boolean => override.active
+
+/** For a key two entries define, the later (higher-priority) entry's value. */
+const lastWins = Combiner.last<number | string>()

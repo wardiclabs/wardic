@@ -3,7 +3,7 @@ import * as Stream from "effect/Stream"
 import type { SpringOptions } from "../options.ts"
 import { Clock } from "../services/Clock.ts"
 import { MAX_DT, type PhysicsFrame } from "./frame.ts"
-import { initSpring, springStep } from "./stepper.ts"
+import { initSpring, resolveSpring, stepSpring } from "./stepper.ts"
 
 /**
  * Shared dynamic-target spring core.
@@ -30,13 +30,14 @@ export const chaseCore = (
   Stream.unwrap(
     Effect.gen(function* () {
       const clock = yield* Clock
+      const spring = resolveSpring(options)
       return clock.ticks.pipe(
         Stream.mapAccum(
           () => initSpring(options),
           (state, dt) => {
             // Clamp at the engine boundary — same jank protection every primitive inherits.
-            const clampedDt = dt > MAX_DT ? MAX_DT : dt
-            const result = springStep(state, clampedDt, getTarget(), options)
+            const clampedDt = Math.min(dt, MAX_DT)
+            const result = stepSpring(state, clampedDt, getTarget(), spring)
             const frame: PhysicsFrame = {
               value: result.value,
               velocity: result.velocity,
@@ -65,10 +66,8 @@ export const chase = (
   getTarget: () => number,
   options: SpringOptions = {},
 ): Stream.Stream<PhysicsFrame, never, Clock> => {
-  const attributes = {
-    stiffness: options.stiffness ?? 170,
-    damping: options.damping ?? 26,
-  }
+  const { stiffness, damping } = resolveSpring(options)
+  const attributes = { stiffness, damping }
   return Stream.unwrap(
     Effect.gen(function* () {
       yield* Effect.logDebug("wardic.chase: subscribe")

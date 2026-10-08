@@ -8,6 +8,7 @@
  * scrolls again, so it keeps scrolling while the pointer holds still in the zone.
  */
 import { autoScrollStep, type AutoScrollState, type Point } from "@wardic/core"
+import * as Option from "effect/Option"
 import { heldScrollShift } from "./input.ts"
 
 /** The overflow values Motion's auto-scroll scrolls (auto-scroll.ts:4). */
@@ -103,8 +104,8 @@ export const makeAutoScroller = (
         scroll = axis === "x" ? el.scrollLeft : el.scrollTop
         maxScroll = () => (axis === "x" ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight)
       }
-      const step = autoScrollStep(states.get(axis), { pointer: at, start, end, velocity, scroll, maxScroll })
-      setState(axis, step.state)
+      const step = autoScrollStep(Option.fromUndefinedOr(states.get(axis)), { pointer: at, start, end, velocity, scroll, maxScroll })
+      setState(axis, Option.getOrUndefined(step.state))
       if (step.amount === 0) return
       if (scroller.kind === "document") scroller.win.scrollBy(axis === "x" ? { left: step.amount } : { top: step.amount })
       else if (axis === "x") scroller.el.scrollLeft += step.amount

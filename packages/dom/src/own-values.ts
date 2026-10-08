@@ -11,6 +11,7 @@
  * started from and returned to.
  */
 import { transformIdentity, unitOf } from "@wardic/core"
+import * as Option from "effect/Option"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
 
@@ -37,7 +38,7 @@ export const ownValues = (element: Element): OwnValue => {
   const cache = new Map<string, number | string | undefined>()
   let computed: CSSStyleDeclaration | undefined
   const read = (key: string): number | string | undefined => {
-    const identity = transformIdentity(key)
+    const identity = Option.getOrUndefined(transformIdentity(key))
     if (identity !== undefined) return identity
     if (isSvgInner(element)) {
       const name = svgAttrNameOf(key)
@@ -66,7 +67,7 @@ export const ownValues = (element: Element): OwnValue => {
  * compose with the element's transform rather than seed it.
  */
 export const styleValueOf = (style: object | string | undefined, key: string): unknown => {
-  if (style === undefined || style === null || transformIdentity(key) !== undefined) return undefined
+  if (style === undefined || style === null || Option.isSome(transformIdentity(key))) return undefined
   const map = (typeof style === "string" ? parseCssText(style) : style) as Readonly<Record<string, unknown>>
   const at = (k: string): unknown => {
     const v = Object.hasOwn(map, k) ? map[k] : undefined
@@ -98,8 +99,8 @@ export const valueLike = (raw: unknown, like: number | string): number | string 
     return typeof raw === "string" && NUMERIC.test(raw) ? Number.parseFloat(raw) : undefined
   }
   if (typeof raw === "string") {
-    const want = unitOf(like)
-    const got = unitOf(raw)
+    const want = Option.getOrUndefined(unitOf(like))
+    const got = Option.getOrUndefined(unitOf(raw))
     const clash = want !== undefined && want !== "" && got !== undefined && got !== "" && got !== want
     return clash ? undefined : raw
   }

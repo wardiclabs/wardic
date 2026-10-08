@@ -1,3 +1,5 @@
+import * as Option from "effect/Option"
+import * as Rec from "effect/Record"
 import type { Values } from "./options.ts"
 
 /**
@@ -5,7 +7,8 @@ import type { Values } from "./options.ts"
  * framework-free, so every binding and Environment shares them; the read of an element's
  * own value is the Environment's (`@wardic/dom`'s `ownValues` for the DOM).
  *
- * Tier 2, for binding and Environment authors. Observability: pure and per element, so
+ * Tier 2, for binding and Environment authors, and Effect-native: a missing value is an
+ * `Option` (ADR-0008 as amended by ADR-0025). Observability: pure and per element, so
  * quiet (no span, no log).
  */
 
@@ -37,9 +40,8 @@ export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freez
   skewY: 0,
 })
 
-/** A transform key's identity (see {@link TRANSFORM_IDENTITY}), or `undefined` for any other key. */
-export const transformIdentity = (key: string): number | undefined =>
-  Object.hasOwn(TRANSFORM_IDENTITY, key) ? TRANSFORM_IDENTITY[key] : undefined
+/** A transform key's identity (see {@link TRANSFORM_IDENTITY}), or `None` for any other key, prototype names included. */
+export const transformIdentity = (key: string): Option.Option<number> => Rec.get(TRANSFORM_IDENTITY, key)
 
 /** Which link of the chain a Base value came from. */
 export type BaseSource = "base" | "initial" | "style" | "own"
@@ -50,8 +52,8 @@ export interface BaseValue {
   readonly source: BaseSource
 }
 
-/** A per-key lookup: a value, or `undefined` for none. */
-export type ValueLookup = (key: string) => number | string | undefined
+/** A per-key lookup: a value, or `None` for none. */
+export type ValueLookup = (key: string) => Option.Option<number | string>
 
 /**
  * The links of a key's chain, in order.
@@ -61,7 +63,7 @@ export type ValueLookup = (key: string) => number | string | undefined
  * - `initial`: the element's resolved `initial` values. An inherited `initial` (#50) joins
  *   here.
  * - `style`: the element's user style for the key, coerced to the key's shape; a surface
- *   with no style link passes `() => undefined`.
+ *   with no style link passes `() => Option.none()`.
  * - `own`: the element's Own value, read by its Environment; asked only when every earlier
  *   link misses.
  */
@@ -72,33 +74,29 @@ export interface BaseSources {
   readonly own: ValueLookup
 }
 
-const own = (values: Values, key: string): number | string | undefined =>
-  Object.hasOwn(values, key) ? values[key] : undefined
+/** A link's own value for `key`, by own property only; a key set to `undefined` has none. */
+const own = (values: Values, key: string): Option.Option<number | string> =>
+  Option.flatMap(Rec.get(values, key), Option.fromUndefinedOr)
 
 /**
  * A key's Base value: where it returns once no layer sets it. The first link that has the
  * key wins: `base`, then `initial`, then `style`, then `own`. A later link is never asked
- * once one hits. `undefined` means no link has it, so the key doesn't return (it stays where
+ * once one hits. `None` means no link has it, so the key doesn't return (it stays where
  * it is).
  */
-export const baseValueOf = (key: string, sources: BaseSources): BaseValue | undefined => {
-  const base = own(sources.base, key)
-  if (base !== undefined) return { value: base, source: "base" }
-  const initial = own(sources.initial, key)
-  if (initial !== undefined) return { value: initial, source: "initial" }
-  return startValueOf(key, sources)
-}
+export const baseValueOf = (key: string, sources: BaseSources): Option.Option<BaseValue> =>
+  Option.map(own(sources.base, key), (value): BaseValue => ({ value, source: "base" })).pipe(
+    Option.orElse(() => Option.map(own(sources.initial, key), (value): BaseValue => ({ value, source: "initial" }))),
+    Option.orElse(() => startValueOf(key, sources)),
+  )
 
 /**
  * Where a key with no value yet starts: its `style` value, then its Own value (`initial`
- * already seeds the element's values, ADR-0003). `undefined` means neither has it; the
+ * already seeds the element's values, ADR-0003). `None` means neither has it; the
  * caller's last resort is to start the key at its target, with no motion (Motion's
  * `unresolvedKeyframes[0] = finalKeyframe`, KeyframesResolver.ts:226-228).
  */
-export const startValueOf = (key: string, sources: Pick<BaseSources, "style" | "own">): BaseValue | undefined => {
-  const style = sources.style(key)
-  if (style !== undefined) return { value: style, source: "style" }
-  const read = sources.own(key)
-  if (read !== undefined) return { value: read, source: "own" }
-  return undefined
-}
+export const startValueOf = (key: string, sources: Pick<BaseSources, "style" | "own">): Option.Option<BaseValue> =>
+  Option.map(sources.style(key), (value): BaseValue => ({ value, source: "style" })).pipe(
+    Option.orElse(() => Option.map(sources.own(key), (value): BaseValue => ({ value, source: "own" }))),
+  )

@@ -1,4 +1,8 @@
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import type { FocusLikeEvent, PointerLikeEvent } from "../services/InputSource.ts"
 import { InputSource, isPrimaryPointer } from "../services/InputSource.ts"
@@ -53,28 +57,30 @@ const stateRecognizer = <Ev, S, R>(
     Effect.gen(function* () {
       yield* Effect.logDebug(`${span}: subscribe`).pipe(Effect.annotateLogs(attributes))
       const { events, fold } = yield* acquire
-      if (fold.fromInitial) {
-        return events.pipe(
-          Stream.mapAccum(
-            () => fold.initial,
-            (state, ev) => {
-              const next = fold.step(state, ev)
-              const active = fold.active(next)
-              return [next, active === fold.active(state) ? NONE : [active]] as const
-            },
+      return Bool.match(fold.fromInitial, {
+        onTrue: () =>
+          events.pipe(
+            Stream.mapAccum(
+              () => fold.initial,
+              (state, ev) => {
+                const next = fold.step(state, ev)
+                const active = fold.active(next)
+                return [next, Bool.match(active === fold.active(state), { onTrue: () => NONE, onFalse: () => [active] })] as const
+              },
+            ),
           ),
-        )
-      }
-      return events.pipe(
-        Stream.mapAccum(
-          () => fold.initial,
-          (state, ev) => {
-            const next = fold.step(state, ev)
-            return [next, [fold.active(next)]] as const
-          },
-        ),
-        Stream.changes,
-      )
+        onFalse: () =>
+          events.pipe(
+            Stream.mapAccum(
+              () => fold.initial,
+              (state, ev) => {
+                const next = fold.step(state, ev)
+                return [next, [fold.active(next)]] as const
+              },
+            ),
+            Stream.changes,
+          ),
+      })
     }).pipe(Effect.annotateLogs(attributes)),
   ).pipe(Stream.withSpan(span, { attributes }))
 
@@ -90,9 +96,17 @@ interface HoverState {
 
 const noHover: HoverState = { inside: false, held: null, deferred: false }
 
+/** An event of one type. */
+const ofType =
+  (type: PointerLikeEvent["type"]): Predicate.Predicate<PointerLikeEvent> =>
+  (event) =>
+    event.type === type
+
+/** A move with no button pressed: the release was lost (ADR-0019). */
+const isUnpressedMove: Predicate.Predicate<PointerLikeEvent> = Predicate.and(ofType("move"), (event) => event.buttons === 0)
+
 /** Whether `event` ends a held pointer's press: its release, its cancel, or a move with no button pressed. */
-const endsPress = (event: PointerLikeEvent): boolean =>
-  event.type === "up" || event.type === "cancel" || (event.type === "move" && event.buttons === 0)
+const endsPress: Predicate.Predicate<PointerLikeEvent> = Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
 
 /**
  * Hover's fold, after Motion's `hover` (`motion-dom/src/gestures/hover.ts` @ `16c6122`,
@@ -106,22 +120,26 @@ const endsPress = (event: PointerLikeEvent): boolean =>
 const hoverFold = (activity: DragActivityShape): Fold<HoverState, PointerLikeEvent> => ({
   initial: noHover,
   fromInitial: true,
-  active: (s) => s.inside || s.deferred,
-  step: (s, e) => {
-    if (e.pointerType === "touch") return s
-    switch (e.type) {
-      case "enter":
-        return activity.isDragActive() ? s : { ...s, inside: true, deferred: false }
-      case "leave":
-        if (!s.inside) return s
-        return { ...s, inside: false, deferred: s.held !== null }
-      case "down":
-        return s.held === null ? { ...s, held: e.pointerId } : s
-      default:
-        if (e.pointerId !== s.held || !endsPress(e)) return s
-        return { ...s, held: null, deferred: false }
-    }
-  },
+  active: (s) => Bool.or(s.inside, s.deferred),
+  step: (s, e) =>
+    Match.value(e).pipe(
+      Match.when({ pointerType: "touch" }, () => s),
+      Match.when({ type: "enter" }, () =>
+        Bool.match(activity.isDragActive(), { onTrue: () => s, onFalse: () => ({ ...s, inside: true, deferred: false }) }),
+      ),
+      Match.when({ type: "leave" }, () =>
+        Bool.match(s.inside, { onTrue: () => ({ ...s, inside: false, deferred: Predicate.isNotNull(s.held) }), onFalse: () => s }),
+      ),
+      Match.when({ type: "down" }, (down) =>
+        Option.match(Option.fromNullOr(s.held), { onNone: () => ({ ...s, held: down.pointerId }), onSome: () => s }),
+      ),
+      Match.orElse((other) =>
+        Bool.match(Bool.and(other.pointerId === s.held, endsPress(other)), {
+          onTrue: () => ({ ...s, held: null, deferred: false }),
+          onFalse: () => s,
+        }),
+      ),
+    ),
 })
 
 /**
@@ -150,12 +168,20 @@ export const hover = (target: unknown): Stream.Stream<boolean, never, InputSourc
 const pressFold = (activity: DragActivityShape): Fold<number | null, PointerLikeEvent> => ({
   initial: null,
   fromInitial: true,
-  active: (owner) => owner !== null,
-  step: (owner, e) => {
-    if (!isPrimaryPointer(e)) return owner
-    if (e.type === "down") return owner !== null || activity.isDragActive() ? owner : e.pointerId
-    return e.pointerId === owner && endsPress(e) ? null : owner
-  },
+  active: Predicate.isNotNull,
+  step: (owner, e) =>
+    Match.value(e).pipe(
+      Match.when(Predicate.not(isPrimaryPointer), () => owner),
+      Match.when({ type: "down" }, (down) =>
+        Bool.match(Bool.or(Predicate.isNotNull(owner), activity.isDragActive()), {
+          onTrue: () => owner,
+          onFalse: () => down.pointerId,
+        }),
+      ),
+      Match.orElse((other) =>
+        Bool.match(Bool.and(other.pointerId === owner, endsPress(other)), { onTrue: () => null, onFalse: () => owner }),
+      ),
+    ),
 })
 
 /**
@@ -209,7 +235,7 @@ export const focus = (target: unknown): Stream.Stream<boolean, never, InputSourc
  */
 export const inView = (
   target: unknown,
-  options?: { readonly once?: boolean },
+  options: { readonly once?: boolean } = {},
 ): Stream.Stream<boolean, never, Probe> => {
   const base = stateRecognizer(
     "wardic.inView",
@@ -219,5 +245,8 @@ export const inView = (
       fold: booleanFold((inView: boolean) => inView),
     })),
   )
-  return options?.once === true ? base.pipe(Stream.takeUntil((active) => active)) : base
+  return Bool.match(options.once === true, {
+    onTrue: () => base.pipe(Stream.takeUntil((active) => active)),
+    onFalse: () => base,
+  })
 }

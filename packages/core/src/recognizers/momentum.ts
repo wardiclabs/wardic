@@ -1,12 +1,16 @@
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import type { DecayOptions } from "../options.ts"
 import { MAX_DT } from "../primitives/frame.ts"
-import { decayStep, initDecay } from "../primitives/stepper.ts"
+import { initDecay, resolveDecay, stepDecay } from "../primitives/stepper.ts"
 import { Clock } from "../services/Clock.ts"
-import { InputSource, isPrimaryPointer } from "../services/InputSource.ts"
-import { drag, type Vec2 } from "./drag.ts"
+import { InputSource, isPrimaryPointer, type PointerLikeEvent } from "../services/InputSource.ts"
+import { drag, type DragSample, type Vec2 } from "./drag.ts"
 import { axisLock, type DragBounds, withinBounds } from "./shaping.ts"
 
 /**
@@ -30,13 +34,15 @@ export const decayVec = (
   Stream.unwrap(
     Effect.gen(function* () {
       const clock = yield* Clock
+      const decay = resolveDecay(options)
       return clock.ticks.pipe(
         Stream.mapAccum(
           () => ({ x: initDecay(initial.x, velocity.x), y: initDecay(initial.y, velocity.y) }),
+          // Per frame (ADR-0025): the decay resolved above, no allocation beyond the frame.
           (state, dt) => {
-            const clampedDt = dt > MAX_DT ? MAX_DT : dt
-            const rx = decayStep(state.x, clampedDt, options)
-            const ry = decayStep(state.y, clampedDt, options)
+            const clampedDt = Math.min(dt, MAX_DT)
+            const rx = stepDecay(state.x, clampedDt, decay)
+            const ry = stepDecay(state.y, clampedDt, decay)
             const frame = { value: { x: rx.value, y: ry.value } as Vec2, done: rx.done && ry.done }
             return [{ x: rx.state, y: ry.state }, [frame]] as const
           },
@@ -90,7 +96,7 @@ const initial: MomentumState = { position: ORIGIN, base: ORIGIN, mode: "idle" }
  * The merged event the machine switches over: either a fresh drag sample, or a
  * bare "grab" (a pointer-down) used purely to interrupt any fling.
  */
-type Event = { readonly _tag: "sample"; readonly s: import("./drag.ts").DragSample } | { readonly _tag: "grab" }
+type Event = { readonly _tag: "sample"; readonly s: DragSample } | { readonly _tag: "grab" }
 
 /**
  * The inner stream for one merged event. This is the *only* place effects run:
@@ -110,49 +116,55 @@ const inner = (
   event: Event,
   ref: Ref.Ref<MomentumState>,
   options: MomentumOptions,
-): Stream.Stream<Vec2, never, Clock> => {
-  if (event._tag === "grab") {
+): Stream.Stream<Vec2, never, Clock> =>
+  Match.value(event).pipe(
     // Returning an empty inner cancels any in-flight decay (switchMap interrupts
     // the previous inner), so the fling stops where it reached. Position is held —
     // no emission, no jump. The next drag rebases at its "start", not here: a new
     // down from a pointer whose release was lost also ends the old gesture (a Stale
     // gesture, ADR-0019), and that "end" and this grab arrive in either order.
-    return Stream.fromEffect(Ref.update(ref, (st) => ({ ...st, mode: "idle" as const }))).pipe(Stream.drain)
-  }
-
-  const sample = event.s
-
-  if (sample.phase === "start" || sample.phase === "move") {
-    // Absolute position = base + the drag's accumulated offset. A "start" rebases to
-    // wherever the surface sits now, so the drag continues from there.
-    return Stream.fromEffect(
-      Ref.modify(ref, (st) => {
-        const base = sample.phase === "start" ? st.position : st.base
-        const p: Vec2 = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
-        return [p, { base, position: p, mode: "drag" as const }] as const
-      }),
-    )
-  }
-
-  // phase === "end": fling from the release position at the release velocity via
-  // the two-axis decayVec (one Vec2 per tick), tapping each position back into
-  // the ref so a mid-fling re-grab can rebase from where the fling reached.
-  return Stream.unwrap(
-    Ref.get(ref).pipe(
-      Effect.map((st) => {
-        const releasePos: Vec2 = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
-        return decayVec(releasePos, sample.velocity, options).pipe(
-          Stream.tap((p) => Ref.update(ref, (s) => ({ ...s, position: p, mode: "fling" as const }))),
-          // On completion (both axes settled) drop back to idle so a later grab
-          // rebases from the resting position.
-          Stream.concat(
-            Stream.fromEffect(Ref.update(ref, (s) => ({ ...s, mode: "idle" as const }))).pipe(Stream.drain),
+    Match.tag("grab", () => Stream.fromEffect(Ref.update(ref, (st) => ({ ...st, mode: "idle" as const }))).pipe(Stream.drain)),
+    Match.tag("sample", ({ s: sample }) =>
+      Match.value(sample.phase).pipe(
+        // Absolute position = base + the drag's accumulated offset. A "start" rebases to
+        // wherever the surface sits now, so the drag continues from there.
+        Match.when(Match.is("start", "move"), (phase) =>
+          Stream.fromEffect(
+            Ref.modify(ref, (st) => {
+              const base = Bool.match(phase === "start", { onTrue: () => st.position, onFalse: () => st.base })
+              const p: Vec2 = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+              return [p, { base, position: p, mode: "drag" as const }] as const
+            }),
           ),
-        )
-      }),
+        ),
+        // "end": fling from the release position at the release velocity via the two-axis
+        // decayVec (one Vec2 per tick), tapping each position back into the ref so a mid-fling
+        // re-grab can rebase from where the fling reached.
+        Match.when("end", () =>
+          Stream.unwrap(
+            Ref.get(ref).pipe(
+              Effect.map((st) => {
+                const releasePos: Vec2 = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
+                return decayVec(releasePos, sample.velocity, options).pipe(
+                  Stream.tap((p) => Ref.update(ref, (s) => ({ ...s, position: p, mode: "fling" as const }))),
+                  // On completion (both axes settled) drop back to idle so a later grab
+                  // rebases from the resting position.
+                  Stream.concat(
+                    Stream.fromEffect(Ref.update(ref, (s) => ({ ...s, mode: "idle" as const }))).pipe(Stream.drain),
+                  ),
+                )
+              }),
+            ),
+          ),
+        ),
+        Match.exhaustive,
+      ),
     ),
+    Match.exhaustive,
   )
-}
+
+/** A primary pointer's down: a grab, which stops a fling where it reached. */
+const isGrab: Predicate.Predicate<PointerLikeEvent> = Predicate.and((e: PointerLikeEvent) => e.type === "down", isPrimaryPointer)
 
 /**
  * Draggable-with-momentum recognizer: tracks a drag and, on release, flings the
@@ -180,9 +192,9 @@ export const withMomentum = (
   options: MomentumOptions = {},
 ): Stream.Stream<Vec2, never, InputSource | Clock> => {
   const attributes = {
-    axis: options.axis ?? "free",
-    bounded: options.bounds !== undefined,
-    elastic: options.elastic ?? 0,
+    axis: Option.getOrElse(Option.fromNullishOr(options.axis), (): "x" | "y" | "free" => "free"),
+    bounded: Predicate.isNotUndefined(options.bounds),
+    elastic: Option.getOrElse(Option.fromNullishOr(options.elastic), () => 0),
   }
   return Stream.unwrap(
     Effect.gen(function* () {
@@ -192,17 +204,25 @@ export const withMomentum = (
 
       // Shape the drag samples *before* the fling fusion, so axis-lock / bounds
       // affect both the live drag and the release velocity that seeds decay.
-      let shaped = drag(target)
-      if (options.axis !== undefined) shaped = shaped.pipe(axisLock(options.axis))
-      if (options.bounds !== undefined) {
-        shaped = shaped.pipe(
-          withinBounds(options.bounds, options.elastic === undefined ? {} : { elastic: options.elastic }),
-        )
-      }
+      const dragged = drag(target)
+      const locked = Option.match(Option.fromUndefinedOr(options.axis), {
+        onNone: () => dragged,
+        onSome: (axis) => dragged.pipe(axisLock(axis)),
+      })
+      const shaped = Option.match(Option.fromUndefinedOr(options.bounds), {
+        onNone: () => locked,
+        onSome: (bounds) =>
+          locked.pipe(
+            withinBounds(
+              bounds,
+              Option.match(Option.fromUndefinedOr(options.elastic), { onNone: () => ({}), onSome: (elastic) => ({ elastic }) }),
+            ),
+          ),
+      })
 
       const samples = shaped.pipe(Stream.map((s) => ({ _tag: "sample" as const, s })))
       const grabs = input.pointer(target).pipe(
-        Stream.filter((e) => e.type === "down" && isPrimaryPointer(e)),
+        Stream.filter(isGrab),
         Stream.map(() => ({ _tag: "grab" as const })),
       )
 
