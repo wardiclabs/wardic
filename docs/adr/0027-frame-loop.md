@@ -160,3 +160,60 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
 - **Two declared changes** reach the binding with #74: a loop failure fails runs instead of hanging them, and a failed leg is logged.
 - **CONTEXT.md** gains the Frame loop and Leg. Primitive, Frame and Settle are reworded, and the pieces of one `animate` or `keyframes` run are "segments" in the code.
 - **The Clock's latency and its Priming tick are unchanged.** So is the gate's one frame of latency, until #73.
+
+## Implementation in #68's first PR (slices 1 and 2)
+
+- **Leaves and composites.** Decision 3 keeps the Tier 2 `Stream`s' spans exactly, and decision 4's "each `Stream` runs its machine" holds where both can:
+  - **the leaves' `Stream`s run their machines** (`toStream`): `tween`, `decay`, `spring` and `chase` (through `chaseCore`), `springValues` and `decayVec`, with their logs and spans as before;
+  - **the composites' `Stream`s still compose the leaves' `Stream`s:** `animate` and `keyframes` concatenate `tween`s, and `animateValues` and `springBlend` map `animate` and `springValues`. So their nested spans (`wardic.animate` › `wardic.tween`), their logs (`observability.test.ts` pins `wardic.tween` under `animate`), and their per-segment Clock subscriptions don't change;
+  - **the composites' machines compose the leaf machines** with `machine.ts`'s combinators: `mapFrames`, `inSequence` (`Stream.concat`'s seam) and `cycle` (`Stream.forever`'s).
+
+  The step math is defined once, in the leaves. The sequencing exists twice, and the parity tests pin it.
+- **One difference on the loop path: a fractional `repeat`** (1.5).
+  - **The `Stream`** runs `ceil(runs)` segments, all re-stamped, and ends with no settled Frame (`i === runs - 1` is never true).
+  - **The machine** settles on its last segment's settled Frame, since the loop can't end a run without one.
+  - Tier 2 is unchanged. #74 declares it when the binding moves onto the loop.
+- **Pinned by:**
+  - **`packages/test/test/machines.test.ts`:**
+    - each machine against its `Stream` on one live Clock, with uneven dts (60, 30 and 120 Hz, a 0, and two above `MAX_DT`), covering every leaf and every composite: `animate` (one segment; `repeat` with `delay` on every segment, #77; `yoyo` and `reverse`; `repeat: Infinity` with and without `yoyo`), `keyframes` (four stops, one, none), `animateValues` and `springBlend` with a colour, a unit string, a Discrete pair and `visibility`;
+    - then each machine on the Frame loop against its `Stream`.
+
+    Every Frame is identical. `springValues`' unclamped 0.6 s dt lands it within 9 frames in both drivers (#78).
+  - **`packages/core/test/frame-loop.test.ts`,** on a counting `setTimeout(0)` scheduler over core's real Clock:
+    - 50 runs started in a task get the Priming tick at its end and are stepped inside each Refresh frame callback, with 0 dispatches;
+    - an add from a sink waits for the next tick;
+    - a removal before its turn gets no Frame;
+    - settle order;
+    - add order;
+    - a Retarget stays warm (no Priming tick, one frame request);
+    - the Clock idles at the Refresh frame after the last run settles;
+    - a throwing step and a throwing sink each fail only their run;
+    - a dying Clock fails every run and the next run starts a fresh burst;
+    - an ending Clock interrupts the runs left;
+    - a span per run (ended on settle and on interruption), one root burst span, and the settle and failure counters.
+  - **A one-off golden comparison** (`.tmp/golden/`): every Primitive's `Stream` on main's core (`4446cda`) and on this one, on a cold `TestClock.layer(frames)` and a live pushable Clock, with every option above, including a fractional `repeat`. 34 of 34 identical.
+- **The gate run:** `bun run bench:core --base 4446cda`, 11 paired reps, 1,000 elements. It shows the median head / base ratio [p25–p75], with Bun from its third run.
+  - **Noise controls (`ticksOnly`):** Node +0.5%, Chromium −2.1%. Bun was too noisy twice (−3.4%, +4.5%), then +3.0%. Every Bun run had every `Stream` workload faster than the base.
+
+  | Workload | Bun | Node | Chromium | Node MB per frame | Start ms (Bun / Node / Chromium) |
+  |---|---|---|---|---|---|
+  | `springValues` | −8.5% [−13.6, −6.7] | −12.5% [−22.7, −11.4] | −1.7% [−8.2, +1.2] | 5.50 → 4.94 | 62 → 64 / 54 → 64 / 41 → 43 |
+  | `animateValues` | −1.7% [−8.2, −0.2] | +1.3% [−3.6, +2.4] | −3.8% [−10.3, −0.6] | 7.10 → 6.75 | 142 → 142 / 123 → 124 / 110 → 111 |
+  | `springBlend` | −6.7% [−8.0, −5.5] | +4.4% [+0.5, +5.4] | −1.1% [−2.9, −0.6] | 6.56 → 6.18 | 121 → 118 / 108 → 106 / 80 → 79 |
+  | `chase` | −9.5% [−10.6, −6.7] | −2.6% [−7.1, +0.9] | −5.8% [−7.4, −4.5] | 4.51 → 4.13 | 53 → 52 / 44 → 44 / 30 → 30 |
+  | `animateComplex` | −8.0% [−9.5, −3.1] | −3.2% [−5.5, −2.5] | −2.0% [−6.7, −0.2] | 8.62 → 8.28 | 146 → 142 / 122 → 120 / 115 → 113 |
+
+  - **Every `Stream` workload passes both gates.** Node's bytes per frame fall 4–10% on every Primitive: a machine's step allocates no `[state, [frame]]` tuple per frame, which `mapAccum` did.
+  - **Node's `springBlend` +4.4%** is within the +5% gate.
+  - **`springValues`' `Stream` starts 2–20% slower** (Node 54 → 64 ms per 1,000). Start isn't gated, and the cause isn't investigated. A likely candidate is one more `Stream.unwrap` per subscription (the log's, then `toStream`'s).
+- **The loop workloads** (report-only), head's ms against the base's same Primitive as one fiber per element:
+
+  | Workload | Bun | Node | Chromium | Node MB per frame | Start ms (Bun / Node / Chromium) |
+  |---|---|---|---|---|---|
+  | `springValues/loop` | 8.48 → 0.40 (−95.2%) | 6.21 → 0.48 (−92.3%) | 3.49 → 0.47 (−86.8%) | 5.50 → 0.95 | 62 → 12 / 54 → 14 / 41 → 16 |
+  | `animateValues/loop` | 16.01 → 0.85 (−94.7%) | 10.07 → 0.53 (−94.8%) | 6.64 → 0.46 (−93.1%) | 7.10 → 0.74 | 142 → 36 / 123 → 33 / 110 → 31 |
+  | `springBlend/loop` | 14.38 → 0.90 (−93.8%) | 8.70 → 0.70 (−92.4%) | 5.39 → 0.55 (−89.9%) | 6.56 → 1.05 | 121 → 35 / 108 → 31 / 80 → 31 |
+  | `chase/loop` | 7.08 → 0.23 (−96.8%) | 4.00 → 0.13 (−96.8%) | 2.75 → 0.08 (−97.2%) | 4.51 → 0.17 | 53 → 9 / 44 → 10 / 30 → 13 |
+  | `animateComplex/loop` | 17.96 → 1.83 (−89.8%) | 10.47 → 1.40 (−86.7%) | 7.55 → 1.06 (−86.0%) | 8.62 → 2.30 | 146 → 42 / 122 → 44 / 115 → 34 |
+
+  - A run on the loop starts at 8–44 ms per 1,000: a span, a debug log, and an `acquireUseRelease` per run. The `.tmp/frame-loop-api/` probe (decision 6) measured 10–15 ms without blenders.
