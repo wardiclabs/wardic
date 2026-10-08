@@ -16,7 +16,7 @@ import { numberInterpolator } from "./number.ts"
 import { incompatible, parseUnit, unitOfPair } from "./parse-unit.ts"
 import { unitInterpolator } from "./unit.ts"
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- the registry is heterogeneous by design */
+// The registry is heterogeneous by design: its entries are `InterpolatorEntry<any>`.
 
 /**
  * The interpolators core ships with, in resolution order. `number` and `array`

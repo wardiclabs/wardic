@@ -94,6 +94,20 @@ For a single function, a named import is fine: `import { identity } from "effect
 - **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types. Core reads their `?:` fields through `Option.fromUndefinedOr` / `UndefinedOr`.
 - **dom, solid and a future react unwrap at their own boundary.**
 
+## Checks
+
+- **`bun run lint`** holds what can be held mechanically on `packages/core/src` (`eslint.config.js`):
+  - ternaries;
+  - `switch`, and `if … else`;
+  - `??`, `??=` and `?.`;
+  - `=== undefined`, and `typeof` in a comparison;
+  - loops, except in the per-frame files listed there;
+  - `!`;
+  - a namespace import that hides a global.
+
+  It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match`, `Schema` or `Scope` fits, stay with review.
+- **`bun run bench:core --base main`** checks a change on the per-frame path (above).
+
 ## Pitfalls
 
 - **`Predicate.Tuple` infers a `Refinement`** when any element is one, and `Option.liftPredicate` then types the other positions as `unknown`. Annotate it as `Predicate.Predicate<T>` (see `hides` in `primitives/multi.ts`).

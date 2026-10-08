@@ -25,6 +25,10 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # The Effect-first rules on @wardic/core (ADR-0025, docs/agents/effect-first.md).
+      - name: Lint
+        run: bun run lint
+
       # Fast node tier — @wardic/core + @wardic/test (pure logic). `bun run test`
       # (vitest), NOT `bun test` (Bun's native runner, which would mis-handle the
       # @effect/vitest suites).

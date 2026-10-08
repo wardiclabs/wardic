@@ -89,10 +89,10 @@ Core's code uses Effect's modules for its loops, its boolean checks and its miss
      Against itself, the paired ratios' medians were within −1.1% to +1.2% in Bun, −6.7% to +1.1% in Node, and −2.3% to +4.0% in Chromium.
 5. **ESLint on `packages/core/src`.**
    - `no-ternary`;
-   - `no-restricted-syntax` on `SwitchStatement`, `IfStatement[alternate]`, `??`, `=== undefined` / `!== undefined`, `typeof`, and the five loop statements;
+   - `no-restricted-syntax` on `SwitchStatement`, `IfStatement[alternate]`, `??` (with `??=` and `?.`, the same missing-value check), `=== undefined` / `!== undefined`, `typeof` in a comparison (as a value, `typeof target` names a span attribute), and the five loop statements;
    - `@typescript-eslint/no-non-null-assertion`.
 
-   The per-frame files that need a loop get a `files` override for the loop rules alone. The six modules that hide a global take fixed aliases (`Arr`, `Rec`, `Num`, `Str`, `Bool`, `Iter`), and lint rejects a namespace import under the global's name. Lint can't judge whether a `Predicate` is *named*, or whether `Match` or `Scope` "fits", so those stay with review.
+   The per-frame files that need a loop get a `files` override for the loop rules alone: `primitives/stepper.ts`, `primitives/multi.ts`, `interpolate/complex.ts`, `math/index.ts` and `layout/projection-geometry.ts`. `bun run lint` runs in CI. The six modules that hide a global take fixed aliases (`Arr`, `Rec`, `Num`, `Str`, `Bool`, `Iter`), and lint rejects a namespace import under the global's name. Lint can't judge whether a `Predicate` is *named*, or whether `Match` or `Scope` "fits", so those stay with review.
 6. **Schema where values are decoded and encoded, never per frame.**
    - **Bundle size is not the constraint.** Core already ships Schema through `effect/unstable/reactivity`'s `Atom`. Using it adds about 0.15 KB min + gz to a consumer importing three core exports (69.6 → 69.8 KB), and 0.2 KB to all of core (82.0 → 82.2 KB). `Match`, `Array`, `Boolean`, `Number`, `String` and `Iterable` together add 1.0 KB.
    - **The fits:** each Interpolator's value kind as a codec (#65), and the option bags at the public boundary (#66).
