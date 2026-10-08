@@ -30,7 +30,7 @@ Core's code uses Effect's modules for its loops, its boolean checks and its miss
    - **What's on it:**
      - the steppers;
      - `multi.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
-     - the `Stream.map` / `mapAccum` bodies in `scalar.ts` and `chase.ts`;
+     - the `Stream.map` / `mapAccum` bodies in `scalar.ts` and `chase.ts`, and `decayVec`'s in `momentum.ts`;
      - the easings;
      - each Interpolator's `interpolate`, and the registry's resolved closures;
      - `math/`, `layout/box.ts` and `layout/projection-geometry.ts` (dom's projection pass calls them per node, per frame);

@@ -26,6 +26,7 @@ export default defineConfig({
       "effect/Function",
       "effect/Logger",
       "effect/Match",
+      "effect/MutableRef",
       "effect/Predicate",
       "effect/Record",
       "effect/References",

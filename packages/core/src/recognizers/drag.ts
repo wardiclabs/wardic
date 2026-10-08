@@ -1,4 +1,11 @@
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
+import * as Match from "effect/Match"
+import * as MutableRef from "effect/MutableRef"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import type { PointerLikeEvent } from "../services/InputSource.ts"
 import { InputSource, isPrimaryPointer } from "../services/InputSource.ts"
@@ -76,6 +83,9 @@ const initState: DragState = {
 /** Euclidean distance between two points. */
 const dist = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.y - b.y)
 
+/** No motion: a velocity of zero on both axes. */
+const still = (): Vec2 => ({ x: 0, y: 0 })
+
 /**
  * Push the newest sample and drop everything older than the window, keeping at
  * least the oldest entry still inside `newest.t - VELOCITY_WINDOW_MS`.
@@ -84,28 +94,34 @@ const pushHistory = (
   history: ReadonlyArray<HistorySample>,
   sample: HistorySample,
 ): ReadonlyArray<HistorySample> => {
-  const next = [...history, sample]
   const cutoff = sample.t - VELOCITY_WINDOW_MS
   // Keep every sample within the window; the boundary check uses `>=` so the
   // sample exactly at the cutoff is retained, guaranteeing a non-empty window.
-  return next.filter((s) => s.t >= cutoff)
+  return Arr.filter(Arr.append(history, sample), (s) => s.t >= cutoff)
+}
+
+/** Per-axis velocity (units/sec) from `oldest` to `newest`; a zero time span is still. */
+const velocityBetween = (oldest: HistorySample, newest: HistorySample): Vec2 => {
+  const dtSeconds = (newest.t - oldest.t) / 1000
+  return Bool.match(dtSeconds === 0, {
+    onTrue: still,
+    onFalse: () => ({ x: (newest.x - oldest.x) / dtSeconds, y: (newest.y - oldest.y) / dtSeconds }),
+  })
 }
 
 /**
  * Per-axis time-windowed velocity (units/sec) from the oldest in-window sample
- * to the newest. Guards a zero time span (single sample / same timestamp) -> 0.
+ * to the newest. A single sample, or a zero time span, is still.
  */
-const windowVelocity = (history: ReadonlyArray<HistorySample>): Vec2 => {
-  if (history.length < 2) return { x: 0, y: 0 }
-  const oldest = history[0]!
-  const newest = history[history.length - 1]!
-  const dtSeconds = (newest.t - oldest.t) / 1000
-  if (dtSeconds === 0) return { x: 0, y: 0 }
-  return {
-    x: (newest.x - oldest.x) / dtSeconds,
-    y: (newest.y - oldest.y) / dtSeconds,
-  }
-}
+const windowVelocity = (history: ReadonlyArray<HistorySample>): Vec2 =>
+  Arr.match(history, {
+    onEmpty: still,
+    onNonEmpty: (samples) =>
+      Bool.match(samples.length < 2, {
+        onTrue: still,
+        onFalse: () => velocityBetween(Arr.headNonEmpty(samples), Arr.lastNonEmpty(samples)),
+      }),
+  })
 
 /** Why a Stale gesture ended: its owner moved with no button pressed (rule A), or went down again (rule B). */
 type StaleRule = "unpressed move" | "second down"
@@ -116,24 +132,30 @@ type StaleRule = "unpressed move" | "second down"
  */
 const staleEnds = new WeakMap<DragSample, StaleRule>()
 
+/** No samples: the event changes nothing a consumer sees. */
+const NO_SAMPLES: ReadonlyArray<DragSample> = []
+
 /**
  * The end of a Stale gesture: an `"end"` at its last pressed point, with no delta and
  * no velocity (a lost release carries no Fling). A gesture that never started (below
  * the threshold) just resets and emits nothing.
  */
-const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number): ReadonlyArray<DragSample> => {
-  if (state.phase !== "active") return []
-  const sample: DragSample = {
-    point: state.last,
-    offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
-    delta: { x: 0, y: 0 },
-    velocity: { x: 0, y: 0 },
-    phase: "end",
-    timeStamp,
-  }
-  staleEnds.set(sample, rule)
-  return [sample]
-}
+const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number): ReadonlyArray<DragSample> =>
+  Bool.match(state.phase === "active", {
+    onFalse: () => NO_SAMPLES,
+    onTrue: () => {
+      const sample: DragSample = {
+        point: state.last,
+        offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
+        delta: { x: 0, y: 0 },
+        velocity: { x: 0, y: 0 },
+        phase: "end",
+        timeStamp,
+      }
+      staleEnds.set(sample, rule)
+      return [sample]
+    },
+  })
 
 /** A gesture claimed by `event`, a down. */
 const claimedBy = (event: PointerLikeEvent, point: Vec2): DragState => ({
@@ -144,6 +166,110 @@ const claimedBy = (event: PointerLikeEvent, point: Vec2): DragState => ({
   history: [{ x: point.x, y: point.y, t: event.timeStamp }],
 })
 
+/** One fold step: the next state, and the samples it emits. */
+type Step = readonly [DragState, ReadonlyArray<DragSample>]
+
+/** An event the drag ignores: the state as it was, and no samples. */
+const ignored = (state: DragState): Step => [state, NO_SAMPLES]
+
+/** The event's pointer position. */
+const pointOf = (event: PointerLikeEvent): Vec2 => ({ x: event.x, y: event.y })
+
+/** A down: it claims a free gesture; the owner's second down ends its lost one (rule B). */
+const onDown = (state: DragState, event: PointerLikeEvent): Step => {
+  const point = pointOf(event)
+  return Option.match(Option.fromNullOr(state.ownerId), {
+    onNone: () => [claimedBy(event, point), NO_SAMPLES],
+    onSome: (owner) =>
+      Bool.match(event.pointerId === owner, {
+        // Rule B: the owner went down again, so its release was lost.
+        onTrue: () => [claimedBy(event, point), staleEnd(state, "second down", event.timeStamp)],
+        // Another pointer while one owns the gesture — ignore.
+        onFalse: () => ignored(state),
+      }),
+  })
+}
+
+/**
+ * The owner's release or cancel: an active gesture emits its final `"end"`; a release before
+ * the threshold is a tap and emits nothing. Either way the state resets.
+ */
+const onRelease = (state: DragState, event: PointerLikeEvent): Step =>
+  Bool.match(state.phase === "active", {
+    onFalse: () => [initState, NO_SAMPLES],
+    onTrue: () => {
+      // A cancel's coordinates aren't the pointer's (Chromium's pointercancel carries
+      // (0, 0)), so it ends at the last move's point, with the moves' velocity, as
+      // Motion's pan session does (PanSession.ts:329-333 at 16c6122).
+      const sample: DragSample = Bool.match(event.type === "cancel", {
+        onTrue: () => ({
+          point: state.last,
+          offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
+          delta: { x: 0, y: 0 },
+          velocity: windowVelocity(state.history),
+          phase: "end",
+          timeStamp: event.timeStamp,
+        }),
+        onFalse: () => {
+          const point = pointOf(event)
+          const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
+          return {
+            point,
+            offset: { x: point.x - state.origin.x, y: point.y - state.origin.y },
+            delta: { x: point.x - state.last.x, y: point.y - state.last.y },
+            velocity: windowVelocity(history),
+            phase: "end",
+            timeStamp: event.timeStamp,
+          }
+        },
+      })
+      return [initState, [sample]]
+    },
+  })
+
+/** The owner's move: below the threshold it primes the history; crossing it starts; then every move emits. */
+const onMove = (state: DragState, event: PointerLikeEvent): Step => {
+  const point = pointOf(event)
+  const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
+  const offset: Vec2 = { x: point.x - state.origin.x, y: point.y - state.origin.y }
+  const delta: Vec2 = { x: point.x - state.last.x, y: point.y - state.last.y }
+  const sample = (phase: DragSample["phase"]): DragSample => ({
+    point,
+    offset,
+    delta,
+    velocity: windowVelocity(history),
+    phase,
+    timeStamp: event.timeStamp,
+  })
+  return Match.value(state.phase).pipe(
+    Match.when("idle", (): Step =>
+      Bool.match(dist(state.origin, point) <= THRESHOLD, {
+        // Below threshold: keep origin fixed, advance last/history so velocity is
+        // primed, but suppress output.
+        onTrue: (): Step => [{ ...state, last: point, history }, NO_SAMPLES],
+        // Crossing the threshold promotes the gesture and emits "start".
+        onFalse: (): Step => [{ ...state, phase: "active", last: point, history }, [sample("start")]],
+      }),
+    ),
+    // Active: every move emits.
+    Match.when("active", (): Step => [{ ...state, last: point, history }, [sample("move")]]),
+    Match.exhaustive,
+  )
+}
+
+/** An event from the gesture's owner, other than a down. */
+const onOwner = (state: DragState, event: PointerLikeEvent): Step =>
+  Match.value(event).pipe(
+    // Rule A: the owner moved with no button pressed, so its release was lost.
+    Match.when({ type: "move", buttons: 0 }, (e): Step => [initState, staleEnd(state, "unpressed move", e.timeStamp)]),
+    // Release / cancel from the owner: emit final "end", reset.
+    Match.when({ type: Match.is("up", "cancel") }, (e) => onRelease(state, e)),
+    // Movement from the owner.
+    Match.when({ type: "move" }, (e) => onMove(state, e)),
+    // "enter"/"leave" and anything else: no-op for drag.
+    Match.orElse(() => ignored(state)),
+  )
+
 /**
  * Fold one pointer event into the drag state, emitting zero or more samples.
  *
@@ -152,101 +278,19 @@ const claimedBy = (event: PointerLikeEvent, point: Vec2): DragState => ({
  * events emit `[]`; threshold crossing emits one `"start"`; subsequent moves emit one
  * `"move"`; release/cancel emits one `"end"`. A Stale gesture (ADR-0019) ends at the
  * owner's move with `buttons === 0` (rule A) or its next down (rule B, which then
- * claims the new gesture): see {@link staleEnd}. This is the hot path — no logging here.
+ * claims the new gesture): see {@link staleEnd}. Runs once per pointer event, not per frame
+ * (ADR-0025); no logging here.
  */
-const step = (state: DragState, event: PointerLikeEvent): readonly [DragState, ReadonlyArray<DragSample>] => {
-  if (!isPrimaryPointer(event)) return [state, []] as const
-  const point: Vec2 = { x: event.x, y: event.y }
-
-  // --- Activation: a "down" claims the gesture. ---
-  if (event.type === "down") {
-    if (state.ownerId === null) return [claimedBy(event, point), []] as const
-    // Another pointer while one owns the gesture — ignore.
-    if (event.pointerId !== state.ownerId) return [state, []] as const
-    // Rule B: the owner went down again, so its release was lost.
-    return [claimedBy(event, point), staleEnd(state, "second down", event.timeStamp)] as const
-  }
-
-  // No owner yet, or event from a non-owning pointer — ignore.
-  if (state.ownerId === null || event.pointerId !== state.ownerId) {
-    return [state, []] as const
-  }
-
-  // Rule A: the owner moved with no button pressed, so its release was lost.
-  if (event.type === "move" && event.buttons === 0) return [initState, staleEnd(state, "unpressed move", event.timeStamp)] as const
-
-  // --- Release / cancel from the owner: emit final "end", reset. ---
-  if (event.type === "up" || event.type === "cancel") {
-    // Only an active (already started) gesture produces an "end" sample; a
-    // release before threshold is a tap and emits nothing.
-    if (state.phase === "active") {
-      // A cancel's coordinates aren't the pointer's (Chromium's pointercancel carries
-      // (0, 0)), so it ends at the last move's point, with the moves' velocity, as
-      // Motion's pan session does (PanSession.ts:329-333 at 16c6122).
-      if (event.type === "cancel") {
-        const sample: DragSample = {
-          point: state.last,
-          offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
-          delta: { x: 0, y: 0 },
-          velocity: windowVelocity(state.history),
-          phase: "end",
-          timeStamp: event.timeStamp,
-        }
-        return [initState, [sample]] as const
-      }
-      const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
-      const sample: DragSample = {
-        point,
-        offset: { x: point.x - state.origin.x, y: point.y - state.origin.y },
-        delta: { x: point.x - state.last.x, y: point.y - state.last.y },
-        velocity: windowVelocity(history),
-        phase: "end",
-        timeStamp: event.timeStamp,
-      }
-      return [initState, [sample]] as const
-    }
-    return [initState, []] as const
-  }
-
-  // --- Movement from the owner. ---
-  if (event.type === "move") {
-    const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
-    const offset: Vec2 = { x: point.x - state.origin.x, y: point.y - state.origin.y }
-    const delta: Vec2 = { x: point.x - state.last.x, y: point.y - state.last.y }
-
-    if (state.phase === "idle") {
-      // Below threshold: keep origin fixed, advance last/history so velocity is
-      // primed, but suppress output.
-      if (dist(state.origin, point) <= THRESHOLD) {
-        return [{ ...state, last: point, history }, []] as const
-      }
-      // Crossing the threshold promotes the gesture and emits "start".
-      const sample: DragSample = {
-        point,
-        offset,
-        delta,
-        velocity: windowVelocity(history),
-        phase: "start",
-        timeStamp: event.timeStamp,
-      }
-      return [{ ...state, phase: "active", last: point, history }, [sample]] as const
-    }
-
-    // Active: every move emits.
-    const sample: DragSample = {
-      point,
-      offset,
-      delta,
-      velocity: windowVelocity(history),
-      phase: "move",
-      timeStamp: event.timeStamp,
-    }
-    return [{ ...state, last: point, history }, [sample]] as const
-  }
-
-  // "enter"/"leave" and anything else: no-op for drag.
-  return [state, []] as const
-}
+const step = (state: DragState, event: PointerLikeEvent): Step =>
+  Match.value(event).pipe(
+    Match.when(Predicate.not(isPrimaryPointer), () => ignored(state)),
+    // --- Activation: a "down" claims the gesture. ---
+    Match.when({ type: "down" }, (down) => onDown(state, down)),
+    // No owner yet, or an event from a non-owning pointer — ignore.
+    Match.orElse((e) =>
+      Bool.match(e.pointerId === state.ownerId, { onTrue: () => onOwner(state, e), onFalse: () => ignored(state) }),
+    ),
+  )
 
 /**
  * Recognize a drag gesture on `target`, emitting a `DragSample` stream.
@@ -271,27 +315,35 @@ export const drag = (target: unknown): Stream.Stream<DragSample, never, InputSou
       const input = yield* InputSource
       const activity = yield* DragActivity
       yield* Effect.logDebug("wardic.drag: subscribe").pipe(Effect.annotateLogs(attributes))
-      // This subscription's claim on the Drag activity, held from "start" to "end".
-      let release: (() => void) | undefined
+      // This subscription's claim on the Drag activity, held from "start" to "end": its release.
+      const claim = MutableRef.make(Option.none<() => void>())
       const unclaim = (): void => {
-        release?.()
-        release = undefined
+        Option.match(MutableRef.get(claim), { onNone: constVoid, onSome: (release) => release() })
+        MutableRef.set(claim, Option.none())
       }
       return input.pointer(target).pipe(
         Stream.mapAccum(() => initState, step),
-        Stream.tap((sample) => {
-          if (sample.phase === "start") {
-            unclaim()
-            release = activity.claim()
-            return Effect.void
-          }
-          if (sample.phase !== "end") return Effect.void
-          unclaim()
-          const rule = staleEnds.get(sample)
-          return rule === undefined
-            ? Effect.void
-            : Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ rule }))
-        }),
+        Stream.tap((sample) =>
+          Match.value(sample.phase).pipe(
+            Match.when("start", () =>
+              Effect.sync(() => {
+                unclaim()
+                MutableRef.set(claim, Option.some(activity.claim()))
+              }),
+            ),
+            Match.when("end", () =>
+              Effect.sync(unclaim).pipe(
+                Effect.andThen(
+                  Option.match(Option.fromUndefinedOr(staleEnds.get(sample)), {
+                    onNone: () => Effect.void,
+                    onSome: (rule) => Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ rule })),
+                  }),
+                ),
+              ),
+            ),
+            Match.orElse(() => Effect.void),
+          ),
+        ),
         Stream.ensuring(Effect.sync(unclaim)),
       )
     }).pipe(Effect.annotateLogs(attributes)),

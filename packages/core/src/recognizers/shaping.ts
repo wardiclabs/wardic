@@ -1,3 +1,5 @@
+import * as Bool from "effect/Boolean"
+import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
 import type { DragSample } from "./drag.ts"
 
@@ -38,7 +40,7 @@ type Axis = "x" | "y"
 export const axisLock =
   (axis: Axis) =>
   <E, R>(stream: Stream.Stream<DragSample, E, R>): Stream.Stream<DragSample, E, R> => {
-    const off: Axis = axis === "x" ? "y" : "x"
+    const off: Axis = Bool.match(axis === "x", { onTrue: () => "y", onFalse: () => "x" })
     return Stream.map(stream, (sample) => ({
       ...sample,
       offset: { ...sample.offset, [off]: 0 },
@@ -46,6 +48,20 @@ export const axisLock =
       velocity: { ...sample.velocity, [off]: 0 },
     }))
   }
+
+/** `v` past the range's `min`, pulled back toward it by `elastic`; `None` within it. */
+const belowMin = (v: number, range: AxisRange, elastic: number): Option.Option<number> =>
+  Option.fromNullishOr(range.min).pipe(
+    Option.filter((min) => v < min),
+    Option.map((min) => min - (min - v) * elastic),
+  )
+
+/** `v` past the range's `max`, pulled back toward it by `elastic`; `None` within it. */
+const aboveMax = (v: number, range: AxisRange, elastic: number): Option.Option<number> =>
+  Option.fromNullishOr(range.max).pipe(
+    Option.filter((max) => v > max),
+    Option.map((max) => max + (v - max) * elastic),
+  )
 
 /**
  * Constrain a single scalar to `range` with optional `elastic` resistance.
@@ -59,12 +75,11 @@ export const axisLock =
  * free (no resistance — the value passes through). Values in `(0, 1)` rubber-
  * band: the overshoot past the bound is scaled by `elastic`.
  */
-const constrain = (v: number, range: AxisRange | undefined, elastic: number): number => {
-  if (range === undefined) return v
-  if (range.min != null && v < range.min) return range.min - (range.min - v) * elastic
-  if (range.max != null && v > range.max) return range.max + (v - range.max) * elastic
-  return v
-}
+const constrain = (v: number, range: AxisRange | undefined, elastic: number): number =>
+  Option.fromUndefinedOr(range).pipe(
+    Option.flatMap((r) => Option.orElse(belowMin(v, r, elastic), () => aboveMax(v, r, elastic))),
+    Option.getOrElse(() => v),
+  )
 
 /**
  * Constrain a drag's `offset` to a static numeric region, per axis, with
@@ -85,9 +100,9 @@ const constrain = (v: number, range: AxisRange | undefined, elastic: number): nu
  * drag(el).pipe(withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }))
  */
 export const withinBounds =
-  (bounds: DragBounds, options?: { readonly elastic?: number }) =>
+  (bounds: DragBounds, options: { readonly elastic?: number } = {}) =>
   <E, R>(stream: Stream.Stream<DragSample, E, R>): Stream.Stream<DragSample, E, R> => {
-    const elastic = options?.elastic ?? 0
+    const elastic = Option.getOrElse(Option.fromNullishOr(options.elastic), () => 0)
     return Stream.map(stream, (sample) => ({
       ...sample,
       offset: {
