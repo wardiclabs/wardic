@@ -56,7 +56,6 @@ export const ComplexString: Schema.Codec<Complex, string> = Schema.String.pipe(
     parseAndFormat(
       parseComplex,
       (complex: Complex): string => formatComplex(complex.parts, complex.numbers),
-      "a string carrying two or more numbers",
     ),
   ),
 )

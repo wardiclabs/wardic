@@ -38,8 +38,8 @@ describe("UnitString", () => {
     rejectsAll(decodeUnit, ["auto", "#fff", "rgb(0, 0, 0)", "10px 20px", "", [10], null])
   })
 
-  it("fails a decode with an issue naming what it expected", () => {
-    expect(() => Schema.decodeUnknownSync(UnitString)("auto")).toThrow(/a number with an optional unit/)
+  it("fails a decode it rejects, with Schema's bare issue (ADR-0026, decision 9)", () => {
+    expect(() => Schema.decodeUnknownSync(UnitString)("auto")).toThrow(/Expected a valid value/)
   })
 
   it("round-trips through Schema's decode and encode; a bare number encodes as a string", () => {

@@ -104,7 +104,7 @@ export default defineConfig({
       "effect/Predicate",
       "effect/Record",
       "effect/Schema",
-      "effect/SchemaIssue",
+      "effect/SchemaGetter",
       "effect/SchemaTransformation",
       "effect/String",
       "effect/UndefinedOr",

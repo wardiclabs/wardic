@@ -28,7 +28,7 @@ const parseColor = (input: string): Option.Option<Color> =>
 export const ColorString: Schema.Codec<Color, string> = Schema.String.pipe(
   Schema.decodeTo(
     Schema.declare(isColor),
-    parseAndFormat(parseColor, (color: Color): string => formatRgb(color), "a colour culori parses"),
+    parseAndFormat(parseColor, (color: Color): string => formatRgb(color)),
   ),
 )
 

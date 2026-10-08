@@ -35,7 +35,7 @@ export default defineConfig({
       "effect/Record",
       "effect/References",
       "effect/Schema",
-      "effect/SchemaIssue",
+      "effect/SchemaGetter",
       "effect/SchemaTransformation",
       "effect/String",
       "effect/Tracer",

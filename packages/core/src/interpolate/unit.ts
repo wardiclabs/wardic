@@ -26,7 +26,6 @@ export const UnitString: Schema.Codec<ParsedUnit, string | number> = Schema.Unio
     parseAndFormat(
       parseEndpoint,
       (parsed: ParsedUnit): string | number => formatUnit(parsed.value, parsed.unit),
-      "a number with an optional unit",
     ),
   ),
 )
