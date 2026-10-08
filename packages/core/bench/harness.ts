@@ -41,19 +41,19 @@ export interface WorkloadResult {
   readonly p95Ms: number
   /** Median ms to start all N streams, through the Priming tick's frames. */
   readonly startMs: number
-  /** Bytes allocated per frame, when the host exposes it and no GC ran in the window. */
+  /** Bytes allocated per frame, when the host exposes it. */
   readonly bytesPerFrame?: number
 }
 
 /** A host hook for allocations: Node with `--expose-gc` (see `one.mjs`). */
 interface Mem {
   readonly gc: () => void
-  readonly heapUsed: () => number
-  readonly gcCount: () => number
+  /** Bytes allocated so far: the used heap plus every byte a GC has freed. */
+  readonly allocated: () => number
 }
 
 /** No heap hook: Bun and Chromium report no allocations. */
-const NO_MEM: Mem = { gc: () => {}, heapUsed: () => 0, gcCount: () => 0 }
+const NO_MEM: Mem = { gc: () => {}, allocated: () => 0 }
 
 interface Workload {
   readonly name: string
@@ -205,12 +205,11 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
   }
   for (let f = 0; f < options.warm; f++) await step()
 
-  // Allocations: only where the host hands over a heap hook (Node, `one.mjs`), and only for a
-  // round with no GC in its window, since a GC frees memory the heap delta can't see.
+  // Allocations: only where the host hands over a heap hook (Node, `one.mjs`). It counts what a
+  // GC frees inside the window too, so a scavenge there doesn't hide allocation (#65).
   const mem: Mem = (globalThis as { readonly __mem?: Mem }).__mem || NO_MEM
   mem.gc()
-  const heap0 = mem.heapUsed()
-  const gcs0 = mem.gcCount()
+  const allocated0 = mem.allocated()
   const times: Array<number> = []
   for (let f = 0; f < options.frames; f++) {
     const f0 = performance.now()
@@ -218,7 +217,7 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
     times.push(performance.now() - f0)
   }
   const bytes: Array<number> = []
-  if (mem !== NO_MEM && mem.gcCount() === gcs0) bytes.push((mem.heapUsed() - heap0) / options.frames)
+  if (mem !== NO_MEM) bytes.push((mem.allocated() - allocated0) / options.frames)
 
   await runtime.dispose()
   return { times, startMs, bytes }
