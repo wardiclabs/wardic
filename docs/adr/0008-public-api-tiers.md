@@ -20,3 +20,7 @@ The immediate action is curating `index.ts` (and the per-folder barrels) so Tier
 - The published stability policy must state the Tier 2 caveat explicitly, so consumers know that opting into the Effect-typed surface means tracking Effect's (currently beta) stability.
 - Hardening Tier 2 into an `/unstable` (or `/advanced`) subpath later is additive and does not break Tier 1.
 - The binding's Effect-free Tier 1 is what most users and the docs lead with; Effect appears only when a consumer deliberately drops into Tier 2.
+
+## Amendment (#63, 2026-10-07): core is Effect-native, and the bindings hide Effect
+
+Tier 1's Effect-free promise belongs to the bindings. Core's functional surface is Tier 2 and Effect-native: a function returns `Option` for a missing value, and so do the callbacks a binding passes in. That covers `baseValueOf`, `startValueOf`, `transformIdentity` and `unitOf`, plus `BaseSources.style` / `own` and the reorder item's `layoutBox` / `axis`. Two things stay in Tier 1, Effect-free because nothing in them is missing or effectful: the plain shapes users write (option and config types, `Values`, the `Frame` types and `isPhysicsFrame`), and the pure values (the easings, `math/`, `springs`, `stagger`). The "Effect-free Tier 2" label (`base-value.ts`, `reorder/group.ts`) is retired. Effect stays invisible to users, because hiding it is the bindings' job (ADR-0025, decision 7).
