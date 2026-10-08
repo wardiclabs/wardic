@@ -48,10 +48,11 @@ const ALIASES = [
 /**
  * The per-frame files whose per-frame code keeps a counted loop or a loop over a stream's keys
  * (ADR-0025, decision 3): springStep's substeps, blendAt and springValues' tick, complex's
- * number-by-number blend, snapTo, and applyTreeDeltas.
+ * number-by-number blend, snapTo, applyTreeDeltas, and the Frame loop's tick (ADR-0027).
  */
 const PER_FRAME_LOOPS = [
   "packages/core/src/primitives/stepper.ts",
+  "packages/core/src/services/frame-loop.ts",
   "packages/core/src/primitives/multi.ts",
   "packages/core/src/interpolate/complex.ts",
   "packages/core/src/math/index.ts",

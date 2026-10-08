@@ -8,8 +8,8 @@
  * observers) — composed with core's real interpolator registry into the
  * {@link DomLive} Layer that apps provide to `WardicProvider`.
  */
-import { InterpolatorRegistryLive } from "@wardic/core"
-import type { Clock, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
+import { FrameLoopLive, InterpolatorRegistryLive } from "@wardic/core"
+import type { Clock, FrameLoop, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
 import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
@@ -77,7 +77,8 @@ export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's
- * real {@link InterpolatorRegistry}, fully self-contained (R = never).
+ * real {@link InterpolatorRegistry} and its Frame loop over the DOM Clock
+ * (`FrameLoopLive`, ADR-0027), fully self-contained (R = never).
  *
  * `ClockDomLive`/`ProbeDomLive` require the Environment's `AtomRegistry` (they
  * write `time`/`dt` and `viewport`/`prefersReducedMotion` Atoms through it), and
@@ -90,11 +91,8 @@ export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.
  * with a clear error naming the Layer and the missing global (ADR-0021, decision 7).
  */
 export const DomLive: Layer.Layer<
-  Clock | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry
-> = Layer.mergeAll(
-  ClockDomLive,
-  RendererDomLive,
-  InputDomLive,
-  ProbeDomLive,
-  InterpolatorRegistryLive,
-).pipe(Layer.provideMerge(AtomRegistry.layer))
+  Clock | FrameLoop | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry
+> = FrameLoopLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryLive)),
+  Layer.provideMerge(AtomRegistry.layer),
+)
