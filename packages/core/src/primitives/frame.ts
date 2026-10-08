@@ -1,3 +1,5 @@
+import * as Predicate from "effect/Predicate"
+
 /**
  * Frame contract — what every primitive emits.
  *
@@ -42,7 +44,7 @@ export interface MultiPhysicsFrame extends Frame<Record<string, number>> {
  * source primitive.
  */
 export const isPhysicsFrame = (frame: Frame<number>): frame is PhysicsFrame =>
-  typeof (frame as PhysicsFrame).velocity === "number"
+  Predicate.isNumber((frame as PhysicsFrame).velocity)
 
 /**
  * Maximum delta-time (seconds) any primitive will simulate in one step.

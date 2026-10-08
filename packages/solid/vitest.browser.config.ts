@@ -99,6 +99,7 @@ export default defineConfig({
       "effect/Predicate",
       "effect/Record",
       "effect/String",
+      "effect/UndefinedOr",
     ],
   },
   test: {

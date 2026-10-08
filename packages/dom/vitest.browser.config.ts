@@ -31,6 +31,7 @@ export default defineConfig({
       "effect/References",
       "effect/String",
       "effect/Tracer",
+      "effect/UndefinedOr",
     ],
   },
   test: {

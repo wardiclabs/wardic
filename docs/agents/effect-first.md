@@ -46,15 +46,15 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 **The allowed forms on the per-frame path:**
 - **Instead of a ternary:** a statement `if` with an early return, or `Math.min` / `Math.max`. A `Boolean.match` is fine only when its handlers are hoisted to module level and capture nothing.
 - **No `Option`, `Match`, `Num.clamp`, `Rec.map` or `Boolean.match` with inline closures on each call,** and no Effect round trip (`Effect.runSync`, a service access) per frame.
-- **Options are resolved once, when the stream is built,** with every default filled in through `Option` / `UndefinedOr`. The frame reads plain fields.
-- **A value that may be missing is checked with `Predicate.isUndefined`, in an early return** (`if (Predicate.isUndefined(end)) return fallback`). `Option` would allocate on every call.
+- **Options are resolved once, when the stream is built** (`resolveSpring`, `resolveTween`, `resolveDecay`), and the frame reads plain fields. The resolvers use the early-return form below, not `Option`, because `springStep` and its siblings resolve on every call for a caller that steps by hand (dom's projection pass).
+- **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
 - **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `springStep`'s substeps, `blendAt`, `complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
-  - An index that is in range by construction uses `Arr.getUnsafe(xs, i)`, which throws (a defect) rather than returning `undefined`, and allocates nothing.
-  - A loop over a record's keys runs over an array of `[key, value]` pairs built when the stream is built.
+  - An index that is in range by construction uses `Arr.getUnsafe(xs, i)`, and a value that is present by construction uses `UndefinedOr.getOrThrow(x)`. Both throw (a defect) rather than returning `undefined`, and allocate nothing.
+  - A loop over a record's keys runs over an array of `[key, value]` pairs built when the stream is built (`Rec.toEntries`).
 - **Arithmetic stays arithmetic:** `a + b`, not `Num.sum(a, b)`.
 
-A change on the per-frame path is checked with `bun run bench:core --base main`: a workload fails at +5%.
+A change on the per-frame path is checked with `bun run bench:core --base main`. A workload fails when it's more than 5% slower with three pairs in four slower, or when Node's bytes per frame rise more than 5% (ADR-0025, decision 4).
 
 ## Vanilla to Effect
 
@@ -62,7 +62,7 @@ A change on the per-frame path is checked with `bun run bench:core --base main`:
 |---|---|
 | `cond ? a : b` | `Boolean.match(cond, { onTrue: () => a, onFalse: () => b })` |
 | `x ?? fallback` | `Option.getOrElse(Option.fromUndefinedOr(x), () => fallback)`, or `UndefinedOr.match(x, { onDefined: identity, onUndefined: () => fallback })` |
-| `xs[i]!`, `record[key]!` | `Arr.get(xs, i)`, `Rec.get(record, key)`: an `Option`. With an index in range by construction, `Arr.getUnsafe(xs, i)` |
+| `xs[i]!`, `record[key]!` | `Arr.get(xs, i)`, `Rec.get(record, key)`: an `Option`. Present by construction: `Arr.getUnsafe(xs, i)`, `UndefinedOr.getOrThrow(record[key])` |
 | `x === undefined` | `Option.isNone`, or `Predicate.isUndefined` inside a named predicate |
 | `typeof x === "string"` | `Predicate.isString(x)` |
 | `a(x) && b(x) && !c(x)` | `Predicate.and(a, b)` and `Predicate.not(c)`, `Predicate.Tuple` for a tuple: named |

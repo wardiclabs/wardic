@@ -69,6 +69,7 @@ export default defineConfig({
       "effect/Record",
       "effect/References",
       "effect/String",
+      "effect/UndefinedOr",
     ],
   },
   test: {
