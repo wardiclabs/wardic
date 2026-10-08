@@ -5,10 +5,11 @@ import * as Rec from "effect/Record"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { AnimateOptions, SpringOptions, Values } from "../options.ts"
-import { Clock } from "../services/Clock.ts"
+import type { Clock } from "../services/Clock.ts"
 import { InterpolatorRegistry } from "../services/InterpolatorRegistry.ts"
 import type { Frame, MultiPhysicsFrame } from "./frame.ts"
-import { animate } from "./scalar.ts"
+import { type Machine, mapFrames, toStream } from "./machine.ts"
+import { animate, animateMachine } from "./scalar.ts"
 import { initSpring, resolveSpring, type SpringState, stepSpring } from "./stepper.ts"
 
 const DEFAULT_DURATION: AnimateOptions = { duration: 0.3 }
@@ -117,6 +118,25 @@ export const animateValues = (
   ).pipe(Stream.withSpan("wardic.animateValues", { attributes: { keys: Object.keys(to).length } }))
 
 /**
+ * `animateValues`' machine (ADR-0027): `animate`'s from 0 to 1, each Frame blended through the
+ * registry's blenders, resolved here once. Building it needs the `InterpolatorRegistry`; its
+ * steps don't.
+ */
+export const animateValuesMachine = (
+  from: Values,
+  to: Values,
+  options: AnimateOptions = DEFAULT_DURATION,
+): Effect.Effect<Machine<Frame<Values>>, never, InterpolatorRegistry> =>
+  Effect.map(blendersFor(from, to), (resolved) => {
+    const blenders = Rec.toEntries(resolved)
+    return mapFrames(
+      animateMachine(0, 1, options),
+      (progress) => blendAt(blenders, progress.value, progress.done),
+      { name: "wardic.animateValues", attributes: { keys: Object.keys(to).length } },
+    )
+  })
+
+/**
  * Blend a bag of values from `from` to `to` by one spring's progress (ADR-0024, decision 5):
  * a spring with `options` (stiffness, damping, mass, rest thresholds, `delay`) runs from rest on
  * a 0→100 progress, and each key is blended through the `InterpolatorRegistry` at progress / 100.
@@ -147,6 +167,24 @@ export const springBlend = (
   ).pipe(Stream.withSpan("wardic.springBlend", { attributes: { keys: Object.keys(to).length } }))
 
 /**
+ * `springBlend`'s machine (ADR-0027): `springValues`' on a 0→100 progress, from rest, each Frame
+ * blended through the registry's blenders at progress / 100, resolved here once.
+ */
+export const springBlendMachine = (
+  from: Values,
+  to: Values,
+  options: SpringOptions = {},
+): Effect.Effect<Machine<Frame<Values>>, never, InterpolatorRegistry> =>
+  Effect.map(blendersFor(from, to), (resolved) => {
+    const blenders = Rec.toEntries(resolved)
+    return mapFrames(
+      springValuesMachine({ progress: 100 }, options, { progress: 0 }, { progress: 0 }),
+      (frame) => blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done),
+      { name: "wardic.springBlend", attributes: { keys: Object.keys(to).length } },
+    )
+  })
+
+/**
  * Spring a bag of numeric values toward `target`. Each key runs its own spring
  * with the shared `options`; the stream emits a `MultiPhysicsFrame` per tick
  * and settles (via `Stream.takeUntil`) once every key is at rest. `from`
@@ -168,6 +206,27 @@ export const springValues = (
   from: Record<string, number> = {},
   velocity: Record<string, number> = {},
 ): Stream.Stream<MultiPhysicsFrame, never, Clock> => {
+  const machine = springValuesMachine(target, options, from, velocity)
+  return Stream.unwrap(
+    Effect.logDebug("wardic.springValues: subscribe").pipe(
+      Effect.annotateLogs({ keys: Rec.keys(target) }),
+      Effect.as(toStream(machine)),
+    ),
+  ).pipe(Stream.withSpan(machine.span.name, { attributes: machine.span.attributes }))
+}
+
+/**
+ * `springValues`' machine (ADR-0027): one spring per key with the shared `options`, from
+ * `from` / `velocity` (default 0 / `options.from` / `options.velocity`), settling once every key
+ * is at rest. Its step passes the Clock's `dt` through unclamped, as `springValues` always has
+ * (#78).
+ */
+export const springValuesMachine = (
+  target: Record<string, number>,
+  options: SpringOptions = {},
+  from: Record<string, number> = {},
+  velocity: Record<string, number> = {},
+): Machine<MultiPhysicsFrame> => {
   const keys = Rec.keys(target)
   /** A key's start: its own value, else the options', else 0. */
   const startOf = (values: Record<string, number>, key: string, fallback: number | undefined): number =>
@@ -175,44 +234,36 @@ export const springValues = (
       Option.orElse(() => Option.fromNullishOr(fallback)),
       Option.getOrElse(() => 0),
     )
-  return Stream.unwrap(
-    Effect.gen(function* () {
-      yield* Effect.logDebug("wardic.springValues: subscribe").pipe(Effect.annotateLogs({ keys }))
-      const clock = yield* Clock
-      const spring = resolveSpring(options)
-      return clock.ticks.pipe(
-        Stream.mapAccum(
-          (): Rec.ReadonlyRecord<string, SpringState> =>
-            Rec.map(target, (_, key) =>
-              initSpring({
-                ...options,
-                from: startOf(from, key, options.from),
-                velocity: startOf(velocity, key, options.velocity),
-              }),
-            ),
-          // Per frame (ADR-0025): a loop over the keys, every key's state and target present by
-          // construction. Records, as before: #63's bench measured an array of states, filled
-          // by `push` and destructured, at +18% bytes per frame.
-          (states, dt) => {
-            const nextStates: Record<string, SpringState> = {}
-            const values: Record<string, number> = {}
-            const velocities: Record<string, number> = {}
-            let allDone = true
-            for (const key of keys) {
-              const result = stepSpring(UndefinedOr.getOrThrow(states[key]), dt, UndefinedOr.getOrThrow(target[key]), spring)
-              nextStates[key] = result.state
-              values[key] = result.value
-              velocities[key] = result.velocity
-              if (!result.done) allDone = false
-            }
-            return [
-              nextStates,
-              [{ value: values, velocity: velocities, done: allDone }],
-            ] as const
-          },
-        ),
-        Stream.takeUntil((frame: MultiPhysicsFrame) => frame.done),
+  const spring = resolveSpring(options)
+  return {
+    settles: true,
+    span: { name: "wardic.springValues", attributes: { keys: keys.length } },
+    start: () => {
+      let states: Rec.ReadonlyRecord<string, SpringState> = Rec.map(target, (_, key) =>
+        initSpring({
+          ...options,
+          from: startOf(from, key, options.from),
+          velocity: startOf(velocity, key, options.velocity),
+        }),
       )
-    }),
-  ).pipe(Stream.withSpan("wardic.springValues", { attributes: { keys: keys.length } }))
+      // Per frame (ADR-0025): a loop over the keys, every key's state and target present by
+      // construction. Records, as before: #63's bench measured an array of states, filled
+      // by `push` and destructured, at +18% bytes per frame.
+      return (dt) => {
+        const nextStates: Record<string, SpringState> = {}
+        const values: Record<string, number> = {}
+        const velocities: Record<string, number> = {}
+        let allDone = true
+        for (const key of keys) {
+          const result = stepSpring(UndefinedOr.getOrThrow(states[key]), dt, UndefinedOr.getOrThrow(target[key]), spring)
+          nextStates[key] = result.state
+          values[key] = result.value
+          velocities[key] = result.velocity
+          if (!result.done) allDone = false
+        }
+        states = nextStates
+        return { value: values, velocity: velocities, done: allDone }
+      }
+    },
+  }
 }

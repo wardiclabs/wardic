@@ -34,7 +34,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 **What's on it:**
 - the steppers (`primitives/stepper.ts`);
 - `primitives/multi.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
-- the bodies of the `Stream.map` / `mapAccum` calls in `primitives/scalar.ts` and `primitives/chase.ts`, and `decayVec`'s in `recognizers/momentum.ts`;
+- the step every Primitive's machine returns (ADR-0027): in `primitives/scalar.ts`, `primitives/chase.ts`, `primitives/multi.ts` and `recognizers/momentum.ts` (`decayVec`'s), and the steps `primitives/machine.ts`'s combinators build (`mapFrames`, `inSequence`, `cycle`);
 - the easings (`easing/penner.ts`, and the functions `easing/generators.ts` returns);
 - the closures each Interpolator's `blend` returns, which the registry's `resolve` hands out (ADR-0026);
 - `math/`;
