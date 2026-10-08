@@ -18,6 +18,7 @@
  *   3. The snapping precisions + arithmetic are copied verbatim so results
  *      cross-check against Motion.
  */
+import * as Predicate from "effect/Predicate"
 import { lerp, type Point } from "../math/index.ts"
 import { type Axis, type AxisDelta, type Box, calcLength, type Delta } from "./box.ts"
 
@@ -35,6 +36,16 @@ const scalePoint = (point: number, scale: number, originPoint: number): number =
   (point - originPoint) * scale + originPoint
 
 /**
+ * The scale from `source` to `target`: their length ratio, or 1 for a zero-length `source`.
+ * On the per-frame path (ADR-0025), dom's projection pass calls it per node: an early return.
+ */
+const scaleOf = (source: Axis, target: Axis): number => {
+  const sourceLength = calcLength(source)
+  if (sourceLength === 0) return 1
+  return calcLength(target) / sourceLength
+}
+
+/**
  * The {@link AxisDelta} that maps `source` onto `target`, resolved around the
  * 0–1 `origin` fraction (default `0.5` = the axis centre, the transform-origin a
  * node scales/translates about; `layoutAnchor` overrides this in P4).
@@ -45,8 +56,7 @@ const scalePoint = (point: number, scale: number, originPoint: number): number =
  */
 export const calcAxisDelta = (source: Axis, target: Axis, origin = 0.5): AxisDelta => {
   const originPoint = lerp(source.min, source.max, origin)
-  const sourceLength = calcLength(source)
-  let scale = sourceLength === 0 ? 1 : calcLength(target) / sourceLength
+  let scale = scaleOf(source, target)
   let translate = lerp(target.min, target.max, origin) - originPoint
   if (isNear(scale, 1, SCALE_PRECISION)) scale = 1
   if (isNear(translate, 0, TRANSLATE_PRECISION)) translate = 0
@@ -75,7 +85,7 @@ export const applyPointDelta = (
   boxScale?: number,
 ): number => {
   let p = point
-  if (boxScale !== undefined) p = scalePoint(p, boxScale, originPoint)
+  if (Predicate.isNotUndefined(boxScale)) p = scalePoint(p, boxScale, originPoint)
   return scalePoint(p, scale, originPoint) + translate
 }
 

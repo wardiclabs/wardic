@@ -1,3 +1,4 @@
+import * as Bool from "effect/Boolean"
 import type { Bounds } from "../services/Probe.ts"
 
 /**
@@ -16,6 +17,10 @@ export interface FlipTransform {
 /** The resting transform — the element at its measured `to` box, untransformed. */
 export const FLIP_IDENTITY: FlipTransform = { x: 0, y: 0, scaleX: 1, scaleY: 1 }
 
+/** `from`'s size over `to`'s, or 1 for a zero-sized `to` rather than `Infinity` / `NaN`. */
+const sizeRatio = (from: number, to: number): number =>
+  Bool.match(to === 0, { onTrue: () => 1, onFalse: () => from / to })
+
 /**
  * The "Invert" half of FLIP, as pure geometry (see ADR-0004 / ADR-0005): given
  * the element's prior box (`from`) and its current box (`to`), return the
@@ -31,6 +36,6 @@ export const FLIP_IDENTITY: FlipTransform = { x: 0, y: 0, scaleX: 1, scaleY: 1 }
 export const flip = (from: Bounds, to: Bounds): FlipTransform => ({
   x: from.left - to.left,
   y: from.top - to.top,
-  scaleX: to.width === 0 ? 1 : from.width / to.width,
-  scaleY: to.height === 0 ? 1 : from.height / to.height,
+  scaleX: sizeRatio(from.width, to.width),
+  scaleY: sizeRatio(from.height, to.height),
 })
