@@ -1,6 +1,7 @@
 import {
   arrayInterpolator,
   colorInterpolator,
+  type InterpolatorEntry,
   InterpolatorRegistry,
   InterpolatorRegistryLive,
   numberInterpolator,
@@ -8,27 +9,40 @@ import {
   unitOf,
 } from "@wardic/core"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
-import * as Cause from "effect/Cause"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { expect, it, layer } from "@effect/vitest"
 
-// Pure interpolator tests — no registry or Effect needed.
+// Pure interpolator tests — no registry or Effect needed. Each entry is a codec and a blend
+// (ADR-0026): `decodes` asks its codec, and `blendOf` decodes both endpoints, then blends.
 
-it("number entry matches and lerps", () => {
-  expect(numberInterpolator.match(5)).toBe(true)
-  expect(numberInterpolator.match("5")).toBe(false)
-  expect(numberInterpolator.interpolate(0, 10, 0.5)).toBe(5)
+/** Whether `entry`'s codec decodes `value`: whether the value is the entry's kind. */
+const decodes = <D, E>(entry: InterpolatorEntry<D, E>, value: unknown): boolean =>
+  Option.isSome(Schema.decodeUnknownOption(entry.codec)(value))
+
+/** `entry`'s blend of two endpoints, decoded by its codec, at `t`. */
+const blendOf =
+  <D, E>(entry: InterpolatorEntry<D, E>, from: unknown, to: unknown) =>
+  (t: number): E => {
+    const decode = Schema.decodeUnknownSync(entry.codec)
+    return Option.getOrThrow(entry.blend(decode(from), decode(to)))(t)
+  }
+
+it("number entry decodes numbers and lerps", () => {
+  expect(decodes(numberInterpolator, 5)).toBe(true)
+  expect(decodes(numberInterpolator, "5")).toBe(false)
+  expect(blendOf(numberInterpolator, 0, 10)(0.5)).toBe(5)
 })
 
 it("array entry interpolates element-wise", () => {
-  expect(arrayInterpolator.match([0, 0])).toBe(true)
-  expect(arrayInterpolator.interpolate([0, 0], [10, 20], 0.5)).toEqual([5, 10])
+  expect(decodes(arrayInterpolator, [0, 0])).toBe(true)
+  expect(blendOf(arrayInterpolator, [0, 0], [10, 20])(0.5)).toEqual([5, 10])
 })
 
 it("unit entry preserves the unit", () => {
-  expect(unitInterpolator.match("10px")).toBe(true)
-  expect(unitInterpolator.interpolate("0px", "10px", 0.5)).toBe("5px")
+  expect(decodes(unitInterpolator, "10px")).toBe(true)
+  expect(blendOf(unitInterpolator, "0px", "10px")(0.5)).toBe("5px")
 })
 
 it("unitOf reads the unit the unit entry parses: '' for a bare number, None for none", () => {
@@ -40,40 +54,36 @@ it("unitOf reads the unit the unit entry parses: '' for a bare number, None for 
   expect(unitOf("rgb(0, 0, 0)")).toEqual(Option.none())
 })
 
-it("color interpolator does not match the CSS keyword 'auto'", () => {
+it("color interpolator does not decode the CSS keyword 'auto'", () => {
   // Arrange
   const color = colorInterpolator()
 
   // Act
-  const matched = color.match("auto")
+  const decoded = decodes(color, "auto")
 
   // Assert
-  expect(matched).toBe(false)
+  expect(decoded).toBe(false)
 })
 
-it("color interpolator matches the named color 'rebeccapurple'", () => {
+it("color interpolator decodes the named color 'rebeccapurple'", () => {
   // Arrange
   const color = colorInterpolator()
 
   // Act
-  const matched = color.match("rebeccapurple")
+  const decoded = decodes(color, "rebeccapurple")
 
   // Assert
-  expect(matched).toBe(true)
+  expect(decoded).toBe(true)
 })
 
-it("color match fast-path accepts '#fff' and 'rgb(0,0,0)' without throwing", () => {
-  // Arrange — stub culori parse via a fake entry that throws if its parse is hit.
-  // Since `colorInterpolator` closes over the imported `parse`, we cannot replace
-  // it from the outside; we instead assert the fast-path by relying on the fact
-  // that the syntactic prefix branch returns true *before* touching culori. A
-  // throwing parse would surface as a thrown error; the test asserts no throw
-  // and a true result for both forms.
+it("color interpolator decodes '#fff' and 'rgb(0,0,0)' through culori's parse, without throwing", () => {
+  // Arrange — decoding is matching (ADR-0026): there is no prefix fast path, so `#fff` and
+  // `rgb(0,0,0)` are colours because culori parses them.
   const color = colorInterpolator()
 
   // Act
-  const hashMatch = (): boolean => color.match("#fff")
-  const rgbMatch = (): boolean => color.match("rgb(0,0,0)")
+  const hashMatch = (): boolean => decodes(color, "#fff")
+  const rgbMatch = (): boolean => decodes(color, "rgb(0,0,0)")
 
   // Assert
   expect(hashMatch).not.toThrow()
@@ -126,19 +136,22 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
     }),
   )
 
-  it.effect("resolve('10px', '20em') fails with an error message naming both units", () =>
+  it.effect("resolve('10px', '20em') is a Discrete pair, with a warning naming both values (ADR-0026)", () =>
     Effect.gen(function* () {
-      // Arrange & Act — capture the exit so the failure does not abort the test.
+      // Arrange — capture the warning `resolve` logs for a pair an entry decodes but can't blend.
       const registry = yield* InterpolatorRegistry
-      const exit = yield* Effect.exit(registry.resolve("10px", "20em"))
+      const warnings: Array<{ readonly message: unknown; readonly annotations: Record<string, unknown> }> = []
+      const capture = Logger.map(Logger.formatStructured, (structured) => {
+        if (structured.level === "WARN") warnings.push({ message: structured.message, annotations: structured.annotations })
+      })
 
-      // Assert
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) {
-        const message = Cause.pretty(exit.cause)
-        expect(message).toContain("px")
-        expect(message).toContain("em")
-      }
+      // Act
+      const fn = yield* registry.resolve("10px", "20em").pipe(Effect.provide(Logger.layer([capture])))
+
+      // Assert — it switches at the first frame past 0, and warns once, with both units in view.
+      expect([fn(0), fn(0.01), fn(1)]).toEqual(["10px", "20em", "20em"])
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]?.annotations).toMatchObject({ interpolator: "unit", from: "10px", to: "20em" })
     }),
   )
 
@@ -188,8 +201,8 @@ layer(InterpolatorRegistryLive)("interpolator registry (registration precedence)
       const registry = yield* InterpolatorRegistry
       yield* registry.register({
         name: "always-999",
-        match: (v) => typeof v === "number",
-        interpolate: () => 999,
+        codec: Schema.Number,
+        blend: () => Option.some(() => 999),
       })
       const result = yield* registry.interpolate(0, 10, 0.5)
       expect(result).toBe(999)

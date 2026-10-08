@@ -31,7 +31,7 @@ const hasUnit: Predicate.Predicate<ParsedUnit> = Predicate.mapInput(Str.isNonEmp
 /** Two units that are not the same. */
 const differ: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = ([a, b]) => a.unit !== b.unit
 
-/** Two different units, both present (`"10px"`, `"1em"`): a pair the registry dies on. */
+/** Two different units, both present (`"10px"`, `"1em"`): a pair `unit` can't blend, so a Discrete pair (ADR-0026). */
 export const incompatible: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = Predicate.and(
   Predicate.Tuple([hasUnit, hasUnit]),
   differ,
