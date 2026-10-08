@@ -40,12 +40,13 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
    - The closure lerps, then encodes with the codec's plain encode function, the same function the codec's transformation encodes with, so each format is written once. Where that encode reads a decoded value, the closure fills one it allocated at `resolve` (`complex`'s numbers): nothing is allocated per frame but the output.
    - It's the shape of Motion's mixers: `getMixer(a)(a, b)` returns `(p) => value`.
    - The codec takes no services, because `resolve` decodes synchronously, with `Schema.decodeUnknownOption`.
-3. **Decoding is matching.**
+3. **Decoding is matching, in one pass.**
    - An entry takes an endpoint when its codec decodes it. `match` is gone.
-   - Selection keeps its three passes, in registry precedence: the entry that decodes both endpoints; else, when one endpoint is plain (a number or an array), the entry that decodes the other; else the entry that decodes either. Each entry decodes each endpoint at most once per `resolve`, and the decoded values go to `blend`, so nothing is parsed twice.
-   - An entry that decodes one endpoint and not the other: a Discrete pair, as before.
+   - `resolve` picks the first entry, in registry precedence, whose codec decodes both endpoints, and hands what it decoded to `blend`, so nothing is parsed twice. Each entry decodes `from` at most once, and `to` only once `from` has decoded.
+   - No entry decodes both: a Discrete pair, as before.
+   - The registry's three passes go: both endpoints; else, when one endpoint is plain (a number or an array), the other's entry; else either's. They routed `0` → `"10px"` to `unit`'s coercion. With the coercion in `UnitString` (decision 4), an entry the later passes picked never decoded both endpoints, so its pair was a Discrete pair either way. The grill kept the passes; the implementation found them inert, and they were cut the same day.
 4. **The unit coercion is decoding, and incompatible units are a Discrete pair (amends ADR-0024).**
-   - `UnitString` decodes a bare number too, to `{ value, unit: "" }`, the shape `"120"` decodes to, and `unit`'s `blend` takes the pair's unit from whichever endpoint has one. `0` → `"10px"` lands where it did, in the first pass now, and `bindUnit`, `bindNumberToUnit`, `bindUnitToNumber` and the special case by name go. `number` comes before `unit`, so two numbers never reach it.
+   - `UnitString` decodes a bare number too, to `{ value, unit: "" }`, the shape `"120"` decodes to, and `unit`'s `blend` takes the pair's unit from whichever endpoint has one. `0` → `"10px"` lands where it did, and `bindUnit`, `bindNumberToUnit`, `bindUnitToNumber` and the special case by name go. `number` comes before `unit`, so two numbers never reach it.
    - Two different units, both present (`"10px"` → `"1em"`), are a Discrete pair: `unit`'s `blend` returns `None`. They died at `resolve` before, and that defect failed the element's whole leg, so one key stopped every key. CONTEXT.md's Discrete pair is "a pair no Interpolator can blend", and two paths of different structure already were one. Motion doesn't die on it either: `mix("10px", "1em")` blends in the target's unit, `10em` → `1em` (`motion-dom`, #56's install).
    - **A warning, once per pair, at `resolve`.** When an entry decodes both endpoints and its `blend` returns `None` (two units, two structures), `resolve` logs `Effect.logWarning` with the entry's name and both values. Motion warns on a pair it can't mix ("too different to mix"). A pair no entry decodes both of (`"auto"` → `"none"`, a colour and a keyword) stays silent: an ordinary switch. A warning, not a debug log, because debug is below Effect's default minimum level, and the `die` it replaces was loud.
 5. **Colour.**
@@ -60,14 +61,15 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 
    | Workload | Chromium 147 ms per frame | Bun 1.3 | Node 22 | Node MB per frame | Start ms (Chromium / Bun / Node) |
    |---|---|---|---|---|---|
-   | `ticksOnly` | 5.59 | 12.55 | 10.07 | 0.94 | 33 / 68 / 60 |
-   | `springValues` | 9.31 | 19.23 | 14.96 | 1.19 | 62 / 113 / 110 |
-   | `animateValues` | 18.06 | 35.87 | 29.19 | 2.10 | 216 / 307 / 281 |
-   | `springBlend` | 16.48 | 34.48 | 22.84 | 1.56 | 159 / 236 / 210 |
+   | `ticksOnly` | 5.59 | 12.55 | 10.07 | 3.09 | 33 / 68 / 60 |
+   | `springValues` | 9.31 | 19.23 | 14.96 | 5.50 | 62 / 113 / 110 |
+   | `animateValues` | 18.06 | 35.87 | 29.19 | 10.80 | 216 / 307 / 281 |
+   | `springBlend` | 16.48 | 34.48 | 22.84 | 10.26 | 159 / 236 / 210 |
    | `chase` | 8.13 | 19.01 | 11.51 | 4.51 | 52 / 111 / 83 |
-   | `animateComplex` | 19.33 | 46.20 | 38.82 | 3.34 | 218 / 291 / 244 |
+   | `animateComplex` | 19.33 | 46.20 | 38.82 | 20.72 | 218 / 291 / 244 |
 
-   - Its two keys cost more per frame than `animateValues`' four: 38.82 ms against 29.19 in Node, and 3.34 MB per frame against 2.10.
+   - Its two keys cost more per frame than `animateValues`' four: 38.82 ms against 29.19 in Node, and 20.72 MB per frame against 10.80.
+   - **The MB column is corrected.** The run printed 0.94, 1.19, 2.10, 1.56, 4.51 and 3.34: the bench's bytes gate lost what a scavenge freed inside a measured window, without seeing the scavenge (Consequences). The column holds main's core measured again with the fix, one rep per side and deterministic across two; its times are the run's.
    - Against itself, the paired ratios' medians were within −2.1% to +2.8% in Chromium, −1.7% to +3.6% in Node, and −3.2% to +7.1% in Bun. Bun's `ticksOnly` was off by +7.1%, past ADR-0025's ±3%, so Bun's side of this run counts as too noisy to judge; Node's and Chromium's are within it. `animateComplex` itself: −0.1% (Bun), +3.6% (Node), +2.8% (Chromium).
    - The machine ran slower than at ADR-0025's baseline (`ticksOnly` 5.59 ms in Chromium against 3.72), so these numbers compare within a run, not across ADRs.
 8. **The surface.**
@@ -81,6 +83,7 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 
 - **Both shapes side by side, or an adapter for the old one** (decision 1). Rejected: two selection paths, or a non-decoding `match` and a per-frame `interpolate`, kept for no known user.
 - **`blend(from, to, t)` returning a decoded value, with a separate `encode`** (decision 2), #65's first sketch. Rejected: the pair's work (two structures, two units, a path alignment) has nowhere to run but every frame, and every frame allocates a decoded value (a `{ value, unit }`; a numbers array as long as the path). **A separate pair step beside that `blend` and `encode`:** three type parameters, and the same value per frame.
+- **The three selection passes, kept** (decision 3). Rejected once the code was written: with the coercion in the codec, the second and third passes only ever picked an entry that doesn't decode both endpoints, so they changed no result, and they cost a pair of keywords a second round of decodes.
 - **A cheap `match` kept as a guard, decoding only the entry it picks** (decision 3). Rejected: two passes over each string again, and two definitions of what an entry takes, which can disagree, as the colour prefix did.
 - **Keeping the `die`, with `blend` throwing inside `Effect.sync`** (decision 4). Rejected: an implicit second channel in the entry's contract, and still one key failing a whole leg. **A typed error in `resolve`'s error channel:** rejected, a Tier 2 signature change and a unit-specific error in the generic registry, and `blendersFor` would still choose between dying and switching.
 - **An rgb lerp of Wardic's own** (decision 5). Rejected: a second implementation of culori's rounding, clamping and alpha handling, to save one object per frame.
@@ -95,8 +98,21 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
   - two complex values of different structures: a warning at `resolve` beside the switch they already made;
   - `"#zzz"` and `"rgb(var(--x))"` with a colour: Discrete pairs; `" #000 "`: a blend. All three died on the first frame (decision 5).
 - **Costs:**
-  - **When a stream is built:** selection decodes through Schema. Estimated per key from the probe above: a colour pair about 1 µs, a unit pair about 2.2 µs, two keywords about 6.5 µs, against about 0.1, 1 and 2.5 µs at `871a898`. Start time is reported, not gated (ADR-0025, decision 4).
-  - **Per frame:** `complex` and the colour tier stop parsing, and the colour tier stops rebuilding culori's interpolator; `animateComplex`, `animateValues` and `springBlend` should get faster, and their Node bytes per frame fall. The gate run against `871a898` is recorded here once it has run.
+  - **When a stream is built:** selection decodes through Schema. Estimated per key from the probe above: a colour pair about 1 µs, a unit pair about 2.2 µs, two keywords about 3 µs (every entry fails `from`), against about 0.1, 1 and 2.5 µs at `871a898`. Start time is reported, not gated (ADR-0025, decision 4).
+  - **Per frame, measured:** `bun run bench:core --base 871a898` at the implementation, with the bytes fix below: 11 paired reps, 1,000 elements, median head / base ratio [p25–p75]. Every workload passes both gates, and every noise control is within ±3% (`ticksOnly`: −1.0% Bun, −1.2% Node, −0.7% Chromium).
+
+    | Workload | Bun | Node | Chromium | Node MB per frame | Start ms (Bun / Node / Chromium) |
+    |---|---|---|---|---|---|
+    | `springValues` | −2.1% [−3.1% – +0.5%] | −4.0% [−9.4% – +3.2%] | −5.1% [−9.2% – +0.4%] | 5.50 → 5.50 | 110 → 112 / 104 → 102 / 58 → 59 |
+    | `animateValues` | −5.0% [−8.4% – −4.0%] | −10.3% [−12.9% – −6.6%] | −9.5% [−14.6% – −7.7%] | 10.80 → 7.10 | 316 → 335 / 267 → 321 / 166 → 176 |
+    | `springBlend` | −5.5% [−9.5% – −3.6%] | −0.2% [−4.1% – +1.6%] | −10.0% [−13.6% – −5.8%] | 10.26 → 6.56 | 248 → 269 / 200 → 238 / 134 → 148 |
+    | `chase` | +1.8% [−4.6% – +4.9%] | +1.6% [−1.7% – +3.4%] | +3.0% [−5.6% – +5.8%] | 4.51 → 4.51 | 98 → 98 / 79 → 81 / 44 → 44 |
+    | `animateComplex` | −21.5% [−25.4% – −20.5%] | −40.0% [−42.1% – −36.5%] | −23.5% [−30.1% – −22.9%] | 20.72 → 8.62 | 288 → 332 / 239 → 277 / 181 → 197 |
+
+    - The complex tier gains most: no parse, no template split, and one numbers array per pair.
+    - Node's bytes fall 34–58% on the three workloads that blend strings; the three that don't (`ticksOnly` at 3.09 MB, `springValues`, `chase`) are unchanged to the byte.
+    - **Start time grows more than the probe's estimate** of about 6 ms per 1,000 elements: +19 ms (Bun), +55 ms (Node) and +10 ms (Chromium) on `animateValues`. `resolve` now also builds what the frames used to (culori's interpolator, the numbers array) and validates each decode's output against its `Struct`. It's reported, not gated.
+- **The bench's bytes gate counted wrong, and is fixed (`packages/core/bench/one.mjs`).** It skipped a round with a GC in its window, counting GCs with a `PerformanceObserver`, whose entries arrive as a task; a window only awaits microtasks, so it never saw one. Under `--trace-gc`, main's core scavenged in most `animateValues`, `springBlend` and `animateComplex` windows while the observer counted 0, and the heap delta lost what each scavenge freed. The core that allocated more was under-counted more, so this ADR's first gate run failed `animateValues`, `springBlend` and `animateComplex` on bytes (2.10 → 2.85 MB, 1.56 → 6.56, 3.34 → 8.62) that it had cut. The hook now counts the used heap plus every byte a GC has freed, from a `v8.GCProfiler`, which reports synchronously, and every round counts. Per blender, with nothing collected unseen: a colour 4,240 → 524 bytes per call, the bench's `d` 10,521 → 1,582, its `box-shadow` 3,708 → 571; unit strings, numbers and Discrete pairs unchanged.
 - **The per-frame path** (`docs/agents/effect-first.md`): "each Interpolator's `interpolate`" becomes "the closures each Interpolator's `blend` returns". `complex`'s blend keeps its counted loop, in `interpolate/complex.ts`, where lint already allows one.
 - **Pinned by:**
   - core, node:
