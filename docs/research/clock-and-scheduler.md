@@ -823,7 +823,7 @@ cd .tmp/clock-research && direnv exec ../.. bun build entry-browser.ts --target=
 # (e) dom's real Environment and solid's gate, with a real mouse
 direnv exec . bun .tmp/clock-research/run-e.ts 3
 # rc.117: the same entries, from the worktree's copy
-cd .tmp/clock-research/rc117-tree/.tmp/probe && direnv exec /home/kookikodes/dev/wardic bun entry-node.ts abcd 1000
+cd .tmp/clock-research/rc117-tree/.tmp/probe && direnv exec ../../../../.. bun entry-node.ts abcd 1000
 # the async-context side probe (Node)
 cd .tmp/clock-research && node dist/asyncctx.mjs && node --import ./no-builtin.mjs dist/asyncctx.mjs
 ```

@@ -29,6 +29,7 @@ import {
 } from "@wardic/core"
 import { TestClock } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -55,7 +56,7 @@ const DTS: ReadonlyArray<number> = [
   0.25,
   0.6,
   1 / 60,
-  ...Array.from({ length: 140 }, (_, i) => (i % 3 === 0 ? 1 / 30 : 1 / 60)),
+  ...Array.from({ length: 140 }, (_, i) => Bool.match(i % 3 === 0, { onTrue: () => 1 / 30, onFalse: () => 1 / 60 })),
 ]
 
 /** Run `a` and `b` side by side on one pushable Clock for `DTS`, and collect each one's Frames. */

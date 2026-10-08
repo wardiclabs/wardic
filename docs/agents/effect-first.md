@@ -40,7 +40,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 - `math/`;
 - `layout/box.ts` and `layout/projection-geometry.ts` (dom's projection pass calls them per node, per frame);
 - `util/velocity.ts`, and the functions `util/generators.ts` returns;
-- the Frame loop's tick (`services/frame-loop.ts`, ADR-0027): plain calls only, inside its one `Effect.sync` per tick. A run's sink is typed `(frame) => undefined`, so an Effect can't be returned from it.
+- the Frame loop's tick (`services/frame-loop.ts`, ADR-0027): plain calls only, in its one `Stream.map` call per tick. A run's sink is typed `(frame) => undefined`, so an Effect can't be returned from it.
 
 Input-event code (recognizers, reorder, the held pointer) runs per gesture event, not per key per frame, so it gets the full rules.
 
