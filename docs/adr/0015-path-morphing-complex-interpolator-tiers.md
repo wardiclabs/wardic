@@ -35,3 +35,7 @@ Tier-2 is genuinely separable and broadly useful **outside animation** (icon mor
 ## Amendment (#56, 2026-10-07): a mismatch snaps at the first frame
 
 "Mismatch → snap" now snaps at the leg's first frame, `t > 0 ? to : from`, not at its end (`t < 1 ? from : to`), and so does every other pair the registry can't blend, a **Discrete pair** (CONTEXT.md). Once a string key starts from its painted or Own value, a snap at the end would hold the old value for the whole leg; Motion's `mixImmediate` switches at `p > 0` too. A path of a different structure therefore takes its target's shape on the first frame (ADR-0024, decision 3).
+
+## Amendment (#65, 2026-10-07): the complex tier is a codec
+
+The complex tier is a Schema codec, `ComplexString`, and a blend (ADR-0026). A string carrying two or more numbers decodes once, when a stream is built, into its parts (the pieces around the numbers) and its numbers. Two of the same structure blend number by number, and each frame only lerps the numbers and interleaves them with the parts: it no longer parses both strings. Two of different structures are still a Discrete pair, and `resolve` now logs a warning for them, as Motion warns on a pair "too different to mix". "Matches" in the decisions above now means "decodes".

@@ -99,3 +99,8 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
 - **ADR-0005:** the Snapshot holds every key's last value, strings included, and a spring's string keys follow the spring (decisions 1 and 5).
 - **ADR-0015:** "Mismatch → snap" now snaps at the leg's first frame, `t > 0 ? to : from` (decision 3).
 - **ADR-0022:** its Consequences left string starts to #56. A string key now starts from its start links and returns through the chain by animating (decision 2).
+
+## Amendment (#65, 2026-10-07): where a Discrete pair is decided, and incompatible units
+
+- **One place.** Decision 3's fallback was in the registry, the `unit` interpolator and the `complex` interpolator. With interpolators as codecs (ADR-0026), a Discrete pair is decided once, in `resolve`: when no entry decodes both endpoints, or an entry decodes both and its `blend` returns `None`. It still switches at the first frame past 0.
+- **Incompatible units.** Two lengths in different units (`"10px"` → `"1em"`) are a Discrete pair, with a warning at `resolve`. `resolve` died on them before, which failed the element's whole leg. Decision 1's `valueLike` already treated "a length in another unit" as a value it can't coerce.

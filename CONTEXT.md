@@ -49,15 +49,19 @@ _Avoid_: state, current value.
 ### Value blending
 
 **Interpolator**:
-A per-value-type strategy that blends `from`→`to` at progress `t` for one kind of value (number, color, unit-string), resolved at runtime via the registry.
-_Avoid_: easing (distinct — see ambiguities), tween.
+A value kind and how two values of it blend: it decodes an endpoint of its kind (a number, an array, a color, a unit string, a **Complex value**) once, when a stream is built, and blends two decoded endpoints at progress `t`, encoding the result each frame. A value it can't decode isn't its kind.
+_Avoid_: easing (distinct — see ambiguities), tween, mixer (Motion's).
+
+**Complex value**:
+A string carrying two or more numbers in a fixed structure: an SVG `d` or `points`, a `filter`, a multi-part `box-shadow`. Two of the same structure blend number by number; two of different structures are a **Discrete pair**.
+_Avoid_: path (a path is one kind of complex value).
 
 **Easing**:
 A reshaping of normalized time `t`∈[0,1]→[0,1] applied by Definite primitives; orthogonal to interpolation.
 _Avoid_: curve, interpolator.
 
 **Discrete pair**:
-A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two paths of different structure). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
+A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two paths of different structure, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
 _Avoid_: instant animation (Motion's), snap.
 
 **Override stack**:
@@ -269,5 +273,5 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 - **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (Effect's `effect/reactivity`) appears only on service *inputs* (`Clock.time`, `Probe.viewport`) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
-- **"color string"** (what matches the color Interpolator) — Resolved: a string is a color iff culori's `parse` accepts it. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors: paired with a color they make a **Discrete pair**. A prior regex-based matcher (`[a-z]+$`) was too greedy and is being replaced.
+- **"color string"** (what the color Interpolator decodes) — Resolved: a string is a color iff culori's `parse` accepts it, trimmed. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors, and neither is a string culori rejects (`"#zzz"`, `"rgb(var(--x))"`): paired with a color, they make a **Discrete pair**.
 - **Reduced-motion policy ownership** — `Probe.prefersReducedMotion` is exposed but no primitive currently reads it. Resolved: core ships a `respectReducedMotion(stream)` combinator (snap to target by default, preference read once at stream start); bindings apply it by default; users opt out per-call via `transition.respectReducedMotion: false`.

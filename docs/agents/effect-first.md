@@ -10,7 +10,7 @@ How code in this repo is written: Effect's modules over vanilla TypeScript, and 
    - **Loops:** `Arr`, `Rec` and `Iter` (`map`, `filter`, `reduce`, `findFirst`, …), and `Effect.forEach` / `Effect.all` over Effects. Not `for` or `while`.
    - **Boolean checks:** named `Predicate`s, built with `Predicate`'s combinators and `Num`, `Str` and `Bool`. Not `typeof`, and not hand-written `&&` chains.
    - **Missing values:** `Option`. Not `??`, `!` or `=== undefined`. To read a value that is already `A | undefined` (an option bag's `?:` field, a `Map.get`), `UndefinedOr.match` / `map` is fine: it allocates no `Some`.
-   - **The rest, where they fit:** `Match`; `Schema` wherever values are decoded and encoded (#65, #66), never per frame; Services and `Scope`; `Schedule` for policies on wall time. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
+   - **The rest, where they fit:** `Match`; `Schema` wherever values are decoded and encoded (the Interpolators' codecs, ADR-0026; the option bags, #66), never per frame; Services and `Scope`; `Schedule` for policies on wall time. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
 2. **No ternary operators.** Use `Boolean.match`, `Option.match` or `Match`.
 
 Parameter and destructuring defaults (`options = {}`, `{ from = "first" }`) are declarations, not checks. They stay.
@@ -36,7 +36,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 - `primitives/multi.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
 - the bodies of the `Stream.map` / `mapAccum` calls in `primitives/scalar.ts` and `primitives/chase.ts`, and `decayVec`'s in `recognizers/momentum.ts`;
 - the easings (`easing/penner.ts`, and the functions `easing/generators.ts` returns);
-- each Interpolator's `interpolate`, and the closures the registry's `resolve` returns;
+- the closures each Interpolator's `blend` returns, which the registry's `resolve` hands out (ADR-0026);
 - `math/`;
 - `layout/box.ts` and `layout/projection-geometry.ts` (dom's projection pass calls them per node, per frame);
 - `util/velocity.ts`, and the functions `util/generators.ts` returns.
