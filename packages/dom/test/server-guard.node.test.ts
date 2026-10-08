@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/reactivity"
 import { vi } from "vitest"
 import { ClockDomLive, DomLive, InputDomLive, ProbeDomLive, project, RendererDomLive } from "@wardic/dom"
 

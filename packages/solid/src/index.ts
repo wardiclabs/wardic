@@ -5,7 +5,7 @@
  * `useWardic` hook, variant orchestration (`ward.Provider`), the `wardic.create()` HOC,
  * the `use:ward` directive, `<AnimatePresence>` / `<LayoutGroup>`, and the low-level
  * `createX` primitives. Built directly on `effect`'s in-core reactivity
- * (`effect/unstable/reactivity`) — there is no `@effect-atom/atom-solid` dependency.
+ * (`effect/reactivity`) — there is no `@effect-atom/atom-solid` dependency.
  *
  * Only a placeholder provider exists today — see implementation order steps 10–15.
  */

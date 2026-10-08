@@ -26,7 +26,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 import { requireGlobal } from "./require-global.ts"
 import { makeSharedByTarget } from "./shared.ts"
 

@@ -1,7 +1,7 @@
 import { DragActivity, InterpolatorRegistryLive, makeDragActivity } from "@wardic/core"
 import type { Clock, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
 import * as Layer from "effect/Layer"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/reactivity"
 import * as TestClock from "./clock.ts"
 import * as TestInput from "./input.ts"
 import * as TestProbe from "./probe.ts"

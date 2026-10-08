@@ -37,6 +37,7 @@ export default defineConfig({
       "effect/String",
       "effect/Tracer",
       "effect/UndefinedOr",
+      "effect/reactivity",
     ],
   },
   test: {

@@ -7,7 +7,7 @@ import * as Fiber from "effect/Fiber"
 import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/reactivity"
 
 // The Clock's Cold start contract (ADR-0017), checked against a hand-driven
 // Refresh frame source. Every fiber runs on Effect's browser fallback scheduler

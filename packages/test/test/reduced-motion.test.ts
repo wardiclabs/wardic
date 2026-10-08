@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Stream from "effect/Stream"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/reactivity"
 
 const layerWith = (
   frames: ReadonlyArray<number>,

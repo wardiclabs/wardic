@@ -18,7 +18,7 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Scheduler from "effect/Scheduler"
 import * as Stream from "effect/Stream"
-import { AtomRegistry } from "effect/unstable/reactivity"
+import { AtomRegistry } from "effect/reactivity"
 import type * as CoreModule from "../src/index.ts"
 
 type Core = typeof CoreModule

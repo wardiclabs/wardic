@@ -105,6 +105,7 @@ export default defineConfig({
       "effect/Record",
       "effect/String",
       "effect/UndefinedOr",
+      "effect/reactivity",
     ],
   },
   test: {
