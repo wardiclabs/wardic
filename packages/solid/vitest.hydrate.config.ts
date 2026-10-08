@@ -62,6 +62,7 @@ export default defineConfig({
       "effect/Boolean",
       "effect/Equivalence",
       "effect/Function",
+      "effect/Iterable",
       "effect/Latch",
       "effect/Logger",
       "effect/Match",

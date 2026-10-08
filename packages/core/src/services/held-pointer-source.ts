@@ -42,7 +42,15 @@
  * Observability: the per-event path is the hot path and stays quiet; the Environment's
  * Shared source wrapper carries the subscribe span and log.
  */
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
+import * as Iter from "effect/Iterable"
+import * as Match from "effect/Match"
+import * as MutableRef from "effect/MutableRef"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import type { Point } from "../math/index.ts"
@@ -88,18 +96,39 @@ interface Held {
 
 /** `event` moved by `held`'s scroll shift: the same object when there is none. */
 const shifted = (held: Held, event: PointerLikeEvent): PointerLikeEvent =>
-  held.dx === 0 && held.dy === 0 ? event : { ...event, x: event.x + held.dx, y: event.y + held.dy }
+  Bool.match(Bool.and(held.dx === 0, held.dy === 0), {
+    onTrue: () => event,
+    onFalse: () => ({ ...event, x: event.x + held.dx, y: event.y + held.dy }),
+  })
+
+/** An event of one type. */
+const ofType =
+  (type: PointerLikeEvent["type"]): Predicate.Predicate<PointerLikeEvent> =>
+  (event) =>
+    event.type === type
+
+/** A move with no button pressed: the release was lost (ADR-0019). */
+const isUnpressedMove: Predicate.Predicate<PointerLikeEvent> = Predicate.and(ofType("move"), (event) => event.buttons === 0)
 
 /** Whether `event` ends its pointer's hold: its release, its cancel, or a move with no button pressed. */
-const endsHold = (event: PointerLikeEvent): boolean =>
-  event.type === "up" || event.type === "cancel" || (event.type === "move" && event.buttons === 0)
+const endsHold: Predicate.Predicate<PointerLikeEvent> = Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
 
 /**
  * Whether a page-wide `down` means `held`'s release was lost: the same pointer went down
  * again, or a new primary pointer of its type did (only one is primary per type).
  */
 const supersedes = (down: PointerLikeEvent, held: PointerLikeEvent): boolean =>
-  down.pointerId === held.pointerId || (down.isPrimary && held.isPrimary && down.pointerType === held.pointerType)
+  Bool.or(
+    down.pointerId === held.pointerId,
+    Bool.every([down.isPrimary, held.isPrimary, down.pointerType === held.pointerType]),
+  )
+
+/** A feed's stop function, while the feed is subscribed. */
+type Stop = MutableRef.MutableRef<Option.Option<() => void>>
+
+/** Stop a feed, once: take its stop function out of `stop`, then call it. */
+const stopFeed = (stop: Stop): void =>
+  Option.match(MutableRef.getAndSet(stop, Option.none()), { onNone: constVoid, onSome: (stopIt) => stopIt() })
 
 /**
  * The target's `pointer` stream, with every Held pointer's events wherever they land
@@ -112,23 +141,16 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
       Effect.sync(() => {
         // Each held pointer: where a lost release leaves it, and the scroll since its down.
         const held = new Map<number, Held>()
-        let stopGlobal: (() => void) | undefined
-        let stopScroll: (() => void) | undefined
-        let lastGlobalRaw: unknown
+        const stopGlobal: Stop = MutableRef.make(Option.none())
+        const stopScroll: Stop = MutableRef.make(Option.none())
+        // The platform event the page-wide feed forwarded last, so the target's copy of it is dropped.
+        const lastGlobalRaw = MutableRef.make(Option.none<unknown>())
         // Each scrolled source's last position, for the hold.
         const scrollPositions = new Map<unknown, { x: number; y: number }>()
 
         const stopFeeds = (): void => {
-          if (stopGlobal !== undefined) {
-            const stop = stopGlobal
-            stopGlobal = undefined
-            stop()
-          }
-          if (stopScroll !== undefined) {
-            const stop = stopScroll
-            stopScroll = undefined
-            stop()
-          }
+          stopFeed(stopGlobal)
+          stopFeed(stopScroll)
           scrollPositions.clear()
         }
 
@@ -137,93 +159,122 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
           if (held.size === 0) stopFeeds()
         }
 
-        const fromScroll = (source: unknown, position: Point, timeStamp: number): void => {
-          const last = scrollPositions.get(source)
-          if (last === undefined) {
-            scrollPositions.set(source, { x: position.x, y: position.y })
-            return
-          }
-          const dx = position.x - last.x
-          const dy = position.y - last.y
-          if (dx === 0 && dy === 0) return
-          last.x = position.x
-          last.y = position.y
-          for (const h of held.values()) {
-            h.dx += dx
-            h.dy += dy
-            if (!h.moved) continue
-            const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, button: -1, timeStamp }
-            h.last = moved
-            Queue.offerUnsafe(queue, moved)
-          }
-        }
-
-        const fromGlobal = (event: PointerLikeEvent, raw: unknown): void => {
-          if (event.type === "down") {
-            for (const [pointerId, h] of held) {
-              if (!supersedes(event, h.last)) continue
-              Queue.offerUnsafe(queue, { ...h.last, type: "move", buttons: 0, button: -1, timeStamp: event.timeStamp })
-              unhold(pointerId)
-            }
-            return
-          }
-          if (event.type !== "move" && event.type !== "up" && event.type !== "cancel") return
-          const h = held.get(event.pointerId)
-          if (h === undefined) return
-          lastGlobalRaw = raw
+        /** A held pointer's event, from either feed: forwarded with its scroll shift, and the hold kept or ended. */
+        const forward = (h: Held, event: PointerLikeEvent): void => {
           const out = shifted(h, event)
           Queue.offerUnsafe(queue, out)
-          if (endsHold(event)) unhold(event.pointerId)
-          else {
-            h.last = out
-            if (event.type === "move") h.moved = true
-          }
+          Bool.match(endsHold(event), {
+            onTrue: () => unhold(event.pointerId),
+            onFalse: () => {
+              h.last = out
+              if (event.type === "move") h.moved = true
+            },
+          })
+        }
+
+        const fromScroll = (source: unknown, position: Point, timeStamp: number): void =>
+          Option.match(Option.fromUndefinedOr(scrollPositions.get(source)), {
+            onNone: () => {
+              scrollPositions.set(source, { x: position.x, y: position.y })
+            },
+            onSome: (last) => {
+              const dx = position.x - last.x
+              const dy = position.y - last.y
+              if (Bool.and(dx === 0, dy === 0)) return
+              last.x = position.x
+              last.y = position.y
+              Iter.forEach(held.values(), (h) => {
+                h.dx += dx
+                h.dy += dy
+                // Until it has moved since its down, a scroll emits nothing for it.
+                if (h.moved) {
+                  const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, button: -1, timeStamp }
+                  h.last = moved
+                  Queue.offerUnsafe(queue, moved)
+                }
+              })
+            },
+          })
+
+        const fromGlobal = (event: PointerLikeEvent, raw: unknown): void =>
+          Match.value(event).pipe(
+            Match.when({ type: "down" }, (down) =>
+              Iter.forEach(Arr.fromIterable(held), ([pointerId, h]) => {
+                if (supersedes(down, h.last)) {
+                  Queue.offerUnsafe(queue, { ...h.last, type: "move", buttons: 0, button: -1, timeStamp: down.timeStamp })
+                  unhold(pointerId)
+                }
+              }),
+            ),
+            Match.when({ type: Match.is("move", "up", "cancel") }, (e) =>
+              Option.match(Option.fromUndefinedOr(held.get(e.pointerId)), {
+                onNone: constVoid,
+                onSome: (h) => {
+                  MutableRef.set(lastGlobalRaw, Option.fromUndefinedOr(raw))
+                  forward(h, e)
+                },
+              }),
+            ),
+            Match.orElse(constVoid),
+          )
+
+        /** Subscribe the page-wide and scroll feeds, at the first hold. */
+        const startFeeds = (): void => {
+          Option.fromUndefinedOr(options.global).pipe(
+            Option.filter(() => Option.isNone(MutableRef.get(stopGlobal))),
+            Option.match({
+              onNone: constVoid,
+              onSome: (global) => {
+                const stop = global(fromGlobal)
+                // The feed may have ended the hold while subscribing.
+                Bool.match(held.size === 0, { onTrue: stop, onFalse: () => MutableRef.set(stopGlobal, Option.some(stop)) })
+              },
+            }),
+          )
+          Option.fromUndefinedOr(options.scroll).pipe(
+            Option.filter(() => Bool.and(Option.isNone(MutableRef.get(stopScroll)), held.size > 0)),
+            Option.match({
+              onNone: constVoid,
+              onSome: (scroll) => MutableRef.set(stopScroll, Option.some(scroll(fromScroll))),
+            }),
+          )
+        }
+
+        /** A down on the target holds its pointer; a second down for a held pointer (its release was lost) keeps the one hold, from this down. */
+        const hold = (down: PointerLikeEvent): void => {
+          const first = held.size === 0
+          Option.match(Option.fromUndefinedOr(held.get(down.pointerId)), {
+            onNone: () => {
+              held.set(down.pointerId, { last: down, dx: 0, dy: 0, moved: false })
+            },
+            onSome: (h) => {
+              h.last = down
+              h.dx = 0
+              h.dy = 0
+              h.moved = false
+            },
+          })
+          if (first) startFeeds()
+          Queue.offerUnsafe(queue, down)
         }
 
         const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
           // The same platform event, already forwarded from the page-wide feed.
-          if (raw !== undefined && raw === lastGlobalRaw) {
-            lastGlobalRaw = undefined
+          if (Option.exists(MutableRef.get(lastGlobalRaw), (last) => last === raw)) {
+            MutableRef.set(lastGlobalRaw, Option.none())
             return
           }
-          if (event.type === "down") {
-            // A second down for a held pointer (its release was lost) keeps the one hold,
-            // from this down.
-            const first = held.size === 0
-            const h = held.get(event.pointerId)
-            if (h === undefined) held.set(event.pointerId, { last: event, dx: 0, dy: 0, moved: false })
-            else {
-              h.last = event
-              h.dx = 0
-              h.dy = 0
-              h.moved = false
-            }
-            if (first) {
-              if (options.global !== undefined && stopGlobal === undefined) {
-                const stop = options.global(fromGlobal)
-                // The feed may have ended the hold while subscribing.
-                if (held.size === 0) stop()
-                else stopGlobal = stop
-              }
-              if (options.scroll !== undefined && stopScroll === undefined && held.size > 0) {
-                stopScroll = options.scroll(fromScroll)
-              }
-            }
-            Queue.offerUnsafe(queue, event)
-            return
-          }
-          const h = held.get(event.pointerId)
-          if (h === undefined) {
-            Queue.offerUnsafe(queue, event)
-            return
-          }
-          const out = shifted(h, event)
-          Queue.offerUnsafe(queue, out)
-          if (endsHold(event)) unhold(event.pointerId)
-          else {
-            h.last = out
-            if (event.type === "move") h.moved = true
-          }
+          Match.value(event).pipe(
+            Match.when({ type: "down" }, hold),
+            Match.orElse((e) =>
+              Option.match(Option.fromUndefinedOr(held.get(e.pointerId)), {
+                onNone: () => {
+                  Queue.offerUnsafe(queue, e)
+                },
+                onSome: (h) => forward(h, e),
+              }),
+            ),
+          )
         }
 
         const stopTarget = options.target(fromTarget)
@@ -233,5 +284,5 @@ export const heldPointerSource = (options: HeldPointerSourceOptions): Stream.Str
         }
       }),
       (stop) => Effect.sync(stop),
-    )
+    ),
   )

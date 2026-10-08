@@ -24,6 +24,7 @@ export default defineConfig({
       "effect/Boolean",
       "effect/Equivalence",
       "effect/Function",
+      "effect/Iterable",
       "effect/Logger",
       "effect/Match",
       "effect/MutableRef",
