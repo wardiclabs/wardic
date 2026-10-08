@@ -4,6 +4,7 @@ import {
   type InterpolatorEntry,
   InterpolatorRegistry,
   InterpolatorRegistryLive,
+  makeInterpolatorRegistry,
   numberInterpolator,
   unitInterpolator,
   unitOf,
@@ -209,3 +210,48 @@ layer(InterpolatorRegistryLive)("interpolator registry (registration precedence)
     }),
   )
 })
+
+// The registry keeps each pair of strings it resolves (ADR-0026, decision 9).
+layer(InterpolatorRegistryLive)("interpolator registry (the cache of string pairs)", (it) => {
+  it.effect("a pair of strings resolves once: the same closure comes back", () =>
+    Effect.gen(function* () {
+      const registry = yield* InterpolatorRegistry
+      const first = yield* registry.resolve("#000", "#fff")
+      const again = yield* registry.resolve("#000", "#fff")
+      expect(again).toBe(first)
+      expect(again(0.5)).toBe("rgb(128, 128, 128)")
+    }),
+  )
+
+  it.effect("numbers, and a number with a string, aren't kept", () =>
+    Effect.gen(function* () {
+      const registry = yield* InterpolatorRegistry
+      expect(yield* registry.resolve(0, 1)).not.toBe(yield* registry.resolve(0, 1))
+      expect(yield* registry.resolve(0, "10px")).not.toBe(yield* registry.resolve(0, "10px"))
+    }),
+  )
+
+  it.effect("a shared complex closure gives each caller its own frame, interleaved", () =>
+    Effect.gen(function* () {
+      const registry = yield* InterpolatorRegistry
+      const a = yield* registry.resolve("M0,0 L10,10", "M0,0 L20,20")
+      const b = yield* registry.resolve("M0,0 L10,10", "M0,0 L20,20")
+      expect(b).toBe(a)
+      expect([a(0.5), b(1), a(0)]).toEqual(["M0,0 L15,15", "M0,0 L20,20", "M0,0 L10,10"])
+    }),
+  )
+})
+
+it.effect("register empties the cache: a pair kept before it resolves through the new entry", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeInterpolatorRegistry()
+    expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("15px")
+    yield* registry.register({
+      name: "always-shout",
+      codec: Schema.String,
+      blend: () => Option.some(() => "SHOUT"),
+    })
+    expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("SHOUT")
+  }),
+)
+

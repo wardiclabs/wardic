@@ -1,4 +1,10 @@
-import { complexInterpolator, InterpolatorRegistry, InterpolatorRegistryLive, unitInterpolator } from "@wardic/core"
+import {
+  complexInterpolator,
+  InterpolatorRegistry,
+  InterpolatorRegistryLive,
+  makeInterpolatorRegistry,
+  unitInterpolator,
+} from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
@@ -22,15 +28,18 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
       return at(yield* registry.resolve(from, to))
     })
 
-  /** The warnings `resolve` logs for a pair, captured. */
-  const warningsOf = (from: unknown, to: unknown) =>
+  /**
+   * The warnings `resolve` logs for a pair, captured, on a fresh registry: the shared one keeps
+   * the string pairs other tests resolved, and a kept pair doesn't warn again (DP14).
+   */
+  const warningsOf = (from: unknown, to: unknown, times = 1) =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* makeInterpolatorRegistry()
       const warnings: Array<Record<string, unknown>> = []
       const capture = Logger.map(Logger.formatStructured, (structured) => {
         if (structured.level === "WARN") warnings.push(structured.annotations)
       })
-      yield* registry.resolve(from, to).pipe(Effect.provide(Logger.layer([capture])))
+      for (let i = 0; i < times; i++) yield* registry.resolve(from, to).pipe(Effect.provide(Logger.layer([capture])))
       return warnings
     })
 
@@ -141,6 +150,14 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
       expect(yield* warningsOf("auto", "none")).toEqual([])
       expect(yield* warningsOf("rgb(255, 0, 0)", "none")).toEqual([])
       expect(yield* warningsOf("#000", "#fff")).toEqual([])
+    }),
+  )
+
+  it.effect("DP14: a pair of strings warns once per registry, since the registry keeps it (ADR-0026, decision 9)", () =>
+    Effect.gen(function* () {
+      expect(yield* warningsOf("10px", "1em", 3)).toEqual([{ interpolator: "unit", from: "10px", to: "1em" }])
+      const registry = yield* InterpolatorRegistry
+      expect((yield* registry.resolve("10px", "1em"))(0.5)).toBe("1em")
     }),
   )
 })
