@@ -33,7 +33,7 @@ A Frame that additionally carries `velocity`; emitted only by Physics primitives
 _Avoid_: snapshot (reserved — see below).
 
 **Frame loop**:
-The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it (ADR-0027).
+The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74 (ADR-0027).
 _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator becomes one of its runs), ticker, driver, scheduler (Effect's).
 
 ### Lifecycle
@@ -258,7 +258,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 ## Relationships
 
 - A **Primitive** produces **Frames**; a **Physics primitive** produces **Physics frames**.
-- Every Primitive the binding starts runs on the **Frame loop**; a Primitive's Stream runs it on its own.
+- Every Primitive the binding starts runs on the **Frame loop** (from #74); a Primitive's Stream runs it on its own.
 - A **Retarget** seeds a new Primitive from a cached **Snapshot**.
 - A **Definite primitive** applies an **Easing**; the multi-value path blends each key through an **Interpolator**.
 - An **Environment** provides the services a Primitive depends on (every Primitive needs a **Clock**).

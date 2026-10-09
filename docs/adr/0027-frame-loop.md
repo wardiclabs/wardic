@@ -75,7 +75,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
      - use awaits a `Deferred` the loop completes at settle, which yields the settled Frame;
      - release removes the entry on every exit: a settle, an interruption, or a defect.
    - **The burst:**
-     - **Where it lives:** the burst is a `FiberHandle`, started with `{ onlyIfMissing: true }`, so it starts inline (`effect/FiberHandle.js:452`). The Layer's `Scope` closing interrupts it.
+     - **Where it lives:** the burst is a `FiberHandle`, started with `{ onlyIfMissing: true }`, so it starts inline (`effect/FiberHandle.js:452`). The Layer's `Scope` closing interrupts it. (The loop tracks its burst with a flag of its own, and no longer uses `onlyIfMissing`, since *Amendment (#81)*.)
      - **Its context:** it's forked under the Layer's build context, so it never inherits a caller's scheduler or span, the Clock's own rule (ADR-0017).
      - **Its end:** it ends itself, at the first tick with nothing left, through `takeUntil` on the ticks.
    - **Metrics on the tick,** through `updateUnsafe`: a gauge of running animations, counters of settles and failures, and a histogram of ms per tick. All three together measured 0.1–0.2 µs per tick in Bun and Node.
@@ -100,7 +100,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
      - That's today's behaviour, measured: of two legs on one Clock, the one whose sink threw died with `Die`, and the other got all its Frames.
      - The `try` around each entry costs nothing measurable: a 1,000-entry pass took 0.101 against 0.101 ms in Bun, and 0.245 against 0.247 ms in Node.
    - **A machine that can't be built** (its blenders) fails before its entry is added.
-   - **Declared change: hangs become failures.** A failure in the loop itself, outside the per-entry `try`, fails every remaining run with its cause, and the next `run` starts a fresh burst. Before, the Clock's loop dying left every leg waiting forever.
+   - **Declared change: hangs become failures.** A failure in the loop itself, outside the per-entry `try`, fails every remaining run with its cause, and the next `run` starts a fresh burst. Before, the Clock's loop dying left every leg waiting forever. (That includes a `run` a run's continuation starts while the burst ends: *Amendment (#81)*.)
    - **Declared change, in logging only:** the spine logs a failed leg with `Effect.logError`. Before, it was silent, since `runScoped`'s fiber is never observed. A failed leg still doesn't count toward `settleReturns` or report `done`.
 8. **The op budget: a step and a sink are plain functions.**
    - **Why the burst fiber is safe:** each tick it does one constant piece of Effect work (the ticks' pull, `map`, `takeUntil`), about 17 ops whatever N is (Part I, probe f), against the 2,048 budget. So it needs no `PreventSchedulerYield`.
@@ -217,3 +217,19 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
   | `animateComplex/loop` | 17.96 → 1.83 (−89.8%) | 10.47 → 1.40 (−86.7%) | 7.55 → 1.06 (−86.0%) | 8.62 → 2.30 | 146 → 42 / 122 → 44 / 115 → 34 |
 
   - A run on the loop starts at 8–44 ms per 1,000: a span, a debug log, and an `acquireUseRelease` per run. The `.tmp/frame-loop-api/` probe (decision 6) measured 10–15 ms without blenders.
+
+## Amendment (#81, 2026-10-08): a run a continuation starts while the burst ends gets the next burst
+
+Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended or failed), `endAll` resumed each run's fiber inline (`Deferred.doneUnsafe`, `effect/Deferred.js:696`). A run that a continuation started (`ensuring`, `catchCause`, `retry`) was added while the ending burst was still in the `FiberHandle`. So `{ onlyIfMissing: true }` started nothing, and the run waited until an unrelated run started a burst: the hang decision 7 says the loop removes.
+
+- **Decision 6, the burst:** the loop keeps its own `bursting` flag, which `endAll` clears before any run resumes. A run added with no burst running starts one with `FiberHandle.run`, without `onlyIfMissing`, still inline. While a burst ends its runs, the new one replaces it in the handle. `setUnsafe` installs the new fiber before it interrupts the old one (`effect/FiberHandle.js:236-238`), and the old one's observer clears the handle only while it's still the current fiber (`:240`).
+- **Nesting, measured:** if the new burst ends at once (a dead Clock), its `endAll` runs inside the old one's. That nests one level, not one per retry: the runs the inner `endAll` ends are still starting, so it resumes none. 2,000 retries against a Clock that dies at once: 2,002 subscriptions, and `endAll` at most 2 deep.
+  - **Rejected: a scheduler hop before the new burst.** It avoids the nesting, but it adds a dispatch on this path, and it needs a finalizer of its own: closing the Environment during the hop left a run waiting (measured).
+- **Also:**
+  - `run` on a closed Environment is interrupted before it adds its entry. Before, the entry stayed on the list.
+  - `endAll` sets the running-animations gauge to 0. Before, it kept the last tick's count. The gauge is still set on each tick, so two Environments in one process overwrite each other's count.
+- **Tests** (`frame-loop.test.ts`):
+  - a run started from a failed run's `catchCause` (a dying Clock), and from an interrupted run's `ensuring` (an ending Clock), gets Frames from a fresh burst at once;
+  - 2,000 retries against a Clock that dies at once end;
+  - closing the Environment interrupts the runs on the loop, and a `run` after it;
+  - the gauge after a burst ends, and the tick histogram.

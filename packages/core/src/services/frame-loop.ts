@@ -15,7 +15,8 @@
  * - **A tick** steps the entries the tick began with: an entry added during it (from a sink)
  *   waits for the next tick, and one removed during it gets no Frame. A step or sink that
  *   throws ends only its own run (`Exit.die`); a failure of the loop itself fails every run
- *   still on it, and the next run starts a fresh burst.
+ *   still on it, and the next run starts a fresh burst. That includes a run a continuation
+ *   starts while the ending burst resumes its runs (#81).
  *
  * Observability: a span per run, named after its Primitive (`machine.span`), and one per burst
  * (`wardic.frameloop`). Per tick, no span or log: a gauge of running animations and a histogram
@@ -31,6 +32,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import { identity } from "effect/Function"
+import * as Match from "effect/Match"
 import * as Metric from "effect/Metric"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -112,6 +114,10 @@ export const makeFrameLoop = Effect.fn("wardic.frameloop.make")(function* () {
   const buildContext = yield* Effect.context<Clock | Scope.Scope>()
   const burst = yield* FiberHandle.make<void>()
   const entries: Array<Entry> = []
+  // Whether a burst holds the loop's subscription. A run's continuation runs inline while the
+  // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
+  // handle (#81).
+  let bursting = false
 
   /** End `entry`'s run: removed, and its fiber resumed with `exit` (inline, within the tick). */
   const end = (entry: Entry, exit: Exit.Exit<Frame<unknown>>): void => {
@@ -119,7 +125,7 @@ export const makeFrameLoop = Effect.fn("wardic.frameloop.make")(function* () {
     Deferred.doneUnsafe(entry.settled, exit)
   }
 
-  // Per frame (ADR-0025): plain calls only, inside the one `Effect.sync` per tick (ADR-0027,
+  // Per frame (ADR-0025): plain calls only, in the one `Stream.map` call per tick (ADR-0027,
   // decision 8); counted loops, statement `if`s, a `try` per entry (it costs nothing measurable).
   const tick = (dt: number): boolean => {
     const t0 = performance.now()
@@ -149,12 +155,19 @@ export const makeFrameLoop = Effect.fn("wardic.frameloop.make")(function* () {
     return kept === 0
   }
 
-  /** A burst ended: end every run still on the loop as `endingOf` says. Not the per-frame path. */
+  /**
+   * A burst ended: end every run still on the loop as `endingOf` says. `bursting` clears before
+   * any run resumes, so a run a continuation starts gets the next burst, inline (#81). If that
+   * burst ends at once (a dead Clock), its `endAll` runs inside this one: one level deep, since
+   * the runs it ends are still starting, not waiting. Not the per-frame path.
+   */
   const endAll = (exit: Exit.Exit<void>): void => {
     const ending = endingOf(exit)
+    bursting = false
     Arr.forEach(entries.splice(0), (entry) => {
       if (!entry.removed) end(entry, ending)
     })
+    animations.updateUnsafe(0, buildContext)
   }
 
   const ticking: Effect.Effect<void> = clock.ticks.pipe(
@@ -166,22 +179,42 @@ export const makeFrameLoop = Effect.fn("wardic.frameloop.make")(function* () {
     Effect.provideContext(buildContext),
   )
 
+  /**
+   * Start a burst unless one holds the subscription, inline: no scheduler hop before the
+   * subscription. While a burst ends its runs, the new one replaces it in `burst` (#81).
+   */
+  const startBurst: Effect.Effect<unknown> = Effect.suspend(() =>
+    Bool.match(bursting, {
+      onTrue: () => Effect.void,
+      onFalse: () => {
+        bursting = true
+        return FiberHandle.run(burst, ticking)
+      },
+    }),
+  )
+
   const run = <F extends Frame<unknown>>(machine: Machine<F>, sink: Sink<F>): Effect.Effect<F> =>
     Effect.logDebug(`${machine.span.name}: start`).pipe(
       Effect.andThen(
         Effect.acquireUseRelease(
-          Effect.suspend(() => {
-            const entry: Entry = {
-              step: machine.start(),
-              sink: sink as Sink<Frame<unknown>>,
-              settles: machine.settles,
-              settled: Deferred.makeUnsafe<Frame<unknown>>(),
-              removed: false,
-            }
-            entries.push(entry)
-            // Starts the burst inline when there's none: no scheduler hop before the subscription.
-            return Effect.as(FiberHandle.run(burst, ticking, { onlyIfMissing: true }), entry)
-          }),
+          Effect.suspend(() =>
+            Match.value(burst.state).pipe(
+              // A closed Environment takes no runs: nothing would tick them.
+              Match.tag("Closed", () => Effect.interrupt),
+              Match.tag("Open", () => {
+                const entry: Entry = {
+                  step: machine.start(),
+                  sink: sink as Sink<Frame<unknown>>,
+                  settles: machine.settles,
+                  settled: Deferred.makeUnsafe<Frame<unknown>>(),
+                  removed: false,
+                }
+                entries.push(entry)
+                return Effect.as(startBurst, entry)
+              }),
+              Match.exhaustive,
+            ),
+          ),
           (entry) => Deferred.await(entry.settled) as Effect.Effect<F>,
           (entry, exit) =>
             Effect.sync(() => {

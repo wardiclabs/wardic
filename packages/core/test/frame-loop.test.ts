@@ -7,8 +7,10 @@ import {
   makeRefreshFrameClock,
   NOMINAL_DT,
   type RefreshFrameSource,
+  type Sink,
 } from "@wardic/core"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -94,23 +96,73 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
     ),
     { scheduler },
   )
+  /** Run `effect` in a fresh fiber, inline, on the counting scheduler and the recording tracer. */
+  const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> =>
+    Effect.runFork(effect.pipe(Effect.provideService(Tracer.Tracer, tracer)), { scheduler })
   /** Start `machine` on the loop in a fresh fiber, inline; its Frames land in `frames`. */
   const start = <F extends Frame<unknown>>(machine: Machine<F>, onFrame?: (frame: F) => void) => {
     const received: Array<F> = []
-    const fiber = Effect.runFork(
+    const fiber = fork(
       loop.run(machine, (frame) => {
         received.push(frame)
         onFrame?.(frame)
         return undefined
-      }).pipe(Effect.provideService(Tracer.Tracer, tracer)),
-      { scheduler },
+      }),
     )
     return { received, fiber }
   }
   const interrupt = (fiber: Fiber.Fiber<unknown, unknown>): void => {
     Effect.runFork(Fiber.interrupt(fiber), { scheduler })
   }
-  return { frames, start, interrupt, spans, dispatches: () => dispatches }
+  /** Close the Environment's Scope (the Clock's and the loop's), starting inline. */
+  const close = (): Promise<void> => Effect.runPromise(Scope.close(scope, Exit.void), { scheduler })
+  return { frames, loop, fork, start, interrupt, close, spans, dispatches: () => dispatches }
+}
+
+/** A sink that drops each Frame. */
+const ignore = (): undefined => undefined
+
+/** A sink that records each Frame in `received`. */
+const into =
+  <F>(received: Array<F>): Sink<F> =>
+  (frame) => {
+    received.push(frame)
+    return undefined
+  }
+
+/**
+ * A Clock whose ticks are `dts`, then hold until the test ends them (`end`) or fails them
+ * (`die`). Each subscription gets `dts` again and a hold of its own. So a burst can end while its
+ * runs are already waiting on it, where `scriptedClock`'s ends inside the first run's start.
+ */
+const heldClock = (dts: ReadonlyArray<number>) => {
+  let subscriptions = 0
+  const holds: Array<(effect: Effect.Effect<void>) => void> = []
+  const hold = Stream.drain(
+    Stream.fromEffect(
+      Effect.callback<void>((resume) => {
+        holds.push(resume)
+      }),
+    ),
+  )
+  const shape: ClockShape = {
+    time: Atom.make(0),
+    dt: Atom.make(0),
+    ticks: Stream.suspend(() => {
+      subscriptions++
+      return Stream.concat(Stream.fromIterable(dts), hold)
+    }),
+    tick: () => Effect.void,
+  }
+  return {
+    shape,
+    /** How many times the ticks were subscribed to: one per burst. */
+    subscriptions: () => subscriptions,
+    /** End the latest subscription's ticks. */
+    end: () => holds.at(-1)?.(Effect.void),
+    /** Fail the latest subscription's ticks with `defect`. */
+    die: (defect: unknown) => holds.at(-1)?.(Effect.die(defect)),
+  }
 }
 
 /** The end of the current task: one microtask checkpoint later. */
@@ -202,7 +254,7 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     const h = await makeHarness()
     const events: Array<string> = []
     const run = h.start(counting(3), (frame) => {
-      events.push(`frame ${frame.value.length}${frame.done ? " done" : ""}`)
+      events.push(`frame ${frame.value.length}${Bool.match(frame.done, { onTrue: () => " done", onFalse: () => "" })}`)
     })
     run.fiber.addObserver(() => events.push("completed"))
     await endOfTask()
@@ -300,6 +352,85 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
     const exit = run.fiber.pollUnsafe()
     expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(true)
   })
+
+  // A run's continuation runs inline while the ending burst still holds the loop's subscription
+  // (#81): the run it starts gets the next burst at once, inline.
+  it("a run started from a failed run's catchCause, as the Clock dies, gets Frames from a fresh burst", async () => {
+    const clock = heldClock([0.01])
+    const h = await makeHarness({ clock: clock.shape })
+    const retried: Array<Frame<ReadonlyArray<number>>> = []
+    const fiber = h.fork(
+      h.loop
+        .run(counting(Infinity), ignore)
+        .pipe(Effect.catchCause(() => h.loop.run(counting(1), into(retried)))),
+    )
+    clock.die(new Error("ticks broke"))
+    expect(clock.subscriptions()).toBe(2)
+    expect(dtsOf(retried)).toEqual([0.01])
+    const exit = fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.isSuccess(exit) && exit.value.done).toBe(true)
+    expect(h.dispatches()).toBe(0)
+  })
+
+  it("a run started from an interrupted run's ensuring, as the Clock's ticks end, gets Frames from a fresh burst", async () => {
+    const clock = heldClock([0.01])
+    const h = await makeHarness({ clock: clock.shape })
+    const after: Array<Frame<ReadonlyArray<number>>> = []
+    const fiber = h.fork(
+      h.loop
+        .run(counting(Infinity), ignore)
+        .pipe(Effect.ensuring(Effect.asVoid(h.loop.run(counting(1), into(after))))),
+    )
+    clock.end()
+    expect(clock.subscriptions()).toBe(2)
+    expect(dtsOf(after)).toEqual([0.01])
+    const exit = fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(true)
+  })
+
+  // Each retry's burst dies inside the last one's `endAll`: one level deep, not one per retry.
+  it("a run retrying against a Clock that dies at once gets a fresh burst on each retry, and ends", async () => {
+    const held = heldClock([0.01])
+    let subscriptions = 0
+    const clock: ClockShape = {
+      ...held.shape,
+      ticks: Stream.suspend(() => {
+        subscriptions++
+        if (subscriptions === 1) return held.shape.ticks
+        return Stream.concat(Stream.make(0.01), Stream.die(new Error("still dead")))
+      }),
+    }
+    const h = await makeHarness({ clock })
+    const fiber = h.fork(
+      h.loop
+        .run(counting(Infinity), ignore)
+        .pipe(
+          Effect.catchCause(() =>
+            Effect.retry(Effect.sandbox(h.loop.run(counting(Infinity), ignore)), { times: 2000 }),
+          ),
+        ),
+    )
+    held.die(new Error("ticks broke"))
+    const exit = await Effect.runPromise(Fiber.await(fiber))
+    expect(subscriptions).toBe(2002)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("closing the Environment interrupts every run on the loop, and a run started after it is interrupted at once", async () => {
+    const h = await makeHarness()
+    const runs = [h.start(counting(Infinity)), h.start(counting(Infinity))]
+    await endOfTask()
+    h.frames.fire(1000)
+    await h.close()
+    for (const run of runs) {
+      const exit = run.fiber.pollUnsafe()
+      expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(true)
+    }
+    const late = h.start(counting(Infinity))
+    const exit = late.fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(true)
+    expect(late.received.length).toBe(0)
+  })
 })
 
 describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () => {
@@ -340,5 +471,33 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
     const after = counts()
     expect(countOf(after["wardic_frameloop_settled"]) - countOf(before["wardic_frameloop_settled"])).toBe(1)
     expect(countOf(after["wardic_frameloop_failed"]) - countOf(before["wardic_frameloop_failed"])).toBe(1)
+  })
+
+  /** A metric's state now, by its id. */
+  const stateOf = <S>(id: string): S | undefined =>
+    Effect.runSync(Metric.snapshot).find((snapshot) => snapshot.id === id)?.state as S | undefined
+
+  it("the gauge holds each tick's running animations, and 0 once a burst ends with runs on it", async () => {
+    const gauge = () => stateOf<Metric.GaugeState<number>>("wardic_frameloop_animations")?.value
+    const h = await makeHarness()
+    const runs = [h.start(counting(Infinity)), h.start(counting(Infinity)), h.start(counting(Infinity))]
+    await endOfTask()
+    expect(gauge()).toBe(3)
+    h.interrupt(runs[0]!.fiber)
+    h.frames.fire(1000)
+    expect(gauge()).toBe(2)
+    await h.close()
+    expect(gauge()).toBe(0)
+  })
+
+  it("the histogram records each tick's ms", async () => {
+    const ticks = () => stateOf<Metric.HistogramState>("wardic_frameloop_tick_ms")?.count ?? 0
+    const before = ticks()
+    const h = await makeHarness()
+    h.start(counting(Infinity))
+    await endOfTask() // the Priming tick
+    h.frames.fire(1000)
+    h.frames.fire(1016)
+    expect(ticks() - before).toBe(3)
   })
 })

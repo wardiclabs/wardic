@@ -56,12 +56,6 @@ export const tween = (
   options: TweenOptions,
 ): Stream.Stream<Frame<number>, never, Clock> => fromClock(tweenMachine(from, to, options))
 
-/**
- * Interruptible spring motion toward a static `target` (starts at `options.from`,
- * default 0). Implemented as the shared `chaseCore` with `Stream.takeUntil` on
- * `done`, so a static target settles and completes; a moving target is the
- * `chase` primitive's job.
- */
 /** `spring`'s machine (ADR-0027): `chase`'s, toward a static `target`, settling at rest. */
 export const springMachine = (target: number, options: SpringOptions = {}): Machine<PhysicsFrame> => {
   const { stiffness, damping } = resolveSpring(options)
@@ -72,6 +66,12 @@ export const springMachine = (target: number, options: SpringOptions = {}): Mach
   }
 }
 
+/**
+ * Interruptible spring motion toward a static `target` (starts at `options.from`,
+ * default 0). Implemented as the shared `chaseCore` with `Stream.takeUntil` on
+ * `done`, so a static target settles and completes; a moving target is the
+ * `chase` primitive's job.
+ */
 export const spring = (
   target: number,
   options: SpringOptions = {},
