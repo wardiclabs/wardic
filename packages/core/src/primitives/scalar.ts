@@ -125,7 +125,11 @@ const segmentsInSequence = (segments: Arr.NonEmptyReadonlyArray<Segment>): Segme
 const segmentOfRun = (segment: Segment, last: boolean): Segment =>
   Bool.match(last, { onTrue: () => segment, onFalse: () => withDone(segment, false) })
 
-/** `animate`'s options, read once: its endpoints in order, its repeats and whether it yoyos. */
+/**
+ * `animate`'s options, read once: its endpoints in order, its repeats, whether it yoyos, and each
+ * segment's options. `delay` holds once, before the first segment, as Motion's does (#77): every
+ * later segment starts on the tick after the one before it settles.
+ */
 const animatePlan = (from: number, to: number, options: AnimateOptions) => {
   const reverse = Option.getOrElse(Option.fromNullishOr(options.reverse), () => false)
   const repeats = Option.getOrElse(Option.fromNullishOr(options.repeat), () => 0)
@@ -133,39 +137,53 @@ const animatePlan = (from: number, to: number, options: AnimateOptions) => {
   const [a, b] = Bool.match(reverse, { onTrue: () => [to, from] as const, onFalse: () => [from, to] as const })
   /** Whether segment `i` runs backwards (`yoyo`'s odd segments). */
   const backwards = (i: number): boolean => yoyo && i % 2 === 1
+  const later: AnimateOptions = { ...options, delay: 0 }
+  /** Segment `i`'s options: only the first keeps the run's `delay`. */
+  const optionsFor = (i: number): AnimateOptions => Bool.match(i === 0, { onTrue: () => options, onFalse: () => later })
   const span: MachineSpan = { name: "wardic.animate", attributes: { from, to, repeat: repeats, yoyo, reverse } }
-  return { a, b, repeats, yoyo, backwards, span }
+  return { a, b, repeats, yoyo, backwards, optionsFor, span }
 }
 
 /**
  * Tween with modifiers. Honors `reverse` (swap endpoints), `repeat` (replays),
- * and `yoyo` (alternate direction each replay).
+ * and `yoyo` (alternate direction each replay). `delay` holds once, before the
+ * first segment; the replays follow with no gap (#77).
  *
  * Finite `repeat: N` runs N+1 segments and only the last frame carries `done: true`;
  * intermediate segments are re-stamped to `done: false` so consumers see a single
- * settle. `repeat: Infinity` uses `Stream.forever` over a cycle of segments (one segment
- * when `yoyo` is off, a forward+backward pair when on) — the resulting stream
- * never settles on its own and ends only when the consumer or the Clock does.
+ * settle. `repeat: Infinity` runs the first segment, then `Stream.forever` over a cycle
+ * of the rest (one segment when `yoyo` is off, a backward+forward pair when on) — the
+ * resulting stream never settles on its own and ends only when the consumer or the
+ * Clock does.
  */
 export const animate = (
   from: number,
   to: number,
   options: AnimateOptions = DEFAULT_ANIMATE,
 ): Stream.Stream<Frame<number>, never, Clock> => {
-  const { a, b, backwards, repeats, span, yoyo } = animatePlan(from, to, options)
+  const { a, b, backwards, optionsFor, repeats, span, yoyo } = animatePlan(from, to, options)
 
-  const segmentFor = (i: number): Segment =>
-    Bool.match(backwards(i), { onTrue: () => tween(b, a, options), onFalse: () => tween(a, b, options) })
+  const segmentFor = (i: number): Segment => {
+    const segmentOptions = optionsFor(i)
+    return Bool.match(backwards(i), {
+      onTrue: () => tween(b, a, segmentOptions),
+      onFalse: () => tween(a, b, segmentOptions),
+    })
+  }
 
   return Bool.match(Number.isFinite(repeats), {
-    // Infinite repeat: forever over a one- or two-segment cycle. Every emitted frame
-    // carries `done: false` — the stream's only termination is consumer/Clock.
+    // Infinite repeat: the first segment (the one that holds `delay`), then forever over a
+    // one- or two-segment cycle of the rest. Every emitted frame carries `done: false` — the
+    // stream's only termination is consumer/Clock.
     onFalse: () =>
-      Stream.forever(
-        Bool.match(yoyo, {
-          onTrue: () => Stream.concat(withDone(segmentFor(0), false), withDone(segmentFor(1), false)),
-          onFalse: () => withDone(segmentFor(0), false),
-        }),
+      Stream.concat(
+        withDone(segmentFor(0), false),
+        Stream.forever(
+          Bool.match(yoyo, {
+            onTrue: () => Stream.concat(withDone(segmentFor(1), false), withDone(segmentFor(2), false)),
+            onFalse: () => withDone(segmentFor(1), false),
+          }),
+        ),
       ),
     onTrue: () => {
       const runs = Math.max(0, repeats) + 1
@@ -175,28 +193,41 @@ export const animate = (
 }
 
 /**
- * `animate`'s machine (ADR-0027): its segments' tween machines, in sequence, or cycled for an
- * infinite `repeat`, with the same Frames as its `Stream` on a live Clock. A fractional `repeat`
- * is the one difference: the `Stream` runs its last segment re-stamped and ends with no settled
- * Frame, and the machine settles on it.
+ * `animate`'s machine (ADR-0027): its segments' tween machines, in sequence, or for an infinite
+ * `repeat` the first followed by a cycle of the rest, with the same Frames as its `Stream` on a
+ * live Clock. Only the first segment holds `delay` (#77). A fractional `repeat` is the one
+ * difference: the `Stream` runs its last segment re-stamped and ends with no settled Frame, and
+ * the machine settles on it.
  */
 export const animateMachine = (
   from: number,
   to: number,
   options: AnimateOptions = DEFAULT_ANIMATE,
 ): Machine<Frame<number>> => {
-  const { a, b, backwards, repeats, span, yoyo } = animatePlan(from, to, options)
+  const { a, b, backwards, optionsFor, repeats, span, yoyo } = animatePlan(from, to, options)
 
-  const segmentFor = (i: number): Machine<Frame<number>> =>
-    Bool.match(backwards(i), { onTrue: () => tweenMachine(b, a, options), onFalse: () => tweenMachine(a, b, options) })
+  const segmentFor = (i: number): Machine<Frame<number>> => {
+    const segmentOptions = optionsFor(i)
+    return Bool.match(backwards(i), {
+      onTrue: () => tweenMachine(b, a, segmentOptions),
+      onFalse: () => tweenMachine(a, b, segmentOptions),
+    })
+  }
 
   return Bool.match(Number.isFinite(repeats), {
+    // The first segment, then a cycle of the rest, which never settles.
     onFalse: () =>
-      cycle(
-        Bool.match(yoyo, {
-          onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame<number>>> => [segmentFor(0), segmentFor(1)],
-          onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame<number>>> => [segmentFor(0)],
-        }),
+      inSequence(
+        [
+          segmentFor(0),
+          cycle(
+            Bool.match(yoyo, {
+              onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame<number>>> => [segmentFor(1), segmentFor(2)],
+              onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame<number>>> => [segmentFor(1)],
+            }),
+            span,
+          ),
+        ],
         span,
       ),
     onTrue: () => inSequence(Arr.makeBy(Math.ceil(Math.max(0, repeats) + 1), segmentFor), span),
@@ -210,13 +241,26 @@ export const animateFrom = (
   options: AnimateOptions = DEFAULT_ANIMATE,
 ): Stream.Stream<Frame<number>, never, Clock> => animate(current, to, options)
 
+/**
+ * `keyframes`' segment options, for `count` segments: `duration` split evenly, and `delay` held
+ * once, before the first segment (#77), as Motion holds it before the first keyframe.
+ */
+const keyframesSegments = (options: TweenOptions, count: number): ((i: number) => TweenOptions) => {
+  const first: TweenOptions = { ...options, duration: options.duration / count }
+  const later: TweenOptions = { ...first, delay: 0 }
+  return (i) => Bool.match(i === 0, { onTrue: () => first, onFalse: () => later })
+}
+
 /** `keyframes`' span. */
 const keyframesSpan = (stops: ReadonlyArray<number>, options: TweenOptions): MachineSpan => ({
   name: "wardic.keyframes",
   attributes: { stops: stops.length, duration: options.duration },
 })
 
-/** Animate through a sequence of stops, splitting `duration` evenly across segments. */
+/**
+ * Animate through a sequence of stops, splitting `duration` evenly across segments. `delay` holds
+ * once, before the first stop's segment (#77).
+ */
 export const keyframes = (
   stops: ReadonlyArray<number>,
   options: TweenOptions,
@@ -229,9 +273,9 @@ export const keyframes = (
       return tween(only, only, options)
     },
     onNonEmpty: (pairs) => {
-      const segmentOptions = { ...options, duration: options.duration / pairs.length }
+      const optionsFor = keyframesSegments(options, pairs.length)
       const last = pairs.length - 1
-      return segmentsInSequence(Arr.map(pairs, ([from, to], i) => segmentOfRun(tween(from, to, segmentOptions), i === last)))
+      return segmentsInSequence(Arr.map(pairs, ([from, to], i) => segmentOfRun(tween(from, to, optionsFor(i)), i === last)))
     },
   }).pipe(Stream.withSpan(span.name, { attributes: span.attributes }))
 }
@@ -245,8 +289,8 @@ export const keyframesMachine = (stops: ReadonlyArray<number>, options: TweenOpt
       return { ...tweenMachine(only, only, options), span }
     },
     onNonEmpty: (pairs) => {
-      const segmentOptions = { ...options, duration: options.duration / pairs.length }
-      return inSequence(Arr.map(pairs, ([from, to]) => tweenMachine(from, to, segmentOptions)), span)
+      const optionsFor = keyframesSegments(options, pairs.length)
+      return inSequence(Arr.map(pairs, ([from, to], i) => tweenMachine(from, to, optionsFor(i))), span)
     },
   })
 }
