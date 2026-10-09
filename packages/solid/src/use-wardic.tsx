@@ -27,7 +27,7 @@
  */
 import {
   type AnimateOptions,
-  animateValues,
+  animateValuesMachine,
   type BaseSource,
   baseValueOf,
   type DragBounds,
@@ -37,8 +37,8 @@ import {
   resolveOverrides,
   type SpringOptions,
   stagger as coreStagger,
-  springBlend,
-  springValues,
+  springBlendMachine,
+  springValuesMachine,
   type StaggerOrigin,
   startValueOf,
   type Values,
@@ -61,10 +61,13 @@ import {
   valueLike,
 } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
+import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
-import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import {
   type Accessor,
   type Component,
@@ -78,6 +81,7 @@ import {
   untrack,
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
+import { runOnLoop } from "./frame-loop.ts"
 import type { FlushGate, FlushSink } from "./gate.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
@@ -896,14 +900,26 @@ export function runSpine(opts: RunSpineOptions): void {
             // The keys this Retarget returns; once every leg settles, a key back at its
             // `style` value is handed back to the element's style (D4) and the rest rest inline.
             const returns = [...returning]
-            // Each leg: the base-value log at the head of the first, and, once the leg's stream
-            // completes (not when it's interrupted), a count toward settling the returns, so
-            // the per-frame handlers stay as they were.
+            // Each leg: the base-value log at the head of the first, and, once the leg's run
+            // settles, a count toward settling the returns, so the per-frame handlers stay as
+            // they were.
             let pendingLog = returns.length > 0 || Object.keys(started).length > 0 ? baseLog(started, returns) : undefined
             let legs = 0
             const legDone = Effect.sync(() => {
               if (--legs === 0) settleReturns(returns)
             })
+            // A leg's end, told apart (ADR-0027, decision 7): a settle counts toward the returns;
+            // an interruption (a Retarget, an unmount) is nothing; anything else (a step or a
+            // sink that threw, the Frame loop's own failure) is logged, and doesn't count.
+            const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
+              Exit.match(exit, {
+                onSuccess: () => legDone,
+                onFailure: (cause) =>
+                  Bool.match(Cause.hasInterruptsOnly(cause), {
+                    onTrue: () => Effect.void,
+                    onFalse: () => Effect.logError("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
+                  }),
+              })
             // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
             // numeric one, so each leg's frames report, and only the last leg's settle reports done.
             let reporting = 0
@@ -912,11 +928,14 @@ export function runSpine(opts: RunSpineOptions): void {
               if (done) settled++
               onFrame?.(settled === reporting)
             }
-            const leg = <R,>(program: Effect.Effect<void, never, R>): Effect.Effect<void, never, R> => {
+            const leg = <R,>(program: Effect.Effect<unknown, never, R>): Effect.Effect<void, never, R> => {
               legs++
               const log = pendingLog
               pendingLog = undefined
-              return Effect.andThen(log === undefined ? program : Effect.andThen(log, program), legDone)
+              return UndefinedOr.match(log, {
+                onUndefined: () => program,
+                onDefined: (head) => Effect.andThen(head, program),
+              }).pipe(Effect.onExit(legEnded), Effect.asVoid)
             }
             // Read transition from cfg() at retarget time so transition changes
             // apply to the next retarget. (Read inside this effect run; the effect
@@ -941,14 +960,10 @@ export function runSpine(opts: RunSpineOptions): void {
               prevFibers.push(
                 runScoped(
                   runtime,
-                  leg(Stream.runForEach(
-                    animateValues(
-                      from,
-                      t,
-                      options.duration !== undefined ? (options as AnimateOptions) : undefined,
-                    ),
-                    (frame) =>
-                      Effect.sync(() => {
+                  leg(
+                    runOnLoop(
+                      animateValuesMachine(from, t, UndefinedOr.map(options.duration, () => options as AnimateOptions)),
+                      (frame) => {
                         // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
                         // the snapshot rather than replacing it, so the drag's
                         // direct-set x/y survive alongside the tween's keys and the
@@ -957,8 +972,10 @@ export function runSpine(opts: RunSpineOptions): void {
                         gate.write(id, frame.value)
                         recordFrame(frame.value)
                         report(frame.done)
-                      }),
-                  )),
+                        return undefined
+                      },
+                    ),
+                  ),
                 ),
               )
             } else {
@@ -975,10 +992,10 @@ export function runSpine(opts: RunSpineOptions): void {
                 prevFibers.push(
                   runScoped(
                     runtime,
-                    leg(Stream.runForEach(
-                      springValues(numeric, springOpts, fromNumeric, snapshot.velocities),
-                      (frame) =>
-                        Effect.sync(() => {
+                    leg(
+                      runOnLoop(
+                        Effect.succeed(springValuesMachine(numeric, springOpts, fromNumeric, snapshot.velocities)),
+                        (frame) => {
                           // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
                           // into the snapshot rather than replacing it, so the
                           // drag's direct-set x/y survive alongside the spring's
@@ -989,8 +1006,10 @@ export function runSpine(opts: RunSpineOptions): void {
                           gate.write(id, frame.value)
                           recordFrame(frame.value)
                           report(frame.done)
-                        }),
-                    )),
+                          return undefined
+                        },
+                      ),
+                    ),
                   ),
                 )
               }
@@ -1000,13 +1019,15 @@ export function runSpine(opts: RunSpineOptions): void {
                 prevFibers.push(
                   runScoped(
                     runtime,
-                    leg(Stream.runForEach(springBlend(fromStrings, strings, springOpts), (frame) =>
-                      Effect.sync(() => {
+                    leg(
+                      runOnLoop(springBlendMachine(fromStrings, strings, springOpts), (frame) => {
                         snapshot.values = { ...snapshot.values, ...frame.value }
                         gate.write(id, frame.value)
                         recordFrame(frame.value)
                         report(frame.done)
-                      }))),
+                        return undefined
+                      }),
+                    ),
                   ),
                 )
               }
