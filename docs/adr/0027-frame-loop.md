@@ -294,20 +294,23 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
 
   - On main that's about 12 frames' budget at 60 Hz, in one frame. A 0.5 s step is still 120 substeps per key against a 1/60 s tick's 4.
   - In Node, the 1/60 s tick after the stall first measured 2.8–3.9 ms on #78 against 0.4–0.5 ms on main. That was JIT warm-up: main's 29 million substeps had optimised the step. With the JIT warmed on other runs first, it was 0.22–0.43 ms on #78 against 0.50–0.94 ms on main.
-- **The gate run:** `bench:core --base main`, 11 paired reps, 1,000 elements, with other load on the host (Windows at about 17% CPU). Four runs:
+- **The gate run:** `bench:core --base main`, 1,000 elements, 11 paired reps unless noted. Four runs with other load on the host (Windows at about 17% CPU), then one without it:
   1. All three engines. Bun's noise control was valid (+1.4%), and `springValues` failed: +12.4% [+2.1, +13.4]. Node's (+4.5%) and Chromium's (+7.9%) weren't valid.
   2. All three engines. Node's (−0.3%) and Chromium's (−2.2%) were valid, and every workload passed on both. Bun's wasn't (−4.6%).
   3. Bun alone, valid (+2.2%): every workload passed.
   4. Bun, main against main, valid (+2.8%): every workload passed. On identical code, `animateValues`' median reached +5.6% [−4.0, +9.6].
+  5. Bun alone, 21 paired reps, with the other load stopped (Windows at 1–3% CPU). Valid, and far tighter (+0.7% [−1.6, +1.7]): every workload passed, each median within −1.7% and +3.3%.
 
   The springs' rows from the valid runs, head / base, median [p25–p75]:
 
-  | Workload | Bun, run 1 | Bun, run 3 | Node, run 2 | Chromium, run 2 | Node MB per frame (run 2) |
-  |---|---|---|---|---|---|
-  | `springValues` | +12.4% [+2.1, +13.4], fails | +6.3% [−3.4, +6.9] | +7.3% [−1.0, +14.8] | −1.4% [−9.6, +1.0] | 4.94 → 4.94 |
-  | `springBlend` | +0.6% [−5.7, +6.5] | +0.6% [−3.5, +4.0] | −0.1% [−2.7, +10.2] | +6.5% [−11.6, +14.3] | 6.18 → 6.18 |
-  | `springValues/loop` | +0.4% [−7.7, +4.7] | +0.0% [−6.3, +4.4] | +3.1% [+0.8, +3.7] | +0.0% [−3.4, +1.1] | 0.95 → 0.92 |
-  | `springBlend/loop` | +3.4% [−6.0, +5.9] | −0.2% [−4.8, +3.7] | +3.3% [−0.9, +12.4] | −2.0% [−4.3, +3.0] | 1.05 → 1.08 |
+  | Workload | Bun, run 1 | Bun, run 3 | Bun, run 5 (quiet) | Node, run 2 | Chromium, run 2 | Node MB per frame (run 2) |
+  |---|---|---|---|---|---|---|
+  | `springValues` | +12.4% [+2.1, +13.4], fails | +6.3% [−3.4, +6.9] | +0.8% [−1.9, +2.6] | +7.3% [−1.0, +14.8] | −1.4% [−9.6, +1.0] | 4.94 → 4.94 |
+  | `springBlend` | +0.6% [−5.7, +6.5] | +0.6% [−3.5, +4.0] | +1.1% [−1.5, +2.5] | −0.1% [−2.7, +10.2] | +6.5% [−11.6, +14.3] | 6.18 → 6.18 |
+  | `springValues/loop` | +0.4% [−7.7, +4.7] | +0.0% [−6.3, +4.4] | +3.3% [−4.8, +7.3] | +3.1% [+0.8, +3.7] | +0.0% [−3.4, +1.1] | 0.95 → 0.92 |
+  | `springBlend/loop` | +3.4% [−6.0, +5.9] | −0.2% [−4.8, +3.7] | −0.1% [−2.0, +2.7] | +3.3% [−0.9, +12.4] | −2.0% [−4.3, +3.0] | 1.05 → 1.08 |
 
   - **Every other workload passes in every valid run,** and Node's bytes per frame rise at most 2.9% (`springBlend/loop`).
-  - **Bun's `springValues` `Stream` is open:** it failed one valid run of two, and its median was over +5% in all three Bun runs. The step doesn't account for it. `springValues/loop` runs the same step without the `Stream`'s fiber and pulls, and it's flat in Bun (+0.4%, +0.0%). There the whole loop tick, step included, costs about 0.37 µs per element, while the `Stream`'s medians (+6.3% to +12.4% of 6.7–10.8 ms per frame) are 0.4–1.3 µs per element. Not rerun on a quiet host.
+  - **Bun's `springValues` `Stream` failed run 1 under load, and passes on the quiet host:** +0.8% [−1.9, +2.6], against +12.4% and +6.3%.
+    - The step couldn't account for those medians. `springValues/loop` runs the same step without the `Stream`'s fiber and pulls, and it stayed within +3.3% in Bun. Its whole tick, step included, costs about 0.37 µs per element, while the medians under load were 0.4–1.3 µs per element.
+    - The load slowed both sides, unevenly: main's `springValues` took 6.7–10.8 ms per frame under it, and 4.09 ms on the quiet host.
