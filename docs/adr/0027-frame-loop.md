@@ -57,7 +57,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
    - **The steppers stay pure,** and the machine holds the current state. Stepping in place is a later optimisation, if the bench asks for it.
    - **Two quirks are reproduced, so the Frames don't change, and filed:**
      - `delay` applies again on every segment of `animate`'s `repeat` / `yoyo` and at every stop of `keyframes` (`scalar.ts:168`, `:208`; #77);
-     - `springValues` passes a raw `dt` to `stepSpring`, never clamped at `MAX_DT` (`multi.ts:202`; #78).
+     - `springValues` passes a raw `dt` to `stepSpring`, never clamped at `MAX_DT` (`multi.ts:202`; #78). Fixed by #78: *Amendment (#78)*.
 5. **The lifecycle reproduces today's timing** (research note, Part I, probe b):
    - **Start = add.** The first step is the loop's next tick: on a Cold start, the Priming tick through the loop's own subscription; otherwise, the next Refresh frame's tick.
    - **An add during a tick waits for the next one.** The loop steps the entries the tick began with, as a subscriber added mid-publish doesn't get that publish.
@@ -178,7 +178,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
     - each machine against its `Stream` on one live Clock, with uneven dts (60, 30 and 120 Hz, a 0, and two above `MAX_DT`), covering every leaf and every composite: `animate` (one segment; `repeat` with `delay` on every segment, #77; `yoyo` and `reverse`; `repeat: Infinity` with and without `yoyo`), `keyframes` (four stops, one, none), `animateValues` and `springBlend` with a colour, a unit string, a Discrete pair and `visibility`;
     - then each machine on the Frame loop against its `Stream`.
 
-    Every Frame is identical. `springValues`' unclamped 0.6 s dt lands it within 9 frames in both drivers (#78).
+    Every Frame is identical. `springValues`' unclamped 0.6 s dt lands it within 9 frames in both drivers (#78). Since #78 that dt steps 0.5 s, and it lands within 13.
   - **`packages/core/test/frame-loop.test.ts`,** on a counting `setTimeout(0)` scheduler over core's real Clock:
     - 50 runs started in a task get the Priming tick at its end and are stepped inside each Refresh frame callback, with 0 dispatches;
     - an add from a sink waits for the next tick;
@@ -279,3 +279,38 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
     | `springBlend/loop` | −10.0% [−15.9, +14.5] | +4.2% [−14.1, +12.0] | +0.0% [−5.6, +2.5] |
     | `chase/loop` | +4.7% [−6.5, +9.3] | +2.5% [−9.4, +13.9] | +0.0% [−6.3, +12.5] |
     | `animateComplex/loop` | +4.2% [−4.7, +6.8] | −8.5% [−23.8, −5.2] | −2.5% [−14.0, +3.4] |
+
+## Amendment (#78, 2026-10-09): `springValues` clamps `dt`
+
+- **Decision 4's second quirk is fixed.** `springValuesMachine`'s step clamps `dt` at `MAX_DT` once per tick, before its loop over the keys, with `Math.min` (ADR-0025's per-frame form), as every other leaf's step does. The fix is in the machine, so both drivers clamp: the Tier 2 `springValues` and `springBlend`, and every spring the binding runs (the spine's numeric and string legs, presence's exit, drag's `snapToOrigin`). `MAX_DT` stays 0.5 s; what it should be is #23's.
+- **The Frames change only after a `dt` above `MAX_DT`,** identically in both drivers. The parity tests still pass: their 0.6 s dt now steps 0.5 s, so `springValues` there settles on its 13th Frame instead of its 9th, and `springBlend` 4–5 Frames later.
+- **Pinned by `packages/test/test/spring-values-max-dt.test.ts`:** one 30 s dt gives the same Frames as one `MAX_DT` step, the first still in flight, through `springValues`' `Stream` and on the Frame loop (`springValuesMachine`, `springBlendMachine`). All three fail on main, where the 30 s Frame lands the spring on its target.
+- **The stall, measured** (`.tmp/78-stall/`): 1,000 `springValuesMachine` runs with the bench's 4 keys, stepped by hand without the loop, timing one 30 s tick after five 1/60 s ones. 7 paired reps per engine, fresh processes:
+
+  | One 30 s tick, 1,000 runs | main | #78 |
+  |---|---|---|
+  | Bun 1.3 | 207–217 ms; all 1,000 land | 4.2–4.6 ms; none land |
+  | Node 22 | 204–215 ms | 3.5–3.7 ms |
+
+  - On main that's about 12 frames' budget at 60 Hz, in one frame. A 0.5 s step is still 120 substeps per key against a 1/60 s tick's 4.
+  - In Node, the 1/60 s tick after the stall first measured 2.8–3.9 ms on #78 against 0.4–0.5 ms on main. That was JIT warm-up: main's 29 million substeps had optimised the step. With the JIT warmed on other runs first, it was 0.22–0.43 ms on #78 against 0.50–0.94 ms on main.
+- **The gate run:** `bench:core --base main`, 1,000 elements, 11 paired reps unless noted. Four runs with other load on the host (Windows at about 17% CPU), then one without it:
+  1. All three engines. Bun's noise control was valid (+1.4%), and `springValues` failed: +12.4% [+2.1, +13.4]. Node's (+4.5%) and Chromium's (+7.9%) weren't valid.
+  2. All three engines. Node's (−0.3%) and Chromium's (−2.2%) were valid, and every workload passed on both. Bun's wasn't (−4.6%).
+  3. Bun alone, valid (+2.2%): every workload passed.
+  4. Bun, main against main, valid (+2.8%): every workload passed. On identical code, `animateValues`' median reached +5.6% [−4.0, +9.6].
+  5. Bun alone, 21 paired reps, with the other load stopped (Windows at 1–3% CPU). Valid, and far tighter (+0.7% [−1.6, +1.7]): every workload passed, each median within −1.7% and +3.3%.
+
+  The springs' rows from the valid runs, head / base, median [p25–p75]:
+
+  | Workload | Bun, run 1 | Bun, run 3 | Bun, run 5 (quiet) | Node, run 2 | Chromium, run 2 | Node MB per frame (run 2) |
+  |---|---|---|---|---|---|---|
+  | `springValues` | +12.4% [+2.1, +13.4], fails | +6.3% [−3.4, +6.9] | +0.8% [−1.9, +2.6] | +7.3% [−1.0, +14.8] | −1.4% [−9.6, +1.0] | 4.94 → 4.94 |
+  | `springBlend` | +0.6% [−5.7, +6.5] | +0.6% [−3.5, +4.0] | +1.1% [−1.5, +2.5] | −0.1% [−2.7, +10.2] | +6.5% [−11.6, +14.3] | 6.18 → 6.18 |
+  | `springValues/loop` | +0.4% [−7.7, +4.7] | +0.0% [−6.3, +4.4] | +3.3% [−4.8, +7.3] | +3.1% [+0.8, +3.7] | +0.0% [−3.4, +1.1] | 0.95 → 0.92 |
+  | `springBlend/loop` | +3.4% [−6.0, +5.9] | −0.2% [−4.8, +3.7] | −0.1% [−2.0, +2.7] | +3.3% [−0.9, +12.4] | −2.0% [−4.3, +3.0] | 1.05 → 1.08 |
+
+  - **Every other workload passes in every valid run,** and Node's bytes per frame rise at most 2.9% (`springBlend/loop`).
+  - **Bun's `springValues` `Stream` failed run 1 under load, and passes on the quiet host:** +0.8% [−1.9, +2.6], against +12.4% and +6.3%.
+    - The step couldn't account for those medians. `springValues/loop` runs the same step without the `Stream`'s fiber and pulls, and it stayed within +3.3% in Bun. Its whole tick, step included, costs about 0.37 µs per element, while the medians under load were 0.4–1.3 µs per element.
+    - The load slowed both sides, unevenly: main's `springValues` took 6.7–10.8 ms per frame under it, and 4.09 ms on the quiet host.
