@@ -1,6 +1,6 @@
-// The binding on the Frame loop (#74, ADR-0027). The spine's legs and presence's exit run on the
-// Environment's one Frame loop, which holds one `Clock.ticks` subscription while anything runs,
-// where each used to be a fiber with a subscription of its own. And
+// The binding on the Frame loop (#74, ADR-0027). The spine's legs, presence's exit and drag's
+// release run on the Environment's one Frame loop, which holds one `Clock.ticks` subscription
+// while anything runs, where each used to be a fiber with a subscription of its own. And
 // ADR-0027's declared changes, as the binding sees them: a loop failure fails every leg on it
 // instead of hanging it, a failed leg is logged, and a tween with a fractional `repeat` settles.
 //
@@ -20,7 +20,7 @@ import { AtomRegistry } from "effect/reactivity"
 import * as Stream from "effect/Stream"
 import { createSignal, For, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { opacityOf, raf, until } from "./browser-helpers.ts"
+import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -91,6 +91,23 @@ const failedLegs = (logs: ReadonlyArray<Logged>): ReadonlyArray<Logged> =>
 
 const backgroundOf = (el: HTMLElement): string => getComputedStyle(el).backgroundColor
 
+const translateXOf = (el: HTMLElement): number => Number(/translateX\(([-\d.]+)px\)/.exec(el.style.transform)?.[1] ?? 0)
+
+/** A primary mouse pointer's event at `(x, 0)`. */
+const pointer = (type: string, x: number, buttons: number): PointerEvent =>
+  new PointerEvent(type, { clientX: x, clientY: 0, buttons, pointerId: 1, pointerType: "mouse", isPrimary: true })
+
+/** Grab `el` and drag the pointer to `x`, retrying until the direct-set lands (as `while-drag`'s tests do). */
+const dragTo = (el: HTMLElement, x: number): Promise<void> =>
+  retryGesture(
+    () => {
+      el.dispatchEvent(pointer("pointerdown", 0, 1))
+      el.dispatchEvent(pointer("pointermove", x, 1))
+    },
+    () => el.dispatchEvent(pointer("pointerup", x, 0)),
+    () => translateXOf(el) !== 0,
+  )
+
 const BLACK = "rgb(0, 0, 0)"
 const WHITE = "rgb(255, 255, 255)"
 
@@ -154,6 +171,35 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     expect(leaving.isConnected).toBe(false)
     expect(Math.abs(opacityOf(beside) - 0.2)).toBeLessThan(0.001)
     expect(counted.total()).toBe(2)
+    expect(counted.most()).toBe(1)
+  })
+
+  it("a drag's release joins a leg beside it on one subscriber", async () => {
+    const counted = countingClock()
+    let el!: HTMLElement
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ clock: counted.wrap })}>
+        <wardic.div ref={(node: HTMLElement) => (el = node)} drag dragSnapToOrigin />
+        <wardic.div data-beside initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: "tween", duration: 3 }}>
+          b
+        </wardic.div>
+      </WardicProvider>
+    ))
+    const beside = container.querySelector<HTMLElement>("[data-beside]")!
+    await dragTo(el, 60)
+    // The release springs x back to 0 while the tween beside it runs: the drag recognizer
+    // takes no ticks, so a second subscriber could only be the release's.
+    el.dispatchEvent(pointer("pointerup", 60, 0))
+    await raf()
+    await raf()
+    // Mid-release (seeded with the release's velocity, it may first overshoot), the tween mid-flight.
+    expect(translateXOf(el)).not.toBe(60)
+    expect(translateXOf(el)).not.toBe(0)
+    expect(opacityOf(beside)).toBeLessThan(1)
+    expect(counted.open()).toBe(1)
+    await until(() => translateXOf(el) === 0)
+    expect(translateXOf(el)).toBe(0)
+    expect(counted.total()).toBe(1)
     expect(counted.most()).toBe(1)
   })
 })

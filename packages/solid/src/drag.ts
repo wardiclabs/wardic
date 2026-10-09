@@ -29,23 +29,26 @@
  */
 import {
   axisLock,
-  Clock,
-  decayVec,
+  decayVecMachine,
   drag as dragRecognizer,
   type DragBounds,
   type DragSample,
+  type FrameLoop,
   InputSource,
   isPrimaryPointer,
   type SpringOptions,
-  springValues,
+  springValuesMachine,
   type Values,
   type Vec2,
   withinBounds,
 } from "@wardic/core"
 import type { DragProjectionHandle } from "@wardic/dom"
 import * as Effect from "effect/Effect"
+import * as MutableRef from "effect/MutableRef"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { runOnLoop } from "./frame-loop.ts"
 import type { FlushGate } from "./gate.ts"
 import { runScoped, type WardicRuntime } from "./provider.tsx"
 
@@ -188,7 +191,7 @@ const inner = (
   event: Event,
   ref: Ref.Ref<DragTrackState>,
   opts: RunDragTrackOptions,
-): Stream.Stream<never, never, Clock> => {
+): Stream.Stream<never, never, FrameLoop> => {
   if (event._tag === "grab") {
     // Interrupt any running release — `switchMap` cancels the previous inner. No
     // emission, no jump. With no gesture held, the interrupted release (or the one a
@@ -291,47 +294,52 @@ const settleGesture = (
  *
  * Each release frame taps `gate.write` + snapshot sync + recordFrame; on
  * completion `setDragging(false)` so ownership of `x`/`y` returns to the spring.
+ * The spring and the fling run on the Frame loop (ADR-0027); the track stays a fiber.
  */
 const release = (
   opts: RunDragTrackOptions,
   ref: Ref.Ref<DragTrackState>,
   position: Vec2,
   velocity: Vec2,
-): Stream.Stream<never, never, Clock> => {
+): Stream.Stream<never, never, FrameLoop> => {
   const cfg = opts.config
 
   // Tap one released Vec2 into the gate + snapshot + ref (so a re-grab mid-tail
-  // rebases from where the tail reached).
-  const tapFrame = (p: Vec2): Effect.Effect<void> =>
-    Ref.update(ref, (s) => ({ ...s, position: p })).pipe(
-      Effect.tap(() => Effect.sync(() => directSet(opts, p))),
-    )
+  // rebases from where the tail reached). A plain call, as a run's sink on the Frame loop
+  // must be, so it writes the ref's cell in place, as `Ref.update` does. The INVARIANT
+  // holds: a re-grab interrupts the run (switchMap), which removes it from the loop at once,
+  // before the next inner touches the ref.
+  const tapFrame = (p: Vec2): undefined => {
+    MutableRef.update(ref.ref, (s) => ({ ...s, position: p }))
+    directSet(opts, p)
+    return undefined
+  }
 
   const done: Stream.Stream<never, never, never> = Stream.fromEffect(
     Effect.sync(() => opts.setDragging(false)),
   ).pipe(Stream.drain)
 
+  // The release's run, then `done` once it settles.
+  const settling = (run: Effect.Effect<unknown, never, FrameLoop>): Stream.Stream<never, never, FrameLoop> =>
+    Stream.fromEffect(run).pipe(Stream.drain, Stream.concat(done))
+
   if (cfg.snapToOrigin === true) {
     // snapToOrigin: spring x/y -> {0,0}, seeded from the release pos + velocity.
-    return springValues(
+    const spring = springValuesMachine(
       { x: 0, y: 0 },
-      cfg.springOpts ?? {},
+      cfg.springOpts,
       { x: position.x, y: position.y },
       { x: velocity.x, y: velocity.y },
-    ).pipe(
-      Stream.tap((frame) => tapFrame({ x: frame.value.x ?? 0, y: frame.value.y ?? 0 })),
-      Stream.drain,
-      Stream.concat(done),
+    )
+    return settling(
+      runOnLoop(Effect.succeed(spring), (frame) =>
+        tapFrame({ x: UndefinedOr.getOrThrow(frame.value.x), y: UndefinedOr.getOrThrow(frame.value.y) })),
     )
   }
 
   if (cfg.momentum !== false) {
     // Fling: decay from the release position at the release velocity.
-    return decayVec(position, velocity, {}).pipe(
-      Stream.tap((p) => tapFrame(p)),
-      Stream.drain,
-      Stream.concat(done),
-    )
+    return settling(runOnLoop(Effect.succeed(decayVecMachine(position, velocity, {})), (frame) => tapFrame(frame.value)))
   }
 
   // Rest in place: commit the exact release position once (so the element rests
