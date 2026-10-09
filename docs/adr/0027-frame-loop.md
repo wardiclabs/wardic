@@ -157,7 +157,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
   - the `FrameLoop` service and `FrameLoopLive`, for binding and Environment authors.
 - **The binding's lifecycle doesn't change shape.** `runScoped`, `leg` / `legDone`, `interruptPrev` and the hydration hold stay; only the program a leg runs changes (#74).
 - **The per-frame path** (ADR-0025, decision 3) gains the loop's tick and every machine's step.
-- **Two declared changes** reach the binding with #74: a loop failure fails runs instead of hanging them, and a failed leg is logged.
+- **Two declared changes** reach the binding with #74: a loop failure fails runs instead of hanging them, and a failed leg is logged. (A third, found implementing #68: a fractional `repeat` settles. See *Implementation in #74*.)
 - **CONTEXT.md** gains the Frame loop and Leg. Primitive, Frame and Settle are reworded, and the pieces of one `animate` or `keyframes` run are "segments" in the code.
 - **The Clock's latency and its Priming tick are unchanged.** So is the gate's one frame of latency, until #73.
 
@@ -233,3 +233,37 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
   - 2,000 retries against a Clock that dies at once end;
   - closing the Environment interrupts the runs on the loop, and a `run` after it;
   - the gauge after a burst ends, and the tick histogram.
+
+## Implementation in #74 (slice 3): the binding on the loop
+
+- **Every animation the binding starts runs on the loop,** through solid's `runOnLoop` (`frame-loop.ts`). It builds the machine (`springBlend`'s and `animateValues`' resolve their blenders there) and runs it with `FrameLoop.run`.
+  - **The spine's legs** (`use-wardic.tsx`), in place of `Stream.runForEach`. Their sinks are typed `Sink<F>`, with the same bodies. `runScoped`, `leg` / `legDone`, `prevFibers` / `interruptPrev`, `onCleanup` and the hydration hold are unchanged.
+  - **Presence's exit** (`presence.tsx`): its numeric and string keys as two runs under `Effect.all({ concurrency: "unbounded", discard: true })`, with `ensuring(finishExit)` and the `wardic.presence.exit` span.
+  - **Drag's release** (`drag.ts`): `snapToOrigin`'s spring and the `decayVec` fling. A sink can't run an Effect, so the release's sink writes the track's `Ref` cell in place (`MutableRef.update(ref.ref, …)`). The drag track stays a fiber.
+- **A leg's end is told apart** with `Effect.onExit` and `Exit.match`: a settle runs `legDone`; an interruption only does nothing; anything else logs `wardic.spine: a leg failed` at Error, with its cause, annotated with the element's `id`.
+- **`WardicEnv` and `WardicServices` gain `FrameLoop`.** `DomLive` and `TestLive` already merge `FrameLoopLive` in; a custom Environment built from parts now has to (decision 6).
+- **The three declared changes, as the binding sees them** (`packages/solid/test/frame-loop.browser.test.tsx`, on `DomLive`'s parts with a wrapped Clock or registry):
+  - **A loop failure fails the legs instead of hanging them.** Three elements, each with a numeric and a string leg, on a Clock whose first subscription ticks three times and dies: six `wardic.spine: a leg failed` logs carrying the defect, two per element. A Retarget then animates every element on a fresh burst, the Clock's second subscription.
+  - **A failed leg is logged, alone.** With a registry whose blend for one target throws, that element's string leg logs once, and its numeric leg and the other element settle. A Retarget's interruption logs nothing.
+  - **A fractional `repeat` settles on its last segment.** A child's tween with `repeat: 1.5`, under a parent with `when: "afterChildren"`: the parent starts once the child settles, where before it waited for good. `packages/test/test/machines.test.ts` pins the machine settling on its last segment, through `toStream` and on the loop, where the `Stream` ends with no settled Frame.
+  - Against main's `solid/src`, each of these fails but the interruption's, which passes in both.
+- **One subscriber.** 100 mounted elements, each with a numeric and a string leg, make one `Clock.ticks` subscription from mount to settle, where main's made 200. An exit's two runs and a Retarget's leg beside it share one, and so do a drag's release and a tween's leg beside it (main: 2).
+- **On a finite test Clock** (`testLayer(frames)`), a leg is interrupted when the Clock's ticks end (decision 11), where its `Stream` completed and ran `legDone`. Only the hydration fixture F0 mounts a spine on one (`TestLive`'s empty Clock), and it gets no Frame either way.
+- **Logs and spans per leg:** the `wardic.<primitive>: subscribe` debug log becomes `wardic.<primitive>: start`, and each leg's `wardic.clock` span becomes the burst's one (decision 3).
+- **The burst's spans reach the Tracer of the run that starts it.** `provideContext` merges the Layer's build context over the caller's (`effect/internal/effect.js:1314-1317`), and the build context has no Tracer. So the layout lab, which merges its timeline's Tracer beside `DomLive`, still records the burst's `wardic.clock` span, and still reads a trigger during a spine animation as warm. Probed with core's real Clock (`.tmp/74-lab-probe/`).
+- **The bench runner** (`run.ts`, `rows.ts`, found reviewing #80). A workload only head runs is reported against the base's same Primitive when it's a `<name>/loop` and the base has `<name>`; any other prints "new, not gated", where it threw a `TypeError`. A workload only the base runs prints "dropped, not gated", where it left the gate silently. Both checked against `0967799`, in Bun: Node can't run a base from before #65's `one.mjs`, whose heap hook its harness doesn't know.
+- **The baseline decision 12 asks for:** `bench:core --base main --head main`, 11 paired reps. The two bundles are byte-identical, so any failure would be a false positive.
+  - **Valid noise controls:** Chromium +2.7% (the first run), Bun +1.4% and Node −1.1% (a rerun with the machine's other load stopped, which ran about twice as slow as the earlier runs, with wide spreads).
+  - **Every workload passes, the loop workloads included.** Head / base, median [p25–p75]:
+
+    | Workload | Bun | Node | Chromium |
+    |---|---|---|---|
+    | `springValues/loop` | +7.2% [−10.9, +11.3] | −10.3% [−23.3, +0.6] | +1.1% [−3.2, +3.3] |
+    | `animateValues/loop` | +4.5% [−11.1, +11.9] | +1.2% [−38.0, +4.7] | +0.0% [−2.2, +4.3] |
+    | `springBlend/loop` | −3.5% [−8.7, +3.6] | +6.2% [−23.9, +7.4] | −2.6% [−5.7, +2.8] |
+    | `chase/loop` | −2.9% [−14.0, −2.3] | +0.8% [−10.0, +9.9] | +0.0% [+0.0, +6.7] |
+    | `animateComplex/loop` | −5.0% [−7.1, +1.2] | −2.3% [−10.7, +5.1] | +1.4% [−0.9, +3.7] |
+
+  - **Two medians pass +5% on identical code** (Bun's `springValues/loop`, Node's `springBlend/loop`). The 25th percentile rule keeps them from failing.
+  - **`chase/loop` sits at Chromium's timer floor:** at 0.08 ms, one 5 µs tick of `performance.now()` is about 6%. It passed with its 25th percentile at exactly 0.
+  - **Seven earlier engine-runs that day** had noise controls off by 4.3–8.1%, with other load on the machine. In them, one workload failed once: Bun's `chase/loop`, +5.3% [+1.3, +8.8].
