@@ -65,8 +65,9 @@ import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
+import * as FiberSet from "effect/FiberSet"
 import * as Option from "effect/Option"
+import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import {
   type Accessor,
@@ -86,7 +87,7 @@ import type { FlushGate, FlushSink } from "./gate.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
-import { runScoped, useWardicGate, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
+import { useWardicGate, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import {
   type WardicChildRegistration,
@@ -811,13 +812,17 @@ export function runSpine(opts: RunSpineOptions): void {
         return { resolved, base, dragging: dragging() }
       })
 
-      // The spine: on each target change, interrupt the previous fiber(s) and
-      // reseed a fresh primitive from the Snapshot (velocity-preserving).
-      let prevFibers: Array<Fiber.Fiber<void, never>> = []
-      const interruptPrev = (): void => {
-        for (const fiber of prevFibers) runtime.runFork(Fiber.interrupt(fiber))
-        prevFibers = []
-      }
+      // The spine: on each target change, end the running legs and reseed a fresh primitive
+      // from the Snapshot (velocity-preserving). Every leg runs in this element's FiberSet (#76):
+      // a Retarget clears it before it starts its own legs, and the element's teardown closes its
+      // Scope, which interrupts whatever is left. Both end the legs in the calling task: a leg
+      // waiting on the Frame loop is interrupted inline, and its run leaves the loop at once
+      // (ADR-0027, decision 5). The same shape as the projection system's end-of-task holds.
+      const legScope = Scope.makeUnsafe()
+      const legFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(legScope)))
+      onCleanup(() => {
+        runtime.runFork(Scope.close(legScope, Exit.void))
+      })
 
       // The spine effect depends on BOTH `target` and `canStart` (ADR-0007 `when`):
       // Solid's `on` runs its callback under `untrack`, so the gate accessor MUST
@@ -834,10 +839,10 @@ export function runSpine(opts: RunSpineOptions): void {
             return t
           },
           ({ resolved, base, dragging: held }) => {
-            interruptPrev()
+            runtime.runFork(FiberSet.clear(legFibers))
 
             // `when` start-gate (ADR-0007): when canStart() is false, freeze at the
-            // snapshot (the previous fiber is already interrupted) and bail; the
+            // snapshot (the previous legs are already interrupted) and bail; the
             // effect re-runs once the gate flips true (tracked above).
             if (canStart !== undefined && !canStart()) {
               // Report NOT settled: a gated child sits at its snapshot, still
@@ -937,6 +942,12 @@ export function runSpine(opts: RunSpineOptions): void {
                 onDefined: (head) => Effect.andThen(head, program),
               }).pipe(Effect.onExit(legEnded), Effect.asVoid)
             }
+            // Start a leg in this element's FiberSet: forked on the provider's runtime, which runs
+            // it inline up to its add on the loop, so a Cold start's Priming tick reaches every leg
+            // started in its task (ADR-0017, ADR-0027 decision 5). Not `FiberSet.run`: forked from
+            // a `runSync`, a leg would inherit that call's scheduler (ADR-0027, decision 6).
+            const runLeg = <R extends WardicServices>(program: Effect.Effect<unknown, never, R>): void =>
+              FiberSet.addUnsafe(legFibers, runtime.runFork(leg(program)))
             // Read transition from cfg() at retarget time so transition changes
             // apply to the next retarget. (Read inside this effect run; the effect
             // is gated on `target`, which already depends on cfg().) A child with
@@ -957,25 +968,20 @@ export function runSpine(opts: RunSpineOptions): void {
               // current snapshot values; no velocity (snapshot.velocities stays {}).
               const options = transition as Partial<AnimateOptions>
               reporting = 1
-              prevFibers.push(
-                runScoped(
-                  runtime,
-                  leg(
-                    runOnLoop(
-                      animateValuesMachine(from, t, UndefinedOr.map(options.duration, () => options as AnimateOptions)),
-                      (frame) => {
-                        // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
-                        // the snapshot rather than replacing it, so the drag's
-                        // direct-set x/y survive alongside the tween's keys and the
-                        // post-drag handoff continues from the rested position.
-                        snapshot.values = { ...snapshot.values, ...frame.value }
-                        gate.write(id, frame.value)
-                        recordFrame(frame.value)
-                        report(frame.done)
-                        return undefined
-                      },
-                    ),
-                  ),
+              runLeg(
+                runOnLoop(
+                  animateValuesMachine(from, t, UndefinedOr.map(options.duration, () => options as AnimateOptions)),
+                  (frame) => {
+                    // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
+                    // the snapshot rather than replacing it, so the drag's
+                    // direct-set x/y survive alongside the tween's keys and the
+                    // post-drag handoff continues from the rested position.
+                    snapshot.values = { ...snapshot.values, ...frame.value }
+                    gate.write(id, frame.value)
+                    recordFrame(frame.value)
+                    report(frame.done)
+                    return undefined
+                  },
                 ),
               )
             } else {
@@ -989,56 +995,42 @@ export function runSpine(opts: RunSpineOptions): void {
               if (hasNumeric) {
                 const fromNumeric: Record<string, number> = {}
                 for (const key in numeric) fromNumeric[key] = from[key] as number
-                prevFibers.push(
-                  runScoped(
-                    runtime,
-                    leg(
-                      runOnLoop(
-                        Effect.succeed(springValuesMachine(numeric, springOpts, fromNumeric, snapshot.velocities)),
-                        (frame) => {
-                          // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
-                          // into the snapshot rather than replacing it, so the
-                          // drag's direct-set x/y survive alongside the spring's
-                          // keys (drag owns x/y, spring owns the rest) and the
-                          // post-drag handoff continues from the rested position.
-                          snapshot.values = { ...snapshot.values, ...frame.value }
-                          snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
-                          gate.write(id, frame.value)
-                          recordFrame(frame.value)
-                          report(frame.done)
-                          return undefined
-                        },
-                      ),
-                    ),
+                runLeg(
+                  runOnLoop(
+                    Effect.succeed(springValuesMachine(numeric, springOpts, fromNumeric, snapshot.velocities)),
+                    (frame) => {
+                      // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
+                      // into the snapshot rather than replacing it, so the
+                      // drag's direct-set x/y survive alongside the spring's
+                      // keys (drag owns x/y, spring owns the rest) and the
+                      // post-drag handoff continues from the rested position.
+                      snapshot.values = { ...snapshot.values, ...frame.value }
+                      snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
+                      gate.write(id, frame.value)
+                      recordFrame(frame.value)
+                      report(frame.done)
+                      return undefined
+                    },
                   ),
                 )
               }
               if (hasStrings) {
                 const fromStrings: Values = {}
                 for (const key in strings) fromStrings[key] = from[key]!
-                prevFibers.push(
-                  runScoped(
-                    runtime,
-                    leg(
-                      runOnLoop(springBlendMachine(fromStrings, strings, springOpts), (frame) => {
-                        snapshot.values = { ...snapshot.values, ...frame.value }
-                        gate.write(id, frame.value)
-                        recordFrame(frame.value)
-                        report(frame.done)
-                        return undefined
-                      }),
-                    ),
-                  ),
+                runLeg(
+                  runOnLoop(springBlendMachine(fromStrings, strings, springOpts), (frame) => {
+                    snapshot.values = { ...snapshot.values, ...frame.value }
+                    gate.write(id, frame.value)
+                    recordFrame(frame.value)
+                    report(frame.done)
+                    return undefined
+                  }),
                 )
               }
             }
           },
         ),
       )
-
-      // Interrupt the in-flight spine fiber(s) on unmount (in addition to
-      // runScoped's own onCleanup, which handles the latest fiber).
-      onCleanup(interruptPrev)
     }),
   )
 }
