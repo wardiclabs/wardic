@@ -1,7 +1,8 @@
 // The projection coordinator's lifecycle (ADR-0009, ADR-0018; #75 makes it a run on the Frame
 // loop, ADR-0027). Checked against a fake ProjectionSink with Refresh frames fired by hand, on
 // DomLive's own parts, composed as DomLive composes them, with the Clock wrapped to count its open
-// `ticks` subscriptions, a Tracer that records every span, and a logger that records every log.
+// `ticks` subscriptions, the Frame loop wrapped to record its runs, a Tracer that records every
+// span, and a logger that records every log.
 //
 // - A coordinator that settled is started afresh by the next trigger, cold or warm.
 // - One started inside a tick, after the coordinator settled earlier in that tick, is stepped from
@@ -10,6 +11,9 @@
 //   no write after, and the Clock's subscription goes once nothing else runs.
 // - The layout lab's reading: a Tracer merged beside the Environment sees the coordinator's span
 //   and a `wardic.clock` span open while a lone FLIP runs.
+// - Since #75, the coordinator is one run on the Frame loop: it settles inside its step, a stop
+//   outside its step interrupts it, and a step that throws fails it alone, logged, until the next
+//   trigger starts a fresh run.
 import { describe, expect, it } from "@effect/vitest"
 import {
   Clock,
@@ -18,6 +22,7 @@ import {
   FrameLoopLive,
   InterpolatorRegistryLive,
   type Machine,
+  type SpringOptions,
 } from "@wardic/core"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
@@ -30,7 +35,7 @@ import * as References from "effect/References"
 import { AtomRegistry } from "effect/reactivity"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
-import { afterEach, beforeEach } from "vitest"
+import { afterEach, beforeEach, vi } from "vitest"
 import {
   ClockDomLive,
   InputDomLive,
@@ -42,6 +47,7 @@ import {
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
 
 type ClockShape = Context.Service.Shape<typeof Clock>
+type LoopShape = Context.Service.Shape<typeof FrameLoop>
 type NativeSpanOptions = ConstructorParameters<typeof Tracer.NativeSpan>[0]
 
 /** One span the Tracer saw: its attributes and how it ended, filled in at its end. */
@@ -51,10 +57,18 @@ interface SpanRecord {
   exit: "open" | "Success" | "Failure" | "Interrupted"
 }
 
+/** One run on the Frame loop: its machine's span name and attributes, and how it ended. */
+interface RunRecord {
+  readonly name: string
+  readonly attributes: Readonly<Record<string, unknown>>
+  exit: SpanRecord["exit"]
+}
+
 /** One log the Environment's logger saw. */
 interface Logged {
   readonly level: string
   readonly message: string
+  readonly cause: string | undefined
 }
 
 const COORDINATOR = "wardic.projection.coordinator"
@@ -71,7 +85,8 @@ const exitTag = (exit: Exit.Exit<unknown, unknown>): SpanRecord["exit"] =>
 /**
  * The engine over `sink`, on DomLive's parts with its Clock counting the open subscriptions to
  * its `ticks` and the most open at once (a count of the most, not a total: a run after the loop
- * went idle opens another).
+ * went idle opens another), and its Frame loop recording each run and the most coordinator runs
+ * live at once.
  */
 const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   let open = 0
@@ -90,6 +105,26 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       )
     }),
   })
+  const runs: Array<RunRecord> = []
+  let coordinators = 0
+  let mostCoordinators = 0
+  const recordRuns = (loop: LoopShape): LoopShape => ({
+    run: (machine, sink) =>
+      Effect.suspend(() => {
+        const record: RunRecord = { name: machine.span.name, attributes: machine.span.attributes, exit: "open" }
+        runs.push(record)
+        const coordinator = record.name === COORDINATOR
+        if (coordinator) mostCoordinators = Math.max(mostCoordinators, ++coordinators)
+        return loop.run(machine, sink).pipe(
+          Effect.onExit((exit) =>
+            Effect.sync(() => {
+              record.exit = exitTag(exit)
+              if (coordinator) coordinators--
+            }),
+          ),
+        )
+      }),
+  })
   const spans: Array<SpanRecord> = []
   const spanEnds: Array<(record: SpanRecord) => void> = []
   class RecordingSpan extends Tracer.NativeSpan {
@@ -107,16 +142,16 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
     }
   }
   const logs: Array<Logged> = []
-  const env = FrameLoopLive.pipe(
-    Layer.provideMerge(
-      Layer.mergeAll(
-        Layer.effect(Clock)(Clock.useSync(countTicks)).pipe(Layer.provide(ClockDomLive)),
-        RendererDomLive,
-        InputDomLive,
-        ProbeDomLive,
-        InterpolatorRegistryLive,
-      ),
-    ),
+  const services = Layer.mergeAll(
+    Layer.effect(Clock)(Clock.useSync(countTicks)).pipe(Layer.provide(ClockDomLive)),
+    RendererDomLive,
+    InputDomLive,
+    ProbeDomLive,
+    InterpolatorRegistryLive,
+  )
+  const env = Layer.effect(FrameLoop)(FrameLoop.useSync(recordRuns)).pipe(
+    Layer.provide(FrameLoopLive),
+    Layer.provideMerge(services),
     Layer.provideMerge(AtomRegistry.layer),
   )
   const runtime = ManagedRuntime.make(
@@ -125,7 +160,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       Layer.succeed(Tracer.Tracer, Tracer.make({ span: (options) => new RecordingSpan(options) })),
       Logger.layer([
         Logger.map(Logger.formatStructured, (s) => {
-          logs.push({ level: s.level, message: String(s.message) })
+          logs.push({ level: s.level, message: String(s.message), cause: s.cause })
         }),
       ]),
       Layer.succeed(References.MinimumLogLevel, "Debug"),
@@ -140,6 +175,8 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
     logs,
     open: () => open,
     most: () => most,
+    coordinatorRuns: () => runs.filter((r) => r.name === COORDINATOR),
+    mostCoordinators: () => mostCoordinators,
     onSpanEnd: (listener: (record: SpanRecord) => void) => spanEnds.push(listener),
     errors: () => logs.filter((l) => l.level === "ERROR"),
   }
@@ -165,8 +202,13 @@ afterEach(() => {
 const box = (left = 0): HTMLElement => el(stage("position:relative;width:800px;height:100px"), `position:absolute;top:0;left:${left}px;width:50px;height:50px`)
 
 /** Register `element` as node `id` and let its first Measure pass run. */
-const register = async (e: Engine, id: string, element: HTMLElement): Promise<ProjectionNodeHandle> => {
-  const handle = e.system.register({ id, element, springOptions: () => ({}) })
+const register = async (
+  e: Engine,
+  id: string,
+  element: HTMLElement,
+  springOptions: () => SpringOptions = () => ({}),
+): Promise<ProjectionNodeHandle> => {
+  const handle = e.system.register({ id, element, springOptions })
   await endOfTask()
   return handle
 }
@@ -376,5 +418,165 @@ describe("the layout lab's reading of a lone FLIP", () => {
     expect(coordinators[0]!.attributes.active).toBe(1)
     expect(e.spans.filter((s) => s.name === "wardic.clock" && s.exit === "open"), "the Clock is idle again").toHaveLength(0)
     expect(e.spans.filter((s) => s.name === COORDINATOR), "one coordinator span for the burst").toHaveLength(1)
+  })
+})
+
+describe("the coordinator is one run on the Frame loop (#75)", () => {
+  it("a FLIP is one run, named wardic.projection.coordinator with `active`; it settles inside its step, so the run and its span succeed", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const element = box(0)
+    const a = await register(e, "a", element)
+    fireFrame()
+    expect(e.coordinatorRuns(), "no run while nothing animates").toHaveLength(0)
+
+    element.style.left = "200px"
+    a.notify()
+    await endOfTask()
+    fireFrames(3)
+    expect(e.coordinatorRuns()).toEqual([{ name: COORDINATOR, attributes: { active: 1 }, exit: "open" }])
+    settle(sk, "a")
+    expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Success"])
+    expect(e.spans.filter((s) => s.name === COORDINATOR).map((s) => s.exit)).toEqual(["Success"])
+    expect(e.open()).toBe(0)
+  })
+
+  /** A FLIP of a 50 px box, three frames in: its handle and element. */
+  const midFlip = async (e: Engine) => {
+    const element = box(0)
+    const a = await register(e, "a", element)
+    fireFrame()
+    element.style.left = "200px"
+    a.notify()
+    await endOfTask()
+    fireFrames(3)
+    return a
+  }
+
+  const stops: ReadonlyArray<readonly [string, (e: Engine) => Promise<() => void>]> = [
+    [
+      "a window width change finishing it",
+      async (e) => {
+        await midFlip(e)
+        return () => {
+          vi.stubGlobal("innerWidth", window.innerWidth - 200)
+          window.dispatchEvent(new Event("resize"))
+        }
+      },
+    ],
+    [
+      "a release in place",
+      async (e) => {
+        const b = await register(e, "b", box(0))
+        fireFrame()
+        b.dragStart()
+        fireFrames(2)
+        b.dragMove({ x: 30, y: 0 })
+        fireFrame()
+        return () => {
+          b.dragMove({ x: 0, y: 0 })
+          b.dragEnd()
+        }
+      },
+    ],
+    [
+      "the last active node's dispose",
+      async (e) => {
+        const a = await midFlip(e)
+        return () => a.dispose()
+      },
+    ],
+    [
+      "the system's dispose",
+      async (e) => {
+        await midFlip(e)
+        return () => e.system.dispose()
+      },
+    ],
+  ]
+
+  for (const [name, setUp] of stops) {
+    it(`a stop outside its step interrupts it: ${name}`, async () => {
+      const sk = makeSink()
+      const e = makeEngine(sk.sink)
+      const stop = await setUp(e)
+      expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["open"])
+      stop()
+      expect(e.coordinatorRuns().map((r) => r.exit), "ended in the stop's own call").toEqual(["Interrupted"])
+      expect(e.spans.filter((s) => s.name === COORDINATOR).map((s) => s.exit)).toEqual(["Interrupted"])
+      const writes = sk.writes.length
+      await endOfTask()
+      fireFrames(3)
+      expect(sk.writes.length, "no write after the stop").toBe(writes)
+      expect(e.open(), "nothing holds the Clock").toBe(0)
+      expect(e.errors()).toEqual([])
+    })
+  }
+
+  it("one started inside the tick the last one settled in (a drag start from a later run's sink) is a second run, and the two never overlap", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const b = await register(e, "b", box(300))
+    await midFlip(e)
+    let settled = false
+    let grabbed = false
+    e.onSpanEnd((s) => {
+      if (s.name === COORDINATOR) settled = true
+    })
+    hold(e, () => {
+      if (!settled || grabbed) return
+      grabbed = true
+      b.dragStart()
+    })
+    for (let i = 0; i < 600 && !grabbed; i++) fireFrame()
+    expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Success", "open"])
+    fireFrame()
+    b.dragMove({ x: 60, y: 0 })
+    b.dragEnd()
+    await endOfTask()
+    settle(sk, "b")
+    expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Success", "Success"])
+    expect(e.mostCoordinators()).toBe(1)
+  })
+})
+
+describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)", () => {
+  it("logged once, with the defect; a run beside it keeps its Frames; the next trigger starts a fresh run, which settles the node", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    let held = 0
+    hold(e, () => void held++)
+    let failing = false
+    const element = box(0)
+    const a = await register(e, "a", element, () => {
+      if (failing) throw new Error("springOptions failed")
+      return {}
+    })
+    fireFrame()
+    element.style.left = "200px"
+    a.notify()
+    await endOfTask()
+    fireFrames(3)
+
+    failing = true
+    const heldBefore = held
+    fireFrame()
+    expect(e.errors().map((l) => l.message)).toEqual(["wardic.projection: coordinator failed"])
+    expect(e.errors()[0]!.cause).toContain("springOptions failed")
+    expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure"])
+    const writes = sk.of("a").length
+    fireFrames(3)
+    expect(held - heldBefore, "the run beside it got every Frame").toBe(4)
+    expect(sk.of("a").length, "the node waits where its last step left it").toBe(writes)
+    expect(offset(sk.of("a").at(-1)!), "mid-flight").toBeGreaterThan(1)
+
+    failing = false
+    // A trigger that seeds nothing (the node's box didn't change) still starts a fresh run.
+    a.notify()
+    await endOfTask()
+    settle(sk, "a")
+    expect(offset(sk.of("a").at(-1)!), "the node settles on its slot").toBeLessThan(0.5)
+    expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure", "Success"])
+    expect(e.errors()).toHaveLength(1)
   })
 })

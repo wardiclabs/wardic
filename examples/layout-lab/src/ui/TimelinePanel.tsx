@@ -9,7 +9,8 @@
  *   flash frame, if any, is drawn in the flash colour.
  * - **measure**: `wardic.projection.measure` spans.
  * - **coordinator**: `wardic.projection.coordinator` spans (one per animation
- *   burst). A span still in flight when the run ended is drawn open-ended.
+ *   burst: the coordinator's run on the Frame loop, #75). A span still in flight
+ *   when the run ended is drawn open-ended.
  *
  * The panel renders only when the selection changes (once per completed run, or a
  * user pick), never per frame.

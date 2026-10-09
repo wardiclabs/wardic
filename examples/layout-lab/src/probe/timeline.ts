@@ -102,9 +102,11 @@ export interface SpanRecord {
   readonly attributes: Readonly<Record<string, unknown>>
   /**
    * How the span ended: `"Success"`, `"Failure"`, or `"Interrupted"` for a failure
-   * whose cause is interruption only. Interruption is how the projection coordinator
-   * stops once every node settles, so it is the expected end, not an error. Absent
-   * while in flight.
+   * whose cause is interruption only. The projection coordinator, a run on the Frame
+   * loop since #75, ends with `"Success"` when every node settles, and is interrupted
+   * when it's stopped any other way (a window resize finishing it, a release in place,
+   * the last animating node unmounting), so neither is an error. Absent while in
+   * flight.
    */
   readonly exitTag?: "Success" | "Failure" | "Interrupted"
   /** The scheduler mode the span was captured under. */
