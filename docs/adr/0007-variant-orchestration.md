@@ -24,3 +24,9 @@ Variant orchestration is a binding concern built on a small pure core surface. T
 ## Amendment (#47, 2026-10-02): below the base, each key falls back to its Base value
 
 The priority above resolves the base layer as a whole: local `animate`, else the parent's variant, else `initial`. A key that no layer sets any more, including one the base layer drops, then returns to the key's `initial` value, else its `style` value, else the element's Own value (ADR-0022). #50's inherited `initial` will join at the `initial` link.
+
+## Amendment (#77, 2026-10-09): a staggered tween with a `repeat` waits its stagger once
+
+- **The binding folds a child's stagger into its transition's `delay`.** `animate` held that `delay` again before every segment of a `repeat` / `yoyo` run, so a staggered child's repeating tween waited its stagger again before each repeat.
+- **Since #77, `delay` holds once,** before the first segment (ADR-0027, *Amendment (#77)*). So the stagger offsets each child's start once, as a per-child `delay` does in Motion.
+- **A spring transition has no segments,** so it's unchanged.

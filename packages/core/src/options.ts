@@ -25,7 +25,10 @@ export interface TweenOptions {
   readonly duration: number
   /** Easing function; defaults to linear. */
   readonly easing?: Easing
-  /** Delay before the animation starts, in seconds. */
+  /**
+   * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `yoyo`, or across
+   * `keyframes`' stops, it holds once, before the first segment (#77).
+   */
   readonly delay?: number
 }
 
@@ -61,7 +64,11 @@ export interface DecayOptions {
 
 /** Repeat / lifecycle modifiers shared across primitives. */
 export interface Modifiers {
-  /** Additional repeats after the first run. `Infinity` loops forever. Default 0. */
+  /**
+   * Additional repeats after the first run. `Infinity` loops forever. Default 0. Each repeat
+   * starts on the tick after the one before it settles, with no gap: `delay` holds once, before
+   * the first run (#77); a gap between repeats (Motion's `repeatDelay`) is #91.
+   */
   readonly repeat?: number
   /** Reverse direction on alternate repeats (ping-pong). Default false. */
   readonly yoyo?: boolean

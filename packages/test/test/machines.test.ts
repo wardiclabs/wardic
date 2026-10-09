@@ -154,10 +154,11 @@ describe("leaf machines: the Stream runs the machine", () => {
 describe("composite machines against the composite Streams", () => {
   const animateCases = [
     ["one segment", { duration: 0.3 }],
-    ["repeat 2, delay on every segment (#77)", { duration: 0.3, repeat: 2, delay: 0.05 }],
+    ["repeat 2, a delay held once (#77)", { duration: 0.3, repeat: 2, delay: 0.05 }],
     ["repeat 3, yoyo, reverse, an easing", { duration: 0.25, repeat: 3, yoyo: true, reverse: true, easing: easeInOutCubic }],
     ["repeat Infinity", { duration: 0.2, repeat: Infinity }],
     ["repeat Infinity, yoyo", { duration: 0.2, repeat: Infinity, yoyo: true }],
+    ["repeat Infinity, yoyo, a delay held once (#77)", { duration: 0.2, repeat: Infinity, yoyo: true, delay: 0.05 }],
   ] as const
   for (const [name, options] of animateCases) {
     it.effect(`animate: ${name}`, () =>
@@ -175,7 +176,7 @@ describe("composite machines against the composite Streams", () => {
     }))
 
   const keyframesCases = [
-    ["four stops, with a delay at each (#77)", [0, 10, 5, 20], { duration: 0.6, delay: 0.05 }],
+    ["four stops, a delay held once (#77)", [0, 10, 5, 20], { duration: 0.6, delay: 0.05 }],
     ["one stop", [3], { duration: 0.2 }],
     ["no stops", [], { duration: 0.2 }],
   ] as const
