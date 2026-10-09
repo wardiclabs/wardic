@@ -55,3 +55,9 @@ Issue #2 measured the frame-batched pass painting a flash for every layout chang
 - The projection transform left out an identity translation, tree scale and element scale, but wove `rotate` / `rotateX` / `rotateY` / `rotateZ` / `skewX` / `skewY` whenever present, and left out `z` only as the number 0. So a `layout` element whose `whileHover` rotate returned rested at `rotate(0deg)`, a stacking context.
 - Each woven term and `z` is now left out at its **Identity** (CONTEXT.md) by `project`'s identity test (ADR-0023, decision 3), and `"none"` is still the result with nothing left. Motion leaves them out by truthiness ([projection/styles/transform.ts:44-50](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/styles/transform.ts#L44-L50)), the same for a number.
 - **Pinned by** `packages/dom/test/projection-transform.browser.test.ts` PT5, `identity-transform.node.test.ts` IT8–IT10 and `packages/solid/test/base-values.browser.test.tsx` M33 (a `layout` element's returned rotate).
+
+## Amendment (#75, 2026-10-09): the coordinator is a run on the Frame loop
+
+- **Execution.** The projection coordinator is one run on the Environment's Frame loop (ADR-0027, decision 9), no longer a fiber with a `Clock.ticks` subscription of its own. It's still Clock-driven: the loop steps it once per tick with the Clock's `dt`, so the rejection of *Gate owns projection timing* stands.
+- **Idle stays zero-cost:** with no node animating, the coordinator's run is off the loop, and the loop drops its Clock subscription once nothing else runs. ADR-0010's line on idle (*Consequences*) reads the same way.
+- `makeProjectionSystem`'s runtime provides the `FrameLoop` instead of the `Clock` (`ProjectionRuntime`).
