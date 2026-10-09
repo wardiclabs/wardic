@@ -383,6 +383,66 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
   - **Starts aren't gated** (decision 12 gates frames). Decision 1's target is steady frames, which don't change.
   - **The spine's own work dwarfs the fiber bookkeeping.** At 1,000 elements, a mount takes 260–370 ms, a Retarget 105–150 ms and an unmount 120–150 ms, about 100–370 µs per element. That isn't investigated here.
 
+## Implementation in #75 (slice 4): the projection coordinator as a run on the loop
+
+- **dom's projection coordinator is one run on the loop** (decision 9), where it was a fiber running `Stream.runForEach(clock.ticks, step)`, a second Clock subscriber beside the loop's (`projection.ts`).
+  - **Its machine** (`coordinatorMachine`) is built for each run, so its span carries the `active` count it started with: `wardic.projection.coordinator { active }`, as before.
+  - **Each tick is today's `step(dt)`, unchanged.** It clamps `dt` at `MAX_DT` itself, sets each node's `steppedSinceSeed`, and makes its writes (`sink.write`, a leaving Follower's `renderer.commit`) as plain calls.
+  - **Its Frame carries nothing.** It returns one of two constant Frames, `done` once no node is active after the step, to a sink that does nothing. A dragging node stays active, so a drag keeps it running.
+  - **Its step works on the system's state,** not state of its own: there's never more than one run.
+  - **It lives in a `FiberHandle`** in the system's `Scope`, beside the end-of-task holds' `FiberSet`, in place of `tickFiber`. Whether a run is on the loop is read from the handle, which drops the fiber when it ends.
+  - **It starts as the spine's legs do** (*Implementation in #76*): `FiberHandle.setUnsafe(handle, runtime.runFork(run))`, inline up to its add. With the loop idle, its burst subscribes inside the Measure pass, so a Cold start's Priming tick is still queued there (ADR-0018, *Amendment (#75)*). `handleLeave` reaches it from inside a `runSync`, which rules out `FiberHandle.run`.
+- **Stopping, both ways** (decision 5):
+  - **Inside its own step** (the last node settling in `finishSettled`, or a node disposed by a leaver's `onDone`), a stop doesn't interrupt. The step returns its settled Frame, and the loop settles the run: its span ends with Success, and the settle counter counts it.
+  - **Outside its step** (the Priming step's or a window resize's `finishSettled`, a release in place, the last active node's dispose, the system's dispose), the run is interrupted. It's waiting on its `Deferred`, so it's interrupted inline (`internal/effect.js:377-381`), and its entry leaves the loop in the stop's own call, even mid-tick.
+  - **The `lastDelta` reset** stays where the stop is decided, on both paths. A run the loop fails or interrupts leaves nodes mid-flight, so the reset doesn't belong on its exit.
+  - **Re-entrancy.** An `ensureRunning` while the run is on the loop does nothing, including inside its step once `active` refills (`promoteFrom`): `done` is read after the step. One later in the tick the run settled in (from another run's continuation) finds the handle empty, since the settle ended the run inline, and adds a fresh run, stepped from the next tick, as a subscriber added mid-publish was.
+- **ADR-0018's Priming step is unchanged.** `steppedSinceSeed` is per node, so whichever takes a seeded node's first step, the Priming tick or the engine's Priming step, the other skips it.
+  - With the binding's runs already on the loop, the coordinator's run joins their burst. The Clock is warm, so the engine takes the Priming step, as it did beside the burst's subscription.
+  - If a run cold-started the Clock earlier in the same task, the coordinator's run is added before the Priming tick publishes, and the tick steps it.
+- **Order within a tick** is the coordinator's add order among the other runs, where it was Clock subscription order between the burst and the coordinator. Nothing depends on either:
+  - The coordinator writes `@projection` and the scale correctors' keys. Crossfade opacity is `@projection.opacity`, beside a spine leg's `opacity`, and the renderer multiplies the two at the flush. A projected element's own `x` / `y` are skipped by `project`. The gate merges keys into one value-map, so their order within a tick doesn't change the flush.
+  - The one key both can write is a scale corrector's (`border-radius`, `box-shadow`), and the last write wins. Animating it on a scale-corrected node is ADR-0011's documented limit, since its base is read once.
+  - A continuation that changes the engine mid-tick (a leg's `legDone` unmounting a node) could land on either side of the coordinator before, too.
+- **Declared changes:**
+  - **Failure (decision 7).** A step that throws, or the loop's own failure, fails the coordinator's run alone: a run beside it gets every Frame. It's logged once, `wardic.projection: coordinator failed` at Error with its cause, and the next trigger (any Measure pass, a drag's start or end, a promotion) starts a fresh run, which resumes the nodes from where they stopped. Before, the fiber died silently and `tickFiber` kept it, so every `ensureRunning` returned early, and no layout animation moved again until something emptied `active` (a window width change, every animating node unmounting, the system's dispose). Checked on main: after a throwing step, two later triggers, one moving the box back, left it frozen 45 px from its slot, with nothing logged.
+  - **The span's end.** `wardic.projection.coordinator` ends with Success when its nodes settle, where it ended interrupted. A stop outside its step still interrupts it.
+  - **The Clock's idle after a stop outside the step,** with nothing else running: the loop drops its subscription at its next tick, so the Clock idles one Refresh frame later, after one more callback with nothing to step. That's the loop's rule since #74 for a leg removed outside a tick.
+  - **Tier 2:** `ProjectionRuntime` is `ManagedRuntime<FrameLoop | Renderer>`, where it was `<Clock | Renderer>`. A runtime built on `DomLive` or `TestLive`, and `WardicServices`, already provide `FrameLoop` (#74).
+  - **Logs:** dom's `wardic.projection: coordinator: start` becomes the run's `wardic.projection.coordinator: start`, annotated with `active`. `coordinator: stop` stays.
+  - **On a finite test Clock,** the run is interrupted when the ticks end (decision 11), and the next trigger starts another. Before, `tickFiber` kept the ended fiber.
+- **Amends** ADR-0009 (execution, idle) and ADR-0018 (what the Priming step relies on), each in an *Amendment (#75)*. CONTEXT.md's **Frame loop** names the coordinator as one of its runs.
+- **What it buys** (decision 9): the loop's metrics count the coordinator (one run in the gauge, its settles and failures, its step in the tick histogram), and the burst logic exists once. It doesn't buy CPU (below).
+- **Pinned by** `packages/dom/test/projection-coordinator.browser.test.ts`, on `DomLive`'s parts with a Clock that counts its open subscriptions, a Frame loop that records its runs, and a Tracer that records every span:
+  - **eight tests that pass on main as well:** a coordinator that settled is started afresh by the next trigger, its node one step along before any Refresh frame, cold and warm; one started inside a tick, from a later run's sink, after the coordinator settled earlier in that tick, derives its node from the next tick; disposing the system mid-burst (alone, and beside another run), a release in place and the last active node's dispose stop it, with no write after and the Clock's subscription gone with the last run; and a Tracer merged beside the Environment, as the layout lab merges its own, sees one coordinator span with `active` and a `wardic.clock` span open until the FLIP settles.
+  - **seven that fail on main by design:** a FLIP is one run, which settles inside its step, so the run and its span succeed; four stops outside its step interrupt it (a window width change, a release in place, the last active node's dispose, the system's dispose); a run started in the tick the last one settled in is a second run, never overlapping it; and a step that throws fails it alone, logged once with its defect, while a run beside it keeps its Frames and the next trigger restarts it.
+  - **One subscriber** (`packages/solid/test/frame-loop.browser.test.tsx`): a layout FLIP beside a spine leg holds one `Clock.ticks` subscription at most, with the coordinator one of the loop's runs. Main holds 2.
+  - **Unchanged and passing:** dom's projection tests (measure pass, drag, resize block, handle, transform, auto-fold, pass end), and solid's layout, measure-pass, drag, reorder, `clock-cold-start` and `frame-loop` tests.
+- **The layout lab,** rerun by script (`.tmp/75-lab/`: headless Chromium 147 on the lab's dev server, the Run buttons for scenarios 1–10 and Playwright's mouse for drags 11–13, 5 runs each, cold and warm, on main's `projection.ts` and on #75's):
+  - **Every trigger run reads the same on both:** `clean` and `as-predicted`, `framesToMeasure` 0, and the held counts the README expects, cold and warm. The first three steps and scenario 10's `passStepRatio` (0.878–0.887) agree within their run-to-run spread.
+  - **Every drag run reads the same on both:** one frame behind the pointer, 0 held frames at the release, ending on its slot, the children glued within 0.0001 px, and the same passes (3 seeding, 12 or 6 drag-blocked, none for scenario 13).
+  - **One reading moves, as expected:** scenario 5's trigger, the coordinator span's end, now comes inside the loop's tick, before the burst drops its `wardic.clock` span, so its cold-mode runs read `warm` where main's read `cold`. The Clock was in fact still running in both, since it idles at its next Refresh frame, and both hold 1 frame with the same steps.
+  - **By hand,** in Chrome 155 at DPR 1.35, cold and warm, with a short Firefox 157 pass of scenarios 1–10:
+    - scenarios 1–10 read as the script's did, scenario 5 `warm` in 5 of 5; drags 11–13 pass every check (21 runs); 29 of 30 board runs pass, and the one that doesn't, a hover's end, has no `layout` element.
+    - **11 of 33 Reorder runs fail a check, none from #75.** `raised` (4): in every missed frame the item on top is the one dragged just before, released 450–540 ms earlier and still raised until its release settles (#88). `ends on slot` in the scroll container (5): a constant 0.5278 px, settled runs included, against a 0.5 px tolerance, twice the page's 0.2639 px, which the lab's logs from before #74 show too (#89). And one each: an item grabbed while its FLIP from the last reorder was still running sat 2.8 px off the pointer (a grab anchors at the slot, ADR-0016), a lost release, and a short lift.
+    - **An A/B of Reorder** on the lab's production builds, main's `@wardic/dom` against #75's, with the same scripted gestures at DPR 1.35 (six layouts on the page and in the container, a lift pass, a re-grab 450 ms after a release, S mid-hold in the container; 98 drags per build), reads the same on both, check by check.
+  - The timeline's comments say the coordinator's span ends with Success at a settle, and the timeline panel's coordinator lane still shows one bar per burst.
+- **The per-frame cost** (`.tmp/75-frames/`: `page.tsx`, `build.ts`, `run.ts`).
+  - **The setup:** Chromium 147, headless, cross-origin isolated (`performance.now()` to 5 µs), a fresh page per variant per rep. The page is built with Vite and `vite-plugin-solid` in production mode, on `DomLive` and the real `@wardic/solid`, with `@wardic/dom` from main (`ea317a4`) or from #75.
+  - **The workloads:** N layout `wardic.div`s in a flex-wrap grid whose direction flips, all FLIPing at once, alone or each with an `opacity` and a `background-color` leg Retargeted in the same task.
+  - **What's timed:** each Refresh frame's JS, mid-flight (15 frames from the 4th after the trigger), split into the Clock's callback (the loop's tick, or main's two subscribers) and the gate's flush, each to the end of its microtasks. 4 rounds per page, 11 paired reps, their order alternating, with Windows at 2–4% CPU.
+
+    | ms per Refresh frame | main | #75 | #75 / main [p25–p75] |
+    |---|---|---|---|
+    | N = 100, FLIPs alone: total | 0.730 | 0.740 | +0.7% [−1.4, +2.1] |
+    | N = 100, FLIPs and 2N legs: total | 0.915 | 0.900 | −1.6% [−3.3, +0.0] |
+    | N = 1,000, FLIPs alone: total | 6.270 | 6.260 | +0.8% [−1.9, +4.0] |
+    | N = 1,000, FLIPs and 2N legs: total | 9.635 | 9.555 | −0.3% [−4.5, +1.1] |
+
+  - **No per-frame regression:** every total is within ±2%, its spread around 0.
+  - **The Clock's callback alone:** at N = 100 with legs, −2.7% [−9.8, −2.6] (0.195 → 0.185 ms), one subscriber fewer. At N = 100 alone, +4.2%, which is 0.120 → 0.125 ms, one tick of the 5 µs timer. At N = 1,000, +3.1% [−1.7, +6.2] alone and +0.2% [−6.3, +1.5] with legs.
+  - **The gate's flush dominates,** as #79 found: 5.4 ms of the 6.3 at N = 1,000 alone, and 7.2 of 9.6 with the legs.
+
 ## Amendment (#77, 2026-10-09): `delay` holds once, before the first segment
 
 - **Decision 4's first quirk is fixed.** `animate` built every segment of a `repeat` / `yoyo` run, and `keyframes` every stop's segment, with the run's whole options, so each one held the `delay` again.

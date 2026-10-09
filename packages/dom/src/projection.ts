@@ -6,7 +6,8 @@
  * It has NO framework reactivity: it reaches its host binding through two seams
  * only — a {@link ProjectionSink} (`write` per-element projection values into the
  * binding's flush gate + `flushPass` a Measure pass, applying its writes at once) and a
- * `ManagedRuntime` providing {@link Clock} (to fork the ref-counted tick fiber).
+ * `ManagedRuntime` providing the Environment's {@link FrameLoop} (the coordinator is one
+ * run on it, ADR-0027).
  * So it lives here in `@wardic/dom`, next to `ClockDomLive`/the Renderer, and any
  * binding (Solid today; React/vanilla later) wires it with its own gate + runtime.
  *
@@ -24,13 +25,13 @@
  *     during the pass's own flush repeats it (at most 5 rounds). Then every node the
  *     pass seeded takes one **Priming step** (the Clock's Priming tick on a Cold
  *     start), so it moves on the next painted frame whatever the Clock's state.
- *   - COORDINATOR (a single Clock-driven fiber, ref-counted ACTIVE while >=1 node
- *     animates, Q4): each tick steps every active node's progress spring, then
+ *   - COORDINATOR (one run on the Environment's Frame loop while >=1 node animates,
+ *     Q4; ADR-0027, #75): each tick steps every active node's progress spring, then
  *     `deriveAll()` walks the active nodes TOP-DOWN (ancestors first) computing
  *     each node's `projectionDelta` + `treeScale` via `applyTreeDeltas` over its
  *     animating ancestors' deltas, and writes the `@projection` value (the renderer
- *     assembles the transform). On settle it drops the node; when none remain it
- *     interrupts the fiber (idle = zero cost).
+ *     assembles the transform). On settle it drops the node; when none remain the
+ *     run settles and leaves the loop (idle = zero cost).
  *
  * DRAG (ADR-0016 and its *Amendment (#26)*): a dragged node follows the pointer through
  * its target (`grabBox + dragDelta`), and it and its subtree are drag-blocked: a
@@ -53,9 +54,11 @@ import {
   boundsToBox,
   calcBoxDelta,
   calcRelativeBox,
-  Clock,
   type Delta,
+  type Frame,
+  FrameLoop,
   initSpring,
+  type Machine,
   MAX_DT,
   mixBox,
   NOMINAL_DT,
@@ -65,17 +68,21 @@ import {
   PROJECTION_KEY,
   type ProjectionValue,
   Renderer,
+  type Sink,
   type SpringOptions,
   type SpringState,
   springStep,
 } from "@wardic/core"
+import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
+import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Match from "effect/Match"
+import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox, readScrollStyle, type ScrollStyle } from "./measure.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
@@ -96,13 +103,21 @@ export interface ProjectionSink {
 const MAX_ROUNDS = 5
 
 /**
- * The runtime flavour the coordinator needs: a `ManagedRuntime` that can run the
- * Clock-subscribing tick loop AND resolve the `Renderer` (to drive a presence-
- * retained leaving Follower whose gate registration was torn down on owner
- * disposal — ADR-0010). A binding's wider runtime (e.g. one providing the full
- * `WardicServices`) is assignable here.
+ * The runtime flavour the engine needs: a `ManagedRuntime` that can run the
+ * coordinator on the Environment's {@link FrameLoop} (ADR-0027, #75) AND resolve the
+ * `Renderer` (to drive a presence-retained leaving Follower whose gate registration
+ * was torn down on owner disposal — ADR-0010). A binding's wider runtime (e.g. one
+ * providing the full `WardicServices`) is assignable here.
  */
-export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<Clock | Renderer, never>
+export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<FrameLoop | Renderer, never>
+
+/**
+ * The coordinator's Frames on the Frame loop (#75). It carries no value, since its writes
+ * are made inside its step, so its two Frames are built once and its sink does nothing.
+ */
+const COORDINATOR_RUNNING: Frame<void> = { value: undefined, done: false }
+const COORDINATOR_SETTLED: Frame<void> = { value: undefined, done: true }
+const ignoreFrame: Sink<Frame<void>> = () => undefined
 
 /** Identity tree-scale (no ancestor scaling). */
 const TREE_SCALE_IDENTITY: Point = { x: 1, y: 1 }
@@ -272,7 +287,7 @@ export interface ProjectionSystem {
    * callback back. Presence keeps ADR-0007 ownership of retention + DOM removal.
    */
   readonly handleLeave: (el: HTMLElement, onDone: () => void) => boolean
-  /** Tear down the coordinator fiber + observer (wired into the provider's onCleanup). */
+  /** Stop the coordinator's run + tear down the observer (wired into the provider's onCleanup). */
   readonly dispose: () => void
 }
 
@@ -441,10 +456,10 @@ export const onPassEnd = (system: ProjectionSystem, listener: () => void): (() =
 }
 
 /**
- * Build a projection system against a binding's `runtime` (providing {@link Clock})
- * and its {@link ProjectionSink} (its flush gate).
+ * Build a projection system against a binding's `runtime` (providing its
+ * {@link FrameLoop}) and its {@link ProjectionSink} (its flush gate).
  *
- * Forks the coordinator on `runtime` directly; the binding disposes the system in
+ * Runs the coordinator on `runtime`'s Frame loop; the binding disposes the system in
  * its own teardown (e.g. the provider's `onCleanup`).
  */
 export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: ProjectionSink): ProjectionSystem => {
@@ -457,8 +472,6 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // Per-`layoutId` mount-order stack (ADR-0010): the newest live node is the Lead,
   // the rest are Followers. Crossfade is driven engine-side off this stack.
   const stacks = new Map<string, Array<NodeState>>()
-  // The Clock-driven coordinator fiber, present only while >=1 node animates.
-  let tickFiber: Fiber.Fiber<void, never> | undefined
   // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe).
   let ro: ResizeObserver | undefined
   // A just-disposed `layoutId` node's box, so a presence `handleLeave` arriving
@@ -475,6 +488,11 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // hold still pending.
   const scope = Scope.makeUnsafe()
   const taskFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(scope)))
+  // The coordinator's run on the Frame loop (#75): at most one, from the first node that
+  // animates until none does. In the same Scope, so disposing the system interrupts it.
+  const coordinator = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
+  // Whether the coordinator's step is running: a stop from inside it settles the run.
+  let inStep = false
   // The Measure pass (ADR-0018): whether one is queued for the end of this task,
   // whether one is running its rounds (a trigger then repeats it), whether a trigger
   // arrived during the current round, and the next-task leftover past the round cap.
@@ -1607,30 +1625,98 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     )
   }
 
+  /**
+   * The coordinator as a machine on the Frame loop (ADR-0027, #75): each tick is one
+   * `step`, whose writes are plain calls inside it, and the run settles at the first tick
+   * that ends with no node active (a dragging node stays active, so a drag keeps it
+   * running). Built for each run, so its span carries the `active` count it started
+   * with. Its step works on the system's own state, which holds because there is never
+   * more than one run.
+   */
+  const coordinatorMachine = (): Machine<Frame<void>> => ({
+    settles: true,
+    span: { name: "wardic.projection.coordinator", attributes: { active: active.size } },
+    start: () => (dt) => {
+      // Per frame (ADR-0025): a `try` around the step, and a statement `if`.
+      inStep = true
+      try {
+        step(dt)
+      } finally {
+        inStep = false
+      }
+      if (active.size === 0) return COORDINATOR_SETTLED
+      return COORDINATOR_RUNNING
+    },
+  })
+
+  /**
+   * The coordinator's end, told apart (ADR-0027, decision 7): a settle, or an
+   * interruption (a stop outside its step, the system's dispose), is nothing; anything
+   * else (a step that threw, the Frame loop's own failure) is logged. Its nodes then wait
+   * where the last step left them, and the next trigger starts a fresh run.
+   */
+  const coordinatorEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
+    Exit.match(exit, {
+      onSuccess: () => Effect.void,
+      onFailure: (cause) =>
+        Bool.match(Cause.hasInterruptsOnly(cause), {
+          onTrue: () => Effect.void,
+          onFalse: () =>
+            Effect.logError("wardic.projection: coordinator failed", cause).pipe(
+              Effect.annotateLogs({ active: active.size }),
+            ),
+        }),
+    })
+
+  /** Whether the coordinator's run is on the Frame loop: its fiber is still in the handle. */
+  const coordinating = (): boolean =>
+    Match.value(coordinator.state).pipe(
+      Match.tag("Open", (state) => Predicate.isNotUndefined(state.fiber)),
+      Match.tag("Closed", () => false),
+      Match.exhaustive,
+    )
+
+  /**
+   * Start the coordinator's run unless it's on the loop or nothing is active. Its span,
+   * `wardic.projection.coordinator`, covers the WHOLE animation burst: it opens here and
+   * closes when the run settles or is stopped. On a devtool timeline that's one bar per
+   * burst, with each measure pass that re-seeds mid-burst appearing alongside. The
+   * per-tick `step` stays span-less (hot path).
+   *
+   * Started as the spine's legs are (ADR-0027, *Implementation in #76*): `runFork` on the
+   * runtime runs it inline up to its add on the loop. So when the loop is idle, its
+   * burst's `Clock.ticks` subscription is made in this call, and a Cold start's Priming
+   * tick is queued inside the Measure pass (ADR-0018). Added during a tick (from another
+   * run's continuation), it's stepped from the next one (ADR-0027, decision 5).
+   */
   const ensureRunning = (): void => {
-    if (tickFiber !== undefined || active.size === 0) return
-    debug("coordinator: start", { active: active.size })
-    // One span spans the WHOLE animation burst: it opens here and closes when
-    // `stopTicking` interrupts the fiber (every node settled). On a devtool timeline
-    // that's one bar per burst, with each measure pass that re-seeds mid-burst
-    // appearing alongside. The per-tick `step` stays span-less (hot path).
-    tickFiber = runtime.runFork(
-      Effect.gen(function* () {
-        const clock = yield* Clock
-        yield* Stream.runForEach(clock.ticks, (dt) => Effect.sync(() => step(dt)))
-      }).pipe(Effect.withSpan("wardic.projection.coordinator", { attributes: { active: active.size } })),
+    if (coordinating() || active.size === 0) return
+    FiberHandle.setUnsafe(
+      coordinator,
+      runtime.runFork(
+        FrameLoop.use((loop) => loop.run(coordinatorMachine(), ignoreFrame)).pipe(
+          Effect.onExit(coordinatorEnded),
+          Effect.asVoid,
+        ),
+      ),
     )
   }
 
+  /**
+   * Stop the coordinator: nothing is active. Inside its own step (its settle, or a node
+   * disposed by a leaver's `onDone`), the run settles: the step returns its settled
+   * Frame, and the loop takes it off. Outside it, the run is interrupted: it's waiting on
+   * the loop, so it ends in this call, and gets no further Frame, even mid-tick (ADR-0027,
+   * decision 5).
+   */
   const stopTicking = (): void => {
-    if (tickFiber === undefined) return
-    const fiber = tickFiber
-    tickFiber = undefined // clear first so a re-entrant ensureRunning starts fresh
+    if (!coordinating()) return
     debug("coordinator: stop")
     // Everything is at rest now — reset deltas to identity (belt-and-suspenders so
     // no stale carried-node delta lingers for a future tree walk).
     for (const node of nodes) node.lastDelta = IDENTITY_DELTA
-    runtime.runFork(Fiber.interrupt(fiber))
+    if (inStep) return
+    runtime.runFork(FiberHandle.clear(coordinator))
   }
 
   /** Promote `node` to an animating Lead from `fromBox` → its own box (un-hide + move home). */

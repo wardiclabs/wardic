@@ -111,7 +111,7 @@ export function WardicProvider(props: {
   const gate = makeFlushGate(runtime)
 
   // The box-based projection system (ADR-0009) — provider-owned like the gate.
-  // It holds the projection nodes + the Clock-driven coordinator; standalone
+  // It holds the projection nodes + the coordinator (a run on the Frame loop); standalone
   // `layout` elements register with it (a future <LayoutGroup> uses the tree too).
   // It also owns `layoutId` matching end to end — the lead/follow stack AND the
   // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
@@ -119,7 +119,7 @@ export function WardicProvider(props: {
   const projection = makeProjectionSystem(runtime, gate)
 
   onCleanup(() => {
-    // Interrupt the projection coordinator + drop its observer first, then cancel
+    // Stop the projection coordinator's run + drop its observer first, then cancel
     // any pending frame and clear the gate, before tearing down the runtime the
     // gate runs commit sinks on.
     projection.dispose()

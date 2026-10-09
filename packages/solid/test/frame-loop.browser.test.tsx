@@ -24,7 +24,7 @@ import { createSignal, For, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
-import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
+import { leftOf, opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -98,16 +98,18 @@ const countingClock = () => {
 
 /**
  * A Frame loop that counts its live runs, from the call to `run` to the run's end, and the most
- * live at once, and keeps each run's Exit. Like {@link countingClock}, the tests claim `most`, not
- * a total: a real pointer resting on an element Retargets it by hover.
+ * live at once, and keeps each run's Exit and its machine's span name. Like {@link countingClock},
+ * the tests claim `most`, not a total: a real pointer resting on an element Retargets it by hover.
  */
 const countingLoop = () => {
   let live = 0
   let most = 0
   const ends: Array<Exit.Exit<unknown>> = []
+  const names: Array<string> = []
   const wrap = (loop: LoopShape): LoopShape => ({
     run: (machine, sink) =>
       Effect.suspend(() => {
+        names.push(machine.span.name)
         live++
         most = Math.max(most, live)
         return loop.run(machine, sink)
@@ -120,7 +122,13 @@ const countingLoop = () => {
         ),
       ),
   })
-  return { wrap, live: () => live, most: () => most, ends: (): ReadonlyArray<Exit.Exit<unknown>> => ends }
+  return {
+    wrap,
+    live: () => live,
+    most: () => most,
+    ends: (): ReadonlyArray<Exit.Exit<unknown>> => ends,
+    names: (): ReadonlyArray<string> => names,
+  }
 }
 
 /** Whether a run ended by interruption alone: a Retarget's or an unmount's. */
@@ -209,6 +217,43 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     await until(() => !leaving.isConnected && counted.open() === 0)
     expect(leaving.isConnected).toBe(false)
     expect(Math.abs(opacityOf(beside) - 0.2)).toBeLessThan(0.001)
+    expect(counted.most()).toBe(1)
+  })
+
+  it("a layout FLIP joins a leg beside it on one subscriber: the projection coordinator is one of the loop's runs (#75)", async () => {
+    const counted = countingClock()
+    const runs = countingLoop()
+    const [moved, setMoved] = createSignal(false)
+    const [target, setTarget] = createSignal(0)
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ clock: counted.wrap, loop: runs.wrap })}>
+        <style>{".fl-flip{position:absolute;top:0;left:0;width:50px;height:50px}.fl-flip.moved{left:200px}"}</style>
+        <div style={{ position: "relative", width: "400px", height: "60px" }}>
+          <wardic.div data-flip class="fl-flip" classList={{ moved: moved() }} layout layoutDependency={moved()} />
+        </div>
+        <wardic.div data-beside initial={{ opacity: 0 }} animate={{ opacity: target() }} transition={{ type: "tween", duration: 3 }}>
+          b
+        </wardic.div>
+      </WardicProvider>
+    ))
+    const flip = container.querySelector<HTMLElement>("[data-flip]")!
+    const beside = container.querySelector<HTMLElement>("[data-beside]")!
+    await raf()
+    await raf()
+    const base = leftOf(flip)
+    // In one task: the FLIP's layout change and the leg's Retarget.
+    setMoved(true)
+    setTarget(1)
+    await raf()
+    await raf()
+    // Mid-flight, both: the FLIP between its origin and its slot, the tween under way.
+    expect(leftOf(flip)).toBeLessThan(base + 199)
+    expect(opacityOf(beside)).toBeGreaterThan(0)
+    expect(opacityOf(beside)).toBeLessThan(1)
+    expect(counted.open()).toBe(1)
+    await until(() => Math.abs(leftOf(flip) - (base + 200)) < 0.5)
+    expect(opacityOf(beside)).toBeLessThan(1)
+    expect(runs.names().filter((name) => name === "wardic.projection.coordinator")).toHaveLength(1)
     expect(counted.most()).toBe(1)
   })
 

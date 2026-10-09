@@ -33,8 +33,8 @@ A Frame that additionally carries `velocity`; emitted only by Physics primitives
 _Avoid_: snapshot (reserved — see below).
 
 **Frame loop**:
-The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74 (ADR-0027).
-_Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator becomes one of its runs), ticker, driver, scheduler (Effect's).
+The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74, and dom's projection coordinator is one of its runs from #75 (ADR-0027).
+_Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is one of its runs), ticker, driver, scheduler (Effect's).
 
 ### Lifecycle
 

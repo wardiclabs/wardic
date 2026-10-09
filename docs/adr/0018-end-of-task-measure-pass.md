@@ -75,3 +75,14 @@ What changes:
 Considered:
 - **A refresh after every width change, with no block.** Rejected: a whole-tree read per resize frame, and a layout change the app makes in response (a breakpoint's `matchMedia` listener) would animate, where Motion suppresses it.
 - **Fixing only the drag** (re-measuring the dragged node at its start). Rejected: every other node would still fly.
+
+## Amendment (#75, 2026-10-09): the coordinator is a run on the Frame loop
+
+The projection coordinator is one run on the Environment's Frame loop (ADR-0027, *Implementation in #75*), no longer a fiber with a `Clock.ticks` subscription of its own. The Priming step doesn't change. What *Consequences* says it relies on, "a Cold start's Priming tick being queued inside the pass, where the coordinator subscribes synchronously", now reads:
+
+- **The run is added inside the pass,** by `runFork` on the runtime, which runs it inline up to its add on the loop.
+  - **With the loop idle,** the add starts the loop's burst inline. The burst's subscription is the Clock's first, so a Cold start's Priming tick is queued inside the pass, before its `nextMicrotask`, as before.
+  - **With the loop already bursting** (a leg, presence's exit or a drag's release running), there's no new subscription and the Clock is ticking: the engine takes the Priming step, as it did beside those runs' subscription since ADR-0027's #74.
+  - **If a run cold-started the Clock earlier in the same task,** the coordinator's run is added before the Priming tick publishes, and the tick steps its nodes. `steppedSinceSeed` then makes the Priming step skip them.
+- **The op-budget caveat** moves to two fibers: the run's (its start log and its add) and, on a Cold start, the burst's (its subscription). Either one running out of its budget there could still let a node take both steps. Documented, not guarded.
+- **Pinned,** unchanged: `measure-pass-timing.browser.test.tsx`, `clock-cold-start.browser.test.tsx` (a layout FLIP moves on the 1st painted frame, cold and warm) and `projection-measure-pass.browser.test.ts`. New: `projection-coordinator.browser.test.ts`, where a FLIP started after the coordinator settled is one step along before any Refresh frame, cold and warm.
