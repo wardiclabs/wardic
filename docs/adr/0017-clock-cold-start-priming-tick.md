@@ -53,3 +53,4 @@ Issue #14, measured in the layout lab (Chrome 153 and Firefox 156 on Windows, 20
   - a Retarget keeps the loop subscribed, so it stays warm (decision 9);
   - the loop drops its subscription at the first tick with nothing left, and the Clock idles at its next Refresh frame.
 - **Consequences say a large first `dt` after a hidden tab is "bounded by `MAX_DT`". That doesn't hold for `springValues`,** and so for every spring the binding runs: it passes the raw `dt` to `stepSpring` (`multi.ts:202`). #68 keeps that, so the Frames don't change; the fix is #78.
+- **Fixed by #78** (ADR-0027, *Amendment (#78)*): `springValuesMachine`'s step clamps `dt` at `MAX_DT` once per tick, as every other Clock consumer does, so the Consequences bullet holds again.
