@@ -267,3 +267,14 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
   - **Two medians pass +5% on identical code** (Bun's `springValues/loop`, Node's `springBlend/loop`). The 25th percentile rule keeps them from failing.
   - **`chase/loop` sits at Chromium's timer floor:** at 0.08 ms, one 5 µs tick of `performance.now()` is about 6%. It passed with its 25th percentile at exactly 0.
   - **Seven earlier engine-runs that day** had noise controls off by 4.3–8.1%, with other load on the machine. In them, one workload failed once: Bun's `chase/loop`, +5.3% [+1.3, +8.8].
+- **The gate run:** `bench:core --base main`, 11 paired reps, the next day. #74 leaves `packages/core/src` as it was, so this also compares identical cores.
+  - **Noise controls:** Bun's is valid (−3.0%). Node's (−3.1%) and Chromium's (−6.3%) aren't, on a host still running about twice as slow as the first runs.
+  - **No workload fails on any engine.** The loop workloads, head / base, median [p25–p75]:
+
+    | Workload | Bun | Node | Chromium |
+    |---|---|---|---|
+    | `springValues/loop` | −3.7% [−13.0, +3.7] | −0.6% [−10.5, +8.9] | −2.0% [−13.2, +11.8] |
+    | `animateValues/loop` | −7.2% [−11.6, +12.0] | −0.0% [−3.8, +9.7] | +4.7% [−6.1, +9.3] |
+    | `springBlend/loop` | −10.0% [−15.9, +14.5] | +4.2% [−14.1, +12.0] | +0.0% [−5.6, +2.5] |
+    | `chase/loop` | +4.7% [−6.5, +9.3] | +2.5% [−9.4, +13.9] | +0.0% [−6.3, +12.5] |
+    | `animateComplex/loop` | +4.2% [−4.7, +6.8] | −8.5% [−23.8, −5.2] | −2.5% [−14.0, +3.4] |
