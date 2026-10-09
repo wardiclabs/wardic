@@ -56,7 +56,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
    - **`chase`** reads `getTarget()` on each step and never settles.
    - **The steppers stay pure,** and the machine holds the current state. Stepping in place is a later optimisation, if the bench asks for it.
    - **Two quirks are reproduced, so the Frames don't change, and filed:**
-     - `delay` applies again on every segment of `animate`'s `repeat` / `yoyo` and at every stop of `keyframes` (`scalar.ts:168`, `:208`; #77);
+     - `delay` applies again on every segment of `animate`'s `repeat` / `yoyo` and at every stop of `keyframes` (`scalar.ts:168`, `:208`; #77). Fixed by #77: *Amendment (#77)*;
      - `springValues` passes a raw `dt` to `stepSpring`, never clamped at `MAX_DT` (`multi.ts:202`; #78). Fixed by #78: *Amendment (#78)*.
 5. **The lifecycle reproduces today's timing** (research note, Part I, probe b):
    - **Start = add.** The first step is the loop's next tick: on a Cold start, the Priming tick through the loop's own subscription; otherwise, the next Refresh frame's tick.
@@ -382,3 +382,23 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
       The page's gap is larger than these sums, and isn't broken down further.
   - **Starts aren't gated** (decision 12 gates frames). Decision 1's target is steady frames, which don't change.
   - **The spine's own work dwarfs the fiber bookkeeping.** At 1,000 elements, a mount takes 260–370 ms, a Retarget 105–150 ms and an unmount 120–150 ms, about 100–370 µs per element. That isn't investigated here.
+
+## Amendment (#77, 2026-10-09): `delay` holds once, before the first segment
+
+- **Decision 4's first quirk is fixed.** `animate` built every segment of a `repeat` / `yoyo` run, and `keyframes` every stop's segment, with the run's whole options, so each one held the `delay` again.
+  - Now only the first segment keeps it (`scalar.ts`: `animatePlan`'s `optionsFor`, `keyframesSegments`). The rest start on the tick after the one before settles, at the seam `inSequence` and `Stream.concat` already had.
+  - That's Motion's `delay`, which it subtracts once from the animation's time (motion-dom 13.5.0, `animation/JSAnimation.mjs:146`).
+  - **An infinite `repeat`** runs the first segment, then a cycle of the rest: `inSequence([first, cycle(rest)])`, and `Stream.concat(first, Stream.forever(rest))` for the `Stream`. With no `delay`, its Frames are the same as before.
+  - **The first segment's Frames don't change:** its delay stays inside its tween (`stepTween`), so the tick where the hold ends and the motion starts is the same.
+- **Both drivers change together,** since each builds its segments from the same plan. `animateValues` runs `animate`, so the spine's tween legs hold once: a staggered child's tween with a `repeat` waits its stagger once (ADR-0007, *Amendment (#77)*).
+- **The Frames change only** for `animate` with `repeat` or `yoyo` and a `delay`, finite or infinite, and for `keyframes` with a `delay`.
+- **A gap between repeats is #91.** Motion's `repeatDelay` holds each iteration's end value through the gap (`JSAnimation.mjs:105-106`), which a delay on the next segment can't reproduce.
+- **Pinned by `packages/test/test/delay-once.test.ts`,** at 1/16 s per tick so every Frame is exact, through the `Stream` and the machine on the Frame loop:
+  - `repeat`, `yoyo`, `reverse`, an infinite `repeat` with and without `yoyo`, `keyframes`, and `animateValuesMachine`, the spine's path. All 7 fail on main;
+  - what doesn't change: one segment, and a repeat and an infinite `yoyo` with no delay. These 3 pass on both;
+  - `machines.test.ts`' parity cases keep passing, with an infinite `yoyo` and a `delay` added.
+- **The gate run,** on the bench server (OVH, Ryzen 7 9700X, Ubuntu 24.04, reached over Tailscale). Its absolute times are 2–5× faster than the WSL host's, so only its paired ratios compare with earlier runs.
+  - **Calibrated the same day,** `bench:core --base main --head main`, 11 paired reps: every workload passed, with noise controls of Node −0.6%, Chromium −1.9% and Bun +3.0%. Capping the clocks at the 3.8 GHz base made Bun noisier (+3.7%), so boost stays on.
+  - **`bench:core --base main`,** 11 paired reps. No step changed, and no workload uses `delay`, `repeat` or `keyframes`.
+  - **Node (+0.6%) and Chromium (−1.4%):** every workload passes, each median within −3.1% and +1.7%, and Node's bytes per frame within 0.01 MB.
+  - **Bun:** the first run was too noisy (+6.3%). A Bun-only rerun was valid (+0.3%), and every workload passed. `chase/loop` read +7.5% [−1.6, +12.4] at 0.11 ms per frame, near the timer's floor; its 25th percentile keeps it from failing.
