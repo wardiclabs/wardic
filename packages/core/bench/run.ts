@@ -17,9 +17,12 @@
  *   They count what a GC frees inside the measured window too (`one.mjs`), so a scavenge there
  *   doesn't hide allocation.
  * - `start` (construction) is reported, not gated.
- * - **Workloads only head has** (the Frame loop's, ADR-0027, until the base has them) are reported,
- *   not gated: head's ms against the base's figure for the same Primitive as one fiber per
- *   element, a comparison of the two models rather than of the two cores.
+ * - **A workload one side lacks** is reported, not gated (`rows.ts`, #74):
+ *   - a Frame loop workload only head has (`springValues/loop`, against a base from before
+ *     ADR-0027): head's ms against the base's figure for the same Primitive as one fiber per
+ *     element, a comparison of the two models rather than of the two cores;
+ *   - any other workload only head has: "new, not gated";
+ *   - a workload only the base has: "dropped, not gated".
  * - **Each side on its own dependencies.** A commit whose `bun.lock` differs from the working
  *   tree's is checked out and installed at `.tmp/bench-core/deps/<commit>`, and bundled with
  *   that checkout's `harness.ts` and `node_modules`, so a dependency upgrade (#64's Effect bump)
@@ -34,6 +37,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
 import type { Options, WorkloadResult } from "./harness.ts"
+import { rowsOf } from "./rows.ts"
 
 const GATE = 1.05
 const NOISE = 0.03
@@ -184,11 +188,11 @@ const orderOf = (rep: number): ReadonlyArray<Side> => {
 }
 
 /**
- * A workload only head runs (`springValues/loop`): head's ms and start, against the base's same
- * Primitive as one fiber per element (`springValues`), paired per rep. Not gated.
+ * A Frame loop workload only head runs (`springValues/loop`): head's ms and start, against the
+ * base's same Primitive as one fiber per element (`fibers`, `springValues`), paired per rep. Not
+ * gated.
  */
-const reportOnly = (runs: Record<Side, Array<Results>>, workload: string): void => {
-  const fibers = workload.split("/")[0]!
+const reportOnly = (runs: Record<Side, Array<Results>>, workload: string, fibers: string): void => {
   const median = (side: Side, name: string, field: keyof WorkloadResult) =>
     quantile(runs[side].map((results) => Number(results[name]![field])), 0.5)
   const ratios = runs.head.map((head, r) => head[workload]!.frameMs / runs.base[r]![fibers]!.frameMs)
@@ -201,6 +205,28 @@ const reportOnly = (runs: Record<Side, Array<Results>>, workload: string): void 
       `${`${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`.padEnd(28)}` +
       `${`${median("base", fibers, "startMs").toFixed(1)} → ${median("head", workload, "startMs").toFixed(1)}`.padEnd(18)}${mb.padEnd(16)}` +
       `report only: against base's ${fibers}`,
+  )
+}
+
+const NONE = "—"
+
+/** A workload only `side` runs (new on head, or dropped from it): that side's figures, no ratio, no gate. */
+const oneSided = (runs: Record<Side, Array<Results>>, workload: string, side: Side, gate: string): void => {
+  const median = (field: keyof WorkloadResult) =>
+    quantile(runs[side].map((results) => Number(results[workload]![field])), 0.5)
+  const ms: Record<Side, string> = { base: NONE, head: NONE }
+  const start: Record<Side, string> = { base: NONE, head: NONE }
+  const bytes: Record<Side, string> = { base: NONE, head: NONE }
+  ms[side] = median("frameMs").toFixed(2)
+  start[side] = median("startMs").toFixed(1)
+  let mb = ""
+  if (!Number.isNaN(median("bytesPerFrame"))) {
+    bytes[side] = (median("bytesPerFrame") / 1e6).toFixed(2)
+    mb = `${bytes.base} → ${bytes.head}`
+  }
+  console.log(
+    `  ${workload.padEnd(22)}${ms.base.padEnd(10)}${ms.head.padEnd(10)}${"".padEnd(28)}` +
+      `${`${start.base} → ${start.head}`.padEnd(18)}${mb.padEnd(16)}${gate}`,
   )
 }
 
@@ -238,11 +264,20 @@ for (const engine of engines) {
   console.log(
     `  ${"workload".padEnd(22)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
   )
-  for (const workload of Object.keys(runs.head[0]!)) {
-    if (!(workload in runs.base[0]!)) {
-      reportOnly(runs, workload)
+  for (const row of rowsOf(Object.keys(runs.base[0]!), Object.keys(runs.head[0]!))) {
+    if (row.kind === "loop") {
+      reportOnly(runs, row.workload, row.fibers)
       continue
     }
+    if (row.kind === "new") {
+      oneSided(runs, row.workload, "head", "new, not gated")
+      continue
+    }
+    if (row.kind === "dropped") {
+      oneSided(runs, row.workload, "base", "dropped, not gated")
+      continue
+    }
+    const workload = row.workload
     const median = (side: Side, field: keyof WorkloadResult) =>
       quantile(runs[side].map((results) => Number(results[workload]![field])), 0.5)
     const ratios = ratioOf(workload)

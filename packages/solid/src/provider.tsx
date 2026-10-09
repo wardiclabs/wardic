@@ -11,7 +11,7 @@
  * scoped-fiber runner (`runScoped` / `useWardicFiber`) that interrupts forked
  * fibers on consumer unmount.
  */
-import type { Clock, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
+import type { Clock, FrameLoop, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Latch from "effect/Latch"
@@ -26,18 +26,26 @@ import { isHydrating, isServer } from "./server.ts"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: all five core
- * service contracts plus the `AtomRegistry` that backs reactive service inputs.
- * Satisfied by `@wardic/dom`'s `DomLive` (real browser) or `@wardic/test`'s
+ * service contracts, core's Frame loop over the Clock (`FrameLoopLive`, which runs every
+ * animation the binding starts, ADR-0027), and the `AtomRegistry` that backs reactive service
+ * inputs. Satisfied by `@wardic/dom`'s `DomLive` (real browser) or `@wardic/test`'s
  * `TestLive` (headless). `ER` and `R` are `never`: a fully self-contained Layer.
  */
 export type WardicEnv = Layer.Layer<
-  Clock | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry,
+  Clock | FrameLoop | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry,
   never,
   never
 >
 
 /** The runtime services a `WardicProvider` makes available to its subtree. */
-export type WardicServices = Clock | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry
+export type WardicServices =
+  | Clock
+  | FrameLoop
+  | Renderer
+  | InputSource
+  | Probe
+  | InterpolatorRegistry
+  | AtomRegistry.AtomRegistry
 
 /** The `ManagedRuntime` flavour built from a {@link WardicEnv}. */
 export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>

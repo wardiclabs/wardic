@@ -85,6 +85,18 @@ const expectSame = <A>(streamFrames: ReadonlyArray<A>, machineFrames: ReadonlyAr
 
 const settledLast = (frames: ReadonlyArray<Frame<unknown>>) => frames.at(-1)?.done
 
+/**
+ * ADR-0027's one difference between the drivers (*Implementation*), declared with #74: a
+ * fractional `repeat` (1.5) plays ceil(2.5) = 3 segments. The Stream re-stamps the last one's
+ * settled Frame `done: false` and ends with no settled Frame; the machine settles on it. Every
+ * Frame before it is the same.
+ */
+const settlesOnItsLastSegment = (s: ReadonlyArray<Frame<number>>, m: ReadonlyArray<Frame<number>>) => {
+  expect(s.length).toBeGreaterThanOrEqual(10)
+  expect(s.some((frame) => frame.done)).toBe(false)
+  expect(m).toEqual([...s.slice(0, -1), { ...s.at(-1)!, done: true }])
+}
+
 describe("leaf machines: the Stream runs the machine", () => {
   it.effect("tween, with an easing and a delay", () =>
     Effect.gen(function* () {
@@ -154,6 +166,13 @@ describe("composite machines against the composite Streams", () => {
         expectSame(s, m, 5)
       }))
   }
+
+  it.effect("animate: a fractional repeat, where the machine settles on its last segment and the Stream ends with none", () =>
+    Effect.gen(function* () {
+      const options = { duration: 0.2, repeat: 1.5, yoyo: true }
+      const [s, m] = yield* sideBySide(animate(-5, 20, options), toStream(animateMachine(-5, 20, options)))
+      settlesOnItsLastSegment(s, m)
+    }))
 
   const keyframesCases = [
     ["four stops, with a delay at each (#77)", [0, 10, 5, 20], { duration: 0.6, delay: 0.05 }],
@@ -254,5 +273,14 @@ describe("every machine on the Frame loop against its Stream", () => {
         Effect.succeed(decayVecMachine({ x: 0, y: 5 }, { x: 300, y: -200 }, {})),
       )
       expectSame(s, m.map((frame) => frame.value), 5)
+    }))
+
+  // On the loop the run ends at that settled Frame: a run that didn't settle would take a Frame
+  // on every tick until the end.
+  it.effect("animate, a fractional repeat: the run settles on its last segment, where the Stream ends with none", () =>
+    Effect.gen(function* () {
+      const options = { duration: 0.2, repeat: 1.5, yoyo: true }
+      const [s, m] = yield* onTheLoop(animate(-5, 20, options), Effect.succeed(animateMachine(-5, 20, options)))
+      settlesOnItsLastSegment(s, m)
     }))
 })
