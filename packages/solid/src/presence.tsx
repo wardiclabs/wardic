@@ -32,12 +32,20 @@
  * exiting INTERRUPTS the exiting node (its fiber is interrupted + node removed);
  * full mid-exit reuse is deferred.
  */
-import { type Patch, Renderer, springBlend, springValues, type Values } from "@wardic/core"
+import {
+  type Frame,
+  type Patch,
+  Renderer,
+  type Sink,
+  springBlendMachine,
+  springValuesMachine,
+  type Values,
+} from "@wardic/core"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import * as Stream from "effect/Stream"
 import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
-import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { runOnLoop } from "./frame-loop.ts"
+import { useWardicProjection, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
 /**
@@ -205,42 +213,23 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     // Accumulate the merged latest value-map so each committed frame carries the
     // full set of keys (numeric + string collapse into one projected Patch).
     const latest: Values = { ...from, ...exit }
+    const commitFrame: Sink<Frame<Values>> = (frame) => {
+      Object.assign(latest, frame.value)
+      commitValues(el, latest)
+      return undefined
+    }
 
-    const program = hasNumeric
-      ? Stream.runForEach(springValues(numericTo, {}, fromNumeric, {}), (frame) =>
-          Effect.sync(() => {
-            Object.assign(latest, frame.value)
-            commitValues(el, latest)
-          }),
-        )
-      : Stream.runForEach(springBlend({ ...from }, { ...exit }), (frame) =>
-          Effect.sync(() => {
-            Object.assign(latest, frame.value)
-            commitValues(el, latest)
-          }),
-        )
-
-    // When there are BOTH numeric and string keys, the numeric spring owns the
-    // settle; run the string leg concurrently so its keys interpolate too.
-    const withStrings =
-      hasNumeric && hasStrings
-        ? Effect.zip(
-            program,
-            Stream.runForEach(springBlend(pick(from, stringTo), stringTo), (frame) =>
-              Effect.sync(() => {
-                Object.assign(latest, frame.value)
-                commitValues(el, latest)
-              }),
-            ),
-            { concurrent: true },
-          )
-        : program
+    // The numeric keys and the string keys as two runs on the Frame loop (ADR-0027), side by
+    // side: the exit ends once both settle.
+    const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
+    if (hasNumeric) runs.push(runOnLoop(Effect.succeed(springValuesMachine(numericTo, {}, fromNumeric, {})), commitFrame))
+    if (hasStrings) runs.push(runOnLoop(springBlendMachine(pick(from, stringTo), stringTo), commitFrame))
 
     // One `wardic.presence.exit` span spans the whole exit animation (from the last
     // snapshot to the exit target), so a devtool/timeline shows each parent-driven
     // exit as a bar with its key counts. Removal-on-settle is the span's end.
     const fiber = runtime.runFork(
-      withStrings.pipe(
+      Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
         Effect.ensuring(Effect.sync(() => finishExit(el))),
         Effect.withSpan("wardic.presence.exit", {
           attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length },

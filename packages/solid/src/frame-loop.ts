@@ -1,8 +1,8 @@
 /**
- * The binding's runs on the Environment's **Frame loop** (ADR-0027, #74). The spine's legs hand
- * their Primitive's machine to `FrameLoop.run`, so each is stepped in the loop's one pass per
- * tick, on its one `Clock.ticks` subscription, where each used to be a fiber running its own
- * `Stream`.
+ * The binding's runs on the Environment's **Frame loop** (ADR-0027, #74). The spine's legs and
+ * presence's exit hand their Primitive's machine to `FrameLoop.run`, so each is stepped in the
+ * loop's one pass per tick, on its one `Clock.ticks` subscription, where each used to be a fiber
+ * running its own `Stream`.
  */
 import { type Frame, FrameLoop, type Machine, type Sink } from "@wardic/core"
 import * as Effect from "effect/Effect"

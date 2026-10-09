@@ -1,6 +1,6 @@
-// The binding on the Frame loop (#74, ADR-0027). The spine's legs run on the Environment's one
-// Frame loop, which holds one `Clock.ticks` subscription while anything runs, where each used
-// to be a fiber with a subscription of its own. And
+// The binding on the Frame loop (#74, ADR-0027). The spine's legs and presence's exit run on the
+// Environment's one Frame loop, which holds one `Clock.ticks` subscription while anything runs,
+// where each used to be a fiber with a subscription of its own. And
 // ADR-0027's declared changes, as the binding sees them: a loop failure fails every leg on it
 // instead of hanging it, a failed leg is logged, and a tween with a fractional `repeat` settles.
 //
@@ -9,7 +9,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { Clock, FrameLoopLive, InterpolatorRegistry, InterpolatorRegistryLive, type Values } from "@wardic/core"
 import { ClockDomLive, InputDomLive, ProbeDomLive, RendererDomLive } from "@wardic/dom"
-import { useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -18,7 +18,7 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import { AtomRegistry } from "effect/reactivity"
 import * as Stream from "effect/Stream"
-import { createSignal, For } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { opacityOf, raf, until } from "./browser-helpers.ts"
 
@@ -118,6 +118,42 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     await until(() => counted.open() === 0)
     expect(els.every((el) => opacityOf(el) === 1 && backgroundOf(el) === WHITE)).toBe(true)
     expect(counted.total()).toBe(1)
+    expect(counted.most()).toBe(1)
+  })
+
+  it("an exit's two runs join a Retarget's leg on one subscriber", async () => {
+    const counted = countingClock()
+    const [visible, setVisible] = createSignal(true)
+    const [target, setTarget] = createSignal(1)
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ clock: counted.wrap })}>
+        <wardic.div data-beside initial={{ opacity: 0 }} animate={{ opacity: target() }}>
+          b
+        </wardic.div>
+        <AnimatePresence>
+          <Show when={visible()}>
+            <wardic.div data-presence initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, "background-color": BLACK }}>
+              x
+            </wardic.div>
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    const beside = container.querySelector<HTMLElement>("[data-beside]")!
+    const leaving = container.querySelector<HTMLElement>("[data-presence]")!
+    await until(() => opacityOf(leaving) === 1 && opacityOf(beside) === 1 && counted.open() === 0)
+    expect(counted.total()).toBe(1)
+    // In one task: a Retarget beside the exit, and the exit's numeric and string runs.
+    setTarget(0.2)
+    setVisible(false)
+    await raf()
+    await raf()
+    expect(leaving.isConnected).toBe(true)
+    expect(counted.open()).toBe(1)
+    await until(() => !leaving.isConnected && counted.open() === 0)
+    expect(leaving.isConnected).toBe(false)
+    expect(Math.abs(opacityOf(beside) - 0.2)).toBeLessThan(0.001)
+    expect(counted.total()).toBe(2)
     expect(counted.most()).toBe(1)
   })
 })
