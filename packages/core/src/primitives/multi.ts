@@ -7,7 +7,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { AnimateOptions, SpringOptions, Values } from "../options.ts"
 import type { Clock } from "../services/Clock.ts"
 import { InterpolatorRegistry } from "../services/InterpolatorRegistry.ts"
-import type { Frame, MultiPhysicsFrame } from "./frame.ts"
+import { type Frame, MAX_DT, type MultiPhysicsFrame } from "./frame.ts"
 import { type Machine, mapFrames, toStream } from "./machine.ts"
 import { animate, animateMachine } from "./scalar.ts"
 import { initSpring, resolveSpring, type SpringState, stepSpring } from "./stepper.ts"
@@ -218,8 +218,7 @@ export const springValues = (
 /**
  * `springValues`' machine (ADR-0027): one spring per key with the shared `options`, from
  * `from` / `velocity` (default 0 / `options.from` / `options.velocity`), settling once every key
- * is at rest. Its step passes the Clock's `dt` through unclamped, as `springValues` always has
- * (#78).
+ * is at rest. Its step clamps `dt` at `MAX_DT` once per tick, as every leaf's does (#78).
  */
 export const springValuesMachine = (
   target: Record<string, number>,
@@ -246,16 +245,23 @@ export const springValuesMachine = (
           velocity: startOf(velocity, key, options.velocity),
         }),
       )
-      // Per frame (ADR-0025): a loop over the keys, every key's state and target present by
-      // construction. Records, as before: #63's bench measured an array of states, filled
-      // by `push` and destructured, at +18% bytes per frame.
+      // Per frame (ADR-0025): `dt` clamped at the engine boundary once, then a loop over the
+      // keys, every key's state and target present by construction. Records, as before: #63's
+      // bench measured an array of states, filled by `push` and destructured, at +18% bytes per
+      // frame.
       return (dt) => {
+        const clampedDt = Math.min(dt, MAX_DT)
         const nextStates: Record<string, SpringState> = {}
         const values: Record<string, number> = {}
         const velocities: Record<string, number> = {}
         let allDone = true
         for (const key of keys) {
-          const result = stepSpring(UndefinedOr.getOrThrow(states[key]), dt, UndefinedOr.getOrThrow(target[key]), spring)
+          const result = stepSpring(
+            UndefinedOr.getOrThrow(states[key]),
+            clampedDt,
+            UndefinedOr.getOrThrow(target[key]),
+            spring,
+          )
           nextStates[key] = result.state
           values[key] = result.value
           velocities[key] = result.velocity

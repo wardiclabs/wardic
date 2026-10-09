@@ -51,9 +51,9 @@ export const isPhysicsFrame = (frame: Frame<number>): frame is PhysicsFrame =>
  *
  * Long frame stalls (tab switches, slow first paints, debugger pauses) can
  * produce `dt` values measured in seconds — large enough to teleport a spring
- * across its rest thresholds or blow up a decay integration. Clamping at the
- * `fromClock` tick-consumption point keeps every primitive honest without each
- * stepper needing to defend itself.
+ * across its rest thresholds or blow up a decay integration. Clamping in each
+ * leaf machine's step (ADR-0027), the tick-consumption point for both drivers,
+ * keeps every primitive honest without each stepper needing to defend itself.
  *
  * 500ms is permissive by design: it accommodates the synthetic frame samples
  * our unit tests use (which push the engine with 0.25s–0.5s deltas) while

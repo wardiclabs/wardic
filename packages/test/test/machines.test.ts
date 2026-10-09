@@ -44,8 +44,8 @@ import * as Stream from "effect/Stream"
  * The last block runs each machine on the Frame loop instead (`FrameLoop.run`), against the same
  * `Stream`: the two drivers of ADR-0027, Frame for Frame.
  *
- * The dts are uneven on purpose: 60, 30 and 120 Hz frames, a repeated timestamp (0), and two
- * above `MAX_DT`, which every leaf but `springValues` clamps (#78).
+ * The dts are uneven on purpose: 60, 30 and 120 Hz frames, a repeated timestamp (0), a 0.25 s
+ * stall, and a 0.6 s one above `MAX_DT`, which every leaf clamps (#78).
  */
 const DTS: ReadonlyArray<number> = [
   1 / 60,
@@ -141,11 +141,11 @@ describe("leaf machines: the Stream runs the machine", () => {
       expectSame(s, m, 10)
     }))
 
-  it.effect("springValues, from a velocity, with raw dts", () =>
+  it.effect("springValues, from a velocity", () =>
     Effect.gen(function* () {
       const args = [{ x: 0, y: 10, scale: 1 }, { stiffness: 200 }, { x: 100, y: -20, scale: 1.4 }, { x: 50 }] as const
       const [s, m] = yield* sideBySide(springValues(...args), toStream(springValuesMachine(...args)))
-      // The 0.6 s dt, unclamped (#78), lands it within 9 frames, in both.
+      // The 0.6 s dt steps 0.5 s (#78), in both.
       expectSame(s, m, 5)
       expect(settledLast(s)).toBe(true)
     }))
