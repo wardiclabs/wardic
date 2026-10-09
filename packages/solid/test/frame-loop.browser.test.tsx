@@ -20,6 +20,8 @@ import { AtomRegistry } from "effect/reactivity"
 import * as Stream from "effect/Stream"
 import { createSignal, For, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
+import "./browser-commands.ts"
 import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -62,15 +64,18 @@ const envWith = (options: {
   )
 }
 
-/** A Clock that counts the subscriptions to its `ticks`: all of them, the open ones, and the most open at once. */
+/**
+ * A Clock that counts the open subscriptions to its `ticks`, and the most open at once. The tests
+ * claim `most`, not a total: a real pointer resting on an element Retargets it by hover (the
+ * browser tier's other files leave the mouse where their last test put it), and a Retarget after
+ * the loop went idle starts another burst.
+ */
 const countingClock = () => {
-  let total = 0
   let open = 0
   let most = 0
   const wrap = (clock: ClockShape): ClockShape => ({
     ...clock,
     ticks: Stream.suspend(() => {
-      total++
       open++
       most = Math.max(most, open)
       return clock.ticks.pipe(
@@ -82,7 +87,7 @@ const countingClock = () => {
       )
     }),
   })
-  return { wrap, total: () => total, open: () => open, most: () => most }
+  return { wrap, open: () => open, most: () => most }
 }
 
 /** The logs of a failed leg. */
@@ -134,7 +139,6 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     expect(counted.open()).toBe(1)
     await until(() => counted.open() === 0)
     expect(els.every((el) => opacityOf(el) === 1 && backgroundOf(el) === WHITE)).toBe(true)
-    expect(counted.total()).toBe(1)
     expect(counted.most()).toBe(1)
   })
 
@@ -159,7 +163,6 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     const beside = container.querySelector<HTMLElement>("[data-beside]")!
     const leaving = container.querySelector<HTMLElement>("[data-presence]")!
     await until(() => opacityOf(leaving) === 1 && opacityOf(beside) === 1 && counted.open() === 0)
-    expect(counted.total()).toBe(1)
     // In one task: a Retarget beside the exit, and the exit's numeric and string runs.
     setTarget(0.2)
     setVisible(false)
@@ -170,7 +173,6 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     await until(() => !leaving.isConnected && counted.open() === 0)
     expect(leaving.isConnected).toBe(false)
     expect(Math.abs(opacityOf(beside) - 0.2)).toBeLessThan(0.001)
-    expect(counted.total()).toBe(2)
     expect(counted.most()).toBe(1)
   })
 
@@ -199,7 +201,6 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
     expect(counted.open()).toBe(1)
     await until(() => translateXOf(el) === 0)
     expect(translateXOf(el)).toBe(0)
-    expect(counted.total()).toBe(1)
     expect(counted.most()).toBe(1)
   })
 })
@@ -241,7 +242,8 @@ describe("a loop failure fails every leg on it instead of hanging it (ADR-0027, 
     setTarget({ opacity: 0.5, "background-color": "rgb(0, 0, 255)" })
     await until(() => els.every((el) => opacityOf(el) === 0.5 && backgroundOf(el) === "rgb(0, 0, 255)"))
     expect(els.every((el) => opacityOf(el) === 0.5 && backgroundOf(el) === "rgb(0, 0, 255)")).toBe(true)
-    expect(subscriptions).toBe(2)
+    // A fresh burst: the Clock's second subscription, or a later one after a hover's Retarget.
+    expect(subscriptions).toBeGreaterThanOrEqual(2)
     expect(failedLegs(logs)).toHaveLength(6)
   })
 })
@@ -260,6 +262,17 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
     },
   })
 
+  /**
+   * Only the broken element's string leg failed, and each failure was logged. It fails once per
+   * Retarget that starts it: a real pointer resting on the element Retargets it, by hover (the
+   * browser tier's other files leave the mouse wherever their last test put it).
+   */
+  const expectBrokenAlone = (failed: ReadonlyArray<Logged>): void => {
+    expect(failed.length).toBeGreaterThanOrEqual(1)
+    expect(failed.every((log) => log.cause?.includes("blend broke"))).toBe(true)
+    expect(new Set(failed.map((log) => log.annotations["id"])).size).toBe(1)
+  }
+
   it("alone: its element's other leg and the other elements settle", async () => {
     const logs: Array<Logged> = []
     const { container } = render(() => (
@@ -277,10 +290,30 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
     await until(() => opacityOf(broken) === 1 && opacityOf(whole) === 1 && backgroundOf(whole) === WHITE)
     expect(opacityOf(broken)).toBe(1)
     expect(backgroundOf(whole)).toBe(WHITE)
-    const failed = failedLegs(logs)
-    expect(failed).toHaveLength(1)
-    expect(failed[0]!.cause).toContain("blend broke")
-    expect(failed[0]!.annotations["id"]).toBeDefined()
+    expectBrokenAlone(failedLegs(logs))
+  })
+
+  // As on CI (#84's first run): the real mouse comes to rest on the element mid-flight, and its
+  // hover Retargets it, so the string leg fails again, logged again.
+  it("alone, with a real pointer moving onto that element mid-flight", async () => {
+    const logs: Array<Logged> = []
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ registry: breaking, logs })}>
+        <wardic.div data-broken initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": BROKEN }}>
+          a
+        </wardic.div>
+        <wardic.div data-whole initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }}>
+          b
+        </wardic.div>
+      </WardicProvider>
+    ))
+    const broken = container.querySelector<HTMLElement>("[data-broken]")!
+    const whole = container.querySelector<HTMLElement>("[data-whole]")!
+    await raf()
+    const box = broken.getBoundingClientRect()
+    await commands.realMouse("move", box.left + 5, box.top + 5)
+    await until(() => opacityOf(broken) === 1 && opacityOf(whole) === 1 && backgroundOf(whole) === WHITE)
+    expectBrokenAlone(failedLegs(logs))
   })
 
   it("a Retarget's interruption is not a failure: nothing is logged", async () => {
