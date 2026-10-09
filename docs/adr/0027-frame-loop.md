@@ -155,7 +155,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
   - the machines, one per Primitive (`springValuesMachine`, …);
   - `toStream`;
   - the `FrameLoop` service and `FrameLoopLive`, for binding and Environment authors.
-- **The binding's lifecycle doesn't change shape.** `runScoped`, `leg` / `legDone`, `interruptPrev` and the hydration hold stay; only the program a leg runs changes (#74).
+- **The binding's lifecycle doesn't change shape.** `runScoped`, `leg` / `legDone`, `interruptPrev` and the hydration hold stay; only the program a leg runs changes (#74). Then #76 holds the spine's legs in a `FiberSet` per element, in place of `prevFibers` / `interruptPrev` and off `runScoped`, whose server path and hold the legs never reached (*Implementation in #76*).
 - **The per-frame path** (ADR-0025, decision 3) gains the loop's tick and every machine's step.
 - **Two declared changes** reach the binding with #74: a loop failure fails runs instead of hanging them, and a failed leg is logged. (A third, found implementing #68: a fractional `repeat` settles. See *Implementation in #74*.)
 - **CONTEXT.md** gains the Frame loop and Leg. Primitive, Frame and Settle are reworded, and the pieces of one `animate` or `keyframes` run are "segments" in the code.
@@ -314,3 +314,71 @@ Found reviewing #80. When a burst ended with runs on it (its Clock's ticks ended
   - **Bun's `springValues` `Stream` failed run 1 under load, and passes on the quiet host:** +0.8% [−1.9, +2.6], against +12.4% and +6.3%.
     - The step couldn't account for those medians. `springValues/loop` runs the same step without the `Stream`'s fiber and pulls, and it stayed within +3.3% in Bun. Its whole tick, step included, costs about 0.37 µs per element, while the medians under load were 0.4–1.3 µs per element.
     - The load slowed both sides, unevenly: main's `springValues` took 6.7–10.8 ms per frame under it, and 4.09 ms on the quiet host.
+
+## Implementation in #76 (slice 5): the spine's legs in a `FiberSet`
+
+- **Each element's legs run in a `FiberSet`,** in place of `prevFibers` and `interruptPrev` (`use-wardic.tsx`). The spine's element effect makes it at mount, in a `Scope` of its own, and closes that `Scope` in its `onCleanup`. It's the shape of dom's end-of-task holds (`projection.ts:473-477`).
+  - **A Retarget clears the set, then starts its legs in it.** The `when` gate's early return clears it too.
+  - **A leg starts** with `FiberSet.addUnsafe(set, runtime.runFork(leg(program)))`. The provider's runtime runs the leg inline up to its add on the loop (`effect/ManagedRuntime.js:142-143`, then `runForkWith`, `internal/effect.js:2460-2462`), as `runScoped` did. So a Cold start's Priming tick reaches every leg started in its task.
+  - **Not `FiberSet.run` or `makeRuntime`.** Both fork from the context of the fiber they run in: `forkUnsafe` copies it (`internal/effect.js:2408`), and `runtime` captures it (`FiberSet.js:399-408`). From Solid, that fiber is a `runSync`, whose context carries its own `MixedScheduler("sync")` (`internal/effect.js:2532-2536`). Every leg would then run on a scheduler that isn't the Environment's, which decision 6 rules out for the burst.
+  - `leg`, `legDone`, `legEnded`, the sinks and `runOnLoop` don't change, and nothing changes per frame.
+- **Clearing is synchronous, as `interruptPrev` was** (decision 5).
+  - `clear` interrupts each fiber in the call (`Fiber.interruptAllAs`, `FiberSet.js:306-311`). A leg waiting on its run's `Deferred` isn't running, so `interruptUnsafe` interrupts it inline (`internal/effect.js:377-381`): `run`'s release takes the entry off the loop, and `legEnded` sees interrupts only. `clear`'s wait then finds every fiber ended, and returns in the same call.
+  - So the old runs are off the loop before the new ones are added, with no tick between, and the loop keeps its Clock subscription: a Retarget stays warm. Closing the `Scope` ends an unmounting element's legs in the unmount's task the same way.
+  - Both run with `runFork`, as `interruptPrev`'s interrupts did. A leg that is still running when it's cleared (a Retarget started synchronously from that leg's own `legDone`) is interrupted at its next interruptible point (`:378-379`), where a `runSync` would throw.
+- **Before, each leg was interrupted twice,** at each Retarget and at unmount. `runScoped` registered its `onCleanup` on the Retarget's own effect, whose cleanups Solid runs before each re-run. So the legs had ended before `interruptPrev` ran, and it forked one more fiber per leg to interrupt an ended one. And `prevFibers` kept a settled leg's fiber, with its sink, until the next Retarget; the set drops a fiber when it ends (`FiberSet.js:237-241`).
+- **A failed leg in the set.** The set's observer completes its `Deferred` with the first failure that isn't an interruption (`FiberSet.js:242-244`). Only `join` reads it (`:510`), and nothing joins the spine's set: `run`, `addUnsafe` and `clear` check only whether it's closed.
+  - So a failed leg is still logged once, by `legEnded`, and later legs run as before.
+  - The `Deferred` keeps that first failure's cause until the element unmounts.
+  - A Retarget's or an unmount's leg ends by interruption alone, which never reaches the `Deferred`.
+- **`runScoped`'s server path and Hydration hold are unchanged, and the legs never reached them.**
+  - The spine runs only on the client (`useWardicWith` and `wardic.tsx` take their server paths before it), and its legs start inside a `createEffect`, which a server render never runs.
+  - Solid 1.9.13 runs user effects only once it has let go of the hydration context (`runUserEffects`, `solid-js/dist/solid.js:898-905`). So `isHydrating()` was false whenever a leg started, and `runScoped`'s latch never held one. The legs' hold is the spine's own: they start at mount because its effect does.
+  - `runScoped` keeps both branches for its other callers: `streamToSignal`, called at setup, where the hold applies; drag's track; `useWardicFiber`.
+  - Solid 2 runs an effect's compute half on a server (ADR-0021, *Consequences*), so its port rechecks where a leg starts.
+- **Presence's `exiting` map and drag's track are unchanged.** The map is keyed by element and interrupts one exit at a time, which is a `FiberMap`'s shape, not a `FiberSet`'s. The track is one fiber for the element's life.
+- **`effect/FiberSet` and `effect/Scope`** join `optimizeDeps.include` in both solid browser configs.
+- **Pinned by:**
+  - the existing tests, unchanged: `frame-loop.browser.test.tsx` (one subscriber; a Retarget's interruption logs nothing; a failed leg is logged alone), `clock-cold-start.browser.test.tsx` (the Priming tick; a warm Retarget), `use-wardic.browser.test.tsx` (unmount tears down) and the hydrate project;
+  - three new ones, which pass on main as well:
+    - two Retargets in one task, then two a frame apart, never have more than one Retarget's two legs live on the loop, and no leg fails (`frame-loop.browser.test.tsx`);
+    - an unmount mid-flight, with the provider still mounted, takes all 20 legs of 10 elements off the loop in its own task, each by interruption, with nothing logged, and the loop then drops its Clock subscription;
+    - HY-S1: a hydrating `wardic.div` starts its legs only once hydration has let go of Solid's context, then animates (`server-render.hydrate.browser.test.tsx`).
+- **The start cost** (`.tmp/76-starts/`: `page.tsx`, `build.ts`, `run.ts`, `micro.ts`).
+  - **The setup:**
+    - Chromium 147, headless, cross-origin isolated (`performance.now()` to 5 µs), with a fresh page per variant and per rep.
+    - The page is built with Vite and `vite-plugin-solid` in production mode, as an app ships it, on `DomLive` and the real `@wardic/solid`: main's (`8029f0e`) against #76's.
+    - 1,000 `wardic.div`s, each with an `opacity` leg and a `background-color` leg, all animating to one signal's target.
+  - **What's timed,** each as the synchronous JS of one task started after a paint:
+    - the mount: setup, the spine's effects and 2,000 leg starts, from a Cold start;
+    - a Retarget of all 1,000 mid-flight;
+    - a Retarget once every leg has settled;
+    - an unmount mid-flight, with the provider still mounted.
+
+    The control is the JS per Refresh frame mid-flight: every wardic `requestAnimationFrame` callback, each to the end of its microtasks.
+  - **The reps:** 4 rounds per page. Round 1 is "cold" (a page's first mount), and the median of rounds 2–4 is "warm". 11 paired reps, their order alternating, with Windows at 1–4% CPU.
+
+    | 1,000 elements | main, warm | #76, warm | #76 / main, warm [p25–p75] | #76 / main, cold [p25–p75] |
+    |---|---|---|---|---|
+    | mount | 261.8 ms | 265.3 ms | +2.6% [+0.6, +3.5] | +2.2% [+1.6, +3.2] |
+    | Retarget, mid-flight | 126.1 | 127.0 | +1.2% [−2.2, +4.2] | −0.6% [−2.5, +2.2] |
+    | Retarget, at rest | 106.1 | 106.9 | +1.2% [−5.2, +2.2] | −0.3% [−2.4, +1.2] |
+    | unmount, mid-flight | 119.9 | 128.1 | +5.9% [+3.4, +9.3] | +1.0% [−4.6, +5.3] |
+    | JS per Refresh frame | 8.05 | 8.03 | +1.0% [−4.6, +1.8] | +2.3% [−2.7, +4.9] |
+
+  - **A Retarget and a frame cost the same.** One `clear` per element replaces four forked interrupts: two real, and two of ended fibers.
+  - **A mount and an unmount cost about 7–8 µs more per element** (warm).
+    - At mount, each element's set is made with a `runSync`, and each leg's add registers an observer.
+    - At unmount, closing the `Scope` runs the set's finalizer, an Effect that interrupts and awaits every fiber, then completes the set's `Deferred`, where main forked the interrupts.
+    - Per element, outside a page (`micro.ts`: two live legs per element, the median of 41 samples of 1,000):
+
+      | µs per element | Bun 1.3 | Node 22 |
+      |---|---|---|
+      | making the `Scope` and `FiberSet` | 0.88 | 1.03 |
+      | 2 leg starts: main's `runFork` / #76's `runFork` and `addUnsafe` | 0.74 / 1.53 | 0.48 / 1.08 |
+      | a Retarget: main's 4 forked interrupts / #76's `clear` | 4.89 / 4.76 | 8.00 / 6.15 |
+      | an unmount: main's 4 forked interrupts / #76's `Scope.close` | 4.89 / 6.59 | 8.00 / 9.97 |
+
+      The page's gap is larger than these sums, and isn't broken down further.
+  - **Starts aren't gated** (decision 12 gates frames). Decision 1's target is steady frames, which don't change.
+  - **The spine's own work dwarfs the fiber bookkeeping.** At 1,000 elements, a mount takes 260–370 ms, a Retarget 105–150 ms and an unmount 120–150 ms, about 100–370 µs per element. That isn't investigated here.

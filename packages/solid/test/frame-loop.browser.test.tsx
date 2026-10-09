@@ -7,12 +7,14 @@
 // Each test runs on `DomLive`'s own parts, composed as `DomLive` composes them, with the Clock
 // or the interpolator registry wrapped.
 import { cleanup, render } from "@solidjs/testing-library"
-import { Clock, FrameLoopLive, InterpolatorRegistry, InterpolatorRegistryLive, type Values } from "@wardic/core"
+import { Clock, FrameLoop, FrameLoopLive, InterpolatorRegistry, InterpolatorRegistryLive, type Values } from "@wardic/core"
 import { ClockDomLive, InputDomLive, ProbeDomLive, RendererDomLive } from "@wardic/dom"
 import { AnimatePresence, useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -27,6 +29,7 @@ import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
 afterEach(cleanup)
 
 type ClockShape = Context.Service.Shape<typeof Clock>
+type LoopShape = Context.Service.Shape<typeof FrameLoop>
 type RegistryShape = Context.Service.Shape<typeof InterpolatorRegistry>
 
 /** One log the Environment's logger saw. */
@@ -38,15 +41,17 @@ interface Logged {
 }
 
 /**
- * `DomLive`, composed as it is, with its Clock passed through `clock` and its interpolator
- * registry through `registry`, and a logger that appends every log to `logs`.
+ * `DomLive`, composed as it is, with its Clock passed through `clock`, its Frame loop through
+ * `loop` and its interpolator registry through `registry`, and a logger that appends every log to
+ * `logs`.
  */
 const envWith = (options: {
   readonly clock?: (clock: ClockShape) => ClockShape
+  readonly loop?: (loop: LoopShape) => LoopShape
   readonly registry?: (registry: RegistryShape) => RegistryShape
   readonly logs?: Array<Logged>
 }): WardicEnv => {
-  const { clock = identity, registry = identity, logs = [] } = options
+  const { clock = identity, loop = identity, registry = identity, logs = [] } = options
   const services = Layer.mergeAll(
     Layer.effect(Clock)(Clock.useSync(clock)).pipe(Layer.provide(ClockDomLive)),
     Layer.effect(InterpolatorRegistry)(InterpolatorRegistry.useSync(registry)).pipe(Layer.provide(InterpolatorRegistryLive)),
@@ -54,8 +59,9 @@ const envWith = (options: {
     InputDomLive,
     ProbeDomLive,
   )
+  const frameLoop = Layer.effect(FrameLoop)(FrameLoop.useSync(loop)).pipe(Layer.provide(FrameLoopLive))
   return Layer.merge(
-    FrameLoopLive.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer)),
+    frameLoop.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer)),
     Logger.layer([
       Logger.map(Logger.formatStructured, (s) => {
         logs.push({ level: s.level, message: String(s.message), cause: s.cause, annotations: s.annotations })
@@ -89,6 +95,36 @@ const countingClock = () => {
   })
   return { wrap, open: () => open, most: () => most }
 }
+
+/**
+ * A Frame loop that counts its live runs, from the call to `run` to the run's end, and the most
+ * live at once, and keeps each run's Exit. Like {@link countingClock}, the tests claim `most`, not
+ * a total: a real pointer resting on an element Retargets it by hover.
+ */
+const countingLoop = () => {
+  let live = 0
+  let most = 0
+  const ends: Array<Exit.Exit<unknown>> = []
+  const wrap = (loop: LoopShape): LoopShape => ({
+    run: (machine, sink) =>
+      Effect.suspend(() => {
+        live++
+        most = Math.max(most, live)
+        return loop.run(machine, sink)
+      }).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            live--
+            ends.push(exit)
+          }),
+        ),
+      ),
+  })
+  return { wrap, live: () => live, most: () => most, ends: (): ReadonlyArray<Exit.Exit<unknown>> => ends }
+}
+
+/** Whether a run ended by interruption alone: a Retarget's or an unmount's. */
+const interrupted = (exit: Exit.Exit<unknown>): boolean => Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
 
 /** The logs of a failed leg. */
 const failedLegs = (logs: ReadonlyArray<Logged>): ReadonlyArray<Logged> =>
@@ -335,6 +371,78 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
     await until(() => opacityOf(el) === 0.6 && backgroundOf(el) === WHITE)
     expect(opacityOf(el)).toBe(0.6)
     expect(failedLegs(logs)).toEqual([])
+  })
+})
+
+describe("a Retarget ends the spine's legs before it starts its own, and an unmount ends them at once (#76)", () => {
+  it("Retargets in one task, then a frame apart, never have more legs live than one Retarget starts", async () => {
+    const counted = countingLoop()
+    const logs: Array<Logged> = []
+    const [opacity, setOpacity] = createSignal(1)
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ loop: counted.wrap, logs })}>
+        <wardic.div data-r initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: opacity(), "background-color": WHITE }}>
+          r
+        </wardic.div>
+      </WardicProvider>
+    ))
+    const el = container.querySelector<HTMLElement>("[data-r]")!
+    await raf()
+    // A numeric and a string leg, mid-flight.
+    expect(counted.live()).toBe(2)
+    // Two Retargets in one task: no tick between them, so the old legs must be off the loop
+    // before the new ones are added.
+    setOpacity(0.2)
+    setOpacity(0.8)
+    expect(counted.live()).toBe(2)
+    await raf()
+    setOpacity(0.4)
+    await raf()
+    setOpacity(0.6)
+    await until(() => opacityOf(el) === 0.6 && backgroundOf(el) === WHITE && counted.live() === 0)
+    expect(opacityOf(el)).toBe(0.6)
+    expect(counted.most()).toBe(2)
+    // Each leg settled or was interrupted; none failed.
+    expect(counted.ends().filter((exit) => Exit.isFailure(exit) && !interrupted(exit))).toEqual([])
+    expect(logs.filter((log) => log.level === "ERROR")).toEqual([])
+  })
+
+  it("an unmount mid-flight ends every leg in its own task, by interruption, with nothing logged", async () => {
+    const counted = countingLoop()
+    const clock = countingClock()
+    const logs: Array<Logged> = []
+    const [shown, setShown] = createSignal(true)
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ clock: clock.wrap, loop: counted.wrap, logs })}>
+        <Show when={shown()}>
+          <For each={Array.from({ length: 10 }, (_, i) => i)}>
+            {() => (
+              <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }}>
+                n
+              </wardic.div>
+            )}
+          </For>
+        </Show>
+      </WardicProvider>
+    ))
+    const els = [...container.querySelectorAll<HTMLElement>("[data-n]")]
+    expect(els).toHaveLength(10)
+    await raf()
+    await raf()
+    // Mid-flight: ten elements, a numeric and a string leg each.
+    expect(els.some((el) => opacityOf(el) > 0 && opacityOf(el) < 1)).toBe(true)
+    expect(counted.live()).toBe(20)
+    // The provider stays mounted, so only the elements' own teardown can end their legs.
+    setShown(false)
+    expect(els.every((el) => !el.isConnected)).toBe(true)
+    // Off the loop in the unmount's own task, before any frame.
+    expect(counted.live()).toBe(0)
+    expect(counted.ends().length).toBeGreaterThanOrEqual(20)
+    expect(counted.ends().every(interrupted)).toBe(true)
+    // With nothing left, the loop drops its Clock subscription at its next tick.
+    await until(() => clock.open() === 0)
+    expect(clock.open()).toBe(0)
+    expect(logs.filter((log) => log.level === "ERROR")).toEqual([])
   })
 })
 

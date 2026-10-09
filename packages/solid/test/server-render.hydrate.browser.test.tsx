@@ -18,12 +18,17 @@
 // HY-H1 to HY-H3: the Hydration hold for client-only values (decisions 8 and 9): a hydrating
 // client renders the server's value until mount, though the live one differs.
 //
+// HY-S1: the spine's legs start at mount, after the hydration render, so nothing they write can
+// change what it shows (#76). They start in the spine's `createEffect`, which Solid runs only
+// once hydration has let go of its context.
+//
 // Test names are `<check> <fixture>: <label>`, so `-t 'F8:'` runs one fixture.
-import { Renderer } from "@wardic/core"
+import { FrameLoop, Renderer } from "@wardic/core"
 import { DomLive, RendererDomLive } from "@wardic/dom"
 import type { WardicEnv } from "@wardic/solid"
-import type { JSX } from "solid-js"
+import { type JSX, sharedConfig } from "solid-js"
 import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
@@ -273,5 +278,38 @@ describe("the Hydration hold for client-only values (decisions 8 and 9)", () => 
     const rendered = renderClientOnly(HOLD_STREAM)
     rendered.dispose()
     expect(seen.stream[0]).toBe("live")
+  })
+})
+
+describe("the spine's legs start at mount, never in the hydration render (#76)", () => {
+  const frames = async (n: number) => {
+    for (let i = 0; i < n; i++) await new Promise<void>((r) => requestAnimationFrame(() => r()))
+  }
+
+  it("HY-S1: a hydrating wardic.div starts its legs once hydration has let go, and animates", async () => {
+    // Whether Solid was hydrating (its `sharedConfig.context` set) as each run started.
+    const starts: Array<boolean> = []
+    const recording = Layer.effect(FrameLoop)(
+      FrameLoop.useSync((loop) => ({
+        run: (machine, sink) =>
+          Effect.suspend(() => {
+            starts.push(sharedConfig.context != null)
+            return loop.run(machine, sink)
+          }),
+      })),
+    ).pipe(Layer.provide(DomLive))
+    setLogEnv(Layer.merge(DomLive, recording))
+    let rendering = false
+    const hydrated = await hydrateFixture("LOG", () => {
+      rendering = sharedConfig.context != null
+      return LOG()
+    })
+    expect(hydrated.threw).toBe("")
+    expect(rendering, "the fixture renders while hydrating, so the probe can see it").toBe(true)
+    await frames(2)
+    expect(starts.length, "the element's legs started").toBeGreaterThan(0)
+    expect(starts.filter(identity), "none started while hydrating").toEqual([])
+    expect(hydrated.stopErrors()).toEqual([])
+    hydrated.dispose()
   })
 })
