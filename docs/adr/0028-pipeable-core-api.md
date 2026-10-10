@@ -410,3 +410,12 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
   - dom's controller test calls `Reorder.dragMove`;
   - the Reorder browser tests pass unchanged.
 
+## Implementation in #97 (slice 4): `Values`' operations
+
+- **`Values.split(values)`** returns `{ numbers, strings }`, a value-map's keys by kind: two `Rec.filter`s with the named `Predicate.isNumber` and `Predicate.isString`, where decision 12 suggested `Rec.partition`. Effect 4's `partition` takes a function returning a `Result`, not a predicate, and a key whose value is neither kind (an `undefined` at run time) should land in neither half, as presence's own loop skipped it. Two filters do both.
+- **`Values.pick(self, keysFrom)`, `dual`:** the keys of `keysFrom` read out of `self` with `Rec.get`, own keys only, skipping a key `self` lacks or holds `undefined` for.
+- **The call sites:** solid's spine calls `Values.split` where `splitTarget` was. Presence's exit calls `Values.split` for its target and its from-values and `Values.pick` for its strings' start, where its loop, `numericOf` and `pick` were. All three go.
+- **They run when a leg is built,** at a Retarget, never per frame: the full Effect-first rules apply, and no bench run is needed.
+- **Tests:** `packages/core/test/values.test.ts` covers numbers, strings, a mix, an empty map, an `undefined` value, a key missing from the source, and `pick`'s two forms. solid's spine and presence tests pass unchanged.
+- **#93's slices have all landed but #91,** the combinator slice, which builds on the API rather than being part of it.
+

@@ -4,7 +4,7 @@ How core's API is shaped: the way Effect organises its own modules, so `pipe` is
 
 **Scope.** `packages/core/src`. The bindings' Tier 1 (`useWardic`, `wardic.create`, the `createX` primitives) is Effect-free Solid API and stays out; dom's own Effect-typed exports are #69's question. Rule 5 holds wherever code calls core.
 
-**Where core stands.** #93's slices move core's existing API onto these rules: #94 (the `Machine` module) and #95 (every other export in its module, and the lint) have landed; #96 (the Reorder group) and #97 (`Values`' operations) follow. New API follows them from now on. Breaking changes are taken outright: core is unpublished, so an old name or a positional signature goes with no deprecated alias.
+**Where core stands.** #93's slices have moved core's existing API onto these rules: #94 (the `Machine` module), #95 (every other export in its module, and the lint), #96 (the Reorder group) and #97 (`Values`' operations). New API follows them. Breaking changes are taken outright: core is unpublished, so an old name or a positional signature goes with no deprecated alias.
 
 ## The rules
 
