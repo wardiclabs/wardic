@@ -41,6 +41,7 @@ import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import {
+  DEFAULT_DURATION,
   initDecay,
   initTween,
   resolveDecay,
@@ -48,6 +49,7 @@ import {
   resolveTween,
   stepDecay,
   stepTween,
+  valueOr,
 } from "./internal/stepper.ts"
 import type * as Point from "./Point.ts"
 import * as Spring from "./Spring.ts"
@@ -132,8 +134,8 @@ export const MAX_DT = 0.5
 
 /** Options for a definite, duration-based animation. */
 export interface TweenOptions {
-  /** Duration in seconds. */
-  readonly duration: number
+  /** Duration in seconds. Default 0.3 s: a missing duration leaves the other options as they are (#107). */
+  readonly duration?: number
   /** Easing function; defaults to linear. */
   readonly easing?: Easing.Easing
   /**
@@ -493,9 +495,12 @@ const tweenSpan = (from: number, to: number, duration: number): Span => ({
   attributes: { from, to, duration },
 })
 
+/** A tween's duration as its options give it, or 0.3 s. Not on the per-frame path: read when it's built. */
+const durationOr = (options: TweenOptions): number => valueOr(options.duration, DEFAULT_DURATION)
+
 /** A definite, duration-based animation from `from` to `to`. Its `delay` is its stepper's. */
 export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame.Frame<number>> =>
-  tweenLeaf(from, to, resolveTween(options), tweenSpan(from, to, options.duration))
+  tweenLeaf(from, to, resolveTween(options), tweenSpan(from, to, durationOr(options)))
 
 /**
  * The spring stepper toward `getTarget()`, read afresh on every step, so a moving target is
@@ -644,8 +649,6 @@ export const springValues = (
 
 // --- The composites ----------------------------------------------------------
 
-const DEFAULT_ANIMATE: AnimateOptions = { duration: 0.3 }
-
 /** A missing number option, read once: its value, or `fallback`. */
 const numberOr = (value: number | undefined, fallback: number): number =>
   Option.getOrElse(Option.fromNullishOr(value), () => fallback)
@@ -666,7 +669,7 @@ const numberOr = (value: number | undefined, fallback: number): number =>
  * Then `delay(options.delay)`, and its own span, `wardic.animate`. Each segment's tween clamps
  * its `dt` at `MAX_DT`, and so does the hold.
  */
-export const animate = (from: number, to: number, options: AnimateOptions = DEFAULT_ANIMATE): Machine<Frame.Frame<number>> => {
+export const animate = (from: number, to: number, options: AnimateOptions = {}): Machine<Frame.Frame<number>> => {
   const reverse = Option.getOrElse(Option.fromNullishOr(options.reverse), () => false)
   const repeats = numberOr(options.repeat, 0)
   const yoyo = options.yoyo === true
@@ -674,8 +677,8 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
   // Every segment's tween: `delay` holds once, outside them.
   const segment = resolveTween({ ...options, delay: 0 })
   const gap = numberOr(options.repeatDelay, 0)
-  const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, options.duration))
-  const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, options.duration))
+  const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, durationOr(options)))
+  const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, durationOr(options)))
   // The segments a run holds after: every one but the last (`holdAfter(0)` is its input).
   const forwardHeld = holdAfter(forward, gap)
   const backwardHeld = holdAfter(backward, gap)
@@ -718,7 +721,8 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
  */
 export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): Machine<Frame.Frame<number>> => {
   const pairs = Arr.zip(stops, Arr.drop(stops, 1))
-  const duration = options.duration / Math.max(1, pairs.length)
+  const total = durationOr(options)
+  const duration = total / Math.max(1, pairs.length)
   const segment = resolveTween({ ...options, duration, delay: 0 })
   return Arr.match(pairs, {
     onEmpty: () => {
@@ -729,7 +733,7 @@ export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): 
       concatAll(Arr.map(nonEmpty, ([a, b]) => tweenLeaf(a, b, segment, tweenSpan(a, b, duration)))),
   }).pipe(
     delay(numberOr(options.delay, 0)),
-    withSpan("wardic.keyframes", { attributes: { stops: stops.length, duration: options.duration } }),
+    withSpan("wardic.keyframes", { attributes: { stops: stops.length, duration: total } }),
   )
 }
 
@@ -821,7 +825,7 @@ const blendAt = (
 export const animateValues = (
   from: Values.Values,
   to: Values.Values,
-  options: AnimateOptions = DEFAULT_ANIMATE,
+  options: AnimateOptions = {},
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.map(blendersFor(from, to), (blenders) =>
     animate(0, 1, options).pipe(
