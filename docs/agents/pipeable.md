@@ -31,11 +31,12 @@ Services keep Effect's own shape, a `Context.Service` and its `Layer`, which alr
 
 A Primitive is its machine, built by its constructor in the `Machine` module (`Machine.tween`, `Machine.springValues`, …; `springBlend` and `animateValues` return an `Effect` needing the `InterpolatorRegistry`). It has two drivers: `Machine.toStream` (a `Stream` over `Clock.ticks`) and `Machine.run(sink)` (the Frame loop). Each opens the machine's one span per run.
 
-- **Compose with the combinators,** each `dual`: `map`, `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `clampDt`, `withSpan`.
+- **Compose with the combinators,** `dual` where they take more than the machine: `map`, `concat`, `delay`, `holdAfter`, `clampDt`, `withSpan`, and `run`; `concatAll` takes an array of machines, and `forever` the machine alone.
 - **A combinator's `start()` starts its inner machine and resolves everything once; its step makes plain calls only,** in effect-first.md's per-frame forms. It allocates only the Frame it returns, and only when it changes it.
 - **Defaults add no layer:** `delay(0)`, `holdAfter(0)` and a one-segment `concatAll` return their input.
 - **`withSpan` replaces the span,** it doesn't nest one: a machine's span is data until a driver opens it.
 - **A combinator needs a caller.** Add one when something uses it, not before.
+- **A layer is a call per element per frame.** Each combinator's step is one function shared by every machine, so V8 doesn't inline the call inside it. A constructor keeps a per-step concern inline in its leaf rather than as a layer: the `MAX_DT` clamp is each leaf's `Math.min` and `delay`'s hold, not `clampDt` (ADR-0028, *Implementation in #94*). Count a constructor's layers against main's, and run the bench.
 
 ## Checks
 

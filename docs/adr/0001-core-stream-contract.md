@@ -13,3 +13,7 @@ The binding layer — not core — owns: caching the last frame (the **Snapshot*
 ## Amendment (#68, 2026-10-08): the same Primitives also run on the Frame loop
 
 Primitives are still Streams of Frames, for Tier 2 consumers. Each is now defined once as a machine: options resolved once, an initial state, and a step from a tick's `dt` to its Frame. Its `Stream` runs that machine over `Clock.ticks`, and the binding hands the same machine to the Frame loop, which steps every running Primitive in one pass per tick (ADR-0027). The Frames are the same either way. Cancellation is still a Scope's teardown: interrupting a run on the loop removes it at once.
+
+## Amendment (#94, 2026-10-09): a Primitive is its machine, and its Stream is `Machine.toStream`
+
+A Primitive is now a value, its machine, built by its constructor in core's `Machine` module (`Machine.tween(…)`, `Machine.springValues(…)`, …), and its `Stream` is `Machine.toStream(machine)`: one driver of two, beside `Machine.run(sink)` on the Frame loop (ADR-0028, decisions 3 and 4). The Stream functions (`tween`, `spring`, `animate`, …) are gone. What this record decided holds: a Primitive's Tier 2 form is a finite, cancellable `Stream` of Frames, `velocity` rides on physics Frames only, and reactivity stays the binding's. A Stream run is one span and one `Clock.ticks` subscription, named after its outermost Primitive, where a composite (`animate`, `keyframes`, `animateValues`, `springBlend`) nested a span and a subscription per segment.

@@ -33,8 +33,8 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 
 **What's on it:**
 - the steppers (`primitives/stepper.ts`);
-- `primitives/multi.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
-- the step every Primitive's machine returns (ADR-0027): in `primitives/scalar.ts`, `primitives/chase.ts`, `primitives/multi.ts` and `recognizers/momentum.ts` (`decayVec`'s), and the steps `primitives/machine.ts`'s combinators build (`mapFrames`, `inSequence`, `cycle`);
+- `Machine.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
+- the step every Primitive's machine returns (ADR-0027, ADR-0028): the constructors' in `Machine.ts`, and the steps its combinators build (`map`, `concatAll`, `forever`, `delay`, `clampDt`);
 - the easings (`easing/penner.ts`, and the functions `easing/generators.ts` returns);
 - the closures each Interpolator's `blend` returns, which the registry's `resolve` hands out (ADR-0026);
 - `math/`;
@@ -47,7 +47,7 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 **The allowed forms on the per-frame path:**
 - **Instead of a ternary:** a statement `if` with an early return, or `Math.min` / `Math.max`. A `Boolean.match` is fine only when its handlers are hoisted to module level and capture nothing.
 - **No `Option`, `Match`, `Num.clamp`, `Rec.map` or `Boolean.match` with inline closures on each call,** and no Effect round trip (`Effect.runSync`, a service access) per frame.
-- **Options are resolved once, when the stream is built** (`resolveSpring`, `resolveTween`, `resolveDecay`), and the frame reads plain fields. The resolvers use the early-return form below, not `Option`, because `springStep` and its siblings resolve on every call for a caller that steps by hand (dom's projection pass).
+- **Options are resolved once, when the machine is built** (`resolveSpring`, `resolveTween`, `resolveDecay`), and the frame reads plain fields. The resolvers use the early-return form below, not `Option`, because `springStep` and its siblings resolve on every call for a caller that steps by hand (dom's projection pass).
 - **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
 - **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `springStep`'s substeps, `blendAt`, `complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
