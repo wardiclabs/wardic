@@ -32,6 +32,47 @@ it("array entry interpolates element-wise", () => {
   expect(blendOf(Interpolator.array, [0, 0], [10, 20])(0.5)).toEqual([5, 10])
 })
 
+// The array entry's blend runs per frame (#110): these pin what it gives, whatever its loop.
+it("array entry lerps each element at any t, unclamped", () => {
+  const blend = blendOf(Interpolator.array, [0, 10, -4], [10, 30, 4])
+  expect([blend(0), blend(0.25), blend(1), blend(1.5), blend(-0.5)]).toEqual([
+    [0, 10, -4],
+    [2.5, 15, -2],
+    [10, 30, 4],
+    [15, 40, 8],
+    [-5, 0, -8],
+  ])
+})
+
+it("array entry, a `to` shorter than `from`: the elements past its end hold `from`'s", () => {
+  const blend = blendOf(Interpolator.array, [0, 10, 20], [100])
+  expect([blend(0), blend(0.5), blend(1)]).toEqual([
+    [0, 10, 20],
+    [50, 10, 20],
+    [100, 10, 20],
+  ])
+})
+
+it("array entry, a `to` longer than `from`: `from`'s length, the rest of `to` unread", () => {
+  expect(blendOf(Interpolator.array, [0, 10], [10, 20, 30])(0.5)).toEqual([5, 15])
+  expect(blendOf(Interpolator.array, [], [10, 20])(0.5)).toEqual([])
+})
+
+it("array entry returns a new array each frame, and leaves its endpoints as they were", () => {
+  const from = [0, 10]
+  const to = [10, 20]
+  const blend = Option.getOrThrow(Interpolator.array.blend(from, to))
+  const first = blend(0.5)
+  const second = blend(1)
+  expect(second).not.toBe(first)
+  expect(first).toEqual([5, 15])
+  expect(second).toEqual([10, 20])
+  expect([from, to]).toEqual([
+    [0, 10],
+    [10, 20],
+  ])
+})
+
 it("unit entry preserves the unit", () => {
   expect(decodes(Interpolator.unit, "10px")).toBe(true)
   expect(blendOf(Interpolator.unit, "0px", "10px")(0.5)).toBe("5px")
