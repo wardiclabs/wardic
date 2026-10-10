@@ -143,7 +143,7 @@ describe("the headless Reorder API", () => {
     expect(h.reorders, "the group reads the new values").toEqual(["abcdfe"])
     // Type-level only: a field is a value, never an accessor (no MaybeAccessor).
     const typeOnly = (): void => {
-      // @ts-expect-error axis is a ReorderAxis, not an accessor
+      // @ts-expect-error axis is a Reorder.Axis, not an accessor
       createReorderGroup({ values: ["a"], onReorder: () => {}, axis: () => "y" })
     }
     void typeOnly

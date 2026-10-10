@@ -3,7 +3,7 @@
 // builds, so the test fires Refresh frames by hand; ResizeObserver is a no-op, so every
 // Measure pass comes from `notify` (or the engine's own resize handling). Call
 // `stubFrames()` in a `beforeEach` and `unstubFrames()` in an `afterEach`.
-import { PROJECTION_KEY } from "@wardic/core"
+import * as Projection from "@wardic/core/Projection"
 import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -82,7 +82,7 @@ export const makeSink = () => {
   const writes: Array<Write> = []
   const sink = {
     write: (id: string, partial: Record<string, unknown>): void => {
-      const value = partial[PROJECTION_KEY] as
+      const value = partial[Projection.KEY] as
         | { delta: { x: { translate: number; scale: number }; y: { translate: number; scale: number } } }
         | undefined
       if (value === undefined) return

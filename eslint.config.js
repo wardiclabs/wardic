@@ -2,6 +2,9 @@
 // source. dom, solid and test follow the rules for new code; their conversion (#69) extends
 // `files` here. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
 // "fits": those stay with review.
+//
+// And the pipeable API's shape (#95, ADR-0028 decision 10, docs/agents/pipeable.md): the root
+// re-exports namespaces only, and code in the repo imports core's subpaths.
 import { defineConfig } from "eslint/config"
 import tseslint from "typescript-eslint"
 
@@ -9,6 +12,26 @@ const PAGE = "docs/agents/effect-first.md"
 
 /** A `no-restricted-syntax` entry whose message points at the rules page. */
 const restrict = (selector, message) => ({ selector, message: `${message} (${PAGE}).` })
+
+/** The same, pointing at the pipeable API's rules. */
+const restrictShape = (selector, message) => ({ selector, message: `${message} (docs/agents/pipeable.md).` })
+
+/** Rule 1: the root, `src/index.ts`, re-exports each module as a namespace, and nothing else. */
+const ROOT = [
+  restrictShape(
+    "ExportAllDeclaration[exported=null]",
+    'The root re-exports each module as a namespace: export * as X from "./X.ts", not export *',
+  ),
+  restrictShape("ExportNamedDeclaration", "The root re-exports namespaces only: an export lives in its module"),
+]
+
+/** Rule 5: code in the repo imports core's subpaths. */
+const SUBPATHS = [
+  restrictShape(
+    "ImportDeclaration[source.value='@wardic/core']",
+    'Import the module\'s subpath: import * as X from "@wardic/core/X"; the root\'s namespaces are for users',
+  ),
+]
 
 /** Rule 2 and the `if` / `switch` split (ADR-0025, decisions 1 and 2). */
 const BRANCHES = [
@@ -47,19 +70,21 @@ const ALIASES = [
 
 /**
  * The per-frame files whose per-frame code keeps a counted loop or a loop over a stream's keys
- * (ADR-0025, decision 3): springStep's substeps, Machine's blendAt and springValues' step,
- * complex's number-by-number blend, snapTo, applyTreeDeltas, and the Frame loop's tick (ADR-0027).
+ * (ADR-0025, decision 3): `Spring.step`'s substeps, `Machine`'s `blendAt` and `springValues`'
+ * step, `Interpolator`'s `complex` blend (number by number), `Scalar.snapTo`,
+ * `Projection.applyTreeDeltas`, and the Frame loop's tick (ADR-0027).
  */
 const PER_FRAME_LOOPS = [
-  "packages/core/src/primitives/stepper.ts",
-  "packages/core/src/services/frame-loop.ts",
+  "packages/core/src/Spring.ts",
+  "packages/core/src/internal/frameLoop.ts",
   "packages/core/src/Machine.ts",
-  "packages/core/src/interpolate/complex.ts",
-  "packages/core/src/math/index.ts",
-  "packages/core/src/layout/projection-geometry.ts",
+  "packages/core/src/Interpolator.ts",
+  "packages/core/src/Scalar.ts",
+  "packages/core/src/Projection.ts",
 ]
 
 export default defineConfig([
+  { ignores: ["**/dist/**"] },
   {
     files: ["packages/core/src/**/*.ts"],
     languageOptions: { parser: tseslint.parser },
@@ -74,6 +99,25 @@ export default defineConfig([
     files: PER_FRAME_LOOPS,
     rules: {
       "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES],
+    },
+  },
+  {
+    files: ["packages/core/src/index.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT],
+    },
+  },
+  {
+    // Only this rule here: the Effect-first rules reach dom, solid and test with #69.
+    files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/core/bench/**/*.ts"],
+    languageOptions: { parser: tseslint.parser },
+    // solid's code carries eslint-plugin-solid's `solid/reactivity` directives, for an editor
+    // that runs the plugin; this lint doesn't, so the rule is named here, doing nothing, and its
+    // directives aren't reported as unused.
+    plugins: { solid: { rules: { reactivity: { create: () => ({}) } } } },
+    linterOptions: { reportUnusedDisableDirectives: "off" },
+    rules: {
+      "no-restricted-syntax": ["error", ...SUBPATHS],
     },
   },
 ])

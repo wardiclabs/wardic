@@ -8,8 +8,12 @@
  * observers) — composed with core's real interpolator registry into the
  * {@link DomLive} Layer that apps provide to `WardicProvider`.
  */
-import { FrameLoopLive, InterpolatorRegistryLive } from "@wardic/core"
-import type { Clock, FrameLoop, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
+import type * as Clock from "@wardic/core/Clock"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import type * as InputSource from "@wardic/core/InputSource"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as Probe from "@wardic/core/Probe"
+import type * as Renderer from "@wardic/core/Renderer"
 import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
@@ -72,13 +76,13 @@ export {
 export { type InitialConfig, mergeStyle, resolveInitial, startingStyle, toValues } from "./starting-style.ts"
 // Base values (ADR-0022): Tier 2, for binding authors. An element's Own value for a key (read
 // once, at first need, on the client after mount) and the `style` link's lookup, for core's
-// `baseValueOf` / `startValueOf`.
+// `BaseValue.of` / `BaseValue.start`.
 export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.ts"
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's
  * real {@link InterpolatorRegistry} and its Frame loop over the DOM Clock
- * (`FrameLoopLive`, ADR-0027), fully self-contained (R = never).
+ * (`FrameLoop.layer`, ADR-0027), fully self-contained (R = never).
  *
  * `ClockDomLive`/`ProbeDomLive` require the Environment's `AtomRegistry` (they
  * write `time`/`dt` and `viewport`/`prefersReducedMotion` Atoms through it), and
@@ -91,8 +95,8 @@ export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.
  * with a clear error naming the Layer and the missing global (ADR-0021, decision 7).
  */
 export const DomLive: Layer.Layer<
-  Clock | FrameLoop | Renderer | InputSource | Probe | InterpolatorRegistry | AtomRegistry.AtomRegistry
-> = FrameLoopLive.pipe(
-  Layer.provideMerge(Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryLive)),
+  Clock.Clock | FrameLoop.FrameLoop | Renderer.Renderer | InputSource.InputSource | Probe.Probe | InterpolatorRegistry.InterpolatorRegistry | AtomRegistry.AtomRegistry
+> = FrameLoop.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistry.layer)),
   Layer.provideMerge(AtomRegistry.layer),
 )

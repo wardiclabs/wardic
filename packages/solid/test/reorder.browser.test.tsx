@@ -15,7 +15,7 @@
 //
 // "Under the pointer" is read after the pointer has held still for a few frames, so the
 // known one-frame lag of a move (#32) doesn't enter it.
-import type { ReorderAxis } from "@wardic/core"
+import type * as Reorder from "@wardic/core/Reorder"
 import { createSignal, type JSX } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
@@ -164,7 +164,7 @@ describe("Reorder.Group and Reorder.Item", () => {
   })
 
   it("RO10: a reactive axis changed between gestures applies to the next gesture", async () => {
-    const [axis, setAxis] = createSignal<ReorderAxis>("y")
+    const [axis, setAxis] = createSignal<Reorder.Axis>("y")
     const s = await mountReorder({ axis })
     const b = s.item("b")
     const left = b.getBoundingClientRect().left
@@ -320,7 +320,7 @@ describe("Reorder.Group and Reorder.Item", () => {
   })
 
   it("RO21: clearing the axis prop detects the axis at once", async () => {
-    const [axis, setAxis] = createSignal<ReorderAxis | undefined>("x")
+    const [axis, setAxis] = createSignal<Reorder.Axis | undefined>("x")
     const s = await mountReorder({ axis })
     expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
     setAxis(undefined)

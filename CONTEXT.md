@@ -81,7 +81,7 @@ A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two paths o
 _Avoid_: instant animation (Motion's), snap.
 
 **Override stack**:
-An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`resolveOverrides`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
+An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`Override.resolve`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
 _Avoid_: **layer** (collides with Effect/Environment Layer — never reuse it here), variant stack, state stack.
 
 ### Interaction
@@ -119,7 +119,7 @@ The number of drags active on the page, counted in one core `Context.Reference`.
 _Avoid_: drag lock (#29's claim), dragging (a projection node's flag, ADR-0016).
 
 **Reorder group**:
-The items a drag can reorder, and the rules that do it. Core's `makeReorderGroup` holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
+The items a drag can reorder, and the rules that do it. Core's `Reorder.makeReorderGroup` holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
 _Avoid_: sortable, list (the element), reorder context.
 
 **Crossover**:
@@ -140,7 +140,7 @@ A `Bounds` reading taken via `Probe`, recorded so a later layout change can be a
 _Avoid_: snapshot (reserved), rect, box.
 
 **FLIP** (layout animation):
-Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). Core owns the Invert→Play math as the pure combinator `flip(from: Bounds, to: Bounds)`; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the projection engine measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
+Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). Core owns the Invert→Play math as the pure combinator `Flip.make(from: Probe.Bounds, to: Probe.Bounds)`; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the projection engine measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
 _Avoid_: layout (too broad), reflow animation.
 
 **Projection** (the box-based layout model):
@@ -211,11 +211,11 @@ The Clock's loop ends at the first Refresh frame after its last subscriber leave
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Held pointer**:
-A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its type. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `heldPointerSource` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `heldPointerSource` implements it for any Environment (ADR-0019).
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its type. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:
-One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `makeRefreshFrameClock` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.
+One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `Clock.fromRefreshFrames` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.
 _Avoid_: animation frame (browser API wording), display frame, vsync.
 
 **Cold start**:
@@ -291,4 +291,4 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
 - **"color string"** (what the color Interpolator decodes) — Resolved: a string is a color iff culori's `parse` accepts it, trimmed. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors, and neither is a string culori rejects (`"#zzz"`, `"rgb(var(--x))"`): paired with a color, they make a **Discrete pair**.
-- **Reduced-motion policy ownership** — `Probe.prefersReducedMotion` is exposed but no primitive currently reads it. Resolved: core ships a `respectReducedMotion(stream)` combinator (snap to target by default, preference read once at stream start); bindings apply it by default; users opt out per-call via `transition.respectReducedMotion: false`.
+- **Reduced-motion policy ownership** — `Probe.prefersReducedMotion` is exposed but no primitive currently reads it. Resolved: core ships a `ReducedMotion.respect(stream)` combinator (snap to target by default, preference read once at stream start); bindings apply it by default; users opt out per-call via `transition.respectReducedMotion: false`.

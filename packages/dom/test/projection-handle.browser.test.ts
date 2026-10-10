@@ -7,7 +7,8 @@
 // are plain reads. `raiseWhileDragged` makes the engine carry a raise inside the node's
 // `@projection` value from the drag's start until its release settles, then write one
 // last value without it; the renderer's pure `project` turns the raise into `z-index`.
-import { type Delta, PROJECTION_KEY, Renderer } from "@wardic/core"
+import * as Projection from "@wardic/core/Projection"
+import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach, vi } from "vitest"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
@@ -19,7 +20,7 @@ afterEach(() => {
   window.scrollTo(0, 0)
 })
 
-const IDENTITY: Delta = {
+const IDENTITY: Projection.Delta = {
   x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
   y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
 }
@@ -122,10 +123,10 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
 
   it("PH6: the renderer's project emits z-index only while the projection value carries a raise", async () => {
     const e = makeEngine(makeSink().sink)
-    const renderer = e.runtime.runSync(Renderer)
-    const raised = renderer.project({ [PROJECTION_KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 }, raise: 1 } })
+    const renderer = e.runtime.runSync(Renderer.Renderer)
+    const raised = renderer.project({ [Projection.KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 }, raise: 1 } })
     expect(raised["z-index"]).toBe(1)
-    const plain = renderer.project({ [PROJECTION_KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 } } })
+    const plain = renderer.project({ [Projection.KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 } } })
     expect("z-index" in plain).toBe(false)
     e.dispose()
   })

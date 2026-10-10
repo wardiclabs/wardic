@@ -2,7 +2,7 @@
  * Core's frame bench (#63, ADR-0025): core's time per Refresh frame with N animated
  * elements, through core's real streams.
  *
- * - The Clock is `makeRefreshFrameClock` over a manual frame source, so the bench fires each
+ * - The Clock is `Clock.fromRefreshFrames` over a manual frame source, so the bench fires each
  *   Refresh frame itself.
  * - Each element is one fiber running one workload's stream into a sink, the binding's shape.
  * - One frame is: fire the Refresh frame callback, then wait until all N sinks have their frame.
@@ -67,45 +67,61 @@ interface StreamWorkload {
  */
 interface LoopWorkload {
   readonly name: string
-  readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine.Machine<CoreModule.Frame<unknown>>, never, any>
+  readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine.Machine<CoreModule.Frame.Frame<unknown>>, never, any>
 }
-
-/** The Primitives the workloads run. */
-type Primitive = "springValues" | "animateValues" | "springBlend" | "chase"
 
 /**
- * Main's Primitives, before #94's `Machine` module: a Stream function per Primitive, and an
- * `xMachine`. The harness is the working tree's and runs both cores, so until main has the
- * module, each workload takes `core.Machine?.x ?? core.xMachine` (ADR-0028, decision 7).
+ * The services and the easing the bench reads, on either core across #95's modules: the working
+ * tree's `Clock.Clock`, `Clock.fromRefreshFrames`, `FrameLoop.layer`, … or main's flat names
+ * (`Clock`, `makeRefreshFrameClock`, `FrameLoopLive`, …). The harness is the working tree's and
+ * runs both cores; the shim goes once main has the modules (as #94's did).
  */
-type Main = Record<Primitive, (...args: ReadonlyArray<any>) => Stream.Stream<{ readonly done: boolean }, never, any>> &
-  Record<`${Primitive}Machine`, (...args: ReadonlyArray<any>) => any>
-
-/** `core`'s `Machine` module, or `undefined` for main's core (#94). */
-const machineModule = (core: Core): Core["Machine"] | undefined => (core as Partial<Core>).Machine
-
-/** `x`'s machine on either core: `Machine.x(…)`, or main's `xMachine(…)`; an Effect for the two built with a service. */
-const build = (core: Core, primitive: Primitive, args: ReadonlyArray<unknown>): unknown =>
-  (
-    (machineModule(core)?.[primitive] as ((...args: ReadonlyArray<unknown>) => unknown) | undefined) ??
-    (core as unknown as Main)[`${primitive}Machine`]
-  )(...args)
-
-/** `x`'s machine on either core, as an Effect. */
-const machineOf = (core: Core, primitive: Primitive, args: ReadonlyArray<unknown>): Effect.Effect<any, never, any> => {
-  const built = build(core, primitive, args)
-  if (Effect.isEffect(built)) return built as Effect.Effect<any, never, any>
-  return Effect.succeed(built)
+interface Api {
+  readonly Clock: typeof CoreModule.Clock.Clock
+  readonly fromRefreshFrames: typeof CoreModule.Clock.fromRefreshFrames
+  readonly registry: typeof CoreModule.InterpolatorRegistry.layer
+  readonly frameLoop: typeof CoreModule.FrameLoop.layer
+  readonly FrameLoop: typeof CoreModule.FrameLoop.FrameLoop
+  readonly easeInOutCubic: CoreModule.Easing.Easing
 }
 
-/** `x`'s Stream on either core: `Machine.toStream(Machine.x(…))`, or main's Stream function `x(…)`. */
-const streamOf = (core: Core, primitive: Primitive, args: ReadonlyArray<unknown>): Stream.Stream<{ readonly done: boolean }, never, any> => {
-  const module = machineModule(core)
-  if (module === undefined) return (core as unknown as Main)[primitive](...args)
-  const built = build(core, primitive, args)
-  if (Effect.isEffect(built)) return Stream.unwrap(Effect.map(built as Effect.Effect<any, never, any>, module.toStream))
-  return module.toStream(built as CoreModule.Machine.Machine<CoreModule.Frame<unknown>>)
+/** Main's flat names, before #95. */
+interface Main {
+  readonly Clock: Api["Clock"]
+  readonly makeRefreshFrameClock: Api["fromRefreshFrames"]
+  readonly InterpolatorRegistryLive: Api["registry"]
+  readonly FrameLoopLive: Api["frameLoop"]
+  readonly FrameLoop: Api["FrameLoop"]
+  readonly easeInOutCubic: Api["easeInOutCubic"]
 }
+
+const apiOf = (core: Core): Api => {
+  if ("fromRefreshFrames" in core.Clock) {
+    return {
+      Clock: core.Clock.Clock,
+      fromRefreshFrames: core.Clock.fromRefreshFrames,
+      registry: core.InterpolatorRegistry.layer,
+      frameLoop: core.FrameLoop.layer,
+      FrameLoop: core.FrameLoop.FrameLoop,
+      easeInOutCubic: core.Easing.easeInOutCubic,
+    }
+  }
+  const main = core as unknown as Main
+  return {
+    Clock: main.Clock,
+    fromRefreshFrames: main.makeRefreshFrameClock,
+    registry: main.InterpolatorRegistryLive,
+    frameLoop: main.FrameLoopLive,
+    FrameLoop: main.FrameLoop,
+    easeInOutCubic: main.easeInOutCubic,
+  }
+}
+
+/** A machine built with a service (`animateValues`, `springBlend`), as a Stream. */
+const streamOf = <F extends CoreModule.Frame.Frame<unknown>, R>(
+  core: Core,
+  machine: Effect.Effect<CoreModule.Machine.Machine<F>, never, R>,
+): Stream.Stream<F, never, any> => Stream.unwrap(Effect.map(machine, core.Machine.toStream))
 
 type Workload = StreamWorkload | LoopWorkload
 
@@ -147,7 +163,7 @@ const SPRING = (i: number) =>
  */
 const REPEAT = (core: Core, i: number) => ({
   duration: 0.15,
-  easing: core.easeInOutCubic,
+  easing: apiOf(core).easeInOutCubic,
   repeat: Number.POSITIVE_INFINITY,
   yoyo: true,
   delay: spread(i, 0, 0.2),
@@ -167,36 +183,39 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     make: (core) =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const clock = yield* core.Clock
+          const clock = yield* apiOf(core).Clock
           return clock.ticks.pipe(Stream.map(() => ({ done: false })))
         }),
       ),
   },
-  { name: "springValues", make: (core, i) => streamOf(core, "springValues", SPRING(i)) },
+  { name: "springValues", make: (core, i) => core.Machine.toStream(core.Machine.springValues(...SPRING(i))) },
   {
     name: "animateValues",
-    make: (core, i) => streamOf(core, "animateValues", [STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }]),
+    make: (core, i) =>
+      streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: apiOf(core).easeInOutCubic })),
   },
-  { name: "springBlend", make: (core, i) => streamOf(core, "springBlend", [STRING_FROM(i), STRING_TO]) },
-  { name: "chase", make: (core, i) => streamOf(core, "chase", [() => chaseTarget + (i % 10)]) },
+  { name: "springBlend", make: (core, i) => streamOf(core, core.Machine.springBlend(STRING_FROM(i), STRING_TO)) },
+  { name: "chase", make: (core, i) => core.Machine.toStream(core.Machine.chase(() => chaseTarget + (i % 10))) },
   {
     name: "animateComplex",
-    make: (core, i) => streamOf(core, "animateValues", [COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }]),
+    make: (core, i) =>
+      streamOf(core, core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: apiOf(core).easeInOutCubic })),
   },
-  { name: "animateRepeat", make: (core, i) => streamOf(core, "animateValues", [STRING_FROM(i), STRING_TO, REPEAT(core, i)]) },
+  { name: "animateRepeat", make: (core, i) => streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i))) },
   // The same six, on the Frame loop.
-  { name: "springValues/loop", machine: (core, i) => machineOf(core, "springValues", SPRING(i)) },
+  { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))) },
   {
     name: "animateValues/loop",
-    machine: (core, i) => machineOf(core, "animateValues", [STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }]),
+    machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: apiOf(core).easeInOutCubic }),
   },
-  { name: "springBlend/loop", machine: (core, i) => machineOf(core, "springBlend", [STRING_FROM(i), STRING_TO]) },
-  { name: "chase/loop", machine: (core, i) => machineOf(core, "chase", [() => chaseTarget + (i % 10)]) },
+  { name: "springBlend/loop", machine: (core, i) => core.Machine.springBlend(STRING_FROM(i), STRING_TO) },
+  { name: "chase/loop", machine: (core, i) => Effect.succeed(core.Machine.chase(() => chaseTarget + (i % 10))) },
   {
     name: "animateComplex/loop",
-    machine: (core, i) => machineOf(core, "animateValues", [COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }]),
+    machine: (core, i) =>
+      core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: apiOf(core).easeInOutCubic }),
   },
-  { name: "animateRepeat/loop", machine: (core, i) => machineOf(core, "animateValues", [STRING_FROM(i), STRING_TO, REPEAT(core, i)]) },
+  { name: "animateRepeat/loop", machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
@@ -228,13 +247,11 @@ const manualFrames = () => {
 
 const runRound = async (core: Core, workload: Workload, options: Options) => {
   const frames = manualFrames()
-  const services = Layer.mergeAll(
-    Layer.effect(core.Clock)(core.makeRefreshFrameClock(frames.source)),
-    core.InterpolatorRegistryLive,
-  )
+  const api = apiOf(core)
+  const services = Layer.mergeAll(Layer.effect(api.Clock)(api.fromRefreshFrames(frames.source)), api.registry)
   // Only the loop workloads build a Frame loop, so the Stream workloads' Environment is the same in both cores.
   let environment: Layer.Layer<any, never, AtomRegistry.AtomRegistry> = services
-  if (isLoopWorkload(workload)) environment = core.FrameLoopLive.pipe(Layer.provideMerge(services))
+  if (isLoopWorkload(workload)) environment = api.frameLoop.pipe(Layer.provideMerge(services))
   const layer = environment.pipe(
     Layer.provideMerge(AtomRegistry.layer),
     Layer.provideMerge(Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))),
@@ -275,7 +292,7 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
     for (let i = 0; i < options.n; i++) {
       runtime.runFork(
         Effect.gen(function* () {
-          const loop = yield* core.FrameLoop
+          const loop = yield* api.FrameLoop
           return yield* loop.run(yield* workload.machine(core, i), receive)
         }),
       )

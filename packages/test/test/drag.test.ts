@@ -1,5 +1,6 @@
-import { drag, makePointerLikeEvent } from "@wardic/core"
-import type { DragSample, PointerLikeEvent } from "@wardic/core"
+import type * as Drag from "@wardic/core/Drag"
+import * as InputSource from "@wardic/core/InputSource"
+import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -7,16 +8,16 @@ import * as Stream from "effect/Stream"
 
 /** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release. */
 const ev = (
-  type: PointerLikeEvent["type"],
+  type: InputSource.PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   pointerId = 1,
-): PointerLikeEvent =>
-  makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
+): InputSource.PointerLikeEvent =>
+  InputSource.makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
 
-const collect = (events: ReadonlyArray<PointerLikeEvent>) =>
-  Stream.runCollect(drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
+const collect = (events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
+  Stream.runCollect(Recognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
 
 it.effect("activation: down + moves past threshold emit start then moves with correct offset/delta", () =>
   Effect.gen(function* () {
@@ -30,7 +31,7 @@ it.effect("activation: down + moves past threshold emit start then moves with co
 
     expect(samples.length).toBe(2)
 
-    const [start, move] = samples as ReadonlyArray<DragSample>
+    const [start, move] = samples as ReadonlyArray<Drag.Sample>
     expect(start!.phase).toBe("start")
     // origin is the down-point (0,0); offset measured from there.
     expect(start!.offset).toEqual({ x: 10, y: 0 })
@@ -54,7 +55,7 @@ it.effect("velocity: constant-speed moves yield expected px/s from the time wind
       ev("move", 40, 0, 40),
     ]
     const samples = yield* collect(events)
-    const last = samples[samples.length - 1] as DragSample
+    const last = samples[samples.length - 1] as Drag.Sample
 
     expect(last.phase).toBe("move")
     expect(last.velocity.x).toBeCloseTo(1000, 5)
@@ -83,7 +84,7 @@ it.effect("pointer ownership: events from a second pointerId are ignored mid-dra
       ev("up", 300, 300, 25, 2), // intruder up — ignored
       ev("move", 30, 0, 30, 1), // owner move
     ]
-    const samples = (yield* collect(events)) as ReadonlyArray<DragSample>
+    const samples = (yield* collect(events)) as ReadonlyArray<Drag.Sample>
 
     expect(samples.length).toBe(3)
     expect(samples.map((s) => s.phase)).toEqual(["start", "move", "move"])
@@ -100,7 +101,7 @@ it.effect("cancel emits a final end sample then nothing", () =>
       ev("cancel", 20, 0, 25), // end
       ev("move", 30, 0, 30), // after reset — no owner, ignored
     ]
-    const samples = (yield* collect(events)) as ReadonlyArray<DragSample>
+    const samples = (yield* collect(events)) as ReadonlyArray<Drag.Sample>
 
     expect(samples.map((s) => s.phase)).toEqual(["start", "move", "end"])
     const end = samples[samples.length - 1]!
@@ -119,7 +120,7 @@ it.effect("a cancel ends at the last move's point, not its own: Chromium's point
       ev("move", 20, 0, 20), // move
       ev("cancel", 0, 0, 25), // end, at the cancel's unreliable (0, 0)
     ]
-    const samples = (yield* collect(events)) as ReadonlyArray<DragSample>
+    const samples = (yield* collect(events)) as ReadonlyArray<Drag.Sample>
 
     expect(samples.map((s) => s.phase)).toEqual(["start", "move", "end"])
     const [, move, end] = samples

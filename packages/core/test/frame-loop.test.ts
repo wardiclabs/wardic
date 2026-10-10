@@ -1,14 +1,9 @@
-import {
-  Clock,
-  type Frame,
-  type FrameLoopShape,
-  makeFrameLoop,
-  makeRefreshFrameClock,
-  NOMINAL_DT,
-  type RefreshFrameSource,
-  type Sink,
-} from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
+import type * as Frame from "@wardic/core/Frame"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
+// The Frame loop's shape and `make` are internal (ADR-0028, decision 11): core's own tests reach them by path.
+import * as internal from "../src/internal/frameLoop.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -33,7 +28,7 @@ import { Atom, AtomRegistry } from "effect/reactivity"
 const makeFrames = () => {
   const pending = new Map<number, (t: number) => void>()
   let nextHandle = 1
-  const source: RefreshFrameSource<number> = {
+  const source: Clock.RefreshFrameSource<number> = {
     requestFrame: (callback) => {
       const handle = nextHandle++
       pending.set(handle, callback)
@@ -52,7 +47,7 @@ const makeFrames = () => {
   return { source, pending, fire }
 }
 
-type ClockShape = Context.Service.Shape<typeof Clock>
+type ClockShape = Context.Service.Shape<typeof Clock.Clock>
 
 /** A recording tracer: every span it makes. */
 const makeTracer = () => {
@@ -82,15 +77,15 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
   const clock: ClockShape =
     options?.clock ??
     (await Effect.runPromise(
-      makeRefreshFrameClock(frames.source).pipe(
+      Clock.fromRefreshFrames(frames.source).pipe(
         Effect.provideService(AtomRegistry.AtomRegistry, registry),
         Scope.provide(scope),
       ),
       { scheduler },
     ))
-  const loop: FrameLoopShape = await Effect.runPromise(
-    makeFrameLoop().pipe(
-      Effect.provideService(Clock, clock),
+  const loop: internal.Shape = await Effect.runPromise(
+    internal.make().pipe(
+      Effect.provideService(Clock.Clock, clock),
       Effect.provideService(Tracer.Tracer, tracer),
       Scope.provide(scope),
     ),
@@ -100,7 +95,7 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
   const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> =>
     Effect.runFork(effect.pipe(Effect.provideService(Tracer.Tracer, tracer)), { scheduler })
   /** Start `machine` on the loop in a fresh fiber, inline; its Frames land in `frames`. */
-  const start = <F extends Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void) => {
+  const start = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void) => {
     const received: Array<F> = []
     const fiber = fork(
       loop.run(machine, (frame) => {
@@ -124,7 +119,7 @@ const ignore = (): undefined => undefined
 
 /** A sink that records each Frame in `received`. */
 const into =
-  <F>(received: Array<F>): Sink<F> =>
+  <F>(received: Array<F>): FrameLoop.Sink<F> =>
   (frame) => {
     received.push(frame)
     return undefined
@@ -171,7 +166,7 @@ const endOfTask = (): Promise<void> => Promise.resolve()
 const nextTimeout = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 /** A machine whose Frames carry each dt it was stepped with; it settles after `steps` (never, if `Infinity`). */
-const counting = (steps: number, name = "test.counting"): Machine.Machine<Frame<ReadonlyArray<number>>> =>
+const counting = (steps: number, name = "test.counting"): Machine.Machine<Frame.Frame<ReadonlyArray<number>>> =>
   Machine.make({
     settles: true,
     span: { name, attributes: { steps } },
@@ -185,7 +180,7 @@ const counting = (steps: number, name = "test.counting"): Machine.Machine<Frame<
   })
 
 /** A machine whose step throws on its `n`-th call. */
-const throwing = (n: number): Machine.Machine<Frame<number>> =>
+const throwing = (n: number): Machine.Machine<Frame.Frame<number>> =>
   Machine.make({
     settles: true,
     span: { name: "test.throwing", attributes: {} },
@@ -199,12 +194,12 @@ const throwing = (n: number): Machine.Machine<Frame<number>> =>
     },
   })
 
-const dtsOf = (frames: ReadonlyArray<Frame<ReadonlyArray<number>>>) => frames.at(-1)?.value ?? []
+const dtsOf = (frames: ReadonlyArray<Frame.Frame<ReadonlyArray<number>>>) => frames.at(-1)?.value ?? []
 
 /** A `counting` machine's run, as `start` returns it. */
 interface CountingRun {
-  readonly received: Array<Frame<ReadonlyArray<number>>>
-  readonly fiber: Fiber.Fiber<Frame<ReadonlyArray<number>>>
+  readonly received: Array<Frame.Frame<ReadonlyArray<number>>>
+  readonly fiber: Fiber.Fiber<Frame.Frame<ReadonlyArray<number>>>
 }
 
 describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
@@ -213,7 +208,7 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     const runs = Array.from({ length: 50 }, () => h.start(counting(Infinity)))
     expect(runs.every((r) => r.received.length === 0)).toBe(true)
     await endOfTask()
-    expect(runs.every((r) => r.received.length === 1 && r.received[0]!.value[0] === NOMINAL_DT)).toBe(true)
+    expect(runs.every((r) => r.received.length === 1 && r.received[0]!.value[0] === Clock.NOMINAL_DT)).toBe(true)
     // Every run is stepped inside the Refresh frame callback: synchronously, in `fire`.
     h.frames.fire(1000)
     expect(runs.every((r) => r.received.length === 2)).toBe(true)
@@ -360,7 +355,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
   it("a run started from a failed run's catchCause, as the Clock dies, gets Frames from a fresh burst", async () => {
     const clock = heldClock([0.01])
     const h = await makeHarness({ clock: clock.shape })
-    const retried: Array<Frame<ReadonlyArray<number>>> = []
+    const retried: Array<Frame.Frame<ReadonlyArray<number>>> = []
     const fiber = h.fork(
       h.loop
         .run(counting(Infinity), ignore)
@@ -377,7 +372,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
   it("a run started from an interrupted run's ensuring, as the Clock's ticks end, gets Frames from a fresh burst", async () => {
     const clock = heldClock([0.01])
     const h = await makeHarness({ clock: clock.shape })
-    const after: Array<Frame<ReadonlyArray<number>>> = []
+    const after: Array<Frame.Frame<ReadonlyArray<number>>> = []
     const fiber = h.fork(
       h.loop
         .run(counting(Infinity), ignore)

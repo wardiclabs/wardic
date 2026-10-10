@@ -23,7 +23,8 @@
 // once hydration has let go of its context.
 //
 // Test names are `<check> <fixture>: <label>`, so `-t 'F8:'` runs one fixture.
-import { FrameLoop, Renderer } from "@wardic/core"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as Renderer from "@wardic/core/Renderer"
 import { DomLive, RendererDomLive } from "@wardic/dom"
 import type { WardicEnv } from "@wardic/solid"
 import { type JSX, sharedConfig } from "solid-js"
@@ -158,7 +159,7 @@ describe("a custom Renderer's Starting style (decision 2)", () => {
     readonly message: string
     readonly annotations: Readonly<Record<string, unknown>>
   }
-  const domRenderer = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer }), RendererDomLive))
+  const domRenderer = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive))
   /** `base` plus a debug-level logger that appends each log to `logs`. */
   const capturing = (base: WardicEnv, logs: Array<Captured>): WardicEnv =>
     Layer.mergeAll(
@@ -173,7 +174,7 @@ describe("a custom Renderer's Starting style (decision 2)", () => {
   /** DomLive with a Renderer whose `project` adds a key the DOM's doesn't. */
   const custom: WardicEnv = Layer.merge(
     DomLive,
-    Layer.succeed(Renderer, { project: (v) => ({ ...domRenderer.project(v), "--custom": "1" }), commit: domRenderer.commit }),
+    Layer.succeed(Renderer.Renderer, { project: (v) => ({ ...domRenderer.project(v), "--custom": "1" }), commit: domRenderer.commit }),
   )
   const hydrationLogs = (logs: ReadonlyArray<Captured>) => logs.filter((l) => l.message.startsWith("wardic.hydration:"))
   const settleLogs = () => new Promise((r) => setTimeout(r, 100))
@@ -289,8 +290,8 @@ describe("the spine's legs start at mount, never in the hydration render (#76)",
   it("HY-S1: a hydrating wardic.div starts its legs once hydration has let go, and animates", async () => {
     // Whether Solid was hydrating (its `sharedConfig.context` set) as each run started.
     const starts: Array<boolean> = []
-    const recording = Layer.effect(FrameLoop)(
-      FrameLoop.useSync((loop) => ({
+    const recording = Layer.effect(FrameLoop.FrameLoop)(
+      FrameLoop.FrameLoop.useSync((loop) => ({
         run: (machine, sink) =>
           Effect.suspend(() => {
             starts.push(sharedConfig.context != null)

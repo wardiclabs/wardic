@@ -1,4 +1,4 @@
-import { Clock, NOMINAL_DT } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
 import { afterEach, describe, expect, it, vi } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -9,7 +9,7 @@ import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "../src/clock.ts"
 
 /**
- * `ClockDomLive` is core's `makeRefreshFrameClock` over the browser's REAL
+ * `ClockDomLive` is core's `Clock.fromRefreshFrames` over the browser's REAL
  * `requestAnimationFrame` / `cancelAnimationFrame` (spied on, not stubbed). The
  * Clock's own contract — the Priming tick, the dt sequence, ref-counting, and no
  * Effect-scheduler dependence — is pinned in core's node tests
@@ -25,7 +25,7 @@ const buildClock = async () => {
   const runtime = ManagedRuntime.make(Layer.provideMerge(ClockDomLive, AtomRegistry.layer))
   const clock = await runtime.runPromise(
     Effect.gen(function* () {
-      return yield* Clock
+      return yield* Clock.Clock
     }),
   )
   /** Subscribe synchronously, so the caller can observe the end of the subscribing task. */
@@ -50,14 +50,14 @@ describe("ClockDomLive", () => {
     expect(requestSpy).not.toHaveBeenCalled()
 
     await Promise.resolve() // the end of the subscribing task
-    expect(sub.received).toEqual([NOMINAL_DT])
+    expect(sub.received).toEqual([Clock.NOMINAL_DT])
     expect(requestSpy).toHaveBeenCalledTimes(1)
 
     await raf()
     await raf()
     await raf()
     expect(sub.received.length).toBeGreaterThanOrEqual(3)
-    expect(sub.received[1]).toBeCloseTo(NOMINAL_DT, 9) // first Refresh frame: nothing to measure against yet
+    expect(sub.received[1]).toBeCloseTo(Clock.NOMINAL_DT, 9) // first Refresh frame: nothing to measure against yet
     expect(sub.received[2]).toBeGreaterThan(0) // a real, measured interval
     await sub.unsubscribe()
     await env.dispose()

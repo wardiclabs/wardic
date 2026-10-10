@@ -6,7 +6,7 @@
 // does NOT fire deterministically headless — see the FLAG note on that block.
 import { cleanup, render, waitFor } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
-import type { DragSample } from "@wardic/core"
+import type * as Drag from "@wardic/core/Drag"
 import { DomLive } from "@wardic/dom"
 import { createSignal } from "solid-js"
 import type { Accessor } from "solid-js"
@@ -69,7 +69,7 @@ describe("createHover", () => {
 
 describe("createDrag", () => {
   it("emits a 'start' sample once the pointer moves past threshold", async () => {
-    let sample: Accessor<DragSample | null> | undefined
+    let sample: Accessor<Drag.Sample | null> | undefined
     const el = renderWithProbe((target) => {
       sample = createDrag(target)
     })

@@ -14,7 +14,7 @@
  * everything is style (the root has a CSS box; only `viewBox` would be an attr —
  * deferred). So the HTML path is unchanged: its attribute map is always empty.
  */
-import type { Patch } from "@wardic/core"
+import type * as Renderer from "@wardic/core/Renderer"
 
 /**
  * Keys that remain CSS `style` on an svg-inner element; everything else routes
@@ -118,7 +118,7 @@ export interface SplitPatch {
  *   an HTML one; `pathLength`/`pathSpacing`/`pathOffset` collapse to a normalised
  *   `stroke-dasharray`/`stroke-dashoffset` (+ `pathLength=1`), unitless.
  */
-export const splitPatch = (el: unknown, patch: Patch): SplitPatch =>
+export const splitPatch = (el: unknown, patch: Renderer.Patch): SplitPatch =>
   isSvgInner(el) ? routeSvgInner(patch) : { style: patch as Record<string, unknown>, attrs: {} }
 
 /**
@@ -162,11 +162,11 @@ export const isSvgInnerTag = (tag: string): boolean => !tag.includes("-") && (SV
  * {@link splitPatch} by tag name, for where there is no element yet: a server render and
  * the Starting style (ADR-0021). The same routing; `undefined` is an HTML element.
  */
-export const splitPatchForTag = (tag: string | undefined, patch: Patch): SplitPatch =>
+export const splitPatchForTag = (tag: string | undefined, patch: Renderer.Patch): SplitPatch =>
   tag !== undefined && isSvgInnerTag(tag) ? routeSvgInner(patch) : { style: patch as Record<string, unknown>, attrs: {} }
 
 /** The svg-inner routing {@link splitPatch} and {@link splitPatchForTag} share. */
-const routeSvgInner = (patch: Patch): SplitPatch => {
+const routeSvgInner = (patch: Renderer.Patch): SplitPatch => {
   const style: Record<string, unknown> = {}
   const attrs: Record<string, string> = {}
   let hasTransform = false

@@ -2,12 +2,13 @@
  * The DOM's **Auto-scroll** (ADR-0020, grill decision 16): Motion's
  * (Reorder/utils/auto-scroll.ts at 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
  * https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/auto-scroll.ts)
- * over core's pure `autoScrollStep`. While a **Reorder group**'s item is dragged near
+ * over core's pure `AutoScroll.step`. While a **Reorder group**'s item is dragged near
  * the visible edge of the group's scroller, moving toward it, each drag update scrolls
  * the scroller; the scroll then moves the held pointer (a synthetic move), whose update
  * scrolls again, so it keeps scrolling while the pointer holds still in the zone.
  */
-import { autoScrollStep, type AutoScrollState, type Point } from "@wardic/core"
+import * as AutoScroll from "@wardic/core/AutoScroll"
+import type * as Point from "@wardic/core/Point"
 import * as Option from "effect/Option"
 import { heldScrollShift } from "./input.ts"
 
@@ -26,7 +27,7 @@ type Scroller = { readonly kind: "element"; readonly el: HTMLElement } | { reado
  * afresh and needs velocity toward an edge again.
  */
 export interface AutoScroller {
-  readonly update: (pointer: Point, axis: "x" | "y", velocity: number, item?: Element) => void
+  readonly update: (pointer: Point.Point, axis: "x" | "y", velocity: number, item?: Element) => void
   readonly reset: () => void
 }
 
@@ -49,7 +50,7 @@ const findScroller = (group: Element, axis: "x" | "y"): Scroller | undefined => 
  * Build the **Auto-scroll** for `group` (the Reorder group's element). The scroller on
  * each axis is found once per gesture, at its first update. Each update reads the
  * scroller's visible edges (clamped to the viewport, as Motion's `getScrollAmount`), runs
- * core's `autoScrollStep`, and scrolls by its amount. `debug` receives `auto-scroll
+ * core's `AutoScroll.step`, and scrolls by its amount. `debug` receives `auto-scroll
  * start` and `auto-scroll stop` { axis, edge } when an edge starts and ends scrolling.
  */
 export const makeAutoScroller = (
@@ -57,9 +58,9 @@ export const makeAutoScroller = (
   debug?: (event: string, annotations: Record<string, unknown>) => void,
 ): AutoScroller => {
   const scrollers = new Map<"x" | "y", Scroller | undefined>()
-  const states = new Map<"x" | "y", AutoScrollState>()
+  const states = new Map<"x" | "y", AutoScroll.State>()
 
-  const setState = (axis: "x" | "y", next: AutoScrollState | undefined): void => {
+  const setState = (axis: "x" | "y", next: AutoScroll.State | undefined): void => {
     const prev = states.get(axis)
     if (prev?.edge === next?.edge) {
       if (next !== undefined) states.set(axis, next)
@@ -104,7 +105,7 @@ export const makeAutoScroller = (
         scroll = axis === "x" ? el.scrollLeft : el.scrollTop
         maxScroll = () => (axis === "x" ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight)
       }
-      const step = autoScrollStep(Option.fromUndefinedOr(states.get(axis)), { pointer: at, start, end, velocity, scroll, maxScroll })
+      const step = AutoScroll.step(Option.fromUndefinedOr(states.get(axis)), { pointer: at, start, end, velocity, scroll, maxScroll })
       setState(axis, Option.getOrUndefined(step.state))
       if (step.amount === 0) return
       if (scroller.kind === "document") scroller.win.scrollBy(axis === "x" ? { left: step.amount } : { top: step.amount })

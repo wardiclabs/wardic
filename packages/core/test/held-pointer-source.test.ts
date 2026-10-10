@@ -1,21 +1,21 @@
-import { heldPointerSource, makePointerLikeEvent, type PointerFeed, type PointerLikeEvent } from "@wardic/core"
+import * as InputSource from "@wardic/core/InputSource"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
 
-// heldPointerSource (ADR-0019, decision 6a): the Environment-agnostic Held pointer
+// InputSource.heldPointer (ADR-0019, decision 6a): the Environment-agnostic Held pointer
 // contract, checked against fake feeds. A fake feed records its subscribe and
 // unsubscribe calls and exposes `emit`, so a test pushes events by hand, each with
 // a fresh `raw` object (the SAME `raw` to simulate one DOM event reaching both feeds).
 
-type Emit = (event: PointerLikeEvent, raw: unknown) => void
+type Emit = (event: InputSource.PointerLikeEvent, raw: unknown) => void
 
 const makeFeed = () => {
   let emit: Emit | undefined
   let subscribes = 0
   let unsubscribes = 0
-  const feed: PointerFeed = (next) => {
+  const feed: InputSource.PointerFeed = (next) => {
     emit = next
     subscribes++
     return () => {
@@ -29,7 +29,7 @@ const makeFeed = () => {
     unsubscribes: () => unsubscribes,
     subscribed: () => emit !== undefined,
     /** Push an event through the feed; a fresh `raw` unless one is given. */
-    push: (event: PointerLikeEvent, raw: unknown = {}): void => {
+    push: (event: InputSource.PointerLikeEvent, raw: unknown = {}): void => {
       if (emit === undefined) throw new Error("feed is not subscribed")
       emit(event, raw)
     },
@@ -38,7 +38,7 @@ const makeFeed = () => {
 
 type Feed = ReturnType<typeof makeFeed>
 
-const ev = (init: Parameters<typeof makePointerLikeEvent>[0]): PointerLikeEvent => makePointerLikeEvent(init)
+const ev = (init: Parameters<typeof InputSource.makePointerLikeEvent>[0]): InputSource.PointerLikeEvent => InputSource.makePointerLikeEvent(init)
 
 /** Let the stream's queued deliveries reach the collector (no timers, so deterministic). */
 const settle = Effect.gen(function* () {
@@ -83,9 +83,9 @@ type ScrollFeedFake = ReturnType<typeof makeScrollFeed>
 /** Run the stream into an array; resolves once it has subscribed `target`. */
 const start = (target: Feed, global?: Feed, scroll?: ScrollFeedFake) =>
   Effect.gen(function* () {
-    const seen: Array<PointerLikeEvent> = []
+    const seen: Array<InputSource.PointerLikeEvent> = []
     const fiber = yield* Effect.forkChild(
-      Stream.runForEach(heldPointerSource({ target: target.feed, global: global?.feed, scroll: scroll?.feed }), (event) =>
+      Stream.runForEach(InputSource.heldPointer({ target: target.feed, global: global?.feed, scroll: scroll?.feed }), (event) =>
         Effect.sync(() => {
           seen.push(event)
         })),
@@ -94,9 +94,9 @@ const start = (target: Feed, global?: Feed, scroll?: ScrollFeedFake) =>
     return { seen, fiber }
   })
 
-const key = (event: PointerLikeEvent): string => `${event.type}${event.pointerId}@${event.x}`
+const key = (event: InputSource.PointerLikeEvent): string => `${event.type}${event.pointerId}@${event.x}`
 
-describe("heldPointerSource", () => {
+describe("InputSource.heldPointer", () => {
   it.effect("C5: target events pass through in order", () =>
     Effect.gen(function* () {
       const target = makeFeed()
@@ -166,7 +166,7 @@ describe("heldPointerSource", () => {
     }))
 
   describe("C9: the held pointer ends", () => {
-    const ends: ReadonlyArray<{ readonly name: string; readonly end: () => PointerLikeEvent }> = [
+    const ends: ReadonlyArray<{ readonly name: string; readonly end: () => InputSource.PointerLikeEvent }> = [
       { name: "at its up", end: () => ev({ type: "up", x: 9, buttons: 0 }) },
       { name: "at its cancel", end: () => ev({ type: "cancel", x: 9, buttons: 0 }) },
       { name: "at a move with buttons 0", end: () => ev({ type: "move", x: 9, buttons: 0 }) },
@@ -269,7 +269,7 @@ describe("heldPointerSource", () => {
       const target = makeFeed()
       const global = makeFeed()
       const { seen, fiber } = yield* start(target, global)
-      const touch = (init: Omit<Parameters<typeof makePointerLikeEvent>[0], "pointerType">) =>
+      const touch = (init: Omit<Parameters<typeof InputSource.makePointerLikeEvent>[0], "pointerType">) =>
         ev({ pointerType: "touch", ...init })
       target.push(touch({ type: "down", pointerId: 1, x: 1 }))
       global.push(touch({ type: "move", pointerId: 1, x: 30 }), {})
@@ -288,7 +288,7 @@ describe("heldPointerSource", () => {
     }))
 
   describe("C15-C23: a scroll during a hold moves the held pointer (ADR-0019, *Amendment (Reorder)*)", () => {
-    const at = (event: PointerLikeEvent): string => `${event.type}${event.pointerId}@${event.x},${event.y}`
+    const at = (event: InputSource.PointerLikeEvent): string => `${event.type}${event.pointerId}@${event.x},${event.y}`
     const page = { name: "page" }
     const list = { name: "list" }
 

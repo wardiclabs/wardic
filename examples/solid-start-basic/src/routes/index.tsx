@@ -1,4 +1,4 @@
-import { VERSION as coreVersion } from "@wardic/core"
+import corePackage from "@wardic/core/package.json"
 import { DomLive, VERSION as domVersion } from "@wardic/dom"
 import { VERSION as solidVersion, WardicProvider } from "@wardic/solid"
 
@@ -16,7 +16,7 @@ export default function Home() {
           report (#41). The link loads the page from the server; the router would render it client-side.
         </p>
         <ul>
-          <li>@wardic/core — v{coreVersion}</li>
+          <li>@wardic/core — v{corePackage.version}</li>
           <li>@wardic/dom — v{domVersion}</li>
           <li>@wardic/solid — v{solidVersion}</li>
         </ul>

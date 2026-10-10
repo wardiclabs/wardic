@@ -3,7 +3,7 @@
  *
  * This is the fixed orchestration spine the binding contract prescribes:
  *
- *   Recognizers (hover/press) -> Override stack -> resolveOverrides -> reactive
+ *   Recognizers (hover/press) -> Override stack -> Override.resolve -> reactive
  *   `target()` -> a settling primitive (spring/Retarget by default, tween for
  *   `transition.type: "tween"`) -> per-frame `gate.write(id, values)` -> the
  *   gate projects + flushes the `Patch` into this element's Solid style signal.
@@ -25,19 +25,12 @@
  * string/color keys through `springBlend`, the same spring on a progress (both
  * writing into the same gate id) — see {@link splitTarget}.
  */
-import {
-  type BaseSource,
-  baseValueOf,
-  type DragBounds,
-  type DragSample,
-  type Patch,
-  Renderer,
-  resolveOverrides,
-  stagger as coreStagger,
-  type StaggerOrigin,
-  startValueOf,
-  type Values,
-} from "@wardic/core"
+import * as BaseValue from "@wardic/core/BaseValue"
+import type * as Drag from "@wardic/core/Drag"
+import * as Override from "@wardic/core/Override"
+import * as Renderer from "@wardic/core/Renderer"
+import * as Stagger from "@wardic/core/Stagger"
+import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import {
   DRAG_DEFAULT_ATTRIBUTES,
@@ -177,8 +170,8 @@ export interface WardicOrchestration {
   readonly delayChildren?: number
   /** `-1` reverses the stagger order (last child leads). Default `1`. */
   readonly staggerDirection?: 1 | -1
-  /** Origin the stagger distance grows from (reuses core's StaggerOrigin). */
-  readonly from?: StaggerOrigin
+  /** Origin the stagger distance grows from (reuses core's `Stagger.Origin`). */
+  readonly from?: Stagger.Origin
   /**
    * Sequence the parent vs. its children: `"beforeChildren"` runs the parent,
    * then the children once it settles; `"afterChildren"` runs the children, then
@@ -260,7 +253,7 @@ export interface WardicConfig {
    */
   readonly whileDrag?: WardicValues
   /** Constrain the drag to a static numeric box (per axis). Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
-  readonly dragConstraints?: DragBounds
+  readonly dragConstraints?: Drag.Bounds
   /** Rubber-band resistance past {@link dragConstraints} (0 = hard clamp, default). Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
   readonly dragElastic?: number
   /** Fling on release under decay (default `true`). Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
@@ -382,12 +375,12 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
 /**
  * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
  * to a clean core {@link Values} map. Both arms funnel through {@link toValues}
- * so `resolveOverrides` / `splitTarget` never receive `undefined`-valued keys.
+ * so `Override.resolve` / `splitTarget` never receive `undefined`-valued keys.
  */
 const resolveValues = (
   entry: WardicValues | string | undefined,
   variants: Record<string, WardicValues> | undefined,
-): Values => {
+): Values.Values => {
   if (entry === undefined) return {}
   if (typeof entry === "string") return toValues(variants?.[entry])
   return toValues(entry)
@@ -396,7 +389,7 @@ const resolveValues = (
 /** A target split into its numeric (spring-able) and string (blended by a progress) keys. */
 interface SplitTarget {
   readonly numeric: Record<string, number>
-  readonly strings: Values
+  readonly strings: Values.Values
 }
 
 /**
@@ -405,9 +398,9 @@ interface SplitTarget {
  * InterpolatorRegistry by the spring's progress, `springBlend`, ADR-0024). Both
  * halves write into the same gate id, so they collapse into one projected `Patch`.
  */
-const splitTarget = (target: Values): SplitTarget => {
+const splitTarget = (target: Values.Values): SplitTarget => {
   const numeric: Record<string, number> = {}
-  const strings: Values = {}
+  const strings: Values.Values = {}
   for (const key in target) {
     const v = target[key]!
     if (typeof v === "number") numeric[key] = v
@@ -422,9 +415,9 @@ const TRANSLATE_KEYS: ReadonlySet<string> = new Set(["x", "y", "translateX", "tr
 /** The Override stack resolved: the spine effect's input. */
 interface Resolution {
   /** Each key's value from the highest active layer. */
-  readonly resolved: Values
+  readonly resolved: Values.Values
   /** The base layer, the first link of a key's Base value (ADR-0022). */
-  readonly base: Values
+  readonly base: Values.Values
   /** Whether a drag holds the translate keys (ADR-0004's strip). */
   readonly dragging: boolean
 }
@@ -448,7 +441,7 @@ interface Resolution {
 export interface SpineInternals {
   readonly tag?: string | undefined
   readonly dragAxis?: (() => boolean | "x" | "y") | undefined
-  readonly onDragSample?: ((sample: DragSample) => void) | undefined
+  readonly onDragSample?: ((sample: Drag.Sample) => void) | undefined
   readonly onLayoutHandle?: ((handle: ProjectionNodeHandle) => void) | undefined
   readonly raiseWhileDragged?: boolean | undefined
   readonly baseStyle?: (() => JSX.CSSProperties | undefined) | undefined
@@ -548,7 +541,7 @@ export function runSpine(opts: RunSpineOptions): void {
   // string, + the numeric velocities, seeded from the SSR initial (velocities 0). Used
   // to retarget from where each key is, with momentum carried across the seam
   // (ADR-0005, ADR-0024).
-  const snapshot: { values: Values; velocities: Record<string, number> } = {
+  const snapshot: { values: Values.Values; velocities: Record<string, number> } = {
     values: { ...initialValues },
     velocities: {},
   }
@@ -606,7 +599,7 @@ export function runSpine(opts: RunSpineOptions): void {
           ),
         own: (key: string) => Option.fromUndefinedOr(valueLike(ownValue(key), like)),
       })
-      const startOf = (key: string, like: number | string) => Option.getOrUndefined(startValueOf(key, linksFor(like)))
+      const startOf = (key: string, like: number | string) => Option.getOrUndefined(BaseValue.start(key, linksFor(like)))
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
@@ -637,7 +630,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // Merge an emitted frame's value-map into the presence snapshot (no-op
       // without a presence). The accumulator mirrors what the gate accumulates,
       // so the exit departs from the element's actual resting value-map.
-      const recordFrame = (value: Values): void => {
+      const recordFrame = (value: Values.Values): void => {
         if (presenceRec !== undefined) Object.assign(presenceRec.snapshot.current, value)
       }
 
@@ -645,7 +638,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // handed back to the element's style, so a later style change shows at rest and the
       // next gesture starts from it; any other key rests inline at its Base value and leaves
       // the target. A key a later Retarget took over is left alone.
-      const settleReturns = (returns: ReadonlyArray<readonly [string, BaseSource]>): void => {
+      const settleReturns = (returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): void => {
         const handedBack: Array<string> = []
         for (const [key, source] of returns) {
           if (returning.get(key) !== source) continue
@@ -676,7 +669,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // Cold path: once per Retarget that started a key from its Base value or returned one,
       // run at the head of that Retarget's first leg (no fiber of its own: forking one per
       // element cost 10-20 µs each at a 1000-element mount).
-      const baseLog = (started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseSource]>): Effect.Effect<void> =>
+      const baseLog = (started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
         Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
           Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
         )
@@ -762,13 +755,13 @@ export function runSpine(opts: RunSpineOptions): void {
       // element, the keys the drag moves leave the return while it runs, so they stay where
       // it dropped them (C9) until a layer sets them again.
       const driven = new Map<string, number | string>()
-      let returning = new Map<string, BaseSource>()
+      let returning = new Map<string, BaseValue.BaseSource>()
       const projected = layoutHandle !== undefined
       const dragMoves: ReadonlyArray<string> =
         projected || dragCfg === undefined ? [] : dragCfg === "x" ? ["x"] : dragCfg === "y" ? ["y"] : ["x", "y"]
 
       // Override stack (ascending priority): base (animate, or initial when no
-      // animate) -> whileHover -> whileTap. resolveOverrides picks the last
+      // animate) -> whileHover -> whileTap. Override.resolve picks the last
       // active entry per key. The memo DEPENDS on cfg() (read inside), so a
       // reactive config change recomputes target() and drives a Retarget. Pure: the
       // returns, the drag strip and every read are the spine effect's.
@@ -795,7 +788,7 @@ export function runSpine(opts: RunSpineOptions): void {
             : inheritedName !== undefined
               ? resolveValues(inheritedName, variants)
               : initialValues
-        const resolved = resolveOverrides([
+        const resolved = Override.resolve([
           { active: true, values: base },
           { active: hovered(), values: toValues(c.whileHover) },
           { active: pressed(), values: toValues(c.whileTap) },
@@ -848,14 +841,14 @@ export function runSpine(opts: RunSpineOptions): void {
 
             // A key a Retarget drove and no layer sets now returns to its Base value
             // (ADR-0022); with none, it stays where it is (as before #47).
-            const t: Values = { ...resolved }
+            const t: Values.Values = { ...resolved }
             for (const key in resolved) if (!(projected && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key]!)
             if (held) for (const key of dragMoves) driven.delete(key)
             returning = new Map()
             for (const [key, like] of driven) {
               // A translate key the strip below holds back returns once the drag lets go.
               if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) continue
-              const r = Option.getOrUndefined(baseValueOf(key, { base, initial: initialValues, ...linksFor(like) }))
+              const r = Option.getOrUndefined(BaseValue.of(key, { base, initial: initialValues, ...linksFor(like) }))
               if (r === undefined) driven.delete(key)
               else {
                 t[key] = r.value
@@ -895,7 +888,7 @@ export function runSpine(opts: RunSpineOptions): void {
                 started[key] = "target"
               }
             }
-            const from: Values = {}
+            const from: Values.Values = {}
             for (const key in t) from[key] = snapshot.values[key]!
             // The keys this Retarget returns; once every leg settles, a key back at its
             // `style` value is handed back to the element's style (D4) and the rest rest inline.
@@ -1010,7 +1003,7 @@ export function runSpine(opts: RunSpineOptions): void {
                 )
               }
               if (hasStrings) {
-                const fromStrings: Values = {}
+                const fromStrings: Values.Values = {}
                 for (const key in strings) fromStrings[key] = from[key]!
                 runLeg(
                   Machine.springBlend(fromStrings, strings, springOpts).pipe(
@@ -1082,7 +1075,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   if (registration !== undefined) onCleanup(registration.dispose)
 
   // Resolve the Renderer's PURE project once (ADR-0003: synchronous, no engine).
-  const { project } = runtime.runSync(Renderer)
+  const { project } = runtime.runSync(Renderer.Renderer)
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount). Seeds the style signal
@@ -1101,7 +1094,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   const startingPatch = hydrating ? domProject(initialValues) : projected
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = splitPatchForTag(internal?.tag, startingPatch)
-  const [style, setStyle] = createSignal<Patch>(seed.style)
+  const [style, setStyle] = createSignal<Renderer.Patch>(seed.style)
 
   // The element, available only after ref-mount. The spine is gated on it.
   const [el, setEl] = createSignal<HTMLElement>()
@@ -1190,7 +1183,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
     registration !== undefined
       ? () => {
           const s = parent!.stagger()
-          return s.delayChildren + coreStagger(s.amount, { from: s.from })(registration.index(), registration.total())
+          return s.delayChildren + Stagger.make(s.amount, { from: s.from })(registration.index(), registration.total())
         }
       : undefined
   const canStart: () => boolean = () => (parent?.childrenMayStart() ?? true) && ownCanStart()
@@ -1302,12 +1295,12 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
  * the server's values (the Hydration hold); the Renderer's take over at the first frame.
  * Hydration only, once per element. Internal.
  */
-export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Patch, client: Patch): void => {
+export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Renderer.Patch, client: Renderer.Patch): void => {
   const keys: Array<string> = []
   for (const key in server) if (String(server[key]) !== String(client[key])) keys.push(key)
   for (const key in client) if (!(key in server)) keys.push(key)
   if (keys.length === 0) return
-  const pick = (patch: Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
+  const pick = (patch: Renderer.Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
   runtime.runFork(
     Effect.logDebug(
       "wardic.hydration: the Environment's Renderer projects the Starting style differently from the DOM's; " +

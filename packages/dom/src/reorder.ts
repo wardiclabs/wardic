@@ -18,7 +18,10 @@
  *
  * Tier 2 (ADR-0008): for DOM binding authors.
  */
-import { autoScrollAxis, type DragSample, makeReorderGroup, type Point, type ReorderAxis, type ReorderGroup } from "@wardic/core"
+import * as AutoScroll from "@wardic/core/AutoScroll"
+import type * as Drag from "@wardic/core/Drag"
+import type * as Point from "@wardic/core/Point"
+import * as Reorder from "@wardic/core/Reorder"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
@@ -42,9 +45,9 @@ export interface ReorderControllerOptions<V> {
   /** Receives a new order; the app sets `values` from it. */
   readonly onReorder: (values: Array<V>) => void
   /** The app's axis, overriding detection; `undefined` to detect. */
-  readonly axis?: (() => ReorderAxis | undefined) | undefined
+  readonly axis?: (() => Reorder.Axis | undefined) | undefined
   /** Called when the detected axis changes (after a Measure pass, or {@link ReorderController.resolve}). */
-  readonly onAxis?: ((axis: ReorderAxis) => void) | undefined
+  readonly onAxis?: ((axis: Reorder.Axis) => void) | undefined
   /**
    * How the binding keys its items, for the warning logged once per controller when an
    * item registers with a value an item of this group unregistered in the same task
@@ -59,9 +62,9 @@ export interface ReorderItemDriver {
   /** Register the item's projection handle with the group; returns the unregister. */
   readonly register: (handle: ProjectionNodeHandle) => () => void
   /** The axis the item's drag takes, read at each gesture's start. */
-  readonly dragAxis: () => ReorderAxis
+  readonly dragAxis: () => Reorder.Axis
   /** The item's drag samples, as the drag delivers them. */
-  readonly onSample: (sample: DragSample) => void
+  readonly onSample: (sample: Drag.Sample) => void
   /** The item is going away: end a gesture still in progress. */
   readonly dispose: () => void
 }
@@ -69,9 +72,9 @@ export interface ReorderItemDriver {
 /** A **Reorder group** on the DOM (ADR-0020). */
 export interface ReorderController<V> {
   /** Core's Reorder group (its `move(value, toIndex)` reorders in code). */
-  readonly group: ReorderGroup<V>
+  readonly group: Reorder.ReorderGroup<V>
   /** The app's axis, else the last detected one (`"y"` before the first). */
-  readonly axis: () => ReorderAxis
+  readonly axis: () => Reorder.Axis
   /** The group's element: its `direction`, and the scroller Auto-scroll looks for from it. */
   readonly attach: (element: Element) => void
   /** The driver for the item with `value`; `element` is its element, for Auto-scroll. */
@@ -92,7 +95,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
   }
   let element: Element | undefined
   let autoScroller: AutoScroller | undefined
-  const group = makeReorderGroup<V>({
+  const group = Reorder.makeReorderGroup<V>({
     values: options.values,
     onReorder: options.onReorder,
     axis: () => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => Option.fromUndefinedOr(axis())),
@@ -101,8 +104,8 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
     debug,
   })
 
-  let detected: ReorderAxis = "y"
-  let reported: ReorderAxis | undefined
+  let detected: Reorder.Axis = "y"
+  let reported: Reorder.Axis | undefined
   const resolve = (): void => {
     if (options.axis?.() !== undefined) return
     detected = group.resolveAxis()
@@ -120,7 +123,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
 
   const item = (value: V, itemElement: () => Element | undefined): ReorderItemDriver => {
     // The gesture's axis (core's, fixed at its start), for Auto-scroll's axis.
-    let gestureAxis: ReorderAxis = "y"
+    let gestureAxis: Reorder.Axis = "y"
     let inGesture = false
     const end = (): void => {
       inGesture = false
@@ -158,7 +161,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
         if (sample.phase === "move") {
           const velocity = group.dragMove(value, sample.point, sample.timeStamp)
           if (autoScroller !== undefined) {
-            const on = autoScrollAxis(gestureAxis, velocity)
+            const on = AutoScroll.axis(gestureAxis, velocity)
             autoScroller.update(sample.point, on, velocity[on], itemElement())
           }
           return
@@ -202,7 +205,7 @@ export const INERT_REORDER_CONTROLLER: ReorderController<never> = Object.freeze(
     register: () => noop,
     resolveAxis: () => "y" as const,
     dragStart: () => "y" as const,
-    dragMove: (_value: never, point: Point) => point,
+    dragMove: (_value: never, point: Point.Point) => point,
     dragEnd: noop,
     move: noop,
   }),

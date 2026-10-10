@@ -31,7 +31,8 @@
  * signal flip in that expression re-runs the config accessor and drives a Retarget.
  */
 import { mergeRefs } from "@solid-primitives/refs"
-import { type DragBounds, Renderer } from "@wardic/core"
+import type * as Drag from "@wardic/core/Drag"
+import * as Renderer from "@wardic/core/Renderer"
 import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, resolveInitial, startingStyle } from "@wardic/dom"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
@@ -126,7 +127,7 @@ export interface WardicMotionProps {
    */
   readonly whileDrag?: WardicValues
   /** Constrain the drag to a static numeric box (per axis). Only when `drag` is on. */
-  readonly dragConstraints?: DragBounds
+  readonly dragConstraints?: Drag.Bounds
   /** Rubber-band resistance past {@link dragConstraints} (0 = hard clamp, default). */
   readonly dragElastic?: number
   /** Fling on release under decay (default `true`). Only when `drag` is on. */
@@ -290,7 +291,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
       const config = untrack(cfg)
       const initialValues = resolveInitial(config)
-      const projected = runtime.runSync(Renderer).project(initialValues)
+      const projected = runtime.runSync(Renderer.Renderer).project(initialValues)
       const hydrating = isHydrating()
       const starting = hydrating ? domProject(initialValues) : projected
       if (hydrating) flagStartingStyle(runtime, id, starting, projected)

@@ -35,27 +35,23 @@ import * as Rec from "effect/Record"
 import * as Stream from "effect/Stream"
 import type { Covariant } from "effect/Types"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { Easing, Values } from "./options.ts"
-import type { Frame, MultiPhysicsFrame, PhysicsFrame } from "./primitives/frame.ts"
+import * as Clock from "./Clock.ts"
+import type * as Easing from "./Easing.ts"
+import type * as Frame from "./Frame.ts"
+import * as FrameLoop from "./FrameLoop.ts"
+import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import {
   initDecay,
-  initSpring,
   initTween,
   resolveDecay,
-  type ResolvedSpring,
   type ResolvedTween,
-  resolveSpring,
   resolveTween,
-  type SpringState,
   stepDecay,
-  stepSpring,
   stepTween,
-} from "./primitives/stepper.ts"
-import type { Vec2 } from "./recognizers/drag.ts"
-import { Clock } from "./services/Clock.ts"
-import type { Sink } from "./services/frame-loop.ts"
-import { FrameLoop } from "./services/FrameLoop.ts"
-import { InterpolatorRegistry } from "./services/InterpolatorRegistry.ts"
+} from "./internal/stepper.ts"
+import type * as Point from "./Point.ts"
+import * as Spring from "./Spring.ts"
+import type * as Values from "./Values.ts"
 
 // --- The data type -----------------------------------------------------------
 
@@ -65,7 +61,7 @@ const TypeId = "~@wardic/core/Machine"
  * A Primitive's motion as a value (ADR-0027): what it does on each tick, apart from how the
  * ticks reach it. Built by a constructor or `make`, never written as a literal.
  */
-export interface Machine<out F extends Frame<unknown>> extends Pipeable, Inspectable.Inspectable {
+export interface Machine<out F extends Frame.Frame<unknown>> extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: { readonly _F: Covariant<F> }
   /**
    * One run: a step from each tick's `dt` (seconds, as the Clock reports it) to that tick's
@@ -95,7 +91,7 @@ export interface SpanOptions {
 const Proto = {
   [TypeId]: { _F: identity },
   ...Inspectable.BaseProto,
-  toJSON(this: Machine<Frame<unknown>>) {
+  toJSON(this: Machine<Frame.Frame<unknown>>) {
     return { _id: "Machine", span: this.span, settles: this.settles }
   },
   pipe() {
@@ -104,14 +100,14 @@ const Proto = {
 }
 
 /** A machine from its fields: a run's `start`, whether it `settles`, and its `span` (decision 6). */
-export const make = <F extends Frame<unknown>>(fields: {
+export const make = <F extends Frame.Frame<unknown>>(fields: {
   readonly start: () => (dt: number) => F
   readonly settles: boolean
   readonly span: Span
 }): Machine<F> => Object.assign(Object.create(Proto), fields)
 
 /** Whether `u` is a machine (built by `make` or a constructor). */
-export const isMachine = (u: unknown): u is Machine<Frame<unknown>> => Predicate.hasProperty(u, TypeId)
+export const isMachine = (u: unknown): u is Machine<Frame.Frame<unknown>> => Predicate.hasProperty(u, TypeId)
 
 /**
  * Maximum delta-time (seconds) any Primitive simulates in one step.
@@ -139,7 +135,7 @@ export interface TweenOptions {
   /** Duration in seconds. */
   readonly duration: number
   /** Easing function; defaults to linear. */
-  readonly easing?: Easing
+  readonly easing?: Easing.Easing
   /**
    * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `yoyo`, or across
    * `keyframes`' stops, it holds once, before the first segment (#77): `Machine.delay`.
@@ -197,15 +193,15 @@ export interface AnimateOptions extends TweenOptions, Modifiers {}
 // --- The combinators ---------------------------------------------------------
 
 /** `frame`, re-stamped `done: false`: a seam's one allocation. */
-const unsettled = <F extends Frame<unknown>>(frame: F): F => ({ ...frame, done: false })
+const unsettled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, done: false })
 
 /** `self` with each Frame mapped by `f`, which runs per frame (ADR-0025). Keeps `self`'s span. */
 export const map: {
-  <F extends Frame<unknown>, G extends Frame<unknown>>(f: (frame: F) => G): (self: Machine<F>) => Machine<G>
-  <F extends Frame<unknown>, G extends Frame<unknown>>(self: Machine<F>, f: (frame: F) => G): Machine<G>
+  <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(f: (frame: F) => G): (self: Machine<F>) => Machine<G>
+  <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(self: Machine<F>, f: (frame: F) => G): Machine<G>
 } = dual(
   2,
-  <F extends Frame<unknown>, G extends Frame<unknown>>(self: Machine<F>, f: (frame: F) => G): Machine<G> =>
+  <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(self: Machine<F>, f: (frame: F) => G): Machine<G> =>
     make({
       settles: self.settles,
       span: self.span,
@@ -226,7 +222,7 @@ export const map: {
  * never ends is in `Stream.concat`: the rest are dropped. One segment is returned as it is. Keeps
  * the first segment's span. Effect v3's name: v4 has no `Stream.concatAll`.
  */
-export const concatAll = <F extends Frame<unknown>>(segments: Arr.NonEmptyReadonlyArray<Machine<F>>): Machine<F> => {
+export const concatAll = <F extends Frame.Frame<unknown>>(segments: Arr.NonEmptyReadonlyArray<Machine<F>>): Machine<F> => {
   const reached = Option.match(
     Arr.findFirstIndex(segments, (segment) => !segment.settles),
     {
@@ -267,11 +263,11 @@ export const concatAll = <F extends Frame<unknown>>(segments: Arr.NonEmptyReadon
  * two; keeps `self`'s span.
  */
 export const concat: {
-  <G extends Frame<unknown>>(that: Machine<G>): <F extends Frame<unknown>>(self: Machine<F>) => Machine<F | G>
-  <F extends Frame<unknown>, G extends Frame<unknown>>(self: Machine<F>, that: Machine<G>): Machine<F | G>
+  <G extends Frame.Frame<unknown>>(that: Machine<G>): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F | G>
+  <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(self: Machine<F>, that: Machine<G>): Machine<F | G>
 } = dual(
   2,
-  <F extends Frame<unknown>, G extends Frame<unknown>>(self: Machine<F>, that: Machine<G>): Machine<F | G> =>
+  <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(self: Machine<F>, that: Machine<G>): Machine<F | G> =>
     concatAll<F | G>([self, that]),
 )
 
@@ -280,7 +276,7 @@ export const concat: {
  * Frame is re-stamped `done: false`, so a run never settles. A `self` that never settles is
  * returned as it is. Keeps `self`'s span.
  */
-export const forever = <F extends Frame<unknown>>(self: Machine<F>): Machine<F> =>
+export const forever = <F extends Frame.Frame<unknown>>(self: Machine<F>): Machine<F> =>
   Bool.match(self.settles, {
     onFalse: () => self,
     onTrue: () =>
@@ -312,11 +308,11 @@ export const forever = <F extends Frame<unknown>>(self: Machine<F>): Machine<F> 
  * hold is subtracted at a different point (ADR-0028, decision 9).
  */
 export const delay: {
-  (seconds: number): <F extends Frame<unknown>>(self: Machine<F>) => Machine<F>
-  <F extends Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F>
+  (seconds: number): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F>
 } = dual(
   2,
-  <F extends Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F> =>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F> =>
     Bool.match(seconds === 0, {
       onTrue: () => self,
       onFalse: () =>
@@ -347,11 +343,11 @@ export const delay: {
  * clamp at `MAX_DT` already, inline (#78); this is for a machine built with `make`.
  */
 export const clampDt: {
-  (max: number): <F extends Frame<unknown>>(self: Machine<F>) => Machine<F>
-  <F extends Frame<unknown>>(self: Machine<F>, max: number): Machine<F>
+  (max: number): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, max: number): Machine<F>
 } = dual(
   2,
-  <F extends Frame<unknown>>(self: Machine<F>, max: number): Machine<F> =>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, max: number): Machine<F> =>
     make({
       settles: self.settles,
       span: self.span,
@@ -370,18 +366,18 @@ export const clampDt: {
  * `Stream.withSpan` is, told apart by its first argument.
  */
 export const withSpan: {
-  (name: string, options?: SpanOptions): <F extends Frame<unknown>>(self: Machine<F>) => Machine<F>
-  <F extends Frame<unknown>>(self: Machine<F>, name: string, options?: SpanOptions): Machine<F>
+  (name: string, options?: SpanOptions): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, name: string, options?: SpanOptions): Machine<F>
 } = dual(
   (args) => isMachine(args[0]),
-  <F extends Frame<unknown>>(self: Machine<F>, name: string, { attributes = {} }: SpanOptions = {}): Machine<F> =>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, name: string, { attributes = {} }: SpanOptions = {}): Machine<F> =>
     make({ start: self.start, settles: self.settles, span: { name, attributes } }),
 )
 
 // --- The drivers -------------------------------------------------------------
 
 /** A settled Frame: a settling machine's run ends at its first. */
-const isSettled = (frame: Frame<unknown>): boolean => frame.done
+const isSettled = (frame: Frame.Frame<unknown>): boolean => frame.done
 
 /**
  * Run `self` over `Clock.ticks`: one Frame per tick, through its first settled Frame when it
@@ -389,10 +385,10 @@ const isSettled = (frame: Frame<unknown>): boolean => frame.done
  * `<name>: subscribe` debug log annotated with the span's attributes. Per-frame work is
  * un-logged: it is the hot path.
  */
-export const toStream = <F extends Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock> =>
+export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock.Clock> =>
   Stream.unwrap(
     Effect.gen(function* () {
-      const clock = yield* Clock
+      const clock = yield* Clock.Clock
       yield* Effect.logDebug(`${self.span.name}: subscribe`)
       const frames = clock.ticks.pipe(Stream.map(self.start()))
       return Bool.match(self.settles, {
@@ -412,18 +408,18 @@ export const toStream = <F extends Frame<unknown>>(self: Machine<F>): Stream.Str
  * A machine built with a service runs under its Effect: `Effect.flatMap(Machine.run(sink))`.
  */
 export const run: {
-  <F extends Frame<unknown>>(sink: Sink<F>): (self: Machine<F>) => Effect.Effect<F, never, FrameLoop>
-  <F extends Frame<unknown>>(self: Machine<F>, sink: Sink<F>): Effect.Effect<F, never, FrameLoop>
+  <F extends Frame.Frame<unknown>>(sink: FrameLoop.Sink<F>): (self: Machine<F>) => Effect.Effect<F, never, FrameLoop.FrameLoop>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F, never, FrameLoop.FrameLoop>
 } = dual(
   2,
-  <F extends Frame<unknown>>(self: Machine<F>, sink: Sink<F>): Effect.Effect<F, never, FrameLoop> =>
-    FrameLoop.use((loop) => loop.run(self, sink)),
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F, never, FrameLoop.FrameLoop> =>
+    FrameLoop.FrameLoop.use((loop) => loop.run(self, sink)),
 )
 
 // --- The leaves --------------------------------------------------------------
 
 /** A tween's step from 0 elapsed: `tween`'s, and each of `animate`'s and `keyframes`' segments. */
-const tweenLeaf = (from: number, to: number, tween: ResolvedTween, span: Span): Machine<Frame<number>> =>
+const tweenLeaf = (from: number, to: number, tween: ResolvedTween, span: Span): Machine<Frame.Frame<number>> =>
   make({
     settles: true,
     span,
@@ -445,7 +441,7 @@ const tweenSpan = (from: number, to: number, duration: number): Span => ({
 })
 
 /** A definite, duration-based animation from `from` to `to`. Its `delay` is its stepper's. */
-export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame<number>> =>
+export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame.Frame<number>> =>
   tweenLeaf(from, to, resolveTween(options), tweenSpan(from, to, options.duration))
 
 /**
@@ -453,11 +449,11 @@ export const tween = (from: number, to: number, options: TweenOptions): Machine<
  * followed without stale snapshots: `chase`'s run, and `spring`'s toward a static target.
  */
 const springRun =
-  (getTarget: () => number, spring: ResolvedSpring, options: SpringOptions) => (): ((dt: number) => PhysicsFrame) => {
-    let state = initSpring(options)
+  (getTarget: () => number, spring: Spring.Resolved, options: SpringOptions) => (): ((dt: number) => Frame.Physics) => {
+    let state = Spring.init(options)
     // Per frame (ADR-0025): the spring resolved when the machine is built, `dt` clamped (#78).
     return (dt) => {
-      const result = stepSpring(state, Math.min(dt, MAX_DT), getTarget(), spring)
+      const result = Spring.step(state, Math.min(dt, MAX_DT), getTarget(), spring)
       state = result.state
       return { value: result.value, velocity: result.velocity, done: result.done }
     }
@@ -467,8 +463,8 @@ const springRun =
  * Spring motion toward a static `target`, from `options.from` (default 0), settling at rest. A
  * moving target is `chase`'s.
  */
-export const spring = (target: number, options: SpringOptions = {}): Machine<PhysicsFrame> => {
-  const resolved = resolveSpring(options)
+export const spring = (target: number, options: SpringOptions = {}): Machine<Frame.Physics> => {
+  const resolved = Spring.resolve(options)
   return make({
     settles: true,
     span: { name: "wardic.spring", attributes: { target, stiffness: resolved.stiffness, damping: resolved.damping } },
@@ -482,8 +478,8 @@ export const spring = (target: number, options: SpringOptions = {}): Machine<Phy
  * retargeted snap). Its Frames report rest, but it never settles: a run ends only when it's
  * removed (the Stream's subscriber cancels, or the run is interrupted).
  */
-export const chase = (getTarget: () => number, options: SpringOptions = {}): Machine<PhysicsFrame> => {
-  const resolved = resolveSpring(options)
+export const chase = (getTarget: () => number, options: SpringOptions = {}): Machine<Frame.Physics> => {
+  const resolved = Spring.resolve(options)
   return make({
     settles: false,
     span: { name: "wardic.chase", attributes: { stiffness: resolved.stiffness, damping: resolved.damping } },
@@ -492,7 +488,7 @@ export const chase = (getTarget: () => number, options: SpringOptions = {}): Mac
 }
 
 /** Momentum/decay motion: fling from `initial` at `velocity`, slowed by friction. */
-export const decay = (initial: number, velocity: number, options: DecayOptions = {}): Machine<PhysicsFrame> => {
+export const decay = (initial: number, velocity: number, options: DecayOptions = {}): Machine<Frame.Physics> => {
   const resolved = resolveDecay(options)
   return make({
     settles: true,
@@ -510,10 +506,10 @@ export const decay = (initial: number, velocity: number, options: DecayOptions =
 }
 
 /**
- * Two-axis decay: both axes stepped together, one `Vec2` per tick, settling once both rest. A
- * fling's tail: `withMomentum`'s, and the Solid binding's release.
+ * Two-axis decay: both axes stepped together, one `Point` per tick, settling once both rest. A
+ * fling's tail: `Drag.fling`'s, and the Solid binding's release.
  */
-export const decayVec = (initial: Vec2, velocity: Vec2, options: DecayOptions): Machine<Frame<Vec2>> => {
+export const decayVec = (initial: Point.Point, velocity: Point.Point, options: DecayOptions): Machine<Frame.Frame<Point.Point>> => {
   const resolved = resolveDecay(options)
   return make({
     settles: true,
@@ -549,7 +545,7 @@ export const springValues = (
   options: SpringOptions = {},
   from: Record<string, number> = {},
   velocity: Record<string, number> = {},
-): Machine<MultiPhysicsFrame> => {
+): Machine<Frame.MultiPhysics> => {
   const keys = Rec.keys(target)
   /** A key's start: its own value, else the options', else 0. */
   const startOf = (values: Record<string, number>, key: string, fallback: number | undefined): number =>
@@ -557,13 +553,13 @@ export const springValues = (
       Option.orElse(() => Option.fromNullishOr(fallback)),
       Option.getOrElse(() => 0),
     )
-  const spring = resolveSpring(options)
+  const spring = Spring.resolve(options)
   return make({
     settles: true,
     span: { name: "wardic.springValues", attributes: { keys: keys.length } },
     start: () => {
-      let states: Rec.ReadonlyRecord<string, SpringState> = Rec.map(target, (_, key) =>
-        initSpring({
+      let states: Rec.ReadonlyRecord<string, Spring.State> = Rec.map(target, (_, key) =>
+        Spring.init({
           ...options,
           from: startOf(from, key, options.from),
           velocity: startOf(velocity, key, options.velocity),
@@ -574,13 +570,13 @@ export const springValues = (
       // `push` and destructured, at +18% bytes per frame.
       return (dt) => {
         const clamped = Math.min(dt, MAX_DT)
-        const nextStates: Record<string, SpringState> = {}
+        const nextStates: Record<string, Spring.State> = {}
         const values: Record<string, number> = {}
         const velocities: Record<string, number> = {}
         let allDone = true
         for (const key of keys) {
           const state = UndefinedOr.getOrThrow(states[key])
-          const result = stepSpring(state, clamped, UndefinedOr.getOrThrow(target[key]), spring)
+          const result = Spring.step(state, clamped, UndefinedOr.getOrThrow(target[key]), spring)
           nextStates[key] = result.state
           values[key] = result.value
           velocities[key] = result.velocity
@@ -615,7 +611,7 @@ const numberOr = (value: number | undefined, fallback: number): number =>
  * Then `delay(options.delay)`, and its own span, `wardic.animate`. Each segment's tween clamps
  * its `dt` at `MAX_DT`, and so does the hold.
  */
-export const animate = (from: number, to: number, options: AnimateOptions = DEFAULT_ANIMATE): Machine<Frame<number>> => {
+export const animate = (from: number, to: number, options: AnimateOptions = DEFAULT_ANIMATE): Machine<Frame.Frame<number>> => {
   const reverse = Option.getOrElse(Option.fromNullishOr(options.reverse), () => false)
   const repeats = numberOr(options.repeat, 0)
   const yoyo = options.yoyo === true
@@ -625,7 +621,7 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
   const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, options.duration))
   const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, options.duration))
   /** Segment `i`: `yoyo`'s odd segments run backwards. */
-  const segmentFor = (i: number): Machine<Frame<number>> =>
+  const segmentFor = (i: number): Machine<Frame.Frame<number>> =>
     Bool.match(yoyo && i % 2 === 1, { onTrue: () => backward, onFalse: () => forward })
   return Bool.match(Number.isFinite(repeats), {
     onTrue: () => concatAll(Arr.makeBy(Math.ceil(Math.max(0, repeats) + 1), segmentFor)),
@@ -635,8 +631,8 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
         forever(
           concatAll(
             Bool.match(yoyo, {
-              onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame<number>>> => [segmentFor(1), segmentFor(2)],
-              onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame<number>>> => [segmentFor(1)],
+              onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [segmentFor(1), segmentFor(2)],
+              onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [segmentFor(1)],
             }),
           ),
         ),
@@ -652,7 +648,7 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
  * them (`concatAll`); a single stop, or none, holds still for `duration`. `delay` holds once,
  * before the first stop's segment (#77). Its own span, `wardic.keyframes`.
  */
-export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): Machine<Frame<number>> => {
+export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): Machine<Frame.Frame<number>> => {
   const pairs = Arr.zip(stops, Arr.drop(stops, 1))
   const duration = options.duration / Math.max(1, pairs.length)
   const segment = resolveTween({ ...options, duration, delay: 0 })
@@ -709,11 +705,11 @@ const holdUntilDone =
  * 1, so a spring's progress crossing 1 and back can't flicker it.
  */
 const blendersFor = (
-  from: Values,
-  to: Values,
-): Effect.Effect<ReadonlyArray<readonly [key: string, blend: Blender]>, never, InterpolatorRegistry> =>
+  from: Values.Values,
+  to: Values.Values,
+): Effect.Effect<ReadonlyArray<readonly [key: string, blend: Blender]>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.gen(function* () {
-    const registry = yield* InterpolatorRegistry
+    const registry = yield* InterpolatorRegistry.InterpolatorRegistry
     const blenders = yield* Effect.all(
       Rec.map(to, (b, key): Effect.Effect<Blender> => {
         const a = Option.getOrElse(Rec.get(from, key), () => b)
@@ -738,7 +734,7 @@ const blendAt = (
   blenders: ReadonlyArray<readonly [key: string, blend: Blender]>,
   t: number,
   done: boolean,
-): Frame<Values> => {
+): Frame.Frame<Values.Values> => {
   const value: Record<string, number | string> = {}
   for (const pair of blenders) value[pair[0]] = pair[1](t, done)
   return { value, done }
@@ -755,10 +751,10 @@ const blendAt = (
  * blender. Its steps don't: per tick, `keys.length` direct calls.
  */
 export const animateValues = (
-  from: Values,
-  to: Values,
+  from: Values.Values,
+  to: Values.Values,
   options: AnimateOptions = DEFAULT_ANIMATE,
-): Effect.Effect<Machine<Frame<Values>>, never, InterpolatorRegistry> =>
+): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.map(blendersFor(from, to), (blenders) =>
     animate(0, 1, options).pipe(
       map((progress) => blendAt(blenders, progress.value, progress.done)),
@@ -782,10 +778,10 @@ export const animateValues = (
  *   and `visibility` turn `none` / `hidden` on the settle Frame.
  */
 export const springBlend = (
-  from: Values,
-  to: Values,
+  from: Values.Values,
+  to: Values.Values,
   options: SpringOptions = {},
-): Effect.Effect<Machine<Frame<Values>>, never, InterpolatorRegistry> =>
+): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.map(blendersFor(from, to), (blenders) =>
     springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }).pipe(
       map((frame) => blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),

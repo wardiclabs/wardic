@@ -16,7 +16,10 @@
  * per-frame hot path, so — exactly like core's `applyTo` per-frame writes and
  * the Clock's `tick` — they stay quiet (no span, no per-call log).
  */
-import { type Delta, type Patch, type Point, PROJECTION_KEY, type ProjectionValue, Renderer, TRANSFORM_IDENTITY } from "@wardic/core"
+import * as BaseValue from "@wardic/core/BaseValue"
+import type * as Point from "@wardic/core/Point"
+import * as Projection from "@wardic/core/Projection"
+import * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
 import { dashCase, setSvgAttrs, splitPatch } from "./svg.ts"
 import * as Layer from "effect/Layer"
@@ -52,7 +55,7 @@ const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string
   // skew group
   { key: "skewX", fn: "skewX" },
   { key: "skewY", fn: "skewY" },
-].map((f) => ({ ...f, identity: TRANSFORM_IDENTITY[f.key]! }))
+].map((f) => ({ ...f, identity: BaseValue.TRANSFORM_IDENTITY[f.key]! }))
 
 /**
  * Whether a transform value is at its identity (ADR-0023), Motion's test
@@ -95,7 +98,7 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
  * Fast membership test for "is this key a transform key?": core's transform keys, the ones
  * it gives an identity (ADR-0022), so the two lists can't drift. Every one has a unit above.
  */
-const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(TRANSFORM_IDENTITY))
+const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(BaseValue.TRANSFORM_IDENTITY))
 
 /**
  * Non-transform CSS properties that take a length: a bare number is rendered
@@ -198,7 +201,7 @@ const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY")
  * Each term is emitted only when it is non-identity; with nothing to emit the
  * result is `"none"` (an identity projection carrying no woven transform).
  */
-const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record<string, unknown>): string => {
+const buildProjectionTransform = (delta: Projection.Delta, treeScale: Point.Point, latest: Record<string, unknown>): string => {
   const funcs: Array<string> = []
 
   const tx = delta.x.translate / treeScale.x
@@ -227,7 +230,7 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
 /**
  * PURE: translate engine values into a DOM `Patch`. Two modes:
  *
- *   - PROJECTION (ADR-0009): when the reserved {@link PROJECTION_KEY} is present,
+ *   - PROJECTION (ADR-0009): when the reserved `Projection.KEY` is present,
  *     the transform is assembled by {@link buildProjectionTransform} from that
  *     node's `delta`/`treeScale`, weaving the element's own animated
  *     `rotate`/`skew` and multiplying in its own `scale`/`scaleX`/`scaleY` (read
@@ -245,17 +248,17 @@ const buildProjectionTransform = (delta: Delta, treeScale: Point, latest: Record
  * this function directly: the same one {@link RendererDomLive} provides (ADR-0021,
  * decision 2). Tier 2, for binding authors.
  */
-export const project = (values: Record<string, unknown>): Patch => {
-  const patch: Patch = {}
+export const project = (values: Record<string, unknown>): Renderer.Patch => {
+  const patch: Renderer.Patch = {}
 
-  const projection = values[PROJECTION_KEY] as ProjectionValue | undefined
+  const projection = values[Projection.KEY] as Projection.Value | undefined
   if (projection !== undefined) {
     // Projection owns the transform; weave this element's rotate/skew from `values`.
     patch.transform = buildProjectionTransform(projection.delta, projection.treeScale, values)
     // Copy non-transform style keys (transform keys are consumed by the weave /
     // owned by the projection; the projection key itself never renders).
     for (const key in values) {
-      if (key === PROJECTION_KEY || TRANSFORM_KEYS.has(key)) continue
+      if (key === Projection.KEY || TRANSFORM_KEYS.has(key)) continue
       patch[key] = formatStyleValue(key, values[key])
     }
     // Shared-element crossfade (ADR-0010): compose the crossfade factor with the
@@ -302,7 +305,7 @@ export const project = (values: Record<string, unknown>): Patch => {
  * and SVG `attrs` via `setAttribute`. For an HTML element the attribute map is
  * empty, so this is the prior behavior. Quiet per-frame hot path — no span/log.
  */
-const commit = <T>(target: T, patch: Patch): Effect.Effect<void> =>
+const commit = <T>(target: T, patch: Renderer.Patch): Effect.Effect<void> =>
   Effect.sync(() => {
     const el = target as Element & { style: CSSStyleDeclaration }
     const { style, attrs } = splitPatch(el, patch)
@@ -317,4 +320,4 @@ const commit = <T>(target: T, patch: Patch): Effect.Effect<void> =>
  * service dependencies, so this is a plain `Layer.succeed` — no `AtomRegistry`
  * or other Environment service is required.
  */
-export const RendererDomLive: Layer.Layer<Renderer> = Layer.succeed(Renderer, { project, commit })
+export const RendererDomLive: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project, commit })

@@ -1,16 +1,16 @@
-import { resolveOverrides } from "@wardic/core"
+import * as Override from "@wardic/core/Override"
 import { expect, it } from "@effect/vitest"
 
 it("an empty stack resolves to an empty target", () => {
-  expect(resolveOverrides([])).toEqual({})
+  expect(Override.resolve([])).toEqual({})
 })
 
 it("the base contributes when active", () => {
-  expect(resolveOverrides([{ active: true, values: { opacity: 1, x: 0 } }])).toEqual({ opacity: 1, x: 0 })
+  expect(Override.resolve([{ active: true, values: { opacity: 1, x: 0 } }])).toEqual({ opacity: 1, x: 0 })
 })
 
 it("a higher-priority active entry wins per key; the base fills the rest", () => {
-  const out = resolveOverrides([
+  const out = Override.resolve([
     { active: true, values: { opacity: 1, scale: 1 } }, // base (animate)
     { active: true, values: { scale: 1.05 } }, // whileHover
   ])
@@ -19,7 +19,7 @@ it("a higher-priority active entry wins per key; the base fills the rest", () =>
 })
 
 it("inactive entries contribute nothing", () => {
-  const out = resolveOverrides([
+  const out = Override.resolve([
     { active: true, values: { scale: 1 } },
     { active: false, values: { scale: 1.05 } }, // not hovering
   ])
@@ -27,7 +27,7 @@ it("inactive entries contribute nothing", () => {
 })
 
 it("the last active entry wins when several define the same key", () => {
-  const out = resolveOverrides([
+  const out = Override.resolve([
     { active: true, values: { scale: 1 } }, // base
     { active: true, values: { scale: 1.05 } }, // hover
     { active: true, values: { scale: 0.95 } }, // tap (highest priority)
@@ -36,7 +36,7 @@ it("the last active entry wins when several define the same key", () => {
 })
 
 it("an inactive base with an active override yields only the override", () => {
-  const out = resolveOverrides([
+  const out = Override.resolve([
     { active: false, values: { opacity: 0 } },
     { active: true, values: { opacity: 1 } },
   ])

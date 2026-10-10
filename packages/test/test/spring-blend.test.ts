@@ -1,4 +1,5 @@
-import { type Frame, type MultiPhysicsFrame, type Values } from "@wardic/core"
+import type * as Frame from "@wardic/core/Frame"
+import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock, testLayer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -13,16 +14,16 @@ import * as Stream from "effect/Stream"
 
 const ticks = TestClock.frames(400, 1 / 60)
 
-const blend = (from: Values, to: Values, options?: Machine.SpringOptions) =>
+const blend = (from: Values.Values, to: Values.Values, options?: Machine.SpringOptions) =>
   Stream.runCollect(Machine.springBlend(from, to, options).pipe(Effect.map(Machine.toStream), Stream.unwrap)).pipe(
     Effect.provide(testLayer(ticks)),
-    Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame<Values>>),
+    Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame.Frame<Values.Values>>),
   )
 /** The reference: a numeric key springing 0 → 100 with the same options. */
 const reference = (options: Machine.SpringOptions = {}) =>
   Stream.runCollect(Machine.toStream(Machine.springValues({ x: 100 }, options, { x: 0 }, { x: 0 }))).pipe(
     Effect.provide(testLayer(ticks)),
-    Effect.map((frames) => (Array.from(frames) as ReadonlyArray<MultiPhysicsFrame>).map((f) => f.value.x!)),
+    Effect.map((frames) => (Array.from(frames) as ReadonlyArray<Frame.MultiPhysics>).map((f) => f.value.x!)),
   )
 const red = (colour: unknown): number => Number(/^rgba?\((\d+)/.exec(String(colour))![1])
 

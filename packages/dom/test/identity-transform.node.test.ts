@@ -6,14 +6,15 @@
 // stacking context and the containing block of its fixed descendants (CSS Transforms 1, §3).
 //
 // Expected strings are literal: the point is the markup `project` writes.
-import { PROJECTION_KEY, TRANSFORM_IDENTITY } from "@wardic/core"
+import * as BaseValue from "@wardic/core/BaseValue"
+import * as Projection from "@wardic/core/Projection"
 import { project, splitPatchForTag } from "@wardic/dom"
 import { describe, expect, it } from "vitest"
 
 const IDENTITY = { x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }, y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 } }
 /** A projection with no layout delta (`tx`, `ty` 0 unless given) and no tree scale. */
 const projected = (tx = 0, ty = 0) => ({
-  [PROJECTION_KEY]: {
+  [Projection.KEY]: {
     delta: { x: { ...IDENTITY.x, translate: tx }, y: { ...IDENTITY.y, translate: ty } },
     treeScale: { x: 1, y: 1 },
   },
@@ -21,13 +22,13 @@ const projected = (tx = 0, ty = 0) => ({
 
 describe("identity transforms: the normal path (ADR-0023)", () => {
   it("IT1: each transform key alone at its identity projects transform: none", () => {
-    for (const [key, identity] of Object.entries(TRANSFORM_IDENTITY)) {
+    for (const [key, identity] of Object.entries(BaseValue.TRANSFORM_IDENTITY)) {
       expect(project({ [key]: identity }), key).toEqual({ transform: "none" })
     }
   })
 
   it("IT2: all fifteen at their identity project none, and the other keys still project", () => {
-    expect(project({ ...TRANSFORM_IDENTITY, opacity: 0.5 })).toEqual({ transform: "none", opacity: 0.5 })
+    expect(project({ ...BaseValue.TRANSFORM_IDENTITY, opacity: 0.5 })).toEqual({ transform: "none", opacity: 0.5 })
   })
 
   it("IT3: a key at its identity is left out beside one that isn't", () => {

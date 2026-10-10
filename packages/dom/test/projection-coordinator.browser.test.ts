@@ -15,7 +15,10 @@
 //   outside its step interrupts it, and a step that throws fails it alone, logged, until the next
 //   trigger starts a fresh run.
 import { describe, expect, it } from "@effect/vitest"
-import { Clock, type Frame, FrameLoop, FrameLoopLive, InterpolatorRegistryLive } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
+import type * as Frame from "@wardic/core/Frame"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
@@ -39,8 +42,8 @@ import {
 } from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
 
-type ClockShape = Context.Service.Shape<typeof Clock>
-type LoopShape = Context.Service.Shape<typeof FrameLoop>
+type ClockShape = Context.Service.Shape<typeof Clock.Clock>
+type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
 type NativeSpanOptions = ConstructorParameters<typeof Tracer.NativeSpan>[0]
 
 /** One span the Tracer saw: its attributes and how it ended, filled in at its end. */
@@ -136,14 +139,14 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   }
   const logs: Array<Logged> = []
   const services = Layer.mergeAll(
-    Layer.effect(Clock)(Clock.useSync(countTicks)).pipe(Layer.provide(ClockDomLive)),
+    Layer.effect(Clock.Clock)(Clock.Clock.useSync(countTicks)).pipe(Layer.provide(ClockDomLive)),
     RendererDomLive,
     InputDomLive,
     ProbeDomLive,
-    InterpolatorRegistryLive,
+    InterpolatorRegistry.layer,
   )
-  const env = Layer.effect(FrameLoop)(FrameLoop.useSync(recordRuns)).pipe(
-    Layer.provide(FrameLoopLive),
+  const env = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync(recordRuns)).pipe(
+    Layer.provide(FrameLoop.layer),
     Layer.provideMerge(services),
     Layer.provideMerge(AtomRegistry.layer),
   )
@@ -221,7 +224,7 @@ const settle = (sink: ReturnType<typeof makeSink>, id: string): void => {
 
 /** A run of the test's own on the Frame loop that never settles, handing each Frame to `onFrame`. */
 const hold = (e: Engine, onFrame: () => void = () => {}) => {
-  const machine = Machine.make<Frame<number>>({
+  const machine = Machine.make<Frame.Frame<number>>({
     settles: false,
     span: { name: "test.hold", attributes: {} },
     start: () => () => ({ value: 0, done: false }),

@@ -1,6 +1,6 @@
 /**
  * Base values in the DOM (ADR-0022): an element's Own value for a key, and the `style` link's
- * lookup. A binding calls these and hands them to core's `baseValueOf` / `startValueOf`, so a
+ * lookup. A binding calls these and hands them to core's `BaseValue.of` / `BaseValue.start`, so a
  * new binding writes no DOM code for them (the thin-bindings rule). Tier 2, for binding
  * authors.
  *
@@ -10,7 +10,8 @@
  * Observability: per element and cold (once per key), so quiet; the spine logs what it
  * started from and returned to.
  */
-import { transformIdentity, unitOf } from "@wardic/core"
+import * as BaseValue from "@wardic/core/BaseValue"
+import * as Interpolator from "@wardic/core/Interpolator"
 import * as Option from "effect/Option"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
@@ -38,7 +39,7 @@ export const ownValues = (element: Element): OwnValue => {
   const cache = new Map<string, number | string | undefined>()
   let computed: CSSStyleDeclaration | undefined
   const read = (key: string): number | string | undefined => {
-    const identity = Option.getOrUndefined(transformIdentity(key))
+    const identity = Option.getOrUndefined(BaseValue.transformIdentity(key))
     if (identity !== undefined) return identity
     if (isSvgInner(element)) {
       const name = svgAttrNameOf(key)
@@ -67,7 +68,7 @@ export const ownValues = (element: Element): OwnValue => {
  * compose with the element's transform rather than seed it.
  */
 export const styleValueOf = (style: object | string | undefined, key: string): unknown => {
-  if (style === undefined || style === null || Option.isSome(transformIdentity(key))) return undefined
+  if (style === undefined || style === null || Option.isSome(BaseValue.transformIdentity(key))) return undefined
   const map = (typeof style === "string" ? parseCssText(style) : style) as Readonly<Record<string, unknown>>
   const at = (k: string): unknown => {
     const v = Object.hasOwn(map, k) ? map[k] : undefined
@@ -99,8 +100,8 @@ export const valueLike = (raw: unknown, like: number | string): number | string 
     return typeof raw === "string" && NUMERIC.test(raw) ? Number.parseFloat(raw) : undefined
   }
   if (typeof raw === "string") {
-    const want = Option.getOrUndefined(unitOf(like))
-    const got = Option.getOrUndefined(unitOf(raw))
+    const want = Option.getOrUndefined(Interpolator.unitOf(like))
+    const got = Option.getOrUndefined(Interpolator.unitOf(raw))
     const clash = want !== undefined && want !== "" && got !== undefined && got !== "" && got !== want
     return clash ? undefined : raw
   }

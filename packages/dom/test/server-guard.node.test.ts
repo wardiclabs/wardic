@@ -4,7 +4,7 @@
 // names the Layer and the global it needs. RendererDomLive builds anywhere, and the
 // pure `project` it provides is exported for a binding's server render (decision 2).
 // The guard reads its global when the Layer builds, never when `@wardic/dom` is imported.
-import { Renderer } from "@wardic/core"
+import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -32,7 +32,7 @@ const failureMessage = (exit: Exit.Exit<unknown, unknown>): string => {
 }
 
 /** The Renderer RendererDomLive provides. */
-const domRenderer = () => Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer }), RendererDomLive))
+const domRenderer = () => Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive))
 
 describe("DomLive on a server (ADR-0021, decision 7)", () => {
   it("G1: building ClockDomLive fails with the guard's message (no requestAnimationFrame)", () => {
@@ -64,7 +64,7 @@ describe("DomLive on a server (ADR-0021, decision 7)", () => {
     const runtime = ManagedRuntime.make(DomLive)
     let thrown: unknown
     try {
-      runtime.runSync(Renderer)
+      runtime.runSync(Renderer.Renderer)
     } catch (e) {
       thrown = e
     } finally {

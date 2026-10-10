@@ -13,7 +13,7 @@
 // - Client-only hooks return a fixed value and start nothing (decisions 8 and 9).
 //
 // Expected styles come from @wardic/dom's own Renderer (RendererDomLive), not hard-coded.
-import { Renderer } from "@wardic/core"
+import * as Renderer from "@wardic/core/Renderer"
 import { RendererDomLive } from "@wardic/dom"
 import {
   AnimatePresence,
@@ -48,7 +48,7 @@ import { describe, expect, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr-helpers.ts"
 
 /** The DOM's projection, from the Renderer DomLive provides. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
 
 /** `tag`'s inline style carries every key of the DOM's projection of `values`, as the server writes it. */
 const expectStartingStyle = (tag: Tag | undefined, values: Record<string, unknown>): void => {

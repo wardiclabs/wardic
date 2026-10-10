@@ -4,13 +4,14 @@ How core's API is shaped: the way Effect organises its own modules, so `pipe` is
 
 **Scope.** `packages/core/src`. The bindings' Tier 1 (`useWardic`, `wardic.create`, the `createX` primitives) is Effect-free Solid API and stays out; dom's own Effect-typed exports are #69's question. Rule 5 holds wherever code calls core.
 
-**Where core stands.** #93's slices move core's existing API onto these rules: #94 (the `Machine` module), #95 (every other export in its module, and the lint), #96 (the Reorder group) and #97 (`Values`' operations). New API follows them from now on. Breaking changes are taken outright: core is unpublished, so an old name or a positional signature goes with no deprecated alias.
+**Where core stands.** #93's slices move core's existing API onto these rules: #94 (the `Machine` module) and #95 (every other export in its module, and the lint) have landed; #96 (the Reorder group) and #97 (`Values`' operations) follow. New API follows them from now on. Breaking changes are taken outright: core is unpublished, so an old name or a positional signature goes with no deprecated alias.
 
 ## The rules
 
 1. **Every export lives in a module,** one file per module at `packages/core/src/<Module>.ts`, in PascalCase, named for a data type or a CONTEXT.md term (`Machine`, `Frame`, `Values`, `Easing`, `Box`, `Reorder`, …).
    - Implementation that two or more modules share lives in `src/internal/`, which `package.json`'s `exports` keeps unimportable from outside core.
    - The root, `src/index.ts`, is `export * as Machine from "./Machine.ts"` lines and nothing else.
+   - **A name doesn't repeat its module:** `Flip.Transform`, `Stagger.Options`, `AutoScroll.State`, `Projection.KEY`, not `Flip.FlipTransform`. The module's own type keeps the module's name, as effect's do: `Box.Box`, `Clock.Clock`, `Frame.Frame`.
 2. **A data type core builds,** one a caller never writes as a literal (`Machine`, the Reorder group), is `Pipeable`, as `effect/Duration` and `effect/Option` are:
    - a `TypeId` string, `"~@wardic/core/<Module>"`, with a variance marker for its type parameters;
    - a prototype holding the `TypeId`, `pipe` (`pipeArguments`) and `Inspectable.BaseProto`, with a `toJSON` that shows what identifies the value;
@@ -24,6 +25,8 @@ How core's API is shaped: the way Effect organises its own modules, so `pipe` is
    - Optional arguments: tell the forms apart by the first argument, `dual((args) => isMachine(args[0]), …)`, as `Stream.withSpan` does (`effect/Stream.js:7181`).
    - **The per-frame path stays positional.** `dual` and `pipe` run when a value is built, never per step: math, the easings, the steppers, `Box`'s geometry, the blenders keep plain positional signatures, inside their modules (ADR-0028, decision 7).
 5. **Code in the repo imports subpaths:** `import * as Machine from "@wardic/core/Machine"`, as core imports `effect/Option`. The root's namespaces are for users.
+   - **Inside core, a module imports another relatively,** as a namespace: `import * as Clock from "./Clock.ts"`. The bench copies a core's `src` without its `package.json`, where `@wardic/core/Clock` would resolve to the working tree's core (#95).
+   - **A local name that a module's would hide** takes `Core` before it: solid's `Reorder` component sits beside `import * as CoreReorder from "@wardic/core/Reorder"`.
 
 Services keep Effect's own shape, a `Context.Service` and its `Layer`, which already composes through Effect.
 
@@ -40,7 +43,7 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 
 ## Checks
 
-- **`bun run lint`,** from #95: the root re-exports namespaces only (`src/index.ts`), and dom, solid, test and the bench don't import `"@wardic/core"` itself.
+- **`bun run lint`** (#95): the root re-exports namespaces only (`src/index.ts`: no `export *` without a name, no named export), and dom, solid and test (src and test) and the bench don't import `"@wardic/core"` itself. Lint covers those packages for that one rule; the Effect-first rules reach them with #69.
 - **`bun run typecheck`:** a data type written as a literal fails (TS2739: its `[TypeId]` and `pipe` are required), and an import of `@wardic/core/internal/…` doesn't resolve (`exports`, from #94). Each operation's two forms are pinned by a type test.
 - **Review:** whether an operation is `dual`, whether a data type follows the pattern, and whether a per-frame function stayed positional.
 - **`bun run bench:core --base main`** on the bench server, for anything on the per-frame path.

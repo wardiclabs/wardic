@@ -1,14 +1,5 @@
-import {
-  arrayInterpolator,
-  colorInterpolator,
-  type InterpolatorEntry,
-  InterpolatorRegistry,
-  InterpolatorRegistryLive,
-  makeInterpolatorRegistry,
-  numberInterpolator,
-  unitInterpolator,
-  unitOf,
-} from "@wardic/core"
+import * as Interpolator from "@wardic/core/Interpolator"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
@@ -19,45 +10,45 @@ import { expect, it, layer } from "@effect/vitest"
 // (ADR-0026): `decodes` asks its codec, and `blendOf` decodes both endpoints, then blends.
 
 /** Whether `entry`'s codec decodes `value`: whether the value is the entry's kind. */
-const decodes = <D, E>(entry: InterpolatorEntry<D, E>, value: unknown): boolean =>
+const decodes = <D, E>(entry: Interpolator.Entry<D, E>, value: unknown): boolean =>
   Option.isSome(Schema.decodeUnknownOption(entry.codec)(value))
 
 /** `entry`'s blend of two endpoints, decoded by its codec, at `t`. */
 const blendOf =
-  <D, E>(entry: InterpolatorEntry<D, E>, from: unknown, to: unknown) =>
+  <D, E>(entry: Interpolator.Entry<D, E>, from: unknown, to: unknown) =>
   (t: number): E => {
     const decode = Schema.decodeUnknownSync(entry.codec)
     return Option.getOrThrow(entry.blend(decode(from), decode(to)))(t)
   }
 
 it("number entry decodes numbers and lerps", () => {
-  expect(decodes(numberInterpolator, 5)).toBe(true)
-  expect(decodes(numberInterpolator, "5")).toBe(false)
-  expect(blendOf(numberInterpolator, 0, 10)(0.5)).toBe(5)
+  expect(decodes(Interpolator.number, 5)).toBe(true)
+  expect(decodes(Interpolator.number, "5")).toBe(false)
+  expect(blendOf(Interpolator.number, 0, 10)(0.5)).toBe(5)
 })
 
 it("array entry interpolates element-wise", () => {
-  expect(decodes(arrayInterpolator, [0, 0])).toBe(true)
-  expect(blendOf(arrayInterpolator, [0, 0], [10, 20])(0.5)).toEqual([5, 10])
+  expect(decodes(Interpolator.array, [0, 0])).toBe(true)
+  expect(blendOf(Interpolator.array, [0, 0], [10, 20])(0.5)).toEqual([5, 10])
 })
 
 it("unit entry preserves the unit", () => {
-  expect(decodes(unitInterpolator, "10px")).toBe(true)
-  expect(blendOf(unitInterpolator, "0px", "10px")(0.5)).toBe("5px")
+  expect(decodes(Interpolator.unit, "10px")).toBe(true)
+  expect(blendOf(Interpolator.unit, "0px", "10px")(0.5)).toBe("5px")
 })
 
 it("unitOf reads the unit the unit entry parses: '' for a bare number, None for none", () => {
-  expect(unitOf(" 10px ")).toEqual(Option.some("px"))
-  expect(unitOf("-100%")).toEqual(Option.some("%"))
-  expect(unitOf("0.5em")).toEqual(Option.some("em"))
-  expect(unitOf("120")).toEqual(Option.some(""))
-  expect(unitOf("auto")).toEqual(Option.none())
-  expect(unitOf("rgb(0, 0, 0)")).toEqual(Option.none())
+  expect(Interpolator.unitOf(" 10px ")).toEqual(Option.some("px"))
+  expect(Interpolator.unitOf("-100%")).toEqual(Option.some("%"))
+  expect(Interpolator.unitOf("0.5em")).toEqual(Option.some("em"))
+  expect(Interpolator.unitOf("120")).toEqual(Option.some(""))
+  expect(Interpolator.unitOf("auto")).toEqual(Option.none())
+  expect(Interpolator.unitOf("rgb(0, 0, 0)")).toEqual(Option.none())
 })
 
 it("color interpolator does not decode the CSS keyword 'auto'", () => {
   // Arrange
-  const color = colorInterpolator()
+  const color = Interpolator.color()
 
   // Act
   const decoded = decodes(color, "auto")
@@ -68,7 +59,7 @@ it("color interpolator does not decode the CSS keyword 'auto'", () => {
 
 it("color interpolator decodes the named color 'rebeccapurple'", () => {
   // Arrange
-  const color = colorInterpolator()
+  const color = Interpolator.color()
 
   // Act
   const decoded = decodes(color, "rebeccapurple")
@@ -80,7 +71,7 @@ it("color interpolator decodes the named color 'rebeccapurple'", () => {
 it("color interpolator decodes '#fff' and 'rgb(0,0,0)' through culori's parse, without throwing", () => {
   // Arrange — decoding is matching (ADR-0026): there is no prefix fast path, so `#fff` and
   // `rgb(0,0,0)` are colours because culori parses them.
-  const color = colorInterpolator()
+  const color = Interpolator.color()
 
   // Act
   const hashMatch = (): boolean => decodes(color, "#fff")
@@ -93,12 +84,12 @@ it("color interpolator decodes '#fff' and 'rgb(0,0,0)' through culori's parse, w
   expect(rgbMatch()).toBe(true)
 })
 
-// Registry-backed tests — all share InterpolatorRegistryLive via layer().
+// Registry-backed tests — all share InterpolatorRegistry.layer via layer().
 
-layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
+layer(InterpolatorRegistry.layer)("interpolator registry", (it) => {
   it.effect("registry routes by value type", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect(yield* registry.interpolate(0, 10, 0.5)).toBe(5)
       expect(yield* registry.interpolate("0px", "10px", 0.5)).toBe("5px")
       expect(yield* registry.interpolate("#000000", "#ffffff", 0.5)).toContain("rgb")
@@ -108,7 +99,7 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
   it.effect("resolve returns a reusable (t) => T closure across multiple t values", () =>
     Effect.gen(function* () {
       // Arrange
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve(0, 100)
 
       // Act
@@ -126,7 +117,7 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
   it.effect("resolve(0, '10px') picks the unit interpolator and yields '5px' at t=0.5", () =>
     Effect.gen(function* () {
       // Arrange
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve(0, "10px")
 
       // Act
@@ -140,7 +131,7 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
   it.effect("resolve('10px', '20em') is a Discrete pair, with a warning naming both values (ADR-0026)", () =>
     Effect.gen(function* () {
       // Arrange — capture the warning `resolve` logs for a pair an entry decodes but can't blend.
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const warnings: Array<{ readonly message: unknown; readonly annotations: Record<string, unknown> }> = []
       const capture = Logger.map(Logger.formatStructured, (structured) => {
         if (structured.level === "WARN") warnings.push({ message: structured.message, annotations: structured.annotations })
@@ -159,7 +150,7 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
   it.effect("resolve('auto', 'left') is a Discrete pair: 'auto' at t=0, 'left' from the first frame past it (ADR-0024)", () =>
     Effect.gen(function* () {
       // Arrange
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve("auto", "left")
 
       // Act
@@ -177,7 +168,7 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
   it.effect("resolve('rebeccapurple', '#fff') yields a valid rgb(...) string", () =>
     Effect.gen(function* () {
       // Arrange
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve("rebeccapurple", "#fff")
 
       // Act
@@ -194,12 +185,12 @@ layer(InterpolatorRegistryLive)("interpolator registry", (it) => {
 })
 
 // Isolated block — `register` mutates the shared registry, so this test gets
-// its own `layer()` (a fresh InterpolatorRegistryLive build) to keep the
+// its own `layer()` (a fresh InterpolatorRegistry.layer build) to keep the
 // "always-999" override from leaking into the resolve(...) cases above.
-layer(InterpolatorRegistryLive)("interpolator registry (registration precedence)", (it) => {
+layer(InterpolatorRegistry.layer)("interpolator registry (registration precedence)", (it) => {
   it.effect("registered interpolators take precedence over built-ins", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       yield* registry.register({
         name: "always-999",
         codec: Schema.Number,
@@ -212,10 +203,10 @@ layer(InterpolatorRegistryLive)("interpolator registry (registration precedence)
 })
 
 // The registry keeps each pair of strings it resolves (ADR-0026, decision 9).
-layer(InterpolatorRegistryLive)("interpolator registry (the cache of string pairs)", (it) => {
+layer(InterpolatorRegistry.layer)("interpolator registry (the cache of string pairs)", (it) => {
   it.effect("a pair of strings resolves once: the same closure comes back", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const first = yield* registry.resolve("#000", "#fff")
       const again = yield* registry.resolve("#000", "#fff")
       expect(again).toBe(first)
@@ -225,7 +216,7 @@ layer(InterpolatorRegistryLive)("interpolator registry (the cache of string pair
 
   it.effect("numbers, and a number with a string, aren't kept", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect(yield* registry.resolve(0, 1)).not.toBe(yield* registry.resolve(0, 1))
       expect(yield* registry.resolve(0, "10px")).not.toBe(yield* registry.resolve(0, "10px"))
     }),
@@ -233,7 +224,7 @@ layer(InterpolatorRegistryLive)("interpolator registry (the cache of string pair
 
   it.effect("a shared complex closure gives each caller its own frame, interleaved", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const a = yield* registry.resolve("M0,0 L10,10", "M0,0 L20,20")
       const b = yield* registry.resolve("M0,0 L10,10", "M0,0 L20,20")
       expect(b).toBe(a)
@@ -244,7 +235,7 @@ layer(InterpolatorRegistryLive)("interpolator registry (the cache of string pair
 
 it.effect("register empties the cache: a pair kept before it resolves through the new entry", () =>
   Effect.gen(function* () {
-    const registry = yield* makeInterpolatorRegistry()
+    const registry = yield* InterpolatorRegistry.make()
     expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("15px")
     yield* registry.register({
       name: "always-shout",

@@ -18,7 +18,7 @@
  * members, so adding them never breaks existing readers (they only read the
  * fields they know about).
  */
-import type { StaggerOrigin } from "@wardic/core"
+import type * as Stagger from "@wardic/core/Stagger"
 import { type Accessor, createContext, useContext } from "solid-js"
 import type { WardicTransition } from "./use-wardic.tsx"
 
@@ -48,7 +48,7 @@ export interface WardicStaggerConfig {
   /** Fixed offset added to every child's computed delay. */
   readonly delayChildren: number
   /** Origin the stagger distance grows outward from (core option). */
-  readonly from: StaggerOrigin
+  readonly from: Stagger.Origin
   /** `1` forward (index = position), `-1` reverses the effective index. */
   readonly direction: 1 | -1
 }

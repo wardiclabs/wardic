@@ -1,4 +1,4 @@
-import { nextMicrotask } from "@wardic/core"
+import * as Microtask from "@wardic/core/Microtask"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -8,7 +8,7 @@ import { MixedScheduler } from "effect/Scheduler"
 // Node has `setImmediate`, so Effect's default scheduler dispatches through it.
 // Browsers do not, and the scheduler falls back to `setTimeout(0)`. These tests
 // replace the effect/Scheduler reference with that browser fallback, so they
-// check real-browser timing: the continuation after `nextMicrotask` must not
+// check real-browser timing: the continuation after `Microtask.next` must not
 // depend on the scheduler at all.
 const timeoutScheduler = new MixedScheduler("async", (task) => {
   const timer = setTimeout(task, 0)
@@ -17,7 +17,7 @@ const timeoutScheduler = new MixedScheduler("async", (task) => {
 
 const nextTimeout = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
-describe("nextMicrotask", () => {
+describe("Microtask.next", () => {
   it("resumes before a setTimeout(0) scheduled in the same synchronous block", async () => {
     const order: Array<string> = []
     // Scheduled first, so anything routed through the setTimeout-backed
@@ -30,7 +30,7 @@ describe("nextMicrotask", () => {
     )
     const fiber = Effect.runFork(
       Effect.gen(function* () {
-        yield* nextMicrotask
+        yield* Microtask.next
         order.push("microtask")
       }),
       { scheduler: timeoutScheduler },
@@ -46,7 +46,7 @@ describe("nextMicrotask", () => {
     const order: Array<string> = []
     Effect.runFork(
       Effect.gen(function* () {
-        yield* nextMicrotask
+        yield* Microtask.next
         order.push("continuation")
       }),
       { scheduler: timeoutScheduler },
@@ -61,7 +61,7 @@ describe("nextMicrotask", () => {
     const order: Array<string> = []
     const fiber = Effect.runFork(
       Effect.gen(function* () {
-        yield* nextMicrotask
+        yield* Microtask.next
         order.push("continuation")
       }),
       { scheduler: timeoutScheduler },

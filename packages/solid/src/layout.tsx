@@ -17,7 +17,7 @@
  * Idle = zero cost: nothing is measured until a trigger fires (CONTEXT.md
  * observability convention — hot path stays quiet).
  */
-import type { Point } from "@wardic/core"
+import type * as Point from "@wardic/core/Point"
 import type * as Machine from "@wardic/core/Machine"
 import type { ProjectionNodeHandle } from "@wardic/dom"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
@@ -59,7 +59,7 @@ export interface UseLayoutMemberOptions {
   /** Mark this element a stable projection sub-root (ADR-0013): self-snap + boundary + persistent relative anchor. */
   readonly layoutRoot?: boolean
   /** This element's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
-  readonly layoutAnchor?: Point | false
+  readonly layoutAnchor?: Point.Point | false
   /** Raise the node while it's dragged (ADR-0016 *Amendment (Reorder)*; internal, a `<Reorder>` item's). */
   readonly raiseWhileDragged?: boolean
 }

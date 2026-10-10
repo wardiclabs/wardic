@@ -17,7 +17,7 @@
 // its first box is that frame's paint. Each trigger fires from the execution context
 // its layout-lab scenario tests (examples/layout-lab/src/scenarios/).
 import { cleanup, render } from "@solidjs/testing-library"
-import { Clock } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
 import { DomLive } from "@wardic/dom"
 import { useWardic, useWardicGate, useWardicRuntime, wardic, WardicProvider } from "@wardic/solid"
 import * as Effect from "effect/Effect"
@@ -196,7 +196,7 @@ it("a layout change inside a Clock tick paints its origin first (s5)", async () 
     const runtime = useWardicRuntime()
     const fiber = runtime.runFork(
       Effect.gen(function* () {
-        const clock = yield* Clock
+        const clock = yield* Clock.Clock
         yield* Stream.runForEach(clock.ticks, () =>
           Effect.sync(() => {
             if (!armed) return

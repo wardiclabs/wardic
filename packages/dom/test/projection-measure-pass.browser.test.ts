@@ -13,7 +13,8 @@
 // Clock reads it when its Layer builds), so the test fires Refresh frames with chosen
 // timestamps; ResizeObserver is stubbed to a no-op so no real observer delivery adds
 // a pass mid-test (the solid browser tests cover that path).
-import { Clock, PROJECTION_KEY } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
+import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -85,7 +86,7 @@ const makeSink = (onFlush?: (n: number) => void) => {
   let flushes = 0
   const sink = {
     write: (id: string, partial: Record<string, unknown>): void => {
-      const value = partial[PROJECTION_KEY] as { delta: { x: { translate: number } } } | undefined
+      const value = partial[Projection.KEY] as { delta: { x: { translate: number } } } | undefined
       log.push({ kind: "write", id, translateX: value?.delta.x.translate })
     },
     flushPass: (pass: () => void): void => {
@@ -127,10 +128,10 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
 }
 
 /** Keep the Clock ticking with a subscription of the test's own (a warm Clock). */
-const keepClockWarm = (runtime: ManagedRuntime.ManagedRuntime<Clock, never>) =>
+const keepClockWarm = (runtime: ManagedRuntime.ManagedRuntime<Clock.Clock, never>) =>
   runtime.runFork(
     Effect.gen(function* () {
-      const clock = yield* Clock
+      const clock = yield* Clock.Clock
       yield* Stream.runForEach(clock.ticks, () => Effect.void)
     }),
   )

@@ -1,4 +1,4 @@
-import { type Clock, makeRefreshFrameClock, NOMINAL_DT, type RefreshFrameSource } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
 import { describe, expect, it } from "@effect/vitest"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -26,7 +26,7 @@ const makeFrames = () => {
   let requests = 0
   let cancels = 0
   let now = 0
-  const source: RefreshFrameSource<number> = {
+  const source: Clock.RefreshFrameSource<number> = {
     now: () => now,
     requestFrame: (callback) => {
       const handle = nextHandle++
@@ -55,7 +55,7 @@ const makeFrames = () => {
   return { source, pending, events, fire, setNow, requests: () => requests, cancels: () => cancels }
 }
 
-type ClockShape = Context.Service.Shape<typeof Clock>
+type ClockShape = Context.Service.Shape<typeof Clock.Clock>
 
 /** Build a Clock over a fresh frame source, with every fiber on a counting `setTimeout(0)` scheduler. */
 const makeHarness = async () => {
@@ -69,7 +69,7 @@ const makeHarness = async () => {
   const registry = AtomRegistry.make()
   const scope = Scope.makeUnsafe()
   const clock: ClockShape = await Effect.runPromise(
-    makeRefreshFrameClock(frames.source).pipe(
+    Clock.fromRefreshFrames(frames.source).pipe(
       Effect.provideService(AtomRegistry.AtomRegistry, registry),
       Scope.provide(scope),
     ),
@@ -113,7 +113,7 @@ const fireAndSettle = async (frames: ReturnType<typeof makeFrames>, t: number): 
   await nextTimeout()
 }
 
-describe("makeRefreshFrameClock", () => {
+describe("Clock.fromRefreshFrames", () => {
   it("requests no Refresh frame until something subscribes", async () => {
     const h = await makeHarness()
     await nextTimeout()
@@ -125,7 +125,7 @@ describe("makeRefreshFrameClock", () => {
     const sub = h.subscribe()
     expect(sub.received).toEqual([]) // not synchronously inside subscribe
     await endOfTask()
-    expect(sub.received).toEqual([NOMINAL_DT]) // before any Refresh frame or setTimeout(0)
+    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // before any Refresh frame or setTimeout(0)
     expect(h.frames.requests()).toBe(1) // then the loop asks for its first Refresh frame
     await sub.close()
   })
@@ -134,7 +134,7 @@ describe("makeRefreshFrameClock", () => {
     const h = await makeHarness()
     const sub = h.subscribe({ maxOpsBeforeYield: 5 }) // below ~5 the fiber livelocks: it yields before every op
     for (let i = 0; i < 100 && sub.received.length === 0; i++) await nextTimeout()
-    expect(sub.received).toEqual([NOMINAL_DT]) // the Priming tick, not a late first Refresh frame
+    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // the Priming tick, not a late first Refresh frame
     expect(h.frames.pending.size).toBe(1) // and no Refresh frame has fired yet
     await sub.close()
   })
@@ -147,8 +147,8 @@ describe("makeRefreshFrameClock", () => {
     await fireAndSettle(h.frames, 1016)
     await fireAndSettle(h.frames, 1048)
     expect(sub.received).toHaveLength(4)
-    expect(sub.received[0]).toBeCloseTo(NOMINAL_DT, 9) // Priming tick
-    expect(sub.received[1]).toBeCloseTo(NOMINAL_DT, 9) // first Refresh frame
+    expect(sub.received[0]).toBeCloseTo(Clock.NOMINAL_DT, 9) // Priming tick
+    expect(sub.received[1]).toBeCloseTo(Clock.NOMINAL_DT, 9) // first Refresh frame
     expect(sub.received[2]).toBeCloseTo(0.016, 9)
     expect(sub.received[3]).toBeCloseTo(0.032, 9)
     await sub.close()
@@ -169,8 +169,8 @@ describe("makeRefreshFrameClock", () => {
     await fireAndSettle(h.frames, 10000)
     await fireAndSettle(h.frames, 10016)
     expect(b.received).toHaveLength(3)
-    expect(b.received[0]).toBeCloseTo(NOMINAL_DT, 9)
-    expect(b.received[1]).toBeCloseTo(NOMINAL_DT, 9)
+    expect(b.received[0]).toBeCloseTo(Clock.NOMINAL_DT, 9)
+    expect(b.received[1]).toBeCloseTo(Clock.NOMINAL_DT, 9)
     expect(b.received[2]).toBeCloseTo(0.016, 9)
     await b.close()
   })
@@ -332,7 +332,7 @@ describe("makeRefreshFrameClock", () => {
     expect(h.registry.get(h.clock.dt)).toBe(0)
 
     await endOfTask()
-    expect(h.registry.get(h.clock.dt)).toBeCloseTo(NOMINAL_DT, 9)
+    expect(h.registry.get(h.clock.dt)).toBeCloseTo(Clock.NOMINAL_DT, 9)
     expect(h.registry.get(h.clock.time)).toBe(0) // the Priming tick has no Refresh frame timestamp
 
     await fireAndSettle(h.frames, 1000)

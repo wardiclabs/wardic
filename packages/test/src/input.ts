@@ -1,5 +1,4 @@
-import { InputSource } from "@wardic/core"
-import type { FocusLikeEvent, PointerLikeEvent } from "@wardic/core"
+import * as InputSource from "@wardic/core/InputSource"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
@@ -15,10 +14,10 @@ import * as Stream from "effect/Stream"
  * emits nothing — for tests that don't exercise gestures.
  */
 export const layer = (
-  pointerEvents: ReadonlyArray<PointerLikeEvent> = [],
-  focusEvents: ReadonlyArray<FocusLikeEvent> = [],
-): Layer.Layer<InputSource> =>
-  Layer.succeed(InputSource, {
+  pointerEvents: ReadonlyArray<InputSource.PointerLikeEvent> = [],
+  focusEvents: ReadonlyArray<InputSource.FocusLikeEvent> = [],
+): Layer.Layer<InputSource.InputSource> =>
+  Layer.succeed(InputSource.InputSource, {
     pointer: () => Stream.fromIterable(pointerEvents),
     keyboard: () => Stream.empty,
     wheel: () => Stream.empty,
@@ -32,7 +31,7 @@ export const layer = (
  * form lets the test `push` events one at a time, on its own schedule.
  *
  * Backed by a `PubSub` (not a `Queue`) so that every call to `pointer(target)`
- * gets an **independent live subscription**: recognizers like `withMomentum`
+ * gets an **independent live subscription**: recognizers like `Drag.fling`
  * subscribe to `input.pointer(target)` more than once (the drag fold and the
  * re-grab detector), and a single-consumer Queue would split events between
  * them. Broadcast delivery hands every subscriber the same events. There is no
@@ -52,28 +51,28 @@ export const layer = (
  * broadcast `PubSub`.
  */
 export const pushable = (): Effect.Effect<{
-  readonly layer: Layer.Layer<InputSource>
-  readonly push: (event: PointerLikeEvent) => Effect.Effect<void>
-  readonly pushFocus: (event: FocusLikeEvent) => Effect.Effect<void>
+  readonly layer: Layer.Layer<InputSource.InputSource>
+  readonly push: (event: InputSource.PointerLikeEvent) => Effect.Effect<void>
+  readonly pushFocus: (event: InputSource.FocusLikeEvent) => Effect.Effect<void>
 }> =>
   Effect.gen(function* () {
-    const pubsub = yield* PubSub.unbounded<PointerLikeEvent>()
-    const focusPubsub = yield* PubSub.unbounded<FocusLikeEvent>()
+    const pubsub = yield* PubSub.unbounded<InputSource.PointerLikeEvent>()
+    const focusPubsub = yield* PubSub.unbounded<InputSource.FocusLikeEvent>()
     // Yield after publishing so the merged subscribers drain this event before
     // the test pushes the next one — keeps interleaving deterministic. A single
     // yieldNow isn't enough across a merge/switchMap/fromPubSub graph; hand the
     // scheduler a small fixed budget of turns instead.
     const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
     return {
-      layer: Layer.succeed(InputSource, {
+      layer: Layer.succeed(InputSource.InputSource, {
         pointer: () => Stream.fromPubSub(pubsub),
         keyboard: () => Stream.empty,
         wheel: () => Stream.empty,
         focus: () => Stream.fromPubSub(focusPubsub),
       }),
-      push: (event: PointerLikeEvent) =>
+      push: (event: InputSource.PointerLikeEvent) =>
         PubSub.publish(pubsub, event).pipe(Effect.flatMap(() => drain)),
-      pushFocus: (event: FocusLikeEvent) =>
+      pushFocus: (event: InputSource.FocusLikeEvent) =>
         PubSub.publish(focusPubsub, event).pipe(Effect.flatMap(() => drain)),
     }
   })

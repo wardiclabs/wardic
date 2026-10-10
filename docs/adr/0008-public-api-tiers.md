@@ -35,3 +35,13 @@ Effect 4.0.0 shipped on 2026-10-01, and Wardic moved to 4.0.2. Reactivity is `ef
 ## Amendment (#68, 2026-10-08): the machines and the Frame loop are Tier 2
 
 Each Primitive's machine (`springValuesMachine`, …), `toStream`, and the `FrameLoop` service with `FrameLoopLive` are Tier 2: Effect-typed, for binding and Environment authors, like `makeRefreshFrameClock` (ADR-0027). The Primitives' `Stream` signatures are unchanged.
+
+## Amendment (#95, 2026-10-09): every export in a module, and Tier 3 at last
+
+ADR-0028's decision 2 lands the subpaths, and with them the curation this record asked for.
+
+- **Every export lives in a module, `@wardic/core/<Module>`,** and the root re-exports each module as a namespace and nothing else. The folder barrels are gone, and lint holds the root's shape (ADR-0028, decision 10).
+- **Tier 3 is fenced off:** `package.json`'s `"./internal/*": null` makes `src/internal/` unimportable from outside core. The tween's and decay's steppers and the Frame loop's shape and `make` live there. `chaseCore` went with #94, and `springStep` (the options form) with #95.
+- **A Tier 3 function with a caller outside core stays public, labelled:** `Spring.init`, `Spring.resolve`, `Spring.step` and `Spring.State`, which dom's projection pass steps per node per frame. Their JSDoc says Tier 3.
+- **"No subpath split yet" is reversed, but not as an `/unstable` subpath:** the subpaths are per module, not per tier. Tier 1 and Tier 2 are still told apart by JSDoc, and an `/unstable` subpath stays possible, additively.
+

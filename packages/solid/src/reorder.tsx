@@ -19,7 +19,7 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
-import type { ReorderAxis, ReorderGroup as CoreReorderGroup } from "@wardic/core"
+import type * as CoreReorder from "@wardic/core/Reorder"
 import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import {
@@ -51,7 +51,7 @@ import { MOTION_PROPS, motionToConfig, wardic, type WardicMotionProps, type Ward
 export interface ReorderGroupConfig<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
-  readonly axis?: ReorderAxis
+  readonly axis?: CoreReorder.Axis
 }
 
 /** The spreadable props a {@link ReorderGroupWard} returns. */
@@ -66,8 +66,8 @@ export interface ReorderGroupWardProps {
  * `axis` (the resolved axis) and `move(value, toIndex)` (move a value in code).
  */
 export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWardProps) & {
-  readonly group: CoreReorderGroup<V>
-  readonly axis: Accessor<ReorderAxis>
+  readonly group: CoreReorder.ReorderGroup<V>
+  readonly axis: Accessor<CoreReorder.Axis>
   readonly move: (value: V, toIndex: number) => void
   /** @internal for the items: the group's controller. */
   readonly controller: ReorderController<V>
@@ -95,7 +95,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     useWardicRuntime()
     return serverReorderGroup(cfg)
   }
-  const [detected, setDetected] = createSignal<ReorderAxis>("y")
+  const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
   const controller = makeReorderController<V>({
     runtime: useWardicRuntime(),
     projection: useWardicProjection(),
@@ -106,7 +106,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     keyedWith: "<For>",
   })
   onCleanup(controller.dispose)
-  const axis: Accessor<ReorderAxis> = () => cfg().axis ?? detected()
+  const axis: Accessor<CoreReorder.Axis> = () => cfg().axis ?? detected()
 
   // A `values` change re-measures, so the items animate to their new slots whoever
   // reordered them (as LayoutGroup's layoutDependency does).
@@ -267,7 +267,7 @@ export type ReorderElementTag = keyof JSX.IntrinsicElements
 export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
-  readonly axis?: ReorderAxis | undefined
+  readonly axis?: CoreReorder.Axis | undefined
   readonly as?: Tag
 } & Omit<WardicProps<Tag>, "onReorder">
 
@@ -293,7 +293,7 @@ export type ReorderItemProps<V, Tag extends ReorderElementTag = "li"> = {
 interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
-  readonly axis?: ReorderAxis | undefined
+  readonly axis?: CoreReorder.Axis | undefined
   readonly as?: string | undefined
   readonly ref?: ((el: HTMLElement) => void) | undefined
   readonly style?: JSX.CSSProperties | undefined

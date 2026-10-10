@@ -6,7 +6,8 @@
  * this lives in `@wardic/dom` alongside the projection engine that consumes it (a
  * binding imports it from here).
  */
-import type { Bounds, Point } from "@wardic/core"
+import type * as Point from "@wardic/core/Point"
+import type * as Probe from "@wardic/core/Probe"
 
 /**
  * Read `el`'s box AS IT CURRENTLY RENDERS — a raw `getBoundingClientRect`, no
@@ -15,7 +16,7 @@ import type { Bounds, Point } from "@wardic/core"
  * nothing is transformed (see `runMeasurePass`). A lone caller wants
  * {@link measureLayoutBox} instead.
  */
-export const readLayoutBox = (el: HTMLElement): Bounds => {
+export const readLayoutBox = (el: HTMLElement): Probe.Bounds => {
   const r = el.getBoundingClientRect()
   return {
     x: r.x,
@@ -40,7 +41,7 @@ export const readLayoutBox = (el: HTMLElement): Bounds => {
  * `finally` restores before the next element is read — which is why the projection
  * pass hoists the reset out to pass level rather than widening it here.
  */
-export const measureLayoutBox = (el: HTMLElement): Bounds => {
+export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
   const saved = el.style.transform
   el.style.transform = ""
   try {
@@ -51,7 +52,7 @@ export const measureLayoutBox = (el: HTMLElement): Bounds => {
 }
 
 /** An element's scroll offset (ADR-0012, Motion's `measureScroll`). */
-export const measureScroll = (el: HTMLElement): Point => ({ x: el.scrollLeft, y: el.scrollTop })
+export const measureScroll = (el: HTMLElement): Point.Point => ({ x: el.scrollLeft, y: el.scrollTop })
 
 /**
  * Whether `el` is a scroll ROOT (ADR-0012, Motion's `checkIsScrollRoot`): a
@@ -109,7 +110,7 @@ export const scrollersOf = (el: Element): { readonly ancestors: Array<Element>; 
  * `DocumentProjectionNode` root). Folded into every box unless it sits in a scroll
  * root. SSR-safe (returns origin when there is no document).
  */
-export const measureDocumentScroll = (): Point => {
+export const measureDocumentScroll = (): Point.Point => {
   if (typeof document === "undefined") return { x: 0, y: 0 }
   const doc = document.documentElement
   return {

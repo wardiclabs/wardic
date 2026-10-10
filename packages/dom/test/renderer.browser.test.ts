@@ -1,7 +1,8 @@
-import { Renderer } from "@wardic/core"
+import * as Flip from "@wardic/core/Flip"
+import * as Projection from "@wardic/core/Projection"
+import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { flip, PROJECTION_KEY } from "@wardic/core"
 import { RendererDomLive } from "../src/renderer.ts"
 
 /** An identity projection delta + tree-scale, for the @projection opacity tests. */
@@ -21,7 +22,7 @@ const IDENTITY_PROJECTION = {
 const renderer = await Effect.runPromise(
   Effect.provide(
     Effect.gen(function* () {
-      return yield* Renderer
+      return yield* Renderer.Renderer
     }),
     RendererDomLive,
   ),
@@ -54,7 +55,7 @@ describe("RendererDomLive.project (pure)", () => {
   })
 
   it("projects flip output { x, y, scaleX, scaleY } into one transform string", () => {
-    const t = flip(
+    const t = Flip.make(
       { x: 0, y: 0, left: 0, top: 0, right: 200, bottom: 80, width: 200, height: 80 },
       { x: 50, y: 20, left: 50, top: 20, right: 150, bottom: 60, width: 100, height: 40 },
     )
@@ -72,16 +73,16 @@ describe("RendererDomLive.project (pure)", () => {
   it("composes the @projection crossfade factor with user opacity (finalOpacity = user × factor)", () => {
     // user 0.8 × factor 0.5 = 0.4
     expect(
-      renderer.project({ opacity: 0.8, [PROJECTION_KEY]: { ...IDENTITY_PROJECTION, opacity: 0.5 } }).opacity,
+      renderer.project({ opacity: 0.8, [Projection.KEY]: { ...IDENTITY_PROJECTION, opacity: 0.5 } }).opacity,
     ).toBeCloseTo(0.4, 5)
     // no user opacity → the factor alone (1 × 0.25)
     expect(
-      renderer.project({ [PROJECTION_KEY]: { ...IDENTITY_PROJECTION, opacity: 0.25 } }).opacity,
+      renderer.project({ [Projection.KEY]: { ...IDENTITY_PROJECTION, opacity: 0.25 } }).opacity,
     ).toBeCloseTo(0.25, 5)
   })
 
   it("passes user opacity through untouched when the @projection carries no factor", () => {
-    expect(renderer.project({ opacity: 0.7, [PROJECTION_KEY]: IDENTITY_PROJECTION }).opacity).toBe(0.7)
+    expect(renderer.project({ opacity: 0.7, [Projection.KEY]: IDENTITY_PROJECTION }).opacity).toBe(0.7)
   })
 
   it("appends px to a numeric length property (width)", () => {

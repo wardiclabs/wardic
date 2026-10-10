@@ -1,4 +1,6 @@
-import { type Frame, linear, type Values } from "@wardic/core"
+import * as Easing from "@wardic/core/Easing"
+import type * as Frame from "@wardic/core/Frame"
+import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import { testLayer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -15,17 +17,17 @@ import * as Stream from "effect/Stream"
 const quarter = [0.25, 0.25, 0.25, 0.25]
 
 /** The values one key takes over a 1 s linear tween, frame by frame. */
-const run = (from: Values, to: Values, ticks: ReadonlyArray<number> = quarter, delay?: number) =>
+const run = (from: Values.Values, to: Values.Values, ticks: ReadonlyArray<number> = quarter, delay?: number) =>
   Stream.runCollect(
-    Machine.animateValues(from, to, { duration: 1, easing: linear, ...(delay !== undefined ? { delay } : {}) }).pipe(
+    Machine.animateValues(from, to, { duration: 1, easing: Easing.linear, ...(delay !== undefined ? { delay } : {}) }).pipe(
       Effect.map(Machine.toStream),
       Stream.unwrap,
     ),
   ).pipe(
     Effect.provide(testLayer(ticks)),
-    Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame<Values>>),
+    Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame.Frame<Values.Values>>),
   )
-const of = (frames: ReadonlyArray<Frame<Values>>, key: string) => frames.map((f) => f.value[key])
+const of = (frames: ReadonlyArray<Frame.Frame<Values.Values>>, key: string) => frames.map((f) => f.value[key])
 
 it.effect("DV1: display block → none switches on the last frame only", () =>
   Effect.gen(function* () {
