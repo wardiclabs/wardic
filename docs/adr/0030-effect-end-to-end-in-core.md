@@ -191,21 +191,21 @@
     - CONTEXT.md's flagged ambiguity on "Atom" names `Probe`'s Atoms alone.
 13. **How #83 lands.** Each slice adds an *Implementation in* section here, and the amendments to the ADRs it changes, as ADR-0027's and ADR-0028's slices did.
     - **This record first,** docs only: ADR-0030; CONTEXT.md's Frame time and its "Atom" ambiguity; `effect-first.md`'s per-frame read rule; `pipeable.md`'s sink contract.
-    - **Slice 1, core: `Clock.delay` and the Clock's `time` / `dt` Atoms go** (decisions 1 and 12). It amends ADR-0025 (decision 8's `Schedule` bullet), ADR-0028 (decision 12's services row), ADR-0006 and ADR-0017 (the Atoms).
-    - **Slice 2, core: per-frame reads are plain** (decision 10), with the lint and `Interpolator.array`'s loop.
-    - **Slice 3, core: `springValues` steps in place** (decision 11), with the sink contract and `toStream`'s copy. Blocked by slice 2. It amends ADR-0027 and ADR-0028.
-    - **Slice 4, core: `FrameLoop.CheckFrames`** (decision 7).
-    - **Slice 5, the bindings: failures reported where they stop** (decision 4), with the docs' `env` recipe (decisions 5 and 6) and the devtools check.
+    - **#109 (slice 1), core: `Clock.delay` and the Clock's `time` / `dt` Atoms go** (decisions 1 and 12). It amends ADR-0025 (decision 8's `Schedule` bullet), ADR-0028 (decision 12's services row), ADR-0006 and ADR-0017 (the Atoms).
+    - **#110 (slice 2), core: per-frame reads are plain** (decision 10), with the lint and `Interpolator.array`'s loop.
+    - **#111 (slice 3), core: `springValues` steps in place** (decision 11), with the sink contract and `toStream`'s copy. Blocked by #110. It amends ADR-0027 and ADR-0028.
+    - **#112 (slice 4), core: `FrameLoop.CheckFrames`** (decision 7).
+    - **#113 (slice 5), the bindings: failures reported where they stop** (decision 4), with the docs' `env` recipe (decisions 5 and 6) and the devtools check.
     - **Comments, not slices:** #87 (decision 9's breakdown, and whether spans per run stay); #45 and #69 (decision 1: their timers and policies are wall time, Effect's); #66 (decision 2); #68 and #79 (decisions 10 and 11); #23 (decision 1's open questions).
-    - **Filed from #83's "tick as fixed phases":** React Native's one multiplexed `requestAnimationFrame`, a Clock tick and a gate flush from one callback (`docs/research/clock-and-scheduler.md`, Option C), which no issue held. The other gap, the coordinator's place in a tick, is answered: order within a tick is add order, and nothing depends on it (ADR-0027, *Implementation in #75*).
+    - **Filed from #83's "tick as fixed phases":** #114, React Native's one multiplexed `requestAnimationFrame`, a Clock tick and a gate flush from one callback (`docs/research/clock-and-scheduler.md`, Option C), which no issue held. The other gap, the coordinator's place in a tick, is answered: order within a tick is add order, and nothing depends on it (ADR-0027, *Implementation in #75*).
 
 ## Consequences
 
-- **Breaking, for Tier 2 and Environment authors:** `Clock.delay` and the Clock's `time` and `dt` go, and `Clock.fromRefreshFrames` no longer needs an `AtomRegistry` (slice 1). A sink keeps a `springValues` Frame only by copying it (slice 3). Core is unpublished, so nothing is aliased.
+- **Breaking, for Tier 2 and Environment authors:** `Clock.delay` and the Clock's `time` and `dt` go, and `Clock.fromRefreshFrames` no longer needs an `AtomRegistry` (#109). A sink keeps a `springValues` Frame only by copying it (#111). Core is unpublished, so nothing is aliased.
 - **Effect's time is wall time, everywhere.** Frame time is what the Machine combinators hold, and CONTEXT.md now defines it. A frame-time `effect/Clock` waits for a caller, with decision 1's questions to answer.
-- **Failures reach the console and an app's reporters wherever the bindings stop them,** including the three boundaries that were silent (slice 5). Core reports nothing; each run's failure stays its caller's.
+- **Failures reach the console and an app's reporters wherever the bindings stop them,** including the three boundaries that were silent (#113). Core reports nothing; each run's failure stays its caller's.
 - **An app configures observability on `env`,** with Effect's own layers: a logger and a level, its reporters, the devtools. Wardic ships none of them, and its defaults are Effect's.
-- **The per-frame path gets faster** at no change in Frames: up to 38% on `animateComplex/loop` from plain reads (slice 2), and 39–47% on `springValues/loop` from stepping in place (slice 3), with Node's bytes per frame there 0.92 → 0.14 MB.
-- **A dev check exists for non-finite Frames,** off by default and free when off (slice 4).
+- **The per-frame path gets faster** at no change in Frames: up to 38% on `animateComplex/loop` from plain reads (#110), and 39–47% on `springValues/loop` from stepping in place (#111), with Node's bytes per frame there 0.92 → 0.14 MB.
+- **A dev check exists for non-finite Frames,** off by default and free when off (#112).
 - **The start path is #87's,** with this record's breakdown, and per-animation spans stay until its profile says otherwise.
 - **Not done here:** typed build errors (#66's); a `StepDefect`; a frame budget warning; a `devLayer`; `runAll`; stepping in place for the other leaves.
