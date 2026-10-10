@@ -143,6 +143,31 @@ describe("each combinator through both drivers, at 1/16 s ticks", () => {
   it.effect("delay: a negative delay starts that far in", () =>
     bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.delay(-0.125)), framesOf([12, 16], true)))
 
+  it.effect("holdAfter: the settled value held for 0.125 s, then the settle", () =>
+    bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.holdAfter(0.125)), framesOf([4, 8, 12, 16, 16, 16], true)))
+
+  it.effect("holdAfter: one re-stamped Frame on every held tick, then self's own settled Frame", () =>
+    Effect.gen(function* () {
+      const frames = (yield* onTheLoop(Machine.tween(0, 16, QUARTER).pipe(Machine.holdAfter(0.25)), ticksOf(8))).frames
+      expect(frames.map((frame) => frame.done)).toEqual([false, false, false, false, false, false, false, true])
+      expect(frames[4]).toBe(frames[3])
+      expect(frames[6]).toBe(frames[3])
+      expect(frames[7]).not.toBe(frames[3])
+    }))
+
+  it.effect("holdAfter: a stall counts at most MAX_DT toward the hold, as a step does", () =>
+    bothDrivers(
+      Machine.tween(0, 16, QUARTER).pipe(Machine.holdAfter(1)),
+      framesOf([4, 8, 12, 16, 16, 16], true),
+      [DT, DT, DT, DT, 30, 30, DT],
+    ))
+
+  it.effect("holdAfter: then concat's next machine starts on the tick after the hold settles", () =>
+    bothDrivers(
+      Machine.tween(0, 16, QUARTER).pipe(Machine.holdAfter(0.125), Machine.concat(Machine.tween(16, 0, QUARTER))),
+      framesOf([4, 8, 12, 16, 16, 16, 12, 8, 4, 0], true),
+    ))
+
   it.effect("clampDt: a dt above the bound steps the bound", () =>
     bothDrivers(
       echo.pipe(Machine.clampDt(Machine.MAX_DT)),
@@ -193,6 +218,12 @@ describe("defaults add no layer (ADR-0028, decision 7)", () => {
   const tween = Machine.tween(0, 16, QUARTER)
   const chase = Machine.chase(() => 16)
 
+  it("holdAfter(0), a negative hold, and a hold after a machine that never settles are their input", () => {
+    expect(tween.pipe(Machine.holdAfter(0))).toBe(tween)
+    expect(Machine.holdAfter(tween, -1)).toBe(tween)
+    expect(chase.pipe(Machine.holdAfter(0.5))).toBe(chase)
+  })
+
   it("delay(0) is its input", () => {
     expect(tween.pipe(Machine.delay(0))).toBe(tween)
     expect(Machine.delay(tween, 0)).toBe(tween)
@@ -212,7 +243,7 @@ describe("defaults add no layer (ADR-0028, decision 7)", () => {
     const animate = Machine.animate(0, 16, QUARTER)
     expect(animate.span).toEqual({
       name: "wardic.animate",
-      attributes: { from: 0, to: 16, repeat: 0, yoyo: false, reverse: false },
+      attributes: { from: 0, to: 16, repeat: 0, repeatDelay: 0, yoyo: false, reverse: false },
     })
     expect(animate.settles).toBe(true)
   })

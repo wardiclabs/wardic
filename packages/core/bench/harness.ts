@@ -169,11 +169,18 @@ const REPEAT = (core: Core, i: number) => ({
   delay: spread(i, 0, 0.2),
 })
 
+/**
+ * `animateRepeat` with a gap between runs (#91): each run holds where it ended for 0.1 s, so
+ * each element's holds and seams fall on different frames inside the measured window.
+ */
+const REPEAT_DELAY = (core: Core, i: number) => ({ ...REPEAT(core, i), repeatDelay: 0.1 })
+
 let chaseTarget = 0
 
 /**
  * None of these settles inside `warm + frames` (36) frames: the springs travel at least 50 and
- * settle around frame 53, the tween runs 2 s, an infinite `repeat` and a chase never settle.
+ * settle around frame 53, the tween runs 2 s, an infinite `repeat` (with or without a
+ * `repeatDelay`) and a chase never settle.
  */
 const WORKLOADS: ReadonlyArray<Workload> = [
   {
@@ -202,7 +209,11 @@ const WORKLOADS: ReadonlyArray<Workload> = [
       streamOf(core, core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: apiOf(core).easeInOutCubic })),
   },
   { name: "animateRepeat", make: (core, i) => streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i))) },
-  // The same six, on the Frame loop.
+  {
+    name: "animateRepeatDelay",
+    make: (core, i) => streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT_DELAY(core, i))),
+  },
+  // The same seven, on the Frame loop.
   { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))) },
   {
     name: "animateValues/loop",
@@ -216,6 +227,10 @@ const WORKLOADS: ReadonlyArray<Workload> = [
       core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: apiOf(core).easeInOutCubic }),
   },
   { name: "animateRepeat/loop", machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
+  {
+    name: "animateRepeatDelay/loop",
+    machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT_DELAY(core, i)),
+  },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)

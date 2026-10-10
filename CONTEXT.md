@@ -37,7 +37,7 @@ One of the pieces an `animate` or `keyframes` run plays in sequence: one pass of
 _Avoid_: leg (a Retarget's run), iteration (Motion's word for one pass of a repeat).
 
 **Hold**:
-A stretch of ticks in which a run's value stays where it is: its `delay`, before its first Segment, or a gap after a Segment that keeps that Segment's last value (Motion's `repeatDelay`, #91).
+A stretch of ticks in which a run's value stays where it is: its `delay`, before its first Segment (`Machine.delay`), or a gap after a Segment that keeps that Segment's last value (`repeatDelay`, Motion's, through `Machine.holdAfter`; #91).
 _Avoid_: pause (a paused run doesn't tick), wait.
 
 **Frame loop**:

@@ -73,7 +73,7 @@ it.effect("animate's Stream is one span, wardic.animate, where it nested a wardi
       Effect.provideService(Tracer.Tracer, tracer),
     )
     expect(spans.map((span) => span.name)).toEqual(["wardic.animate"])
-    expect(Object.fromEntries(spans[0]!.attributes)).toEqual({ from: 0, to: 100, repeat: 1, yoyo: false, reverse: false })
+    expect(Object.fromEntries(spans[0]!.attributes)).toEqual({ from: 0, to: 100, repeat: 1, repeatDelay: 0, yoyo: false, reverse: false })
     expect(spans[0]!.status._tag).toBe("Ended")
   }),
 )
