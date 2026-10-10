@@ -202,7 +202,7 @@ export interface WardicReducedMotion {
  */
 export type WardicTransition =
   | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration & WardicReducedMotion)
-  | ({ readonly type: "tween" } & Partial<Machine.AnimateOptions> & WardicOrchestration & WardicReducedMotion)
+  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion)
 
 /**
  * Config accepted by {@link useWardic}.
@@ -982,22 +982,21 @@ export function runSpine(opts: RunSpineOptions): void {
             if (useTween) {
               // Tween: animateValues drives ALL keys (numeric + string) from the
               // current snapshot values; no velocity (snapshot.velocities stays {}).
-              const options = transition as Partial<Machine.AnimateOptions>
-              // The options the tween runs with: its defaults when it has no duration.
-              const tweenOptions = UndefinedOr.map(options.duration, () => options as Machine.AnimateOptions)
-              const running: Partial<Machine.AnimateOptions> = UndefinedOr.match(tweenOptions, { onUndefined: () => ({}), onDefined: identity })
+              // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still
+              // apply (#107).
+              const options = transition as Machine.AnimateOptions
               // With every key snapped, there's nothing left to tween.
               const tweening = Bool.or(!snapping, hasKeys(rest))
               reporting = Number(snapping) + Number(tweening)
               if (snapping) {
                 runSnap(
-                  Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, running)),
-                  secondsOf(running.delay),
+                  Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)),
+                  secondsOf(options.delay),
                 )
               }
               if (tweening) {
                 runLeg(
-                  Machine.animateValues(Values.pick(from, rest), rest, tweenOptions).pipe(
+                  Machine.animateValues(Values.pick(from, rest), rest, options).pipe(
                     Effect.flatMap(
                       Machine.run((frame) => {
                         // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
