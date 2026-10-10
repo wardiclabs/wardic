@@ -419,3 +419,47 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
 - **Tests:** `packages/core/test/values.test.ts` covers numbers, strings, a mix, an empty map, an `undefined` value, a key missing from the source, and `pick`'s two forms. solid's spine and presence tests pass unchanged.
 - **#93's slices have all landed but #91,** the combinator slice, which builds on the API rather than being part of it.
 
+
+## Implementation in #91: `Machine.holdAfter`, with its first caller, `repeatDelay`
+
+- **`Machine.holdAfter(seconds)`, `dual`,** as #91's grill decided. After `self` settles, its settled Frame is re-stamped `done: false` once. That object is returned on the tick `self` settles and on every held tick, until the held time reaches `seconds`; on that tick the hold settles with `self`'s own settled Frame.
+  - The held time counts each tick at most `MAX_DT`, as `delay`'s does. It starts on the tick after `self` settles, so no leftover carries over, as at every seam.
+  - `holdAfter(0)`, a negative hold, and a `self` that never settles return their input. The step allocates nothing per held tick.
+- **`repeatDelay` joins `Modifiers`,** so solid's tween transition takes it as is. `animate` wraps every segment but the last in `holdAfter(repeatDelay)`, and an infinite `repeat` holds after every segment. With `yoyo`, each segment holds its own end value, its turning point. `delay` still holds once, before the first segment. `keyframes` has no `repeat`, so nothing changes there. `animate`'s span gains a `repeatDelay` attribute.
+- **Motion's Frames,** checked against its source (motion-dom `animation/JSAnimation.ts:176-177`, `:257-306` at 16c61222c). `repeat-delay.test.ts` ports its iteration math, including `repeatType: "reverse"`'s fold of the gap into the odd iterations. Our Frames match it at 1/16 s ticks: `repeat`, `yoyo`, an infinite `repeat` with a `delay`, and a gap longer than a run. On ticks that don't divide the run, a seam can come a tick later than Motion's iteration boundary, as every seam can (ADR-0027, decision 4).
+- **The hold as a layer, measured** against the same hold built into the tween's step (identical Frames on 1/16 s and uneven ticks; `bench:core --base <layer> --head <in the step>`, 11 paired reps, valid noise controls):
+
+  | Workload | Bun | Node | Chromium |
+  |---|---|---|---|
+  | `animateRepeatDelay/loop` | −5.5% [−10.9, +1.5] | −2.1% [−5.5, −2.0] | −1.6% [−3.2, +0.0] |
+  | `animateRepeatDelay` (Stream) | +1.9% | −0.9% | +0.5% |
+  | `animateRepeat/loop` (identical code) | +2.0% | −3.0% [−4.0, −1.8] | +0.0% |
+
+  The layer costs about 2% in V8, at the noise floor: `animateRepeat/loop` moved 3% in Node on identical code in the same run. It costs nothing on the Stream path. It's cheap where #94's `clampDt` layer wasn't because it wraps only the tween segments, and its held ticks skip the tween's math. The maintainer kept the combinator (2026-10-09).
+- **The gate run** (`d184089`, `bench:core --base main`, 11 paired reps; noise controls Bun +2.3% then +0.2% on a Bun-only rerun, Node −0.7%, Chromium +0.9%). Main ignores `repeatDelay`, so its `animateRepeatDelay` runs without holds. Head / base, median [p25–p75]:
+
+  | Workload | Bun (first) | Bun (rerun) | Node | Chromium | Node MB per frame |
+  |---|---|---|---|---|---|
+  | `springValues` | −0.3% [−1.4, +0.6] | +0.4% [−2.0, +1.8] | −1.1% [−1.5, −0.1] | +1.1% [−0.3, +1.7] | 4.95 → 4.95 |
+  | `animateValues` | +0.1% [−4.7, +2.6] | +0.7% [−3.1, +1.4] | −0.3% [−0.9, −0.2] | +0.0% [−2.1, +0.3] | 4.76 → 4.76 |
+  | `springBlend` | +0.5% [−3.1, +3.3] | −3.3% [−3.7, +1.4] | −0.6% [−3.9, +0.6] | −0.5% [−1.4, −0.2] | 5.07 → 5.11 |
+  | `chase` | +2.7% [−6.3, +3.7] | +1.4% [−6.1, +7.9] | +0.1% [−2.7, +0.9] | −0.0% [−1.4, +1.0] | 4.13 → 4.13 |
+  | `animateComplex` | +1.1% [−3.0, +1.4] | +2.1% [−3.3, +3.9] | +0.0% [−2.3, +0.2] | −0.2% [−3.7, +0.9] | 6.32 → 6.32 |
+  | `animateRepeat` | +1.0% [−2.3, +2.4] | +0.5% [−4.6, +2.2] | +0.3% [−0.8, +0.5] | −0.8% [−1.8, +0.5] | 4.76 → 4.76 |
+  | `animateRepeatDelay` | −0.3% [−1.4, +2.5] | +3.5% [−4.5, +4.8] | −2.4% [−4.5, −0.8] | −2.0% [−2.3, −1.6] | 4.76 → 4.65 |
+  | `springValues/loop` | +7.3% [−1.6, +14.7] | −2.5% [−6.8, +11.6] | −0.1% [−0.6, +0.0] | −1.5% [−7.6, +10.9] | 0.92 → 0.92 |
+  | `animateValues/loop` | +1.2% [−3.9, +2.8] | +1.2% [−4.2, +6.0] | −0.6% [−5.9, +1.2] | −2.2% [−6.3, +0.0] | 0.80 → 0.80 |
+  | `springBlend/loop` | +0.5% [+0.1, +6.2] | +2.5% [−4.1, +3.5] | −0.1% [−2.7, +2.3] | −3.2% [−4.6, −1.6] | 1.12 → 1.12 |
+  | `chase/loop` | +2.9% [−7.1, +6.8] | −3.3% [−9.7, +0.9] | −1.2% [−2.9, −0.4] | +0.0% [−10.0, +0.0] | 0.17 → 0.17 |
+  | `animateComplex/loop` | −0.5% [−1.6, +1.7] | +0.1% [−0.9, +0.8] | +0.0% [−1.6, +0.8] | +1.7% [−2.4, +3.4] | 2.30 → 2.30 |
+  | `animateRepeat/loop` | +6.7% [+1.1, +13.4], fails | +7.2% [+2.8, +9.4], fails | −1.1% [−2.4, +1.6] | +0.0% [−1.5, +2.9] | 0.80 → 0.80 |
+  | `animateRepeatDelay/loop` | −3.5% [−5.7, −0.8] | −5.5% [−9.1, +0.4] | −8.9% [−9.5, −7.3] | −6.2% [−11.8, −6.0] | 0.80 → 0.70 |
+
+  - **Node and Chromium pass every workload.** `animateRepeatDelay/loop` runs 6–9% faster than main's run of the same options without holds, and Node's bytes fall 0.80 → 0.70 MB: a held tick skips the tween's math and allocates nothing.
+  - **Bun fails `animateRepeat/loop` twice, and that's declared** (the maintainer's call, 2026-10-09). That run's per-frame code is unchanged without a `repeatDelay`, since `holdAfter(0)` is its input. A Bun run with the two `animateRepeatDelay` workloads taken out of the harness passes it: +2.6% [−3.7, +5.8]. The cost comes from the bench's one process: once an `animateRepeatDelay` workload has run `holdAfter`'s step, JSC's shared `concatAll` and `forever` call sites see one more step type, and the plain repeat stack loses about 7%. It reaches only JSC (Bun, and Safari likely), only repeat animations, and only on a page that also uses `repeatDelay`. Building the hold into the tween's step would add a new step type at the same call sites (the layer-or-step run reads `animateRepeat/loop` level).
+- **Tests:**
+  - `repeat-delay.test.ts`, every Frame exact at 1/16 s ticks through both drivers: `repeat`, `yoyo`, `reverse`, an infinite `repeat` with and without `yoyo`, `delay` with `repeatDelay`, no repeat, `animateValues`, and the Frames against Motion's math;
+  - `combinators.test.ts`: `holdAfter`'s hold, its one held Frame object, a stall counting at most `MAX_DT`, `concat` after it, and its defaults returning their input;
+  - `machines.test.ts`: parity on the uneven dts;
+  - `machine.test.ts`: both `dual` forms.
+- **#93's slices have all landed.**

@@ -11,12 +11,12 @@
  * - **Build** one with a constructor, one per Primitive (`tween`, `spring`, `decay`, `chase`,
  *   `animate`, `keyframes`, `springValues`, `decayVec`; `springBlend` and `animateValues`
  *   return an `Effect` needing the `InterpolatorRegistry`), or with `make`.
- * - **Compose** with the combinators, each `dual` where it takes more than the machine:
- *   `map`, `concat`, `concatAll`, `forever`, `delay`, `clampDt`, `withSpan`. They run when a
- *   machine is built, never per step: a combinator's `start()` starts its inner machine, and its
- *   step makes plain calls only, allocating only the Frame it returns, and only when it changes
- *   it (ADR-0028, decision 7). Defaults add no layer: `delay(0)` and a one-segment `concatAll`
- *   return their input.
+ * - **Compose** with the combinators, each `dual` where it takes more than the machine: `map`,
+ *   `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `clampDt`, `withSpan`. They run when
+ *   a machine is built, never per step: a combinator's `start()` starts its inner machine, and
+ *   its step makes plain calls only, allocating only the Frame it returns, and only when it
+ *   changes it (ADR-0028, decision 7). Defaults add no layer: `delay(0)`, `holdAfter(0)` and a
+ *   one-segment `concatAll` return their input.
  * - **A machine is `Pipeable`, never a literal.** `make` and the constructors build it on a
  *   prototype, so `m.pipe(Machine.delay(0.1))` works and `isMachine` recognises it. Never
  *   spread one: `{ ...m, span }` has no prototype. `withSpan` replaces a span.
