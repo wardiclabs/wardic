@@ -99,11 +99,24 @@ const COMPLEX_TO = {
   "box-shadow": "4px 8px 24px rgba(0,0,0,0.25)",
 }
 
+/**
+ * `animateValues`' deepest stack (ADR-0028, decision 7): an infinite `repeat` with `yoyo`, and a
+ * `delay` spread over the elements, so each element's seams fall on different frames. A 0.15 s
+ * segment is about 9 frames, so two or three seams fall inside the measured window.
+ */
+const REPEAT = (core: Core, i: number) => ({
+  duration: 0.15,
+  easing: core.easeInOutCubic,
+  repeat: Number.POSITIVE_INFINITY,
+  yoyo: true,
+  delay: spread(i, 0, 0.2),
+})
+
 let chaseTarget = 0
 
 /**
  * None of these settles inside `warm + frames` (36) frames: the springs travel at least 50 and
- * settle around frame 53, the tween runs 2 s, and a chase never settles.
+ * settle around frame 53, the tween runs 2 s, an infinite `repeat` and a chase never settle.
  */
 const WORKLOADS: ReadonlyArray<Workload> = [
   {
@@ -137,7 +150,8 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     name: "animateComplex",
     make: (core, i) => core.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
   },
-  // The same five, on the Frame loop.
+  { name: "animateRepeat", make: (core, i) => core.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
+  // The same six, on the Frame loop.
   {
     name: "springValues/loop",
     machine: (core, i) =>
@@ -160,6 +174,7 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     machine: (core, i) =>
       core.animateValuesMachine(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
   },
+  { name: "animateRepeat/loop", machine: (core, i) => core.animateValuesMachine(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
