@@ -40,6 +40,10 @@ _Avoid_: leg (a Retarget's run), iteration (Motion's word for one pass of a repe
 A stretch of ticks in which a run's value stays where it is: its `delay`, before its first Segment (`Machine.delay`), or a gap after a Segment that keeps that Segment's last value (`repeatDelay`, Motion's, through `Machine.holdAfter`; #91).
 _Avoid_: pause (a paused run doesn't tick), wait.
 
+**Frame time**:
+Time as a run on the Clock counts it: the sum of the `dt`s of the ticks it has been stepped through, each counted at most `MAX_DT`. A Hold, a tween's `duration` and a stagger are in frame time, so they stop when the Clock does (a hidden tab) and fall behind through a stall. Effect's own time (`Effect.sleep`, `Effect.timeout`, `Schedule`) is wall time (ADR-0030).
+_Avoid_: animation time, clock time.
+
 **Positional key**:
 A key that moves or resizes the element: a transform (`x`, `scale`, `rotate`, …), or `width`, `height`, `top`, `left`, `right`, `bottom` (Motion's `positionalKeys`). Reduced motion Snaps these and no others (ADR-0029).
 _Avoid_: layout key (a layout animation is the projection's), geometry.
@@ -295,7 +299,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 
 ## Flagged ambiguities
 
-- **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (Effect's `effect/reactivity`) appears only on service *inputs* (`Clock.time`, `Probe.viewport`) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
+- **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (Effect's `effect/reactivity`) appears only on service *inputs* (`Probe.viewport`, `Probe.prefersReducedMotion`; the Clock's `time` and `dt` Atoms go, ADR-0030) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
 - **"color string"** (what the color Interpolator decodes) — Resolved: a string is a color iff culori's `parse` accepts it, trimmed. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors, and neither is a string culori rejects (`"#zzz"`, `"rgb(var(--x))"`): paired with a color, they make a **Discrete pair**.

@@ -52,7 +52,8 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 - **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
 - **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `Spring.step`'s substeps, `blendAt`, `Interpolator.complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
-  - An index that is in range by construction uses `Arr.getUnsafe(xs, i)`, and a value that is present by construction uses `UndefinedOr.getOrThrow(x)`. Both throw (a defect) rather than returning `undefined`, and allocate nothing.
+  - An index that is in range by construction is a plain read, `xs[i]`, never `Arr.getUnsafe(xs, i)`: that's a `dual` call with a bounds check, which V8 doesn't reduce to an index (×2.5–6 a read, and every frame workload faster without it; ADR-0030). tsconfig has no `noUncheckedIndexedAccess`, so `xs[i]` already types as `T`. Lint holds it in the per-frame files.
+  - A value that is present by construction uses `UndefinedOr.getOrThrow(x)`, which measured free. It throws (a defect) rather than returning `undefined`.
   - A loop over a record's keys runs over an array of `[key, value]` pairs built when the stream is built (`Rec.toEntries`).
 - **Arithmetic stays arithmetic:** `a + b`, not `Num.sum(a, b)`.
 
@@ -64,7 +65,7 @@ A change on the per-frame path is checked with `bun run bench:core --base main`.
 |---|---|
 | `cond ? a : b` | `Boolean.match(cond, { onTrue: () => a, onFalse: () => b })` |
 | `x ?? fallback` | `Option.getOrElse(Option.fromUndefinedOr(x), () => fallback)`, or `UndefinedOr.match(x, { onDefined: identity, onUndefined: () => fallback })` |
-| `xs[i]!`, `record[key]!` | `Arr.get(xs, i)`, `Rec.get(record, key)`: an `Option`. Present by construction: `Arr.getUnsafe(xs, i)`, `UndefinedOr.getOrThrow(record[key])` |
+| `xs[i]!`, `record[key]!` | `Arr.get(xs, i)`, `Rec.get(record, key)`: an `Option`. Present by construction: `Arr.getUnsafe(xs, i)` (per frame, `xs[i]`), `UndefinedOr.getOrThrow(record[key])` |
 | `x === undefined` | `Option.isNone`, or `Predicate.isUndefined` inside a named predicate |
 | `typeof x === "string"` | `Predicate.isString(x)` |
 | `a(x) && b(x) && !c(x)` | `Predicate.and(a, b)` and `Predicate.not(c)`, `Predicate.Tuple` for a tuple: named |
@@ -106,7 +107,8 @@ For a single function, a named import is fine: `import { identity } from "effect
   - `=== undefined`, and `typeof` in a comparison;
   - loops, except in the per-frame files listed there;
   - `!`;
-  - a namespace import that hides a global.
+  - a namespace import that hides a global;
+  - `Arr.getUnsafe` in the per-frame files (ADR-0030).
 
   It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match`, `Schema` or `Scope` fits, stay with review.
 - **`bun run bench:core --base main`** checks a change on the per-frame path (above).
@@ -115,6 +117,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 
 - **`Predicate.Tuple` infers a `Refinement`** when any element is one, and `Option.liftPredicate` then types the other positions as `unknown`. Annotate it as `Predicate.Predicate<T>` (see `hides` in `primitives/multi.ts`).
 - **`Boolean.match` and `Option.match` allocate their options object and closures on each call,** and `Rec.map` spreads the record, then reassigns every key. Neither belongs on the per-frame path.
+- **A shared Effect function called per frame is a call, and a new hot caller slows the old ones.** `Arr.getUnsafe` measured ×5.7–6.0 against `xs[i]` on a number loop in every engine, and ×2.2–2.9 on an object loop. Adding a hot caller with number arrays made Node's unchanged `animateComplex/loop` 48% slower, through the tick's own `getUnsafe` (ADR-0030). Measure an Effect function before it goes on the per-frame path, as a combinator layer is measured (ADR-0028, *Implementation in #94*).
 - **`Effect.forever` and `Effect.repeat` yield to the scheduler on every iteration** (`yieldNow`). A loop that must not touch the scheduler uses `Effect.whileLoop` (ADR-0017, decision 3).
 - **A new `effect/*` import in core goes into `optimizeDeps.include` in all three browser configs, in the same commit:** `packages/dom/vitest.browser.config.ts`, `packages/solid/vitest.browser.config.ts` and `packages/solid/vitest.hydrate.config.ts`. Without it, a warm Vite cache finds the import mid-run and reloads, and the browser test files loading at that moment fail (#62, `24e24c6`). Check with a warm cache: "optimized dependencies changed" must not appear in the `test:browser` log.
 - **Effect v4 differs from the v3 docs online.** Check an API against `node_modules/effect/dist` (`.d.ts` for the types, `.js` for what it does).
