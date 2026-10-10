@@ -1,19 +1,22 @@
 /**
  * The `Reorder` module: the **Reorder group**'s pure pieces (ADR-0020): the Crossover
- * (`check`), axis detection, and the group a binding drives from a drag. Effect-free and
- * DOM-free; the binding and the Environment supply the boxes, points and scrollers. The group
- * becomes a data type with `dual` operations in #96 (ADR-0028, decision 1).
+ * (`check`), axis detection, and the group a binding drives from a drag, a `Pipeable` data type
+ * (`Group`) with `dual` operations (ADR-0028, decision 1). DOM-free; the binding and the
+ * Environment supply the boxes, points and scrollers.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Equivalence from "effect/Equivalence"
-import { constVoid } from "effect/Function"
+import { constVoid, dual, identity } from "effect/Function"
+import * as Inspectable from "effect/Inspectable"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Num from "effect/Number"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
+import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
+import type { Invariant } from "effect/Types"
 import type * as Box from "./Box.ts"
 import type * as Point from "./Point.ts"
 import * as Velocity from "./Velocity.ts"
@@ -282,6 +285,10 @@ export const detectAxis = (layouts: ReadonlyArray<Box.Box>): Axis => {
   )
 }
 
+// --- The group ----------------------------------------------------------------
+
+const TypeId = "~@wardic/core/Reorder"
+
 /**
  * What a **Reorder group** reads from one item: its layout box (the slot, `None`
  * before it's measured), how far it's dragged from that slot, and a count that rises
@@ -290,7 +297,7 @@ export const detectAxis = (layouts: ReadonlyArray<Box.Box>): Axis => {
  *
  * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
  */
-export interface ReorderItemSource {
+export interface ItemSource {
   readonly layoutBox: () => Option.Option<Box.Box>
   readonly dragOffset: () => Point.Point
   readonly layoutVersion: () => number
@@ -307,7 +314,7 @@ export interface ReorderItemSource {
  *
  * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
  */
-export interface ReorderGroupOptions<V> {
+export interface GroupOptions<V> {
   readonly values: () => ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly axis?: (() => Option.Option<Axis>) | undefined
@@ -315,35 +322,7 @@ export interface ReorderGroupOptions<V> {
   readonly debug?: ((event: string, annotations: Record<string, unknown>) => void) | undefined
 }
 
-/**
- * A **Reorder group**: the items registered by value, and one drag gesture at a time.
- *
- * - `register(value, source)` adds an item (a value has one source; the returned
- *   function removes it). An unregistered value stays in `values` at its index.
- * - `resolveAxis()` is the override, else {@link detectAxis} over the measured items'
- *   boxes in `values` order.
- * - `dragStart` fixes the gesture's axis and direction and returns the axis;
- *   `dragMove` runs the **Crossover** for the dragged item and returns the pointer's
- *   velocity over the last 100 ms (its direction, for Auto-scroll); `dragEnd` ends it.
- * - `move(value, toIndex)` moves a value in code (clamped to the list, an unknown
- *   value ignored).
- *
- * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
- */
-export interface ReorderGroup<V> {
-  readonly register: (value: V, source: ReorderItemSource) => () => void
-  readonly resolveAxis: () => Axis
-  readonly dragStart: (value: V, point: Point.Point, timeStamp: number) => Axis
-  readonly dragMove: (value: V, point: Point.Point, timeStamp: number) => Point.Point
-  readonly dragEnd: (value: V) => void
-  readonly move: (value: V, toIndex: number) => void
-}
-
-/** How many points the direction keeps: enough for 100 ms of pointer events at 60–120 Hz. */
-const RING = 12
-
-const ZERO: Point.Point = { x: 0, y: 0 }
-
+/** The one drag gesture a group runs at a time. */
 interface Gesture<V> {
   readonly value: V
   readonly axis: Axis
@@ -354,10 +333,50 @@ interface Gesture<V> {
   waited: boolean
 }
 
-/** A mutable scratch entry of the measured order, reused across samples. */
-/** A measured item, with its index in `values`. */
-interface Measured<V> extends ItemData<V> {
-  readonly index: number
+/**
+ * A **Reorder group** (ADR-0020): the items registered by value, and one drag gesture at a time.
+ * A `Pipeable` data type (ADR-0028, decision 1), built by {@link make}; its operations take it
+ * first and are `dual`:
+ *
+ * - `register(group, value, source)` adds an item (a value has one source; the returned
+ *   function removes it). An unregistered value stays in `values` at its index.
+ * - `resolveAxis(group)` is the override, else {@link detectAxis} over the measured items'
+ *   boxes in `values` order.
+ * - `dragStart` fixes the gesture's axis and direction and returns the axis;
+ *   `dragMove` runs the **Crossover** for the dragged item and returns the pointer's
+ *   velocity over the last 100 ms (its direction, for Auto-scroll); `dragEnd` ends it.
+ * - `move(group, value, toIndex)` moves a value in code (clamped to the list, an unknown
+ *   value ignored).
+ *
+ * Its state is the group's own, changed only by those operations.
+ *
+ * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
+ */
+export interface Group<in out V> extends Pipeable, Inspectable.Inspectable {
+  readonly [TypeId]: { readonly _V: Invariant<V> }
+  /** The inputs `make` took. */
+  readonly options: GroupOptions<V>
+  /** Each registered item's source, by value. */
+  readonly sources: Map<V, ItemSource>
+  /** The drag gesture, while one runs. */
+  readonly gesture: MutableRef.MutableRef<Option.Option<Gesture<V>>>
+  /** The gesture's last points, oldest first, for its direction. */
+  readonly history: MutableRef.MutableRef<ReadonlyArray<Velocity.TimedPoint>>
+}
+
+const Proto = {
+  [TypeId]: { _V: identity },
+  ...Inspectable.BaseProto,
+  toJSON(this: Group<unknown>) {
+    return {
+      _id: "Reorder.Group",
+      registered: this.sources.size,
+      dragging: Option.map(MutableRef.get(this.gesture), (gesture) => gesture.value),
+    }
+  },
+  pipe() {
+    return pipeArguments(this, arguments)
+  },
 }
 
 /**
@@ -372,133 +391,176 @@ interface Measured<V> extends ItemData<V> {
  * cleared by an effect at :172-174). The registry is a plain `Map` keyed by value.
  *
  * Per sample it allocates only the velocity point (and a new order on a reorder).
- *
- * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
  */
-export const makeReorderGroup = <V>(options: ReorderGroupOptions<V>): ReorderGroup<V> => {
-  const sources = new Map<V, ReorderItemSource>()
-  const gesture = MutableRef.make(Option.none<Gesture<V>>())
-  const log = (event: string, annotations: Record<string, unknown>): void => {
-    if (Predicate.isNotUndefined(options.debug)) options.debug(event, annotations)
-  }
+export const make = <V>(options: GroupOptions<V>): Group<V> =>
+  Object.assign(Object.create(Proto), {
+    options,
+    sources: new Map<V, ItemSource>(),
+    gesture: MutableRef.make(Option.none<Gesture<V>>()),
+    history: MutableRef.make<ReadonlyArray<Velocity.TimedPoint>>([]),
+  })
 
-  // The direction's points: the last RING samples, oldest first.
-  const history = MutableRef.make<ReadonlyArray<Velocity.TimedPoint>>([])
-  const record = (point: Point.Point, timeStamp: number): void => {
-    MutableRef.update(history, (points) => Arr.takeRight(Arr.append(points, { x: point.x, y: point.y, timeStamp }), RING))
-  }
-  const clearHistory = (): void => {
-    MutableRef.set(history, [])
-  }
+/** Whether `u` is a **Reorder group** (built by {@link make}). */
+export const isGroup = (u: unknown): u is Group<unknown> => Predicate.hasProperty(u, TypeId)
 
-  /** An item's box, while it is registered and has one. */
-  const layoutOf = (value: V): Option.Option<Box.Box> =>
-    Option.flatMap(Option.fromUndefinedOr(sources.get(value)), (source) => source.layoutBox())
+/** How many points the direction keeps: enough for 100 ms of pointer events at 60–120 Hz. */
+const RING = 12
 
-  // The measured order: each value with a box, and its index in `values`.
-  const measure = (values: ReadonlyArray<V>): ReadonlyArray<Measured<V>> =>
-    Arr.getSomes(Arr.map(values, (value, index) => Option.map(layoutOf(value), (layout) => ({ value, layout, index }))))
+const ZERO: Point.Point = { x: 0, y: 0 }
 
-  const resolveAxis = (): Axis =>
-    Option.fromUndefinedOr(options.axis).pipe(
-      Option.flatMap((axis) => axis()),
-      Option.getOrElse(() => detectAxis(Arr.map(measure(options.values()), (item) => item.layout))),
-    )
+/** A measured item, with its index in `values`. */
+interface Measured<V> extends ItemData<V> {
+  readonly index: number
+}
 
-  /**
-   * After a reorder, the drag waits until a Measure pass has measured the new order: true while
-   * it waits (logged once), false once the item's layout has moved past the guard.
-   */
-  const waiting = (g: Gesture<V>, value: V, source: ReorderItemSource): boolean =>
-    Option.match(g.guard, {
-      onNone: () => false,
-      onSome: (guard) =>
-        Bool.match(source.layoutVersion() <= guard, {
-          onTrue: () => {
-            if (!g.waited) {
-              g.waited = true
-              log("reorder waits", { value })
-            }
-            return true
-          },
-          onFalse: () => {
-            g.guard = Option.none()
-            g.waited = false
-            return false
-          },
-        }),
-    })
+/** A cold-path event, to the group's `debug`. */
+const log = <V>(group: Group<V>, event: string, annotations: Record<string, unknown>): void => {
+  if (Predicate.isNotUndefined(group.options.debug)) group.options.debug(event, annotations)
+}
 
-  /** One drag sample's check for a Crossover, and the reorder it makes. */
-  const reorderOn = (g: Gesture<V>, value: V, source: ReorderItemSource, velocity: Point.Point): void => {
-    if (waiting(g, value, source)) return
-    const values = options.values()
-    const measured = measure(values)
-    const next = check(measured, value, source.dragOffset(), velocity, g.axis, g.direction)
-    if (next === measured) return
-    // The measured items' slots in `values`, refilled in their new order.
-    const newValues = Arr.reduce(next, Arr.copy(values), (out, item, i) => {
-      out[Arr.getUnsafe(measured, i).index] = item.value
-      return out
-    })
-    const indexIn = (list: ReadonlyArray<V>): number =>
-      Option.getOrElse(Arr.findFirstIndex(list, (v) => v === value), () => -1)
-    g.guard = Option.some(source.layoutVersion())
-    g.waited = false
-    log("reorder", { value, from: indexIn(values), to: indexIn(newValues), axis: g.axis, direction: g.direction })
-    options.onReorder(newValues)
-  }
+/** Keep `point` among the gesture's last RING points, oldest first. */
+const record = <V>(group: Group<V>, point: Point.Point, timeStamp: number): void => {
+  MutableRef.update(group.history, (points) =>
+    Arr.takeRight(Arr.append(points, { x: point.x, y: point.y, timeStamp }), RING),
+  )
+}
 
-  return {
-    register: (value, source) => {
-      sources.set(value, source)
-      return () => {
-        if (sources.get(value) === source) sources.delete(value)
-      }
-    },
-    resolveAxis,
-    dragStart: (value, point, timeStamp) => {
-      const axis = resolveAxis()
-      const direction = Option.fromUndefinedOr(options.direction).pipe(
-        Option.flatMap((directionOf) => Option.fromNullishOr(directionOf())),
-        Option.getOrElse((): "ltr" | "rtl" => "ltr"),
-      )
-      MutableRef.set(gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
-      clearHistory()
-      record(point, timeStamp)
-      log("reorder start", { value, axis, direction })
-      return axis
-    },
-    dragMove: (value, point, timeStamp) =>
-      Option.match(Option.filter(MutableRef.get(gesture), (g) => g.value === value), {
-        onNone: () => ZERO,
-        onSome: (g) => {
-          record(point, timeStamp)
-          const velocity = Velocity.trailing(MutableRef.get(history), 100)
-          Option.match(Option.fromUndefinedOr(sources.get(value)), {
-            onNone: constVoid,
-            onSome: (source) => reorderOn(g, value, source, velocity),
-          })
-          return velocity
+const clearHistory = <V>(group: Group<V>): void => {
+  MutableRef.set(group.history, [])
+}
+
+/** An item's box, while it is registered and has one. */
+const layoutOf = <V>(group: Group<V>, value: V): Option.Option<Box.Box> =>
+  Option.flatMap(Option.fromUndefinedOr(group.sources.get(value)), (source) => source.layoutBox())
+
+/** The measured order: each value with a box, and its index in `values`. */
+const measure = <V>(group: Group<V>, values: ReadonlyArray<V>): ReadonlyArray<Measured<V>> =>
+  Arr.getSomes(Arr.map(values, (value, index) => Option.map(layoutOf(group, value), (layout) => ({ value, layout, index }))))
+
+/**
+ * After a reorder, the drag waits until a Measure pass has measured the new order: true while
+ * it waits (logged once), false once the item's layout has moved past the guard.
+ */
+const waiting = <V>(group: Group<V>, g: Gesture<V>, value: V, source: ItemSource): boolean =>
+  Option.match(g.guard, {
+    onNone: () => false,
+    onSome: (guard) =>
+      Bool.match(source.layoutVersion() <= guard, {
+        onTrue: () => {
+          if (!g.waited) {
+            g.waited = true
+            log(group, "reorder waits", { value })
+          }
+          return true
+        },
+        onFalse: () => {
+          g.guard = Option.none()
+          g.waited = false
+          return false
         },
       }),
-    dragEnd: (value) => {
-      if (Option.exists(MutableRef.get(gesture), (g) => g.value === value)) {
-        MutableRef.set(gesture, Option.none())
-        clearHistory()
-      }
-    },
-    move: (value, toIndex) => {
-      const values = options.values()
-      Option.match(Arr.findFirstIndex(values, (v) => v === value), {
-        onNone: constVoid,
-        onSome: (from) => {
-          const to = Math.min(Math.max(0, toIndex), values.length - 1)
-          if (to === from) return
-          log("move", { value, from, to })
-          options.onReorder(moveItem(values, from, to))
-        },
-      })
-    },
-  }
+  })
+
+/** One drag sample's check for a Crossover, and the reorder it makes. */
+const reorderOn = <V>(group: Group<V>, g: Gesture<V>, value: V, source: ItemSource, velocity: Point.Point): void => {
+  if (waiting(group, g, value, source)) return
+  const values = group.options.values()
+  const measured = measure(group, values)
+  const next = check(measured, value, source.dragOffset(), velocity, g.axis, g.direction)
+  if (next === measured) return
+  // The measured items' slots in `values`, refilled in their new order.
+  const newValues = Arr.reduce(next, Arr.copy(values), (out, item, i) => {
+    out[Arr.getUnsafe(measured, i).index] = item.value
+    return out
+  })
+  const indexIn = (list: ReadonlyArray<V>): number =>
+    Option.getOrElse(Arr.findFirstIndex(list, (v) => v === value), () => -1)
+  g.guard = Option.some(source.layoutVersion())
+  g.waited = false
+  log(group, "reorder", { value, from: indexIn(values), to: indexIn(newValues), axis: g.axis, direction: g.direction })
+  group.options.onReorder(newValues)
 }
+
+/** Add `value`'s item, read through `source`; the returned function removes it. */
+export const register: {
+  <V>(value: V, source: ItemSource): (group: Group<V>) => () => void
+  <V>(group: Group<V>, value: V, source: ItemSource): () => void
+} = dual(3, <V>(group: Group<V>, value: V, source: ItemSource): (() => void) => {
+  group.sources.set(value, source)
+  return () => {
+    if (group.sources.get(value) === source) group.sources.delete(value)
+  }
+})
+
+/** The group's axis: its override, else {@link detectAxis} over the measured items' boxes. */
+export const resolveAxis = <V>(group: Group<V>): Axis =>
+  Option.fromUndefinedOr(group.options.axis).pipe(
+    Option.flatMap((axis) => axis()),
+    Option.getOrElse(() => detectAxis(Arr.map(measure(group, group.options.values()), (item) => item.layout))),
+  )
+
+/** Start dragging `value`'s item: the gesture's axis and direction are fixed now. Returns the axis. */
+export const dragStart: {
+  <V>(value: V, point: Point.Point, timeStamp: number): (group: Group<V>) => Axis
+  <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Axis
+} = dual(4, <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Axis => {
+  const axis = resolveAxis(group)
+  const direction = Option.fromUndefinedOr(group.options.direction).pipe(
+    Option.flatMap((directionOf) => Option.fromNullishOr(directionOf())),
+    Option.getOrElse((): "ltr" | "rtl" => "ltr"),
+  )
+  MutableRef.set(group.gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
+  clearHistory(group)
+  record(group, point, timeStamp)
+  log(group, "reorder start", { value, axis, direction })
+  return axis
+})
+
+/**
+ * A drag sample of `value`'s item: runs the **Crossover**, and returns the pointer's velocity
+ * over the last 100 ms (no motion when `value` isn't the one dragged).
+ */
+export const dragMove: {
+  <V>(value: V, point: Point.Point, timeStamp: number): (group: Group<V>) => Point.Point
+  <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Point.Point
+} = dual(4, <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Point.Point =>
+  Option.match(Option.filter(MutableRef.get(group.gesture), (g) => g.value === value), {
+    onNone: () => ZERO,
+    onSome: (g) => {
+      record(group, point, timeStamp)
+      const velocity = Velocity.trailing(MutableRef.get(group.history), 100)
+      Option.match(Option.fromUndefinedOr(group.sources.get(value)), {
+        onNone: constVoid,
+        onSome: (source) => reorderOn(group, g, value, source, velocity),
+      })
+      return velocity
+    },
+  }))
+
+/** End the drag of `value`'s item (nothing, when it isn't the one dragged). */
+export const dragEnd: {
+  <V>(value: V): (group: Group<V>) => void
+  <V>(group: Group<V>, value: V): void
+} = dual(2, <V>(group: Group<V>, value: V): void => {
+  if (Option.exists(MutableRef.get(group.gesture), (g) => g.value === value)) {
+    MutableRef.set(group.gesture, Option.none())
+    clearHistory(group)
+  }
+})
+
+/** Move `value` to `toIndex` in code, through `onReorder` (clamped to the list; an unknown value is ignored). */
+export const move: {
+  <V>(value: V, toIndex: number): (group: Group<V>) => void
+  <V>(group: Group<V>, value: V, toIndex: number): void
+} = dual(3, <V>(group: Group<V>, value: V, toIndex: number): void => {
+  const values = group.options.values()
+  Option.match(Arr.findFirstIndex(values, (v) => v === value), {
+    onNone: constVoid,
+    onSome: (from) => {
+      const to = Math.min(Math.max(0, toIndex), values.length - 1)
+      if (to === from) return
+      log(group, "move", { value, from, to })
+      group.options.onReorder(moveItem(values, from, to))
+    },
+  })
+})
