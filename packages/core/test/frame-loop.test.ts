@@ -386,6 +386,8 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
   })
 
   // Each retry's burst dies inside the last one's `endAll`: one level deep, not one per retry.
+  // Each retry yields once, a hop on the harness's `setTimeout(0)` scheduler, which Node clamps to
+  // 1 ms: 2,000 retries take about 2.5 s alone, and past the default 5 s under a full parallel run.
   it("a run retrying against a Clock that dies at once gets a fresh burst on each retry, and ends", async () => {
     const held = heldClock([0.01])
     let subscriptions = 0
@@ -411,7 +413,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
     const exit = await Effect.runPromise(Fiber.await(fiber))
     expect(subscriptions).toBe(2002)
     expect(Exit.isFailure(exit)).toBe(true)
-  })
+  }, 20000)
 
   it("closing the Environment interrupts every run on the loop, and a run started after it is interrupted at once", async () => {
     const h = await makeHarness()
