@@ -37,6 +37,7 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 - **Compose with the combinators,** `dual` where they take more than the machine: `map`, `concat`, `delay`, `holdAfter`, `clampDt`, `withSpan`, and `run`; `concatAll` takes an array of machines, and `forever` the machine alone.
 - **A combinator's `start()` starts its inner machine and resolves everything once; its step makes plain calls only,** in effect-first.md's per-frame forms. It allocates only the Frame it returns, and only when it changes it.
 - **Defaults add no layer:** `delay(0)`, `holdAfter(0)` and a one-segment `concatAll` return their input.
+- **A Frame handed to a sink is the run's until the next tick.** A sink that keeps a Frame, its `value` or its `velocity` copies it: `springValues` rewrites one Frame per run each tick (ADR-0030, decision 11). `Machine.run`'s settled Frame is stable, and `Machine.toStream` hands each Stream consumer its own.
 - **`withSpan` replaces the span,** it doesn't nest one: a machine's span is data until a driver opens it.
 - **A combinator needs a caller.** Add one when something uses it, not before.
 - **A layer is a call per element per frame.** Each combinator's step is one function shared by every machine, so V8 doesn't inline the call inside it. A constructor keeps a per-step concern inline in its leaf rather than as a layer: the `MAX_DT` clamp is each leaf's `Math.min` and `delay`'s hold, not `clampDt` (ADR-0028, *Implementation in #94*). Count a constructor's layers against main's, and run the bench.
