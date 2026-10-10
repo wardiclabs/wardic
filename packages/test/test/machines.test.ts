@@ -303,6 +303,11 @@ describe("every constructor through both drivers", () => {
     ["animate, repeat 2, yoyo, a delay", () => Effect.succeed(Machine.animate(-5, 20, OPTIONS))],
     ["animate, repeat Infinity", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity }))],
     ["animate, a fractional repeat", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: 1.5, yoyo: true }))],
+    [
+      "animate, repeat 3, yoyo, a repeatDelay and a delay",
+      () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: 3, yoyo: true, repeatDelay: 0.07, delay: 0.05 })),
+    ],
+    ["animate, repeat Infinity with a repeatDelay", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity, repeatDelay: 0.1 }))],
     ["keyframes", () => Effect.succeed(Machine.keyframes([0, 10, 5, 20], { duration: 0.6, delay: 0.05 }))],
     ["animateValues", () => Machine.animateValues(FROM, TO, OPTIONS)],
     ["springBlend", () => Machine.springBlend(FROM, TO, { delay: 0.05 })],
@@ -325,6 +330,7 @@ describe("every combinator through both drivers", () => {
     ["forever", () => Effect.succeed(Machine.forever(Machine.concatAll([tween(0, 10), tween(10, 0)])))],
     ["delay, around a spring", () => Effect.succeed(Machine.spring(100).pipe(Machine.delay(0.3)))],
     ["clampDt", () => Effect.succeed(tween(0, 10).pipe(Machine.clampDt(0.02)))],
+    ["holdAfter, across the 0.25 s and 0.6 s stalls", () => Effect.succeed(Machine.concatAll([tween(0, 10).pipe(Machine.holdAfter(0.3)), tween(10, 0)]))],
     ["withSpan", () => Effect.succeed(tween(0, 10).pipe(Machine.withSpan("app.tween", { attributes: { a: 1 } })))],
   ]
   for (const [name, build] of cases) {

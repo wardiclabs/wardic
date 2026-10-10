@@ -177,10 +177,16 @@ export interface DecayOptions {
 export interface Modifiers {
   /**
    * Additional repeats after the first run. `Infinity` loops forever. Default 0. Each repeat
-   * starts on the tick after the one before it settles, with no gap: `delay` holds once, before
-   * the first run (#77); a gap between repeats (Motion's `repeatDelay`) is #91.
+   * starts on the tick after the one before it settles, or after its `repeatDelay`: `delay` holds
+   * once, before the first run (#77).
    */
   readonly repeat?: number
+  /**
+   * A gap between repeats, in seconds (Motion's `repeatDelay`, #91). Default 0. Each run but the
+   * last holds where it ended (with `yoyo`, its turning point) for this long, then the next run
+   * starts on the tick after; an infinite `repeat` holds after every run.
+   */
+  readonly repeatDelay?: number
   /** Reverse direction on alternate repeats (ping-pong). Default false. */
   readonly yoyo?: boolean
   /** Run the animation from `to` back to `from`. Default false. */
@@ -332,6 +338,53 @@ export const delay: {
               if (elapsed < seconds) return held
               holding = false
               return step(elapsed - seconds)
+            }
+          },
+        }),
+    }),
+)
+
+/**
+ * A hold after `self` settles (CONTEXT.md's Hold): its settled Frame, re-stamped `done: false`
+ * once, is returned on the tick it settles and on every held tick, the same object, until the
+ * held time reaches `seconds`; on that tick it settles with `self`'s settled Frame. The held
+ * time counts each tick's `dt` at most `MAX_DT`, as a step does, and starts on the tick after
+ * `self` settles. A `self` that never settles is returned as it is, and so is `holdAfter(0)` (or
+ * a negative hold).
+ * Keeps `self`'s span. Effect has no hold after; #91's name.
+ */
+export const holdAfter: {
+  (seconds: number): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F>
+} = dual(
+  2,
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F> =>
+    Bool.match(seconds <= 0 || !self.settles, {
+      onTrue: () => self,
+      onFalse: () =>
+        make({
+          settles: true,
+          span: self.span,
+          start: () => {
+            const step = self.start()
+            // The settled Frame and its re-stamp: set when `self` settles, before the hold reads them.
+            let settled: F | undefined
+            let held: F | undefined
+            let holding = false
+            let elapsed = 0
+            // Per frame (ADR-0025): statement `if`s, `Math.min`; one Frame re-stamped, once.
+            return (dt) => {
+              if (holding) {
+                elapsed += Math.min(dt, MAX_DT)
+                if (elapsed < seconds) return UndefinedOr.getOrThrow(held)
+                return UndefinedOr.getOrThrow(settled)
+              }
+              const frame = step(dt)
+              if (!frame.done) return frame
+              holding = true
+              settled = frame
+              held = unsettled(frame)
+              return held
             }
           },
         }),
@@ -600,13 +653,15 @@ const numberOr = (value: number | undefined, fallback: number): number =>
 /**
  * A tween with modifiers: `reverse` swaps the endpoints, `repeat` replays, and `yoyo` turns
  * each replay around. `delay` holds once, before the first segment, as Motion's does (#77), and
- * the replays follow with no gap.
+ * `repeatDelay` holds after each segment but the last, where it ended (`holdAfter`, #91): with
+ * `yoyo`, at its turning point, as Motion's `repeatType: "reverse"` does.
  *
  * - **Finite `repeat: N`** runs N+1 segments (`concatAll`), and only the last Frame carries
  *   `done: true`. A fractional `repeat` (1.5) runs ceil(N+1) segments and settles on the last.
  * - **`repeat: Infinity`** runs the first segment, then a cycle of the rest without end
  *   (`concat(first, forever(concatAll(rest)))`): one segment, or a backward and forward pair
- *   with `yoyo`. It never settles; it ends when its run is removed.
+ *   with `yoyo`, each segment holding after it. It never settles; it ends when its run is
+ *   removed.
  *
  * Then `delay(options.delay)`, and its own span, `wardic.animate`. Each segment's tween clamps
  * its `dt` at `MAX_DT`, and so does the hold.
@@ -618,28 +673,41 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
   const [a, b] = Bool.match(reverse, { onTrue: () => [to, from] as const, onFalse: () => [from, to] as const })
   // Every segment's tween: `delay` holds once, outside them.
   const segment = resolveTween({ ...options, delay: 0 })
+  const gap = numberOr(options.repeatDelay, 0)
   const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, options.duration))
   const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, options.duration))
+  // The segments a run holds after: every one but the last (`holdAfter(0)` is its input).
+  const forwardHeld = holdAfter(forward, gap)
+  const backwardHeld = holdAfter(backward, gap)
   /** Segment `i`: `yoyo`'s odd segments run backwards. */
   const segmentFor = (i: number): Machine<Frame.Frame<number>> =>
     Bool.match(yoyo && i % 2 === 1, { onTrue: () => backward, onFalse: () => forward })
+  /** Segment `i`, holding after it. */
+  const heldFor = (i: number): Machine<Frame.Frame<number>> =>
+    Bool.match(yoyo && i % 2 === 1, { onTrue: () => backwardHeld, onFalse: () => forwardHeld })
   return Bool.match(Number.isFinite(repeats), {
-    onTrue: () => concatAll(Arr.makeBy(Math.ceil(Math.max(0, repeats) + 1), segmentFor)),
+    onTrue: () => {
+      const count = Math.ceil(Math.max(0, repeats) + 1)
+      // Every segment but the last holds after it.
+      return concatAll(
+        Arr.makeBy(count, (i) => Bool.match(i === count - 1, { onTrue: () => segmentFor(i), onFalse: () => heldFor(i) })),
+      )
+    },
     onFalse: () =>
       concat(
-        segmentFor(0),
+        heldFor(0),
         forever(
           concatAll(
             Bool.match(yoyo, {
-              onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [segmentFor(1), segmentFor(2)],
-              onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [segmentFor(1)],
+              onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [heldFor(1), heldFor(2)],
+              onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [heldFor(1)],
             }),
           ),
         ),
       ),
   }).pipe(
     delay(numberOr(options.delay, 0)),
-    withSpan("wardic.animate", { attributes: { from, to, repeat: repeats, yoyo, reverse } }),
+    withSpan("wardic.animate", { attributes: { from, to, repeat: repeats, repeatDelay: gap, yoyo, reverse } }),
   )
 }
 

@@ -52,7 +52,7 @@ describe("the data type", () => {
 })
 
 describe("each dual operation's two forms give one type", () => {
-  it("map, concat, delay, clampDt, withSpan, run", () => {
+  it("map, concat, delay, holdAfter, clampDt, withSpan, run", () => {
     expectTypeOf(Machine.map(tween, double)).toEqualTypeOf(tween.pipe(Machine.map(double)))
     expectTypeOf(Machine.map(tween, double)).toEqualTypeOf<Machine.Machine<Frame.Frame<number>>>()
     expectTypeOf(Machine.concat(tween, spring)).toEqualTypeOf(tween.pipe(Machine.concat(spring)))
@@ -60,6 +60,8 @@ describe("each dual operation's two forms give one type", () => {
     expectTypeOf(Machine.delay(spring, 0.1)).toEqualTypeOf(spring.pipe(Machine.delay(0.1)))
     expectTypeOf(Machine.delay(spring, 0.1)).toEqualTypeOf<Machine.Machine<Frame.Physics>>()
     expectTypeOf(Machine.clampDt(spring, 0.5)).toEqualTypeOf(spring.pipe(Machine.clampDt(0.5)))
+    expectTypeOf(Machine.holdAfter(spring, 0.5)).toEqualTypeOf(spring.pipe(Machine.holdAfter(0.5)))
+    expectTypeOf(Machine.holdAfter(spring, 0.5)).toEqualTypeOf<Machine.Machine<Frame.Physics>>()
     expectTypeOf(Machine.withSpan(spring, "a", { attributes: {} })).toEqualTypeOf(spring.pipe(Machine.withSpan("a")))
     expectTypeOf(Machine.run(spring, ignore)).toEqualTypeOf(spring.pipe(Machine.run(ignore)))
     expectTypeOf(Machine.run(spring, ignore)).toEqualTypeOf<Effect.Effect<Frame.Physics, never, FrameLoop.FrameLoop>>()
