@@ -1,5 +1,6 @@
-import { DragActivity, drag, hover, makeDragActivity, makePointerLikeEvent, press } from "@wardic/core"
-import type { DragActivityShape, InputSource, PointerLikeEvent } from "@wardic/core"
+import * as DragActivity from "@wardic/core/DragActivity"
+import * as InputSource from "@wardic/core/InputSource"
+import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -19,18 +20,18 @@ interface EventOptions {
 
 /** A primary mouse (`makePointerLikeEvent`): pressed on a down or move, released otherwise. */
 const ev = (
-  type: PointerLikeEvent["type"],
+  type: InputSource.PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   o: EventOptions = {},
-): PointerLikeEvent => makePointerLikeEvent({ type, x, y, timeStamp: t, ...o })
+): InputSource.PointerLikeEvent => InputSource.makePointerLikeEvent({ type, x, y, timeStamp: t, ...o })
 
 /**
  * Subscribe `streams` (each in its own forked fiber) to ONE pushable input, all under the
  * given `activity`. Returns the push handle, each stream's recorded output and its fiber.
  */
-const rig = <A>(activity: DragActivityShape, streams: ReadonlyArray<Stream.Stream<A, never, InputSource>>) =>
+const rig = <A>(activity: DragActivity.Shape, streams: ReadonlyArray<Stream.Stream<A, never, InputSource.InputSource>>) =>
   Effect.gen(function* () {
     const input = yield* TestInput.pushable()
     const seen = yield* Ref.make<ReadonlyArray<A>>([])
@@ -38,7 +39,7 @@ const rig = <A>(activity: DragActivityShape, streams: ReadonlyArray<Stream.Strea
     for (const stream of streams) {
       const fiber = yield* Stream.runForEach(stream, (a) => Ref.update(seen, (xs) => [...xs, a])).pipe(
         Effect.provide(input.layer),
-        Effect.provideService(DragActivity, activity),
+        Effect.provideService(DragActivity.DragActivity, activity),
         Effect.forkChild,
       )
       fibers.push(fiber)
@@ -53,8 +54,8 @@ const dragTo = (x: number, t: number) => ev("move", x, 0, t)
 
 it.effect("A1: a drag claims at its start sample, not at the down or a sub-threshold move", () =>
   Effect.gen(function* () {
-    const activity = makeDragActivity()
-    const h = yield* rig(activity, [drag(undefined)])
+    const activity = DragActivity.make()
+    const h = yield* rig(activity, [Recognizer.drag(undefined)])
     // No claim at the down, none at a move inside the 3 px threshold
     yield* h.push(ev("down", 0, 0, 0))
     expect(activity.isDragActive()).toBe(false)
@@ -68,8 +69,8 @@ it.effect("A1: a drag claims at its start sample, not at the down or a sub-thres
 it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and rule B's new start claims again)", () =>
   Effect.gen(function* () {
     // (a) an up
-    const a = makeDragActivity()
-    const ha = yield* rig(a, [drag(undefined)])
+    const a = DragActivity.make()
+    const ha = yield* rig(a, [Recognizer.drag(undefined)])
     yield* ha.push(ev("down", 0, 0, 0))
     yield* ha.push(dragTo(10, 10))
     expect(a.isDragActive()).toBe(true)
@@ -77,8 +78,8 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
     expect(a.isDragActive()).toBe(false)
 
     // (b) rule A: the release is lost; the owner moves unpressed
-    const b = makeDragActivity()
-    const hb = yield* rig(b, [drag(undefined)])
+    const b = DragActivity.make()
+    const hb = yield* rig(b, [Recognizer.drag(undefined)])
     yield* hb.push(ev("down", 0, 0, 0))
     yield* hb.push(dragTo(10, 10))
     expect(b.isDragActive()).toBe(true)
@@ -86,8 +87,8 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
     expect(b.isDragActive()).toBe(false)
 
     // (c) rule B: a new down from the owner releases, the new gesture's start claims again
-    const c = makeDragActivity()
-    const hc = yield* rig(c, [drag(undefined)])
+    const c = DragActivity.make()
+    const hc = yield* rig(c, [Recognizer.drag(undefined)])
     yield* hc.push(ev("down", 0, 0, 0))
     yield* hc.push(dragTo(10, 10))
     expect(c.isDragActive()).toBe(true)
@@ -100,8 +101,8 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
 it.effect("A3: interrupting the drag stream mid-gesture releases the claim (finalizer)", () =>
   Effect.gen(function* () {
     // A drag past its threshold, holding the claim
-    const activity = makeDragActivity()
-    const h = yield* rig(activity, [drag(undefined)])
+    const activity = DragActivity.make()
+    const h = yield* rig(activity, [Recognizer.drag(undefined)])
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(dragTo(10, 10))
     expect(activity.isDragActive()).toBe(true)
@@ -110,9 +111,9 @@ it.effect("A3: interrupting the drag stream mid-gesture releases the claim (fina
     expect(activity.isDragActive()).toBe(false)
 
     // Interrupting a drag that never started must not release another's claim
-    const shared = makeDragActivity()
+    const shared = DragActivity.make()
     const other = shared.claim()
-    const idle = yield* rig(shared, [drag(undefined)])
+    const idle = yield* rig(shared, [Recognizer.drag(undefined)])
     yield* idle.push(ev("down", 0, 0, 0)) // no start yet
     yield* Fiber.interrupt(idle.fibers[0]!)
     expect(shared.isDragActive()).toBe(true)
@@ -123,9 +124,9 @@ it.effect("A3: interrupting the drag stream mid-gesture releases the claim (fina
 it.effect("A4: a press can't start while the activity is claimed; a press already on stays on when a drag claims", () =>
   Effect.gen(function* () {
     // (a) claimed before the down: the press doesn't start
-    const busy = makeDragActivity()
+    const busy = DragActivity.make()
     const release = busy.claim()
-    const ha = yield* rig(busy, [press(undefined)])
+    const ha = yield* rig(busy, [Recognizer.press(undefined)])
     yield* ha.push(ev("down", 0, 0, 0))
     yield* ha.push(ev("up", 0, 0, 10))
     expect(yield* ha.seen).toEqual([])
@@ -135,8 +136,8 @@ it.effect("A4: a press can't start while the activity is claimed; a press alread
     expect(yield* ha.seen).toEqual([true])
 
     // (b) a press already on stays on when a drag claims (no end-side check)
-    const activity = makeDragActivity()
-    const hb = yield* rig<boolean | string>(activity, [press(undefined), drag(undefined).pipe(Stream.map((s) => s.phase))])
+    const activity = DragActivity.make()
+    const hb = yield* rig<boolean | string>(activity, [Recognizer.press(undefined), Recognizer.drag(undefined).pipe(Stream.map((s) => s.phase))])
     yield* hb.push(ev("down", 0, 0, 0))
     yield* hb.push(dragTo(10, 10)) // the drag starts and claims
     expect(activity.isDragActive()).toBe(true)
@@ -148,9 +149,9 @@ it.effect("A4: a press can't start while the activity is claimed; a press alread
 it.effect("A5: hover ignores an enter while claimed; a leave while claimed still ends a hover that was on", () =>
   Effect.gen(function* () {
     // (a) an enter while claimed is ignored
-    const busy = makeDragActivity()
+    const busy = DragActivity.make()
     const release = busy.claim()
-    const ha = yield* rig(busy, [hover(undefined)])
+    const ha = yield* rig(busy, [Recognizer.hover(undefined)])
     yield* ha.push(ev("enter", 0, 0, 0, { buttons: 0 }))
     expect(yield* ha.seen).toEqual([])
     // after the release, an enter hovers
@@ -159,8 +160,8 @@ it.effect("A5: hover ignores an enter while claimed; a leave while claimed still
     expect(yield* ha.seen).toEqual([true])
 
     // (b) hover already on when a drag claims: the leave still ends it
-    const activity = makeDragActivity()
-    const hb = yield* rig(activity, [hover(undefined)])
+    const activity = DragActivity.make()
+    const hb = yield* rig(activity, [Recognizer.hover(undefined)])
     yield* hb.push(ev("enter", 0, 0, 0, { buttons: 0 }))
     const claim = activity.claim()
     yield* hb.push(ev("leave", 200, 0, 10))
@@ -171,7 +172,7 @@ it.effect("A5: hover ignores an enter while claimed; a leave while claimed still
 it.effect("A6: two drags claim twice; releasing one leaves the activity active", () =>
   Effect.gen(function* () {
     // (a) the API: a counter, and each release is idempotent
-    const counter = makeDragActivity()
+    const counter = DragActivity.make()
     const first = counter.claim()
     const second = counter.claim()
     first()
@@ -182,8 +183,8 @@ it.effect("A6: two drags claim twice; releasing one leaves the activity active",
     expect(counter.isDragActive()).toBe(false)
 
     // (b) two drag streams on one input: both claim at the same start
-    const activity = makeDragActivity()
-    const h = yield* rig(activity, [drag(undefined), drag(undefined)])
+    const activity = DragActivity.make()
+    const h = yield* rig(activity, [Recognizer.drag(undefined), Recognizer.drag(undefined)])
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(dragTo(10, 10))
     expect(activity.isDragActive()).toBe(true)

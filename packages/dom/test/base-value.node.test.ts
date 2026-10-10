@@ -2,7 +2,7 @@
 // `style` link's lookup (an object style or CSS text) and the coercion of a read or style
 // value to the shape of the key's target. No DOM: a server could call these (it never does,
 // ADR-0021). The read itself is own-values.browser.test.ts.
-import { TRANSFORM_IDENTITY } from "@wardic/core"
+import * as BaseValue from "@wardic/core/BaseValue"
 import { project, styleValueOf, valueLike } from "@wardic/dom"
 import { describe, expect, it } from "vitest"
 
@@ -76,7 +76,7 @@ describe("base values: the DOM's pure helpers (ADR-0022)", () => {
   })
 
   it("D8: every key core gives an identity is a transform key to the DOM's project", () => {
-    for (const key of Object.keys(TRANSFORM_IDENTITY)) {
+    for (const key of Object.keys(BaseValue.TRANSFORM_IDENTITY)) {
       const patch = project({ [key]: 2 })
       expect(patch[key], key).toBeUndefined()
       expect(typeof patch.transform, key).toBe("string")

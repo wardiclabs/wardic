@@ -4,7 +4,7 @@
 // noted: "real-browser-verified"). Here Chromium gives REAL geometry and REAL
 // observer emissions, so we assert them directly. Real async (the observers fire
 // on their own schedule) is awaited with Effect.sleep rather than a yieldNow drain.
-import { Probe } from "@wardic/core"
+import * as Probe from "@wardic/core/Probe"
 import { expect, it as it_, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -22,7 +22,7 @@ layer(TestLayer)("ProbeDomLive", (it) => {
   // --- viewport -----------------------------------------------------------
   it.effect("viewport mirrors the REAL window.innerWidth/innerHeight and re-reads on resize", () =>
     Effect.gen(function* () {
-      const probe = yield* Probe
+      const probe = yield* Probe.Probe
 
       const initial = yield* Atom.get(probe.viewport)
       expect(initial.width).toBe(window.innerWidth)
@@ -44,7 +44,7 @@ layer(TestLayer)("ProbeDomLive", (it) => {
   // --- prefersReducedMotion ----------------------------------------------
   it.effect("prefersReducedMotion reads a boolean from REAL matchMedia", () =>
     Effect.gen(function* () {
-      const probe = yield* Probe
+      const probe = yield* Probe.Probe
       const value = yield* Atom.get(probe.prefersReducedMotion)
       expect(typeof value).toBe("boolean")
       // Cross-check against the real media query (headless default is no-preference).
@@ -54,7 +54,7 @@ layer(TestLayer)("ProbeDomLive", (it) => {
   // --- measure (REAL geometry) -------------------------------------------
   it.effect("measure returns the element's REAL bounds (non-zero, all 8 fields)", () =>
     Effect.gen(function* () {
-      const probe = yield* Probe
+      const probe = yield* Probe.Probe
       const el = document.createElement("div")
       el.style.cssText = "position:absolute;left:10px;top:20px;width:100px;height:40px"
       document.body.appendChild(el)
@@ -82,7 +82,7 @@ layer(TestLayer)("ProbeDomLive", (it) => {
 // --- observeResize (REAL emission + teardown) --------------------------
 it_.live("ProbeDomLive > observeResize emits the element's new Bounds when it REALLY resizes, and disconnects", () =>
   Effect.gen(function* () {
-      const probe = yield* Probe
+      const probe = yield* Probe.Probe
       const el = document.createElement("div")
       el.style.cssText = "position:absolute;width:50px;height:50px"
       document.body.appendChild(el)
@@ -125,7 +125,7 @@ it_.live("ProbeDomLive > observeResize emits the element's new Bounds when it RE
 // --- observeIntersection (REAL emission + teardown) --------------------
 it_.live("ProbeDomLive > observeIntersection emits the REAL intersection state, and disconnects", () =>
   Effect.gen(function* () {
-      const probe = yield* Probe
+      const probe = yield* Probe.Probe
       const el = document.createElement("div")
       el.style.cssText = "position:absolute;top:0;left:0;width:50px;height:50px"
       document.body.appendChild(el)

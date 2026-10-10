@@ -27,18 +27,12 @@
  * start/end bookkeeping runs as each sample passes (`settleGesture`), since a grab
  * can interrupt an inner before it runs.
  */
-import {
-  axisLock,
-  drag as dragRecognizer,
-  type DragBounds,
-  type DragSample,
-  type FrameLoop,
-  InputSource,
-  isPrimaryPointer,
-  type Values,
-  type Vec2,
-  withinBounds,
-} from "@wardic/core"
+import * as Drag from "@wardic/core/Drag"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InputSource from "@wardic/core/InputSource"
+import type * as Point from "@wardic/core/Point"
+import * as Recognizer from "@wardic/core/Recognizer"
+import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import type { DragProjectionHandle } from "@wardic/dom"
 import * as Effect from "effect/Effect"
@@ -57,7 +51,7 @@ import { runScoped, type WardicRuntime } from "./provider.tsx"
  * so the post-drag handoff continues from where the drag left the element.
  */
 export interface DragSnapshot {
-  values: Values
+  values: Values.Values
   velocities: Record<string, number>
 }
 
@@ -66,7 +60,7 @@ export interface DragTrackConfig {
   /** `true` = free; `"x"`/`"y"` = axis-locked. */
   readonly axis: boolean | "x" | "y"
   /** Optional numeric constraint box (per axis) applied to the drag offset. */
-  readonly constraints?: DragBounds | undefined
+  readonly constraints?: Drag.Bounds | undefined
   /** Rubber-band resistance past `constraints` (0 = hard clamp). */
   readonly elastic?: number | undefined
   /** Fling on release under decay (default true). */
@@ -90,7 +84,7 @@ export interface RunDragTrackOptions {
   /** The spine's Snapshot object (shared — see {@link DragSnapshot}). */
   readonly snapshot: DragSnapshot
   /** Merge a value-map into the presence snapshot (mirrors the spine's recordFrame). */
-  readonly recordFrame: (value: Values) => void
+  readonly recordFrame: (value: Values.Values) => void
   /** Flip the reactive `dragging` signal the spine reads for `whileDrag` + key stripping. */
   readonly setDragging: (dragging: boolean) => void
   /** The static drag config (read once at setup). */
@@ -113,11 +107,11 @@ export interface RunDragTrackOptions {
    * "move", after `dragEnd` for "end", so a reader of the handle's `dragOffset()`
    * sees this sample (internal: a `<Reorder>` item's group).
    */
-  readonly onSample?: ((sample: DragSample) => void) | undefined
+  readonly onSample?: ((sample: Drag.Sample) => void) | undefined
 }
 
 /** `sample` with its off-axis offset, delta and velocity zeroed (core's `axisLock`, for one sample). */
-const lockTo = (sample: DragSample, axis: "x" | "y"): DragSample => {
+const lockTo = (sample: Drag.Sample, axis: "x" | "y"): Drag.Sample => {
   const off = axis === "x" ? "y" : "x"
   return {
     ...sample,
@@ -132,18 +126,18 @@ const lockTo = (sample: DragSample, axis: "x" | "y"): DragSample => {
  * `held` whether a gesture is on (from its "start" to its "end").
  */
 interface DragTrackState {
-  readonly base: Vec2
-  readonly position: Vec2
+  readonly base: Point.Point
+  readonly position: Point.Point
   readonly held: boolean
 }
 
-const ORIGIN: Vec2 = { x: 0, y: 0 }
+const ORIGIN: Point.Point = { x: 0, y: 0 }
 
 /**
  * The merged event the track switches over: a fresh drag sample, or a bare
  * "grab" (pointer-down) used purely to interrupt a running release.
  */
-type Event = { readonly _tag: "sample"; readonly s: DragSample } | { readonly _tag: "grab" }
+type Event = { readonly _tag: "sample"; readonly s: Drag.Sample } | { readonly _tag: "grab" }
 
 /**
  * Read the current rested `x`/`y` off the snapshot (defaulting to 0, as for a string
@@ -151,7 +145,7 @@ type Event = { readonly _tag: "sample"; readonly s: DragSample } | { readonly _t
  * re-grab mid-release) continues from where the element currently sits instead of
  * snapping to origin.
  */
-const snapshotPos = (snapshot: DragSnapshot): Vec2 => {
+const snapshotPos = (snapshot: DragSnapshot): Point.Point => {
   const { x, y } = snapshot.values
   return { x: typeof x === "number" ? x : 0, y: typeof y === "number" ? y : 0 }
 }
@@ -162,7 +156,7 @@ const snapshotPos = (snapshot: DragSnapshot): Vec2 => {
  * snapshot with zeroed velocities (the spring never fights them — the spine
  * strips the translate keys from its target while `dragging()` is true).
  */
-const directSet = (opts: RunDragTrackOptions, p: Vec2): void => {
+const directSet = (opts: RunDragTrackOptions, p: Point.Point): void => {
   // Projection node (ADR-0016): feed the live pointer offset to the projection —
   // the renderer ignores a projected element's raw x/y, so writing them is moot.
   // The snapshot x/y stays 0 (projection owns position), so `base` stays 0 and
@@ -188,7 +182,7 @@ const inner = (
   event: Event,
   ref: Ref.Ref<DragTrackState>,
   opts: RunDragTrackOptions,
-): Stream.Stream<never, never, FrameLoop> => {
+): Stream.Stream<never, never, FrameLoop.FrameLoop> => {
   if (event._tag === "grab") {
     // Interrupt any running release — `switchMap` cancels the previous inner. No
     // emission, no jump. With no gesture held, the interrupted release (or the one a
@@ -218,7 +212,7 @@ const inner = (
     return Stream.fromEffect(
       Ref.modify(ref, (st) => {
         const base = sample.phase === "start" ? snapshotPos(opts.snapshot) : st.base
-        const p: Vec2 = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+        const p: Point.Point = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
         return [p, { ...st, base, position: p }] as const
       }).pipe(
         Effect.tap((p) =>
@@ -246,7 +240,7 @@ const inner = (
   return Stream.unwrap(
     Ref.get(ref).pipe(
       Effect.map((st) => {
-        const releasePos: Vec2 = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
+        const releasePos: Point.Point = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
         return release(opts, ref, releasePos, sample.velocity)
       }),
     ),
@@ -262,7 +256,7 @@ const inner = (
  * node (ADR-0016), starts the FLIP to the slot (`dragEnd`) and hands back `dragging`.
  */
 const settleGesture = (
-  sample: DragSample,
+  sample: Drag.Sample,
   ref: Ref.Ref<DragTrackState>,
   opts: RunDragTrackOptions,
 ): Effect.Effect<void> => {
@@ -296,17 +290,17 @@ const settleGesture = (
 const release = (
   opts: RunDragTrackOptions,
   ref: Ref.Ref<DragTrackState>,
-  position: Vec2,
-  velocity: Vec2,
-): Stream.Stream<never, never, FrameLoop> => {
+  position: Point.Point,
+  velocity: Point.Point,
+): Stream.Stream<never, never, FrameLoop.FrameLoop> => {
   const cfg = opts.config
 
-  // Tap one released Vec2 into the gate + snapshot + ref (so a re-grab mid-tail
+  // Tap one released Point into the gate + snapshot + ref (so a re-grab mid-tail
   // rebases from where the tail reached). A plain call, as a run's sink on the Frame loop
   // must be, so it writes the ref's cell in place, as `Ref.update` does. The INVARIANT
   // holds: a re-grab interrupts the run (switchMap), which removes it from the loop at once,
   // before the next inner touches the ref.
-  const tapFrame = (p: Vec2): undefined => {
+  const tapFrame = (p: Point.Point): undefined => {
     MutableRef.update(ref.ref, (s) => ({ ...s, position: p }))
     directSet(opts, p)
     return undefined
@@ -317,7 +311,7 @@ const release = (
   ).pipe(Stream.drain)
 
   // The release's run, then `done` once it settles.
-  const settling = (run: Effect.Effect<unknown, never, FrameLoop>): Stream.Stream<never, never, FrameLoop> =>
+  const settling = (run: Effect.Effect<unknown, never, FrameLoop.FrameLoop>): Stream.Stream<never, never, FrameLoop.FrameLoop> =>
     Stream.fromEffect(run).pipe(Stream.drain, Stream.concat(done))
 
   if (cfg.snapToOrigin === true) {
@@ -343,7 +337,7 @@ const release = (
 }
 
 /**
- * Run the drag track for one element. Mirrors `withMomentum`'s shape: shape the
+ * Run the drag track for one element. Mirrors `Drag.fling`'s shape: shape the
  * `drag(element)` stream (axisLock / withinBounds), merge it with bare pointer-
  * down grabs, and `switchMap` over the merge so each new event interrupts the
  * running inner. The WHOLE track runs as ONE fiber via `runScoped(...runDrain)`,
@@ -362,12 +356,12 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
     Effect.gen(function* () {
       const ref = yield* Ref.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false })
 
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
 
       // Shape the drag samples BEFORE the track: axisLock first (zero the off
       // axis), then withinBounds (clamp the followed offset). Same fixed order as
       // momentum.ts / sensors.ts. Probe-free numeric form (ADR-0004).
-      let shaped: Stream.Stream<DragSample, never, InputSource> = dragRecognizer(element)
+      let shaped: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element)
       const axisAt = opts.axisAt
       if (axisAt !== undefined) {
         // The gesture's axis, read at its "start" and held to its "end" (one fiber reads
@@ -381,10 +375,10 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
             return out
           }),
         )
-      } else if (config.axis === "x" || config.axis === "y") shaped = shaped.pipe(axisLock(config.axis))
+      } else if (config.axis === "x" || config.axis === "y") shaped = shaped.pipe(Drag.axisLock(config.axis))
       if (config.constraints !== undefined) {
         shaped = shaped.pipe(
-          withinBounds(
+          Drag.withinBounds(
             config.constraints,
             config.elastic !== undefined ? { elastic: config.elastic } : undefined,
           ),
@@ -399,7 +393,7 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
       // InputSource is a Shared source, so this shares the recognizer's single
       // listener-set (no extra listeners — CONTEXT.md Shared source contract).
       const grabs = input.pointer(element).pipe(
-        Stream.filter((e) => e.type === "down" && isPrimaryPointer(e)),
+        Stream.filter((e) => e.type === "down" && InputSource.isPrimaryPointer(e)),
         Stream.map(() => ({ _tag: "grab" as const })),
       )
 

@@ -1,4 +1,4 @@
-import { Clock } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
@@ -21,8 +21,8 @@ export const makeTestClock = (frames: ReadonlyArray<number> = []) => ({
 })
 
 /** Clock Layer that emits `frames` (dt values, seconds) then completes. */
-export const layer = (frames: ReadonlyArray<number> = []): Layer.Layer<Clock> =>
-  Layer.succeed(Clock, makeTestClock(frames))
+export const layer = (frames: ReadonlyArray<number> = []): Layer.Layer<Clock.Clock> =>
+  Layer.succeed(Clock.Clock, makeTestClock(frames))
 
 /**
  * Convenience: `n` frames of a fixed `dt` (default 1/60s) — e.g. `frames(30)`
@@ -61,13 +61,13 @@ const flush = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, 
  * yield* clock.advance(1 / 30)  // a custom dt
  */
 export const pushable = (): Effect.Effect<{
-  readonly layer: Layer.Layer<Clock>
+  readonly layer: Layer.Layer<Clock.Clock>
   readonly advance: (dt?: number) => Effect.Effect<void>
 }> =>
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<number>()
     return {
-      layer: Layer.succeed(Clock, {
+      layer: Layer.succeed(Clock.Clock, {
         time: Atom.make(0),
         dt: Atom.make(0),
         ticks: Stream.fromPubSub(pubsub),

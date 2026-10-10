@@ -1,4 +1,4 @@
-import { InputSource } from "@wardic/core"
+import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -53,7 +53,7 @@ const spyTarget = <T extends EventTarget>(target: T) => {
 layer(InputDomLive)("InputDomLive", (it) => {
   it.effect("pointer maps down/move/up: type, coords, buttons, pointerId", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = document.createElement("div")
       const sub = yield* subscribeIn(input.pointer(el))
 
@@ -72,7 +72,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
 
   it.effect("pointer maps cancel/enter/leave phases", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = document.createElement("div")
       const sub = yield* subscribeIn(input.pointer(el))
 
@@ -86,7 +86,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
 
   it.effect("focus maps focus/blur", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = document.createElement("div")
       const sub = yield* subscribeIn(input.focus(el))
 
@@ -99,7 +99,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
 
   it.effect("wheel maps deltaX/deltaY/deltaZ", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = document.createElement("div")
       const sub = yield* subscribeIn(input.wheel(el))
 
@@ -114,7 +114,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
 
   it.effect("keyboard maps document keydown/keyup with key/code/repeat", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const sub = yield* subscribeIn(input.keyboard())
 
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", repeat: false }))
@@ -130,7 +130,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
 
   it.effect("ref-counting: two subscribers to pointer(sameEl) attach one listener-set; removed after last closes", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = document.createElement("div")
       const spy = spyTarget(el)
 
@@ -207,7 +207,7 @@ const attachedTarget = Effect.acquireRelease(
 layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
   it.effect("I1: a pointer that went down on the target keeps its moves, release and cancel", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
@@ -222,7 +222,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I2: a held pointer's move on the target itself arrives once", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
@@ -235,7 +235,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I3: a page-wide move in the down's own task arrives (the listeners are added inside its dispatch)", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
@@ -247,7 +247,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I4: the release, a cancel or a move with no button pressed ends it", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       for (const ending of ["pointerup", "pointercancel", "pointermove"] as const) {
         const el = yield* attachedTarget
         const sub = yield* subscribeIn(input.pointer(el))
@@ -263,7 +263,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I5: page-wide listeners only while a pointer is held", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const spy = spyWindowPointer()
       try {
@@ -283,7 +283,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I6: two held pointers share one page-wide set until both are released", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const spy = spyWindowPointer()
       try {
@@ -308,7 +308,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I7: pointerType, button and isPrimary are mapped from the DOM event", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { pointerType: "pen", isPrimary: false, button: 2, buttons: 2 }))
@@ -323,7 +323,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I8: a pointer that never went down on the target doesn't reach it from the page", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 1 }))
@@ -336,7 +336,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I10: a page-wide press after a lost release ends the hold; a press on the target arrives after it", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
@@ -353,7 +353,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
   it.effect("I9: two subscribers share one target listener-set and one page-wide set", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
       const target = spyTarget(el)
       const page = spyWindowPointer()
@@ -379,7 +379,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
 
 // A scroll during a hold (ADR-0019, *Amendment (Reorder)*): while a pointer is held, the
 // DOM reports scrolls of the target's scrollable ancestors and of its window, and core's
-// heldPointerSource turns each into a move of the held pointer shifted by the scroll, so
+// InputSource.heldPointer turns each into a move of the held pointer shifted by the scroll, so
 // a drag stays under the pointer. Nothing listens for scroll at rest.
 
 /** Count the window's `scroll` listeners added and removed while it runs (any phase). */
@@ -429,7 +429,7 @@ const scrolledTarget = Effect.acquireRelease(
 layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
   it.effect("I11: no scroll listener at rest, and none from a plain move", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const spy = spyWindowScroll()
       try {
         const { el } = yield* scrolledTarget
@@ -445,7 +445,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
 
   it.effect("I12: a held pointer's container scrolled 60 px arrives as a move shifted 60 px", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const { container, el } = yield* scrolledTarget
       const sub = yield* subscribeIn(input.pointer(el))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
@@ -460,7 +460,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
 
   it.effect("I13: the window scrolled 60 px while a pointer is held arrives as a shifted move", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const tall = document.createElement("div")
       tall.style.cssText = "height:4000px"
       document.body.append(tall)
@@ -482,7 +482,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
 
   it.effect("I14: a scroll of a container the target isn't in reports nothing", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const { el } = yield* scrolledTarget
       const other = yield* scrolledTarget
       const sub = yield* subscribeIn(input.pointer(el))
@@ -496,7 +496,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
 
   it.effect("I15: the two scroll listeners come with the hold and go at its release", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const spy = spyWindowScroll()
       try {
         const { el } = yield* scrolledTarget
@@ -514,7 +514,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
 
   it.effect("I17: inside a plain position:fixed element, neither the page's scroll nor an outer container's moves the pointer; the fixed element's own does", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const tall = document.createElement("div")
       tall.style.cssText = "height:4000px"
       document.body.append(tall)
@@ -549,7 +549,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
 
   it.effect("I16: two subscribers to one element share one pair of scroll listeners", () =>
     Effect.gen(function* () {
-      const input = yield* InputSource
+      const input = yield* InputSource.InputSource
       const spy = spyWindowScroll()
       try {
         const { container, el } = yield* scrolledTarget

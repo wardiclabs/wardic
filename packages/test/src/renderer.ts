@@ -1,4 +1,4 @@
-import { type Patch, Renderer } from "@wardic/core"
+import * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
@@ -10,7 +10,7 @@ export interface ProjectCall {
 /** A single recorded `commit` call. */
 export interface CommitCall {
   readonly target: unknown
-  readonly patch: Patch
+  readonly patch: Renderer.Patch
 }
 
 /**
@@ -25,8 +25,8 @@ export interface CommitCall {
  */
 export const makeRecordingRenderer = (): {
   readonly service: {
-    readonly project: (values: Record<string, unknown>) => Patch
-    readonly commit: <T>(target: T, patch: Patch) => Effect.Effect<void>
+    readonly project: (values: Record<string, unknown>) => Renderer.Patch
+    readonly commit: <T>(target: T, patch: Renderer.Patch) => Effect.Effect<void>
   }
   readonly projectCalls: ReadonlyArray<ProjectCall>
   readonly commitCalls: ReadonlyArray<CommitCall>
@@ -35,11 +35,11 @@ export const makeRecordingRenderer = (): {
   const commitCalls: Array<CommitCall> = []
   return {
     service: {
-      project: (values: Record<string, unknown>): Patch => {
+      project: (values: Record<string, unknown>): Renderer.Patch => {
         projectCalls.push({ values })
-        return values as Patch
+        return values as Renderer.Patch
       },
-      commit: <T>(target: T, patch: Patch) =>
+      commit: <T>(target: T, patch: Renderer.Patch) =>
         Effect.sync(() => {
           commitCalls.push({ target, patch })
         }),
@@ -50,4 +50,4 @@ export const makeRecordingRenderer = (): {
 }
 
 /** No-op recording Renderer Layer (discards calls). */
-export const layer: Layer.Layer<Renderer> = Layer.succeed(Renderer, makeRecordingRenderer().service)
+export const layer: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, makeRecordingRenderer().service)

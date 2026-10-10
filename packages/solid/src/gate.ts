@@ -40,7 +40,7 @@
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
  * `tick` — it stays quiet (no span, no per-call log).
  */
-import { type Patch, Renderer } from "@wardic/core"
+import * as Renderer from "@wardic/core/Renderer"
 import { dashCase } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
@@ -54,7 +54,7 @@ import type { WardicServices } from "./provider.tsx"
  *     provider runtime at flush time).
  */
 export type FlushSink =
-  | { readonly kind: "signal"; readonly set: (patch: Patch) => void }
+  | { readonly kind: "signal"; readonly set: (patch: Renderer.Patch) => void }
   | {
     readonly kind: "commit"
     readonly target: unknown
@@ -144,7 +144,7 @@ export const makeFlushGate = (
   // Resolve the Renderer's two halves exactly once at creation.
   const { commit, project } = runtime.runSync(
     Effect.gen(function* () {
-      return yield* Renderer
+      return yield* Renderer.Renderer
     }),
   )
 
@@ -174,7 +174,7 @@ export const makeFlushGate = (
     }
     // A key the last patch wrote and this one doesn't: the element gets its own value
     // back. Only looked for when one dropped out (the usual frame keeps every key).
-    let restore: Patch | undefined
+    let restore: Renderer.Patch | undefined
     if (kept < before) {
       for (const [key, own] of committed) {
         if (key in patch) continue

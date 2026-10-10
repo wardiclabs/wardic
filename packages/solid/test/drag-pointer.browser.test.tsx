@@ -17,7 +17,7 @@
 // own samples (`createDrag`) and the hover and press recognizers. D is grabbed 20 px
 // in from its left edge, at its vertical centre.
 import { cleanup, render } from "@solidjs/testing-library"
-import type { DragSample } from "@wardic/core"
+import type * as Drag from "@wardic/core/Drag"
 import { DomLive } from "@wardic/dom"
 import { createDrag, createHover, createPress, wardic, WardicProvider } from "@wardic/solid"
 import { createEffect, createSignal, Show } from "solid-js"
@@ -87,7 +87,7 @@ interface DragScene {
   /** The grab point: 20 px in from D's left edge, at its vertical centre. */
   readonly grab: Pt
   /** Every sample the drag recognizer emitted. */
-  readonly samples: Array<DragSample>
+  readonly samples: Array<Drag.Sample>
   readonly hovered: () => boolean
   readonly pressed: () => boolean
 }
@@ -99,7 +99,7 @@ const mountDrag = async (
   touchAction?: "none",
 ): Promise<DragScene> => {
   const [el, setEl] = createSignal<HTMLElement>()
-  const samples: Array<DragSample> = []
+  const samples: Array<Drag.Sample> = []
   let hovered: () => boolean = () => false
   let pressedNow: () => boolean = () => false
   function Recorder(props: { readonly target: HTMLElement }) {
@@ -162,7 +162,7 @@ const seen = (s: DragScene): Seen => {
 }
 
 /** The recognizer's samples since `from`, run-length encoded: `start move×5 end`. */
-const phases = (samples: ReadonlyArray<DragSample>, from: number): string => {
+const phases = (samples: ReadonlyArray<Drag.Sample>, from: number): string => {
   const out: Array<string> = []
   let last = ""
   let n = 0
@@ -180,7 +180,7 @@ const phases = (samples: ReadonlyArray<DragSample>, from: number): string => {
 }
 
 /** The x offset of the last sample since `from`. */
-const lastOffsetX = (samples: ReadonlyArray<DragSample>, from: number): number =>
+const lastOffsetX = (samples: ReadonlyArray<Drag.Sample>, from: number): number =>
   r1(samples.slice(from).at(-1)?.offset.x ?? Number.NaN)
 
 /**
@@ -454,8 +454,8 @@ const mountPair = async () => {
   const [d, setD] = createSignal<HTMLElement>()
   const [y, setY] = createSignal<HTMLElement>()
   const [yAt, setYAt] = createSignal<Pt | undefined>(undefined)
-  const samples: Array<DragSample> = []
-  const ySamples: Array<DragSample> = []
+  const samples: Array<Drag.Sample> = []
+  const ySamples: Array<Drag.Sample> = []
   let yPressed: () => boolean = () => false
   function Recorder(props: { readonly d: HTMLElement; readonly y: HTMLElement }) {
     // eslint-disable-next-line solid/reactivity

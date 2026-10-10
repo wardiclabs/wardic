@@ -21,7 +21,7 @@
  * carry a `wardic.dom.shared.*` span + a debug-log on subscribe; the hot
  * `measure`/viewport-write paths stay quiet.
  */
-import { type Bounds, Probe, type Viewport } from "@wardic/core"
+import * as Probe from "@wardic/core/Probe"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
@@ -31,7 +31,7 @@ import { requireGlobal } from "./require-global.ts"
 import { makeSharedByTarget } from "./shared.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
-const toBounds = (r: DOMRect): Bounds => ({
+const toBounds = (r: DOMRect): Probe.Bounds => ({
   x: r.x,
   y: r.y,
   width: r.width,
@@ -60,7 +60,7 @@ const make = Effect.gen(function* () {
   // `keepAlive` pins the node so the value the resize listener writes survives
   // between reads (an idle node with no subscriber would be GC'd and re-init).
   const viewport = Atom.keepAlive(
-    Atom.make<Viewport>({ width: window.innerWidth, height: window.innerHeight }),
+    Atom.make<Probe.Viewport>({ width: window.innerWidth, height: window.innerHeight }),
   )
   // A forked window "resize" listener is the only writer of `viewport`.
   yield* Effect.forkScoped(
@@ -91,9 +91,9 @@ const make = Effect.gen(function* () {
   // One ResizeObserver per target, ref-counted via makeSharedByTarget. The
   // observer is constructed on the first subscriber; `Effect.addFinalizer`
   // disconnects it when the last subscriber's scope closes.
-  const observeResize = yield* makeSharedByTarget<Bounds>((target) =>
+  const observeResize = yield* makeSharedByTarget<Probe.Bounds>((target) =>
     Effect.succeed(
-      Stream.callback<Bounds>((queue) =>
+      Stream.callback<Probe.Bounds>((queue) =>
         Effect.gen(function* () {
           const el = target as Element
           const ro = new ResizeObserver(() => {
@@ -123,7 +123,7 @@ const make = Effect.gen(function* () {
     )
   )
 
-  return Probe.of({
+  return Probe.Probe.of({
     // Hot path — intentionally unlogged/un-spanned.
     measure: (target) => Effect.sync(() => toBounds((target as Element).getBoundingClientRect())),
     viewport,
@@ -141,6 +141,6 @@ const make = Effect.gen(function* () {
  * `RcMap`s and the forked listeners live for the layer's lifetime. Building it on a
  * server (no `window`) fails with the client-only error (ADR-0021, decision 7).
  */
-export const ProbeDomLive: Layer.Layer<Probe, never, AtomRegistry.AtomRegistry> = Layer.effect(
-  Probe,
+export const ProbeDomLive: Layer.Layer<Probe.Probe, never, AtomRegistry.AtomRegistry> = Layer.effect(
+  Probe.Probe,
 )(make)

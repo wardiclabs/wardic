@@ -1,5 +1,6 @@
-import { makePointerLikeEvent, withMomentum } from "@wardic/core"
-import type { PointerLikeEvent, Vec2 } from "@wardic/core"
+import * as Drag from "@wardic/core/Drag"
+import * as InputSource from "@wardic/core/InputSource"
+import type * as Point from "@wardic/core/Point"
 import { TestClock, TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -9,17 +10,17 @@ import * as Stream from "effect/Stream"
 
 /** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release. */
 const ev = (
-  type: PointerLikeEvent["type"],
+  type: InputSource.PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   pointerId = 1,
-): PointerLikeEvent =>
-  makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
+): InputSource.PointerLikeEvent =>
+  InputSource.makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
 
 /**
  * Spin up a momentum surface driven by push-based input + clock. Returns the
- * push/advance handles plus a `positions()` reader over everything `withMomentum`
+ * push/advance handles plus a `positions()` reader over everything `Drag.fling`
  * has emitted so far. The stream runs in a forked fiber (interrupted when the
  * test scope closes); we yield after forking so its pointer/clock subscriptions
  * are live before the test pushes the first event (the PubSubs don't replay).
@@ -28,9 +29,9 @@ const harness = () =>
   Effect.gen(function* () {
     const input = yield* TestInput.pushable()
     const clock = yield* TestClock.pushable()
-    const emitted = yield* Ref.make<ReadonlyArray<Vec2>>([])
+    const emitted = yield* Ref.make<ReadonlyArray<Point.Point>>([])
 
-    yield* Stream.runForEach(withMomentum(undefined), (p) =>
+    yield* Stream.runForEach(Drag.fling(undefined), (p) =>
       Ref.update(emitted, (xs) => [...xs, p]),
     ).pipe(
       Effect.provide(Layer.merge(input.layer, clock.layer)),

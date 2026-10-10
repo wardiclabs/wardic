@@ -1,15 +1,15 @@
-import { type Bounds, Probe } from "@wardic/core"
+import * as Probe from "@wardic/core/Probe"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
 import { Atom } from "effect/reactivity"
 
-const ZERO_BOUNDS: Bounds = { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
+const ZERO_BOUNDS: Probe.Bounds = { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
 
 /** Options for the static test Probe. */
 export interface TestProbeOptions {
-  readonly bounds?: Bounds
+  readonly bounds?: Probe.Bounds
   readonly viewport?: { readonly width: number; readonly height: number }
   readonly prefersReducedMotion?: boolean
   /**
@@ -25,8 +25,8 @@ export interface TestProbeOptions {
  * optional `intersection` script via `Stream.fromIterable` (empty by default, so
  * it emits nothing); `observeResize` stays empty.
  */
-export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe> =>
-  Layer.succeed(Probe, {
+export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> =>
+  Layer.succeed(Probe.Probe, {
     measure: () => Effect.sync(() => options.bounds ?? ZERO_BOUNDS),
     viewport: Atom.make(options.viewport ?? { width: 1024, height: 768 }),
     prefersReducedMotion: Atom.make(options.prefersReducedMotion ?? false),
@@ -45,14 +45,14 @@ export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe> =>
  * /observeResize behave as in {@link layer}.
  */
 export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
-  readonly layer: Layer.Layer<Probe>
+  readonly layer: Layer.Layer<Probe.Probe>
   readonly pushIntersection: (inView: boolean) => Effect.Effect<void>
 }> =>
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<boolean>()
     const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
     return {
-      layer: Layer.succeed(Probe, {
+      layer: Layer.succeed(Probe.Probe, {
         measure: () => Effect.sync(() => options.bounds ?? ZERO_BOUNDS),
         viewport: Atom.make(options.viewport ?? { width: 1024, height: 768 }),
         prefersReducedMotion: Atom.make(options.prefersReducedMotion ?? false),

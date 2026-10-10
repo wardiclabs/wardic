@@ -9,7 +9,8 @@
 // Measure pass (not while the app sets one), and warns once when an item re-registers
 // with the same value in one task (the signature of a list keyed by index). It logs
 // its own `wardic.reorder:` events through the runtime, so a binding wires no logging.
-import type { DragSample, ReorderAxis } from "@wardic/core"
+import type * as Drag from "@wardic/core/Drag"
+import type * as Reorder from "@wardic/core/Reorder"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import { makeReorderController, type ProjectionNodeHandle, type ReorderController, type ReorderControllerOptions } from "../src/index.ts"
@@ -45,7 +46,7 @@ interface List {
   readonly items: Map<string, Item>
   readonly container: HTMLElement
   readonly reorders: Array<ReadonlyArray<string>>
-  readonly axes: Array<ReorderAxis>
+  readonly axes: Array<Reorder.Axis>
   /** The controller's `wardic.reorder:` logs so far, by event. */
   readonly logs: () => Array<Log>
 }
@@ -67,7 +68,7 @@ const mountList = async (
   const values = Array.from({ length: o.n ?? (kind === "grid" ? 6 : 3) }, (_, i) => String.fromCharCode(97 + i))
   let order: ReadonlyArray<string> = values
   const reorders: Array<ReadonlyArray<string>> = []
-  const axes: Array<ReorderAxis> = []
+  const axes: Array<Reorder.Axis> = []
   const container = el(o.parent ?? stage(), CONTAINER[kind])
   const c = makeReorderController<string>({
     runtime: e.runtime,
@@ -98,7 +99,7 @@ const centre = (element: HTMLElement) => {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
 }
 
-const sample = (phase: DragSample["phase"], at: { x: number; y: number }, offset: { x: number; y: number }, timeStamp: number): DragSample => ({
+const sample = (phase: Drag.Sample["phase"], at: { x: number; y: number }, offset: { x: number; y: number }, timeStamp: number): Drag.Sample => ({
   phase,
   point: { x: at.x + offset.x, y: at.y + offset.y },
   offset,
@@ -160,7 +161,7 @@ describe("the Reorder controller (ADR-0020)", () => {
 
   it("RC3: while the app sets the axis no pass detects one; resolve() after it's cleared detects at once", async () => {
     const e = makeEngine(makeSink().sink)
-    let override: ReorderAxis | undefined = "x"
+    let override: Reorder.Axis | undefined = "x"
     const list = await mountList(e, "column", { options: { axis: () => override } })
     expect(list.axes).toEqual([])
     expect(list.c.axis()).toBe("x")

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { type Delta, type Patch, PROJECTION_KEY } from "@wardic/core"
+import * as Projection from "@wardic/core/Projection"
+import type * as Renderer from "@wardic/core/Renderer"
 import { DomLive } from "@wardic/dom"
 import { TestLive } from "@wardic/test"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -55,7 +56,7 @@ describe("makeFlushGate", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      let received: Patch | undefined
+      let received: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => (received = p) })
 
       gate.write("a", { x: 1 })
@@ -100,7 +101,7 @@ describe("makeFlushGate", () => {
     try {
       const gate = makeFlushGate(runtime)
       let applied = 0
-      const seen: Array<Patch> = []
+      const seen: Array<Renderer.Patch> = []
       gate.register("a", {
         kind: "signal",
         set: (p) => {
@@ -138,7 +139,7 @@ describe("makeFlushGate", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      let received: Patch | undefined
+      let received: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => (received = p) })
 
       gate.write("a", { x: 1 })
@@ -160,7 +161,7 @@ describe("makeFlushGate", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      let received: Patch | undefined
+      let received: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => (received = p) })
 
       gate.write("a", { x: 1 })
@@ -188,7 +189,7 @@ describe("makeFlushGate", () => {
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      let received: Patch | undefined
+      let received: Renderer.Patch | undefined
       const unregister = gate.register("a", { kind: "signal", set: (p) => (received = p) })
 
       unregister()
@@ -228,7 +229,7 @@ describe("makeFlushGate", () => {
     createRoot((dispose) => {
       const runtime = ManagedRuntime.make(TestLive)
       const gate = makeFlushGate(runtime)
-      let received: Patch | undefined
+      let received: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => (received = p) })
       gate.write("a", { x: 7 })
       fireFrame()
@@ -246,7 +247,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
     try {
       const gate = makeFlushGate(runtime)
       const order: Array<string> = []
-      let received: Patch | undefined
+      let received: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => ((received = p), order.push("apply")) })
 
       gate.flushPass(() => {
@@ -266,8 +267,8 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
     const runtime = ManagedRuntime.make(TestLive)
     try {
       const gate = makeFlushGate(runtime)
-      let a: Patch | undefined
-      let b: Patch | undefined
+      let a: Renderer.Patch | undefined
+      let b: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => (a = p) })
       gate.register("b", { kind: "signal", set: (p) => (b = p) })
 
@@ -288,11 +289,11 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("applies everything the pass wrote inside one batch(): an effect reading two of them runs once", () => {
     const runtime = ManagedRuntime.make(TestLive)
     const gate = makeFlushGate(runtime)
-    const runs: Array<[Patch | undefined, Patch | undefined]> = []
+    const runs: Array<[Renderer.Patch | undefined, Renderer.Patch | undefined]> = []
     // Effects go live once the root's setup returns, so the pass runs after it.
     const disposeRoot = createRoot((dispose) => {
-      const [a, setA] = createSignal<Patch | undefined>(undefined)
-      const [b, setB] = createSignal<Patch | undefined>(undefined)
+      const [a, setA] = createSignal<Renderer.Patch | undefined>(undefined)
+      const [b, setB] = createSignal<Renderer.Patch | undefined>(undefined)
       gate.register("a", { kind: "signal", set: setA })
       gate.register("b", { kind: "signal", set: setB })
       createEffect(on([a, b], ([va, vb]) => runs.push([va, vb]), { defer: true }))
@@ -351,9 +352,9 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("a write from an effect inside the pass's flush waits for the next frame, and requests it", () => {
     const runtime = ManagedRuntime.make(TestLive)
     const gate = makeFlushGate(runtime)
-    let b: Patch | undefined
+    let b: Renderer.Patch | undefined
     const disposeRoot = createRoot((dispose) => {
-      const [a, setA] = createSignal<Patch | undefined>(undefined)
+      const [a, setA] = createSignal<Renderer.Patch | undefined>(undefined)
       gate.register("a", { kind: "signal", set: setA })
       gate.register("b", { kind: "signal", set: (p) => (b = p) })
       // Runs inside flushPass's batch(), after the pass itself has returned.
@@ -406,12 +407,12 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
 // there. A signal sink's next patch simply lacks the key; a commit sink now removes a key
 // its previous patch had and this one doesn't, restoring the element's own inline value.
 describe("makeFlushGate — a key that drops out of a patch", () => {
-  const IDENTITY: Delta = {
+  const IDENTITY: Projection.Delta = {
     x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
     y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
   }
-  const raised = { [PROJECTION_KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 }, raise: 1 } }
-  const lowered = { [PROJECTION_KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 } } }
+  const raised = { [Projection.KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 }, raise: 1 } }
+  const lowered = { [Projection.KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 } } }
 
   it("GK1: a commit sink removes z-index once the projection stops carrying the raise", () => {
     const runtime = ManagedRuntime.make(DomLive)
@@ -454,7 +455,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
     const runtime = ManagedRuntime.make(DomLive)
     try {
       const gate = makeFlushGate(runtime)
-      const patches: Array<Patch> = []
+      const patches: Array<Renderer.Patch> = []
       gate.register("a", { kind: "signal", set: (p) => patches.push(p) })
       gate.write("a", raised)
       fireFrame()
@@ -474,7 +475,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
     const runtime = ManagedRuntime.make(DomLive)
     try {
       const gate = makeFlushGate(runtime)
-      const patches: Array<Patch> = []
+      const patches: Array<Renderer.Patch> = []
       gate.register("a", { kind: "signal", set: (p) => patches.push(p) })
       gate.write("a", { opacity: 0.5, scale: 1.2 })
       fireFrame()

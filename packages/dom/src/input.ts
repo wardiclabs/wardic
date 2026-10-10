@@ -11,7 +11,7 @@
  * element therefore shares a single pointer listener-set, not three.
  *
  * `pointer(target)` also carries every **Held pointer**'s events (ADR-0019): core's
- * `heldPointerSource` adds a page-wide set (the target's window, capture phase) inside
+ * `InputSource.heldPointer` adds a page-wide set (the target's window, capture phase) inside
  * the target's `pointerdown` dispatch and removes it at the pointer's release, so a
  * drag or a press keeps its pointer anywhere on the page. It is part of the element's
  * one shared lookup, so every subscriber to the element shares it too. No pointer
@@ -21,7 +21,7 @@
  *
  * A scroll moves a Held pointer (ADR-0019, *Amendment (Reorder)*): while one is held,
  * the target's scroll feed reports the scroll of each of its scrollable ancestors and
- * of its window, and `heldPointerSource` turns each change into a move of the pointer
+ * of its window, and `InputSource.heldPointer` turns each change into a move of the pointer
  * shifted by it. Two passive `scroll` listeners on the target's window come with the
  * hold and go at its release: one in the capture phase for element scrolls (they don't
  * bubble), one for the window's own. Nothing listens for scroll at rest. The feed also
@@ -36,16 +36,8 @@
  * already carry a `wardic.dom.shared.*` span + a debug-log on subscribe; the
  * per-event mapping path is deliberately unlogged — it is the hot path.
  */
-import type {
-  FocusLikeEvent,
-  KeyboardLikeEvent,
-  Point,
-  PointerFeed,
-  PointerLikeEvent,
-  ScrollFeed,
-  WheelLikeEvent,
-} from "@wardic/core"
-import { heldPointerSource, InputSource } from "@wardic/core"
+import * as InputSource from "@wardic/core/InputSource"
+import type * as Point from "@wardic/core/Point"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
@@ -54,7 +46,7 @@ import { requireGlobal } from "./require-global.ts"
 import { makeSharedByTarget, makeSharedGlobal } from "./shared.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */
-const POINTER_TYPE: Record<string, PointerLikeEvent["type"]> = {
+const POINTER_TYPE: Record<string, InputSource.PointerLikeEvent["type"]> = {
   pointerdown: "down",
   pointermove: "move",
   pointerup: "up",
@@ -71,7 +63,7 @@ const POINTER_EVENTS = Object.keys(POINTER_TYPE)
  */
 const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel", "pointerdown"]
 
-const toPointer = (type: PointerLikeEvent["type"], ev: PointerEvent): PointerLikeEvent => ({
+const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent): InputSource.PointerLikeEvent => ({
   type,
   pointerId: ev.pointerId ?? 1,
   x: ev.clientX,
@@ -87,7 +79,7 @@ const toPointer = (type: PointerLikeEvent["type"], ev: PointerEvent): PointerLik
  * A {@link PointerFeed} of `types` on `target`: each DOM event emitted as its
  * Like-event with the DOM event as `raw`; the returned function removes the listeners.
  */
-const feedOf = (target: EventTarget, types: ReadonlyArray<string>, options?: AddEventListenerOptions): PointerFeed =>
+const feedOf = (target: EventTarget, types: ReadonlyArray<string>, options?: AddEventListenerOptions): InputSource.PointerFeed =>
 (emit) => {
   const listener = (ev: Event): void => emit(toPointer(POINTER_TYPE[ev.type]!, ev as PointerEvent), ev)
   for (const type of types) target.addEventListener(type, listener, options)
@@ -107,7 +99,7 @@ const isElement = (target: unknown): target is Element =>
 
 const CAPTURE_PASSIVE: AddEventListenerOptions = { capture: true, passive: true }
 const PASSIVE: AddEventListenerOptions = { passive: true }
-const ZERO: Point = { x: 0, y: 0 }
+const ZERO: Point.Point = { x: 0, y: 0 }
 
 /** Each held target's scroll since its hold began, while it's held (Q1: one per hold). */
 const heldShifts = new WeakMap<object, { x: number; y: number }>()
@@ -119,7 +111,7 @@ const heldShifts = new WeakMap<object, { x: number; y: number }>()
  *
  * @internal for the auto-scroller.
  */
-export const heldScrollShift = (target: unknown): Point =>
+export const heldScrollShift = (target: unknown): Point.Point =>
   (typeof target === "object" && target !== null ? heldShifts.get(target) : undefined) ?? ZERO
 
 /**
@@ -131,7 +123,7 @@ export const heldScrollShift = (target: unknown): Point =>
  * one for the window's own scroll (the document's scroll event reaches the capture
  * listener too, so only this one reports it).
  */
-const scrollFeedOf = (target: unknown): ScrollFeed => (emit) => {
+const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
   const win = windowOf(target)
   const doc = win.document
   const last = new Map<EventTarget, { x: number; y: number }>()
@@ -173,18 +165,18 @@ const scrollFeedOf = (target: unknown): ScrollFeed => (emit) => {
   }
 }
 
-const toFocus = (type: FocusLikeEvent["type"]) =>
-  (ev: FocusEvent): FocusLikeEvent => ({ type, timeStamp: ev.timeStamp })
+const toFocus = (type: InputSource.FocusLikeEvent["type"]) =>
+  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp })
 
-const toWheel = (ev: WheelEvent): WheelLikeEvent => ({
+const toWheel = (ev: WheelEvent): InputSource.WheelLikeEvent => ({
   deltaX: ev.deltaX,
   deltaY: ev.deltaY,
   deltaZ: ev.deltaZ,
   timeStamp: ev.timeStamp,
 })
 
-const toKeyboard = (type: KeyboardLikeEvent["type"]) =>
-  (ev: KeyboardEvent): KeyboardLikeEvent => ({
+const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"]) =>
+  (ev: KeyboardEvent): InputSource.KeyboardLikeEvent => ({
     type,
     key: ev.key,
     code: ev.code,
@@ -195,7 +187,7 @@ const toKeyboard = (type: KeyboardLikeEvent["type"]) =>
 /**
  * One `fromEventListener` per DOM event type, mapped to a Like-event, except
  * `pointer`, whose target, page-wide and scroll feeds go through core's
- * `heldPointerSource` (one ordered callback). The shared helpers want `Effect<Stream<A>, never, Scope>`;
+ * `InputSource.heldPointer` (one ordered callback). The shared helpers want `Effect<Stream<A>, never, Scope>`;
  * these are plain `Stream`s, so each `lookup` simply succeeds with the stream.
  */
 const make = Effect.gen(function* () {
@@ -204,7 +196,7 @@ const make = Effect.gen(function* () {
 
   const pointer = yield* makeSharedByTarget((target) =>
     Effect.succeed(
-      heldPointerSource({
+      InputSource.heldPointer({
         target: feedOf(target as EventTarget, POINTER_EVENTS),
         global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE),
         scroll: scrollFeedOf(target),
@@ -244,7 +236,7 @@ const make = Effect.gen(function* () {
     ),
   )
 
-  return InputSource.of({
+  return InputSource.InputSource.of({
     pointer,
     focus,
     wheel,
@@ -258,4 +250,4 @@ const make = Effect.gen(function* () {
  * caches live for the layer's lifetime. Building it on a server (no `document`) fails
  * with the client-only error (ADR-0021, decision 7).
  */
-export const InputDomLive: Layer.Layer<InputSource> = Layer.effect(InputSource)(make)
+export const InputDomLive: Layer.Layer<InputSource.InputSource> = Layer.effect(InputSource.InputSource)(make)

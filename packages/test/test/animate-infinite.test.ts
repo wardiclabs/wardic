@@ -1,4 +1,5 @@
-import { type Frame, linear } from "@wardic/core"
+import * as Easing from "@wardic/core/Easing"
+import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import * as Effect from "effect/Effect"
@@ -18,8 +19,8 @@ it.effect("Machine.toStream(Machine.animate({ repeat: Infinity })) never auto-te
     // than N frames here.
     // Effect v4: Stream.runCollect returns ReadonlyArray<A> directly (no Chunk wrapper).
     const frames = (yield* Stream.runCollect(
-      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: linear, repeat: Infinity })).pipe(Stream.take(N)),
-    )) as ReadonlyArray<Frame<number>>
+      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: Easing.linear, repeat: Infinity })).pipe(Stream.take(N)),
+    )) as ReadonlyArray<Frame.Frame<number>>
 
     // Assert — emission count equals N (never settled on its own).
     expect(frames.length).toBe(N)

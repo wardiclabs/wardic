@@ -12,7 +12,7 @@
 // paint (a ResizeObserver callback, after layout and before paint), on Refresh frames to
 // the settle, and after the user's own style changes.
 import { cleanup, render } from "@solidjs/testing-library"
-import { Renderer } from "@wardic/core"
+import * as Renderer from "@wardic/core/Renderer"
 import { DomLive, dragDefaultStyle, RendererDomLive } from "@wardic/dom"
 import { wardic, type WardicMotionProps, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Effect from "effect/Effect"
@@ -82,7 +82,7 @@ const TWEEN_MS = 300
 const FIRST_FRAME = 0.1
 
 /** The DOM's projection, from the Renderer DomLive provides. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
 
 const opacityOf = (el: Element | null): number => (el === null ? 1 : Number(getComputedStyle(el).opacity))
 

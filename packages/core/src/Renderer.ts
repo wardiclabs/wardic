@@ -1,0 +1,79 @@
+/**
+ * The `Renderer` module: the output sink an Environment writes values to, behind the
+ * `Renderer.Renderer` service (ADR-0002), its `Patch`, and `applyTo`, which drains a Frame
+ * stream into a target through it (ADR-0028, decisions 11 and 12).
+ */
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import { dual } from "effect/Function"
+import * as Stream from "effect/Stream"
+import type * as Frame from "./Frame.ts"
+
+/**
+ * Output of `Renderer.project` — the environment-specific representation of a
+ * frame's values, ready to be written by `Renderer.commit`. Structurally an
+ * opaque `Record<string, unknown>` so each environment (DOM, canvas, native)
+ * is free to encode grouped fields (e.g. an aggregated `transform` string)
+ * without leaking that shape into engine code.
+ */
+export type Patch = Record<string, unknown>
+
+/**
+ * Output sink. Writes computed animation values onto whatever the environment
+ * renders to — a DOM element's style, a canvas context, a native view, etc.
+ *
+ * Split into two halves (see ADR-0002):
+ *   - `project` — pure, synchronous: translates engine values into the
+ *     environment's representation (`Patch`). Side-effect-free; reused by the
+ *     reactive Solid path so DOM grouping/unit logic isn't duplicated.
+ *   - `commit` — imperative: writes a `Patch` to `target`. Used only by the
+ *     imperative path (`Renderer.applyTo`, `createAnimate`, `use:ward`); the Solid
+ *     declarative surface skips it entirely.
+ *
+ * `target` is environment-defined and opaque to the engine; the DOM renderer
+ * treats it as an `HTMLElement`, a canvas renderer as a draw context, and so on.
+ */
+export class Renderer extends Context.Service<Renderer, {
+  /** Pure: translate engine values into the environment's patch shape. */
+  readonly project: (values: Record<string, unknown>) => Patch
+  /** Imperative: write a projected patch onto `target`. */
+  readonly commit: <T>(target: T, patch: Patch) => Effect.Effect<void>
+}>()("@wardic/Renderer") {}
+
+/**
+ * Imperative-path entry point (see ADR 0002).
+ *
+ * Drains a frame stream into `target` by routing every emission through the
+ * `Renderer`'s two halves: `project` translates the engine values into the
+ * environment's patch shape (e.g. grouping `x`/`y`/`scale` into one DOM
+ * `transform` string), and `commit` writes that patch onto the target.
+ *
+ * The Solid declarative surface renders reactively and never calls this — it's
+ * the consumer-facing combinator behind `createAnimate` / `use:ward`, canvas,
+ * and native bindings, where the engine must push values into a sink each tick.
+ *
+ * The typed surface accepts a `Frame<Record<string, unknown>>`, which is the
+ * shape `springValues` and `animateValues` already emit (their `Values` map is
+ * assignable to `Record<string, unknown>`); single-scalar primitives are wrapped
+ * by the binding layer before reaching `applyTo`. `dual`, the stream first:
+ * `stream.pipe(Renderer.applyTo(target))` (ADR-0028, decision 12).
+ *
+ * Observability: a single `wardic.applyTo` span wraps the stream and one
+ * annotated `Effect.logDebug("wardic.applyTo: subscribe")` fires when the
+ * stream starts. Per-frame work is deliberately un-logged — this is the
+ * hot path.
+ */
+export const applyTo: {
+  <T>(target: T): <E, R>(
+    stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>,
+  ) => Effect.Effect<void, E, R | Renderer>
+  <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.Effect<void, E, R | Renderer>
+} = dual(
+  2,
+  Effect.fn("wardic.applyTo")(function* <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T) {
+    yield* Effect.annotateCurrentSpan({ target: typeof target })
+    const renderer = yield* Renderer
+    yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(Effect.annotateLogs({ target: typeof target }))
+    yield* stream.pipe(Stream.runForEach((frame) => renderer.commit(target, renderer.project(frame.value))))
+  }),
+)

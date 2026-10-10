@@ -48,28 +48,15 @@
  * re-anchors to its `relativeParent`'s CURRENT target each frame, so it stays
  * glued even when parent and child run DIFFERENT transitions ("not left behind").
  */
-import {
-  applyTreeDeltas,
-  type Box,
-  boundsToBox,
-  calcBoxDelta,
-  calcRelativeBox,
-  type Delta,
-  type Frame,
-  type FrameLoop,
-  initSpring,
-  mixBox,
-  NOMINAL_DT,
-  nextMicrotask,
-  placeRelativeBox,
-  type Point,
-  PROJECTION_KEY,
-  type ProjectionValue,
-  Renderer,
-  type Sink,
-  type SpringState,
-  springStep,
-} from "@wardic/core"
+import * as Box from "@wardic/core/Box"
+import * as Clock from "@wardic/core/Clock"
+import type * as Frame from "@wardic/core/Frame"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as Microtask from "@wardic/core/Microtask"
+import type * as Point from "@wardic/core/Point"
+import * as Projection from "@wardic/core/Projection"
+import * as Renderer from "@wardic/core/Renderer"
+import * as Spring from "@wardic/core/Spring"
 import * as Machine from "@wardic/core/Machine"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -107,24 +94,24 @@ const MAX_ROUNDS = 5
  * was torn down on owner disposal — ADR-0010). A binding's wider runtime (e.g. one
  * providing the full `WardicServices`) is assignable here.
  */
-export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<FrameLoop | Renderer, never>
+export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<FrameLoop.FrameLoop | Renderer.Renderer, never>
 
 /**
  * The coordinator's Frames on the Frame loop (#75). It carries no value, since its writes
  * are made inside its step, so its two Frames are built once and its sink does nothing.
  */
-const COORDINATOR_RUNNING: Frame<void> = { value: undefined, done: false }
-const COORDINATOR_SETTLED: Frame<void> = { value: undefined, done: true }
-const ignoreFrame: Sink<Frame<void>> = () => undefined
+const COORDINATOR_RUNNING: Frame.Frame<void> = { value: undefined, done: false }
+const COORDINATOR_SETTLED: Frame.Frame<void> = { value: undefined, done: true }
+const ignoreFrame: FrameLoop.Sink<Frame.Frame<void>> = () => undefined
 
 /** Identity tree-scale (no ancestor scaling). */
-const TREE_SCALE_IDENTITY: Point = { x: 1, y: 1 }
+const TREE_SCALE_IDENTITY: Point.Point = { x: 1, y: 1 }
 
 /** Default relative-projection anchor (top-left) when a node sets no `layoutAnchor` (ADR-0013). */
-const ZERO_ANCHOR: Point = { x: 0, y: 0 }
+const ZERO_ANCHOR: Point.Point = { x: 0, y: 0 }
 
 /** The resting projection delta — element at its real box (a no-op in applyTreeDeltas). */
-const IDENTITY_DELTA: Delta = {
+const IDENTITY_DELTA: Projection.Delta = {
   x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
   y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 },
 }
@@ -139,28 +126,28 @@ const IDENTITY_DELTA: Delta = {
 const BOX_EPSILON = 0.01
 
 /** Structural equality of two boxes on the geometry that matters for a FLIP (within {@link BOX_EPSILON}). */
-const boxesEqual = (a: Box, b: Box): boolean =>
+const boxesEqual = (a: Box.Box, b: Box.Box): boolean =>
   Math.abs(a.x.min - b.x.min) < BOX_EPSILON &&
   Math.abs(a.x.max - b.x.max) < BOX_EPSILON &&
   Math.abs(a.y.min - b.y.min) < BOX_EPSILON &&
   Math.abs(a.y.max - b.y.max) < BOX_EPSILON
 
 /** Translate a box by a point (ADR-0016: the dragged target is `grabBox + dragDelta`). */
-const offsetBox = (box: Box, delta: Point): Box => ({
+const offsetBox = (box: Box.Box, delta: Point.Point): Box.Box => ({
   x: { min: box.x.min + delta.x, max: box.x.max + delta.x },
   y: { min: box.y.min + delta.y, max: box.y.max + delta.y },
 })
 
 /** The centre of a box. */
-const centreOf = (box: Box): Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
+const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
 
 /** Whether two boxes have the same width and height (within {@link BOX_EPSILON}). */
-const sameSize = (a: Box, b: Box): boolean =>
+const sameSize = (a: Box.Box, b: Box.Box): boolean =>
   Math.abs(a.x.max - a.x.min - (b.x.max - b.x.min)) < BOX_EPSILON &&
   Math.abs(a.y.max - a.y.min - (b.y.max - b.y.min)) < BOX_EPSILON
 
 /** `box` resized to `size`'s width and height about its own centre. */
-const resizeAboutCentre = (box: Box, size: Box): Box => {
+const resizeAboutCentre = (box: Box.Box, size: Box.Box): Box.Box => {
   const c = centreOf(box)
   const w = (size.x.max - size.x.min) / 2
   const h = (size.y.max - size.y.min) / 2
@@ -206,7 +193,7 @@ export interface RegisterNodeOptions {
    * RELATIVE projection — where in its relativeParent it anchors (default top-left
    * `{0,0}`). `false` opts out of relative projection (force absolute).
    */
-  readonly layoutAnchor?: Point | false
+  readonly layoutAnchor?: Point.Point | false
   /**
    * Raise the node while it's dragged (ADR-0016, *Amendment (Reorder)*): from the drag
    * start until its release settles (at once for a release in place) its projection
@@ -231,7 +218,7 @@ export interface DragProjectionHandle {
    * The live pointer translate from the grab point — the node tracks `grabBox + delta`.
    * Re-derives the dragged group into the sink at once, so the gate's next flush paints it.
    */
-  readonly dragMove: (delta: Point) => void
+  readonly dragMove: (delta: Point.Point) => void
   /** End the drag: FLIP from the dragged position to the node's latest slot, with a Priming step. */
   readonly dragEnd: () => void
 }
@@ -245,12 +232,12 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
    * Measure pass; `undefined` before the first (ADR-0016, *Amendment (Reorder)*). A
    * plain read: no layout read.
    */
-  readonly layoutBox: () => Box | undefined
+  readonly layoutBox: () => Box.Box | undefined
   /**
    * How far the node paints from its slot while dragged (the drag target minus the
    * slot, per axis); `{ x: 0, y: 0 }` otherwise, the release flight included.
    */
-  readonly dragOffset: () => Point
+  readonly dragOffset: () => Point.Point
   /**
    * A count that rises with every Measure pass round that measures the node (a
    * blocked one included); 0 before the first. A **Reorder group** waits on it after
@@ -303,11 +290,11 @@ interface NodeState {
    * first measure. Consumed (and cleared) by that first measure, which rebases it
    * into this node's Scroll-stable frame. `undefined` otherwise.
    */
-  seed: Box | undefined
+  seed: Box.Box | undefined
   /** Marked a scroll container (ADR-0012): its scroll is sampled + folded out of descendants. */
   readonly isScroll: boolean
   /** This scroll container's offset, sampled at measure (`{0,0}` for a non-scroll node). */
-  scroll: Point
+  scroll: Point.Point
   /** Whether this (scroll) node is `position: fixed` — a scroll root (resets the fold). */
   isScrollRoot: boolean
   /** The scroll folded out of this node's box at its last pass (ADR-0012): see {@link Fold}. */
@@ -323,15 +310,15 @@ interface NodeState {
   /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the subtree, persistent relativeParent. */
   readonly layoutRoot: boolean
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
-  readonly layoutAnchor: Point | false | undefined
+  readonly layoutAnchor: Point.Point | false | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
-  retained: Box | undefined
+  retained: Box.Box | undefined
   /** Where the element appears at progress 0 (the box it animates FROM). */
-  origin: Box | undefined
+  origin: Box.Box | undefined
   /** The element's real (current measured) box — the delta source + progress-1 target. */
-  layoutBox: Box | undefined
+  layoutBox: Box.Box | undefined
   /** Progress (0→1) spring state; `undefined` at rest. */
-  spring: SpringState | undefined
+  spring: Spring.State | undefined
   animating: boolean
   // --- tree (recomputed each measure pass via DOM-ancestry walk) ---
   /** Nearest ancestor projection node, or `undefined` at the root. */
@@ -339,9 +326,9 @@ interface NodeState {
   /** Number of ancestor projection nodes (for top-down ordering). */
   depth: number
   /** This frame's projection delta — read by descendants for applyTreeDeltas; identity at rest. */
-  lastDelta: Delta
+  lastDelta: Projection.Delta
   /** This frame's viewport target box — read by a child using this node as its relativeParent. */
-  lastTarget: Box | undefined
+  lastTarget: Box.Box | undefined
   /**
    * A presence-retained LEAVING Follower (ADR-0010): it crossfades out toward the
    * Lead and is removed on the lead's settle. `dispose` SKIPS a leaving node (the
@@ -366,9 +353,9 @@ interface NodeState {
    * The slot box captured at drag start — the pointer anchor; the target is `grabBox +
    * dragDelta`, at the current slot's size about its centre (see {@link dragTargetOf}).
    */
-  grabBox: Box | undefined
+  grabBox: Box.Box | undefined
   /** The live pointer translate from the grab point (zero when not dragging). */
-  dragDelta: Point
+  dragDelta: Point.Point
   /**
    * Whether this node's FLIP is a drag's release (set by `dragEnd`, cleared when it
    * settles or the node is grabbed again): it stays its subtree's relative parent
@@ -391,7 +378,7 @@ interface NodeState {
  */
 interface RecentLeaver {
   readonly layoutId: string
-  readonly box: Box
+  readonly box: Box.Box
   reintroduced: boolean
 }
 
@@ -401,17 +388,17 @@ interface RecentLeaver {
  * whether an enterer picked it up at registration.
  */
 interface HeldSeed {
-  readonly box: Box
+  readonly box: Box.Box
   consumed: boolean
 }
 
 /** The origin point: no scroll to add. */
-const ZERO_POINT: Point = { x: 0, y: 0 }
+const ZERO_POINT: Point.Point = { x: 0, y: 0 }
 
 /** A container whose scroll is folded out of a node's box, and its scroll at that pass. */
 interface FoldedContainer {
   readonly element: HTMLElement
-  readonly scroll: Point
+  readonly scroll: Point.Point
 }
 
 /**
@@ -510,7 +497,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
   const renderer = runtime.runSync(
     Effect.gen(function* () {
-      return yield* Renderer
+      return yield* Renderer.Renderer
     }),
   )
 
@@ -533,7 +520,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * Run `expire` at the end of the current task — the next microtask checkpoint,
    * before any timer, frame or later task — on a traced, interruptible fiber
    * (ADR-0010 *Amendment (#13)*, option a′). `runFork` evaluates the fiber
-   * synchronously up to `nextMicrotask`, whose `queueMicrotask` resumes it
+   * synchronously up to `Microtask.next`, whose `queueMicrotask` resumes it
    * synchronously inside that microtask — no trip through the Effect scheduler, so
    * the window ends at the same checkpoint in browsers, React Native and the test
    * harness. Keep `expire` synchronous: a `yieldNow` or a child fork before it would
@@ -548,7 +535,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     FiberSet.addUnsafe(
       taskFibers,
       runtime.runFork(
-        nextMicrotask.pipe(
+        Microtask.next.pipe(
           Effect.map(expire),
           Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
           Effect.tapCause((cause) => Effect.logError(`wardic.projection: ${span} failed`, cause)),
@@ -562,7 +549,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * Write a node's per-frame `@projection` value (Option A) plus any scale-corrected
    * style keys (ADR-0011). The optional `opacity` is the crossfade factor (ADR-0010)
    * the renderer multiplies with the user opacity; omitted for a non-crossfading node
-   * so it passes through (a fresh ProjectionValue REPLACES the gate's `@projection`,
+   * so it passes through (a fresh `Projection.Value` REPLACES the gate's `@projection`,
    * dropping any stale factor). `corrected` (e.g. `{ borderRadius, boxShadow }`) flows
    * as ordinary style keys the renderer applies verbatim.
    *
@@ -571,17 +558,17 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    */
   const writeProjection = (
     node: NodeState,
-    delta: Delta,
-    treeScale: Point,
+    delta: Projection.Delta,
+    treeScale: Point.Point,
     opacity?: number,
     corrected?: Record<string, string>,
   ): void => {
-    const value: ProjectionValue = node.raised
+    const value: Projection.Value = node.raised
       ? opacity !== undefined ? { delta, treeScale, opacity, raise: 1 } : { delta, treeScale, raise: 1 }
       : opacity !== undefined
       ? { delta, treeScale, opacity }
       : { delta, treeScale }
-    const patch = corrected !== undefined ? { [PROJECTION_KEY]: value, ...corrected } : { [PROJECTION_KEY]: value }
+    const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
       runtime.runSync(renderer.commit(node.element, renderer.project(patch)))
     } else {
@@ -654,8 +641,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * which is a no-op in applyTreeDeltas — so this is the cumulative ancestor
    * transform that CSS nesting applies to the node.
    */
-  const ancestorDeltas = (node: NodeState): Array<Delta> => {
-    const chain: Array<Delta> = []
+  const ancestorDeltas = (node: NodeState): Array<Projection.Delta> => {
+    const chain: Array<Projection.Delta> = []
     let p = node.parent
     while (p !== undefined) {
       chain.push(p.lastDelta)
@@ -720,7 +707,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * back to its grab size (Motion shifts a dragged node by the layout delta measured at
    * the centre, VisualElementDragControls.ts:742-759, delta-calc.ts:24-36).
    */
-  const dragTargetOf = (node: NodeState, slot: Box): Box => {
+  const dragTargetOf = (node: NodeState, slot: Box.Box): Box.Box => {
     const moved = offsetBox(node.grabBox!, node.dragDelta)
     return sameSize(moved, slot) ? moved : resizeAboutCentre(moved, slot)
   }
@@ -746,8 +733,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     // pointer (the delta just recomputes against the new layoutBox). No spring.
     if (node.dragging && node.grabBox !== undefined) {
       const targetBox = dragTargetOf(node, box)
-      const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
-      const delta = calcBoxDelta(layoutCorrected, targetBox)
+      const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
+      const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
       node.lastTarget = targetBox
       node.lastDelta = delta
       const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
@@ -756,7 +743,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     }
 
     const rp = relativeParentOf(node)
-    let targetBox: Box
+    let targetBox: Box.Box
     if (rp !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
       // RELATIVE: track the relativeParent (any scale, ADR-0013) at the node's
       // `layoutAnchor` (default top-left). Use the node's OWN progress while it
@@ -768,23 +755,23 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       const rpFromBox = rp.origin ?? rp.layoutBox
       const progress = node.animating && node.spring !== undefined ? node.spring.position : 1
       const relFrom =
-        node.origin !== undefined ? calcRelativeBox(node.origin, rpFromBox, anchor) : calcRelativeBox(box, rp.layoutBox, anchor)
-      const relTo = calcRelativeBox(box, rp.layoutBox, anchor)
-      const relTarget = mixBox(relFrom, relTo, progress)
-      targetBox = placeRelativeBox(relTarget, rp.lastTarget, anchor)
+        node.origin !== undefined ? Projection.calcRelativeBox(node.origin, rpFromBox, anchor) : Projection.calcRelativeBox(box, rp.layoutBox, anchor)
+      const relTo = Projection.calcRelativeBox(box, rp.layoutBox, anchor)
+      const relTarget = Box.mix(relFrom, relTo, progress)
+      targetBox = Projection.placeRelativeBox(relTarget, rp.lastTarget, anchor)
     } else if (node.animating && node.origin !== undefined && node.spring !== undefined) {
       // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
-      targetBox = mixBox(node.origin, box, node.spring.position)
+      targetBox = Box.mix(node.origin, box, node.spring.position)
     } else {
       // CARRIED under a SCALED ancestor / at rest: target the real box — applyTreeDeltas
       // supplies the counter-transform.
       targetBox = box
     }
 
-    const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
+    const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
     // delta source is the element's REAL box pushed through ancestor transforms;
     // target is where it should appear.
-    const delta = calcBoxDelta(layoutCorrected, targetBox)
+    const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
     node.lastTarget = targetBox
     node.lastDelta = delta
     // A Lead with Followers carries the crossfade factor (fades IN over its own
@@ -807,8 +794,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (lead === undefined || lead === node || lead.lastTarget === undefined) return
     const box = node.layoutBox ?? node.retained
     if (box === undefined) return
-    const { box: layoutCorrected, treeScale } = applyTreeDeltas(box, ancestorDeltas(node))
-    const delta = calcBoxDelta(layoutCorrected, lead.lastTarget) // lock onto the lead's box
+    const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
+    const delta = Projection.calcBoxDelta(layoutCorrected, lead.lastTarget) // lock onto the lead's box
     node.lastTarget = lead.lastTarget
     node.lastDelta = delta
     const progress = lead.spring !== undefined ? lead.spring.position : 1
@@ -969,7 +956,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     const hit = memo.get(el)
     if (hit !== undefined) return hit
     const node = elementToNode.get(el)
-    let scroll: Point | undefined
+    let scroll: Point.Point | undefined
     let stop: boolean
     if (node?.isScroll === true) {
       scroll = node.scroll
@@ -1002,7 +989,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * `ZERO_POINT` as `rootScroll` it is the containers' share alone: what rebases a
    * Root-frame Switch seed into the node's Scroll-stable frame.
    */
-  const scrollOffset = (node: NodeState, rootScroll: Point): Point => {
+  const scrollOffset = (node: NodeState, rootScroll: Point.Point): Point.Point => {
     const fold = node.fold
     const dx = fold.x + (fold.root ? rootScroll.x : 0)
     const dy = fold.y + (fold.root ? rootScroll.y : 0)
@@ -1015,7 +1002,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * never perturbs ordinary layout animation. `box` is the pass's freshly read box,
    * which nothing else holds, so it is moved in place: no allocation per node.
    */
-  const foldScroll = (node: NodeState, box: Box, rootScroll: Point): Box => {
+  const foldScroll = (node: NodeState, box: Box.Box, rootScroll: Point.Point): Box.Box => {
     const fold = node.fold
     const dx = fold.x + (fold.root ? rootScroll.x : 0)
     const dy = fold.y + (fold.root ? rootScroll.y : 0)
@@ -1059,13 +1046,13 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * last pass doesn't shift the seed. The root's scroll needs no such care: the Root
    * frame carries it, so it cancels. `undefined` when there is neither.
    */
-  const rootFrameBox = (node: NodeState): Box | undefined => {
+  const rootFrameBox = (node: NodeState): Box.Box | undefined => {
     const el = node.element
     if (el.isConnected) {
       const saved = el.style.transform
       el.style.transform = ""
       try {
-        const viewport = boundsToBox(readLayoutBox(el))
+        const viewport = Box.fromBounds(readLayoutBox(el))
         return rootScrollApplies(node) ? offsetBox(viewport, measureDocumentScroll()) : viewport
       } finally {
         el.style.transform = saved
@@ -1156,7 +1143,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * the identity projection. Returns whether the slot changed, so the node is
    * re-derived and flushed with its group.
    */
-  const slotOnly = (node: NodeState, prev: Box | undefined, newBox: Box): boolean => {
+  const slotOnly = (node: NodeState, prev: Box.Box | undefined, newBox: Box.Box): boolean => {
     if (prev === undefined) {
       node.lastDelta = IDENTITY_DELTA
       writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
@@ -1218,12 +1205,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     // samples in the same phase, `updateLayout` -> `updateScroll`). The residual is
     // that the clamp itself is not undone by the restore — the ADR-0012
     // scroll-during-transition limit.
-    const viewportBoxes: Array<Box> = []
-    let documentScroll: Point
+    const viewportBoxes: Array<Box.Box> = []
+    let documentScroll: Point.Point
     try {
       documentScroll = measureDocumentScroll()
       for (const node of ordered) {
-        viewportBoxes.push(boundsToBox(readLayoutBox(node.element)))
+        viewportBoxes.push(Box.fromBounds(readLayoutBox(node.element)))
         if (node.isScroll) {
           node.scroll = measureScroll(node.element)
           node.isScrollRoot = isScrollRoot(node.element)
@@ -1325,7 +1312,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
           node.origin = priorBox
           node.layoutBox = newBox
-          node.spring = initSpring({ from: 0 })
+          node.spring = Spring.init({ from: 0 })
           node.animating = true
           active.add(node)
           start(node)
@@ -1342,7 +1329,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           if (!boxesEqual(origin, newBox)) {
             node.origin = origin
             node.layoutBox = newBox
-            node.spring = initSpring({ from: 0 }) // progress spring restarts at 0
+            node.spring = Spring.init({ from: 0 }) // progress spring restarts at 0
             node.animating = true
             active.add(node)
             start(node)
@@ -1369,12 +1356,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       // mixed target box (smooth interrupt, no jump — Q3); at rest, the prior box.
       const origin =
         node.animating && node.origin !== undefined && node.layoutBox !== undefined && node.spring !== undefined
-          ? mixBox(node.origin, node.layoutBox, node.spring.position)
+          ? Box.mix(node.origin, node.layoutBox, node.spring.position)
           : prev
 
       node.origin = origin
       node.layoutBox = newBox
-      node.spring = initSpring({ from: 0 }) // progress spring restarts at 0 (velocity 0)
+      node.spring = Spring.init({ from: 0 }) // progress spring restarts at 0 (velocity 0)
       node.animating = true
       active.add(node)
       start(node)
@@ -1445,7 +1432,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       rounds,
       blocked,
     }).pipe(
-      Effect.andThen(nextMicrotask),
+      Effect.andThen(Microtask.next),
       Effect.andThen(Effect.sync(() => primingStep(seeded))),
     )
   }).pipe(Effect.withSpan("wardic.projection.measure"))
@@ -1453,7 +1440,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   /**
    * Queue the Measure pass for the end of the current task (one per task, however
    * many triggers). A trigger while a pass runs its rounds repeats the pass instead.
-   * The fiber reaches `nextMicrotask` synchronously and resumes inside that
+   * The fiber reaches `Microtask.next` synchronously and resumes inside that
    * microtask, so no Effect scheduler is involved (ADR-0010 *Amendment (#13)*).
    */
   const scheduleMeasure = (): void => {
@@ -1467,7 +1454,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     FiberSet.addUnsafe(
       taskFibers,
       runtime.runFork(
-        nextMicrotask.pipe(
+        Microtask.next.pipe(
           Effect.andThen(measurePass),
           Effect.tapCause((cause) => Effect.logError("wardic.projection: measure pass failed", cause)),
         ),
@@ -1487,7 +1474,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     const settled: Array<NodeState> = []
     for (const node of seeded) {
       if (node.steppedSinceSeed || node.dragging || node.spring === undefined || !active.has(node)) continue
-      const r = springStep(node.spring, NOMINAL_DT, 1, node.springOptions())
+      const r = Spring.step(node.spring, Clock.NOMINAL_DT, 1, Spring.resolve(node.springOptions()))
       node.spring = r.state
       node.steppedSinceSeed = true
       primed.add(node)
@@ -1538,7 +1525,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         settled.push(node)
         continue
       }
-      const r = springStep(node.spring, dt, 1, node.springOptions())
+      const r = Spring.step(node.spring, dt, 1, Spring.resolve(node.springOptions()))
       node.spring = r.state
       node.steppedSinceSeed = true
       if (r.done) settled.push(node)
@@ -1631,7 +1618,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * with. Its step works on the system's own state, which holds because there is never
    * more than one run.
    */
-  const coordinatorMachine = (): Machine.Machine<Frame<void>> =>
+  const coordinatorMachine = (): Machine.Machine<Frame.Frame<void>> =>
     Machine.make({
       settles: true,
       span: { name: "wardic.projection.coordinator", attributes: { active: active.size } },
@@ -1720,12 +1707,12 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   /** Promote `node` to an animating Lead from `fromBox` → its own box (un-hide + move home). */
-  const promoteFrom = (node: NodeState, fromBox: Box | undefined): void => {
+  const promoteFrom = (node: NodeState, fromBox: Box.Box | undefined): void => {
     const ownBox = node.retained
     if (fromBox === undefined || ownBox === undefined || boxesEqual(fromBox, ownBox)) return
     node.origin = fromBox
     node.layoutBox = ownBox
-    node.spring = initSpring({ from: 0 })
+    node.spring = Spring.init({ from: 0 })
     node.animating = true
     active.add(node)
     ensureRunning()
@@ -1753,7 +1740,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
   }
 
   /** Build a transient leaving-Follower node for a re-introduced (already-disposed) leaver. */
-  const makeFollowerNode = (el: HTMLElement, layoutId: string, box: Box, onDone: () => void): NodeState => ({
+  const makeFollowerNode = (el: HTMLElement, layoutId: string, box: Box.Box, onDone: () => void): NodeState => ({
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     springOptions: () => ({}),
@@ -2009,7 +1996,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         // with the Priming step a Measure pass gives the nodes it seeds (ADR-0018).
         node.origin = visual
         node.layoutBox = slot
-        node.spring = initSpring({ from: 0 })
+        node.spring = Spring.init({ from: 0 })
         node.animating = true
         node.releasing = true
         active.add(node)

@@ -1,5 +1,10 @@
-import { DragActivity, FrameLoopLive, InterpolatorRegistryLive, makeDragActivity } from "@wardic/core"
-import type { Clock, FrameLoop, InputSource, InterpolatorRegistry, Probe, Renderer } from "@wardic/core"
+import type * as Clock from "@wardic/core/Clock"
+import * as DragActivity from "@wardic/core/DragActivity"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import type * as InputSource from "@wardic/core/InputSource"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as Probe from "@wardic/core/Probe"
+import type * as Renderer from "@wardic/core/Renderer"
 import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import * as TestClock from "./clock.ts"
@@ -18,17 +23,17 @@ import * as TestRenderer from "./renderer.ts"
  */
 export const testLayer = (
   frames: ReadonlyArray<number> = [],
-): Layer.Layer<Clock | FrameLoop | Renderer | Probe | InputSource | InterpolatorRegistry | AtomRegistry.AtomRegistry> =>
-  FrameLoopLive.pipe(
+): Layer.Layer<Clock.Clock | FrameLoop.FrameLoop | Renderer.Renderer | Probe.Probe | InputSource.InputSource | InterpolatorRegistry.InterpolatorRegistry | AtomRegistry.AtomRegistry> =>
+  FrameLoop.layer.pipe(
     Layer.provideMerge(
       Layer.mergeAll(
         TestClock.layer(frames),
         TestRenderer.layer,
         TestProbe.layer(),
         TestInput.layer(),
-        InterpolatorRegistryLive,
+        InterpolatorRegistry.layer,
         AtomRegistry.layer,
-        Layer.sync(DragActivity, makeDragActivity),
+        Layer.sync(DragActivity.DragActivity, DragActivity.make),
       ),
     ),
   )

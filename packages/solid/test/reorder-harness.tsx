@@ -8,7 +8,7 @@
 // posts a MessageChannel message, whose handler runs after that frame's rendering
 // update (the layout lab's method).
 import { cleanup, render } from "@solidjs/testing-library"
-import type { ReorderAxis } from "@wardic/core"
+import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
 import { Reorder, type WardicValues, WardicProvider } from "@wardic/solid"
 import { type Accessor, createSignal, For, type JSX } from "solid-js"
@@ -126,7 +126,7 @@ export interface SceneOptions {
   readonly layout?: Layout
   readonly n?: number
   /** The group's `axis` prop, read reactively; absent = detected. */
-  readonly axis?: Accessor<ReorderAxis | undefined>
+  readonly axis?: Accessor<CoreReorder.Axis | undefined>
   readonly rtl?: boolean
   /** `row-reverse` / `column-reverse`. */
   readonly reverse?: boolean

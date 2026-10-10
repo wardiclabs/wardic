@@ -13,7 +13,7 @@
 // Deterministic: requestAnimationFrame is stubbed before the runtime builds (the Clock
 // reads it when its Layer builds), so the test fires Refresh frames by hand;
 // ResizeObserver is stubbed to a no-op, so every Measure pass here comes from `notify`.
-import { PROJECTION_KEY } from "@wardic/core"
+import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
 import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -79,7 +79,7 @@ const makeSink = () => {
   const log: Array<LogEntry> = []
   const sink = {
     write: (id: string, partial: Record<string, unknown>): void => {
-      const value = partial[PROJECTION_KEY] as { delta: { x: { translate: number }; y: { translate: number } } } | undefined
+      const value = partial[Projection.KEY] as { delta: { x: { translate: number }; y: { translate: number } } } | undefined
       if (value === undefined) return
       log.push({ kind: "write", id, tx: value.delta.x.translate, ty: value.delta.y.translate })
     },

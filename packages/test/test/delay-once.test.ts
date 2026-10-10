@@ -1,4 +1,6 @@
-import { type Frame, FrameLoopLive, InterpolatorRegistryLive } from "@wardic/core"
+import type * as Frame from "@wardic/core/Frame"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
@@ -25,7 +27,7 @@ const DT = 1 / 16
 const SEGMENT = { duration: 0.25, delay: 0.125 }
 
 /** Frames with these values: settled on the last when `settles`, never otherwise. */
-const framesOf = (values: ReadonlyArray<number>, settles: boolean): Array<Frame<number>> =>
+const framesOf = (values: ReadonlyArray<number>, settles: boolean): Array<Frame.Frame<number>> =>
   values.map((value, i) => ({ value, done: settles && i === values.length - 1 }))
 
 /** `stream` on a pushable Clock at `DT` per tick, for `ticks` ticks: its Frames. */
@@ -33,7 +35,7 @@ const onTheStream = <F>(stream: Stream.Stream<F, never, any>, ticks: number) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
     const fiber = yield* Stream.runCollect(stream.pipe(Stream.take(ticks))).pipe(
-      Effect.provide(Layer.merge(clock.layer, InterpolatorRegistryLive)),
+      Effect.provide(Layer.merge(clock.layer, InterpolatorRegistry.layer)),
       Effect.forkChild({ startImmediately: true }),
     )
     for (let i = 0; i < ticks; i++) yield* clock.advance(DT)
@@ -41,7 +43,7 @@ const onTheStream = <F>(stream: Stream.Stream<F, never, any>, ticks: number) =>
   })
 
 /** `machine` on the Frame loop over a pushable Clock at `DT` per tick, for `ticks` ticks: the Frames its sink gets. */
-const onTheLoop = <F extends Frame<unknown>>(machine: Machine.Machine<F>, ticks: number) =>
+const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, ticks: number) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
     return yield* Effect.gen(function* () {
@@ -56,11 +58,11 @@ const onTheLoop = <F extends Frame<unknown>>(machine: Machine.Machine<F>, ticks:
       for (let i = 0; i < ticks; i++) yield* clock.advance(DT)
       yield* Fiber.interrupt(run)
       return frames
-    }).pipe(Effect.provide(FrameLoopLive.pipe(Layer.provide(clock.layer))))
+    }).pipe(Effect.provide(FrameLoop.layer.pipe(Layer.provide(clock.layer))))
   })
 
 /** A Primitive's two drivers, and the Frames both must give over `ticks` ticks. */
-const bothDrivers = <F extends Frame<unknown>>(machine: Machine.Machine<F>, expected: ReadonlyArray<F>, ticks = 24) =>
+const bothDrivers = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, expected: ReadonlyArray<F>, ticks = 24) =>
   Effect.gen(function* () {
     expect(yield* onTheStream(Machine.toStream(machine), ticks), "the Stream").toEqual(expected)
     expect(yield* onTheLoop(machine, ticks), "the machine on the Frame loop").toEqual(expected)
@@ -124,7 +126,7 @@ describe("delay holds once, before the first segment (#77)", () => {
         value: { x: value },
         done,
       }))
-      const machine = yield* Machine.animateValues({ x: 0 }, { x: 16 }, options).pipe(Effect.provide(InterpolatorRegistryLive))
+      const machine = yield* Machine.animateValues({ x: 0 }, { x: 16 }, options).pipe(Effect.provide(InterpolatorRegistry.layer))
       yield* bothDrivers(machine, expected)
     }))
 })

@@ -1,4 +1,4 @@
-import { ColorString, ComplexString, UnitString } from "@wardic/core"
+import * as Interpolator from "@wardic/core/Interpolator"
 import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -8,9 +8,9 @@ import { describe, expect, it } from "@effect/vitest"
 // frame by the plain function its transformation encodes with. These run Schema's own decode
 // and encode against those plain parses and formats.
 
-const decodeUnit = Schema.decodeUnknownOption(UnitString)
-const decodeColor = Schema.decodeUnknownOption(ColorString)
-const decodeComplex = Schema.decodeUnknownOption(ComplexString)
+const decodeUnit = Schema.decodeUnknownOption(Interpolator.UnitString)
+const decodeColor = Schema.decodeUnknownOption(Interpolator.ColorString)
+const decodeComplex = Schema.decodeUnknownOption(Interpolator.ComplexString)
 
 /** Schema's decode, then Schema's encode. */
 const roundTrip =
@@ -39,13 +39,13 @@ describe("UnitString", () => {
   })
 
   it("fails a decode it rejects, with Schema's bare issue (ADR-0026, decision 9)", () => {
-    expect(() => Schema.decodeUnknownSync(UnitString)("auto")).toThrow(/Expected a valid value/)
+    expect(() => Schema.decodeUnknownSync(Interpolator.UnitString)("auto")).toThrow(/Expected a valid value/)
   })
 
   it("round-trips through Schema's decode and encode; a bare number encodes as a string", () => {
-    expect(Arr.map(["10px", "-0.5em", "50%", "120"], roundTrip(UnitString))).toEqual(["10px", "-0.5em", "50%", "120"])
-    expect(roundTrip(UnitString)(120)).toBe("120")
-    expect(Schema.encodeSync(UnitString)({ value: 2.5, unit: "px" })).toBe("2.5px")
+    expect(Arr.map(["10px", "-0.5em", "50%", "120"], roundTrip(Interpolator.UnitString))).toEqual(["10px", "-0.5em", "50%", "120"])
+    expect(roundTrip(Interpolator.UnitString)(120)).toBe("120")
+    expect(Schema.encodeSync(Interpolator.UnitString)({ value: 2.5, unit: "px" })).toBe("2.5px")
   })
 })
 
@@ -63,16 +63,16 @@ describe("ColorString", () => {
   })
 
   it("encodes as rgb() / rgba(), so a round trip canonicalises", () => {
-    expect(roundTrip(ColorString)("#000")).toBe("rgb(0, 0, 0)")
-    expect(roundTrip(ColorString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
-    expect(roundTrip(ColorString)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
-    expect(roundTrip(ColorString)("rebeccapurple")).toBe("rgb(102, 51, 153)")
+    expect(roundTrip(Interpolator.ColorString)("#000")).toBe("rgb(0, 0, 0)")
+    expect(roundTrip(Interpolator.ColorString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
+    expect(roundTrip(Interpolator.ColorString)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
+    expect(roundTrip(Interpolator.ColorString)("rebeccapurple")).toBe("rgb(102, 51, 153)")
   })
 
   it("is idempotent once canonical", () => {
     const inputs = ["#000", " #fff ", "rgba(10, 20, 30, 0.25)", "hsl(120 50% 50%)", "transparent", "rebeccapurple"]
-    const once = Arr.map(inputs, roundTrip(ColorString))
-    expect(Arr.map(once, roundTrip(ColorString))).toEqual(once)
+    const once = Arr.map(inputs, roundTrip(Interpolator.ColorString))
+    expect(Arr.map(once, roundTrip(Interpolator.ColorString))).toEqual(once)
   })
 })
 
@@ -92,10 +92,10 @@ describe("ComplexString", () => {
 
   it("round-trips a string whose numbers are written in their shortest form", () => {
     const inputs = ["M0,0 L10,10", "0,0 20,30", "M-1.5,0 C1,2 3,4 5,6 Z", "0px 0px 5px rgba(0,0,0,0.5)"]
-    expect(Arr.map(inputs, roundTrip(ComplexString))).toEqual(inputs)
+    expect(Arr.map(inputs, roundTrip(Interpolator.ComplexString))).toEqual(inputs)
   })
 
   it("encodes numbers in their shortest form", () => {
-    expect(roundTrip(ComplexString)("M0.50,1e3 L.5,-0")).toBe("M0.5,1000 L0.5,0")
+    expect(roundTrip(Interpolator.ComplexString)("M0.50,1e3 L.5,-0")).toBe("M0.5,1000 L0.5,0")
   })
 })

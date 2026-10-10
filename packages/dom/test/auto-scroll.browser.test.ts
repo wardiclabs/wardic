@@ -1,6 +1,6 @@
 // The DOM auto-scroller (ADR-0020, grill decision 16): Motion's auto-scroll
 // (framer-motion Reorder/utils/auto-scroll.ts at 16c61222c4166bbef5ff6ab0051192faa79fa8c8)
-// over core's `autoScrollStep`. It finds the group's nearest `overflow: auto | scroll`
+// over core's `AutoScroll.step`. It finds the group's nearest `overflow: auto | scroll`
 // ancestor on the axis (or the document) once per gesture, and scrolls it while the
 // pointer is within 50 px of its visible edge, moving toward it.
 import { describe, expect, it } from "@effect/vitest"

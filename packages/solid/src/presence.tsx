@@ -32,7 +32,10 @@
  * exiting INTERRUPTS the exiting node (its fiber is interrupted + node removed);
  * full mid-exit reuse is deferred.
  */
-import { type Frame, type Patch, Renderer, type Sink, type Values } from "@wardic/core"
+import type * as Frame from "@wardic/core/Frame"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as Renderer from "@wardic/core/Renderer"
+import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -49,9 +52,9 @@ export interface PresenceRecord {
   /** The child's root DOM element (the same `el` the spine wires). */
   readonly element: HTMLElement
   /** The latest emitted value-map, updated by the spine each frame. */
-  readonly snapshot: { current: Values }
+  readonly snapshot: { current: Values.Values }
   /** The exit target, kept current by the child while alive. */
-  readonly exit: { current: Values }
+  readonly exit: { current: Values.Values }
   /**
    * Where an exit key with no value in `snapshot` starts (ADR-0022): its `style` value, else
    * the element's Own value, read from the retained node at the exit, in the shape of `like`
@@ -81,7 +84,7 @@ export const PresenceContext = createContext<PresenceContextValue | undefined>(u
 export const usePresenceContext = (): PresenceContextValue | undefined => useContext(PresenceContext)
 
 /** Pull the numeric subset of a value-map (the spring-able keys). */
-const numericOf = (values: Values): Record<string, number> => {
+const numericOf = (values: Values.Values): Record<string, number> => {
   const out: Record<string, number> = {}
   for (const key in values) {
     const v = values[key]
@@ -91,7 +94,7 @@ const numericOf = (values: Values): Record<string, number> => {
 }
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
-const isEmpty = (values: Values): boolean => {
+const isEmpty = (values: Values.Values): boolean => {
   for (const _ in values) return false
   return true
 }
@@ -109,7 +112,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
   // boundaries, with a context that registers nothing (ADR-0021).
   if (isServer) return serverPresence(props)
   const projection = useWardicProjection()
-  const { commit, project } = runtime.runSync(Renderer)
+  const { commit, project } = runtime.runSync(Renderer.Renderer)
 
   /**
    * Debug-level lifecycle log for the parent-driven exit (observability
@@ -144,8 +147,8 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
   }
 
   // Commit a projected value-map onto a retained node via the Renderer.
-  const commitValues = (el: HTMLElement, values: Values): void => {
-    const patch: Patch = project(values)
+  const commitValues = (el: HTMLElement, values: Values.Values): void => {
+    const patch: Renderer.Patch = project(values)
     runtime.runSync(commit(el, patch))
   }
 
@@ -185,14 +188,14 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     // exit departs continuously. An exit key the
     // child never animated starts from its Base value's start links (ADR-0022), else at
     // its target.
-    const from: Values = { ...rec.snapshot.current }
+    const from: Values.Values = { ...rec.snapshot.current }
     for (const key in exit) {
       if (from[key] !== undefined) continue
       const start = rec.startOf?.(key, exit[key]!)
       from[key] = start ?? exit[key]!
     }
     const numericTo: Record<string, number> = {}
-    const stringTo: Values = {}
+    const stringTo: Values.Values = {}
     for (const key in exit) {
       const v = exit[key]
       if (typeof v === "number") numericTo[key] = v
@@ -204,8 +207,8 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
 
     // Accumulate the merged latest value-map so each committed frame carries the
     // full set of keys (numeric + string collapse into one projected Patch).
-    const latest: Values = { ...from, ...exit }
-    const commitFrame: Sink<Frame<Values>> = (frame) => {
+    const latest: Values.Values = { ...from, ...exit }
+    const commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>> = (frame) => {
       Object.assign(latest, frame.value)
       commitValues(el, latest)
       return undefined
@@ -313,8 +316,8 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
 }
 
 /** Pick the keys of `keysFrom` out of `source` (the from-values for strings). */
-const pick = (source: Values, keysFrom: Values): Values => {
-  const out: Values = {}
+const pick = (source: Values.Values, keysFrom: Values.Values): Values.Values => {
+  const out: Values.Values = {}
   for (const key in keysFrom) {
     const v = source[key]
     if (v !== undefined) out[key] = v

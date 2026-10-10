@@ -1,4 +1,6 @@
-import { applyTo, InterpolatorRegistryLive, linear, Renderer } from "@wardic/core"
+import * as Easing from "@wardic/core/Easing"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import * as Renderer from "@wardic/core/Renderer"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock, TestRenderer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -89,16 +91,16 @@ it.effect("applyTo emits the `wardic.applyTo: subscribe` debug log and routes fr
     })
 
     // Act — drive a 4-frame tween into a no-op target, capturing both calls and logs.
-    yield* applyTo(
-      { node: "el" },
-      Machine.animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: linear }).pipe(
+    yield* Renderer.applyTo(
+      Machine.animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: Easing.linear }).pipe(
         Effect.map(Machine.toStream),
         Stream.unwrap,
       ),
+      { node: "el" },
     ).pipe(
-      Effect.provide(Layer.succeed(Renderer, recording.service)),
+      Effect.provide(Layer.succeed(Renderer.Renderer, recording.service)),
       Effect.provide(TestClock.layer([0.25, 0.25, 0.25, 0.25])),
-      Effect.provide(InterpolatorRegistryLive),
+      Effect.provide(InterpolatorRegistry.layer),
       Effect.provide(Logger.layer([capture])),
       Effect.provideService(References.MinimumLogLevel, "Debug"),
     )

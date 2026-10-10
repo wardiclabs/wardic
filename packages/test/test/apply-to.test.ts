@@ -1,4 +1,6 @@
-import { applyTo, InterpolatorRegistryLive, linear, Renderer } from "@wardic/core"
+import * as Easing from "@wardic/core/Easing"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import * as Renderer from "@wardic/core/Renderer"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock, TestRenderer } from "@wardic/test"
 import { References } from "effect"
@@ -16,12 +18,12 @@ interface Captured {
 /** Build a Renderer Layer backed by a fresh recording instance, plus return the recording. */
 const makeRecording = (): {
   readonly recording: ReturnType<typeof TestRenderer.makeRecordingRenderer>
-  readonly layer: Layer.Layer<Renderer>
+  readonly layer: Layer.Layer<Renderer.Renderer>
 } => {
   const recording = TestRenderer.makeRecordingRenderer()
   return {
     recording,
-    layer: Layer.succeed(Renderer, recording.service),
+    layer: Layer.succeed(Renderer.Renderer, recording.service),
   }
 }
 
@@ -38,16 +40,16 @@ it.effect("applyTo drives every frame through project then commit, with the fina
   return Effect.gen(function* () {
     // Act — run applyTo, providing the recording Renderer, a deterministic Clock, and
     // the live InterpolatorRegistry that `animateValues` needs.
-    yield* applyTo(
-      target,
-      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }).pipe(
+    yield* Renderer.applyTo(
+      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: Easing.linear }).pipe(
         Effect.map(Machine.toStream),
         Stream.unwrap,
       ),
+      target,
     ).pipe(
       Effect.provide(rendererLayer),
       Effect.provide(TestClock.layer(quarter)),
-      Effect.provide(InterpolatorRegistryLive),
+      Effect.provide(InterpolatorRegistry.layer),
     )
 
     // Assert — four ticks produce four project calls and four commit calls; counts match.
@@ -77,16 +79,15 @@ it.effect("applyTo emits exactly one annotated `wardic.applyTo: subscribe` debug
 
   return Effect.gen(function* () {
     // Act — run applyTo over the same four-frame setup with the capturing logger installed.
-    yield* applyTo(
-      { node: "el" },
-      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }).pipe(
-        Effect.map(Machine.toStream),
-        Stream.unwrap,
-      ),
+    // The stream first: `stream.pipe(Renderer.applyTo(target))` (ADR-0028, decision 12).
+    yield* Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: Easing.linear }).pipe(
+      Effect.map(Machine.toStream),
+      Stream.unwrap,
+      Renderer.applyTo({ node: "el" }),
     ).pipe(
       Effect.provide(rendererLayer),
       Effect.provide(TestClock.layer(quarter)),
-      Effect.provide(InterpolatorRegistryLive),
+      Effect.provide(InterpolatorRegistry.layer),
       Effect.provide(Logger.layer([capture])),
       Effect.provideService(References.MinimumLogLevel, "Debug"),
     )

@@ -1,4 +1,6 @@
-import { type Frame, FrameLoopLive, type InterpolatorRegistry, InterpolatorRegistryLive } from "@wardic/core"
+import type * as Frame from "@wardic/core/Frame"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
@@ -24,14 +26,14 @@ const OPTIONS = { stiffness: 170, damping: 26 }
 const FROM = { x: 0, y: 0 }
 
 /** The stalled run's Frames are the clamped run's: two of them, the first still in flight. */
-const expectClamped = <F extends Frame<unknown>>(stalled: ReadonlyArray<F>, clamped: ReadonlyArray<F>) => {
+const expectClamped = <F extends Frame.Frame<unknown>>(stalled: ReadonlyArray<F>, clamped: ReadonlyArray<F>) => {
   expect(stalled).toEqual(clamped)
   expect(stalled).toHaveLength(2)
   expect(stalled.at(0)?.done).toBe(false)
 }
 
 /** `machine` on the Frame loop over a pushable Clock fed `dts`: the Frames its sink gets. */
-const onTheLoop = <F extends Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
+const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
     return yield* Effect.gen(function* () {
@@ -46,13 +48,13 @@ const onTheLoop = <F extends Frame<unknown>>(machine: Machine.Machine<F>, dts: R
       for (const dt of dts) yield* clock.advance(dt)
       yield* Fiber.interrupt(run)
       return frames
-    }).pipe(Effect.provide(FrameLoopLive.pipe(Layer.provide(clock.layer))))
+    }).pipe(Effect.provide(FrameLoop.layer.pipe(Layer.provide(clock.layer))))
   })
 
 /** One machine, built once, run on two loops: fed `STALL`, then `CLAMPED`. */
-const stalledOnTheLoop = <F extends Frame<unknown>>(build: Effect.Effect<Machine.Machine<F>, never, InterpolatorRegistry>) =>
+const stalledOnTheLoop = <F extends Frame.Frame<unknown>>(build: Effect.Effect<Machine.Machine<F>, never, InterpolatorRegistry.InterpolatorRegistry>) =>
   Effect.gen(function* () {
-    const machine = yield* build.pipe(Effect.provide(InterpolatorRegistryLive))
+    const machine = yield* build.pipe(Effect.provide(InterpolatorRegistry.layer))
     expectClamped(yield* onTheLoop(machine, STALL), yield* onTheLoop(machine, CLAMPED))
   })
 

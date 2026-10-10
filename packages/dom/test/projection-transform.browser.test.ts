@@ -1,5 +1,6 @@
-import type { Delta, Point } from "@wardic/core"
-import { PROJECTION_KEY, Renderer } from "@wardic/core"
+import type * as Point from "@wardic/core/Point"
+import * as Projection from "@wardic/core/Projection"
+import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { RendererDomLive } from "../src/renderer.ts"
@@ -7,19 +8,19 @@ import { RendererDomLive } from "../src/renderer.ts"
 const renderer = await Effect.runPromise(
   Effect.provide(
     Effect.gen(function* () {
-      return yield* Renderer
+      return yield* Renderer.Renderer
     }),
     RendererDomLive,
   ),
 )
 
 /** Build a Delta from per-axis translate/scale (origin/originPoint unused by the transform builder). */
-const delta = (tx: number, ty: number, sx: number, sy: number): Delta => ({
+const delta = (tx: number, ty: number, sx: number, sy: number): Projection.Delta => ({
   x: { translate: tx, scale: sx, origin: 0.5, originPoint: 0 },
   y: { translate: ty, scale: sy, origin: 0.5, originPoint: 0 },
 })
-const treeScale = (x: number, y: number): Point => ({ x, y })
-const proj = (d: Delta, ts: Point) => ({ [PROJECTION_KEY]: { delta: d, treeScale: ts } })
+const treeScale = (x: number, y: number): Point.Point => ({ x, y })
+const proj = (d: Projection.Delta, ts: Point.Point) => ({ [Projection.KEY]: { delta: d, treeScale: ts } })
 
 describe("RendererDomLive.project — projection branch (ADR-0009)", () => {
   it("a pure translate projection -> translate3d, scale/inverse omitted", () => {

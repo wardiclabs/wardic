@@ -1,5 +1,7 @@
-import { drag, heldPointerSource, hover, InputSource, makePointerLikeEvent, press, withMomentum } from "@wardic/core"
-import type { DragSample, PointerLikeEvent, Vec2 } from "@wardic/core"
+import * as Drag from "@wardic/core/Drag"
+import * as InputSource from "@wardic/core/InputSource"
+import type * as Point from "@wardic/core/Point"
+import * as Recognizer from "@wardic/core/Recognizer"
 import { TestClock, TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -22,21 +24,21 @@ interface EventOptions {
 
 /** A primary mouse by default (`makePointerLikeEvent`): pressed on a down or move, released otherwise. */
 const ev = (
-  type: PointerLikeEvent["type"],
+  type: InputSource.PointerLikeEvent["type"],
   x: number,
   y: number,
   t: number,
   o: EventOptions = {},
-): PointerLikeEvent => makePointerLikeEvent({ type, x, y, timeStamp: t, ...o })
+): InputSource.PointerLikeEvent => InputSource.makePointerLikeEvent({ type, x, y, timeStamp: t, ...o })
 
 const finger = (extra: EventOptions = {}): EventOptions => ({ pointerType: "touch", ...extra })
 const secondFinger: EventOptions = { pointerId: 2, pointerType: "touch", isPrimary: false }
 
-const collectDrag = (events: ReadonlyArray<PointerLikeEvent>) =>
-  Stream.runCollect(drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
+const collectDrag = (events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
+  Stream.runCollect(Recognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
 
 /** Run a stream in a forked fiber over a pushable input, recording what it emits. */
-const observe = <A>(stream: Stream.Stream<A, never, InputSource>) =>
+const observe = <A>(stream: Stream.Stream<A, never, InputSource.InputSource>) =>
   Effect.gen(function* () {
     const input = yield* TestInput.pushable()
     const seen = yield* Ref.make<ReadonlyArray<A>>([])
@@ -65,7 +67,7 @@ it.effect("N1: a mouse down with button 2 claims nothing, so later moves emit no
     expect(samples.length).toBe(0)
     // A left-button down still drags
     const left = yield* collectDrag([ev("down", 0, 0, 0), ev("move", 10, 0, 10)])
-    expect((left as ReadonlyArray<DragSample>).map((s) => s.phase)).toEqual(["start"])
+    expect((left as ReadonlyArray<Drag.Sample>).map((s) => s.phase)).toEqual(["start"])
   }))
 
 it.effect("N2: a touch pointer with isPrimary false is ignored; a primary touch drags", () =>
@@ -78,7 +80,7 @@ it.effect("N2: a touch pointer with isPrimary false is ignored; a primary touch 
       ev("up", 20, 0, 30, o),
     ]
     const ignored = yield* collectDrag(script(secondFinger))
-    const primary = (yield* collectDrag(script(finger()))) as ReadonlyArray<DragSample>
+    const primary = (yield* collectDrag(script(finger()))) as ReadonlyArray<Drag.Sample>
     expect(ignored.length).toBe(0)
     expect(primary.map((s) => s.phase)).toEqual(["start", "move", "end"])
   }))
@@ -94,7 +96,7 @@ it.effect("N3 (rule A): the owner's move with buttons 0 ends the gesture as a ca
       ev("move", 80, 5, 40), // no owner any more
       ev("move", 90, 5, 50),
     ]
-    const samples = (yield* collectDrag(events)) as ReadonlyArray<DragSample>
+    const samples = (yield* collectDrag(events)) as ReadonlyArray<Drag.Sample>
     // Exactly one end, at the last pressed point, no delta, no velocity.
     expect(samples.map((s) => s.phase)).toEqual(["start", "move", "end"])
     const end = samples[2]!
@@ -119,7 +121,7 @@ it.effect("N4 (rule B): a second down from the owner ends the old gesture, then 
       ev("move", 110, 50, 40), // start of the new gesture
       ev("move", 130, 50, 50),
     ]
-    const samples = (yield* collectDrag(events)) as ReadonlyArray<DragSample>
+    const samples = (yield* collectDrag(events)) as ReadonlyArray<Drag.Sample>
     expect(samples.map((s) => s.phase)).toEqual(["start", "move", "end", "start", "move"])
     const end = samples[2]!
     expect(end.point).toEqual({ x: 20, y: 0 })
@@ -135,7 +137,7 @@ it.effect("N4 (rule B): a second down from the owner ends the old gesture, then 
       ev("move", 10, 0, 10),
       ev("down", 100, 50, 15, finger({ pointerId: 2 })),
       ev("move", 20, 0, 20),
-    ])) as ReadonlyArray<DragSample>
+    ])) as ReadonlyArray<Drag.Sample>
     expect(intruder.map((s) => s.phase)).toEqual(["start", "move"])
   }))
 
@@ -148,7 +150,7 @@ it.effect("N5: a buttons-0 move from a non-owner changes nothing (guard)", () =>
       ev("move", 200, 200, 15, { pointerId: 2, buttons: 0 }),
       ev("move", 20, 0, 20),
     ]
-    const samples = (yield* collectDrag(events)) as ReadonlyArray<DragSample>
+    const samples = (yield* collectDrag(events)) as ReadonlyArray<Drag.Sample>
     // No end, the owner's next move continues.
     expect(samples.map((s) => s.phase)).toEqual(["start", "move"])
     expect(samples[1]!.offset).toEqual({ x: 20, y: 0 })
@@ -156,13 +158,13 @@ it.effect("N5: a buttons-0 move from a non-owner changes nothing (guard)", () =>
 
 // ---------------------------------------------------------------- momentum
 
-/** withMomentum over push-based input + clock (same shape as momentum.test.ts). */
+/** Drag.fling over push-based input + clock (same shape as momentum.test.ts). */
 const momentumHarness = () =>
   Effect.gen(function* () {
     const input = yield* TestInput.pushable()
     const clock = yield* TestClock.pushable()
-    const emitted = yield* Ref.make<ReadonlyArray<Vec2>>([])
-    yield* Stream.runForEach(withMomentum(undefined), (p) => Ref.update(emitted, (xs) => [...xs, p])).pipe(
+    const emitted = yield* Ref.make<ReadonlyArray<Point.Point>>([])
+    yield* Stream.runForEach(Drag.fling(undefined), (p) => Ref.update(emitted, (xs) => [...xs, p])).pipe(
       Effect.provide(Layer.merge(input.layer, clock.layer)),
       Effect.forkChild,
     )
@@ -197,7 +199,7 @@ it.effect("N6: a non-primary down mid-drag neither rebases nor interrupts", () =
     expect(after[after.length - 1]!.x).toBeGreaterThan(after[before - 1]!.x)
   }))
 
-it.effect("N7 (rule B under withMomentum): the second gesture continues from where the first ended, with no fling and no double rebase", () =>
+it.effect("N7 (rule B under Drag.fling): the second gesture continues from where the first ended, with no fling and no double rebase", () =>
   Effect.gen(function* () {
     const h = yield* momentumHarness()
 
@@ -221,7 +223,7 @@ it.effect("N7 (rule B under withMomentum): the second gesture continues from whe
 
 // ---------------------------------------------------------------- press
 
-const pressHarness = () => observe(press(undefined))
+const pressHarness = () => observe(Recognizer.press(undefined))
 
 it.effect("N8: a right-button down doesn't press; a left-button press after it does", () =>
   Effect.gen(function* () {
@@ -273,7 +275,7 @@ it.effect("N10 (rule A): the owner's buttons-0 move ends the press", () =>
 
 // ---------------------------------------------------------------- hover
 
-const hoverHarness = () => observe(hover(undefined))
+const hoverHarness = () => observe(Recognizer.hover(undefined))
 
 it.effect("N11: enter/leave from a touch pointer never emit true (a mouse enter does)", () =>
   Effect.gen(function* () {
@@ -333,17 +335,17 @@ it.effect("N13: a deferred hover end resolves at a cancel and at a buttons-0 mov
 
 // ADR-0019, *Amendment (Reorder)*: a scroll of the page or of a scrollable ancestor while
 // a pointer is held reaches `drag` as a move of that pointer, so the drag's offset and
-// velocity include it. An InputSource whose `pointer` is core's `heldPointerSource` over
+// velocity include it. An InputSource whose `pointer` is core's `InputSource.heldPointer` over
 // fake feeds (the Test Environment's own input is unchanged).
 
 const scrolledInput = () => {
-  let emitPointer: ((event: PointerLikeEvent, raw: unknown) => void) | undefined
+  let emitPointer: ((event: InputSource.PointerLikeEvent, raw: unknown) => void) | undefined
   let emitScroll: ((source: unknown, position: { x: number; y: number }, timeStamp: number) => void) | undefined
   const scroller = { name: "list" }
   let position = { x: 0, y: 0 }
-  const layer = Layer.succeed(InputSource, {
+  const layer = Layer.succeed(InputSource.InputSource, {
     pointer: () =>
-      heldPointerSource({
+      InputSource.heldPointer({
         target: (emit) => {
           emitPointer = emit
           return () => (emitPointer = undefined)
@@ -360,7 +362,7 @@ const scrolledInput = () => {
   })
   return {
     layer,
-    point: (event: PointerLikeEvent) => emitPointer?.(event, {}),
+    point: (event: InputSource.PointerLikeEvent) => emitPointer?.(event, {}),
     scrollTo: (y: number, t: number) => {
       position = { x: 0, y }
       emitScroll?.(scroller, position, t)
@@ -370,8 +372,8 @@ const scrolledInput = () => {
 
 const dragOver = (input: ReturnType<typeof scrolledInput>) =>
   Effect.gen(function* () {
-    const seen = yield* Ref.make<ReadonlyArray<DragSample>>([])
-    yield* Stream.runForEach(drag(undefined), (s) => Ref.update(seen, (xs) => [...xs, s])).pipe(
+    const seen = yield* Ref.make<ReadonlyArray<Drag.Sample>>([])
+    yield* Stream.runForEach(Recognizer.drag(undefined), (s) => Ref.update(seen, (xs) => [...xs, s])).pipe(
       Effect.provide(input.layer),
       Effect.forkChild,
     )

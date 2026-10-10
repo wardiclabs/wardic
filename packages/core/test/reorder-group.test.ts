@@ -1,4 +1,5 @@
-import { type Box, makeReorderGroup, type ReorderAxis, type ReorderItemSource } from "@wardic/core"
+import type * as Box from "@wardic/core/Box"
+import * as Reorder from "@wardic/core/Reorder"
 import * as Option from "effect/Option"
 import { describe, expect, it } from "@effect/vitest"
 
@@ -9,23 +10,23 @@ import { describe, expect, it } from "@effect/vitest"
 // reorder: each value takes the slot of its index, and every measured source's
 // version rises.
 
-const box = (left: number, top: number, right: number, bottom: number): Box => ({
+const box = (left: number, top: number, right: number, bottom: number): Box.Box => ({
   x: { min: left, max: right },
   y: { min: top, max: bottom },
 })
 
 /** A column's slot at index `i`: 200 x 50, 10 px apart (centres 25, 85, 145, 205, 265). */
-const slot = (i: number): Box => box(0, 60 * i, 200, 60 * i + 50)
+const slot = (i: number): Box.Box => box(0, 60 * i, 200, 60 * i + 50)
 /** A row's slot at index `i`: 80 x 50, 10 px apart. */
-const rowSlot = (i: number): Box => box(90 * i, 0, 90 * i + 80, 50)
+const rowSlot = (i: number): Box.Box => box(90 * i, 0, 90 * i + 80, 50)
 
-interface FakeSource extends ReorderItemSource {
-  layout: Box | undefined
+interface FakeSource extends Reorder.ReorderItemSource {
+  layout: Box.Box | undefined
   offset: { x: number; y: number }
   version: number
 }
 
-const fakeSource = (layout: Box | undefined): FakeSource => {
+const fakeSource = (layout: Box.Box | undefined): FakeSource => {
   const s: FakeSource = {
     layout,
     offset: { x: 0, y: 0 },
@@ -41,8 +42,8 @@ const harness = <V,>(
   initial: ReadonlyArray<V>,
   options: {
     readonly measured?: ReadonlyArray<V>
-    readonly slotOf?: (i: number) => Box
-    readonly axis?: () => ReorderAxis | undefined
+    readonly slotOf?: (i: number) => Box.Box
+    readonly axis?: () => Reorder.Axis | undefined
     readonly direction?: () => "ltr" | "rtl"
   } = {},
 ) => {
@@ -53,7 +54,7 @@ const harness = <V,>(
     events: [] as Array<{ event: string; annotations: Record<string, unknown> }>,
     sources: new Map<V, FakeSource>(),
   }
-  const group = makeReorderGroup<V>({
+  const group = Reorder.makeReorderGroup<V>({
     values: () => state.values,
     onReorder: (next) => {
       state.calls.push(next)
@@ -71,7 +72,7 @@ const harness = <V,>(
     group.register(v, s)
   })
   /** A Measure pass after a reorder: slots follow `values`, versions rise. */
-  const pass = (of: (i: number) => Box = slotOf): void => {
+  const pass = (of: (i: number) => Box.Box = slotOf): void => {
     state.values.forEach((v, i) => {
       const s = state.sources.get(v)
       if (s !== undefined) {
@@ -126,7 +127,7 @@ describe("makeReorderGroup", () => {
   })
 
   it("RG3: the axis is fixed for the gesture; an override changed mid-gesture applies at the next dragStart", () => {
-    let override: ReorderAxis | undefined = "y"
+    let override: Reorder.Axis | undefined = "y"
     const h = harness(["a", "b", "c"], { axis: () => override })
     const g = h.gesture("a")
     override = "x"
@@ -177,7 +178,7 @@ describe("makeReorderGroup", () => {
 
   it("RG7: the direction (ltr or rtl) is read once per drag start", () => {
     let reads = 0
-    const cell = (i: number): Box => {
+    const cell = (i: number): Box.Box => {
       const x = 100 * (i % 2)
       const y = 100 * Math.floor(i / 2)
       return box(x, y, x + 100, y + 100)

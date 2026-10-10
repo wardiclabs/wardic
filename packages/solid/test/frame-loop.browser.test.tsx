@@ -7,7 +7,10 @@
 // Each test runs on `DomLive`'s own parts, composed as `DomLive` composes them, with the Clock
 // or the interpolator registry wrapped.
 import { cleanup, render } from "@solidjs/testing-library"
-import { Clock, FrameLoop, FrameLoopLive, InterpolatorRegistry, InterpolatorRegistryLive, type Values } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as Values from "@wardic/core/Values"
 import { ClockDomLive, InputDomLive, ProbeDomLive, RendererDomLive } from "@wardic/dom"
 import { AnimatePresence, useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
@@ -28,9 +31,9 @@ import { leftOf, opacityOf, raf, retryGesture, until } from "./browser-helpers.t
 
 afterEach(cleanup)
 
-type ClockShape = Context.Service.Shape<typeof Clock>
-type LoopShape = Context.Service.Shape<typeof FrameLoop>
-type RegistryShape = Context.Service.Shape<typeof InterpolatorRegistry>
+type ClockShape = Context.Service.Shape<typeof Clock.Clock>
+type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
+type RegistryShape = Context.Service.Shape<typeof InterpolatorRegistry.InterpolatorRegistry>
 
 /** One log the Environment's logger saw. */
 interface Logged {
@@ -53,13 +56,13 @@ const envWith = (options: {
 }): WardicEnv => {
   const { clock = identity, loop = identity, registry = identity, logs = [] } = options
   const services = Layer.mergeAll(
-    Layer.effect(Clock)(Clock.useSync(clock)).pipe(Layer.provide(ClockDomLive)),
-    Layer.effect(InterpolatorRegistry)(InterpolatorRegistry.useSync(registry)).pipe(Layer.provide(InterpolatorRegistryLive)),
+    Layer.effect(Clock.Clock)(Clock.Clock.useSync(clock)).pipe(Layer.provide(ClockDomLive)),
+    Layer.effect(InterpolatorRegistry.InterpolatorRegistry)(InterpolatorRegistry.InterpolatorRegistry.useSync(registry)).pipe(Layer.provide(InterpolatorRegistry.layer)),
     RendererDomLive,
     InputDomLive,
     ProbeDomLive,
   )
-  const frameLoop = Layer.effect(FrameLoop)(FrameLoop.useSync(loop)).pipe(Layer.provide(FrameLoopLive))
+  const frameLoop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync(loop)).pipe(Layer.provide(FrameLoop.layer))
   return Layer.merge(
     frameLoop.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer)),
     Logger.layer([
@@ -299,7 +302,7 @@ describe("a loop failure fails every leg on it instead of hanging it (ADR-0027, 
       }),
     })
     const logs: Array<Logged> = []
-    const [target, setTarget] = createSignal<Values>({ opacity: 1, "background-color": WHITE })
+    const [target, setTarget] = createSignal<Values.Values>({ opacity: 1, "background-color": WHITE })
     const { container } = render(() => (
       <WardicProvider env={envWith({ clock: dying, logs })}>
         <For each={[0, 1, 2]}>

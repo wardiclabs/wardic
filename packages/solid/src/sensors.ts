@@ -12,18 +12,9 @@
  * All hooks MUST be called within a component/owner (they register `onCleanup`
  * through the bridges and read the runtime from context).
  */
-import {
-  axisLock,
-  drag,
-  type DragBounds,
-  type DragSample,
-  focus,
-  hover,
-  inView,
-  press,
-  Probe,
-  withinBounds,
-} from "@wardic/core"
+import * as Drag from "@wardic/core/Drag"
+import * as Probe from "@wardic/core/Probe"
+import * as Recognizer from "@wardic/core/Recognizer"
 import * as Stream from "effect/Stream"
 import { type Accessor, createMemo } from "solid-js"
 import { fromAtom, streamToSignal } from "./bridge.ts"
@@ -34,20 +25,20 @@ import { isServer } from "./server.ts"
  * `true` while the pointer is inside `target`, `false` once it leaves. Wraps the
  * core `hover` recognizer; `false` until the first transition.
  */
-export const createHover = (target: unknown): Accessor<boolean> => streamToSignal(hover(target), false)
+export const createHover = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.hover(target), false)
 
 /**
  * `true` while the pointer is held down on `target`, `false` once released or
  * cancelled. Wraps the core `press` recognizer; `false` until the first
  * transition.
  */
-export const createPress = (target: unknown): Accessor<boolean> => streamToSignal(press(target), false)
+export const createPress = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.press(target), false)
 
 /**
  * `true` while `target` is focused, `false` once blurred. Wraps the core `focus`
  * recognizer; `false` until the first transition.
  */
-export const createFocus = (target: unknown): Accessor<boolean> => streamToSignal(focus(target), false)
+export const createFocus = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.focus(target), false)
 
 /**
  * `true` while `target` intersects the viewport, `false` otherwise. Wraps the
@@ -57,14 +48,14 @@ export const createFocus = (target: unknown): Accessor<boolean> => streamToSigna
 export const createInView = (
   target: unknown,
   options?: { readonly once?: boolean },
-): Accessor<boolean> => streamToSignal(inView(target, options), false)
+): Accessor<boolean> => streamToSignal(Recognizer.inView(target, options), false)
 
 /** Per-axis / bounds shaping options for {@link createDrag}. */
 export interface CreateDragOptions {
   /** Lock the drag to a single axis, zeroing the off-axis components. */
   readonly axis?: "x" | "y"
   /** Constrain `offset` to a static numeric region (optionally elastic). */
-  readonly bounds?: DragBounds
+  readonly bounds?: Drag.Bounds
   /** Rubber-band resistance past `bounds` (0 = hard clamp, 1 = free). */
   readonly elastic?: number
 }
@@ -76,26 +67,26 @@ export interface CreateDragOptions {
  * keeping the requirement set (`InputSource`) untouched.
  */
 const applyShaping = <R>(
-  stream: Stream.Stream<DragSample, never, R>,
+  stream: Stream.Stream<Drag.Sample, never, R>,
   options: CreateDragOptions | undefined,
-): Stream.Stream<DragSample, never, R> => {
+): Stream.Stream<Drag.Sample, never, R> => {
   let shaped = stream
-  if (options?.axis !== undefined) shaped = shaped.pipe(axisLock(options.axis))
+  if (options?.axis !== undefined) shaped = shaped.pipe(Drag.axisLock(options.axis))
   if (options?.bounds !== undefined) {
     shaped = shaped.pipe(
-      withinBounds(options.bounds, options.elastic !== undefined ? { elastic: options.elastic } : undefined),
+      Drag.withinBounds(options.bounds, options.elastic !== undefined ? { elastic: options.elastic } : undefined),
     )
   }
   return shaped
 }
 
 /**
- * Latest {@link DragSample} from a drag gesture on `target`, or `null` before
+ * Latest `Drag.Sample` from a drag gesture on `target`, or `null` before
  * the first sample. Wraps the core `drag` recognizer, applying `axisLock` /
  * `withinBounds` from `options` when present.
  */
-export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<DragSample | null> =>
-  streamToSignal<DragSample | null>(applyShaping(drag(target), options), null)
+export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> =>
+  streamToSignal<Drag.Sample | null>(applyShaping(Recognizer.drag(target), options), null)
 
 /**
  * Reactive `prefers-reduced-motion` preference as a boolean `Accessor`. Resolves
@@ -114,7 +105,7 @@ export const createReducedMotion = (): Accessor<boolean> => {
   if (isServer) return () => false
   // Resolve the Probe service once to read its reactive atom; a Context.Service
   // key is itself an Effect, so running it yields the service instance.
-  const probe = runtime.runSync(Probe)
+  const probe = runtime.runSync(Probe.Probe)
   return fromAtom(probe.prefersReducedMotion, { serverValue: false })
 }
 

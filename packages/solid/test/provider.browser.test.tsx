@@ -1,6 +1,6 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { expect, it, vi } from "vitest"
-import { Clock } from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
 import { TestLive } from "@wardic/test"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -26,7 +26,7 @@ it("useWardicRuntime() inside the provider resolves a runtime wired to env", asy
   // to the supplied env.
   const clock = await captured!.runPromise(
     Effect.gen(function*() {
-      return yield* Clock
+      return yield* Clock.Clock
     }),
   )
   expect(clock).toBeDefined()
@@ -63,7 +63,7 @@ it("disposes the runtime on unmount", async () => {
   let built: Promise<unknown> | undefined
   function Probe() {
     built = useWardicRuntime().runPromise(Effect.gen(function*() {
-      return yield* Clock
+      return yield* Clock.Clock
     }))
     return <div>child</div>
   }

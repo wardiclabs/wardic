@@ -1,4 +1,5 @@
-import { type Frame, isPhysicsFrame, linear } from "@wardic/core"
+import * as Easing from "@wardic/core/Easing"
+import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import { testLayer, TestClock } from "@wardic/test"
 import * as Effect from "effect/Effect"
@@ -6,13 +7,13 @@ import * as Stream from "effect/Stream"
 import { expect, it } from "@effect/vitest"
 
 /** Extract `.value` from each `Frame<V>` in a collected sequence. */
-const values = <V>(frames: ReadonlyArray<Frame<V>>): ReadonlyArray<V> => frames.map((f) => f.value)
+const values = <V>(frames: ReadonlyArray<Frame.Frame<V>>): ReadonlyArray<V> => frames.map((f) => f.value)
 
 const quarter = [0.25, 0.25, 0.25, 0.25]
 
 it.effect("tween emits eased progress and lands exactly on the target", () =>
   Effect.gen(function* () {
-    const frames = yield* Stream.runCollect(Machine.toStream(Machine.tween(0, 100, { duration: 1, easing: linear }))).pipe(
+    const frames = yield* Stream.runCollect(Machine.toStream(Machine.tween(0, 100, { duration: 1, easing: Easing.linear }))).pipe(
       Effect.provide(TestClock.layer(quarter)),
     )
     expect(values(frames)).toEqual([25, 50, 75, 100])
@@ -34,7 +35,7 @@ it.effect("tween clamps and completes even if frames overshoot the duration", ()
 it.effect("animate honors reverse", () =>
   Effect.gen(function* () {
     const frames = yield* Stream.runCollect(
-      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: linear, reverse: true })),
+      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: Easing.linear, reverse: true })),
     ).pipe(Effect.provide(TestClock.layer(quarter)))
     expect(values(frames)).toEqual([75, 50, 25, 0])
     expect(frames.at(-1)?.done).toBe(true)
@@ -44,7 +45,7 @@ it.effect("animate honors reverse", () =>
 it.effect("animate repeats", () =>
   Effect.gen(function* () {
     const frames = yield* Stream.runCollect(
-      Machine.toStream(Machine.animate(0, 10, { duration: 1, easing: linear, repeat: 1 })),
+      Machine.toStream(Machine.animate(0, 10, { duration: 1, easing: Easing.linear, repeat: 1 })),
     ).pipe(Effect.provide(TestClock.layer([...quarter, ...quarter])))
     expect(values(frames)).toEqual([2.5, 5, 7.5, 10, 2.5, 5, 7.5, 10])
     expect(frames.at(-1)?.done).toBe(true)
@@ -64,7 +65,7 @@ it.effect("spring settles exactly on the target and stops early", () =>
   }),
 )
 
-it.effect("isPhysicsFrame narrows spring output and exposes finite velocity", () =>
+it.effect("Frame.isPhysics narrows spring output and exposes finite velocity", () =>
   Effect.gen(function* () {
     // Arrange — a short spring run we know will emit at least one frame.
     const ticks = TestClock.frames(60, 1 / 60)
@@ -75,9 +76,9 @@ it.effect("isPhysicsFrame narrows spring output and exposes finite velocity", ()
     )
     const first = frames[0]!
 
-    // Assert — the type guard narrows to PhysicsFrame and velocity is a finite number.
-    expect(isPhysicsFrame(first)).toBe(true)
-    if (!isPhysicsFrame(first)) throw new Error("expected PhysicsFrame")
+    // Assert — the type guard narrows to Frame.Physics and velocity is a finite number.
+    expect(Frame.isPhysics(first)).toBe(true)
+    if (!Frame.isPhysics(first)) throw new Error("expected Frame.Physics")
     expect(Number.isFinite(first.velocity)).toBe(true)
   }),
 )
@@ -101,7 +102,7 @@ it.effect("decay slows to a stop and only ever moves forward", () =>
 it.effect("animateValues interpolates each key through the registry in lockstep", () =>
   Effect.gen(function* () {
     const frames = yield* Stream.runCollect(
-      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }).pipe(
+      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: Easing.linear }).pipe(
         Effect.map(Machine.toStream),
         Stream.unwrap,
       ),
@@ -123,7 +124,7 @@ it.effect("animateValues honors reverse and repeat (modifiers propagate through 
       Machine.animateValues(
         { x: 0, opacity: 0 },
         { x: 100, opacity: 1 },
-        { duration: 1, easing: linear, reverse: true, repeat: 1 },
+        { duration: 1, easing: Easing.linear, reverse: true, repeat: 1 },
       ).pipe(Effect.map(Machine.toStream), Stream.unwrap),
     ).pipe(Effect.provide(testLayer(ticks)))
 

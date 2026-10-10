@@ -10,7 +10,8 @@
  *
  * Observability: pure and per element, so quiet (no span, no log).
  */
-import type { Patch, Values } from "@wardic/core"
+import type * as Renderer from "@wardic/core/Renderer"
+import type * as Values from "@wardic/core/Values"
 import type { DragDefaultStyle } from "./drag-defaults.ts"
 import { project } from "./renderer.ts"
 import { type SplitPatch, splitPatchForTag } from "./svg.ts"
@@ -20,7 +21,7 @@ import { type SplitPatch, splitPatchForTag } from "./svg.ts"
  * properties included). `undefined` and anything else drop out, so the engine never sees
  * them.
  */
-export const toValues = (v: object | undefined): Values => {
+export const toValues = (v: object | undefined): Values.Values => {
   const out: Record<string, number | string> = {}
   if (v) {
     for (const k in v) {
@@ -46,7 +47,7 @@ export interface InitialConfig {
  * `initial` names (an unknown name is empty), or nothing. Read once, at setup: the
  * Starting style is a seed, never a live target.
  */
-export const resolveInitial = (config: InitialConfig): Values => {
+export const resolveInitial = (config: InitialConfig): Values.Values => {
   const initial = config.initial
   if (initial === undefined) return {}
   if (typeof initial === "string") return toValues(config.variants?.[initial])
@@ -96,7 +97,7 @@ export const parseCssText = (text: string): Record<string, string> => {
  */
 export const mergeStyle = (
   user: object | string | undefined,
-  animated: Patch,
+  animated: Renderer.Patch,
   defaults?: DragDefaultStyle,
   base?: object,
 ): Record<string, unknown> => {
@@ -121,5 +122,5 @@ export const mergeStyle = (
  * attributes, everything else is style. `undefined` is an HTML element (a `useWardic`
  * spread, which doesn't know its tag).
  */
-export const startingStyle = (tag: string | undefined, values: Values): SplitPatch =>
+export const startingStyle = (tag: string | undefined, values: Values.Values): SplitPatch =>
   splitPatchForTag(tag, project(values))

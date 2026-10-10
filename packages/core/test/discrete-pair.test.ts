@@ -1,10 +1,5 @@
-import {
-  complexInterpolator,
-  InterpolatorRegistry,
-  InterpolatorRegistryLive,
-  makeInterpolatorRegistry,
-  unitInterpolator,
-} from "@wardic/core"
+import * as Interpolator from "@wardic/core/Interpolator"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
@@ -21,10 +16,10 @@ import { expect, layer } from "@effect/vitest"
 /** A pair's blend at the start, just past it, half-way, and at the end. */
 const at = (fn: (t: number) => unknown) => ({ start: fn(0), first: fn(0.01), half: fn(0.5), end: fn(1) })
 
-layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
+layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
   const resolved = (from: unknown, to: unknown) =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       return at(yield* registry.resolve(from, to))
     })
 
@@ -34,7 +29,7 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
    */
   const warningsOf = (from: unknown, to: unknown, times = 1) =>
     Effect.gen(function* () {
-      const registry = yield* makeInterpolatorRegistry()
+      const registry = yield* InterpolatorRegistry.make()
       const warnings: Array<Record<string, unknown>> = []
       const capture = Logger.map(Logger.formatStructured, (structured) => {
         if (structured.level === "WARN") warnings.push(structured.annotations)
@@ -47,22 +42,22 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
     Effect.gen(function* () {
       const from = "M0,0 L10,10"
       const to = "M0,0 C1,1 2,2 3,3"
-      const decode = Schema.decodeUnknownSync(complexInterpolator.codec)
-      expect(complexInterpolator.blend(decode(from), decode(to))).toEqual(Option.none())
+      const decode = Schema.decodeUnknownSync(Interpolator.complex.codec)
+      expect(Interpolator.complex.blend(decode(from), decode(to))).toEqual(Option.none())
       expect(yield* resolved(from, to)).toEqual({ start: from, first: to, half: to, end: to })
     }),
   )
 
   it.effect("DP2: the unit tier doesn't decode an unparseable value, so resolve switches the pair at the first frame past 0", () =>
     Effect.gen(function* () {
-      expect(Schema.decodeUnknownOption(unitInterpolator.codec)("auto")).toEqual(Option.none())
+      expect(Schema.decodeUnknownOption(Interpolator.unit.codec)("auto")).toEqual(Option.none())
       expect(yield* resolved("auto", "10px")).toEqual({ start: "auto", first: "10px", half: "10px", end: "10px" })
     }),
   )
 
   it.effect("DP3: a progress below 0 (an easing that dips under it) still shows the start", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect((yield* registry.resolve("M0,0 L10,10", "M0,0 C1,1 2,2 3,3"))(-0.1)).toBe("M0,0 L10,10")
       expect((yield* registry.resolve("auto", "10px"))(-0.1)).toBe("auto")
     }),
@@ -109,7 +104,7 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
 
   it.effect("DP9 (guard): a pair that blends still blends", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect((yield* registry.resolve("#000", "#fff"))(0.5)).toBe("rgb(128, 128, 128)")
       expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("15px")
     }),
@@ -136,7 +131,7 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
 
   it.effect("DP12 (guard): a colour with spaces around it blends, where it died on the first frame before #65", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect((yield* registry.resolve(" #000 ", "#fff"))(0.5)).toBe("rgb(128, 128, 128)")
     }),
   )
@@ -156,7 +151,7 @@ layer(InterpolatorRegistryLive)("the registry's Discrete pairs", (it) => {
   it.effect("DP14: a pair of strings warns once per registry, since the registry keeps it (ADR-0026, decision 9)", () =>
     Effect.gen(function* () {
       expect(yield* warningsOf("10px", "1em", 3)).toEqual([{ interpolator: "unit", from: "10px", to: "1em" }])
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect((yield* registry.resolve("10px", "1em"))(0.5)).toBe("1em")
     }),
   )

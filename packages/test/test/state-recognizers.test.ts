@@ -1,5 +1,5 @@
-import { focus, hover, inView, makePointerLikeEvent, press } from "@wardic/core"
-import type { FocusLikeEvent, PointerLikeEvent } from "@wardic/core"
+import * as InputSource from "@wardic/core/InputSource"
+import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput, TestProbe } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -7,16 +7,16 @@ import * as Stream from "effect/Stream"
 
 /** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release or a leave. */
 const ev = (
-  type: PointerLikeEvent["type"],
+  type: InputSource.PointerLikeEvent["type"],
   x = 0,
   y = 0,
   t = 0,
   pointerId = 1,
-): PointerLikeEvent =>
-  makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" || type === "leave" ? 0 : 1, timeStamp: t })
+): InputSource.PointerLikeEvent =>
+  InputSource.makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" || type === "leave" ? 0 : 1, timeStamp: t })
 
 /** Build a FocusLikeEvent. */
-const focusEvent = (type: FocusLikeEvent["type"], t = 0): FocusLikeEvent => ({ type, timeStamp: t })
+const focusEvent = (type: InputSource.FocusLikeEvent["type"], t = 0): InputSource.FocusLikeEvent => ({ type, timeStamp: t })
 
 it.effect("hover: enter/leave toggle, move keeps state, changes dedups", () =>
   Effect.gen(function* () {
@@ -26,7 +26,7 @@ it.effect("hover: enter/leave toggle, move keeps state, changes dedups", () =>
       ev("leave", 2, 2, 20),
       ev("enter", 3, 3, 30),
     ]
-    const states = yield* Stream.runCollect(hover(undefined)).pipe(
+    const states = yield* Stream.runCollect(Recognizer.hover(undefined)).pipe(
       Effect.provide(TestInput.layer(pointer)),
     )
     expect(Array.from(states)).toEqual([true, false, true])
@@ -35,7 +35,7 @@ it.effect("hover: enter/leave toggle, move keeps state, changes dedups", () =>
 it.effect("press: down/up toggles", () =>
   Effect.gen(function* () {
     const pointer = [ev("down", 0, 0, 0), ev("up", 0, 0, 10)]
-    const states = yield* Stream.runCollect(press(undefined)).pipe(
+    const states = yield* Stream.runCollect(Recognizer.press(undefined)).pipe(
       Effect.provide(TestInput.layer(pointer)),
     )
     expect(Array.from(states)).toEqual([true, false])
@@ -44,7 +44,7 @@ it.effect("press: down/up toggles", () =>
 it.effect("press: down/cancel toggles", () =>
   Effect.gen(function* () {
     const pointer = [ev("down", 0, 0, 0), ev("cancel", 0, 0, 10)]
-    const states = yield* Stream.runCollect(press(undefined)).pipe(
+    const states = yield* Stream.runCollect(Recognizer.press(undefined)).pipe(
       Effect.provide(TestInput.layer(pointer)),
     )
     expect(Array.from(states)).toEqual([true, false])
@@ -52,7 +52,7 @@ it.effect("press: down/cancel toggles", () =>
 
 it.effect("focus: focus/blur toggles", () =>
   Effect.gen(function* () {
-    const states = yield* Stream.runCollect(focus(undefined)).pipe(
+    const states = yield* Stream.runCollect(Recognizer.focus(undefined)).pipe(
       Effect.provide(TestInput.layer([], [focusEvent("focus", 0), focusEvent("blur", 10)])),
     )
     expect(Array.from(states)).toEqual([true, false])
@@ -60,7 +60,7 @@ it.effect("focus: focus/blur toggles", () =>
 
 it.effect("inView: observeIntersection booleans pass through (changes dedup)", () =>
   Effect.gen(function* () {
-    const states = yield* Stream.runCollect(inView(undefined)).pipe(
+    const states = yield* Stream.runCollect(Recognizer.inView(undefined)).pipe(
       Effect.provide(TestProbe.layer({ intersection: [false, true, false] })),
     )
     // No consecutive equal values, so changes leaves the script intact.
@@ -69,7 +69,7 @@ it.effect("inView: observeIntersection booleans pass through (changes dedup)", (
 
 it.effect("inView once: settles after the first true, no later false", () =>
   Effect.gen(function* () {
-    const states = yield* Stream.runCollect(inView(undefined, { once: true })).pipe(
+    const states = yield* Stream.runCollect(Recognizer.inView(undefined, { once: true })).pipe(
       Effect.provide(TestProbe.layer({ intersection: [false, true, true, false] })),
     )
     // takeUntil(active) keeps the terminating true and ends the stream.

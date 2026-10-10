@@ -1,12 +1,9 @@
-import {
-  Clock,
-  easeInOutCubic,
-  type Frame,
-  FrameLoopLive,
-  InterpolatorRegistry,
-  InterpolatorRegistryLive,
-  type Values,
-} from "@wardic/core"
+import * as Clock from "@wardic/core/Clock"
+import * as Easing from "@wardic/core/Easing"
+import type * as Frame from "@wardic/core/Frame"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
@@ -46,7 +43,7 @@ const DTS: ReadonlyArray<number> = [
 const sideBySide = <A, B>(a: Stream.Stream<A, never, any>, b: Stream.Stream<B, never, any>) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
-    const layer = Layer.merge(clock.layer, InterpolatorRegistryLive)
+    const layer = Layer.merge(clock.layer, InterpolatorRegistry.layer)
     const collect = <X>(stream: Stream.Stream<X, never, any>) =>
       Stream.runCollect(stream.pipe(Stream.take(DTS.length))).pipe(
         Effect.provide(layer),
@@ -66,15 +63,15 @@ const expectSame = <A>(expected: ReadonlyArray<A>, actual: ReadonlyArray<A>, atL
   expect(expected.length).toBeGreaterThanOrEqual(atLeast)
 }
 
-const settledLast = (frames: ReadonlyArray<Frame<unknown>>) => frames.at(-1)?.done
+const settledLast = (frames: ReadonlyArray<Frame.Frame<unknown>>) => frames.at(-1)?.done
 
 // --- The oracle: the composites' Streams as they were before #94 ---------------------------------
 
 /** `frame`, re-stamped `done: false`: a seam's re-stamp. */
-const unsettled = <F extends Frame<unknown>>(frame: F): F => ({ ...frame, done: false })
+const unsettled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, done: false })
 
 /** A segment that isn't a run's last: its settled Frame re-stamped, so the run settles once. */
-const restamped = <F extends Frame<unknown>>(segment: Stream.Stream<F, never, Clock>) =>
+const restamped = <F extends Frame.Frame<unknown>>(segment: Stream.Stream<F, never, Clock.Clock>) =>
   segment.pipe(
     Stream.map((frame) => {
       if (frame.done) return unsettled(frame)
@@ -83,7 +80,7 @@ const restamped = <F extends Frame<unknown>>(segment: Stream.Stream<F, never, Cl
   )
 
 /** Segments one after another, each but the last re-stamped: `Stream.concat`'s seam. */
-const inSequence = <F extends Frame<unknown>>(segments: ReadonlyArray<Stream.Stream<F, never, Clock>>) =>
+const inSequence = <F extends Frame.Frame<unknown>>(segments: ReadonlyArray<Stream.Stream<F, never, Clock.Clock>>) =>
   segments
     .map((segment, i) => {
       if (i === segments.length - 1) return segment
@@ -92,7 +89,7 @@ const inSequence = <F extends Frame<unknown>>(segments: ReadonlyArray<Stream.Str
     .reduce((out, segment) => Stream.concat(out, segment))
 
 /** The Frame a machine starts at: its step at 0, as `Machine.delay` holds it. */
-const firstFrame = <F extends Frame<unknown>>(machine: Machine.Machine<F>): F => machine.start()(0)
+const firstFrame = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>): F => machine.start()(0)
 
 /**
  * `inner` after a hold of `seconds`, as `Machine.delay` holds: `held` on each tick until the
@@ -100,11 +97,11 @@ const firstFrame = <F extends Frame<unknown>>(machine: Machine.Machine<F>): F =>
  * `seconds`, then `inner` on a Clock whose first subscription's first tick is the time left
  * over. A later segment of `inner` subscribes again, and starts on the next tick.
  */
-const heldFor = <F>(seconds: number, held: F, inner: Stream.Stream<F, never, Clock>): Stream.Stream<F, never, Clock> => {
+const heldFor = <F>(seconds: number, held: F, inner: Stream.Stream<F, never, Clock.Clock>): Stream.Stream<F, never, Clock.Clock> => {
   if (seconds === 0) return inner
   return Stream.unwrap(
     Effect.gen(function* () {
-      const clock = yield* Clock
+      const clock = yield* Clock.Clock
       let elapsed = 0
       const hold = clock.ticks.pipe(
         Stream.map((dt) => (elapsed += Math.min(dt, Machine.MAX_DT))),
@@ -117,7 +114,7 @@ const heldFor = <F>(seconds: number, held: F, inner: Stream.Stream<F, never, Clo
         leftover = false
         return Stream.concat(Stream.make(elapsed - seconds), clock.ticks)
       })
-      const after = inner.pipe(Stream.provideService(Clock, { ...clock, ticks }))
+      const after = inner.pipe(Stream.provideService(Clock.Clock, { ...clock, ticks }))
       return Stream.concat(hold, after)
     }),
   )
@@ -165,9 +162,9 @@ const keyframesOracle = (stops: ReadonlyArray<number>, options: Machine.TweenOpt
  * `springBlend` resolve it (ADR-0024): a `display` or `visibility` key turning `none` or `hidden`
  * holds its `from` until the last Frame.
  */
-const blenderOf = (from: Values, to: Values) =>
+const blenderOf = (from: Values.Values, to: Values.Values) =>
   Effect.gen(function* () {
-    const registry = yield* InterpolatorRegistry
+    const registry = yield* InterpolatorRegistry.InterpolatorRegistry
     const keys: Array<readonly [string, (t: number, done: boolean) => number | string]> = []
     for (const [key, b] of Object.entries(to)) {
       const a = from[key] ?? b
@@ -185,7 +182,7 @@ const blenderOf = (from: Values, to: Values) =>
       const blend = yield* registry.resolve(a, b)
       keys.push([key, (t) => blend(t)])
     }
-    return (t: number, done: boolean): Frame<Values> => ({
+    return (t: number, done: boolean): Frame.Frame<Values.Values> => ({
       value: Object.fromEntries(keys.map(([key, blend]) => [key, blend(t, done)])),
       done,
     })
@@ -195,7 +192,7 @@ describe("the composites against their Streams before #94", () => {
   const animateCases = [
     ["one segment", { duration: 0.3 }],
     ["repeat 2, a delay held once (#77)", { duration: 0.3, repeat: 2, delay: 0.05 }],
-    ["repeat 3, yoyo, reverse, an easing", { duration: 0.25, repeat: 3, yoyo: true, reverse: true, easing: easeInOutCubic }],
+    ["repeat 3, yoyo, reverse, an easing", { duration: 0.25, repeat: 3, yoyo: true, reverse: true, easing: Easing.easeInOutCubic }],
     ["repeat Infinity", { duration: 0.2, repeat: Infinity }],
     ["repeat Infinity, yoyo", { duration: 0.2, repeat: Infinity, yoyo: true }],
     ["repeat Infinity, yoyo, a delay held once (#77)", { duration: 0.2, repeat: Infinity, yoyo: true, delay: 0.05 }],
@@ -229,9 +226,9 @@ describe("the composites against their Streams before #94", () => {
 
   it.effect("animateValues: strings, a Discrete pair and visibility, repeat 1 with yoyo and a delay", () =>
     Effect.gen(function* () {
-      const options = { duration: 0.4, repeat: 1, yoyo: true, delay: 0.05, easing: easeInOutCubic }
-      const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistryLive))
-      const machine = yield* Machine.animateValues(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistryLive))
+      const options = { duration: 0.4, repeat: 1, yoyo: true, delay: 0.05, easing: Easing.easeInOutCubic }
+      const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistry.layer))
+      const machine = yield* Machine.animateValues(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistry.layer))
       const oracle = animateOracle(0, 1, options).pipe(Stream.map((progress) => blend(progress.value, progress.done)))
       const [s, m] = yield* sideBySide(oracle, Machine.toStream(machine))
       expectSame(s, m, 10)
@@ -241,8 +238,8 @@ describe("the composites against their Streams before #94", () => {
   it.effect("springBlend: strings, a Discrete pair and visibility, with a delay", () =>
     Effect.gen(function* () {
       const options = { stiffness: 220, damping: 14, delay: 0.05 }
-      const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistryLive))
-      const machine = yield* Machine.springBlend(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistryLive))
+      const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistry.layer))
+      const machine = yield* Machine.springBlend(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistry.layer))
       const oracle = Machine.toStream(Machine.springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 })).pipe(
         Stream.map((frame) => blend(frame.value.progress! / 100, frame.done)),
       )
@@ -258,10 +255,10 @@ describe("the composites against their Streams before #94", () => {
  * interrupted at the end. `build` is called once per driver, so a machine that closes over state
  * of its own (a moving target) gives each driver the same.
  */
-const bothDrivers = <F extends Frame<unknown>>(build: () => Effect.Effect<Machine.Machine<F>, never, InterpolatorRegistry>) =>
+const bothDrivers = <F extends Frame.Frame<unknown>>(build: () => Effect.Effect<Machine.Machine<F>, never, InterpolatorRegistry.InterpolatorRegistry>) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
-    const layer = FrameLoopLive.pipe(Layer.provideMerge(Layer.merge(clock.layer, InterpolatorRegistryLive)))
+    const layer = FrameLoop.layer.pipe(Layer.provideMerge(Layer.merge(clock.layer, InterpolatorRegistry.layer)))
     return yield* Effect.gen(function* () {
       const viaStream = yield* Stream.runCollect(Machine.toStream(yield* build()).pipe(Stream.take(DTS.length))).pipe(
         Effect.forkChild({ startImmediately: true }),
@@ -282,11 +279,11 @@ const bothDrivers = <F extends Frame<unknown>>(build: () => Effect.Effect<Machin
   })
 
 describe("every constructor through both drivers", () => {
-  const OPTIONS = { duration: 0.3, repeat: 2, yoyo: true, delay: 0.05, easing: easeInOutCubic }
+  const OPTIONS = { duration: 0.3, repeat: 2, yoyo: true, delay: 0.05, easing: Easing.easeInOutCubic }
   const FROM = { x: 0, "background-color": "#102030", width: "10px", "pointer-events": "auto", visibility: "visible" }
   const TO = { x: 40, "background-color": "#ffffff", width: "200px", "pointer-events": "none", visibility: "hidden" }
   const cases: ReadonlyArray<
-    readonly [string, () => Effect.Effect<Machine.Machine<Frame<unknown>>, never, InterpolatorRegistry>]
+    readonly [string, () => Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, InterpolatorRegistry.InterpolatorRegistry>]
   > = [
     ["tween, with an easing and a delay", () => Effect.succeed(Machine.tween(0, 10, OPTIONS))],
     ["spring", () => Effect.succeed(Machine.spring(100, { stiffness: 300, damping: 12, from: -20, velocity: 40 }))],
@@ -320,8 +317,8 @@ describe("every constructor through both drivers", () => {
 })
 
 describe("every combinator through both drivers", () => {
-  const tween = (from: number, to: number) => Machine.tween(from, to, { duration: 0.2, easing: easeInOutCubic })
-  const cases: ReadonlyArray<readonly [string, () => Effect.Effect<Machine.Machine<Frame<unknown>>>]> = [
+  const tween = (from: number, to: number) => Machine.tween(from, to, { duration: 0.2, easing: Easing.easeInOutCubic })
+  const cases: ReadonlyArray<readonly [string, () => Effect.Effect<Machine.Machine<Frame.Frame<unknown>>>]> = [
     ["map", () => Effect.succeed(tween(0, 10).pipe(Machine.map((frame) => ({ value: frame.value * 3, done: frame.done }))))],
     ["concat", () => Effect.succeed(tween(0, 10).pipe(Machine.concat(Machine.spring(-10, { stiffness: 300 }))))],
     ["concatAll", () => Effect.succeed(Machine.concatAll([tween(0, 10), tween(10, -4), Machine.decay(-4, 80, {})]))],
@@ -346,7 +343,7 @@ describe("every combinator through both drivers", () => {
  * its last bit, and only there: every `done` and every Frame count are the same.
  */
 describe("Machine.delay against the steppers' delay", () => {
-  const cases: ReadonlyArray<readonly [string, Machine.Machine<Frame<number>>, Machine.Machine<Frame<number>>]> = [
+  const cases: ReadonlyArray<readonly [string, Machine.Machine<Frame.Frame<number>>, Machine.Machine<Frame.Frame<number>>]> = [
     ...[0.05, 0.1, 0.3].map((delay) =>
       [
         `tween −5 → 20, 2 s, delay ${delay}`,

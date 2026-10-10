@@ -7,7 +7,7 @@
 //
 // Expected projections come from RendererDomLive's own `project`, except where a test pins
 // a routing outcome.
-import { Renderer } from "@wardic/core"
+import * as Renderer from "@wardic/core/Renderer"
 import {
   dragDefaultStyle,
   isSvgInnerTag,
@@ -21,7 +21,7 @@ import {
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
 
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
 
 describe("Starting style helpers (ADR-0021)", () => {
   it("ST1: toValues keeps numbers and strings (custom properties too) and drops the rest", () => {

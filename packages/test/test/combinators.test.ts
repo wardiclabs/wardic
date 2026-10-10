@@ -1,4 +1,6 @@
-import { type Frame, FrameLoopLive, InterpolatorRegistryLive } from "@wardic/core"
+import type * as Frame from "@wardic/core/Frame"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
@@ -20,7 +22,7 @@ const DT = 1 / 16
 const QUARTER = { duration: 0.25 }
 
 /** Frames with these values: settled on the last when `settles`, never otherwise. */
-const framesOf = (values: ReadonlyArray<number>, settles: boolean): Array<Frame<number>> =>
+const framesOf = (values: ReadonlyArray<number>, settles: boolean): Array<Frame.Frame<number>> =>
   values.map((value, i) => ({ value, done: settles && i === values.length - 1 }))
 
 /** A recording tracer: every span it makes. */
@@ -37,12 +39,12 @@ const makeTracer = () => {
 }
 
 /** `machine` through `Machine.toStream` on a pushable Clock fed `dts`: its Frames, and the spans it opened. */
-const onTheStream = <F extends Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
+const onTheStream = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
     const { spans, tracer } = makeTracer()
     const fiber = yield* Stream.runCollect(Machine.toStream(machine).pipe(Stream.take(dts.length))).pipe(
-      Effect.provide(Layer.merge(clock.layer, InterpolatorRegistryLive)),
+      Effect.provide(Layer.merge(clock.layer, InterpolatorRegistry.layer)),
       Effect.provideService(Tracer.Tracer, tracer),
       Effect.forkChild({ startImmediately: true }),
     )
@@ -51,7 +53,7 @@ const onTheStream = <F extends Frame<unknown>>(machine: Machine.Machine<F>, dts:
   })
 
 /** `machine` through `Machine.run` on the Frame loop over a pushable Clock fed `dts`: its sink's Frames, and the spans. */
-const onTheLoop = <F extends Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
+const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
     const { spans, tracer } = makeTracer()
@@ -68,14 +70,14 @@ const onTheLoop = <F extends Frame<unknown>>(machine: Machine.Machine<F>, dts: R
       for (const dt of dts) yield* clock.advance(dt)
       yield* Fiber.interrupt(run)
       return { frames, spans }
-    }).pipe(Effect.provide(FrameLoopLive.pipe(Layer.provide(clock.layer))))
+    }).pipe(Effect.provide(FrameLoop.layer.pipe(Layer.provide(clock.layer))))
   })
 
 /** `ticks` ticks of `DT`. */
 const ticksOf = (ticks: number): ReadonlyArray<number> => Array.from({ length: ticks }, () => DT)
 
 /** Both drivers give `expected` over `dts`. */
-const bothDrivers = <F extends Frame<unknown>>(
+const bothDrivers = <F extends Frame.Frame<unknown>>(
   machine: Machine.Machine<F>,
   expected: ReadonlyArray<F>,
   dts: ReadonlyArray<number> = ticksOf(24),
@@ -86,7 +88,7 @@ const bothDrivers = <F extends Frame<unknown>>(
   })
 
 /** A machine whose Frame carries the `dt` it was stepped with: what a combinator hands its inner step. */
-const echo = Machine.make<Frame<number>>({
+const echo = Machine.make<Frame.Frame<number>>({
   settles: false,
   span: { name: "test.echo", attributes: {} },
   start: () => (dt) => ({ value: dt, done: false }),

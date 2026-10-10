@@ -1,4 +1,5 @@
-import { DragActivity, isPrimaryPointer, makeDragActivity, makePointerLikeEvent, type PointerLikeEvent } from "@wardic/core"
+import * as DragActivity from "@wardic/core/DragActivity"
+import * as InputSource from "@wardic/core/InputSource"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 
@@ -6,13 +7,13 @@ import * as Effect from "effect/Effect"
 // and 3b): the event builder with mouse defaults, Motion's Primary pointer rule,
 // and the Drag activity counter. Written against the pinned shapes before they exist.
 
-type PointerType = PointerLikeEvent["type"]
+type PointerType = InputSource.PointerLikeEvent["type"]
 
 describe("makePointerLikeEvent", () => {
   it("C1: fills mouse defaults per type, and an override wins", () => {
     // Every type, with no fields but `type`.
     const types: ReadonlyArray<PointerType> = ["down", "move", "up", "cancel", "enter", "leave"]
-    const built = types.map((type) => makePointerLikeEvent({ type }))
+    const built = types.map((type) => InputSource.makePointerLikeEvent({ type }))
     // Shared defaults, then `button` and `buttons` per type.
     for (const event of built) {
       expect(event.pointerId).toBe(1)
@@ -25,7 +26,7 @@ describe("makePointerLikeEvent", () => {
     expect(built.map((event) => event.button)).toEqual([0, -1, 0, -1, -1, -1])
     expect(built.map((event) => event.buttons)).toEqual([1, 1, 0, 0, 0, 0])
     // An override beats the default it replaces.
-    const overridden = makePointerLikeEvent({
+    const overridden = InputSource.makePointerLikeEvent({
       type: "down",
       pointerId: 7,
       x: 3,
@@ -71,20 +72,20 @@ describe("isPrimaryPointer", () => {
 
   it("C2: mouse follows its button, touch and pen follow isPrimary", () => {
     for (const row of table) {
-      const event = makePointerLikeEvent({
+      const event = InputSource.makePointerLikeEvent({
         type: "down",
         pointerType: row.pointerType,
         button: row.button,
         isPrimary: row.isPrimary,
       })
-      expect(isPrimaryPointer(event), row.name).toBe(row.expected)
+      expect(InputSource.isPrimaryPointer(event), row.name).toBe(row.expected)
     }
   })
 })
 
 describe("DragActivity", () => {
   it("C3: a claim makes it active, two claims need two releases, a release is idempotent", () => {
-    const activity = makeDragActivity()
+    const activity = DragActivity.make()
     // A fresh one is inactive.
     expect(activity.isDragActive()).toBe(false)
     // One claim.
@@ -108,14 +109,14 @@ describe("DragActivity", () => {
 
   it("C4: the Reference defaults to one shared instance, and a provided one is independent", () => {
     // Two separate runs with no layer.
-    const first = Effect.runSync(Effect.gen(function* () { return yield* DragActivity }))
-    const second = Effect.runSync(Effect.gen(function* () { return yield* DragActivity }))
+    const first = Effect.runSync(Effect.gen(function* () { return yield* DragActivity.DragActivity }))
+    const second = Effect.runSync(Effect.gen(function* () { return yield* DragActivity.DragActivity }))
     // The same cached default (one page-wide instance).
     expect(second).toBe(first)
     // An instance provided for one run.
-    const provided = makeDragActivity()
+    const provided = DragActivity.make()
     const seen = Effect.runSync(
-      Effect.gen(function* () { return yield* DragActivity }).pipe(Effect.provideService(DragActivity, provided)),
+      Effect.gen(function* () { return yield* DragActivity.DragActivity }).pipe(Effect.provideService(DragActivity.DragActivity, provided)),
     )
     // It is the provided one, independent of the default.
     expect(seen).toBe(provided)

@@ -1,4 +1,5 @@
-import { complexInterpolator, InterpolatorRegistry, InterpolatorRegistryLive } from "@wardic/core"
+import * as Interpolator from "@wardic/core/Interpolator"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -8,14 +9,14 @@ import { expect, it, layer } from "@effect/vitest"
 // codec and a blend (ADR-0026): `decodes` asks `ComplexString`, and `blendOf` decodes both
 // endpoints once, then blends.
 
-const decode = Schema.decodeUnknownOption(complexInterpolator.codec)
+const decode = Schema.decodeUnknownOption(Interpolator.complex.codec)
 
 /** Whether a value is a complex value: whether the entry's codec decodes it. */
 const decodes = (value: unknown): boolean => Option.isSome(decode(value))
 
 /** The entry's blend of two complex values: `None` when they can't blend. */
 const blendOf = (from: string, to: string): Option.Option<(t: number) => string> =>
-  Option.flatMap(Option.all([decode(from), decode(to)] as const), ([a, b]) => complexInterpolator.blend(a, b))
+  Option.flatMap(Option.all([decode(from), decode(to)] as const), ([a, b]) => Interpolator.complex.blend(a, b))
 
 /** The blend of two complex values that blend, at `t`. */
 const at = (from: string, to: string, t: number): string => Option.getOrThrow(blendOf(from, to))(t)
@@ -56,10 +57,10 @@ it("can't blend two number counts, even with the same leading commands", () => {
 
 // Registry-backed: resolution order — `complex` only catches what the specific
 // interpolators don't.
-layer(InterpolatorRegistryLive)("complex interpolator routing", (it) => {
+layer(InterpolatorRegistry.layer)("complex interpolator routing", (it) => {
   it.effect("resolves a same-structure path pair to the complex interpolator", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve("M0,0 L10,10", "M0,0 L20,20")
       expect(fn(0.5)).toBe("M0,0 L15,15")
     }),
@@ -67,7 +68,7 @@ layer(InterpolatorRegistryLive)("complex interpolator routing", (it) => {
 
   it.effect("does NOT steal a single-number unit pair (`10px` stays with unit)", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve("10px", "20px")
       expect(fn(0.5)).toBe("15px")
     }),
@@ -75,7 +76,7 @@ layer(InterpolatorRegistryLive)("complex interpolator routing", (it) => {
 
   it.effect("does NOT steal a hex color pair (complex can't decode it; color blends to rgb)", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       // `#000000`/`#ffffff` carry ≤1 numeric token, so complex doesn't decode them →
       // color handles it, emitting a blended `rgb(...)` (not a discrete snap).
       const fn = yield* registry.resolve("#000000", "#ffffff")
@@ -85,7 +86,7 @@ layer(InterpolatorRegistryLive)("complex interpolator routing", (it) => {
 
   it.effect("switches two templates at the first frame through the registry", () =>
     Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve("M0,0 L10,10", "M0,0 C1,1 2,2 3,3")
       expect([fn(0), fn(0.5), fn(1)]).toEqual(["M0,0 L10,10", "M0,0 C1,1 2,2 3,3", "M0,0 C1,1 2,2 3,3"])
     }),

@@ -1,11 +1,10 @@
-import type { DragSample } from "@wardic/core"
-import { axisLock, withinBounds } from "@wardic/core"
+import * as Drag from "@wardic/core/Drag"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 
-/** Build a DragSample with sensible defaults; override per-field. */
-const sample = (over: Partial<DragSample> = {}): DragSample => ({
+/** Build a Drag.Sample with sensible defaults; override per-field. */
+const sample = (over: Partial<Drag.Sample> = {}): Drag.Sample => ({
   point: { x: 0, y: 0 },
   offset: { x: 0, y: 0 },
   delta: { x: 0, y: 0 },
@@ -15,8 +14,8 @@ const sample = (over: Partial<DragSample> = {}): DragSample => ({
   ...over,
 })
 
-const collect = <E, R>(stream: Stream.Stream<DragSample, E, R>) =>
-  Stream.runCollect(stream) as Effect.Effect<ReadonlyArray<DragSample>, E, R>
+const collect = <E, R>(stream: Stream.Stream<Drag.Sample, E, R>) =>
+  Stream.runCollect(stream) as Effect.Effect<ReadonlyArray<Drag.Sample>, E, R>
 
 it.effect("axisLock zeroes the off-axis on offset/delta/velocity but keeps point", () =>
   Effect.gen(function* () {
@@ -26,7 +25,7 @@ it.effect("axisLock zeroes the off-axis on offset/delta/velocity but keeps point
       delta: { x: 2, y: 3 },
       velocity: { x: 100, y: 50 },
     })
-    const out = yield* collect(Stream.make(input).pipe(axisLock("x")))
+    const out = yield* collect(Stream.make(input).pipe(Drag.axisLock("x")))
 
     const [s] = out
     expect(s!.offset).toEqual({ x: 10, y: 0 })
@@ -40,7 +39,7 @@ it.effect("axisLock zeroes the off-axis on offset/delta/velocity but keeps point
 it.effect("axisLock('y') zeroes the x component", () =>
   Effect.gen(function* () {
     const input = sample({ offset: { x: 10, y: 5 }, delta: { x: 2, y: 3 }, velocity: { x: 100, y: 50 } })
-    const out = yield* collect(Stream.make(input).pipe(axisLock("y")))
+    const out = yield* collect(Stream.make(input).pipe(Drag.axisLock("y")))
 
     const [s] = out
     expect(s!.offset).toEqual({ x: 0, y: 5 })
@@ -54,7 +53,7 @@ it.effect("withinBounds hard clamp (elastic 0) clamps offset to min/max", () =>
     const above = sample({ offset: { x: 0, y: 500 } })
     const out = yield* collect(
       Stream.fromIterable([below, above]).pipe(
-        withinBounds({ x: { min: 0, max: 200 }, y: { min: 0, max: 200 } }),
+        Drag.withinBounds({ x: { min: 0, max: 200 }, y: { min: 0, max: 200 } }),
       ),
     )
 
@@ -70,7 +69,7 @@ it.effect("withinBounds elastic (0.5) resists overshoot past a bound by the fact
     const underMin = sample({ offset: { x: -40, y: 0 } })
     const out = yield* collect(
       Stream.fromIterable([overMax, underMin]).pipe(
-        withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }),
+        Drag.withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }),
       ),
     )
 
@@ -83,7 +82,7 @@ it.effect("withinBounds passes through an axis with no range and an in-range val
     const input = sample({ offset: { x: 999, y: 50 } })
     const out = yield* collect(
       // x has no range -> pass through; y in [0,200] -> unchanged.
-      Stream.make(input).pipe(withinBounds({ y: { min: 0, max: 200 } })),
+      Stream.make(input).pipe(Drag.withinBounds({ y: { min: 0, max: 200 } })),
     )
 
     expect(out[0]!.offset).toEqual({ x: 999, y: 50 })
