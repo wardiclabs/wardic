@@ -389,3 +389,24 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
   - **Every workload passes the time gate on every engine.**
   - **Node's bytes flag `springBlend/loop`** (1.05 → 1.12 MB, +6.4%): the GC's timing, the pair of readings it gave on identical code in #94. The steps-only probe (`.tmp/94-bytes/`, 7 processes per side) reads 872,589 bytes per frame on both sides for its steps, and 610,027 for `springValues`'.
 - **Found, not from #95:** core's "a run retrying against a Clock that dies at once" test (2,000 retries) takes about 2.6 s alone against its 5 s timeout, on main and here alike. It timed out once in a full parallel `bun run test`, and passed in the reruns.
+
+## Implementation in #96 (slice 3): the Reorder group as a data type
+
+- **`Reorder.Group<V>`, on `Machine`'s pattern:** a `TypeId` (`"~@wardic/core/Reorder"`), invariant in `V`, since a group both reads and takes values; a prototype with `pipe` and `Inspectable.BaseProto`, whose `toJSON` is `{ _id: "Reorder.Group", registered, dragging }`; `Reorder.make(options)`; `Reorder.isGroup`. The value holds what `makeReorderGroup` closed over: its options, the sources by value, the one gesture, and the direction's points. The module's operations alone change them.
+- **The operations, the group first:**
+  - `register(group, value, source)` still returns its remover;
+  - `dragStart`, `dragMove`, `dragEnd` and `move` are `dual`;
+  - `resolveAxis(group)` takes nothing besides, so it isn't.
+
+  Their bodies are the methods', unchanged, so the Crossover, the axis, Auto-scroll and every reorder log are too. They run per input event, not per frame, so there's no bench run. dom calls the data-first forms, which allocate nothing.
+- **The names drop their repeat,** per #95's rule: `Reorder.Group`, `Reorder.GroupOptions`, `Reorder.ItemSource`.
+- **The call sites:**
+  - dom's reorder controller makes six calls;
+  - dom's inert server controller now holds a real group with no values, so every operation on it finds nothing to do, where its literal's methods each did nothing;
+  - solid's ward's `move` calls `Reorder.move`.
+- **solid's `use:reorderItem` changes its group's type.** It typed the group as `ReorderGroupWard<never>`, which accepted any group only because the old group's value type appeared in parameters alone. An invariant `Group` ends that, so the directive now takes what an item reads: its controller's `item` and the group's `axis`, as `ItemGroup<never>`. Every group satisfies it, so the directive accepts the same groups as before.
+- **Tests:**
+  - `reorder-group.test.ts` calls the operations, and pins the data type: `@ts-expect-error` on an object literal as a `Group`, `isGroup` (false for a spread), both forms of each `dual` operation giving one type, `pipe`, and `toJSON`;
+  - dom's controller test calls `Reorder.dragMove`;
+  - the Reorder browser tests pass unchanged.
+
