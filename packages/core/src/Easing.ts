@@ -202,7 +202,7 @@ export const spring = (options: SpringOptions = {}): Easing => {
     const lo = Math.floor(idx)
     const hi = Math.min(lo + 1, lastIndex)
     const frac = idx - lo
-    const from = Arr.getUnsafe(samples, lo)
-    return from + (Arr.getUnsafe(samples, hi) - from) * frac
+    const from = samples[lo]
+    return from + (samples[hi] - from) * frac
   }
 }

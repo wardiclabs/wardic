@@ -125,7 +125,7 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
     const t0 = performance.now()
     const count = entries.length
     for (let i = 0; i < count; i++) {
-      const entry = Arr.getUnsafe(entries, i)
+      const entry = entries[i]
       if (entry.removed) continue
       try {
         const frame = entry.step(dt)
@@ -138,7 +138,7 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
     // Drop the removed entries in place, keeping order (and those added during the pass).
     let kept = 0
     for (let i = 0; i < entries.length; i++) {
-      const entry = Arr.getUnsafe(entries, i)
+      const entry = entries[i]
       if (entry.removed) continue
       entries[kept] = entry
       kept++

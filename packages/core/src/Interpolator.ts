@@ -257,8 +257,8 @@ const parseComplex = (input: string): Option.Option<Complex> =>
  * On the per-frame path: a counted loop, and nothing allocated but the string.
  */
 const formatComplex = (parts: ReadonlyArray<string>, numbers: ReadonlyArray<number>): string => {
-  let out = Arr.getUnsafe(parts, 0)
-  for (let i = 0; i < numbers.length; i++) out += String(Arr.getUnsafe(numbers, i)) + Arr.getUnsafe(parts, i + 1)
+  let out = parts[0]
+  for (let i = 0; i < numbers.length; i++) out += String(numbers[i]) + parts[i + 1]
   return out
 }
 
@@ -293,7 +293,7 @@ const blendNumbers = (from: Complex, to: Complex): ((t: number) => string) => {
   const numbers = Arr.copy(from.numbers)
   return (t) => {
     for (let i = 0; i < numbers.length; i++) {
-      numbers[i] = Scalar.lerp(Arr.getUnsafe(from.numbers, i), Arr.getUnsafe(to.numbers, i), t)
+      numbers[i] = Scalar.lerp(from.numbers[i], to.numbers[i], t)
     }
     return formatComplex(from.parts, numbers)
   }
