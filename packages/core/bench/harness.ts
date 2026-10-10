@@ -11,7 +11,7 @@
  * - `start` is the construction time: forking all N fibers, through the Priming tick's frames.
  *
  * `run.ts` builds one bundle of this file per core (a base ref and the working tree) and runs
- * them in Bun, Node and Chromium.
+ * them in Bun, Node and Chromium. It reads core's modules (ADR-0028), so a base ref is #95 or later.
  */
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -61,60 +61,10 @@ interface StreamWorkload {
   readonly make: (core: Core, i: number) => Stream.Stream<{ readonly done: boolean }, never, any>
 }
 
-/**
- * Every element on one Frame loop (ADR-0027): each a run of its Primitive's machine. Only a core
- * with a `FrameLoop` runs these; the runner reports them, without a gate, until the base has them.
- */
+/** Every element on one Frame loop (ADR-0027): each a run of its Primitive's machine. */
 interface LoopWorkload {
   readonly name: string
   readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine.Machine<CoreModule.Frame.Frame<unknown>>, never, any>
-}
-
-/**
- * The services and the easing the bench reads, on either core across #95's modules: the working
- * tree's `Clock.Clock`, `Clock.fromRefreshFrames`, `FrameLoop.layer`, … or main's flat names
- * (`Clock`, `makeRefreshFrameClock`, `FrameLoopLive`, …). The harness is the working tree's and
- * runs both cores; the shim goes once main has the modules (as #94's did).
- */
-interface Api {
-  readonly Clock: typeof CoreModule.Clock.Clock
-  readonly fromRefreshFrames: typeof CoreModule.Clock.fromRefreshFrames
-  readonly registry: typeof CoreModule.InterpolatorRegistry.layer
-  readonly frameLoop: typeof CoreModule.FrameLoop.layer
-  readonly FrameLoop: typeof CoreModule.FrameLoop.FrameLoop
-  readonly easeInOutCubic: CoreModule.Easing.Easing
-}
-
-/** Main's flat names, before #95. */
-interface Main {
-  readonly Clock: Api["Clock"]
-  readonly makeRefreshFrameClock: Api["fromRefreshFrames"]
-  readonly InterpolatorRegistryLive: Api["registry"]
-  readonly FrameLoopLive: Api["frameLoop"]
-  readonly FrameLoop: Api["FrameLoop"]
-  readonly easeInOutCubic: Api["easeInOutCubic"]
-}
-
-const apiOf = (core: Core): Api => {
-  if ("fromRefreshFrames" in core.Clock) {
-    return {
-      Clock: core.Clock.Clock,
-      fromRefreshFrames: core.Clock.fromRefreshFrames,
-      registry: core.InterpolatorRegistry.layer,
-      frameLoop: core.FrameLoop.layer,
-      FrameLoop: core.FrameLoop.FrameLoop,
-      easeInOutCubic: core.Easing.easeInOutCubic,
-    }
-  }
-  const main = core as unknown as Main
-  return {
-    Clock: main.Clock,
-    fromRefreshFrames: main.makeRefreshFrameClock,
-    registry: main.InterpolatorRegistryLive,
-    frameLoop: main.FrameLoopLive,
-    FrameLoop: main.FrameLoop,
-    easeInOutCubic: main.easeInOutCubic,
-  }
 }
 
 /** A machine built with a service (`animateValues`, `springBlend`), as a Stream. */
@@ -163,7 +113,7 @@ const SPRING = (i: number) =>
  */
 const REPEAT = (core: Core, i: number) => ({
   duration: 0.15,
-  easing: apiOf(core).easeInOutCubic,
+  easing: core.Easing.easeInOutCubic,
   repeat: Number.POSITIVE_INFINITY,
   yoyo: true,
   delay: spread(i, 0, 0.2),
@@ -190,7 +140,7 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     make: (core) =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const clock = yield* apiOf(core).Clock
+          const clock = yield* core.Clock.Clock
           return clock.ticks.pipe(Stream.map(() => ({ done: false })))
         }),
       ),
@@ -199,14 +149,14 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   {
     name: "animateValues",
     make: (core, i) =>
-      streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: apiOf(core).easeInOutCubic })),
+      streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.Easing.easeInOutCubic })),
   },
   { name: "springBlend", make: (core, i) => streamOf(core, core.Machine.springBlend(STRING_FROM(i), STRING_TO)) },
   { name: "chase", make: (core, i) => core.Machine.toStream(core.Machine.chase(() => chaseTarget + (i % 10))) },
   {
     name: "animateComplex",
     make: (core, i) =>
-      streamOf(core, core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: apiOf(core).easeInOutCubic })),
+      streamOf(core, core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.Easing.easeInOutCubic })),
   },
   { name: "animateRepeat", make: (core, i) => streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i))) },
   {
@@ -217,14 +167,14 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))) },
   {
     name: "animateValues/loop",
-    machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: apiOf(core).easeInOutCubic }),
+    machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.Easing.easeInOutCubic }),
   },
   { name: "springBlend/loop", machine: (core, i) => core.Machine.springBlend(STRING_FROM(i), STRING_TO) },
   { name: "chase/loop", machine: (core, i) => Effect.succeed(core.Machine.chase(() => chaseTarget + (i % 10))) },
   {
     name: "animateComplex/loop",
     machine: (core, i) =>
-      core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: apiOf(core).easeInOutCubic }),
+      core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.Easing.easeInOutCubic }),
   },
   { name: "animateRepeat/loop", machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
   {
@@ -262,11 +212,13 @@ const manualFrames = () => {
 
 const runRound = async (core: Core, workload: Workload, options: Options) => {
   const frames = manualFrames()
-  const api = apiOf(core)
-  const services = Layer.mergeAll(Layer.effect(api.Clock)(api.fromRefreshFrames(frames.source)), api.registry)
+  const services = Layer.mergeAll(
+    Layer.effect(core.Clock.Clock)(core.Clock.fromRefreshFrames(frames.source)),
+    core.InterpolatorRegistry.layer,
+  )
   // Only the loop workloads build a Frame loop, so the Stream workloads' Environment is the same in both cores.
   let environment: Layer.Layer<any, never, AtomRegistry.AtomRegistry> = services
-  if (isLoopWorkload(workload)) environment = api.frameLoop.pipe(Layer.provideMerge(services))
+  if (isLoopWorkload(workload)) environment = core.FrameLoop.layer.pipe(Layer.provideMerge(services))
   const layer = environment.pipe(
     Layer.provideMerge(AtomRegistry.layer),
     Layer.provideMerge(Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))),
@@ -307,7 +259,7 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
     for (let i = 0; i < options.n; i++) {
       runtime.runFork(
         Effect.gen(function* () {
-          const loop = yield* api.FrameLoop
+          const loop = yield* core.FrameLoop.FrameLoop
           return yield* loop.run(yield* workload.machine(core, i), receive)
         }),
       )
@@ -353,8 +305,6 @@ export const register = (core: Core): void => {
   ): Promise<Record<string, WorkloadResult>> => {
     const out: Record<string, WorkloadResult> = {}
     for (const workload of WORKLOADS) {
-      // A core from before ADR-0027 has no Frame loop: its results have no loop workloads.
-      if (isLoopWorkload(workload) && !("FrameLoop" in core)) continue
       const times: Array<number> = []
       const starts: Array<number> = []
       const bytes: Array<number> = []
