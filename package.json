@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
-    "lint": "eslint packages/core/src",
+    "lint": "eslint packages/core/src packages/core/bench packages/dom packages/solid packages/test",
     "bench:core": "bun packages/core/bench/run.ts",
     "changeset": "changeset",
     "version-packages": "changeset version",
