@@ -66,8 +66,10 @@ import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Match from "effect/Match"
+import { constFalse, constTrue, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox, readScrollStyle, type ScrollStyle } from "./measure.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
@@ -166,6 +168,12 @@ export interface RegisterNodeOptions {
    * is spring-shaped (framer-motion parity); the caller does that resolution.
    */
   readonly springOptions: () => Machine.SpringOptions
+  /**
+   * Whether the node's layout animations honour reduced motion (ADR-0029), read at each
+   * (re)start: `false` animates them whatever the system's `reducedMotion` says (a binding's
+   * per-transition opt-out). Default `true`.
+   */
+  readonly respectReducedMotion?: () => boolean
   /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
@@ -281,6 +289,8 @@ interface NodeState {
   readonly id: string
   readonly element: HTMLElement
   readonly springOptions: () => Machine.SpringOptions
+  /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
+  readonly respectReducedMotion: () => boolean
   /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
   readonly layoutId: string | undefined
   /**
@@ -440,6 +450,18 @@ export const onPassEnd = (system: ProjectionSystem, listener: () => void): (() =
   }
 }
 
+/** {@link makeProjectionSystem}'s options. */
+export interface ProjectionSystemOptions {
+  /**
+   * Whether reduced motion applies now (ADR-0029), read when a layout animation starts: the
+   * binding's `ReducedMotion.applies` of its app's setting and the user's preference. Under it,
+   * a layout animation lands on its new box at once, and a crossfade switches at once; a drag's
+   * release still returns to its slot, since it continues the gesture (as Motion's does). By
+   * default, never.
+   */
+  readonly reducedMotion?: () => boolean
+}
+
 /**
  * Build a projection system against a binding's `runtime` (providing its
  * {@link FrameLoop}) and its {@link ProjectionSink} (its flush gate).
@@ -447,7 +469,21 @@ export const onPassEnd = (system: ProjectionSystem, listener: () => void): (() =
  * Runs the coordinator on `runtime`'s Frame loop; the binding disposes the system in
  * its own teardown (e.g. the provider's `onCleanup`).
  */
-export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: ProjectionSink): ProjectionSystem => {
+export const makeProjectionSystem = (
+  runtime: ProjectionRuntime,
+  sink: ProjectionSink,
+  options: ProjectionSystemOptions = {},
+): ProjectionSystem => {
+  const reducedMotion = UndefinedOr.match(options.reducedMotion, { onUndefined: () => constFalse, onDefined: identity })
+  /**
+   * A layout animation's progress spring, at its (re)start: at 0, or, when reduced motion
+   * applies to `node` (ADR-0029), at 1 and at rest, so the node lands on its new box at once
+   * and the spring settles on its first step.
+   */
+  const startSpring = (node: NodeState): Spring.State =>
+    Spring.init({
+      from: Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), { onTrue: () => 1, onFalse: () => 0 }),
+    })
   // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
   const passEndListeners = new Set<() => void>()
   const nodes = new Set<NodeState>()
@@ -1312,7 +1348,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
         if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
           node.origin = priorBox
           node.layoutBox = newBox
-          node.spring = Spring.init({ from: 0 })
+          node.spring = startSpring(node)
           node.animating = true
           active.add(node)
           start(node)
@@ -1329,7 +1365,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           if (!boxesEqual(origin, newBox)) {
             node.origin = origin
             node.layoutBox = newBox
-            node.spring = Spring.init({ from: 0 }) // progress spring restarts at 0
+            node.spring = startSpring(node) // progress spring restarts at 0
             node.animating = true
             active.add(node)
             start(node)
@@ -1361,7 +1397,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
       node.origin = origin
       node.layoutBox = newBox
-      node.spring = Spring.init({ from: 0 }) // progress spring restarts at 0 (velocity 0)
+      node.spring = startSpring(node) // progress spring restarts at 0 (velocity 0)
       node.animating = true
       active.add(node)
       start(node)
@@ -1712,7 +1748,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     if (fromBox === undefined || ownBox === undefined || boxesEqual(fromBox, ownBox)) return
     node.origin = fromBox
     node.layoutBox = ownBox
-    node.spring = Spring.init({ from: 0 })
+    node.spring = startSpring(node)
     node.animating = true
     active.add(node)
     ensureRunning()
@@ -1744,6 +1780,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     springOptions: () => ({}),
+    respectReducedMotion: () => true,
     layoutId,
     seed: undefined,
     retained: box,
@@ -1839,6 +1876,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
       id: opts.id,
       element: opts.element,
       springOptions: opts.springOptions,
+      respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutId: opts.layoutId,
       seed: undefined,
       retained: undefined,
@@ -1993,7 +2031,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
           return
         }
         // FLIP from the dragged visual position to the latest slot, via the layout spring,
-        // with the Priming step a Measure pass gives the nodes it seeds (ADR-0018).
+        // with the Priming step a Measure pass gives the nodes it seeds (ADR-0018). Reduced
+        // motion leaves it as it is: it continues the gesture, as Motion's release does (ADR-0029).
         node.origin = visual
         node.layoutBox = slot
         node.spring = Spring.init({ from: 0 })

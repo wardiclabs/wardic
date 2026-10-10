@@ -40,6 +40,7 @@ export {
   type ProjectionRuntime,
   type ProjectionSink,
   type ProjectionSystem,
+  type ProjectionSystemOptions,
   type RegisterNodeOptions,
 } from "./projection.ts"
 // The Reorder group's controller (ADR-0020): the framework-free half of <Reorder>.
