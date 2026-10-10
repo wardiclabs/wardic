@@ -1,110 +1,178 @@
-import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Frame from "@wardic/core/Frame"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
-import { TestClock, TestInput, TestProbe, TestRenderer } from "@wardic/test"
-import { expect, it } from "@effect/vitest"
-import { References } from "effect"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import { TestClock } from "@wardic/test"
+import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
-import * as Logger from "effect/Logger"
 import * as Stream from "effect/Stream"
-import { AtomRegistry } from "effect/reactivity"
-
-const layerWith = (
-  frames: ReadonlyArray<number>,
-  prefersReducedMotion: boolean,
-) =>
-  Layer.mergeAll(
-    TestClock.layer(frames),
-    TestRenderer.layer,
-    TestProbe.layer({ prefersReducedMotion }),
-    TestInput.layer(),
-    InterpolatorRegistry.layer,
-    AtomRegistry.layer,
-  )
-
-/** Collect all frames from a stream under a fully-configured test layer. */
-const collect = <A, E, R>(
-  stream: Stream.Stream<A, E, R>,
-  frames: ReadonlyArray<number>,
-  prefersReducedMotion: boolean,
-) =>
-  Stream.runCollect(stream).pipe(
-    Effect.provide(layerWith(frames, prefersReducedMotion)),
-  )
-
-interface Captured {
-  readonly message: unknown
-  readonly annotations: Record<string, unknown>
-}
+import * as Tracer from "effect/Tracer"
 
 /**
- * Run an effect at Debug level with a logger that captures structured records.
- * The return type is inferred — callers get the real `E`/leftover-`R` rather
- * than an unsafe cast to `Effect<_, never, never>`.
+ * The `ReducedMotion` module (ADR-0029): the policy a binding applies when a run starts, and the
+ * snap it runs a positional key as. At 1/16 s per tick, exact in binary, as `combinators.test.ts`.
  */
-const captureLogs = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  frames: ReadonlyArray<number>,
-  prefersReducedMotion: boolean,
-) => {
-  const records: Array<Captured> = []
-  const capture = Logger.map(Logger.formatStructured, (structured) => {
-    records.push({ message: structured.message, annotations: structured.annotations })
+const DT = 1 / 16
+
+/** `ticks` ticks of `DT`. */
+const ticksOf = (ticks: number): ReadonlyArray<number> => Array.from({ length: ticks }, () => DT)
+
+/** A recording tracer: every span it makes. */
+const makeTracer = () => {
+  const spans: Array<Tracer.NativeSpan> = []
+  const tracer = Tracer.make({
+    span: (options) => {
+      const span = new Tracer.NativeSpan(options)
+      spans.push(span)
+      return span
+    },
   })
-  return effect.pipe(
-    Effect.provide(layerWith(frames, prefersReducedMotion)),
-    Effect.provide(Logger.layer([capture])),
-    Effect.provideService(References.MinimumLogLevel, "Debug"),
-    Effect.map((): ReadonlyArray<Captured> => records),
-  )
+  return { spans, tracer }
 }
 
-it.effect("snaps to terminal frame when prefersReducedMotion is true", () =>
+/** `machine` through `Machine.toStream` on a pushable Clock fed `dts`: its Frames. */
+const onTheStream = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
   Effect.gen(function* () {
-    // Frames are sized to drive the underlying tween across its full duration,
-    // but the combinator should ignore them and emit only the final value.
-    const collected = yield* collect(
-      ReducedMotion.respect(Machine.toStream(Machine.tween(0, 100, { duration: 1 }))),
-      [0.5, 0.5],
-      true,
+    const clock = yield* TestClock.pushable()
+    const fiber = yield* Stream.runCollect(Machine.toStream(machine).pipe(Stream.take(dts.length))).pipe(
+      Effect.provide(clock.layer),
+      Effect.forkChild({ startImmediately: true }),
     )
-    expect(collected.length).toBe(1)
-    expect(collected[0]).toEqual({ value: 100, done: true })
-  }),
-)
+    for (const dt of dts) yield* clock.advance(dt)
+    return Array.from(yield* Fiber.join(fiber))
+  })
 
-it.effect("passes the stream through unchanged when prefersReducedMotion is false", () =>
+/** `machine` through `Machine.run` on the Frame loop over a pushable Clock fed `dts`: its sink's Frames, and the spans. */
+const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
   Effect.gen(function* () {
-    const frames = [0.25, 0.25, 0.25, 0.25]
-    const unwrapped = yield* collect(Machine.toStream(Machine.tween(0, 100, { duration: 1 })), frames, false)
-    const wrapped = yield* collect(ReducedMotion.respect(Machine.toStream(Machine.tween(0, 100, { duration: 1 }))), frames, false)
-    expect(wrapped).toEqual(unwrapped)
-  }),
-)
+    const clock = yield* TestClock.pushable()
+    const { spans, tracer } = makeTracer()
+    return yield* Effect.gen(function* () {
+      const frames: Array<F> = []
+      const run = yield* machine.pipe(
+        Machine.run((frame) => {
+          frames.push(frame)
+          return undefined
+        }),
+        Effect.provideService(Tracer.Tracer, tracer),
+        Effect.forkChild({ startImmediately: true }),
+      )
+      for (const dt of dts) yield* clock.advance(dt)
+      yield* Fiber.interrupt(run)
+      return { frames, spans }
+    }).pipe(Effect.provide(FrameLoop.layer.pipe(Layer.provide(clock.layer))))
+  })
 
-it.effect("reads the Probe preference once on subscribe (one annotated log, not per-frame)", () =>
+/** Both drivers give `expected` over `dts`. */
+const bothDrivers = <F extends Frame.Frame<unknown>>(
+  machine: Machine.Machine<F>,
+  expected: ReadonlyArray<F>,
+  dts: ReadonlyArray<number>,
+) =>
   Effect.gen(function* () {
-    const records = yield* captureLogs(
-      Stream.runDrain(ReducedMotion.respect(Machine.toStream(Machine.tween(0, 100, { duration: 1 })))),
-      [0.5, 0.5],
-      false,
-    )
-    const matching = records.filter((r) => String(r.message).includes("wardic.respectReducedMotion"))
-    expect(matching.length).toBe(1)
-    expect(matching[0]!.annotations).toMatchObject({ prefersReducedMotion: false })
-  }),
-)
+    expect(yield* onTheStream(machine, dts), "Machine.toStream").toEqual(expected)
+    expect((yield* onTheLoop(machine, dts)).frames, "Machine.run").toEqual(expected)
+  })
 
-it.effect("emits an annotated debug log with prefersReducedMotion: true when reduced", () =>
-  Effect.gen(function* () {
-    const records = yield* captureLogs(
-      Stream.runDrain(ReducedMotion.respect(Machine.toStream(Machine.tween(0, 100, { duration: 1 })))),
-      [0.5, 0.5],
-      true,
-    )
-    const matching = records.filter((r) => String(r.message).includes("wardic.respectReducedMotion"))
-    expect(matching.length).toBe(1)
-    expect(matching[0]!.annotations).toMatchObject({ prefersReducedMotion: true })
-  }),
-)
+/** `machine`'s last Frame, stepped at `DT` until it settles. */
+const lastOf = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>): F => {
+  const step = machine.start()
+  let frame = step(DT)
+  while (!frame.done) frame = step(DT)
+  return frame
+}
+
+describe("the policy", () => {
+  it("applies: `user` follows the preference, `always` and `never` don't read it", () => {
+    expect(ReducedMotion.applies("user", true)).toBe(true)
+    expect(ReducedMotion.applies("user", false)).toBe(false)
+    expect(ReducedMotion.applies("always", false)).toBe(true)
+    expect(ReducedMotion.applies("always", true)).toBe(true)
+    expect(ReducedMotion.applies("never", true)).toBe(false)
+    expect(ReducedMotion.applies("never", false)).toBe(false)
+  })
+
+  it("isPositional: the transforms and the box's position and size, as Motion's positionalKeys", () => {
+    for (const key of ["x", "y", "z", "translateX", "translateY", "translateZ", "scale", "scaleX", "scaleY"]) {
+      expect(ReducedMotion.isPositional(key), key).toBe(true)
+    }
+    for (const key of ["rotate", "rotateX", "rotateY", "rotateZ", "skewX", "skewY"]) {
+      expect(ReducedMotion.isPositional(key), key).toBe(true)
+    }
+    for (const key of ["width", "height", "top", "left", "right", "bottom"]) {
+      expect(ReducedMotion.isPositional(key), key).toBe(true)
+    }
+    for (const key of ["opacity", "background-color", "color", "filter", "box-shadow", "constructor", "toString"]) {
+      expect(ReducedMotion.isPositional(key), key).toBe(false)
+    }
+  })
+
+  it("split: the positional keys, numbers and strings, apart from the rest", () => {
+    const { positional, rest } = ReducedMotion.split({
+      x: 10,
+      width: "200px",
+      opacity: 1,
+      "background-color": "#ffffff",
+    })
+    expect(positional).toEqual({ x: 10, width: "200px" })
+    expect(rest).toEqual({ opacity: 1, "background-color": "#ffffff" })
+  })
+})
+
+describe("endOf: where `Machine.animate` ends", () => {
+  const cases: ReadonlyArray<Machine.Modifiers> = [
+    {},
+    { reverse: true },
+    { repeat: 1 },
+    { repeat: 1, yoyo: true },
+    { repeat: 2, yoyo: true },
+    { repeat: 3, yoyo: true },
+    { repeat: 1, yoyo: true, reverse: true },
+    { repeat: 2, yoyo: true, reverse: true },
+    { repeat: 1.5, yoyo: true },
+    { repeat: 1, yoyo: true, repeatDelay: 0.125 },
+  ]
+
+  it.each(cases)("%o: the run's own last Frame", (modifiers) => {
+    const machine = Machine.animate(0, 16, { duration: 0.25, ...modifiers })
+    expect(ReducedMotion.endOf(0, 16, modifiers)).toBe(lastOf(machine).value)
+  })
+
+  it("a run that repeats forever lands where its first run does (Motion's last keyframe)", () => {
+    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY })).toBe(16)
+    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY, yoyo: true })).toBe(16)
+    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY, yoyo: true, reverse: true })).toBe(0)
+  })
+})
+
+describe("snap, through both drivers", () => {
+  it.effect("with no delay, it settles at `to` on its first tick", () =>
+    bothDrivers(ReducedMotion.snap(0, 16), [{ value: 16, done: true }], ticksOf(4)))
+
+  it.effect("with a delay, it holds `from`, then lands on the tick a Machine.delay as long starts its run", () =>
+    Effect.gen(function* () {
+      const held = { value: 0, done: false }
+      yield* bothDrivers(ReducedMotion.snap(0, 16, { delay: 0.25 }), [held, held, held, { value: 16, done: true }], ticksOf(8))
+      // The same delay before a tween: held 3 ticks, its run starts at 0 on the 4th, and moves on the 5th.
+      const tween = Machine.tween(0, 16, { duration: 0.25 }).pipe(Machine.delay(0.25))
+      expect((yield* onTheLoop(tween, ticksOf(5))).frames.map((frame) => frame.value)).toEqual([0, 0, 0, 0, 4])
+    }))
+
+  it.effect("the held time counts each tick at most MAX_DT, as Machine.delay's does", () =>
+    bothDrivers(
+      ReducedMotion.snap(0, 16, { delay: 0.75 }),
+      [{ value: 0, done: false }, { value: 16, done: true }],
+      [2, 2, 2],
+    ))
+
+  it.effect("snaps a value map, and runs under its own span with its delay", () =>
+    Effect.gen(function* () {
+      const machine = ReducedMotion.snap({ x: 0, width: "10px" }, { x: 40, width: "200px" }, { delay: DT })
+      const { frames, spans } = yield* onTheLoop(machine, ticksOf(3))
+      expect(frames).toEqual([{ value: { x: 40, width: "200px" }, done: true }])
+      const span = spans.find((s) => s.name === "wardic.reducedMotion.snap")
+      expect(span?.attributes.get("delay")).toBe(DT)
+    }))
+})
