@@ -32,6 +32,14 @@ _Avoid_: tick, step, sample.
 A Frame that additionally carries `velocity`; emitted only by Physics primitives. The optional `velocity` is the discriminator a type guard narrows on.
 _Avoid_: snapshot (reserved — see below).
 
+**Segment**:
+One of the pieces an `animate` or `keyframes` run plays in sequence: one pass of a repeat, or the stretch between two stops. Each starts on the tick after the one before it settles, and only the last one's settle settles the run.
+_Avoid_: leg (a Retarget's run), iteration (Motion's word for one pass of a repeat).
+
+**Hold**:
+A stretch of ticks in which a run's value stays where it is: its `delay`, before its first Segment, or a gap after a Segment that keeps that Segment's last value (Motion's `repeatDelay`, #91).
+_Avoid_: pause (a paused run doesn't tick), wait.
+
 **Frame loop**:
 The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74, and dom's projection coordinator is one of its runs from #75 (ADR-0027).
 _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is one of its runs), ticker, driver, scheduler (Effect's).
