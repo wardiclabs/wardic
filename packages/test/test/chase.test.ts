@@ -1,4 +1,4 @@
-import { chase } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -17,7 +17,7 @@ it.effect("chase tracks a moving target and never auto-settles", () => {
   // Act and assert inside a single Effect.gen. The TestClock layer is provided via
   // .pipe so the Clock requirement is satisfied before it.effect runs the Effect.
   return Effect.gen(function* () {
-    const frames = yield* Stream.runCollect(chase(getTarget))
+    const frames = yield* Stream.runCollect(Machine.toStream(Machine.chase(getTarget)))
 
     // Assert — `chase` emits exactly one frame per tick (no auto-termination).
     expect(frames.length).toBe(ticks.length)
@@ -36,7 +36,7 @@ it.effect("chase cancellation via Stream.take(n) yields exactly n frames", () =>
 
   // Act — cap the stream with Stream.take before collecting.
   return Effect.gen(function* () {
-    const frames = yield* Stream.runCollect(chase(getTarget).pipe(Stream.take(take)))
+    const frames = yield* Stream.runCollect(Machine.toStream(Machine.chase(getTarget)).pipe(Stream.take(take)))
 
     // Assert — exactly `take` frames make it through.
     expect(frames.length).toBe(take)

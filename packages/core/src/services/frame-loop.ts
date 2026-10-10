@@ -37,7 +37,7 @@ import * as Metric from "effect/Metric"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import type { Frame } from "../primitives/frame.ts"
-import type { Machine } from "../primitives/machine.ts"
+import type { Machine } from "../Machine.ts"
 import { Clock } from "./Clock.ts"
 
 // @wardic/core compiles against ES2022 alone, which does not declare `performance` (see

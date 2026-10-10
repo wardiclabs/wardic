@@ -237,3 +237,113 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
 - **ADR-0008's Tier 3 curation lands** with the subpaths (decision 2), and its "no subpath split yet" is reversed.
 - **CONTEXT.md gains Segment and Hold.** A Primitive is still a Primitive: `Machine` is its code form, as the glossary's *Avoid* says.
 - **#69 inherits** dom's own exports' shape and a lint block to extend (decision 10).
+
+## Implementation in #94 (slice 1): the `Machine` module
+
+- **`packages/core/src/Machine.ts`** holds decisions 3 to 6: the data type (`TypeId`, a prototype with `pipe` and `Inspectable.BaseProto`, `toJSON` `{ _id: "Machine", span, settles }`, `make`, `isMachine`, `Span`), the combinators, the two drivers, the ten constructors with their blenders, the option bags and `MAX_DT`. Nothing is shared with another module yet, so `src/internal/` stays empty. `machine.ts`, `scalar.ts`, `chase.ts` and `multi.ts` go, and `Machine.ts` takes `multi.ts`' place among lint's per-frame loop files.
+- **The exports:** `"./*": "./src/*.ts"` and `"./internal/*": null` beside `"."`, and the root gains `export * as Machine`. Its flat `export *`s stay for #95.
+- **Core imports the module relatively** (`withMomentum`'s `import * as Machine from "../Machine.ts"`), not as `@wardic/core/Machine`. The bench copies a core's `src` without its `package.json`, so a self-reference there would resolve to the working tree's core, on both sides. #95 decides the specifier inside core with the rest of its imports.
+- **Which combinators are `dual`** follows rule 4: `map`, `concat`, `delay`, `clampDt`, `withSpan` and `run` take a machine and more. `concatAll` takes an array of machines, and `forever` the machine alone, so neither is.
+- **Seams.** A seam re-stamps `{ ...frame, done: false }`, keeping a physics Frame's `velocity`, and allocates nothing between seams. `forever` re-stamps only its restart's Frame, where `cycle` re-stamped every Frame: `animateRepeat`'s steps allocate 26% less (below).
+- **A segment that never settles ends the sequence,** as an endless `Stream` does in `Stream.concat`: `concatAll` drops the segments after it, so `concat(chase, that)` and `forever(chase)` are `chase` itself. `forever`'s `settles` is `false`; its Frames never settle.
+- **`delay`'s hold** returns the Frame its machine starts at (its step at 0, re-stamped if settled), the same object every held tick, then steps the time left over on the tick the hold ends. A negative `delay` starts that far in, as the stepper's does. That's the hold decision 9 measured, and `machines.test.ts`' oracle holds the same way.
+- **The harness across the rename** needed the Stream workloads shimmed too, not only the loop ones (decision 7): main's Stream functions are gone from head. Each workload takes `core.Machine` when it's there, else main's `xMachine` or Stream function of the same name.
+
+### The per-frame contract: the clamp stays inline (amends decisions 5 and 7)
+
+- **The gate on the module as designed failed in V8** (`d0f03fd`, `bench:core --base main`, 11 paired reps on the bench server, every noise control valid). Every `Stream` workload ran faster on every engine, and Bun passed everything. Three loop workloads failed, head / base, median [p25–p75]:
+
+  | Workload | Bun | Node | Chromium |
+  |---|---|---|---|
+  | `springValues/loop` | −5.0% [−11.0, −0.0] | +1.4% [+0.6, +1.6] | +10.0% [+3.1, +10.0], fails |
+  | `chase/loop` | −12.9% [−24.3, −7.4] | +13.6% [+9.6, +14.0], fails, and bytes 0.17 → 0.18 | +20.0% [+0.0, +20.0], fails |
+  | `animateRepeat/loop` | +7.0% [−4.2, +11.5] | +8.6% [+4.5, +9.0], fails | +14.5% [+5.0, +19.0], fails |
+
+- **Why:** a combinator's step is one function shared by every machine, so the call inside it sees several steps and V8 doesn't inline it. Each layer is a real call per element per frame, which shows where the step is cheap: `chase`'s is about 50 ns. JSC didn't show it. The `clampDt(MAX_DT)` layer over each leaf was that call for the springs and `chase`.
+- **Three throwaway variants,** measured the same way (median head / base for Bun / Node / Chromium):
+
+  | Variant | `springValues/loop` | `chase/loop` | `animateRepeat/loop` |
+  |---|---|---|---|
+  | as designed | −5.0 / +1.4 / +10.0% | −12.9 / +13.6 / +20.0% | +7.0 / +8.6 / +14.5% |
+  | A: the leaves clamp inline, and the hold counts each tick at most `MAX_DT` | −3.9 / +0.0 / +0.0% | −24.4 / −3.6 / +0.0% | −0.5 / +9.1 / +15.3% |
+  | A, and `forever(concatAll(…))` cycling its segments in one step | −3.5 / −0.1 / +0.0% | −23.0 / −1.4 / +0.0% | +8.6 / +7.6 / +13.1% |
+  | A, and `animate`'s delay back in its first segment's stepper | −2.1 / −0.2 / +1.6% | −24.7 / −3.7 / −0.0% | −2.3 / +7.0 / +8.1% |
+
+- **Decided (the maintainer, 2026-10-09):**
+  - **The clamp stays inline, as variant A.** Each leaf's step clamps with `Math.min(dt, MAX_DT)`, once, as at `7967900`, and `delay`'s hold counts each tick at most `MAX_DT`, as a step does, so a stall can't skip the rest of a hold. No constructor has a `clampDt` layer. `clampDt` stays, for a machine built with `make`. So #78's fix is in each leaf, not in a combinator: the one place this slice departs from *Consequences*.
+  - **`animateRepeat/loop`'s depth is accepted and declared:** +9.4% in Node and +11.9% in Chromium at the gate below, about +0.03–0.04 ms per frame at 1,000 elements. Its `Stream` form runs 62–69% faster, and its steps allocate 26% less. Neither the cycle nor the delay in the stepper got it under +5% in V8, and the delay in the stepper is decision 9's rejected option.
+- **The depth of a step,** as landed:
+
+  | Run | At `7967900` | Designed | Landed |
+  |---|---|---|---|
+  | `springValues` | the leaf, `Math.min` inline | `clampDt` → leaf | the leaf, `Math.min` inline |
+  | `springBlend` | `mapFrames` → leaf | `map` → `clampDt` → leaf | `map` → leaf |
+  | `animateValues`, one segment, no `delay` | `mapFrames` → `inSequence` → tween | `map` → `clampDt` → tween | `map` → tween |
+  | `animate`, `repeat: Infinity`, `yoyo`, a `delay` | `inSequence` → `cycle` → tween | `clampDt` → `delay` → `concat` → `forever` → `concatAll` → tween | `delay` → `concatAll` → `forever` → `concatAll` → tween |
+
+- **The rule is in `docs/agents/pipeable.md`:** a layer is a call per element per frame, so a constructor keeps a per-step concern inline in its leaf.
+
+### The declared changes, as landed
+
+- **Tier 2:** one span and one `Clock.ticks` subscription per `Stream` run, named after the outermost Primitive; a fractional `repeat` settles on its last segment; a Frame after a `delay` hold (`animate`, `keyframes`) can differ from main's in its last bit. On `machines.test.ts`' dts, against the stepper's own `delay`: tween −5 → 20 over 2 s with 0.05 / 0.1 / 0.3 differs in 47 / 49 / 63 of 63 / 65 / 74 Frames, by at most 3.6e-15 / 7.1e-15 / 2.1e-14; a 0.2 s tween in 3 of 6 (2.8e-17); a spring with 0.05 in 3 of 26 (1.8e-15) and with 0.3 in none. Every `done` and Frame count is the same.
+- **Logs:** a `<name>: subscribe` log is annotated with its span's attributes, so `springValues`', `animateValues`' and `springBlend`'s `keys` is a count where it was the key names.
+- **`withMomentum`'s fling** runs `Machine.toStream(Machine.decayVec(…))`, so it gains a `wardic.decayVec` span and log under `wardic.momentum`, which `decayVec`'s `Stream` didn't have.
+
+### Tests
+
+- **`packages/test/test/machines.test.ts`:** `animate` (eight cases), `keyframes` (three), `animateValues` and `springBlend` against an oracle, their `Stream`s as they were before #94: the leaves' `toStream` under `Stream.concat`, `Stream.forever` and `Stream.map`, with the hold written as `Machine.delay`'s. Then every constructor and every combinator through both drivers on the uneven dts, and `Machine.delay` against the steppers' own `delay` (within 1e-12, every `done` and count equal). All exact.
+- **`packages/test/test/combinators.test.ts`,** at 1/16 s ticks through both drivers: `concat`'s seam and a `self` that never settles; `concatAll`; `forever`; `delay` (its hold, the time left over, one held Frame object, a negative delay, a stall counting at most `MAX_DT`); `clampDt`, and a 30 s dt stepping `MAX_DT` through a constructor; `map`; `withSpan`, read by a recording Tracer on both drivers; and the defaults returning their input.
+- **`packages/core/test/machine.test.ts`:** TS2739 on an object literal as a `Machine` and TS2322 on an Effect-returning sink, each a `@ts-expect-error`; both forms of every `dual` operation giving one type; an inline sink's `frame` typed by the machine in a pipe and under `Effect.flatMap`; `isMachine` (false for a spread), `pipe`, `toJSON`.
+- **`observability.test.ts`:** an `animate` run is one `wardic.animate` span and one subscribe log. **`delay-once.test.ts`** and **`spring-values-max-dt.test.ts`** keep their Frames through both drivers. The other `Stream` calls in `packages/test/test` became `Machine.toStream(Machine.x(…))`; core's and dom's hand-built machines became `Machine.make`.
+
+### The bench
+
+- **The new workloads first** (`6b14ca7` against itself, 11 paired reps): every workload passed. `animateRepeat` read +0.6% / −0.5% in Node / Chromium and +3.5% in Bun (a rerun: the first run's noise control was −3.3%); `animateRepeat/loop` −0.7% / −3.2% / −0.5%. One false failure on identical code: Node's bytes for `animateValues/loop`, 0.69 → 0.76 MB (+10.1%); a Node rerun read 0.76 → 0.76.
+- **The gate run** (`92a46aa`, `bench:core --base main`, 11 paired reps). Noise controls: Bun −0.2%, Chromium −0.5%, and Node +2.1% on a Node-only rerun, its first at −3.1%. Head / base, median [p25–p75]:
+
+  | Workload | Bun | Node | Chromium | Node MB per frame |
+  |---|---|---|---|---|
+  | `springValues` | −2.8% [−4.4, +0.6] | −0.7% [−1.9, +0.5] | −2.4% [−4.2, −1.1] | 4.95 → 4.95 |
+  | `animateValues` | −29.0% [−30.4, −27.3] | −37.1% [−38.0, −35.5] | −30.4% [−31.8, −29.4] | 6.75 → 4.76 |
+  | `springBlend` | −23.9% [−25.2, −22.1] | −23.8% [−24.5, −23.6] | −16.5% [−17.8, −16.3] | 6.18 → 5.11 |
+  | `chase` | −6.2% [−7.5, −4.5] | −3.4% [−3.6, −3.2] | −2.0% [−4.0, −1.7] | 4.13 → 4.13 |
+  | `animateComplex` | −27.9% [−30.4, −27.2] | −25.1% [−27.1, −24.8] | −27.5% [−28.4, −26.6] | 8.27 → 6.32 |
+  | `animateRepeat` | −69.4% [−72.2, −67.7] | −66.1% [−66.5, −65.9] | −61.8% [−63.1, −61.6] | 11.19 → 4.76 |
+  | `springValues/loop` | −4.7% [−9.4, −4.5] | −0.5% [−1.3, −0.1] | −1.5% [−3.4, +0.0] | 0.92 → 0.92 |
+  | `animateValues/loop` | −4.7% [−9.2, +1.4] | +4.1% [−5.5, +7.3] | +2.1% [−0.0, +2.2] | 0.76 → 0.80 |
+  | `springBlend/loop` | −9.7% [−13.7, −7.3] | +2.0% [−1.5, +7.7] | +4.4% [−1.4, +7.7] | 1.12 → 1.12 |
+  | `chase/loop` | −28.6% [−42.2, −21.2] | −2.3% [−5.4, −1.6] | +0.0% [+0.0, +0.0] | 0.17 → 0.17 |
+  | `animateComplex/loop` | −1.6% [−2.0, +2.1] | −1.0% [−1.6, +0.1] | +0.8% [−0.8, +0.8] | 2.30 → 2.30 |
+  | `animateRepeat/loop` | +3.2% [−6.5, +10.4] | +9.4% [+6.9, +12.7], fails | +11.9% [+4.7, +14.8], fails | 0.80 → 0.80 |
+
+  - **The `Stream` workloads run faster on every engine:** 1–6% for `springValues` and `chase`, which were one layer already, and 17–69% for the composites, whose Node bytes per frame fall 17–57%. Each runs one `Stream` layer where a composite nested a `Stream.concat`, a `Stream.map` and a span per segment.
+  - **`animateRepeat/loop` fails as declared** (above).
+  - **Node's bytes flag `animateValues/loop` (+5.1% and +5.4% in both Node runs), and it's the GC's timing, not allocation.** Its step is `map` → tween, one layer fewer than main's, allocating the same objects. On identical code it read 0.69 and 0.76. A steps-only probe (`.tmp/94-bytes/`: 1,000 machines stepped by hand over 2,000 frames, the bench's heap hook, 7 fresh Node processes per side) reads the same floor on both: main 640,347–736,355 bytes per frame, head 640,338–704,383, each process landing on 640 KB or about 10% above it. On the same probe, `animateRepeat`'s steps allocate 26% less (983,939 → 723,820 bytes per frame) and take 11% longer (0.426 → 0.474 ms).
+- **The probes** (report-only, on the bench server, 11 reps, fresh processes or pages):
+  - **Building** (`.tmp/93-build/`), µs to build 1,000, main's `xMachine` → `Machine.x`, medians:
+
+    | Constructor | Bun | Node | Chromium |
+    |---|---|---|---|
+    | `tween` | 86 → 216 | 61 → 150 | 55 → 90 |
+    | `spring` | 145 → 222 | 148 → 167 | 45 → 100 |
+    | `chase` | 95 → 112 | 99 → 158 | 30 → 85 |
+    | `animate` | 304 → 587 | 168 → 557 | 180 → 650 |
+    | `animate`, `repeat: Infinity`, `yoyo`, a `delay` | 318 → 908 | 309 → 814 | 275 → 960 |
+    | `keyframes` | 276 → 637 | 344 → 793 | 300 → 655 |
+    | `springValues` | 61 → 136 | 134 → 206 | 40 → 100 |
+    | `springBlend` | 2,945 → 3,204 | 2,965 → 3,217 | 2,525 → 2,875 |
+    | `animateValues` | 2,454 → 3,046 | 2,886 → 3,436 | 2,480 → 2,985 |
+
+    `dual`, `pipe` and `Object.create` add about 0.02–0.7 µs per machine. Starts aren't gated, and the gate run's moved both ways: the `Stream` workloads' fell up to 43 ms per 1,000 (one subscription per run, Chromium's `animateRepeat` 68.4 → 25.7), and the loop workloads' rose 0–4 ms per 1,000 (Bun's `animateRepeat/loop` 11.7 → 15.8), more than building accounts for. That isn't investigated here.
+  - **`dual` per call** (`.tmp/93-dual/`), ns per call, ratio to positional [p25–p75]:
+
+    | Shape | Form | Bun | Node | Chromium |
+    |---|---|---|---|---|
+    | `lerp` (three numbers) | positional | 0.73 | 0.47 | 0.39 |
+    | | data-first | 2.12, ×2.92 [2.90, 3.83] | 0.47, ×1.00 | 0.39, ×1.00 |
+    | | data-last | 3.77, ×5.24 [5.17, 6.77] | 8.14, ×17.4 | 6.10, ×15.7 |
+    | `applyAxisDelta` (two objects in, one out) | positional | 1.29 | 1.24 | 1.32 |
+    | | data-first | 1.22, ×0.94 | 1.26, ×1.02 | 1.32, ×0.99 |
+    | | data-last | 4.34, ×3.36 | 6.85, ×5.52 | 5.59, ×4.22 |
+
+    Decision 1's positional per-frame functions stand. V8 inlines a data-first `dual` call, but JSC doesn't for `lerp`'s shape (×2.9), and a data-last call allocates its closure (×3–17).

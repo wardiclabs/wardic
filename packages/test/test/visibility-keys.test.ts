@@ -1,4 +1,5 @@
-import { animateValues, type Frame, linear, type Values } from "@wardic/core"
+import { type Frame, linear, type Values } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { testLayer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -16,7 +17,10 @@ const quarter = [0.25, 0.25, 0.25, 0.25]
 /** The values one key takes over a 1 s linear tween, frame by frame. */
 const run = (from: Values, to: Values, ticks: ReadonlyArray<number> = quarter, delay?: number) =>
   Stream.runCollect(
-    animateValues(from, to, { duration: 1, easing: linear, ...(delay !== undefined ? { delay } : {}) }),
+    Machine.animateValues(from, to, { duration: 1, easing: linear, ...(delay !== undefined ? { delay } : {}) }).pipe(
+      Effect.map(Machine.toStream),
+      Stream.unwrap,
+    ),
   ).pipe(
     Effect.provide(testLayer(ticks)),
     Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame<Values>>),

@@ -1,4 +1,5 @@
-import { InterpolatorRegistryLive, respectReducedMotion, tween } from "@wardic/core"
+import { InterpolatorRegistryLive, respectReducedMotion } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock, TestInput, TestProbe, TestRenderer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import { References } from "effect"
@@ -63,7 +64,7 @@ it.effect("snaps to terminal frame when prefersReducedMotion is true", () =>
     // Frames are sized to drive the underlying tween across its full duration,
     // but the combinator should ignore them and emit only the final value.
     const collected = yield* collect(
-      respectReducedMotion(tween(0, 100, { duration: 1 })),
+      respectReducedMotion(Machine.toStream(Machine.tween(0, 100, { duration: 1 }))),
       [0.5, 0.5],
       true,
     )
@@ -75,8 +76,8 @@ it.effect("snaps to terminal frame when prefersReducedMotion is true", () =>
 it.effect("passes the stream through unchanged when prefersReducedMotion is false", () =>
   Effect.gen(function* () {
     const frames = [0.25, 0.25, 0.25, 0.25]
-    const unwrapped = yield* collect(tween(0, 100, { duration: 1 }), frames, false)
-    const wrapped = yield* collect(respectReducedMotion(tween(0, 100, { duration: 1 })), frames, false)
+    const unwrapped = yield* collect(Machine.toStream(Machine.tween(0, 100, { duration: 1 })), frames, false)
+    const wrapped = yield* collect(respectReducedMotion(Machine.toStream(Machine.tween(0, 100, { duration: 1 }))), frames, false)
     expect(wrapped).toEqual(unwrapped)
   }),
 )
@@ -84,7 +85,7 @@ it.effect("passes the stream through unchanged when prefersReducedMotion is fals
 it.effect("reads the Probe preference once on subscribe (one annotated log, not per-frame)", () =>
   Effect.gen(function* () {
     const records = yield* captureLogs(
-      Stream.runDrain(respectReducedMotion(tween(0, 100, { duration: 1 }))),
+      Stream.runDrain(respectReducedMotion(Machine.toStream(Machine.tween(0, 100, { duration: 1 })))),
       [0.5, 0.5],
       false,
     )
@@ -97,7 +98,7 @@ it.effect("reads the Probe preference once on subscribe (one annotated log, not 
 it.effect("emits an annotated debug log with prefersReducedMotion: true when reduced", () =>
   Effect.gen(function* () {
     const records = yield* captureLogs(
-      Stream.runDrain(respectReducedMotion(tween(0, 100, { duration: 1 }))),
+      Stream.runDrain(respectReducedMotion(Machine.toStream(Machine.tween(0, 100, { duration: 1 })))),
       [0.5, 0.5],
       true,
     )

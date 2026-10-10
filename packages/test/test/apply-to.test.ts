@@ -1,9 +1,11 @@
-import { animateValues, applyTo, InterpolatorRegistryLive, linear, Renderer } from "@wardic/core"
+import { applyTo, InterpolatorRegistryLive, linear, Renderer } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock, TestRenderer } from "@wardic/test"
 import { References } from "effect"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
+import * as Stream from "effect/Stream"
 import { expect, it } from "@effect/vitest"
 
 interface Captured {
@@ -38,7 +40,10 @@ it.effect("applyTo drives every frame through project then commit, with the fina
     // the live InterpolatorRegistry that `animateValues` needs.
     yield* applyTo(
       target,
-      animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }),
+      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }).pipe(
+        Effect.map(Machine.toStream),
+        Stream.unwrap,
+      ),
     ).pipe(
       Effect.provide(rendererLayer),
       Effect.provide(TestClock.layer(quarter)),
@@ -74,7 +79,10 @@ it.effect("applyTo emits exactly one annotated `wardic.applyTo: subscribe` debug
     // Act — run applyTo over the same four-frame setup with the capturing logger installed.
     yield* applyTo(
       { node: "el" },
-      animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }),
+      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: linear }).pipe(
+        Effect.map(Machine.toStream),
+        Stream.unwrap,
+      ),
     ).pipe(
       Effect.provide(rendererLayer),
       Effect.provide(TestClock.layer(quarter)),

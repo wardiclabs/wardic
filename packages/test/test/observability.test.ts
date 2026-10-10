@@ -1,12 +1,5 @@
-import {
-  animate,
-  animateValues,
-  applyTo,
-  InterpolatorRegistryLive,
-  linear,
-  Renderer,
-  tween,
-} from "@wardic/core"
+import { applyTo, InterpolatorRegistryLive, linear, Renderer } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock, TestRenderer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import { References } from "effect"
@@ -14,6 +7,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Stream from "effect/Stream"
+import * as Tracer from "effect/Tracer"
 
 interface Captured {
   readonly message: unknown
@@ -43,21 +37,42 @@ const captureLogs = <A, E, R>(
 
 it.effect("tween emits an annotated debug log on subscribe (and its span executes)", () =>
   Effect.gen(function* () {
-    const records = yield* captureLogs(Stream.runDrain(tween(0, 10, { duration: 1 })), [0.5, 0.5])
+    const records = yield* captureLogs(Stream.runDrain(Machine.toStream(Machine.tween(0, 10, { duration: 1 }))), [0.5, 0.5])
     const log = records.find((r) => String(r.message).includes("wardic.tween"))
     expect(log).toBeDefined()
     expect(log!.annotations).toMatchObject({ from: 0, to: 10, duration: 1 })
   }),
 )
 
-it.effect("animate composes tween spans without breaking the stream", () =>
+it.effect("animate subscribes once, as wardic.animate: its segments are one run, not a tween Stream each (#94)", () =>
   Effect.gen(function* () {
-    // If the withSpan wrapping were malformed, draining would error.
     const records = yield* captureLogs(
-      Stream.runDrain(animate(0, 100, { duration: 1, repeat: 1 })),
+      Stream.runDrain(Machine.toStream(Machine.animate(0, 100, { duration: 1, repeat: 1 }))),
       [0.5, 0.5, 0.5, 0.5],
     )
-    expect(records.some((r) => String(r.message).includes("wardic.tween"))).toBe(true)
+    const subscribes = records.filter((r) => String(r.message).endsWith(": subscribe"))
+    expect(subscribes.map((r) => r.message)).toEqual(["wardic.animate: subscribe"])
+    expect(subscribes[0]!.annotations).toMatchObject({ from: 0, to: 100, repeat: 1 })
+  }),
+)
+
+it.effect("animate's Stream is one span, wardic.animate, where it nested a wardic.tween per segment (#94)", () =>
+  Effect.gen(function* () {
+    const spans: Array<Tracer.NativeSpan> = []
+    const tracer = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
+    yield* Stream.runDrain(Machine.toStream(Machine.animate(0, 100, { duration: 1, repeat: 1 }))).pipe(
+      Effect.provide(TestClock.layer([0.5, 0.5, 0.5, 0.5])),
+      Effect.provideService(Tracer.Tracer, tracer),
+    )
+    expect(spans.map((span) => span.name)).toEqual(["wardic.animate"])
+    expect(Object.fromEntries(spans[0]!.attributes)).toEqual({ from: 0, to: 100, repeat: 1, yoyo: false, reverse: false })
+    expect(spans[0]!.status._tag).toBe("Ended")
   }),
 )
 
@@ -76,7 +91,10 @@ it.effect("applyTo emits the `wardic.applyTo: subscribe` debug log and routes fr
     // Act — drive a 4-frame tween into a no-op target, capturing both calls and logs.
     yield* applyTo(
       { node: "el" },
-      animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: linear }),
+      Machine.animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: linear }).pipe(
+        Effect.map(Machine.toStream),
+        Stream.unwrap,
+      ),
     ).pipe(
       Effect.provide(Layer.succeed(Renderer, recording.service)),
       Effect.provide(TestClock.layer([0.25, 0.25, 0.25, 0.25])),

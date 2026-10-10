@@ -2,13 +2,13 @@ import {
   Clock,
   type Frame,
   type FrameLoopShape,
-  type Machine,
   makeFrameLoop,
   makeRefreshFrameClock,
   NOMINAL_DT,
   type RefreshFrameSource,
   type Sink,
 } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -100,7 +100,7 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
   const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> =>
     Effect.runFork(effect.pipe(Effect.provideService(Tracer.Tracer, tracer)), { scheduler })
   /** Start `machine` on the loop in a fresh fiber, inline; its Frames land in `frames`. */
-  const start = <F extends Frame<unknown>>(machine: Machine<F>, onFrame?: (frame: F) => void) => {
+  const start = <F extends Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void) => {
     const received: Array<F> = []
     const fiber = fork(
       loop.run(machine, (frame) => {
@@ -171,31 +171,33 @@ const endOfTask = (): Promise<void> => Promise.resolve()
 const nextTimeout = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 /** A machine whose Frames carry each dt it was stepped with; it settles after `steps` (never, if `Infinity`). */
-const counting = (steps: number, name = "test.counting"): Machine<Frame<ReadonlyArray<number>>> => ({
-  settles: true,
-  span: { name, attributes: { steps } },
-  start: () => {
-    const dts: Array<number> = []
-    return (dt) => {
-      dts.push(dt)
-      return { value: [...dts], done: dts.length >= steps }
-    }
-  },
-})
+const counting = (steps: number, name = "test.counting"): Machine.Machine<Frame<ReadonlyArray<number>>> =>
+  Machine.make({
+    settles: true,
+    span: { name, attributes: { steps } },
+    start: () => {
+      const dts: Array<number> = []
+      return (dt) => {
+        dts.push(dt)
+        return { value: [...dts], done: dts.length >= steps }
+      }
+    },
+  })
 
 /** A machine whose step throws on its `n`-th call. */
-const throwing = (n: number): Machine<Frame<number>> => ({
-  settles: true,
-  span: { name: "test.throwing", attributes: {} },
-  start: () => {
-    let calls = 0
-    return () => {
-      calls++
-      if (calls === n) throw new Error("step threw")
-      return { value: calls, done: false }
-    }
-  },
-})
+const throwing = (n: number): Machine.Machine<Frame<number>> =>
+  Machine.make({
+    settles: true,
+    span: { name: "test.throwing", attributes: {} },
+    start: () => {
+      let calls = 0
+      return () => {
+        calls++
+        if (calls === n) throw new Error("step threw")
+        return { value: calls, done: false }
+      }
+    },
+  })
 
 const dtsOf = (frames: ReadonlyArray<Frame<ReadonlyArray<number>>>) => frames.at(-1)?.value ?? []
 

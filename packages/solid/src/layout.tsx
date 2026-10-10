@@ -17,7 +17,8 @@
  * Idle = zero cost: nothing is measured until a trigger fires (CONTEXT.md
  * observability convention — hot path stays quiet).
  */
-import type { Point, SpringOptions } from "@wardic/core"
+import type { Point } from "@wardic/core"
+import type * as Machine from "@wardic/core/Machine"
 import type { ProjectionNodeHandle } from "@wardic/dom"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
@@ -29,7 +30,7 @@ import type { WardicTransition } from "./use-wardic.tsx"
  * transition (or none) falls back to spring defaults `{}` — layout animation is
  * spring-shaped (framer-motion parity), so the box-mix progress is always sprung.
  */
-const toSpringOptions = (t: WardicTransition | undefined): SpringOptions =>
+const toSpringOptions = (t: WardicTransition | undefined): Machine.SpringOptions =>
   t !== undefined && t.type !== "tween" ? t : {}
 
 /** Options for {@link useLayoutMember}. */

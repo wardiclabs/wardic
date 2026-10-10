@@ -26,8 +26,6 @@
  * writing into the same gate id) — see {@link splitTarget}.
  */
 import {
-  type AnimateOptions,
-  animateValuesMachine,
   type BaseSource,
   baseValueOf,
   type DragBounds,
@@ -35,14 +33,12 @@ import {
   type Patch,
   Renderer,
   resolveOverrides,
-  type SpringOptions,
   stagger as coreStagger,
-  springBlendMachine,
-  springValuesMachine,
   type StaggerOrigin,
   startValueOf,
   type Values,
 } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import {
   DRAG_DEFAULT_ATTRIBUTES,
   dragDefaultStyle,
@@ -82,7 +78,6 @@ import {
   untrack,
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
-import { runOnLoop } from "./frame-loop.ts"
 import type { FlushGate, FlushSink } from "./gate.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
@@ -199,8 +194,8 @@ export interface WardicOrchestration {
  * optional {@link WardicOrchestration} fields.
  */
 export type WardicTransition =
-  | ({ readonly type?: "spring" } & SpringOptions & WardicOrchestration)
-  | ({ readonly type: "tween" } & Partial<AnimateOptions> & WardicOrchestration)
+  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration)
+  | ({ readonly type: "tween" } & Partial<Machine.AnimateOptions> & WardicOrchestration)
 
 /**
  * Config accepted by {@link useWardic}.
@@ -733,7 +728,7 @@ export function runSpine(opts: RunSpineOptions): void {
           elastic: c0d.dragElastic,
           momentum: c0d.dragMomentum,
           snapToOrigin: c0d.dragSnapToOrigin,
-          springOpts: (c0d.transition ?? parent?.transition()) as SpringOptions | undefined,
+          springOpts: (c0d.transition ?? parent?.transition()) as Machine.SpringOptions | undefined,
         }
         runDragTrack({
           runtime,
@@ -966,29 +961,30 @@ export function runSpine(opts: RunSpineOptions): void {
             if (useTween) {
               // Tween: animateValues drives ALL keys (numeric + string) from the
               // current snapshot values; no velocity (snapshot.velocities stays {}).
-              const options = transition as Partial<AnimateOptions>
+              const options = transition as Partial<Machine.AnimateOptions>
               reporting = 1
               runLeg(
-                runOnLoop(
-                  animateValuesMachine(from, t, UndefinedOr.map(options.duration, () => options as AnimateOptions)),
-                  (frame) => {
-                    // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
-                    // the snapshot rather than replacing it, so the drag's
-                    // direct-set x/y survive alongside the tween's keys and the
-                    // post-drag handoff continues from the rested position.
-                    snapshot.values = { ...snapshot.values, ...frame.value }
-                    gate.write(id, frame.value)
-                    recordFrame(frame.value)
-                    report(frame.done)
-                    return undefined
-                  },
+                Machine.animateValues(from, t, UndefinedOr.map(options.duration, () => options as Machine.AnimateOptions)).pipe(
+                  Effect.flatMap(
+                    Machine.run((frame) => {
+                      // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
+                      // the snapshot rather than replacing it, so the drag's
+                      // direct-set x/y survive alongside the tween's keys and the
+                      // post-drag handoff continues from the rested position.
+                      snapshot.values = { ...snapshot.values, ...frame.value }
+                      gate.write(id, frame.value)
+                      recordFrame(frame.value)
+                      report(frame.done)
+                      return undefined
+                    }),
+                  ),
                 ),
               )
             } else {
               // Spring (default): numeric keys via springValues (velocity-carrying
               // retarget); any string/color keys via springBlend, the same spring on a
               // 0→100 progress (ADR-0024, D5), into the same gate id.
-              const springOpts = (transition ?? {}) as SpringOptions
+              const springOpts = (transition ?? {}) as Machine.SpringOptions
               const hasNumeric = Object.keys(numeric).length > 0
               const hasStrings = Object.keys(strings).length > 0
               reporting = (hasNumeric ? 1 : 0) + (hasStrings ? 1 : 0)
@@ -996,9 +992,8 @@ export function runSpine(opts: RunSpineOptions): void {
                 const fromNumeric: Record<string, number> = {}
                 for (const key in numeric) fromNumeric[key] = from[key] as number
                 runLeg(
-                  runOnLoop(
-                    Effect.succeed(springValuesMachine(numeric, springOpts, fromNumeric, snapshot.velocities)),
-                    (frame) => {
+                  Machine.springValues(numeric, springOpts, fromNumeric, snapshot.velocities).pipe(
+                    Machine.run((frame) => {
                       // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
                       // into the snapshot rather than replacing it, so the
                       // drag's direct-set x/y survive alongside the spring's
@@ -1010,7 +1005,7 @@ export function runSpine(opts: RunSpineOptions): void {
                       recordFrame(frame.value)
                       report(frame.done)
                       return undefined
-                    },
+                    }),
                   ),
                 )
               }
@@ -1018,13 +1013,17 @@ export function runSpine(opts: RunSpineOptions): void {
                 const fromStrings: Values = {}
                 for (const key in strings) fromStrings[key] = from[key]!
                 runLeg(
-                  runOnLoop(springBlendMachine(fromStrings, strings, springOpts), (frame) => {
-                    snapshot.values = { ...snapshot.values, ...frame.value }
-                    gate.write(id, frame.value)
-                    recordFrame(frame.value)
-                    report(frame.done)
-                    return undefined
-                  }),
+                  Machine.springBlend(fromStrings, strings, springOpts).pipe(
+                    Effect.flatMap(
+                      Machine.run((frame) => {
+                        snapshot.values = { ...snapshot.values, ...frame.value }
+                        gate.write(id, frame.value)
+                        recordFrame(frame.value)
+                        report(frame.done)
+                        return undefined
+                      }),
+                    ),
+                  ),
                 )
               }
             }

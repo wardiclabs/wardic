@@ -1,10 +1,11 @@
-import { animate, type Frame, linear } from "@wardic/core"
+import { type Frame, linear } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { expect, it } from "@effect/vitest"
 
-it.effect("animate({ repeat: Infinity }) never auto-terminates", () =>
+it.effect("Machine.toStream(Machine.animate({ repeat: Infinity })) never auto-terminates", () =>
   Effect.gen(function* () {
     // Arrange — supply ticks that would normally let a single duration:1 leg settle
     // after 4 quarter ticks. With repeat:Infinity, the stream must keep emitting
@@ -17,7 +18,7 @@ it.effect("animate({ repeat: Infinity }) never auto-terminates", () =>
     // than N frames here.
     // Effect v4: Stream.runCollect returns ReadonlyArray<A> directly (no Chunk wrapper).
     const frames = (yield* Stream.runCollect(
-      animate(0, 100, { duration: 1, easing: linear, repeat: Infinity }).pipe(Stream.take(N)),
+      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: linear, repeat: Infinity })).pipe(Stream.take(N)),
     )) as ReadonlyArray<Frame<number>>
 
     // Assert — emission count equals N (never settled on its own).

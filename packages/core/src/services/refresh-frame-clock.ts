@@ -9,7 +9,8 @@
  * successive timestamps and calls `tick`, which (with the Priming tick below) is the
  * only writer of the `time`/`dt` Atoms and the only publisher to the internal tick
  * `PubSub`. There is deliberately no `MAX_DT` clamp here — clamping is a
- * consumer-boundary concern (`fromClock`), so the Clock reports raw deltas.
+ * consumer-boundary concern (each Primitive's `Machine.clampDt(MAX_DT)`), so the Clock
+ * reports raw deltas.
  *
  * **Cold start** (ADR-0017): the subscription that starts an idle loop gets a
  * **Priming tick** at the end of its task, with `dt = NOMINAL_DT`, before the first

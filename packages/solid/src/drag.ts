@@ -29,26 +29,23 @@
  */
 import {
   axisLock,
-  decayVecMachine,
   drag as dragRecognizer,
   type DragBounds,
   type DragSample,
   type FrameLoop,
   InputSource,
   isPrimaryPointer,
-  type SpringOptions,
-  springValuesMachine,
   type Values,
   type Vec2,
   withinBounds,
 } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import type { DragProjectionHandle } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import * as MutableRef from "effect/MutableRef"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { runOnLoop } from "./frame-loop.ts"
 import type { FlushGate } from "./gate.ts"
 import { runScoped, type WardicRuntime } from "./provider.tsx"
 
@@ -77,7 +74,7 @@ export interface DragTrackConfig {
   /** Spring back to the origin on release (overrides momentum). */
   readonly snapToOrigin?: boolean | undefined
   /** The spring options used for the snapToOrigin release. */
-  readonly springOpts?: SpringOptions | undefined
+  readonly springOpts?: Machine.SpringOptions | undefined
 }
 
 /** Options for {@link runDragTrack}. */
@@ -325,21 +322,16 @@ const release = (
 
   if (cfg.snapToOrigin === true) {
     // snapToOrigin: spring x/y -> {0,0}, seeded from the release pos + velocity.
-    const spring = springValuesMachine(
-      { x: 0, y: 0 },
-      cfg.springOpts,
-      { x: position.x, y: position.y },
-      { x: velocity.x, y: velocity.y },
-    )
     return settling(
-      runOnLoop(Effect.succeed(spring), (frame) =>
-        tapFrame({ x: UndefinedOr.getOrThrow(frame.value.x), y: UndefinedOr.getOrThrow(frame.value.y) })),
+      Machine.springValues({ x: 0, y: 0 }, cfg.springOpts, { x: position.x, y: position.y }, { x: velocity.x, y: velocity.y }).pipe(
+        Machine.run((frame) => tapFrame({ x: UndefinedOr.getOrThrow(frame.value.x), y: UndefinedOr.getOrThrow(frame.value.y) })),
+      ),
     )
   }
 
   if (cfg.momentum !== false) {
     // Fling: decay from the release position at the release velocity.
-    return settling(runOnLoop(Effect.succeed(decayVecMachine(position, velocity, {})), (frame) => tapFrame(frame.value)))
+    return settling(Machine.decayVec(position, velocity, {}).pipe(Machine.run((frame) => tapFrame(frame.value))))
   }
 
   // Rest in place: commit the exact release position once (so the element rests
