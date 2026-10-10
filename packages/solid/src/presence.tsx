@@ -34,13 +34,15 @@
  */
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
-import { useWardicProjection, useWardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
 /**
@@ -98,6 +100,7 @@ const isEmpty = (values: Values.Values): boolean => {
  */
 export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.Element {
   const runtime = useWardicRuntime()
+  const reducedMotion = useWardicReducedMotion()
   // A server render has no exit to drive and no runtime to log on: the same component
   // boundaries, with a context that registers nothing (ADR-0021).
   if (isServer) return serverPresence(props)
@@ -184,7 +187,14 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
       const start = rec.startOf?.(key, exit[key]!)
       from[key] = start ?? exit[key]!
     }
-    const { numbers: numericTo, strings: stringTo } = Values.split(exit)
+    // Reduced motion (ADR-0029), read now: the exit's positional keys snap to their target on its
+    // first tick, and the rest animate.
+    const { positional, rest } = Bool.match(reducedMotion(), {
+      onTrue: () => ReducedMotion.split(exit),
+      onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: exit }),
+    })
+    const snapped = Object.keys(positional).length
+    const { numbers: numericTo, strings: stringTo } = Values.split(rest)
     const fromNumeric = Values.split(from).numbers
     const hasNumeric = Object.keys(numericTo).length > 0
     const hasStrings = Object.keys(stringTo).length > 0
@@ -201,6 +211,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     // The numeric keys and the string keys as two runs on the Frame loop (ADR-0027), side by
     // side: the exit ends once both settle.
     const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
+    if (snapped > 0) runs.push(ReducedMotion.snap(Values.pick(from, positional), positional).pipe(Machine.run(commitFrame)))
     if (hasNumeric) runs.push(Machine.springValues(numericTo, {}, fromNumeric, {}).pipe(Machine.run(commitFrame)))
     if (hasStrings) runs.push(Machine.springBlend(Values.pick(from, stringTo), stringTo).pipe(Effect.flatMap(Machine.run(commitFrame))))
 
@@ -211,7 +222,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
       Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
         Effect.ensuring(Effect.sync(() => finishExit(el))),
         Effect.withSpan("wardic.presence.exit", {
-          attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length },
+          attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped },
         }),
       ),
     )

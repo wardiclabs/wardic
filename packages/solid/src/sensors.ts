@@ -97,8 +97,8 @@ export const createDrag = (target: unknown, options?: CreateDragOptions): Access
  * `false` until mount, then switches to the live value (the Hydration hold, ADR-0021
  * decision 8), so markup that depends on it hydrates without a mismatch. Motion's
  * `useReducedMotion` returns `null` on a server and the live value on the client's first
- * render, which can break hydration. Animations honour the preference either way: the
- * engine reads it itself when one starts.
+ * render, which can break hydration. Animations honour the preference either way (ADR-0029):
+ * the engine reads it when each one starts, and snaps its positional keys.
  */
 export const createReducedMotion = (): Accessor<boolean> => {
   const runtime = useWardicRuntime()

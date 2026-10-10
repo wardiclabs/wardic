@@ -28,6 +28,7 @@
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Stagger from "@wardic/core/Stagger"
 import * as Values from "@wardic/core/Values"
@@ -55,7 +56,10 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
+import { constTrue, identity } from "effect/Function"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import {
@@ -75,7 +79,7 @@ import type { FlushGate, FlushSink } from "./gate.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
-import { useWardicGate, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicGate, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import {
   type WardicChildRegistration,
@@ -181,14 +185,24 @@ export interface WardicOrchestration {
 }
 
 /**
+ * A transition's reduced-motion opt-out (ADR-0029), on both arms. An animation honours the
+ * provider's `reducedMotion` by default: under it, its positional keys snap and a layout
+ * animation lands at once.
+ */
+export interface WardicReducedMotion {
+  /** `false` animates the transition's keys whatever the provider's `reducedMotion` says. Default `true`. */
+  readonly respectReducedMotion?: boolean
+}
+
+/**
  * Transition config: a primitive selector plus the matching primitive's
  * options. `type` defaults to `"spring"`; `"tween"` routes every key through
  * `animateValues` (duration-based, no velocity). Both arms also carry the
- * optional {@link WardicOrchestration} fields.
+ * optional {@link WardicOrchestration} fields and {@link WardicReducedMotion}'s opt-out.
  */
 export type WardicTransition =
-  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration)
-  | ({ readonly type: "tween" } & Partial<Machine.AnimateOptions> & WardicOrchestration)
+  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration & WardicReducedMotion)
+  | ({ readonly type: "tween" } & Partial<Machine.AnimateOptions> & WardicOrchestration & WardicReducedMotion)
 
 /**
  * Config accepted by {@link useWardic}.
@@ -389,6 +403,12 @@ const resolveValues = (
 /** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
 const TRANSLATE_KEYS: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY"])
 
+/** Whether a value map has any key. */
+const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
+
+/** A transition's `delay` in seconds: 0 when it has none. */
+const secondsOf = (delay: number | undefined): number => UndefinedOr.match(delay, { onUndefined: () => 0, onDefined: identity })
+
 /** The Override stack resolved: the spine effect's input. */
 interface Resolution {
   /** Each key's value from the highest active layer. */
@@ -508,6 +528,9 @@ export function runSpine(opts: RunSpineOptions): void {
   // (this child is disposed). The child does NOT unregister on its own
   // onCleanup — <AnimatePresence> owns removal after the exit settles.
   const presence = usePresenceContext()
+
+  // Whether reduced motion applies (ADR-0029), read at each Retarget.
+  const reducedMotion = useWardicReducedMotion()
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount). Seeds the spring `from`
@@ -842,10 +865,6 @@ export function runSpine(opts: RunSpineOptions): void {
             // return later finds the element's value, not Wardic's (ADR-0022, D3). The read is
             // kept: a later need is a lookup. A transform key reads nothing.
             for (const key in t) if (!Object.hasOwn(initialValues, key)) ownValue(key)
-            // Numeric keys go to `springValues` when the transition is a spring, string / color
-            // keys to `springBlend` by the spring's progress (ADR-0024). Both halves write into the
-            // same gate id, so they collapse into one projected `Patch`.
-            const { numbers: numeric, strings } = Values.split(t)
             // Each key starts from its Snapshot value, coerced to its target's shape (ADR-0024,
             // D1). A key with no value yet, or one whose value can't take that shape, starts
             // from its Base value's start links, read here at its first need (ADR-0022, D3);
@@ -931,36 +950,83 @@ export function runSpine(opts: RunSpineOptions): void {
                 : baseTransition
             const useTween = transition?.type === "tween"
 
+            // Reduced motion (ADR-0029), read now for this Retarget's legs: the positional keys
+            // snap to where their leg would end, holding through the delay it would hold, and the
+            // rest animate as they would. A transition opts out with `respectReducedMotion: false`.
+            const respects = UndefinedOr.match(transition, {
+              onUndefined: constTrue,
+              onDefined: (tr) => tr.respectReducedMotion !== false,
+            })
+            const { positional, rest } = Bool.match(Bool.and(respects, reducedMotion()), {
+              onTrue: () => ReducedMotion.split(t),
+              onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: t }),
+            })
+            const snapping = hasKeys(positional)
+            // The snap's leg: the positional keys, from where they are to `to`, after `delay`. A
+            // snapped key comes to rest, so a later spring starts it at rest.
+            const runSnap = (to: Values.Values, delay: number): void => {
+              snapshot.velocities = { ...snapshot.velocities, ...Rec.map(positional, () => 0) }
+              runLeg(
+                ReducedMotion.snap(Values.pick(from, positional), to, { delay }).pipe(
+                  Machine.run((frame) => {
+                    snapshot.values = { ...snapshot.values, ...frame.value }
+                    gate.write(id, frame.value)
+                    recordFrame(frame.value)
+                    report(frame.done)
+                    return undefined
+                  }),
+                ),
+              )
+            }
+
             if (useTween) {
               // Tween: animateValues drives ALL keys (numeric + string) from the
               // current snapshot values; no velocity (snapshot.velocities stays {}).
               const options = transition as Partial<Machine.AnimateOptions>
-              reporting = 1
-              runLeg(
-                Machine.animateValues(from, t, UndefinedOr.map(options.duration, () => options as Machine.AnimateOptions)).pipe(
-                  Effect.flatMap(
-                    Machine.run((frame) => {
-                      // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
-                      // the snapshot rather than replacing it, so the drag's
-                      // direct-set x/y survive alongside the tween's keys and the
-                      // post-drag handoff continues from the rested position.
-                      snapshot.values = { ...snapshot.values, ...frame.value }
-                      gate.write(id, frame.value)
-                      recordFrame(frame.value)
-                      report(frame.done)
-                      return undefined
-                    }),
+              // The options the tween runs with: its defaults when it has no duration.
+              const tweenOptions = UndefinedOr.map(options.duration, () => options as Machine.AnimateOptions)
+              const running: Partial<Machine.AnimateOptions> = UndefinedOr.match(tweenOptions, { onUndefined: () => ({}), onDefined: identity })
+              // With every key snapped, there's nothing left to tween.
+              const tweening = Bool.or(!snapping, hasKeys(rest))
+              reporting = Number(snapping) + Number(tweening)
+              if (snapping) {
+                runSnap(
+                  Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, running)),
+                  secondsOf(running.delay),
+                )
+              }
+              if (tweening) {
+                runLeg(
+                  Machine.animateValues(Values.pick(from, rest), rest, tweenOptions).pipe(
+                    Effect.flatMap(
+                      Machine.run((frame) => {
+                        // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
+                        // the snapshot rather than replacing it, so the drag's
+                        // direct-set x/y survive alongside the tween's keys and the
+                        // post-drag handoff continues from the rested position.
+                        snapshot.values = { ...snapshot.values, ...frame.value }
+                        gate.write(id, frame.value)
+                        recordFrame(frame.value)
+                        report(frame.done)
+                        return undefined
+                      }),
+                    ),
                   ),
-                ),
-              )
+                )
+              }
             } else {
               // Spring (default): numeric keys via springValues (velocity-carrying
               // retarget); any string/color keys via springBlend, the same spring on a
               // 0→100 progress (ADR-0024, D5), into the same gate id.
               const springOpts = (transition ?? {}) as Machine.SpringOptions
+              // Of the keys that animate: both halves write into the same gate id, so they
+              // collapse into one projected `Patch`.
+              const { numbers: numeric, strings } = Values.split(rest)
               const hasNumeric = Object.keys(numeric).length > 0
               const hasStrings = Object.keys(strings).length > 0
-              reporting = (hasNumeric ? 1 : 0) + (hasStrings ? 1 : 0)
+              reporting = Number(snapping) + Number(hasNumeric) + Number(hasStrings)
+              // A spring settles at its target: the snap lands there.
+              if (snapping) runSnap(positional, secondsOf(springOpts.delay))
               if (hasNumeric) {
                 const fromNumeric: Record<string, number> = {}
                 for (const key in numeric) fromNumeric[key] = from[key] as number

@@ -42,7 +42,7 @@ declare module "vitest/browser" {
      * error's first line (the hydrate project only).
      */
     serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
-    /** Emulate `prefers-reduced-motion: reduce`, or clear it (the hydrate project only). */
+    /** Emulate `prefers-reduced-motion: reduce`, or clear it. */
     emulateReducedMotion: (reduce: boolean) => Promise<void>
   }
 }
