@@ -148,8 +148,15 @@ describe("each combinator through both drivers, at 1/16 s ticks", () => {
       [DT, 30, DT],
     ))
 
-  it.effect("clampDt: every constructor's outermost layer, so one 30 s dt steps MAX_DT (#78)", () =>
+  it.effect("every constructor clamps its dt at MAX_DT, so one 30 s dt steps 0.5 s (#78)", () =>
     bothDrivers(Machine.tween(0, 16, { duration: 1 }), framesOf([8, 16], true), [30, 30]))
+
+  it.effect("delay: a stall counts at most MAX_DT toward the hold, as a step does", () =>
+    bothDrivers(
+      Machine.tween(0, 16, QUARTER).pipe(Machine.delay(1)),
+      framesOf([0, 0, 4, 8, 12, 16], true),
+      [30, 30, DT, DT, DT, DT],
+    ))
 
   it.effect("map: each Frame mapped", () =>
     bothDrivers(

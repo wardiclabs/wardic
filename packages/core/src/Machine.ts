@@ -118,8 +118,10 @@ export const isMachine = (u: unknown): u is Machine<Frame<unknown>> => Predicate
  *
  * Long frame stalls (tab switches, slow first paints, debugger pauses) can produce `dt` values
  * measured in seconds, large enough to teleport a spring across its rest thresholds or blow up a
- * decay integration. Each constructor's outermost layer is `clampDt(MAX_DT)` (#78), so both
- * drivers clamp, once, and no stepper needs to defend itself.
+ * decay integration. Every constructor clamps each step's `dt` here once (#78), in its leaves'
+ * steps and in `delay`'s hold, so both drivers clamp and no stepper needs to defend itself.
+ * Inline, not a `clampDt` layer: a layer is one more call per element per frame, which V8
+ * doesn't inline (ADR-0028, *Implementation in #94*).
  *
  * 500ms is permissive by design: it accommodates the synthetic frame samples our unit tests use
  * (which push the engine with 0.25s–0.5s deltas) while still capping the multi-second deltas a
@@ -301,8 +303,9 @@ export const forever = <F extends Frame<unknown>>(self: Machine<F>): Machine<F> 
 /**
  * A hold before `self`'s first step: `Effect.delay`'s word. For `seconds`, each tick returns
  * the Frame `self` starts at (its step at 0, re-stamped `done: false`), the same object every
- * held tick. On the tick the held time reaches `seconds`, `self` steps the time left over. A
- * negative `seconds` starts `self` that far in. `delay(0)` is `self`. Keeps `self`'s span.
+ * held tick. The held time counts each tick's `dt` at most `MAX_DT`, as a step does, and on the
+ * tick it reaches `seconds`, `self` steps the time left over. A negative `seconds` starts `self`
+ * that far in. `delay(0)` is `self`. Keeps `self`'s span.
  *
  * Not the steppers' own `delay`, which a leaf keeps (dom's projection pass steps springs by hand
  * with it): a Frame after this hold can differ from the stepper's in its last bit, since the
@@ -326,10 +329,10 @@ export const delay: {
             const held = Bool.match(first.done, { onTrue: () => unsettled(first), onFalse: () => first })
             let elapsed = 0
             let holding = true
-            // Per frame (ADR-0025): statement `if`s; the held Frame built above.
+            // Per frame (ADR-0025): statement `if`s, `Math.min`; the held Frame built above.
             return (dt) => {
               if (!holding) return step(dt)
-              elapsed += dt
+              elapsed += Math.min(dt, MAX_DT)
               if (elapsed < seconds) return held
               holding = false
               return step(elapsed - seconds)
@@ -339,7 +342,10 @@ export const delay: {
     }),
 )
 
-/** `self` with each `dt` clamped at `max` before its step (#78). Keeps `self`'s span. */
+/**
+ * `self` with each `dt` clamped at `max` before its step. Keeps `self`'s span. The constructors
+ * clamp at `MAX_DT` already, inline (#78); this is for a machine built with `make`.
+ */
 export const clampDt: {
   (max: number): <F extends Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame<unknown>>(self: Machine<F>, max: number): Machine<F>
@@ -416,16 +422,16 @@ export const run: {
 
 // --- The leaves --------------------------------------------------------------
 
-/** A tween's step from 0 elapsed, unclamped: `tween`'s, and each of `animate`'s and `keyframes`' segments. */
+/** A tween's step from 0 elapsed: `tween`'s, and each of `animate`'s and `keyframes`' segments. */
 const tweenLeaf = (from: number, to: number, tween: ResolvedTween, span: Span): Machine<Frame<number>> =>
   make({
     settles: true,
     span,
     start: () => {
       let state = initTween()
-      // Per frame (ADR-0025): the tween resolved when the machine is built.
+      // Per frame (ADR-0025): the tween resolved when the machine is built, `dt` clamped (#78).
       return (dt) => {
-        const result = stepTween(state, dt, from, to, tween)
+        const result = stepTween(state, Math.min(dt, MAX_DT), from, to, tween)
         state = result.state
         return { value: result.value, done: result.done }
       }
@@ -440,7 +446,7 @@ const tweenSpan = (from: number, to: number, duration: number): Span => ({
 
 /** A definite, duration-based animation from `from` to `to`. Its `delay` is its stepper's. */
 export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame<number>> =>
-  tweenLeaf(from, to, resolveTween(options), tweenSpan(from, to, options.duration)).pipe(clampDt(MAX_DT))
+  tweenLeaf(from, to, resolveTween(options), tweenSpan(from, to, options.duration))
 
 /**
  * The spring stepper toward `getTarget()`, read afresh on every step, so a moving target is
@@ -449,9 +455,9 @@ export const tween = (from: number, to: number, options: TweenOptions): Machine<
 const springRun =
   (getTarget: () => number, spring: ResolvedSpring, options: SpringOptions) => (): ((dt: number) => PhysicsFrame) => {
     let state = initSpring(options)
-    // Per frame (ADR-0025): the spring resolved when the machine is built.
+    // Per frame (ADR-0025): the spring resolved when the machine is built, `dt` clamped (#78).
     return (dt) => {
-      const result = stepSpring(state, dt, getTarget(), spring)
+      const result = stepSpring(state, Math.min(dt, MAX_DT), getTarget(), spring)
       state = result.state
       return { value: result.value, velocity: result.velocity, done: result.done }
     }
@@ -467,7 +473,7 @@ export const spring = (target: number, options: SpringOptions = {}): Machine<Phy
     settles: true,
     span: { name: "wardic.spring", attributes: { target, stiffness: resolved.stiffness, damping: resolved.damping } },
     start: springRun(() => target, resolved, options),
-  }).pipe(clampDt(MAX_DT))
+  })
 }
 
 /**
@@ -482,7 +488,7 @@ export const chase = (getTarget: () => number, options: SpringOptions = {}): Mac
     settles: false,
     span: { name: "wardic.chase", attributes: { stiffness: resolved.stiffness, damping: resolved.damping } },
     start: springRun(getTarget, resolved, options),
-  }).pipe(clampDt(MAX_DT))
+  })
 }
 
 /** Momentum/decay motion: fling from `initial` at `velocity`, slowed by friction. */
@@ -493,14 +499,14 @@ export const decay = (initial: number, velocity: number, options: DecayOptions =
     span: { name: "wardic.decay", attributes: { initial, velocity, friction: resolved.friction } },
     start: () => {
       let state = initDecay(initial, velocity)
-      // Per frame (ADR-0025): the decay resolved when the machine is built.
+      // Per frame (ADR-0025): the decay resolved when the machine is built, `dt` clamped (#78).
       return (dt) => {
-        const result = stepDecay(state, dt, resolved)
+        const result = stepDecay(state, Math.min(dt, MAX_DT), resolved)
         state = result.state
         return { value: result.value, velocity: result.velocity, done: result.done }
       }
     },
-  }).pipe(clampDt(MAX_DT))
+  })
 }
 
 /**
@@ -515,17 +521,18 @@ export const decayVec = (initial: Vec2, velocity: Vec2, options: DecayOptions): 
     start: () => {
       let x = initDecay(initial.x, velocity.x)
       let y = initDecay(initial.y, velocity.y)
-      // Per frame (ADR-0025): the decay resolved when the machine is built, no allocation
-      // beyond the Frame.
+      // Per frame (ADR-0025): the decay resolved when the machine is built, `dt` clamped once
+      // (#78), no allocation beyond the Frame.
       return (dt) => {
-        const rx = stepDecay(x, dt, resolved)
-        const ry = stepDecay(y, dt, resolved)
+        const clamped = Math.min(dt, MAX_DT)
+        const rx = stepDecay(x, clamped, resolved)
+        const ry = stepDecay(y, clamped, resolved)
         x = rx.state
         y = ry.state
         return { value: { x: rx.value, y: ry.value }, done: rx.done && ry.done }
       }
     },
-  }).pipe(clampDt(MAX_DT))
+  })
 }
 
 /**
@@ -562,16 +569,18 @@ export const springValues = (
           velocity: startOf(velocity, key, options.velocity),
         }),
       )
-      // Per frame (ADR-0025): a loop over the keys, every key's state and target present by
-      // construction. Records, as before: #63's bench measured an array of states, filled by
+      // Per frame (ADR-0025): `dt` clamped once (#78), then a loop over the keys, every key's
+      // state and target present by construction. Records, as before: #63's bench measured an array of states, filled by
       // `push` and destructured, at +18% bytes per frame.
       return (dt) => {
+        const clamped = Math.min(dt, MAX_DT)
         const nextStates: Record<string, SpringState> = {}
         const values: Record<string, number> = {}
         const velocities: Record<string, number> = {}
         let allDone = true
         for (const key of keys) {
-          const result = stepSpring(UndefinedOr.getOrThrow(states[key]), dt, UndefinedOr.getOrThrow(target[key]), spring)
+          const state = UndefinedOr.getOrThrow(states[key])
+          const result = stepSpring(state, clamped, UndefinedOr.getOrThrow(target[key]), spring)
           nextStates[key] = result.state
           values[key] = result.value
           velocities[key] = result.velocity
@@ -581,7 +590,7 @@ export const springValues = (
         return { value: values, velocity: velocities, done: allDone }
       }
     },
-  }).pipe(clampDt(MAX_DT))
+  })
 }
 
 // --- The composites ----------------------------------------------------------
@@ -603,7 +612,8 @@ const numberOr = (value: number | undefined, fallback: number): number =>
  *   (`concat(first, forever(concatAll(rest)))`): one segment, or a backward and forward pair
  *   with `yoyo`. It never settles; it ends when its run is removed.
  *
- * Then `delay(options.delay)`, `clampDt(MAX_DT)`, and its own span, `wardic.animate`.
+ * Then `delay(options.delay)`, and its own span, `wardic.animate`. Each segment's tween clamps
+ * its `dt` at `MAX_DT`, and so does the hold.
  */
 export const animate = (from: number, to: number, options: AnimateOptions = DEFAULT_ANIMATE): Machine<Frame<number>> => {
   const reverse = Option.getOrElse(Option.fromNullishOr(options.reverse), () => false)
@@ -633,7 +643,6 @@ export const animate = (from: number, to: number, options: AnimateOptions = DEFA
       ),
   }).pipe(
     delay(numberOr(options.delay, 0)),
-    clampDt(MAX_DT),
     withSpan("wardic.animate", { attributes: { from, to, repeat: repeats, yoyo, reverse } }),
   )
 }
@@ -656,7 +665,6 @@ export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): 
       concatAll(Arr.map(nonEmpty, ([a, b]) => tweenLeaf(a, b, segment, tweenSpan(a, b, duration)))),
   }).pipe(
     delay(numberOr(options.delay, 0)),
-    clampDt(MAX_DT),
     withSpan("wardic.keyframes", { attributes: { stops: stops.length, duration: options.duration } }),
   )
 }

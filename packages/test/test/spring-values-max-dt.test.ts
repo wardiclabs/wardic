@@ -14,8 +14,7 @@ import * as Stream from "effect/Stream"
  * Each run fed `STALL` is checked against the same run fed `CLAMPED`, and its first Frame is
  * still in flight, so the two can't match by both landing. Both drivers (ADR-0027): the Tier 2
  * `Stream` (`Machine.toStream`), and the machines on the Frame loop (`Machine.run`), which is how
- * the binding runs every spring. Since #94 the clamp is each constructor's outermost layer,
- * `Machine.clampDt(MAX_DT)`. The other Clock consumers' clamps are #23's to pin.
+ * the binding runs every spring. The other Clock consumers' clamps are #23's to pin.
  */
 const STALL: ReadonlyArray<number> = [30, 1 / 60]
 const CLAMPED: ReadonlyArray<number> = [Machine.MAX_DT, 1 / 60]

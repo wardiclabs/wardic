@@ -96,7 +96,7 @@ const firstFrame = <F extends Frame<unknown>>(machine: Machine.Machine<F>): F =>
 
 /**
  * `inner` after a hold of `seconds`, as `Machine.delay` holds: `held` on each tick until the
- * held time (each dt clamped at `MAX_DT`, as the composite's outermost `clampDt`) reaches
+ * held time (each dt clamped at `MAX_DT`, as `Machine.delay` counts it) reaches
  * `seconds`, then `inner` on a Clock whose first subscription's first tick is the time left
  * over. A later segment of `inner` subscribes again, and starts on the next tick.
  */
@@ -351,18 +351,18 @@ describe("Machine.delay against the steppers' delay", () => {
       [
         `tween −5 → 20, 2 s, delay ${delay}`,
         Machine.tween(-5, 20, { duration: 2, delay }),
-        Machine.tween(-5, 20, { duration: 2 }).pipe(Machine.delay(delay), Machine.clampDt(Machine.MAX_DT)),
+        Machine.tween(-5, 20, { duration: 2 }).pipe(Machine.delay(delay)),
       ] as const),
     [
       "tween 0 → 1, 0.2 s, delay 0.05",
       Machine.tween(0, 1, { duration: 0.2, delay: 0.05 }),
-      Machine.tween(0, 1, { duration: 0.2 }).pipe(Machine.delay(0.05), Machine.clampDt(Machine.MAX_DT)),
+      Machine.tween(0, 1, { duration: 0.2 }).pipe(Machine.delay(0.05)),
     ],
     ...[0.05, 0.3].map((delay) =>
       [
         `spring 0 → 100, delay ${delay}`,
         Machine.spring(100, { delay }),
-        Machine.spring(100).pipe(Machine.delay(delay), Machine.clampDt(Machine.MAX_DT)),
+        Machine.spring(100).pipe(Machine.delay(delay)),
       ] as const),
   ]
   for (const [name, stepper, held] of cases) {
