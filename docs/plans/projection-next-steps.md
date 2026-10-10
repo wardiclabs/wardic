@@ -151,9 +151,9 @@ From the ADR-0009 code review (some of the reviewed code has since moved to `@wa
   `computeTree` (which only runs in a measure pass, and dispose schedules none). Confirm
   current behavior; fix shape is `dispose` → `scheduleMeasure()` (or null children whose
   `parent === node`).
-- **Reduced motion in projection (LOW / parity).** The progress spring ticks 0→1
-  unconditionally; for parity with the value spine, a reduced-motion preference should
-  snap projection to identity. Confirm it's tracked as a phase.
+- **Reduced motion in projection (LOW / parity).** Done in #98 (ADR-0029): under reduced
+  motion a layout animation's progress spring starts at 1, so the node lands on its new box
+  at once; a drag's release still springs.
 
 ## Notes for the next session / device
 

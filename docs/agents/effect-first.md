@@ -34,7 +34,8 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 **What's on it:**
 - the steppers (`Spring.ts`'s, and the tween's and decay's in `internal/stepper.ts`);
 - `Machine.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
-- the step every Primitive's machine returns (ADR-0027, ADR-0028): the constructors' in `Machine.ts`, and the steps its combinators build (`map`, `concatAll`, `forever`, `delay`, `clampDt`);
+- the step every Primitive's machine returns (ADR-0027, ADR-0028): the constructors' in `Machine.ts`, and the steps its combinators build (`map`, `concatAll`, `forever`, `delay`, `holdAfter`, `clampDt`);
+- `ReducedMotion.snap`'s step (ADR-0029);
 - the easings (`Easing.ts`: the Penner set, and the functions its generators return);
 - the closures each Interpolator's `blend` returns (`Interpolator.ts`), which the registry's `resolve` hands out (ADR-0026);
 - `Scalar.ts` and `Point.ts`;

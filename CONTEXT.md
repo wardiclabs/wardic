@@ -40,6 +40,14 @@ _Avoid_: leg (a Retarget's run), iteration (Motion's word for one pass of a repe
 A stretch of ticks in which a run's value stays where it is: its `delay`, before its first Segment (`Machine.delay`), or a gap after a Segment that keeps that Segment's last value (`repeatDelay`, Motion's, through `Machine.holdAfter`; #91).
 _Avoid_: pause (a paused run doesn't tick), wait.
 
+**Positional key**:
+A key that moves or resizes the element: a transform (`x`, `scale`, `rotate`, …), or `width`, `height`, `top`, `left`, `right`, `bottom` (Motion's `positionalKeys`). Reduced motion Snaps these and no others (ADR-0029).
+_Avoid_: layout key (a layout animation is the projection's), geometry.
+
+**Snap**:
+Under reduced motion, a run's Positional keys landing where the run would end, in one Frame, after the Hold their leg would have had (`ReducedMotion.snap`, ADR-0029). The run's other keys animate as they would, and a layout animation lands on its new box at once.
+_Avoid_: jump, skip, instant animation (Motion's `type: false`).
+
 **Frame loop**:
 The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74, and dom's projection coordinator is one of its runs from #75 (ADR-0027).
 _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is one of its runs), ticker, driver, scheduler (Effect's).
@@ -291,4 +299,4 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
 - **"color string"** (what the color Interpolator decodes) — Resolved: a string is a color iff culori's `parse` accepts it, trimmed. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors, and neither is a string culori rejects (`"#zzz"`, `"rgb(var(--x))"`): paired with a color, they make a **Discrete pair**.
-- **Reduced-motion policy ownership** — `Probe.prefersReducedMotion` is exposed but no primitive currently reads it. Resolved: core ships a `ReducedMotion.respect(stream)` combinator (snap to target by default, preference read once at stream start); bindings apply it by default; users opt out per-call via `transition.respectReducedMotion: false`.
+- **Reduced-motion policy ownership** — Resolved (#98, ADR-0029, replacing an earlier resolution that nothing applied): core's `ReducedMotion` holds the DOM-free policy (`Config`, `applies`, `split`, `endOf`, `snap`), and the bindings apply it when each run starts. It's on by default (the provider's `reducedMotion`, `"user"`), and reaches the spine's legs, presence's exit and layout animations, never drag's release. Only Positional keys Snap; the rest animate. A transition opts out with `respectReducedMotion: false`.
