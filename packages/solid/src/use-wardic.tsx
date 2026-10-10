@@ -23,14 +23,14 @@
  * NO variant-tree propagation, NO drag, NO exit/layout. Mixed numeric+string
  * targets are handled by routing numeric keys through `springValues` and any
  * string/color keys through `springBlend`, the same spring on a progress (both
- * writing into the same gate id) — see {@link splitTarget}.
+ * writing into the same gate id) — see core's `Values.split`.
  */
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Stagger from "@wardic/core/Stagger"
-import type * as Values from "@wardic/core/Values"
+import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import {
   DRAG_DEFAULT_ATTRIBUTES,
@@ -375,7 +375,7 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
 /**
  * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
  * to a clean core {@link Values} map. Both arms funnel through {@link toValues}
- * so `Override.resolve` / `splitTarget` never receive `undefined`-valued keys.
+ * so `Override.resolve` / `Values.split` never receive `undefined`-valued keys.
  */
 const resolveValues = (
   entry: WardicValues | string | undefined,
@@ -384,29 +384,6 @@ const resolveValues = (
   if (entry === undefined) return {}
   if (typeof entry === "string") return toValues(variants?.[entry])
   return toValues(entry)
-}
-
-/** A target split into its numeric (spring-able) and string (blended by a progress) keys. */
-interface SplitTarget {
-  readonly numeric: Record<string, number>
-  readonly strings: Values.Values
-}
-
-/**
- * Partition a resolved target into numeric keys (driven by `springValues` when
- * the transition is a spring) and string/color keys (blended through the
- * InterpolatorRegistry by the spring's progress, `springBlend`, ADR-0024). Both
- * halves write into the same gate id, so they collapse into one projected `Patch`.
- */
-const splitTarget = (target: Values.Values): SplitTarget => {
-  const numeric: Record<string, number> = {}
-  const strings: Values.Values = {}
-  for (const key in target) {
-    const v = target[key]!
-    if (typeof v === "number") numeric[key] = v
-    else strings[key] = v
-  }
-  return { numeric, strings }
 }
 
 /** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
@@ -865,7 +842,10 @@ export function runSpine(opts: RunSpineOptions): void {
             // return later finds the element's value, not Wardic's (ADR-0022, D3). The read is
             // kept: a later need is a lookup. A transform key reads nothing.
             for (const key in t) if (!Object.hasOwn(initialValues, key)) ownValue(key)
-            const { numeric, strings } = splitTarget(t)
+            // Numeric keys go to `springValues` when the transition is a spring, string / color
+            // keys to `springBlend` by the spring's progress (ADR-0024). Both halves write into the
+            // same gate id, so they collapse into one projected `Patch`.
+            const { numbers: numeric, strings } = Values.split(t)
             // Each key starts from its Snapshot value, coerced to its target's shape (ADR-0024,
             // D1). A key with no value yet, or one whose value can't take that shape, starts
             // from its Base value's start links, read here at its first need (ADR-0022, D3);

@@ -35,7 +35,7 @@
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Renderer from "@wardic/core/Renderer"
-import type * as Values from "@wardic/core/Values"
+import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -82,16 +82,6 @@ export const PresenceContext = createContext<PresenceContextValue | undefined>(u
 
 /** Read the nearest {@link PresenceContext}, or `undefined` outside one. */
 export const usePresenceContext = (): PresenceContextValue | undefined => useContext(PresenceContext)
-
-/** Pull the numeric subset of a value-map (the spring-able keys). */
-const numericOf = (values: Values.Values): Record<string, number> => {
-  const out: Record<string, number> = {}
-  for (const key in values) {
-    const v = values[key]
-    if (typeof v === "number") out[key] = v
-  }
-  return out
-}
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => {
@@ -194,14 +184,8 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
       const start = rec.startOf?.(key, exit[key]!)
       from[key] = start ?? exit[key]!
     }
-    const numericTo: Record<string, number> = {}
-    const stringTo: Values.Values = {}
-    for (const key in exit) {
-      const v = exit[key]
-      if (typeof v === "number") numericTo[key] = v
-      else if (v !== undefined) stringTo[key] = v
-    }
-    const fromNumeric = numericOf(from)
+    const { numbers: numericTo, strings: stringTo } = Values.split(exit)
+    const fromNumeric = Values.split(from).numbers
     const hasNumeric = Object.keys(numericTo).length > 0
     const hasStrings = Object.keys(stringTo).length > 0
 
@@ -218,7 +202,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     // side: the exit ends once both settle.
     const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
     if (hasNumeric) runs.push(Machine.springValues(numericTo, {}, fromNumeric, {}).pipe(Machine.run(commitFrame)))
-    if (hasStrings) runs.push(Machine.springBlend(pick(from, stringTo), stringTo).pipe(Effect.flatMap(Machine.run(commitFrame))))
+    if (hasStrings) runs.push(Machine.springBlend(Values.pick(from, stringTo), stringTo).pipe(Effect.flatMap(Machine.run(commitFrame))))
 
     // One `wardic.presence.exit` span spans the whole exit animation (from the last
     // snapshot to the exit target), so a devtool/timeline shows each parent-driven
@@ -313,16 +297,6 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
       <Tracker />
     </PresenceContext.Provider>
   )
-}
-
-/** Pick the keys of `keysFrom` out of `source` (the from-values for strings). */
-const pick = (source: Values.Values, keysFrom: Values.Values): Values.Values => {
-  const out: Values.Values = {}
-  for (const key in keysFrom) {
-    const v = source[key]
-    if (v !== undefined) out[key] = v
-  }
-  return out
 }
 
 /** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
