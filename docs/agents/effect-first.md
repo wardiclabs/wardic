@@ -32,24 +32,24 @@ Parameter and destructuring defaults (`options = {}`, `{ from = "first" }`) are 
 Code that runs **once per Clock tick, per key or per node** keeps both rules, in forms that allocate nothing per call. At 1,000 elements, writing it with the combinators cost 13–44% frame time on the spring workloads and tripled V8's allocation (ADR-0025, decision 3).
 
 **What's on it:**
-- the steppers (`primitives/stepper.ts`);
+- the steppers (`Spring.ts`'s, and the tween's and decay's in `internal/stepper.ts`);
 - `Machine.ts`'s `blendAt`, its blenders, and `springValues`' per-tick step;
 - the step every Primitive's machine returns (ADR-0027, ADR-0028): the constructors' in `Machine.ts`, and the steps its combinators build (`map`, `concatAll`, `forever`, `delay`, `clampDt`);
-- the easings (`easing/penner.ts`, and the functions `easing/generators.ts` returns);
-- the closures each Interpolator's `blend` returns, which the registry's `resolve` hands out (ADR-0026);
-- `math/`;
-- `layout/box.ts` and `layout/projection-geometry.ts` (dom's projection pass calls them per node, per frame);
-- `util/velocity.ts`, and the functions `util/generators.ts` returns;
-- the Frame loop's tick (`services/frame-loop.ts`, ADR-0027): plain calls only, in its one `Stream.map` call per tick. A run's sink is typed `(frame) => undefined`, so an Effect can't be returned from it.
+- the easings (`Easing.ts`: the Penner set, and the functions its generators return);
+- the closures each Interpolator's `blend` returns (`Interpolator.ts`), which the registry's `resolve` hands out (ADR-0026);
+- `Scalar.ts` and `Point.ts`;
+- `Box.ts` and `Projection.ts` (dom's projection pass calls them per node, per frame);
+- `Velocity.between`, and the samplers `Wave.ts` returns;
+- the Frame loop's tick (`internal/frameLoop.ts`, ADR-0027): plain calls only, in its one `Stream.map` call per tick. A run's sink is typed `(frame) => undefined`, so an Effect can't be returned from it.
 
 Input-event code (recognizers, reorder, the held pointer) runs per gesture event, not per key per frame, so it gets the full rules.
 
 **The allowed forms on the per-frame path:**
 - **Instead of a ternary:** a statement `if` with an early return, or `Math.min` / `Math.max`. A `Boolean.match` is fine only when its handlers are hoisted to module level and capture nothing.
 - **No `Option`, `Match`, `Num.clamp`, `Rec.map` or `Boolean.match` with inline closures on each call,** and no Effect round trip (`Effect.runSync`, a service access) per frame.
-- **Options are resolved once, when the machine is built** (`resolveSpring`, `resolveTween`, `resolveDecay`), and the frame reads plain fields. The resolvers use the early-return form below, not `Option`, because `springStep` and its siblings resolve on every call for a caller that steps by hand (dom's projection pass).
+- **Options are resolved once, when the machine is built** (`Spring.resolve`, and the tween's and decay's resolvers in `internal/stepper.ts`), and the frame reads plain fields. The resolvers use the early-return form below, not `Option`, because a caller that steps by hand resolves per frame: dom's projection pass calls `Spring.step(state, dt, 1, Spring.resolve(options))` per node.
 - **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
-- **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `springStep`'s substeps, `blendAt`, `complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
+- **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `Spring.step`'s substeps, `blendAt`, `Interpolator.complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
   - An index that is in range by construction uses `Arr.getUnsafe(xs, i)`, and a value that is present by construction uses `UndefinedOr.getOrThrow(x)`. Both throw (a defect) rather than returning `undefined`, and allocate nothing.
   - A loop over a record's keys runs over an array of `[key, value]` pairs built when the stream is built (`Rec.toEntries`).

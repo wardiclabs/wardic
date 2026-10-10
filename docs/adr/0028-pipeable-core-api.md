@@ -347,3 +347,45 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
     | | data-last | 4.34, ×3.36 | 6.85, ×5.52 | 5.59, ×4.22 |
 
     Decision 1's positional per-frame functions stand. V8 inlines a data-first `dual` call, but JSC doesn't for `lerp`'s shape (×2.9), and a data-last call allocates its closure (×3–17).
+
+## Implementation in #95 (slice 2): every export in its module, and the lint
+
+- **29 modules at `packages/core/src/<Module>.ts`:** `AutoScroll`, `BaseValue`, `Box`, `Clock`, `Drag`, `DragActivity`, `Easing`, `Flip`, `Frame`, `FrameLoop`, `InputSource`, `Interpolator`, `InterpolatorRegistry`, `Machine`, `Microtask`, `Override`, `Point`, `Probe`, `Projection`, `Recognizer`, `ReducedMotion`, `Renderer`, `Reorder`, `Scalar`, `Spring`, `Stagger`, `Values`, `Velocity`, `Wave`. The folders and their barrels go, and the root is 29 `export * as X from "./X.ts"` lines.
+- **`src/internal/`** holds what two modules share: the tween's and decay's steppers, `valueOr` and the step results (`internal/stepper.ts`, for `Machine` and `Spring`), and the Frame loop's shape and `make` (`internal/frameLoop.ts`, decision 11). Core's own `frame-loop.test.ts` reaches it by path.
+- **The services, as decision 11 has them,** and decision 12's renames, as tabled. The presets are six constants, `Spring.gentle` … `Spring.bouncy`. The `dual`s are `Drag.axisLock` (arity 2), `Drag.withinBounds` (told apart by `Stream.isStream`, since its options are optional) and `Renderer.applyTo` (an `Effect.fn` inside `dual`, its span still `wardic.applyTo`). `group`, `onFrame`, `onSettle`, `wait`, `draggable` and the `easings` object go.
+- **Decided with the maintainer (2026-10-09), where decisions 2, 10 and 12 left it open:**
+  1. **Core's modules import each other relatively, as namespaces:** `import * as Clock from "./Clock.ts"`. This amends decision 2's "core's modules among themselves write `@wardic/core/Machine`". The bench copies a core's `src` without its `package.json`, so a self-reference there would resolve to the working tree's core, on both sides of a run.
+  2. **`Spring.step` takes the resolved spring,** one stepper: dom's projection pass writes `Spring.step(state, dt, 1, Spring.resolve(options()))`, the work `springStep` did. `springStep`, `tweenStep` and `decayStep`, the options forms, go. `Spring.Resolved` is public beside `Spring.State`.
+  3. **`VERSION` goes.** Core's version is its `package.json`'s, which `exports` already serves. The example reads it there; dom's and solid's `VERSION` wait for #69.
+  4. **A name that repeats its module drops the repeat:** `Box.mix`, `Projection.KEY` and `.Value`, `Flip.Transform` and `.IDENTITY`, `Stagger.Options` and `.Origin`, `Drag.Bounds` and `.FlingOptions`, `DragActivity.Shape`, `AutoScroll.State`, `.THRESHOLD` and `.MAX_SPEED`, `Reorder.check`, `.Axis` and `.ItemData`, `Interpolator.Entry`, `Easing.SpringOptions`, `InputSource.HeldPointerOptions`. The module's own type keeps its name (`Box.Box`), and the Reorder group's names wait for #96. The rule is in `docs/agents/pipeable.md`.
+- **The call sites,** 98 files in dom, solid, test, the bench and the example, were moved by a codemod over TypeScript's checker. It rewrote each identifier bound to an `@wardic/core` import to `Module.name`, gave a shorthand property its key, and left a local that shadows one alone. solid's `reorder.tsx` and its test harness already have a `Reorder`, the Solid component, so they import core's as `CoreReorder`.
+- **The lint** (decision 10):
+  - in `src/index.ts`, `no-restricted-syntax` on `ExportAllDeclaration[exported=null]` and `ExportNamedDeclaration`;
+  - in dom, solid and test (src and test) and the bench, `ImportDeclaration[source.value='@wardic/core']`, in a block holding only that rule, with `bun run lint` widened to those packages;
+  - `PER_FRAME_LOOPS` names `Spring.ts`, `internal/frameLoop.ts`, `Machine.ts`, `Interpolator.ts`, `Scalar.ts` and `Projection.ts`;
+  - solid's code carries eslint-plugin-solid's `solid/reactivity` directives, for an editor that runs the plugin. The block names that rule as a no-op and doesn't report its directives as unused.
+- **Tests:**
+  - the four for the removed helpers go;
+  - `smoke.test.ts` pins the root as namespaces only, PascalCase each, with no `VERSION`;
+  - `dual.test.ts` pins both forms of each new `dual`, by type and by what they emit.
+  - Every other outcome is unchanged: 596 node tests and 615 browser tests pass.
+- **The gate run** (`3d9feee`, `bench:core --base main`, 11 paired reps on the bench server; noise controls Bun +0.8%, Node +0.6%, Chromium −0.9%). The harness reads the services and the easing through a shim across the rename, and #94's shim goes. Head / base, median [p25–p75]:
+
+  | Workload | Bun | Node | Chromium | Node MB per frame |
+  |---|---|---|---|---|
+  | `springValues` | −1.9% [−3.7, +1.2] | −0.8% [−1.2, +0.3] | −0.3% [−1.1, +2.2] | 4.95 → 4.95 |
+  | `animateValues` | −0.6% [−3.1, +4.3] | −0.1% [−1.8, −0.0] | +0.3% [−1.3, +1.4] | 4.75 → 4.76 |
+  | `springBlend` | −3.3% [−6.8, +2.4] | +0.1% [−1.8, +1.4] | +0.8% [+0.0, +3.2] | 5.11 → 5.11 |
+  | `chase` | +5.5% [−9.4, +6.8] | −0.2% [−1.9, +1.7] | +1.1% [−2.0, +2.1] | 4.13 → 4.13 |
+  | `animateComplex` | +0.1% [−0.6, +1.1] | −0.3% [−1.2, −0.0] | +0.7% [−1.3, +1.7] | 6.32 → 6.32 |
+  | `animateRepeat` | −4.3% [−6.9, −2.2] | +1.1% [+0.4, +2.0] | +0.5% [−0.5, +1.8] | 4.76 → 4.76 |
+  | `springValues/loop` | +3.7% [−2.8, +5.6] | +0.6% [+0.0, +1.0] | −9.2% [−10.9, −3.3] | 0.92 → 0.92 |
+  | `animateValues/loop` | +1.2% [−4.7, +3.3] | −0.3% [−1.4, +3.1] | −2.0% [−2.1, +4.3] | 0.80 → 0.80 |
+  | `springBlend/loop` | +0.5% [−14.4, +2.0] | +2.5% [−1.3, +4.0] | +3.2% [+1.6, +12.1] | 1.05 → 1.12 |
+  | `chase/loop` | −13.5% [−18.6, +9.4] | −1.5% [−5.3, +3.2] | +0.0% [+0.0, +0.0] | 0.17 → 0.17 |
+  | `animateComplex/loop` | −0.5% [−2.8, +1.3] | −0.7% [−1.7, +0.5] | +0.0% [−4.1, +3.4] | 2.30 → 2.30 |
+  | `animateRepeat/loop` | −0.3% [−4.4, +4.3] | −1.9% [−3.5, −0.3] | +0.0% [−7.5, +3.0] | 0.80 → 0.80 |
+
+  - **Every workload passes the time gate on every engine.**
+  - **Node's bytes flag `springBlend/loop`** (1.05 → 1.12 MB, +6.4%): the GC's timing, the pair of readings it gave on identical code in #94. The steps-only probe (`.tmp/94-bytes/`, 7 processes per side) reads 872,589 bytes per frame on both sides for its steps, and 610,027 for `springValues`'.
+- **Found, not from #95:** core's "a run retrying against a Clock that dies at once" test (2,000 retries) takes about 2.6 s alone against its 5 s timeout, on main and here alike. It timed out once in a full parallel `bun run test`, and passed in the reruns.
