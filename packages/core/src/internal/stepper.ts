@@ -40,6 +40,9 @@ export const valueOr = <A>(value: A | undefined, fallback: A): A => {
   return value
 }
 
+/** A tween's duration when its options give none: 0.3 s (#107). */
+export const DEFAULT_DURATION = 0.3
+
 /** A tween's duration, or `Number.EPSILON` for one at or below 0, so a zero duration still divides. */
 const durationOf = (duration: number): number => {
   if (duration <= 0) return Number.EPSILON
@@ -60,10 +63,10 @@ export interface ResolvedTween {
   readonly easing: Easing.Easing
 }
 
-/** Fill in a tween's defaults: no delay, linear easing. */
+/** Fill in a tween's defaults: 0.3 s, no delay, linear easing. */
 export const resolveTween = (options: TweenOptions): ResolvedTween => ({
   delay: valueOr(options.delay, 0),
-  duration: durationOf(options.duration),
+  duration: durationOf(valueOr(options.duration, DEFAULT_DURATION)),
   easing: valueOr(options.easing, Easing.linear),
 })
 

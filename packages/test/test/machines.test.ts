@@ -150,7 +150,7 @@ const animateOracle = (from: number, to: number, options: Machine.AnimateOptions
 /** `keyframes`' Stream before #94: one tween per pair of stops, `duration` split evenly, then the hold. */
 const keyframesOracle = (stops: ReadonlyArray<number>, options: Machine.TweenOptions) => {
   const pairs = stops.slice(1).map((to, i) => [stops[i]!, to] as const)
-  const duration = options.duration / Math.max(1, pairs.length)
+  const duration = (options.duration ?? 0.3) / Math.max(1, pairs.length)
   const segment: Machine.TweenOptions = { ...options, duration, delay: 0 }
   const tweens = pairs.map(([a, b]) => Machine.tween(a, b, segment))
   if (tweens.length === 0) tweens.push(Machine.tween(stops[0] ?? 0, stops[0] ?? 0, segment))

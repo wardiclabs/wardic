@@ -51,7 +51,7 @@ This replaces CONTEXT.md's earlier resolution, which nothing applied: a Stream c
 - **Under reduced motion, a positional key costs one leg:** one Frame, or the held Frames through its delay. A layout animation settles at its Priming step.
 - **Breaking:** `ReducedMotion.respect` is gone. Core is unpublished.
 - **CONTEXT.md** gains **Positional key** and **Snap**, and its flagged ambiguity is resolved again. `createReducedMotion`'s comment ("animations honour the preference either way") now holds.
-- **Found, not acted on here:** a tween transition with no `duration` runs on `animateValues`' defaults, so its `delay`, `repeat` and `yoyo` are dropped (`use-wardic.tsx`, `UndefinedOr.map(options.duration, …)`). The Snap follows what the tween runs with.
+- **Found here, fixed in #107:** a tween transition with no `duration` ran on `animateValues`' defaults, which dropped its `delay`, `easing`, `repeat` and `yoyo`, and a stagger (`use-wardic.tsx`, `UndefinedOr.map(options.duration, …)`). A tween's `duration` is now optional in core (0.3 s when it's missing), and the spine passes its options, so the Snap's delay, as they are.
 
 ## Implementation in #98
 
