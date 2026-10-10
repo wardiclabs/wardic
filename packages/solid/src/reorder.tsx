@@ -6,7 +6,7 @@
  * them.
  *
  * The **Reorder group** is `@wardic/dom`'s `makeReorderController` (core's
- * `makeReorderGroup` underneath): it reads each item's slot, drag offset and layout
+ * `Reorder.Group` underneath): it reads each item's slot, drag offset and layout
  * version from its projection node's handle, runs the **Crossover** on each drag
  * sample, calls the app's `onReorder`, runs **Auto-scroll**, and detects the axis after
  * every Measure pass. This file adds Solid's half: the reactive config, the lifecycle,
@@ -19,7 +19,7 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
-import type * as CoreReorder from "@wardic/core/Reorder"
+import * as CoreReorder from "@wardic/core/Reorder"
 import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import {
@@ -66,7 +66,7 @@ export interface ReorderGroupWardProps {
  * `axis` (the resolved axis) and `move(value, toIndex)` (move a value in code).
  */
 export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWardProps) & {
-  readonly group: CoreReorder.ReorderGroup<V>
+  readonly group: CoreReorder.Group<V>
   readonly axis: Accessor<CoreReorder.Axis>
   readonly move: (value: V, toIndex: number) => void
   /** @internal for the items: the group's controller. */
@@ -129,7 +129,8 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     },
   })
 
-  return Object.assign(ward, { group: controller.group, axis, move: controller.group.move, controller })
+  const move = (value: V, toIndex: number): void => CoreReorder.move(controller.group, value, toIndex)
+  return Object.assign(ward, { group: controller.group, axis, move, controller })
 }
 
 /**
@@ -138,7 +139,14 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
  * group, raised while dragged, whose drag takes the group's axis at each start and
  * feeds the controller its samples, and whose `touch-action` follows the group's axis.
  */
-const itemInternals = <V,>(group: ReorderGroupWard<V>, value: V, element: Accessor<HTMLElement | undefined>): SpineInternals => {
+/**
+ * What an item reads from its group: its controller's driver for the item, and the group's
+ * axis. Any {@link ReorderGroupWard} is one. Its value type appears only in `item`'s
+ * parameters, so `ItemGroup<never>` accepts a group of any value type.
+ */
+type ItemGroup<V> = { readonly controller: Pick<ReorderController<V>, "item">; readonly axis: Accessor<CoreReorder.Axis> }
+
+const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>): SpineInternals => {
   const driver = group.controller.item(value, element)
   // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture.
   onCleanup(driver.dispose)
@@ -208,11 +216,10 @@ const withoutValue = <V,>(config: ReorderItemConfig<V>): WardicConfig => {
 }
 
 /**
- * `use:reorderItem`'s value: the item's group (of any value type: a group's value type
- * only appears in its parameters, so `never` accepts every group) and value, plus its
- * motion config.
+ * `use:reorderItem`'s value: the item's group (of any value type, as an `ItemGroup<never>`)
+ * and value, plus its motion config.
  */
-export type ReorderItemDirectiveValue = { readonly group: ReorderGroupWard<never>; readonly value: unknown } & Omit<
+export type ReorderItemDirectiveValue = { readonly group: ItemGroup<never>; readonly value: unknown } & Omit<
   WardicConfig,
   "layout" | "layoutId" | "drag"
 >
@@ -239,7 +246,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
     },
     parent: useVariantContext(),
     makeSink: (element) => ({ kind: "commit", target: element }),
-    internal: itemInternals(first.group as ReorderGroupWard<unknown>, first.value, () => el),
+    internal: itemInternals(first.group as ItemGroup<unknown>, first.value, () => el),
   })
 }
 

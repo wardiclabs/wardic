@@ -3,7 +3,7 @@
  * `<Reorder>`, shared by every DOM binding. A binding adds only its reactivity, its
  * lifecycle and its elements.
  *
- * It owns core's `makeReorderGroup` (the **Crossover** and the new order), reads the
+ * It owns core's `Reorder.Group` (the **Crossover** and the new order), reads the
  * group element's `direction` at each drag start, builds the group's **Auto-scroll**,
  * and routes each item's drag samples: the start opens the group's gesture, each move
  * runs the Crossover and Auto-scroll, the end (or the item's disposal mid-gesture)
@@ -20,7 +20,6 @@
  */
 import * as AutoScroll from "@wardic/core/AutoScroll"
 import type * as Drag from "@wardic/core/Drag"
-import type * as Point from "@wardic/core/Point"
 import * as Reorder from "@wardic/core/Reorder"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -71,8 +70,8 @@ export interface ReorderItemDriver {
 
 /** A **Reorder group** on the DOM (ADR-0020). */
 export interface ReorderController<V> {
-  /** Core's Reorder group (its `move(value, toIndex)` reorders in code). */
-  readonly group: Reorder.ReorderGroup<V>
+  /** Core's Reorder group (`Reorder.move(group, value, toIndex)` reorders in code). */
+  readonly group: Reorder.Group<V>
   /** The app's axis, else the last detected one (`"y"` before the first). */
   readonly axis: () => Reorder.Axis
   /** The group's element: its `direction`, and the scroller Auto-scroll looks for from it. */
@@ -95,7 +94,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
   }
   let element: Element | undefined
   let autoScroller: AutoScroller | undefined
-  const group = Reorder.makeReorderGroup<V>({
+  const group = Reorder.make<V>({
     values: options.values,
     onReorder: options.onReorder,
     axis: () => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => Option.fromUndefinedOr(axis())),
@@ -108,7 +107,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
   let reported: Reorder.Axis | undefined
   const resolve = (): void => {
     if (options.axis?.() !== undefined) return
-    detected = group.resolveAxis()
+    detected = Reorder.resolveAxis(group)
     if (detected === reported) return
     reported = detected
     debug("axis", { axis: detected })
@@ -127,7 +126,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
     let inGesture = false
     const end = (): void => {
       inGesture = false
-      group.dragEnd(value)
+      Reorder.dragEnd(group, value)
       autoScroller?.reset()
     }
     return {
@@ -140,7 +139,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
             ).pipe(Effect.annotateLogs({ value: String(value) })),
           )
         }
-        const unregister = group.register(value, {
+        const unregister = Reorder.register(group, value, {
           layoutBox: () => Option.fromUndefinedOr(handle.layoutBox()),
           dragOffset: handle.dragOffset,
           layoutVersion: handle.layoutVersion,
@@ -151,15 +150,15 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
           unregisteredThisTask.add(value)
         }
       },
-      dragAxis: () => group.resolveAxis(),
+      dragAxis: () => Reorder.resolveAxis(group),
       onSample: (sample) => {
         if (sample.phase === "start") {
           inGesture = true
-          gestureAxis = group.dragStart(value, sample.point, sample.timeStamp)
+          gestureAxis = Reorder.dragStart(group, value, sample.point, sample.timeStamp)
           return
         }
         if (sample.phase === "move") {
-          const velocity = group.dragMove(value, sample.point, sample.timeStamp)
+          const velocity = Reorder.dragMove(group, value, sample.point, sample.timeStamp)
           if (autoScroller !== undefined) {
             const on = AutoScroll.axis(gestureAxis, velocity)
             autoScroller.update(sample.point, on, velocity[on], itemElement())
@@ -195,20 +194,14 @@ const noop = (): void => {}
 
 /**
  * A {@link ReorderController} for a server render (ADR-0021), where there's no projection
- * system to drive and nothing to reorder: every call does nothing, the axis is `"y"`, and
- * an item's driver is inert too. A binding's server path hands it to its group, so code
+ * system to drive and nothing to reorder: its group has no values, so every operation on it
+ * does nothing, the axis is `"y"`, and an item's driver is inert too. A binding's server path hands it to its group, so code
  * that reads `group`, `move` or `controller` at setup works there. Tier 2, for binding
  * authors.
  */
 export const INERT_REORDER_CONTROLLER: ReorderController<never> = Object.freeze({
-  group: Object.freeze({
-    register: () => noop,
-    resolveAxis: () => "y" as const,
-    dragStart: () => "y" as const,
-    dragMove: (_value: never, point: Point.Point) => point,
-    dragEnd: noop,
-    move: noop,
-  }),
+  // A group with no values: every operation on it finds nothing to do.
+  group: Reorder.make<never>({ values: () => [], onReorder: noop }),
   axis: () => "y" as const,
   attach: noop,
   item: () => ({ register: () => noop, dragAxis: () => "y" as const, onSample: noop, dispose: noop }),

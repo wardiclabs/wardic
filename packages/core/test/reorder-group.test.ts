@@ -1,9 +1,9 @@
 import type * as Box from "@wardic/core/Box"
 import * as Reorder from "@wardic/core/Reorder"
 import * as Option from "effect/Option"
-import { describe, expect, it } from "@effect/vitest"
+import { describe, expect, expectTypeOf, it } from "@effect/vitest"
 
-// The Reorder group (ADR-0020): core's framework-free `makeReorderGroup`, checked
+// The Reorder group (ADR-0020): core's framework-free `Reorder.Group`, checked
 // against fake item sources. A fake source stands in for a projection handle (ADR-0016,
 // *Amendment (Reorder)*): its box, its drag offset and its layoutVersion are plain
 // fields the test sets, as the engine would. `pass()` plays a Measure pass after a
@@ -20,7 +20,7 @@ const slot = (i: number): Box.Box => box(0, 60 * i, 200, 60 * i + 50)
 /** A row's slot at index `i`: 80 x 50, 10 px apart. */
 const rowSlot = (i: number): Box.Box => box(90 * i, 0, 90 * i + 80, 50)
 
-interface FakeSource extends Reorder.ReorderItemSource {
+interface FakeSource extends Reorder.ItemSource {
   layout: Box.Box | undefined
   offset: { x: number; y: number }
   version: number
@@ -54,7 +54,7 @@ const harness = <V,>(
     events: [] as Array<{ event: string; annotations: Record<string, unknown> }>,
     sources: new Map<V, FakeSource>(),
   }
-  const group = Reorder.makeReorderGroup<V>({
+  const group = Reorder.make<V>({
     values: () => state.values,
     onReorder: (next) => {
       state.calls.push(next)
@@ -69,7 +69,7 @@ const harness = <V,>(
     if (!measured.includes(v)) return
     const s = fakeSource(slotOf(i))
     state.sources.set(v, s)
-    group.register(v, s)
+    Reorder.register(group, v, s)
   })
   /** A Measure pass after a reorder: slots follow `values`, versions rise. */
   const pass = (of: (i: number) => Box.Box = slotOf): void => {
@@ -92,25 +92,25 @@ const harness = <V,>(
     const grab = s.layout!
     const y0 = (grab.y.min + grab.y.max) / 2
     let t = t0
-    const axis = group.dragStart(value, { x: 100, y: y0 }, t0)
+    const axis = Reorder.dragStart(group, value, { x: 100, y: y0 }, t0)
     return {
       axis,
       to: (dy: number) => {
         t += 50
         s.offset = { x: 0, y: grab.y.min + dy - s.layout!.y.min }
-        return group.dragMove(value, { x: 100, y: y0 + dy }, t)
+        return Reorder.dragMove(group, value, { x: 100, y: y0 + dy }, t)
       },
-      end: () => group.dragEnd(value),
+      end: () => Reorder.dragEnd(group, value),
     }
   }
   return { state, group, pass, gesture }
 }
 
-describe("makeReorderGroup", () => {
+describe("Reorder.Group", () => {
   it("RG1: register and unregister by value; an unregistered value is left out of the order but kept in values", () => {
     const h = harness(["a", "b", "c"])
     // b leaves the registry (e.g. virtualized off-screen): it is no longer measured.
-    h.group.register("b", h.state.sources.get("b")!)()
+    Reorder.register(h.group, "b", h.state.sources.get("b")!)()
     const g = h.gesture("a")
     // Measured order [a, c]: a's bottom 50 passes c's centre 145 at +96. The new order
     // [c, a] goes back into the measured indexes 0 and 2; b keeps index 1.
@@ -119,11 +119,11 @@ describe("makeReorderGroup", () => {
   })
 
   it("RG2: dragStart returns the axis override when given, else detectAxis over the measured boxes", () => {
-    expect(harness(["a", "b", "c"]).group.dragStart("a", { x: 0, y: 0 }, 0)).toBe("y")
-    expect(harness(["a", "b", "c"], { slotOf: rowSlot }).group.dragStart("a", { x: 0, y: 0 }, 0)).toBe("x")
-    expect(harness(["a", "b", "c"], { axis: () => "x" }).group.dragStart("a", { x: 0, y: 0 }, 0)).toBe("x")
+    expect(Reorder.dragStart(harness(["a", "b", "c"]).group, "a", { x: 0, y: 0 }, 0)).toBe("y")
+    expect(Reorder.dragStart(harness(["a", "b", "c"], { slotOf: rowSlot }).group, "a", { x: 0, y: 0 }, 0)).toBe("x")
+    expect(Reorder.dragStart(harness(["a", "b", "c"], { axis: () => "x" }).group, "a", { x: 0, y: 0 }, 0)).toBe("x")
     // Fewer than two measured items: "y", Motion's starting axis.
-    expect(harness(["a", "b", "c"], { measured: ["a"] }).group.dragStart("a", { x: 0, y: 0 }, 0)).toBe("y")
+    expect(Reorder.dragStart(harness(["a", "b", "c"], { measured: ["a"] }).group, "a", { x: 0, y: 0 }, 0)).toBe("y")
   })
 
   it("RG3: the axis is fixed for the gesture; an override changed mid-gesture applies at the next dragStart", () => {
@@ -135,7 +135,7 @@ describe("makeReorderGroup", () => {
     for (const dy of [20, 36]) g.to(dy)
     expect(h.state.calls).toEqual([["b", "a", "c"]])
     g.end()
-    expect(h.group.dragStart("b", { x: 0, y: 0 }, 1000)).toBe("x")
+    expect(Reorder.dragStart(h.group, "b", { x: 0, y: 0 }, 1000)).toBe("x")
   })
 
   it("RG4: a slow drag (moves 50 ms apart) past one neighbour reorders once", () => {
@@ -190,28 +190,28 @@ describe("makeReorderGroup", () => {
         return "ltr"
       },
     })
-    expect(h.group.dragStart("a", { x: 50, y: 50 }, 0)).toBe("xy")
-    for (let k = 1; k <= 5; k++) h.group.dragMove("a", { x: 50 + 5 * k, y: 50 }, 50 * k)
+    expect(Reorder.dragStart(h.group, "a", { x: 50, y: 50 }, 0)).toBe("xy")
+    for (let k = 1; k <= 5; k++) Reorder.dragMove(h.group, "a", { x: 50 + 5 * k, y: 50 }, 50 * k)
     expect(reads).toBe(1)
-    h.group.dragEnd("a")
-    h.group.dragStart("a", { x: 50, y: 50 }, 1000)
+    Reorder.dragEnd(h.group, "a")
+    Reorder.dragStart(h.group, "a", { x: 50, y: 50 }, 1000)
     expect(reads).toBe(2)
   })
 
   it("RG8: move(value, toIndex) reorders through onReorder, and does nothing for the same index", () => {
     const h = harness(["a", "b", "c", "d", "e"])
-    h.group.move("a", 2)
+    Reorder.move(h.group, "a", 2)
     expect(h.state.calls).toEqual([["b", "c", "a", "d", "e"]])
-    h.group.move("a", 2)
+    Reorder.move(h.group, "a", 2)
     expect(h.state.calls).toHaveLength(1)
   })
 
   it("RG9: move clamps the index and ignores an unknown value", () => {
     const h = harness(["a", "b", "c"])
-    h.group.move("a", 99)
+    Reorder.move(h.group, "a", 99)
     expect(h.state.calls).toEqual([["b", "c", "a"]])
-    h.group.move("b", -5) // b is already first: clamped to 0, nothing to do
-    h.group.move("zz", 1)
+    Reorder.move(h.group, "b", -5) // b is already first: clamped to 0, nothing to do
+    Reorder.move(h.group, "zz", 1)
     expect(h.state.calls).toHaveLength(1)
   })
 
@@ -241,23 +241,71 @@ describe("makeReorderGroup", () => {
 
   it("RG12: resolveAxis reads the boxes afresh on each call", () => {
     const h = harness(["a", "b", "c"])
-    expect(h.group.resolveAxis()).toBe("y")
+    expect(Reorder.resolveAxis(h.group)).toBe("y")
     h.pass(rowSlot)
-    expect(h.group.resolveAxis()).toBe("x")
+    expect(Reorder.resolveAxis(h.group)).toBe("x")
   })
 
   it("RG13: the Crossover uses the source's dragOffset and layoutBox at that sample, not the sample's point", () => {
     const h = harness(["a", "b", "c"])
     const a = h.state.sources.get("a")!
-    h.group.dragStart("a", { x: 100, y: 25 }, 0)
+    Reorder.dragStart(h.group, "a", { x: 100, y: 25 }, 0)
     // The point says a is far down, but the engine says it hasn't moved: no reorder.
     a.offset = { x: 0, y: 0 }
-    h.group.dragMove("a", { x: 100, y: 400 }, 50)
-    h.group.dragMove("a", { x: 100, y: 500 }, 100)
+    Reorder.dragMove(h.group, "a", { x: 100, y: 400 }, 50)
+    Reorder.dragMove(h.group, "a", { x: 100, y: 500 }, 100)
     expect(h.state.calls).toHaveLength(0)
     // The point barely moves (still downward), but the engine's offset passes b's centre.
     a.offset = { x: 0, y: 36 }
-    h.group.dragMove("a", { x: 100, y: 501 }, 150)
+    Reorder.dragMove(h.group, "a", { x: 100, y: 501 }, 150)
     expect(h.state.calls).toEqual([["b", "a", "c"]])
+  })
+})
+
+describe("Reorder.Group, the data type (ADR-0028, decision 1)", () => {
+  const options: Reorder.GroupOptions<string> = { values: () => ["a", "b"], onReorder: () => {} }
+
+  it("a literal isn't a Group: its TypeId and pipe are required", () => {
+    // @ts-expect-error TS2739: an object literal lacks `[TypeId]`, `pipe` and Inspectable's members.
+    const literal: Reorder.Group<string> = {
+      options,
+      sources: new Map(),
+      gesture: { current: Option.none() } as never,
+      history: { current: [] } as never,
+    }
+    expect(Reorder.isGroup(literal)).toBe(false)
+  })
+
+  it("isGroup: make's, not a spread", () => {
+    const group = Reorder.make(options)
+    expect(Reorder.isGroup(group)).toBe(true)
+    expect(Reorder.isGroup({ ...group })).toBe(false)
+    expect(Reorder.isGroup(options)).toBe(false)
+  })
+
+  it("each operation's two forms give one type, and pipe runs the data-last form", () => {
+    const h = harness(["a", "b", "c"])
+    const source = h.state.sources.get("a")!
+    expectTypeOf(Reorder.register(h.group, "a", source)).toEqualTypeOf(h.group.pipe(Reorder.register("a", source)))
+    expectTypeOf(Reorder.dragStart(h.group, "a", { x: 0, y: 0 }, 0)).toEqualTypeOf(
+      h.group.pipe(Reorder.dragStart("a", { x: 0, y: 0 }, 0)),
+    )
+    expectTypeOf(Reorder.dragMove(h.group, "a", { x: 0, y: 0 }, 0)).toEqualTypeOf(
+      h.group.pipe(Reorder.dragMove("a", { x: 0, y: 0 }, 0)),
+    )
+    expectTypeOf(Reorder.dragEnd(h.group, "a")).toEqualTypeOf(h.group.pipe(Reorder.dragEnd("a")))
+    expectTypeOf(Reorder.move(h.group, "a", 1)).toEqualTypeOf(h.group.pipe(Reorder.move("a", 1)))
+    expectTypeOf(Reorder.resolveAxis(h.group)).toEqualTypeOf(h.group.pipe(Reorder.resolveAxis))
+    // The data-last form, through pipe, on a group the checks above haven't moved: `a` to index 2.
+    const fresh = harness(["a", "b", "c"])
+    fresh.group.pipe(Reorder.move("a", 2))
+    expect(fresh.state.calls).toEqual([["b", "c", "a"]])
+  })
+
+  it("toJSON shows how many items are registered and the value being dragged", () => {
+    const h = harness(["a", "b", "c"])
+    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.none() })
+    Reorder.dragStart(h.group, "b", { x: 100, y: 85 }, 0)
+    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.some("b") })
   })
 })

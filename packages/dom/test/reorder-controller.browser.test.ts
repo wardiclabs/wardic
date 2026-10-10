@@ -10,7 +10,7 @@
 // with the same value in one task (the signature of a list keyed by index). It logs
 // its own `wardic.reorder:` events through the runtime, so a binding wires no logging.
 import type * as Drag from "@wardic/core/Drag"
-import type * as Reorder from "@wardic/core/Reorder"
+import * as Reorder from "@wardic/core/Reorder"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import { makeReorderController, type ProjectionNodeHandle, type ReorderController, type ReorderControllerOptions } from "../src/index.ts"
@@ -182,7 +182,7 @@ describe("the Reorder controller (ADR-0020)", () => {
     expect(list.reorders).toEqual([["a", "c", "b"]])
     drag.end()
     // The gesture is over: the group ignores a move for b now.
-    expect(list.c.group.dragMove("b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
+    expect(Reorder.dragMove(list.c.group, "b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
     list.c.dispose()
     e.dispose()
   })
@@ -206,7 +206,7 @@ describe("the Reorder controller (ADR-0020)", () => {
     expect(list.logs().some((l) => l.event === "auto-scroll start")).toBe(true)
     b.driver.dispose()
     expect(list.logs().at(-1)?.event).toBe("auto-scroll stop")
-    expect(list.c.group.dragMove("b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
+    expect(Reorder.dragMove(list.c.group, "b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
     list.c.dispose()
     e.dispose()
   })
