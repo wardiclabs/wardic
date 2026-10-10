@@ -33,6 +33,11 @@ const iframeOffset = async (ctx: BrowserCommandContext): Promise<{ x: number; y:
  * pointer leaving its element; these go through the browser's own input pipeline.
  * `move: false` presses or releases where the mouse already is, with no move first.
  */
+/** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames (ADR-0029's tests). */
+const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
+  await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
+}
+
 const realMouse: BrowserCommand<[
   type: "move" | "down" | "up",
   x: number,
@@ -133,7 +138,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { realMouse, realTouch },
+      commands: { emulateReducedMotion, realMouse, realTouch },
     },
   },
 })

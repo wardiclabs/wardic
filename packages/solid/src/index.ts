@@ -68,6 +68,7 @@ export {
 export {
   type Ward,
   type WardicConfig,
+  type WardicReducedMotion,
   type WardicTransformShorthands,
   type WardicTransition,
   type WardicValues,

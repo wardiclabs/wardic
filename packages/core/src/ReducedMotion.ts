@@ -1,55 +1,119 @@
 /**
- * The `ReducedMotion` module: the user's `prefers-reduced-motion`, honoured for an animation
- * stream.
+ * The `ReducedMotion` module: how Wardic honours the user's `prefers-reduced-motion` (ADR-0029).
+ *
+ * The policy is Motion's (`visual-element-target.ts:146` at 16c6122): under reduced motion, a
+ * run's positional keys (the transforms, and the box's position and size) snap to where the run
+ * would end, and every other key (opacity, colour, filters) animates as it would. A binding reads
+ * its app's {@link Config} and `Probe.prefersReducedMotion` when a run starts ({@link applies}),
+ * splits the run's target ({@link split}), and runs the positional keys as a {@link snap}.
+ *
+ * Tier 2 (ADR-0008): Effect-free, for binding authors.
  */
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
-import * as Stream from "effect/Stream"
-import { Atom, type AtomRegistry } from "effect/reactivity"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
+import * as BaseValue from "./BaseValue.ts"
 import type * as Frame from "./Frame.ts"
-import * as Probe from "./Probe.ts"
+import * as Machine from "./Machine.ts"
+import type * as Values from "./Values.ts"
 
 /**
- * Honor the user's `prefers-reduced-motion` preference for an animation stream.
- *
- * Reads `Probe.prefersReducedMotion` **once** at subscribe time. If the
- * preference is `true`, the upstream is run to completion to grab its terminal
- * frame, and a single settled `Frame.Frame<V>` is emitted — the user sees the target
- * value instantly with no transition. If the preference is `false`, the input
- * stream is returned unchanged (no wrapping cost, no re-reads on later frames).
- *
- * Observability: a single `wardic.respectReducedMotion` span wraps the stream
- * and an annotated debug log fires once on subscribe carrying the resolved
- * preference. Per-frame work is deliberately un-logged.
- *
- * The resulting stream's requirement set widens with `Probe` and `AtomRegistry`
- * — the latter is needed to read the atom's current value. The Probe layer
- * supplies the atom; the AtomRegistry provides the registry to read it.
+ * An app's reduced-motion setting (Motion's `MotionConfig` `reducedMotion`): `"user"` follows the
+ * user's `prefers-reduced-motion`, `"always"` reduces motion whatever it is, and `"never"`
+ * animates whatever it is. A binding's default is `"user"`; Motion's is `"never"`.
  */
-export const respect = <V, E, R>(
-  stream: Stream.Stream<Frame.Frame<V>, E, R>,
-): Stream.Stream<Frame.Frame<V>, E, R | Probe.Probe | AtomRegistry.AtomRegistry> =>
-  Stream.unwrap(
-    Effect.gen(function* () {
-      const probe = yield* Probe.Probe
-      const prefersReducedMotion = yield* Atom.get(probe.prefersReducedMotion)
-      yield* Effect.logDebug("wardic.respectReducedMotion: subscribe").pipe(
-        Effect.annotateLogs({ prefersReducedMotion }),
-      )
-      return Bool.match(prefersReducedMotion, {
-        onFalse: () => stream,
-        onTrue: () =>
-          Stream.unwrap(
-            Stream.runLast(stream).pipe(
-              Effect.map(
-                Option.match({
-                  onNone: () => Stream.empty as Stream.Stream<Frame.Frame<V>, E, never>,
-                  onSome: (terminal) => Stream.succeed<Frame.Frame<V>>({ value: terminal.value, done: true }),
-                }),
-              ),
-            ),
-          ),
-      })
-    }),
-  ).pipe(Stream.withSpan("wardic.respectReducedMotion"))
+export type Config = "user" | "always" | "never"
+
+/** Whether reduced motion applies under `config`, given the user's `prefers-reduced-motion`. */
+export const applies = (config: Config, prefersReducedMotion: boolean): boolean =>
+  Match.value(config).pipe(
+    Match.when("user", () => prefersReducedMotion),
+    Match.when("always", () => true),
+    Match.when("never", () => false),
+    Match.exhaustive,
+  )
+
+/**
+ * The keys reduced motion snaps (Motion's `positionalKeys`, `keys-position.ts` at 16c6122): the
+ * transforms (`BaseValue.TRANSFORM_IDENTITY`'s keys) and the box's position and size.
+ */
+export const POSITIONAL_KEYS: ReadonlySet<string> = new Set([
+  ...Rec.keys(BaseValue.TRANSFORM_IDENTITY),
+  "width",
+  "height",
+  "top",
+  "left",
+  "right",
+  "bottom",
+])
+
+/** Whether reduced motion snaps `key`: a transform, or the box's position or size. */
+export const isPositional = (key: string): boolean => POSITIONAL_KEYS.has(key)
+
+const isNotPositional = Predicate.not(isPositional)
+
+/** A run's target, split by {@link isPositional}. */
+export interface Split {
+  /** The keys reduced motion snaps. */
+  readonly positional: Values.Values
+  /** The keys that animate either way. */
+  readonly rest: Values.Values
+}
+
+/** Split a run's target into the keys reduced motion snaps and the rest. */
+export const split = (values: Values.Values): Split => ({
+  positional: Rec.filter(values, (_, key) => isPositional(key)),
+  rest: Rec.filter(values, (_, key) => isNotPositional(key)),
+})
+
+/** A repeat count whose last run is odd-numbered, which `yoyo` runs backwards: finite, and odd once rounded up. */
+const endsBackwards: Predicate.Predicate<number> = Predicate.and(
+  (repeats: number) => Number.isFinite(repeats),
+  (repeats: number) => Math.ceil(Math.max(0, repeats)) % 2 === 1,
+)
+
+/**
+ * Where a `Machine.animate` run from `from` to `to` with `options` ends, which its snap lands on
+ * (Motion's `getFinalKeyframe`): `to`, or `from` with `reverse`; with `yoyo` and an odd finite
+ * `repeat`, the other one, since its last run goes backwards. A run that repeats forever never
+ * ends, and lands where its first run does (Motion's last keyframe).
+ */
+export const endOf = <A>(from: A, to: A, options: Machine.Modifiers): A => {
+  const repeats = Option.getOrElse(Option.fromUndefinedOr(options.repeat), () => 0)
+  const backwards = Bool.and(options.yoyo === true, endsBackwards(repeats))
+  return Bool.match(Bool.xor(backwards, options.reverse === true), { onTrue: () => from, onFalse: () => to })
+}
+
+/** {@link snap}'s options. */
+export interface SnapOptions {
+  /** Seconds to hold `from` before landing on `to`. Default 0. */
+  readonly delay?: number
+}
+
+/**
+ * Reduced motion's snap (ADR-0029): `from` until `delay` seconds have passed, then `to`, settled.
+ * It lands on the tick a `Machine.delay` of the same length lets its run start, so a snapped key
+ * lands with the keys that animate; with no delay, on its first tick. The held time counts each
+ * tick's `dt` at most `Machine.MAX_DT`, as `Machine.delay` does. Its span is
+ * `wardic.reducedMotion.snap`.
+ */
+export const snap = <A>(from: A, to: A, options: SnapOptions = {}): Machine.Machine<Frame.Frame<A>> => {
+  const delay = Option.getOrElse(Option.fromUndefinedOr(options.delay), () => 0)
+  return Machine.make({
+    settles: true,
+    span: { name: "wardic.reducedMotion.snap", attributes: { delay } },
+    start: () => {
+      const held: Frame.Frame<A> = { value: from, done: false }
+      const settled: Frame.Frame<A> = { value: to, done: true }
+      let elapsed = 0
+      // Per frame (ADR-0025): a statement `if`, `Math.min`; both Frames built above.
+      return (dt) => {
+        elapsed += Math.min(dt, Machine.MAX_DT)
+        if (elapsed < delay) return held
+        return settled
+      }
+    },
+  })
+}

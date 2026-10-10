@@ -20,6 +20,8 @@
 import type * as Point from "@wardic/core/Point"
 import type * as Machine from "@wardic/core/Machine"
 import type { ProjectionNodeHandle } from "@wardic/dom"
+import { constTrue } from "effect/Function"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -92,6 +94,9 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     id,
     element,
     springOptions: () => toSpringOptions(transition()),
+    // The transition's reduced-motion opt-out (ADR-0029), read at each layout animation's start.
+    respectReducedMotion: () =>
+      UndefinedOr.match(transition(), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
     ...(layoutId !== undefined ? { layoutId } : {}),
     ...(layoutScroll === true ? { layoutScroll: true } : {}),
     ...(layoutRoot === true ? { layoutRoot: true } : {}),

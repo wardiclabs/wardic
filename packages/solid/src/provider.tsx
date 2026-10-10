@@ -15,15 +15,18 @@ import type * as Clock from "@wardic/core/Clock"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import type * as Probe from "@wardic/core/Probe"
+import * as Probe from "@wardic/core/Probe"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import { constFalse } from "effect/Function"
 import * as Latch from "effect/Latch"
 import type * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
-import type { AtomRegistry } from "effect/reactivity"
-import { createContext, onCleanup, onMount, useContext } from "solid-js"
+import * as Option from "effect/Option"
+import { AtomRegistry } from "effect/reactivity"
+import { createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
 import { makeProjectionSystem, type ProjectionSystem } from "@wardic/dom"
 import { type FlushGate, INERT_GATE, makeFlushGate } from "./gate.ts"
@@ -64,6 +67,8 @@ interface WardicContextValue {
   readonly gate: FlushGate
   /** `undefined` during a server render, which builds no projection system (ADR-0021). */
   readonly projection: ProjectionSystem | undefined
+  /** Whether reduced motion applies now (ADR-0029): read when each animation starts. */
+  readonly reducedMotion: () => boolean
 }
 
 /**
@@ -87,9 +92,18 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
  * fails with DomLive's client-only error, so run Effects on it once the element has
  * mounted: in Solid 1, from `onMount` or a `createEffect`; in Solid 2, from `onSettled`,
  * an effect's effect half, or a computation marked `ssrSource: "client"`.
+ *
+ * `reducedMotion` is how animations honour the user's `prefers-reduced-motion` (ADR-0029,
+ * Motion's `MotionConfig` `reducedMotion`): `"user"`, the default, follows it; `"always"`
+ * reduces motion whatever it is; `"never"` animates whatever it is. Under reduced motion an
+ * animation's positional keys (its transforms, and the box's position and size) snap to where it
+ * would end, and the rest (opacity, colour, …) animate; a layout animation lands at once, and so
+ * does a presence exit's move. It's read when each animation starts, and a transition opts out
+ * with `respectReducedMotion: false`.
  */
 export function WardicProvider(props: {
   readonly env: WardicEnv
+  readonly reducedMotion?: ReducedMotion.Config | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
   if (isServer) {
@@ -101,7 +115,7 @@ export function WardicProvider(props: {
     // be built by user code: dispose it with the render, as the client does on unmount.
     onCleanup(() => void runtime.dispose())
     return (
-      <WardicContext.Provider value={{ runtime, gate: INERT_GATE, projection: undefined }}>
+      <WardicContext.Provider value={{ runtime, gate: INERT_GATE, projection: undefined, reducedMotion: constFalse }}>
         {props.children}
       </WardicContext.Provider>
     )
@@ -115,13 +129,24 @@ export function WardicProvider(props: {
   // construction.
   const gate = makeFlushGate(runtime)
 
+  // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
+  // never Retargets, and the user's preference through the Probe's atom. Read when each animation
+  // starts, so a change applies from the next one.
+  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+  const probe = runtime.runSync(Probe.Probe)
+  const reducedMotion = (): boolean =>
+    ReducedMotion.applies(
+      Option.getOrElse(Option.fromUndefinedOr(untrack(() => props.reducedMotion)), () => "user" as const),
+      registry.get(probe.prefersReducedMotion),
+    )
+
   // The box-based projection system (ADR-0009) — provider-owned like the gate.
   // It holds the projection nodes + the coordinator (a run on the Frame loop); standalone
   // `layout` elements register with it (a future <LayoutGroup> uses the tree too).
   // It also owns `layoutId` matching end to end — the lead/follow stack AND the
   // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
   // `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
-  const projection = makeProjectionSystem(runtime, gate)
+  const projection = makeProjectionSystem(runtime, gate, { reducedMotion })
 
   onCleanup(() => {
     // Stop the projection coordinator's run + drop its observer first, then cancel
@@ -134,7 +159,7 @@ export function WardicProvider(props: {
   })
 
   return (
-    <WardicContext.Provider value={{ runtime, gate, projection }}>{props.children}</WardicContext.Provider>
+    <WardicContext.Provider value={{ runtime, gate, projection, reducedMotion }}>{props.children}</WardicContext.Provider>
   )
 }
 
@@ -171,6 +196,20 @@ export function useWardicGate(): FlushGate {
     throw new Error("useWardicGate must be used within a <WardicProvider>")
   }
   return value.gate
+}
+
+/**
+ * Reads whether reduced motion applies now (ADR-0029): the provider's `reducedMotion` and the
+ * user's preference. Call the accessor when an animation starts. Throws a clear, named error
+ * outside a `WardicProvider`; during a server render it's always `false`. Internal: not exported
+ * from the package.
+ */
+export function useWardicReducedMotion(): () => boolean {
+  const value = useContext(WardicContext)
+  if (value === undefined) {
+    throw new Error("useWardicReducedMotion must be used within a <WardicProvider>")
+  }
+  return value.reducedMotion
 }
 
 /**

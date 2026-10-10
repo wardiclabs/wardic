@@ -219,7 +219,7 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
     | the services | decision 11, with `applyTo` → `Renderer.applyTo`, `dual`, the stream first, and `delay` → `Clock.delay` until #83 (A) replaces it | services |
 
     - **Gone:** `group`, `onFrame`, `onSettle` and `wait`, which effect's modules each say in one call (`Effect.all`, `Stream.tap`, `Stream.runDrain` and `Effect.andThen`, `Stream.takeUntil` and `Stream.runDrain`): the maintainer's "Effect's pipeable modules wherever they fit". None has a caller outside core's tests. And the aliases `draggable` and `animateFrom`.
-    - **Found, not acted on here:** CONTEXT.md's *Flagged ambiguities* say the bindings apply `respectReducedMotion` by default, and solid never imports it: #98.
+    - **Found, not acted on here:** CONTEXT.md's *Flagged ambiguities* say the bindings apply `respectReducedMotion` by default, and solid never imports it: #98. #98 removed `ReducedMotion.respect` and made the module the policy and the Snap (ADR-0029).
 13. **How #93 lands.** Each slice adds an *Implementation in* section here, as ADR-0027's did.
     - **This record first,** docs only, with the rule in `docs/agents/pipeable.md`, its pointer in `CLAUDE.md`, and CONTEXT.md's Segment and Hold, so the rule holds before more API is written the old way.
     - **#94, the `Machine` module** (decisions 3 to 9): the data type, the combinators, the constructors, `Machine.toStream` in place of the Stream functions, `Machine.run` in place of solid's `runOnLoop`, and the `animateRepeat` workloads. It amends ADR-0001 and ADR-0027, and declares decision 4's and decision 9's changes.
