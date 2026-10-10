@@ -67,7 +67,44 @@ interface StreamWorkload {
  */
 interface LoopWorkload {
   readonly name: string
-  readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine<CoreModule.Frame<unknown>>, never, any>
+  readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine.Machine<CoreModule.Frame<unknown>>, never, any>
+}
+
+/** The Primitives the workloads run. */
+type Primitive = "springValues" | "animateValues" | "springBlend" | "chase"
+
+/**
+ * Main's Primitives, before #94's `Machine` module: a Stream function per Primitive, and an
+ * `xMachine`. The harness is the working tree's and runs both cores, so until main has the
+ * module, each workload takes `core.Machine?.x ?? core.xMachine` (ADR-0028, decision 7).
+ */
+type Main = Record<Primitive, (...args: ReadonlyArray<any>) => Stream.Stream<{ readonly done: boolean }, never, any>> &
+  Record<`${Primitive}Machine`, (...args: ReadonlyArray<any>) => any>
+
+/** `core`'s `Machine` module, or `undefined` for main's core (#94). */
+const machineModule = (core: Core): Core["Machine"] | undefined => (core as Partial<Core>).Machine
+
+/** `x`'s machine on either core: `Machine.x(…)`, or main's `xMachine(…)`; an Effect for the two built with a service. */
+const build = (core: Core, primitive: Primitive, args: ReadonlyArray<unknown>): unknown =>
+  (
+    (machineModule(core)?.[primitive] as ((...args: ReadonlyArray<unknown>) => unknown) | undefined) ??
+    (core as unknown as Main)[`${primitive}Machine`]
+  )(...args)
+
+/** `x`'s machine on either core, as an Effect. */
+const machineOf = (core: Core, primitive: Primitive, args: ReadonlyArray<unknown>): Effect.Effect<any, never, any> => {
+  const built = build(core, primitive, args)
+  if (Effect.isEffect(built)) return built as Effect.Effect<any, never, any>
+  return Effect.succeed(built)
+}
+
+/** `x`'s Stream on either core: `Machine.toStream(Machine.x(…))`, or main's Stream function `x(…)`. */
+const streamOf = (core: Core, primitive: Primitive, args: ReadonlyArray<unknown>): Stream.Stream<{ readonly done: boolean }, never, any> => {
+  const module = machineModule(core)
+  if (module === undefined) return (core as unknown as Main)[primitive](...args)
+  const built = build(core, primitive, args)
+  if (Effect.isEffect(built)) return Stream.unwrap(Effect.map(built as Effect.Effect<any, never, any>, module.toStream))
+  return module.toStream(built as CoreModule.Machine.Machine<CoreModule.Frame<unknown>>)
 }
 
 type Workload = StreamWorkload | LoopWorkload
@@ -98,6 +135,10 @@ const COMPLEX_TO = {
   d: "M12 4 C8 4 4 8 4 12 S8 20 12 20 S20 16 20 12 S16 4 12 4 Z",
   "box-shadow": "4px 8px 24px rgba(0,0,0,0.25)",
 }
+
+/** `springValues`' arguments: four keys, travelling at least 50. */
+const SPRING = (i: number) =>
+  [{ x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 }, {}, { x: 0, y: 0, scale: 1, opacity: 0 }] as const
 
 /**
  * `animateValues`' deepest stack (ADR-0028, decision 7): an infinite `repeat` with `yoyo`, and a
@@ -131,50 +172,31 @@ const WORKLOADS: ReadonlyArray<Workload> = [
         }),
       ),
   },
-  {
-    name: "springValues",
-    make: (core, i) =>
-      core.springValues(
-        { x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 },
-        {},
-        { x: 0, y: 0, scale: 1, opacity: 0 },
-      ),
-  },
+  { name: "springValues", make: (core, i) => streamOf(core, "springValues", SPRING(i)) },
   {
     name: "animateValues",
-    make: (core, i) => core.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }),
+    make: (core, i) => streamOf(core, "animateValues", [STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }]),
   },
-  { name: "springBlend", make: (core, i) => core.springBlend(STRING_FROM(i), STRING_TO) },
-  { name: "chase", make: (core, i) => core.chase(() => chaseTarget + (i % 10)) },
+  { name: "springBlend", make: (core, i) => streamOf(core, "springBlend", [STRING_FROM(i), STRING_TO]) },
+  { name: "chase", make: (core, i) => streamOf(core, "chase", [() => chaseTarget + (i % 10)]) },
   {
     name: "animateComplex",
-    make: (core, i) => core.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
+    make: (core, i) => streamOf(core, "animateValues", [COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }]),
   },
-  { name: "animateRepeat", make: (core, i) => core.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
+  { name: "animateRepeat", make: (core, i) => streamOf(core, "animateValues", [STRING_FROM(i), STRING_TO, REPEAT(core, i)]) },
   // The same six, on the Frame loop.
-  {
-    name: "springValues/loop",
-    machine: (core, i) =>
-      Effect.succeed(
-        core.springValuesMachine(
-          { x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 },
-          {},
-          { x: 0, y: 0, scale: 1, opacity: 0 },
-        ),
-      ),
-  },
+  { name: "springValues/loop", machine: (core, i) => machineOf(core, "springValues", SPRING(i)) },
   {
     name: "animateValues/loop",
-    machine: (core, i) => core.animateValuesMachine(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }),
+    machine: (core, i) => machineOf(core, "animateValues", [STRING_FROM(i), STRING_TO, { duration: 2, easing: core.easeInOutCubic }]),
   },
-  { name: "springBlend/loop", machine: (core, i) => core.springBlendMachine(STRING_FROM(i), STRING_TO) },
-  { name: "chase/loop", machine: (core, i) => Effect.succeed(core.chaseMachine(() => chaseTarget + (i % 10))) },
+  { name: "springBlend/loop", machine: (core, i) => machineOf(core, "springBlend", [STRING_FROM(i), STRING_TO]) },
+  { name: "chase/loop", machine: (core, i) => machineOf(core, "chase", [() => chaseTarget + (i % 10)]) },
   {
     name: "animateComplex/loop",
-    machine: (core, i) =>
-      core.animateValuesMachine(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }),
+    machine: (core, i) => machineOf(core, "animateValues", [COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.easeInOutCubic }]),
   },
-  { name: "animateRepeat/loop", machine: (core, i) => core.animateValuesMachine(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
+  { name: "animateRepeat/loop", machine: (core, i) => machineOf(core, "animateValues", [STRING_FROM(i), STRING_TO, REPEAT(core, i)]) },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)

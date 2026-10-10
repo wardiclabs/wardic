@@ -1,4 +1,5 @@
-import { delay, type Frame, group, onFrame, onSettle, tween, velocityOf, wait } from "@wardic/core"
+import { delay, type Frame, group, onFrame, onSettle, velocityOf, wait } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
@@ -15,7 +16,7 @@ it.effect("delay completes once accumulated dt reaches the target", () =>
 it.effect("onFrame taps every frame without altering the stream", () =>
   Effect.gen(function* () {
     const seen: Array<number> = []
-    yield* Stream.runDrain(onFrame(tween(0, 10, { duration: 1 }), (frame) => seen.push(frame.value)))
+    yield* Stream.runDrain(onFrame(Machine.toStream(Machine.tween(0, 10, { duration: 1 })), (frame) => seen.push(frame.value)))
     expect(seen).toEqual([5, 10])
   }).pipe(Effect.provide(TestClock.layer([0.5, 0.5]))),
 )
@@ -23,7 +24,7 @@ it.effect("onFrame taps every frame without altering the stream", () =>
 it.effect("onSettle fires once after the final frame", () =>
   Effect.gen(function* () {
     let settled = false
-    yield* onSettle(tween(0, 10, { duration: 1 }), () => {
+    yield* onSettle(Machine.toStream(Machine.tween(0, 10, { duration: 1 })), () => {
       settled = true
     })
     expect(settled).toBe(true)
@@ -34,7 +35,7 @@ it.effect("wait stops at the first frame satisfying the predicate", () =>
   Effect.gen(function* () {
     const seen: Array<number> = []
     yield* wait(
-      onFrame(tween(0, 10, { duration: 1 }), (frame) => seen.push(frame.value)),
+      onFrame(Machine.toStream(Machine.tween(0, 10, { duration: 1 })), (frame) => seen.push(frame.value)),
       (frame: Frame<number>) => frame.value >= 5,
     )
     expect(seen).toEqual([2.5, 5])
@@ -46,8 +47,8 @@ it.effect("group runs streams concurrently to completion", () =>
     const a: Array<number> = []
     const b: Array<number> = []
     yield* group(
-      onFrame(tween(0, 10, { duration: 1 }), (frame) => a.push(frame.value)),
-      onFrame(tween(0, 20, { duration: 1 }), (frame) => b.push(frame.value)),
+      onFrame(Machine.toStream(Machine.tween(0, 10, { duration: 1 })), (frame) => a.push(frame.value)),
+      onFrame(Machine.toStream(Machine.tween(0, 20, { duration: 1 })), (frame) => b.push(frame.value)),
     )
     expect(a.at(-1)).toBe(10)
     expect(b.at(-1)).toBe(20)

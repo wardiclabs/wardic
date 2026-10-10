@@ -5,68 +5,20 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
-import type { DecayOptions } from "../options.ts"
-import { type Frame, MAX_DT } from "../primitives/frame.ts"
-import { type Machine, toStream } from "../primitives/machine.ts"
-import { initDecay, resolveDecay, stepDecay } from "../primitives/stepper.ts"
+import * as Machine from "../Machine.ts"
 import { Clock } from "../services/Clock.ts"
 import { InputSource, isPrimaryPointer, type PointerLikeEvent } from "../services/InputSource.ts"
 import { drag, type DragSample, type Vec2 } from "./drag.ts"
 import { axisLock, type DragBounds, withinBounds } from "./shaping.ts"
 
 /**
- * Two-axis decay: one stepper pass per `Clock` tick advancing **both** axes, so
- * a fling emits exactly one `Vec2` per tick and completes only when *both* axes
- * are at rest. This replaces fusing two scalar `decay` streams with
- * `zipLatestWith` — that double-emitted per tick (firing on either axis, with a
- * transiently-stale partner) and risked early-termination with plain `zip`.
- * Mirrors `scalar.ts`'s `fromClock`/`decay` shape (same `MAX_DT` clamp,
- * `initDecay`/`decayStep`), specialised to a `Vec2`.
- *
- * Public 2D decay primitive — seeded position + velocity, `Clock`-driven,
- * completes when both axes rest. Consumed by `withMomentum` here and by the
- * Solid binding's release orchestration (the Fling tail).
- */
-export const decayVec = (
-  initial: Vec2,
-  velocity: Vec2,
-  options: DecayOptions,
-): Stream.Stream<Vec2, never, Clock> =>
-  toStream(decayVecMachine(initial, velocity, options)).pipe(Stream.map((frame) => frame.value))
-
-/**
- * `decayVec`'s machine (ADR-0027): both axes' decays stepped together, settling once both rest.
- * Its Frames carry the position; `decayVec` emits just the position.
- */
-export const decayVecMachine = (initial: Vec2, velocity: Vec2, options: DecayOptions): Machine<Frame<Vec2>> => {
-  const decay = resolveDecay(options)
-  return {
-    settles: true,
-    span: { name: "wardic.decayVec", attributes: { friction: decay.friction } },
-    start: () => {
-      let x = initDecay(initial.x, velocity.x)
-      let y = initDecay(initial.y, velocity.y)
-      // Per frame (ADR-0025): the decay resolved above, no allocation beyond the frame.
-      return (dt) => {
-        const clampedDt = Math.min(dt, MAX_DT)
-        const rx = stepDecay(x, clampedDt, decay)
-        const ry = stepDecay(y, clampedDt, decay)
-        x = rx.state
-        y = ry.state
-        return { value: { x: rx.value, y: ry.value }, done: rx.done && ry.done }
-      }
-    },
-  }
-}
-
-/**
  * Options for {@link withMomentum}. Shaping (`axis`, `bounds`, `elastic`) is
  * applied to the internal drag samples *before* the fling math runs, so a locked
  * axis or a bounded drag carries through into the release velocity and decay.
- * The remaining `DecayOptions` (`friction`, `restVelocity`, `delay`) tune the
+ * The remaining `Machine.DecayOptions` (`friction`, `restVelocity`, `delay`) tune the
  * post-release tail.
  */
-export interface MomentumOptions extends DecayOptions {
+export interface MomentumOptions extends Machine.DecayOptions {
   /** Lock dragging to a single axis; the other axis is zeroed. */
   readonly axis?: "x" | "y"
   /** Constrain the drag offset to a static region (per axis). */
@@ -144,14 +96,15 @@ const inner = (
           ),
         ),
         // "end": fling from the release position at the release velocity via the two-axis
-        // decayVec (one Vec2 per tick), tapping each position back into the ref so a mid-fling
-        // re-grab can rebase from where the fling reached.
+        // `Machine.decayVec` (one Vec2 per tick), tapping each position back into the ref so a
+        // mid-fling re-grab can rebase from where the fling reached.
         Match.when("end", () =>
           Stream.unwrap(
             Ref.get(ref).pipe(
               Effect.map((st) => {
                 const releasePos: Vec2 = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
-                return decayVec(releasePos, sample.velocity, options).pipe(
+                return Machine.toStream(Machine.decayVec(releasePos, sample.velocity, options)).pipe(
+                  Stream.map((frame) => frame.value),
                   Stream.tap((p) => Ref.update(ref, (s) => ({ ...s, position: p, mode: "fling" as const }))),
                   // On completion (both axes settled) drop back to idle so a later grab
                   // rebases from the resting position.

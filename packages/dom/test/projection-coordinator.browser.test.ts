@@ -15,15 +15,8 @@
 //   outside its step interrupts it, and a step that throws fails it alone, logged, until the next
 //   trigger starts a fresh run.
 import { describe, expect, it } from "@effect/vitest"
-import {
-  Clock,
-  type Frame,
-  FrameLoop,
-  FrameLoopLive,
-  InterpolatorRegistryLive,
-  type Machine,
-  type SpringOptions,
-} from "@wardic/core"
+import { Clock, type Frame, FrameLoop, FrameLoopLive, InterpolatorRegistryLive } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -206,7 +199,7 @@ const register = async (
   e: Engine,
   id: string,
   element: HTMLElement,
-  springOptions: () => SpringOptions = () => ({}),
+  springOptions: () => Machine.SpringOptions = () => ({}),
 ): Promise<ProjectionNodeHandle> => {
   const handle = e.system.register({ id, element, springOptions })
   await endOfTask()
@@ -228,14 +221,14 @@ const settle = (sink: ReturnType<typeof makeSink>, id: string): void => {
 
 /** A run of the test's own on the Frame loop that never settles, handing each Frame to `onFrame`. */
 const hold = (e: Engine, onFrame: () => void = () => {}) => {
-  const machine: Machine<Frame<number>> = {
+  const machine = Machine.make<Frame<number>>({
     settles: false,
     span: { name: "test.hold", attributes: {} },
     start: () => () => ({ value: 0, done: false }),
-  }
+  })
   return e.runtime.runFork(
-    FrameLoop.use((loop) =>
-      loop.run(machine, () => {
+    machine.pipe(
+      Machine.run(() => {
         onFrame()
         return undefined
       }),

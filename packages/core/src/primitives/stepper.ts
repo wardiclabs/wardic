@@ -1,17 +1,18 @@
 import * as Predicate from "effect/Predicate"
 import { clamp, lerp } from "../math/index.ts"
 import { linear } from "../easing/penner.ts"
-import type { DecayOptions, Easing, SpringOptions, TweenOptions } from "../options.ts"
+import type { DecayOptions, SpringOptions, TweenOptions } from "../Machine.ts"
+import type { Easing } from "../options.ts"
 
 /**
  * Pure, dt-driven step functions — the physics of each primitive with no Effect
- * or Stream involved. These are the frame-level unit-test target; the Stream
- * wrappers in this folder are thin shells over them.
+ * or Stream involved. These are the frame-level unit-test target; the `Machine`
+ * module's constructors are thin shells over them.
  *
  * Every stepper takes the previous state and a frame delta `dt` (seconds) and
  * returns the next state, the value to emit, and whether motion has settled.
  *
- * The per-frame path (ADR-0025): a primitive resolves its options once, when its stream is
+ * The per-frame path (ADR-0025): a primitive resolves its options once, when its machine is
  * built (`resolveTween`, `resolveSpring`, `resolveDecay`), and steps with the resolved form
  * (`stepTween`, `stepSpring`, `stepDecay`), which reads plain fields. `tweenStep`,
  * `springStep` and `decayStep` take the options as written and resolve them on each call, for
@@ -26,7 +27,7 @@ export interface StepResult<S, V> {
 
 /**
  * Step result for physics primitives — adds the instantaneous `velocity` the
- * stepper has integrated, so `fromClock` can lift it into a `PhysicsFrame`
+ * stepper has integrated, so a machine's step can lift it into a `PhysicsFrame`
  * without each primitive having to reach into the typed state.
  */
 export interface PhysicsStepResult<S> extends StepResult<S, number> {

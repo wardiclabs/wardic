@@ -1,12 +1,5 @@
-import {
-  animate,
-  animateValues,
-  applyTo,
-  InterpolatorRegistryLive,
-  linear,
-  Renderer,
-  tween,
-} from "@wardic/core"
+import { applyTo, InterpolatorRegistryLive, linear, Renderer } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import { TestClock, TestRenderer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import { References } from "effect"
@@ -43,21 +36,22 @@ const captureLogs = <A, E, R>(
 
 it.effect("tween emits an annotated debug log on subscribe (and its span executes)", () =>
   Effect.gen(function* () {
-    const records = yield* captureLogs(Stream.runDrain(tween(0, 10, { duration: 1 })), [0.5, 0.5])
+    const records = yield* captureLogs(Stream.runDrain(Machine.toStream(Machine.tween(0, 10, { duration: 1 }))), [0.5, 0.5])
     const log = records.find((r) => String(r.message).includes("wardic.tween"))
     expect(log).toBeDefined()
     expect(log!.annotations).toMatchObject({ from: 0, to: 10, duration: 1 })
   }),
 )
 
-it.effect("animate composes tween spans without breaking the stream", () =>
+it.effect("animate subscribes once, as wardic.animate: its segments are one run, not a tween Stream each (#94)", () =>
   Effect.gen(function* () {
-    // If the withSpan wrapping were malformed, draining would error.
     const records = yield* captureLogs(
-      Stream.runDrain(animate(0, 100, { duration: 1, repeat: 1 })),
+      Stream.runDrain(Machine.toStream(Machine.animate(0, 100, { duration: 1, repeat: 1 }))),
       [0.5, 0.5, 0.5, 0.5],
     )
-    expect(records.some((r) => String(r.message).includes("wardic.tween"))).toBe(true)
+    const subscribes = records.filter((r) => String(r.message).endsWith(": subscribe"))
+    expect(subscribes.map((r) => r.message)).toEqual(["wardic.animate: subscribe"])
+    expect(subscribes[0]!.annotations).toMatchObject({ from: 0, to: 100, repeat: 1 })
   }),
 )
 
@@ -76,7 +70,10 @@ it.effect("applyTo emits the `wardic.applyTo: subscribe` debug log and routes fr
     // Act — drive a 4-frame tween into a no-op target, capturing both calls and logs.
     yield* applyTo(
       { node: "el" },
-      animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: linear }),
+      Machine.animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: linear }).pipe(
+        Effect.map(Machine.toStream),
+        Stream.unwrap,
+      ),
     ).pipe(
       Effect.provide(Layer.succeed(Renderer, recording.service)),
       Effect.provide(TestClock.layer([0.25, 0.25, 0.25, 0.25])),

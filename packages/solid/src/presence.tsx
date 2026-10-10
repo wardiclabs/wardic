@@ -32,19 +32,11 @@
  * exiting INTERRUPTS the exiting node (its fiber is interrupted + node removed);
  * full mid-exit reuse is deferred.
  */
-import {
-  type Frame,
-  type Patch,
-  Renderer,
-  type Sink,
-  springBlendMachine,
-  springValuesMachine,
-  type Values,
-} from "@wardic/core"
+import { type Frame, type Patch, Renderer, type Sink, type Values } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
-import { runOnLoop } from "./frame-loop.ts"
 import { useWardicProjection, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
@@ -222,8 +214,8 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
     // The numeric keys and the string keys as two runs on the Frame loop (ADR-0027), side by
     // side: the exit ends once both settle.
     const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
-    if (hasNumeric) runs.push(runOnLoop(Effect.succeed(springValuesMachine(numericTo, {}, fromNumeric, {})), commitFrame))
-    if (hasStrings) runs.push(runOnLoop(springBlendMachine(pick(from, stringTo), stringTo), commitFrame))
+    if (hasNumeric) runs.push(Machine.springValues(numericTo, {}, fromNumeric, {}).pipe(Machine.run(commitFrame)))
+    if (hasStrings) runs.push(Machine.springBlend(pick(from, stringTo), stringTo).pipe(Effect.flatMap(Machine.run(commitFrame))))
 
     // One `wardic.presence.exit` span spans the whole exit animation (from the last
     // snapshot to the exit target), so a devtool/timeline shows each parent-driven

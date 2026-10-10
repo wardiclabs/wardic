@@ -1,4 +1,4 @@
-import type { SpringOptions } from "./options.ts"
+import type { SpringOptions } from "./Machine.ts"
 
 /**
  * Named spring presets — drop into a `spring(...)` call or a `transition`.

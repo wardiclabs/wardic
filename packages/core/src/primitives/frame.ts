@@ -47,22 +47,6 @@ export const isPhysicsFrame = (frame: Frame<number>): frame is PhysicsFrame =>
   Predicate.isNumber((frame as PhysicsFrame).velocity)
 
 /**
- * Maximum delta-time (seconds) any primitive will simulate in one step.
- *
- * Long frame stalls (tab switches, slow first paints, debugger pauses) can
- * produce `dt` values measured in seconds — large enough to teleport a spring
- * across its rest thresholds or blow up a decay integration. Clamping in each
- * leaf machine's step (ADR-0027), the tick-consumption point for both drivers,
- * keeps every primitive honest without each stepper needing to defend itself.
- *
- * 500ms is permissive by design: it accommodates the synthetic frame samples
- * our unit tests use (which push the engine with 0.25s–0.5s deltas) while
- * still capping the multi-second deltas a tab-switch can produce. Live
- * 60fps frames (~16ms) are unaffected.
- */
-export const MAX_DT = 0.5
-
-/**
  * The delta-time (seconds) a Clock reports while it has no measured Refresh frame
  * interval yet: the Priming tick of a Cold start, and the first Refresh frame after
  * it (ADR-0017). One frame at 60 Hz — Motion's first-frame `delta = 1000 / 60`

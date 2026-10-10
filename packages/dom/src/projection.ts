@@ -56,10 +56,8 @@ import {
   calcRelativeBox,
   type Delta,
   type Frame,
-  FrameLoop,
+  type FrameLoop,
   initSpring,
-  type Machine,
-  MAX_DT,
   mixBox,
   NOMINAL_DT,
   nextMicrotask,
@@ -69,10 +67,10 @@ import {
   type ProjectionValue,
   Renderer,
   type Sink,
-  type SpringOptions,
   type SpringState,
   springStep,
 } from "@wardic/core"
+import * as Machine from "@wardic/core/Machine"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -180,7 +178,7 @@ export interface RegisterNodeOptions {
    * (re)start. A tween-typed transition resolves to `{}` (spring defaults) — layout
    * is spring-shaped (framer-motion parity); the caller does that resolution.
    */
-  readonly springOptions: () => SpringOptions
+  readonly springOptions: () => Machine.SpringOptions
   /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
@@ -295,7 +293,7 @@ export interface ProjectionSystem {
 interface NodeState {
   readonly id: string
   readonly element: HTMLElement
-  readonly springOptions: () => SpringOptions
+  readonly springOptions: () => Machine.SpringOptions
   /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
   readonly layoutId: string | undefined
   /**
@@ -1528,7 +1526,7 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
   const step = (dtRaw: number): void => {
-    const dt = dtRaw > MAX_DT ? MAX_DT : dtRaw
+    const dt = dtRaw > Machine.MAX_DT ? Machine.MAX_DT : dtRaw
     const settled: Array<NodeState> = []
     // 1) Step every active node's progress spring (no derive yet — the tree-aware
     //    derive needs ALL springs advanced before computing parent-first).
@@ -1633,21 +1631,22 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
    * with. Its step works on the system's own state, which holds because there is never
    * more than one run.
    */
-  const coordinatorMachine = (): Machine<Frame<void>> => ({
-    settles: true,
-    span: { name: "wardic.projection.coordinator", attributes: { active: active.size } },
-    start: () => (dt) => {
-      // Per frame (ADR-0025): a `try` around the step, and a statement `if`.
-      inStep = true
-      try {
-        step(dt)
-      } finally {
-        inStep = false
-      }
-      if (active.size === 0) return COORDINATOR_SETTLED
-      return COORDINATOR_RUNNING
-    },
-  })
+  const coordinatorMachine = (): Machine.Machine<Frame<void>> =>
+    Machine.make({
+      settles: true,
+      span: { name: "wardic.projection.coordinator", attributes: { active: active.size } },
+      start: () => (dt) => {
+        // Per frame (ADR-0025): a `try` around the step, and a statement `if`.
+        inStep = true
+        try {
+          step(dt)
+        } finally {
+          inStep = false
+        }
+        if (active.size === 0) return COORDINATOR_SETTLED
+        return COORDINATOR_RUNNING
+      },
+    })
 
   /**
    * The coordinator's end, told apart (ADR-0027, decision 7): a settle, or an
@@ -1694,7 +1693,8 @@ export const makeProjectionSystem = (runtime: ProjectionRuntime, sink: Projectio
     FiberHandle.setUnsafe(
       coordinator,
       runtime.runFork(
-        FrameLoop.use((loop) => loop.run(coordinatorMachine(), ignoreFrame)).pipe(
+        coordinatorMachine().pipe(
+          Machine.run(ignoreFrame),
           Effect.onExit(coordinatorEnded),
           Effect.asVoid,
         ),
