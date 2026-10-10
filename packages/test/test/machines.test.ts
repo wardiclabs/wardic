@@ -318,3 +318,61 @@ describe("every constructor through both drivers", () => {
       }))
   }
 })
+
+describe("every combinator through both drivers", () => {
+  const tween = (from: number, to: number) => Machine.tween(from, to, { duration: 0.2, easing: easeInOutCubic })
+  const cases: ReadonlyArray<readonly [string, () => Effect.Effect<Machine.Machine<Frame<unknown>>>]> = [
+    ["map", () => Effect.succeed(tween(0, 10).pipe(Machine.map((frame) => ({ value: frame.value * 3, done: frame.done }))))],
+    ["concat", () => Effect.succeed(tween(0, 10).pipe(Machine.concat(Machine.spring(-10, { stiffness: 300 }))))],
+    ["concatAll", () => Effect.succeed(Machine.concatAll([tween(0, 10), tween(10, -4), Machine.decay(-4, 80, {})]))],
+    ["forever", () => Effect.succeed(Machine.forever(Machine.concatAll([tween(0, 10), tween(10, 0)])))],
+    ["delay, around a spring", () => Effect.succeed(Machine.spring(100).pipe(Machine.delay(0.3)))],
+    ["clampDt", () => Effect.succeed(tween(0, 10).pipe(Machine.clampDt(0.02)))],
+    ["withSpan", () => Effect.succeed(tween(0, 10).pipe(Machine.withSpan("app.tween", { attributes: { a: 1 } })))],
+  ]
+  for (const [name, build] of cases) {
+    it.effect(name, () =>
+      Effect.gen(function* () {
+        const [s, m] = yield* bothDrivers(build)
+        expectSame(s, m, 5)
+      }))
+  }
+})
+
+/**
+ * `Machine.delay` against the steppers' own `delay` (ADR-0028, decision 9): the hold, then the
+ * time left over to an undelayed step, where the stepper subtracts the delay from its elapsed time
+ * on every step. On these dts the sums round differently, so a Frame after the hold can differ in
+ * its last bit, and only there: every `done` and every Frame count are the same.
+ */
+describe("Machine.delay against the steppers' delay", () => {
+  const cases: ReadonlyArray<readonly [string, Machine.Machine<Frame<number>>, Machine.Machine<Frame<number>>]> = [
+    ...[0.05, 0.1, 0.3].map((delay) =>
+      [
+        `tween −5 → 20, 2 s, delay ${delay}`,
+        Machine.tween(-5, 20, { duration: 2, delay }),
+        Machine.tween(-5, 20, { duration: 2 }).pipe(Machine.delay(delay), Machine.clampDt(Machine.MAX_DT)),
+      ] as const),
+    [
+      "tween 0 → 1, 0.2 s, delay 0.05",
+      Machine.tween(0, 1, { duration: 0.2, delay: 0.05 }),
+      Machine.tween(0, 1, { duration: 0.2 }).pipe(Machine.delay(0.05), Machine.clampDt(Machine.MAX_DT)),
+    ],
+    ...[0.05, 0.3].map((delay) =>
+      [
+        `spring 0 → 100, delay ${delay}`,
+        Machine.spring(100, { delay }),
+        Machine.spring(100).pipe(Machine.delay(delay), Machine.clampDt(Machine.MAX_DT)),
+      ] as const),
+  ]
+  for (const [name, stepper, held] of cases) {
+    it.effect(name, () =>
+      Effect.gen(function* () {
+        const [s, m] = yield* sideBySide(Machine.toStream(stepper), Machine.toStream(held))
+        expect(m.length).toBe(s.length)
+        expect(s.length).toBeGreaterThanOrEqual(5)
+        expect(m.map((frame) => frame.done)).toEqual(s.map((frame) => frame.done))
+        for (const [i, frame] of m.entries()) expect(Math.abs(frame.value - s[i]!.value)).toBeLessThan(1e-12)
+      }))
+  }
+})
