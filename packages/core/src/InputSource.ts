@@ -175,6 +175,11 @@ export class InputSource extends Context.Service<InputSource, {
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
  * authors, like `Clock.fromRefreshFrames`. Nothing here names a DOM type.
  *
+ * Delivery is inline (ADR-0032): each feed's callback ends with `Queue.flushUnsafe`, so the
+ * stream's consumer, waiting on the queue, handles the events before the platform's dispatch
+ * returns. Without it the queue releases its taker through Effect's scheduler, a
+ * `setTimeout(0)` in a browser, after the frame's paint (#32).
+ *
  * Observability: the per-event path is the hot path and stays quiet; the Environment's
  * Shared source wrapper carries the subscribe span and log.
  */
@@ -256,7 +261,8 @@ const stopFeed = (stop: Stop): void =>
 /**
  * The target's `pointer` stream, with every Held pointer's events wherever they land
  * (see the module doc). One ordered emit: every feed offers into the same queue, in the
- * order the platform calls them.
+ * order the platform calls them, and each feed's callback ends with a flush, so a waiting
+ * consumer handles the events inside the platform's dispatch (ADR-0032).
  */
 export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerLikeEvent> =>
   Stream.callback<PointerLikeEvent>((queue) =>
@@ -270,6 +276,20 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
         const lastGlobalRaw = MutableRef.make(Option.none<unknown>())
         // Each scrolled source's last position, for the hold.
         const scrollPositions = new Map<unknown, { x: number; y: number }>()
+
+        /**
+         * A feed's callback, then a flush: the stream's consumer, waiting on the queue, takes
+         * what the callback offered inside the platform's dispatch, with no scheduler hop
+         * (ADR-0032). One flush per callback, after the hold's state is updated, so a
+         * consumer never sees it half-updated. A consumer that is busy (an emit from inside
+         * its own handling) isn't waiting: the events stay queued, in order, for its next take.
+         */
+        const flushed =
+          <Args extends ReadonlyArray<unknown>>(feed: (...args: Args) => void) =>
+          (...args: Args): void => {
+            feed(...args)
+            Queue.flushUnsafe(queue)
+          }
 
         const stopFeeds = (): void => {
           stopFeed(stopGlobal)
@@ -348,7 +368,7 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
             Option.match({
               onNone: constVoid,
               onSome: (global) => {
-                const stop = global(fromGlobal)
+                const stop = global(flushed(fromGlobal))
                 // The feed may have ended the hold while subscribing.
                 Bool.match(held.size === 0, { onTrue: stop, onFalse: () => MutableRef.set(stopGlobal, Option.some(stop)) })
               },
@@ -358,7 +378,7 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
             Option.filter(() => Bool.and(Option.isNone(MutableRef.get(stopScroll)), held.size > 0)),
             Option.match({
               onNone: constVoid,
-              onSome: (scroll) => MutableRef.set(stopScroll, Option.some(scroll(fromScroll))),
+              onSome: (scroll) => MutableRef.set(stopScroll, Option.some(scroll(flushed(fromScroll)))),
             }),
           )
         }
@@ -400,7 +420,7 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
           )
         }
 
-        const stopTarget = options.target(fromTarget)
+        const stopTarget = options.target(flushed(fromTarget))
         return (): void => {
           stopTarget()
           stopFeeds()
