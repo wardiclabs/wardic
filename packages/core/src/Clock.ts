@@ -1,10 +1,10 @@
 /**
  * The `Clock` module: the engine's time source (`Clock.Clock`), and `fromRefreshFrames`, the
  * shared, DOM-free realization of it every Environment builds its Clock from: one
- * shared Refresh frame loop over an Environment's {@link RefreshFrameSource}.
- * `@wardic/dom` passes `requestAnimationFrame`/`cancelAnimationFrame`; a native or
- * canvas Environment passes its own pair and gets the same Clock (ADR-0004: no
- * per-Environment re-implementation).
+ * shared Refresh frame loop over an Environment's `RefreshFrameSource`. `layer` builds
+ * it from the Environment's member (ADR-0031): `@wardic/dom` provides
+ * `requestAnimationFrame`/`cancelAnimationFrame`; a native or canvas Environment provides
+ * its own pair and gets the same Clock (ADR-0004: no per-Environment re-implementation).
  *
  * The loop is the **single update path**: every Refresh frame computes `dt` from
  * successive timestamps and calls `tick`, which (with the Priming tick below) is the
@@ -45,12 +45,14 @@
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as PubSub from "effect/PubSub"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Microtask from "./Microtask.ts"
+import * as RefreshFrameSource from "./RefreshFrameSource.ts"
 
 /**
  * Time source for the engine.
@@ -87,39 +89,15 @@ export const NOMINAL_DT = 1 / 60
 declare const performance: { readonly now: () => number }
 
 /**
- * Where an Environment's Refresh frames come from: `requestFrame` asks for one
- * callback at the next Refresh frame (passing its timestamp in ms), `cancelFrame`
- * withdraws a pending request. `requestAnimationFrame`/`cancelAnimationFrame` in
- * DOM and native. `Handle` is whatever `requestFrame` returns.
- *
- * `requestFrame` must call back LATER, never inside `requestFrame` itself: the
- * Refresh frame loop requests each next frame from inside the current callback and
- * does not yield in between, so a source that answered synchronously would spin.
- *
- * Tier 2 (ADR-0008): for Environment authors.
- */
-export interface RefreshFrameSource<Handle = unknown> {
-  readonly requestFrame: (callback: (timestampMs: number) => void) => Handle
-  readonly cancelFrame: (handle: Handle) => void
-  /**
-   * The Environment's monotonic clock, in ms on the same timebase as the Refresh
-   * frame timestamps. The Clock reads it to time a Refresh frame whose timestamp
-   * repeats the previous one (Firefox runs one right after an input; ADR-0017 as
-   * amended by #2). Defaults to `performance.now()`.
-   */
-  readonly now?: () => number
-}
-
-/**
  * Build a `Clock` service driven by `source`'s Refresh frames. Requires a `Scope`
  * (the loop runs in it, and is interrupted — its pending request cancelled — when it
- * closes), so an Environment wraps it as
- * `Layer.effect(Clock.Clock)(Clock.fromRefreshFrames(source))`.
+ * closes). An Environment provides its source as a member and builds its Clock with
+ * {@link layer}; this is for a source that isn't in the Environment.
  *
  * Tier 2 (ADR-0008): Effect-typed, for Environment authors.
  */
 export const fromRefreshFrames = <Handle>(
-  source: RefreshFrameSource<Handle>,
+  source: RefreshFrameSource.Shape<Handle>,
 ): Effect.Effect<Context.Service.Shape<typeof Clock>, never, Scope.Scope> =>
   Effect.gen(function* () {
     // Called detached, never as `source.requestFrame(cb)`: a browser throws
@@ -288,3 +266,14 @@ export const fromRefreshFrames = <Handle>(
 
     return { ticks, tick }
   })
+
+/**
+ * The Clock over the Environment's `RefreshFrameSource` (ADR-0031): `fromRefreshFrames` on the
+ * member, the loop in the Layer's scope. An Environment provides both, from one source, so the
+ * Clock and the flush gate run on the same Refresh frames (`ClockDomLive`).
+ *
+ * Tier 2 (ADR-0008): for Environment authors.
+ */
+export const layer: Layer.Layer<Clock, never, RefreshFrameSource.RefreshFrameSource> = Layer.effect(Clock)(
+  Effect.flatMap(Effect.service(RefreshFrameSource.RefreshFrameSource), fromRefreshFrames),
+)

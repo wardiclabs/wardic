@@ -1,4 +1,5 @@
 import * as Clock from "@wardic/core/Clock"
+import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import { describe, expect, it } from "@effect/vitest"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -25,7 +26,7 @@ const makeFrames = () => {
   let requests = 0
   let cancels = 0
   let now = 0
-  const source: Clock.RefreshFrameSource<number> = {
+  const source: RefreshFrameSource.Shape<number> = {
     now: () => now,
     requestFrame: (callback) => {
       const handle = nextHandle++
