@@ -101,6 +101,7 @@ export default defineConfig({
       "effect/Combiner",
       "effect/Data",
       "effect/Deferred",
+      "effect/devtools",
       "effect/Equivalence",
       "effect/ErrorReporter",
       "effect/Exit",

@@ -43,6 +43,42 @@ render(
 )
 ```
 
+### Observability in development
+
+`env` takes any Layer that provides Wardic's services, so an app configures observability with Effect's own layers, merged beside `DomLive`. Wardic ships no logger, level or reporter: Effect's defaults are production's, so Wardic's Debug logs are filtered and its warnings and errors reach the console.
+
+```tsx
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import { DomLive } from "@wardic/dom"
+import { WardicProvider } from "@wardic/solid"
+import { DevTools } from "effect/devtools"
+import * as ErrorReporter from "effect/ErrorReporter"
+import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
+import * as References from "effect/References"
+
+// Forward each failure to your error tracker.
+const reporter = ErrorReporter.make(({ error, severity, attributes }) => errorTracker.capture(error, { severity, attributes }))
+
+const env = Layer.mergeAll(
+  DomLive,
+  Logger.layer([Logger.consolePrettyBrowser()]),
+  Layer.succeed(References.MinimumLogLevel, "Debug"),
+  ErrorReporter.layer([reporter]),
+  DevTools.layer(),
+  Layer.succeed(FrameLoop.CheckFrames, true),
+)
+
+render(() => <WardicProvider env={env}><App /></WardicProvider>, document.getElementById("root")!)
+```
+
+- **The logger and the level** show Wardic's Debug logs (each animation's start, the projection's passes), pretty-printed with their annotations.
+- **Your reporters** receive each failure where it stops: a failed animation (`wardic.spine: a leg failed`), a presence exit, drag's track, the hover, press and focus signals, a `useWardicFiber` fiber, and the projection's passes and coordinator. Each is logged at Error too. An interruption, such as a Retarget or an unmount, is neither. A reporter built with `ErrorReporter.make` reports a failure once, even when it crosses two of these boundaries.
+- **`DevTools.layer()`** streams every animation's span and the Frame loop's metrics to the Effect devtools (`ws://localhost:34437` by default).
+- **`FrameLoop.CheckFrames`** fails an animation whose step produces a NaN or an Infinity, naming the key and the value, instead of writing `NaNpx`, which the browser drops without a word. It checks every Frame, so it's for development.
+
+`effect/ErrorReporter` and `effect/devtools` are marked unstable in Effect 4.0.2.
+
 ### Basic animation with `useWardic`
 
 ```tsx

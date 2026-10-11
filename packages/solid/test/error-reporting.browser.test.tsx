@@ -1,13 +1,15 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import { ClockDomLive, InputDomLive, ProbeDomLive, RendererDomLive, reportFailure } from "@wardic/dom"
+import { ClockDomLive, DomLive, InputDomLive, ProbeDomLive, RendererDomLive, reportFailure } from "@wardic/dom"
 import { AnimatePresence, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import type * as Context from "effect/Context"
+import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
+import * as References from "effect/References"
 import { AtomRegistry } from "effect/reactivity"
 import { createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -225,5 +227,20 @@ describe("what isn't a failure, and what reports once", () => {
     await until(() => errorsNamed(logs, "wardic.runScoped: a fiber failed").length === 1)
     expect(errorsNamed(logs, "test.inner: failed")).toHaveLength(1)
     expect(reports).toEqual(["reported twice"])
+  })
+})
+
+describe("the README's env recipe", () => {
+  it("is a WardicEnv: a logger and a level, a reporter, the devtools and CheckFrames, merged beside DomLive", () => {
+    const reporter = ErrorReporter.make(() => {})
+    const env: WardicEnv = Layer.mergeAll(
+      DomLive,
+      Logger.layer([Logger.consolePrettyBrowser()]),
+      Layer.succeed(References.MinimumLogLevel, "Debug"),
+      ErrorReporter.layer([reporter]),
+      DevTools.layer(),
+      Layer.succeed(FrameLoop.CheckFrames, true),
+    )
+    expect(Layer.isLayer(env)).toBe(true)
   })
 })
