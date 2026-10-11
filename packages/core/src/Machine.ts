@@ -434,18 +434,39 @@ export const withSpan: {
 /** A settled Frame: a settling machine's run ends at its first. */
 const isSettled = (frame: Frame.Frame<unknown>): boolean => frame.done
 
+/** A Frame with a record `velocity` beside its record `value`: `springValues`' (`Frame.MultiPhysics`). */
+const isMultiPhysics = (frame: Frame.Frame<unknown>): frame is Frame.MultiPhysics =>
+  Predicate.isObject((frame as Frame.MultiPhysics).velocity)
+
+/**
+ * A Frame its Stream consumer owns: a record `value`, and a record `velocity` beside it, copied,
+ * since a step may rewrite them in place (`springValues`, ADR-0030 decision 11). Any other Frame
+ * passes as it is: a leaf's is fresh each tick, and a held one is never rewritten. On the
+ * per-frame path (ADR-0025): statement `if`s and plain calls.
+ */
+const owned = <F extends Frame.Frame<unknown>>(frame: F): F => {
+  if (!Predicate.isObject(frame.value)) return frame
+  if (isMultiPhysics(frame)) return { ...frame, value: { ...frame.value }, velocity: { ...frame.velocity } }
+  return { ...frame, value: { ...frame.value } }
+}
+
 /**
  * Run `self` over `Clock.ticks`: one Frame per tick, through its first settled Frame when it
  * settles. Each subscription starts its own run, under the machine's one span, with a
  * `<name>: subscribe` debug log annotated with the span's attributes. Per-frame work is
  * un-logged: it is the hot path.
+ *
+ * Each emission is its consumer's to keep: a record Frame is copied (`owned`) before it's
+ * emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11).
  */
 export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock.Clock> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const clock = yield* Clock.Clock
       yield* Effect.logDebug(`${self.span.name}: subscribe`)
-      const frames = clock.ticks.pipe(Stream.map(self.start()))
+      const step = self.start()
+      // Per frame (ADR-0025): the step, then the copy, plain calls in one closure built here.
+      const frames = clock.ticks.pipe(Stream.map((dt: number) => owned(step(dt))))
       return Bool.match(self.settles, {
         onTrue: () => frames.pipe(Stream.takeUntil(isSettled)),
         onFalse: () => frames,
