@@ -355,11 +355,11 @@ export const s14: ScenarioDef = {
     "every box, so nothing else in the list moves; the release FLIPs to the new slot.",
   dragExpect: {
     underPointerMaxPx: 1,
-    framesBehindMax: { default: 1, microtask: 0 },
+    framesBehindMax: 0,
     // A reorder's pass seeds the displaced items: one on a single axis, up to the other five on a grid's line move.
     // Per item: with the layout-child toggle each item is two nodes, and the check scales by the run's nodesPerItem.
     maxSeededPerPass: 5,
-    releaseHeldMax: { default: 1, microtask: 0 },
+    releaseHeldMax: 0,
     endsOnSlotMaxPx: 0.5,
     gestureEndsMaxPx: 1,
   },

@@ -184,10 +184,10 @@ export const s12: ScenarioDef = {
     "moved and jumped onto it at a pass or the release. M, animating when you grab, keeps animating on the item.",
   dragExpect: {
     underPointerMaxPx: 1,
-    framesBehindMax: { default: 1, microtask: 0 },
+    framesBehindMax: 0,
     childGlueMaxPx: 1,
     maxSeededPerPass: 1,
-    releaseHeldMax: { default: 1, microtask: 0 },
+    releaseHeldMax: 0,
     endsOnSlotMaxPx: 0.5,
     // #31: no gesture moves the item once it should have ended (ADR-0019).
     gestureEndsMaxPx: 1,
