@@ -233,3 +233,55 @@
 
   - **The complex blend's gain holds:** `animateComplex/loop`, whose blend reads four entries per number each frame (five of the twelve call sites), lands within 1.4 points of the prototype on every engine.
   - **The JavaScript on every benched path is the prototype's:** the casts are erased, and no workload interpolates an array. So where the columns differ, Bun's `springValues/loop` and `springBlend/loop` (−4.9% and −4.4% against −13.0% and −12.9%, each with a p25–p75 of 12–14 points) and Chromium's same two (+1.8% and +3.1% against −1.7% and −0.0%), it's one run against another, inside the gate both times.
+
+## Implementation in #111 (slice 3): `springValues` steps in place
+
+- **The leaf:** each run holds its keys' springs as four arrays (targets, positions, velocities, elapsed), built at `start()`, and one Frame whose `value` and `velocity` records are built there too. Its step clamps `dt` once, loops over the keys by index with plain reads (decision 10), and rewrites the records and `done`. Nothing is allocated per tick, where main's tick allocated a record of states, a state and a result per key, two records and the Frame.
+- **`Spring.step`'s integration is written out in the step,** as in the prototype (`probe/83-in-place`, `eeda7eb`). Called per key, `Spring.step` returns a new state and result, and a shared function called per key per frame is the cost decision 10 measured. An oracle holds the two equal (*Tests*). `Spring.ts` is unchanged.
+- **The step's shape was settled on the bench's Node loop row, not on steps alone.** The first version ran Node's `springValues/loop` 24% faster than main, against the prototype's 44%, so it was taken apart (Node alone, 5 paired reps a variant):
+  - **Steps alone** (`.tmp/111-bytes/`, #94's probe with a base ref: 1,000 machines stepped by hand over 2,000 frames, 9 processes a side) put the first version at 0.125 ms a frame against the prototype's 0.106, both at 30,464 bytes. Three changes each sped the steps up: the Frame's records and each key read through locals, the spring's fields destructured in `start()` (0.117 together), and the 1/240 s substep as a literal rather than a constant shared with `Spring.ts` through `internal/stepper.ts` (0.111). A module-level constant in `Machine.ts` measured as the import did: V8 folds the literal.
+  - **On the loop row, the three together went the other way:** 10% slower than the first version, allocating 0.38 MB a frame against 0.14 (the gate's second run, below). Each alone kept 0.14 MB, the literal −2.7% and the locals −2.3%, and with any one of the three taken out the other two still allocated 0.38 MB.
+  - **The difference was the records:** the prototype's step, transplanted onto this branch, ran the row 21% faster than the first version with the literal, at 0.14 MB. It has all three changes, and builds its records from `{}` a key at a time where this step used `Rec.fromEntries`. With its records built that way (`Arr.reduce`), the step with all three changes ran 23% faster than that version, at 0.14 MB. In isolation both ways give fast properties and the same map (`%HasFastProperties`, `%HaveSameMap`), so V8's mechanism isn't identified; only the measurement is.
+  - **Landed:** all three changes, and the records from `{}`. `Spring.ts` is unchanged. Steps alone pointed the wrong way here, so the gate's loop row decides a per-frame shape.
+- **What differs from the prototype:**
+  - it's written in the per-frame forms and passes lint, where the prototype had `any`, `typeof`, a ternary, `!`, an `if … else` and a bare `keys.map`;
+  - `toStream`'s copy is narrower. The prototype copied every Frame. As landed, `owned` copies a Frame whose `value` is a record (`Predicate.isObject`), and its `velocity` when that's a record too, and a number Frame passes as it is: a leaf's is fresh each tick, and a held one (`delay`, `holdAfter`) is never rewritten. `decayVec`'s point and `animateValues`' and `springBlend`'s records are copied as well, since `toStream` can't tell a fresh record from a rewritten one.
+- **The contract** is on `FrameLoop.Sink`, `Machine.run` and `springValues`, and in `Frame.ts`' module doc and `MultiPhysics`' seeding note. `pipeable.md` had it already. ADR-0027 and ADR-0028 each gain an *Amendment (#111)*.
+- **The combinators over a rewritten Frame,** checked against the contract:
+  - `concat`'s seam re-stamps the settled Frame with a spread that shares its records, and the settled segment never steps again;
+  - `holdAfter` keeps the settled Frame and its re-stamp, after the last step;
+  - `delay`'s held start Frame is the leaf's own Frame, from `step(0)`, returned while nothing steps. The first step after the hold rewrites it, and by then the hold no longer returns it;
+  - `map`'s function reads its tick's Frame, and `springBlend`'s `blendAt` builds a new one;
+  - `forever` restarts with a new run, which has its own Frame.
+- **No sink in the bindings keeps a Frame,** checked on main: the spine's legs spread into new Snapshot objects, `gate.write` copies with `Object.assign` (`gate.ts:232`), as do `recordFrame` (`use-wardic.tsx:634`) and presence's `commitFrame` (`presence.tsx:205-209`), and drag's snap to origin builds a fresh point (`drag.ts:321`). The bench's sink counts Frames.
+- **Two test sinks kept Frames:** `machines.test.ts`' `bothDrivers` and `spring-values-max-dt.test.ts`' `onTheLoop` pushed each Frame into an array. They copy it now, as the contract asks of any sink that keeps one.
+- **Nothing else differs from decision 11:** the other leaves allocate their Frame per tick, and `decayVec` waits for its two sinks.
+- **Tests:**
+  - **Parity, written first and passing on main:** `springValuesOracle` in `machines.test.ts` is `springValues` as main defined it, one `Machine.spring` step per key from its own start, settling once every key rests. Three cases through `toStream` on the uneven dts: four keys from a velocity through both stalls; options' `from` and `velocity` as the defaults, with a mass of 1.5 and a delay; a key at its target from the start. The both-drivers list gains a `springValues` case with a delay, so the loop's Frames are pinned to the oracle's too. `springBlend`'s existing oracle rides `springValues`, so it's pinned through it.
+  - **The mass is 1.5 on purpose:** with mass 1 or 2 the division is exact, so an integration reordered as `(force * h) / mass` passed every case. With 1.5 it fails.
+  - **The combinators:** `concat`, `delay`, `holdAfter`, `map` and `forever` over `springValues`, each against the same combinator over the oracle, then through both drivers.
+  - **The contract,** in `frames-in-place.test.ts`:
+    - a machine that rewrites a record Frame gives `toStream` emissions that keep their values, each in objects of its own. It fails without the copy;
+    - on the loop, a sink that stores `springValues`' Frame stores one object, holding the latest tick's values;
+    - the settled Frame stays as it settled after more ticks;
+    - through `toStream`, every emission, its `value` and its `velocity` is its own.
+  - **With `bothDrivers`' sink not copying,** both `springValues` cases fail.
+  - Every other test passes as it was: 666 node tests and 635 browser tests, the browser tier on a warm cache.
+- **The gate run** (`1650cb5`, `bench:core --base main`, 11 paired reps on the bench server; noise controls Bun −2.2%, Node −0.8%, Chromium −0.5%). Every row passes on every engine, and Node's bytes per frame are unchanged or lower on every row. Head / base, median [p25–p75], beside the prototype's medians (decision 11):
+
+  | Workload | Bun | Node | Chromium | Node MB per frame | Prototype, Bun / Node / Chromium |
+  |---|---|---|---|---|---|
+  | `springValues/loop` | −41.0% [−44.5, −38.0] | −43.5% [−43.9, −43.1] | −51.7% [−56.3, −50.0] | 0.88 → 0.14 | −39.1 / −44.1 / −46.7% |
+  | `springBlend/loop` | −8.3% [−12.9, −6.1] | −22.3% [−24.5, −19.9] | −17.2% [−19.4, −14.5] | 1.12 → 0.69 | −5.5 / −16.8 / −14.3% |
+  | `springValues` (Stream) | −4.8% [−6.5, −1.8] | −5.2% [−6.2, −4.5] | −8.4% [−10.6, −7.8] | 4.95 → 4.44 | −4.4 / −3.9 / −10.3% |
+  | `springBlend` (Stream) | +2.2% [−0.5, +2.7] | −3.6% [−5.2, −2.5] | −2.0% [−4.5, −0.5] | 5.11 → 4.86 | |
+  | the other record Streams (the copy) | +1.1 to +3.0% | +1.2 to +3.5% | +1.8 to +3.2% | +0.10 to +0.11 | −1.5 to +4.3 / −2.1 to +3.7 / −2.7 to +3.5% |
+  | `chase` (Stream, number Frames) | −1.0% | +2.2% | +1.4% | 4.13 → 4.13 | |
+  | the other loop rows | −9.8 to +3.4% | −4.1 to +4.4% | −1.9 to +2.1% | unchanged or lower | −11.3 to +2.7 / −1.3 to +1.1 / −2.1 to +0.0% |
+
+  The other record Streams are `animateValues`, `animateComplex`, `animateRepeat` and `animateRepeatDelay`, whose Frames `toStream` now copies. `chase`'s Frames pass the copy's check uncopied. Node's `chase/loop` reads +4.4% [+1.6, +5.1] on code this slice doesn't touch: `chase`'s step is unchanged, and so is `Spring.ts`.
+- **The runs before it,** on earlier versions of the slice's last commit, which the bisect's `tmp/111-*` branches on the bench remote keep:
+  - **`561d075`, the first version:** Bun's `animateRepeatDelay` (Stream) failed at +6.1% [+2.3, +7.6], the copy, and passed at +4.8% [+2.4, +4.9] in a Bun-only rerun. Node's bytes flagged `animateValues/loop` (0.73 → 0.80), whose step this slice doesn't change: steps alone read the same floor on both sides (main 672,526 bytes a frame [640,347–688,314], head 688,314 [640,334–736,355]), the flap #94 found. `springValues/loop` read −36.7% / −24.2% / −40.3%.
+  - **`fbbcd83`, the three changes with `Rec.fromEntries`' records:** every row passed, but Node's `springValues/loop` read −16.3% at 0.38 MB, which set off the bisect above.
+  - **`33bb4a3`, the first version with the literal:** Bun's `animateComplex` (Stream) failed at +5.1% [+1.9, +7.3], the copy. Node's first reading had a noise control of −3.5%; its rerun passed every row on time, with the same bytes flap. `springValues/loop` read −35.0% / −27.0% / −40.4%.
+- **Declared (the maintainer's call, 2026-10-11): what the copy costs.** `toStream`'s copy costs the record Streams 1–4% and about 0.1 MB a frame in Node. Bun's crossed +5% in two of its five runs (`animateRepeatDelay` +6.1%, `animateComplex` +5.1%) and passed in the other three. The copy is decision 11's, so a Stream consumer keeps owning its Frames. It's on Tier 2's `Stream` path alone: the bindings run on the loop, which doesn't copy. Copying only what a step rewrites would need a field on the `Machine` data type that every combinator passes on; it wasn't taken.
