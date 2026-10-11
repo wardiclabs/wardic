@@ -120,11 +120,24 @@ const endAt = (to: ReadonlyArray<number>, index: number, fallback: number): numb
   return end
 }
 
+/**
+ * Two arrays' blend, element by element, `from`'s length: past `to`'s end an element holds
+ * `from`'s. On the per-frame path (ADR-0025): a counted loop into a new array each frame, and no
+ * closure per frame.
+ */
+const blendArrays =
+  (from: ReadonlyArray<number>, to: ReadonlyArray<number>) =>
+  (t: number): ReadonlyArray<number> => {
+    const out: Array<number> = []
+    for (let i = 0; i < from.length; i++) out.push(Scalar.lerp(from[i], endAt(to, i, from[i]), t))
+    return out
+  }
+
 /** Interpolates fixed-length numeric arrays element-wise (e.g. RGB tuples). */
 export const array: Entry<ReadonlyArray<number>, ReadonlyArray<number>> = {
   name: "array",
   codec: Schema.Array(Schema.Number),
-  blend: (from, to) => Option.some((t: number) => Arr.map(from, (a, i) => Scalar.lerp(a, endAt(to, i, a), t))),
+  blend: (from, to) => Option.some(blendArrays(from, to)),
 }
 
 /**
