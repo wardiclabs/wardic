@@ -86,13 +86,13 @@
      - ADR-0031;
      - an *Amendment (#52)* each to ADR-0006 (the gate is dom's, with `batch` from the binding and its frames from the Environment), ADR-0017 (the source is an Environment member, and decision 1's steady order is its contract) and ADR-0028 (decision 11's table);
      - CONTEXT.md: **Flush gate** (new), and **Environment** and **Refresh frame** with the member.
-   - **Slice 1 (core, dom, test, solid): the Environment's `RefreshFrameSource`, and the gate's frames from it** (decisions 1, 2, 4 to 7). It needs nothing but this record.
+   - **#122 (slice 1), core, dom, test, solid: the Environment's `RefreshFrameSource`, and the gate's frames from it** (decisions 1, 2, 4 to 7). It needs nothing but this record.
      - core: the `RefreshFrameSource` module, with its contract's two rules, and `Clock.layer`. `Clock.RefreshFrameSource` goes.
      - dom: `ClockDomLive: Layer<Clock | RefreshFrameSource>`.
      - test: `TestLive`'s source, and `pushable()`'s.
      - solid: `WardicEnv` and `WardicServices` gain the member, and the gate, still in solid, requests its frames from it.
      - The lint rule, the recording-source test, the gate's tests on the pushable frames, and the three custom Environments.
-   - **Slice 2 (dom, solid): the flush gate moves to `@wardic/dom`, with `batch` from the binding** (decisions 3 and 6). It's blocked by slice 1, whose pushable frames its node tests need. Moving first would only carry the raw rAF into dom.
+   - **#123 (slice 2), dom, solid: the flush gate moves to `@wardic/dom`, with `batch` from the binding** (decisions 3 and 6). It's blocked by #122, whose pushable frames its node tests need. Moving first would only carry the raw rAF into dom.
      - dom: `makeFlushGate(runtime, { batch })`, `FlushGate`, `FlushSink` and `INERT_GATE`.
      - solid: the provider injects Solid's `batch`, and solid drops its `makeFlushGate` export.
      - The gate's tests split across dom's node and browser tiers and solid's (decision 6); `upgrade-targets.md`'s note on the gate's `batch`. It closes #52.

@@ -488,6 +488,6 @@ ADR-0030's decision 1 changes decision 12's services row.
 
 ## Amendment (#52, 2026-10-11): `RefreshFrameSource` is a service in its own module
 
-ADR-0031's decision 2 changes decision 11's table, and its first slice lands it.
+ADR-0031's decision 2 changes decision 11's table, and #122 lands it.
 - **`Clock.RefreshFrameSource` → `RefreshFrameSource.RefreshFrameSource`,** a `Context.Service` whose shape is the old interface, with `RefreshFrameSource.layer(source)`. No alias.
 - **`Clock.layer`** builds the Clock from the member. `Clock.fromRefreshFrames(source)` stays.

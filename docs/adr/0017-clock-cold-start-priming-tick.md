@@ -62,7 +62,7 @@ Issue #14, measured in the layout lab (Chrome 153 and Firefox 156 on Windows, 20
 
 ## Amendment (#52, 2026-10-11): the Refresh frame source is an Environment member, with order rules
 
-ADR-0031 decides it, and its first slice lands it.
+ADR-0031 decides it, and #122 lands it.
 - **The source is a core service of its own,** `RefreshFrameSource.RefreshFrameSource`, in its own module (ADR-0031, decision 2). `ClockDomLive` provides it beside the Clock, built from the same value, and the flush gate requests its flushes from it. `Clock.layer` builds the Clock from the member, and `Clock.fromRefreshFrames(source)` stays for a source that isn't in the Environment. Decision 4's Tier 2 holds.
 - **Decision 1's steady order (the gate's flush, then the Clock's tick) is now the source's contract,** kept by every Environment, not a property of the browser (ADR-0031, decision 4). The contract's two rules: a Refresh frame's callbacks run in the order they were requested, and a callback requested while a frame's callbacks run waits for the next frame. `requestAnimationFrame` keeps both.
 - **The known edge in *Consequences* is unchanged:** on DOM the member is `requestAnimationFrame`, so a Clock started from a rAF callback that runs before a pending gate flush still paints its first value one frame early, then repeats it once.
