@@ -207,7 +207,7 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
     | `Flip` | `flip` → `Flip.make`, `FlipTransform`, `FLIP_IDENTITY` | plain |
     | `Scalar` | `lerp`, `inverseLerp`, `clamp`, `wrap`, `remap`, `damp`, `snap`, `snapTo`. Not `Math`, which would hide the global | plain, per frame |
     | `Point` | `Point`, `distance`, `angle`, `lerpPoint` → `Point.lerp`; drag's `Vec2`, the same `{ x, y }`, merges into it | plain |
-    | `Velocity` | `velocity` → `.between`, `velocityOf` → `.of`, reorder's `trailingVelocity` → `.trailing`, `TimedPoint` | plain |
+    | `Velocity` | `velocity` → `.between`, `velocityOf` → `.of`, which went with #25 (*Amendment (#25)*), reorder's `trailingVelocity` → `.trailing`, `TimedPoint` | plain |
     | `Stagger` | `stagger` → `Stagger.make`, its option types | plain |
     | `Wave` | `wave` → `.sine`, `pulse`, `noise` | plain |
     | `Recognizer` | `hover`, `press`, `focus`, `inView`, `drag`: CONTEXT's Recognizer | Stream constructors |
@@ -491,3 +491,11 @@ ADR-0030's decision 1 changes decision 12's services row.
 ADR-0031's decision 2 changes decision 11's table, and #122 lands it.
 - **`Clock.RefreshFrameSource` → `RefreshFrameSource.RefreshFrameSource`,** a `Context.Service` whose shape is the old interface, with `RefreshFrameSource.layer(source)`. No alias.
 - **`Clock.layer`** builds the Clock from the member. `Clock.fromRefreshFrames(source)` stays.
+
+## Amendment (#25, 2026-10-11): `Velocity.of` goes
+
+#25 changes decision 12's `Velocity` row.
+
+- **`velocityOf` → `Velocity.of` is gone,** with no alias, and its test (`util-effect.test.ts`) with it. Nothing outside that test called it: the reason decision 12's *Gone* gives, and ADR-0030's for `Clock.delay`. `pipeable.md`: a combinator needs a caller.
+- **Why not reshaped:** it zipped its values with `Clock.ticks`, which cost 2 dispatcher tasks per element per frame and paired a value with an older tick's `dt` when the values skipped a tick (ADR-0017, *Amendment (#25)*). A shape with neither takes its values from the tick, through a per-tick read or a machine, and nothing called it to choose between them. A Physics primitive's velocity is already on its Frames (`Frame.Physics`). A `createVelocity`, the v0.1 plan's, chooses its shape when it's built.
+- **`Velocity.between` stays,** a plain helper like `Scalar`'s and `Point`'s, on the per-frame path (`effect-first.md`). The module is `between`, `trailing` and `TimedPoint`.
