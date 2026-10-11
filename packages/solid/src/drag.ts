@@ -179,7 +179,6 @@ const directSet = (opts: RunDragTrackOptions, p: Point.Point): void => {
   opts.recordFrame({ x: p.x, y: p.y })
 }
 
-
 /**
  * A gesture's bookkeeping, run as each sample arrives, before its response: "start"
  * marks the gesture held; "end" clears it and, for a projection node (ADR-0016), starts
@@ -370,16 +369,14 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
       )
       const grabs = input.pointer(element).pipe(Stream.filter(isGrab))
 
-      // Started inline, in this order, so the samples subscribe before the grabs; a failure
-      // of either, or of a release (`FiberHandle.join`), fails the track.
-      yield* Effect.all(
-        [
-          Stream.runForEach(shaped, onSample),
-          Stream.runForEach(grabs, () => onGrab),
-          FiberHandle.join(releasing),
-        ],
-        { concurrency: "unbounded", discard: true },
-      )
+      // Started inline, in this order, so the samples subscribe before the grabs. Once both
+      // inputs end (a test's script), the track ends when its release does; a failure of
+      // either input, or of a release (`FiberHandle.join`), fails the track.
+      const inputs = Effect.all([Stream.runForEach(shaped, onSample), Stream.runForEach(grabs, () => onGrab)], {
+        concurrency: "unbounded",
+        discard: true,
+      })
+      yield* Effect.raceFirst(inputs.pipe(Effect.andThen(FiberHandle.awaitEmpty(releasing))), FiberHandle.join(releasing))
     }).pipe(Effect.scoped),
   )
 }
