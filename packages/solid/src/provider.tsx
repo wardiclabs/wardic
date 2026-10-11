@@ -28,7 +28,7 @@ import * as Option from "effect/Option"
 import { AtomRegistry } from "effect/reactivity"
 import { createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
-import { makeProjectionSystem, type ProjectionSystem } from "@wardic/dom"
+import { makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
 import { type FlushGate, INERT_GATE, makeFlushGate } from "./gate.ts"
 import { isHydrating, isServer } from "./server.ts"
 
@@ -236,6 +236,11 @@ export function useWardicProjection(): ProjectionSystem {
  * fiber's Scope is torn down on interrupt, releasing whatever Shared sources it
  * subscribed to — exactly the per-element fiber lifecycle ADR-0006 prescribes.
  *
+ * A failure is logged at Error, `wardic.runScoped: a fiber failed`, with its cause, and
+ * reported to the Environment's `ErrorReporter`s (ADR-0030, decision 4); an interruption is
+ * neither. That covers drag's track, the hover, press and focus signals, and
+ * `useWardicFiber`'s fibers, which nothing else observes. The fiber still fails with it.
+ *
  * During a server render it starts nothing and returns a fiber already ended by
  * interruption; while hydrating, the fiber exists at once but its effect starts at mount
  * (the Hydration hold, ADR-0021 decisions 8 and 9).
@@ -249,11 +254,12 @@ export function runScoped<A, E>(
   // A server render starts nothing (ADR-0021, decision 9): a fiber already ended by
   // interruption, so joining it never hangs, and the runtime stays unbuilt.
   if (isServer) return interrupted<A, E>()
+  const reported = effect.pipe(Effect.tapCause((cause) => reportFailure("wardic.runScoped: a fiber failed", cause)))
   if (isHydrating()) {
     // Hydration hold: a real fiber now, whose effect starts at mount (once the latch
     // opens), so nothing it writes can change what the hydration render shows.
     const latch = Latch.makeUnsafe(false)
-    const held = runtime.runFork(Effect.andThen(latch.await, effect))
+    const held = runtime.runFork(Effect.andThen(latch.await, reported))
     onMount(() => {
       Effect.runSync(latch.open)
     })
@@ -262,7 +268,7 @@ export function runScoped<A, E>(
     })
     return held
   }
-  const fiber = runtime.runFork(effect)
+  const fiber = runtime.runFork(reported)
   onCleanup(() => {
     // Interrupting is itself an Effect; fork it on the runtime so it runs
     // without blocking the synchronous cleanup pass.
