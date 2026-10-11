@@ -99,6 +99,7 @@ export default defineConfig({
       "effect/Boolean",
       "effect/Cause",
       "effect/Combiner",
+      "effect/Data",
       "effect/Deferred",
       "effect/Equivalence",
       "effect/Exit",

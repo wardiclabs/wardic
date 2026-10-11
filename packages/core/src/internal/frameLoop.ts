@@ -23,11 +23,16 @@
  * (`wardic.frameloop`). Per tick, no span or log: a gauge of running animations and a histogram
  * of ms per tick, each one `updateUnsafe` (ADR-0027, decision 6).
  *
+ * The dev check for non-finite Frames (`CheckFrames`, ADR-0030 decision 7) is a sink wrapper a
+ * run gets at its start when the check is on, so the tick is the same either way.
+ *
  * Internal (ADR-0028, decision 11): the service's shape and `make`, behind `FrameLoop.layer`.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import * as Context from "effect/Context"
+import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -35,6 +40,8 @@ import * as FiberHandle from "effect/FiberHandle"
 import { identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Metric from "effect/Metric"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Clock from "../Clock.ts"
@@ -74,6 +81,65 @@ const tickMs = Metric.histogram("wardic_frameloop_tick_ms", {
   description: "Milliseconds the Frame loop spends on one tick",
   boundaries: Metric.linearBoundaries({ start: 0, width: 0.5, count: 32 }),
 })
+
+/**
+ * The dev check for non-finite Frames (ADR-0030, decision 7), `false` by default: with it on, each
+ * run started from a fiber that sees it checks every Frame before its sink gets it, and fails with
+ * `NonFiniteFrame` on a NaN or an Infinity. Read once per run, from the caller's fiber, so an app
+ * that merges it beside its Environment with `Layer.mergeAll` turns it on. `FrameLoop.CheckFrames`.
+ */
+export const CheckFrames: Context.Reference<boolean> = Context.Reference<boolean>("@wardic/FrameLoop/CheckFrames", {
+  defaultValue: () => false,
+})
+
+/**
+ * A Frame with a NaN or an Infinity in its `value` (ADR-0030, decision 7): the defect a checked run
+ * dies with. `key` is the record key that held it, `None` when the value is the number itself, and
+ * `value` is what it held. The run's span names the run (decision 3). `FrameLoop.NonFiniteFrame`.
+ */
+export class NonFiniteFrame extends Data.TaggedError("NonFiniteFrame")<{
+  readonly key: Option.Option<string>
+  readonly value: unknown
+  readonly message: string
+}> {}
+
+/** The defect for `value` at `key`. Not the per-frame path: a run fails once. */
+const nonFinite = (key: Option.Option<string>, value: unknown): NonFiniteFrame =>
+  new NonFiniteFrame({
+    key,
+    value,
+    message: Option.match(key, {
+      onNone: () => `a non-finite Frame: its value is ${String(value)}`,
+      onSome: (name) => `a non-finite Frame: ${name} is ${String(value)}`,
+    }),
+  })
+
+/** A number that isn't finite, or a string that holds one: written out, "NaN" or "Infinity". */
+const isNonFinite: Predicate.Predicate<unknown> = (value) => {
+  if (Predicate.isNumber(value)) return !Number.isFinite(value)
+  if (Predicate.isString(value)) return value.includes("NaN") || value.includes("Infinity")
+  return false
+}
+
+/**
+ * Throw `NonFiniteFrame` if a Frame's `value`, or one of a record's values, isn't finite. Per
+ * frame with the check on (ADR-0025): statement `if`s, and a loop over the record's keys.
+ */
+const checkValue = (value: unknown): void => {
+  if (isNonFinite(value)) throw nonFinite(Option.none(), value)
+  if (!Predicate.isObject(value)) return
+  for (const key in value) {
+    if (isNonFinite(value[key])) throw nonFinite(Option.some(key), value[key])
+  }
+}
+
+/** `sink`, each Frame checked first: a run's sink with `CheckFrames` on. */
+const checked =
+  <F extends Frame.Frame<unknown>>(sink: FrameLoop.Sink<F>): FrameLoop.Sink<F> =>
+  (frame) => {
+    checkValue(frame.value)
+    return sink(frame)
+  }
 
 /** A run's ending, counted: a settle or a failure (an interruption is neither). */
 const countEnd = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
@@ -191,14 +257,15 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
     Effect.logDebug(`${machine.span.name}: start`).pipe(
       Effect.andThen(
         Effect.acquireUseRelease(
-          Effect.suspend(() =>
+          // `CheckFrames` from the caller's fiber, once per run: with it off, the sink as it is.
+          Effect.flatMap(Effect.service(CheckFrames), (check) =>
             Match.value(burst.state).pipe(
               // A closed Environment takes no runs: nothing would tick them.
               Match.tag("Closed", () => Effect.interrupt),
               Match.tag("Open", () => {
                 const entry: Entry = {
                   step: machine.start(),
-                  sink: sink as FrameLoop.Sink<Frame.Frame<unknown>>,
+                  sink: Bool.match(check, { onTrue: () => checked(sink), onFalse: () => sink }) as FrameLoop.Sink<Frame.Frame<unknown>>,
                   settles: machine.settles,
                   settled: Deferred.makeUnsafe<Frame.Frame<unknown>>(),
                   removed: false,
