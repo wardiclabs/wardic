@@ -3,19 +3,14 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
-import { Atom } from "effect/reactivity"
 
 /**
  * A deterministic Clock for frame-level tests. `ticks` replays the supplied `dt`
  * sequence (in seconds) exactly once, so a primitive's per-frame output can be
- * collected with `Stream.runCollect` and asserted.
- *
- * `time`/`dt` are inert atoms here — tests drive behavior through `ticks`, not
- * reactive reads. A live Clock (rAF-driven) lands in `@wardic/dom`.
+ * collected with `Stream.runCollect` and asserted. A live Clock (rAF-driven) is
+ * `@wardic/dom`'s.
  */
 export const makeTestClock = (frames: ReadonlyArray<number> = []) => ({
-  time: Atom.make(0),
-  dt: Atom.make(0),
   ticks: Stream.fromIterable(frames),
   tick: (_t: number) => Effect.sync(() => {}),
 })
@@ -68,8 +63,6 @@ export const pushable = (): Effect.Effect<{
     const pubsub = yield* PubSub.unbounded<number>()
     return {
       layer: Layer.succeed(Clock.Clock, {
-        time: Atom.make(0),
-        dt: Atom.make(0),
         ticks: Stream.fromPubSub(pubsub),
         tick: (_t: number) => Effect.sync(() => {}),
       }),

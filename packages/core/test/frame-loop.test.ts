@@ -17,7 +17,6 @@ import { MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
-import { Atom, AtomRegistry } from "effect/reactivity"
 
 // The Frame loop (ADR-0027) against a hand-driven Refresh frame source and core's real Clock.
 // Every fiber runs on Effect's browser fallback scheduler (`setTimeout(0)`) with its dispatches
@@ -73,12 +72,10 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
   })
   const { spans, tracer } = makeTracer()
   const scope = Scope.makeUnsafe()
-  const registry = AtomRegistry.make()
   const clock: ClockShape =
     options?.clock ??
     (await Effect.runPromise(
       Clock.fromRefreshFrames(frames.source).pipe(
-        Effect.provideService(AtomRegistry.AtomRegistry, registry),
         Scope.provide(scope),
       ),
       { scheduler },
@@ -141,8 +138,6 @@ const heldClock = (dts: ReadonlyArray<number>) => {
     ),
   )
   const shape: ClockShape = {
-    time: Atom.make(0),
-    dt: Atom.make(0),
     ticks: Stream.suspend(() => {
       subscriptions++
       return Stream.concat(Stream.fromIterable(dts), hold)
@@ -326,8 +321,6 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
 
   /** A Clock whose ticks are `dts`, then whatever `end` is. */
   const scriptedClock = (dts: ReadonlyArray<number>, end: Stream.Stream<number>): ClockShape => ({
-    time: Atom.make(0),
-    dt: Atom.make(0),
     ticks: Stream.concat(Stream.fromIterable(dts), end),
     tick: () => Effect.void,
   })

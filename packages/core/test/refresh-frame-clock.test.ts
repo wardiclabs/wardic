@@ -7,7 +7,6 @@ import * as Fiber from "effect/Fiber"
 import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { AtomRegistry } from "effect/reactivity"
 
 // The Clock's Cold start contract (ADR-0017), checked against a hand-driven
 // Refresh frame source. Every fiber runs on Effect's browser fallback scheduler
@@ -66,11 +65,9 @@ const makeHarness = async () => {
     const timer = setTimeout(task, 0)
     return () => clearTimeout(timer)
   })
-  const registry = AtomRegistry.make()
   const scope = Scope.makeUnsafe()
   const clock: ClockShape = await Effect.runPromise(
     Clock.fromRefreshFrames(frames.source).pipe(
-      Effect.provideService(AtomRegistry.AtomRegistry, registry),
       Scope.provide(scope),
     ),
     { scheduler },
@@ -95,7 +92,6 @@ const makeHarness = async () => {
   return {
     clock,
     frames,
-    registry,
     subscribe,
     dispatches: () => dispatches,
     closeScope: () => Effect.runPromise(Scope.close(scope, Exit.void), { scheduler }),

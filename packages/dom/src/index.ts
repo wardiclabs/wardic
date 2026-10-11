@@ -85,9 +85,9 @@ export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.
  * real {@link InterpolatorRegistry} and its Frame loop over the DOM Clock
  * (`FrameLoop.layer`, ADR-0027), fully self-contained (R = never).
  *
- * `ClockDomLive`/`ProbeDomLive` require the Environment's `AtomRegistry` (they
- * write `time`/`dt` and `viewport`/`prefersReducedMotion` Atoms through it), and
- * consumers read those same Atoms through that registry — so `AtomRegistry` is
+ * `ProbeDomLive` requires the Environment's `AtomRegistry` (it writes the
+ * `viewport`/`prefersReducedMotion` Atoms through it), and consumers read those same
+ * Atoms through that registry — so `AtomRegistry` is
  * provided to them via `Layer.provideMerge` AND re-exposed in the output env,
  * exactly as the headless `testLayer` (packages/test) does. Provide this to
  * `WardicProvider` to run the full engine against the real DOM.

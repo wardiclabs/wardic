@@ -8,10 +8,9 @@
  *
  * The loop is the **single update path**: every Refresh frame computes `dt` from
  * successive timestamps and calls `tick`, which (with the Priming tick below) is the
- * only writer of the `time`/`dt` Atoms and the only publisher to the internal tick
- * `PubSub`. There is deliberately no `MAX_DT` clamp here — clamping is a
- * consumer-boundary concern (each Primitive's `Machine.clampDt(MAX_DT)`), so the Clock
- * reports raw deltas.
+ * only publisher to the internal tick `PubSub`. There is deliberately no `MAX_DT` clamp
+ * here — clamping is a consumer-boundary concern (each leaf's step clamps at
+ * `Machine.MAX_DT`, #78), so the Clock reports raw deltas.
  *
  * **Cold start** (ADR-0017): the subscription that starts an idle loop gets a
  * **Priming tick** at the end of its task, with `dt = NOMINAL_DT`, before the first
@@ -51,15 +50,13 @@ import * as Option from "effect/Option"
 import * as PubSub from "effect/PubSub"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Microtask from "./Microtask.ts"
 
 /**
  * Time source for the engine.
  *
- * Exposes the current absolute time (reference-only — animations consume `dt`,
- * not absolute time), the most recent delta, and a stream of `dt` values that
- * primitives subscribe to. Environments drive it by calling `tick`.
+ * Exposes a stream of `dt` values, which primitives subscribe to: frame time
+ * (CONTEXT.md) is what they count of it. Environments drive it by calling `tick`.
  *
  * Cold start contract (ADR-0017), which `fromRefreshFrames` implements for
  * every Environment driven by Refresh frames: a subscription that starts an idle
@@ -70,10 +67,6 @@ import * as Microtask from "./Microtask.ts"
  * followed by a subscribe before it (a retarget) is a warm start.
  */
 export class Clock extends Context.Service<Clock, {
-  /** Current absolute time. Reference-only; prefer `dt`. */
-  readonly time: Atom.Atom<number>
-  /** Most recent delta time, in seconds. */
-  readonly dt: Atom.Atom<number>
   /** Stream of `dt` values, one per frame. */
   readonly ticks: Stream.Stream<number>
   /** Advance the clock to absolute time `t` (environments call this). */
@@ -118,31 +111,22 @@ export interface RefreshFrameSource<Handle = unknown> {
 }
 
 /**
- * Build a `Clock` service driven by `source`'s Refresh frames. Requires the
- * Environment's `AtomRegistry` (the registry consumers read `time`/`dt` from) and
- * a `Scope` (the loop runs in it, and is interrupted — its pending request
- * cancelled — when it closes), so an Environment wraps it as
+ * Build a `Clock` service driven by `source`'s Refresh frames. Requires a `Scope`
+ * (the loop runs in it, and is interrupted — its pending request cancelled — when it
+ * closes), so an Environment wraps it as
  * `Layer.effect(Clock.Clock)(Clock.fromRefreshFrames(source))`.
  *
  * Tier 2 (ADR-0008): Effect-typed, for Environment authors.
  */
 export const fromRefreshFrames = <Handle>(
   source: RefreshFrameSource<Handle>,
-): Effect.Effect<Context.Service.Shape<typeof Clock>, never, AtomRegistry.AtomRegistry | Scope.Scope> =>
+): Effect.Effect<Context.Service.Shape<typeof Clock>, never, Scope.Scope> =>
   Effect.gen(function* () {
     // Called detached, never as `source.requestFrame(cb)`: a browser throws
     // "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
     // anything but the window.
     const { requestFrame, cancelFrame } = source
     const now = Option.getOrElse(Option.fromNullishOr(source.now), () => () => performance.now())
-    // The shared Environment registry — the one consumers read these atoms from.
-    const registry = yield* AtomRegistry.AtomRegistry
-    // Mirror TestClock's Atom shape exactly (writable state atoms from a plain
-    // value). `keepAlive` pins each node in the registry so the value `tick`
-    // writes survives between frames: an idle node with no mounted subscriber is
-    // garbage-collected, and the next read would re-initialize it to 0.
-    const time = Atom.keepAlive(Atom.make(0))
-    const dt = Atom.keepAlive(Atom.make(0))
 
     // Carries dt (seconds) to subscribers of `ticks`.
     const tickPubSub = yield* PubSub.unbounded<number>()
@@ -186,8 +170,8 @@ export const fromRefreshFrames = <Handle>(
      * gets the rest of the interval, and a dt never goes below 0. There is no upper
      * clamp here: that is the consumer boundary's (`MAX_DT`).
      *
-     * Writes the `time`/`dt` Atoms and publishes dt to the tick PubSub. Hot path —
-     * intentionally unlogged; one `now()` read per Refresh frame.
+     * Publishes dt to the tick PubSub. Hot path — intentionally unlogged; one `now()`
+     * read per Refresh frame.
      */
     const tick = (t: number): Effect.Effect<void> =>
       Effect.suspend(() => {
@@ -196,18 +180,13 @@ export const fromRefreshFrames = <Handle>(
         MutableRef.set(lastTime, Option.some(current))
         MutableRef.set(lastStamp, Option.some(t))
         MutableRef.set(lastNow, at)
-        registry.set(time, current)
-        registry.set(dt, delta)
         return PubSub.publish(tickPubSub, delta).pipe(Effect.asVoid)
       })
 
     // The Priming tick: the nominal dt, published to whoever subscribed in the task
-    // that started the loop. It has no Refresh frame timestamp, so it leaves `time`
-    // and `lastTime` alone. Once per Cold start — not the hot path.
-    const primingTick: Effect.Effect<void> = Effect.suspend(() => {
-      registry.set(dt, NOMINAL_DT)
-      return PubSub.publish(tickPubSub, NOMINAL_DT).pipe(Effect.asVoid)
-    })
+    // that started the loop. It has no Refresh frame timestamp, so it leaves
+    // `lastTime` alone. Once per Cold start — not the hot path.
+    const primingTick: Effect.Effect<void> = PubSub.publish(tickPubSub, NOMINAL_DT).pipe(Effect.asVoid)
 
     // One Refresh frame as an interruptible Effect: requests a frame, resumes with
     // its timestamp, and cancels the pending request on interruption.
@@ -276,7 +255,7 @@ export const fromRefreshFrames = <Handle>(
     // every spring forward a frame. Resetting makes every Cold start begin like the
     // first-ever one.
     const scope = yield* Scope.Scope
-    const buildContext = yield* Effect.context<AtomRegistry.AtomRegistry | Scope.Scope>()
+    const buildContext = yield* Effect.context<Scope.Scope>()
     const start: Effect.Effect<void> = Effect.suspend(() => {
       MutableRef.set(running, true)
       MutableRef.set(lastTime, Option.none())
@@ -307,5 +286,5 @@ export const fromRefreshFrames = <Handle>(
       }),
     ).pipe(Stream.withSpan("wardic.clock"))
 
-    return { time, dt, ticks, tick }
+    return { ticks, tick }
   })
