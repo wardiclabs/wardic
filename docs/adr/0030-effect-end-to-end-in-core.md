@@ -209,3 +209,27 @@
 - **A dev check exists for non-finite Frames,** off by default and free when off (#112).
 - **The start path is #87's,** with this record's breakdown, and per-animation spans stay until its profile says otherwise.
 - **Not done here:** typed build errors (#66's); a `StepDefect`; a frame budget warning; a `devLayer`; `runAll`; stepping in place for the other leaves.
+
+## Implementation in #110 (slice 2): per-frame reads are plain, held by lint
+
+- **The twelve calls are plain reads,** at the sites decision 10 lists, unchanged on main since `3a8b72c`: the tick's two loops (`internal/frameLoop.ts`), `concatAll`'s seam (`Machine.ts`), `formatComplex`'s three and `blendNumbers`' two (`Interpolator.ts`), the sampled spring easing's two (`Easing.ts`) and `snapTo`'s two (`Scalar.ts`). The commit is the prototype's (`probe/83-index`, `58021db`) without its casts: it wrote `xs[i] as T`, and with no `noUncheckedIndexedAccess` each read already types as its element. `Scalar.ts` drops its `effect/Array` import, which nothing else there used. The other files keep theirs.
+- **Input-event code keeps `getUnsafe`:** `Reorder.ts`' six calls and `Velocity.trailing`'s one. `UndefinedOr.getOrThrow` stays where a value is present by construction.
+- **`Interpolator.array`'s blend is `blendArrays`:** a counted loop that pushes into a new array each frame, reading `to` through the early-return `endAt` as before, so an element past `to`'s end holds `from`'s. The tests came first, against main's `Arr.map`, and pass unchanged on the loop. Two mutations of the loop, reading `to[i]` without `endAt` and counting to `to.length`, each fail them. No bench workload interpolates an array, so it's unmeasured, as decision 10 says.
+- **The lint:** `PER_FRAME_READS` in `eslint.config.js` is `PER_FRAME_LOOPS` and `Easing.ts`, and it gets `no-restricted-properties` on `Arr.getUnsafe` (`object: "Arr"`, `property: "getUnsafe"`), its message pointing at `effect-first.md`. Checked: an `Arr.getUnsafe` appended to each of the seven files fails lint, and the same line in `Reorder.ts` and `Velocity.ts` passes.
+  - **What it doesn't reach:** the per-frame files outside the list (`Point.ts`, `Box.ts`, `Wave.ts`, `ReducedMotion.ts`, `internal/stepper.ts`), none of which calls `getUnsafe`; `Velocity.between`, since `Velocity.ts` also holds `trailing`, which keeps it; and a named import, `import { getUnsafe } from "effect/Array"`, since the rule matches the `Arr.` member. Review holds those.
+  - `effect-first.md` said lint holds the rule "in the per-frame files"; it now names the loop files and `Easing.ts`.
+- **Nothing else differs from decision 10.**
+- **Tests:** `interpolate.test.ts` pins the array entry's blend: each element lerped at any `t`, unclamped; a `to` shorter than `from` (the elements past its end hold `from`'s); a `to` longer than `from` (`from`'s length), and an empty `from`; a new array each frame, with the endpoints unchanged. Every other test passes as it was: 652 node tests and 635 browser tests, the browser tier on a warm cache.
+- **The gate run** (`fe5cc05`, `bench:core --base main`, 11 paired reps on the bench server; noise controls Bun +0.0% on a Bun-only rerun, its first at −4.4%, Node −1.0%, Chromium +2.8%). Every row passes on every engine, and Node's bytes per frame are unchanged or lower on every row, so no bytes flag needs the steps-only probe. Head / base, median [p25–p75], beside the prototype's medians (decision 10):
+
+  | Workload | Bun | Node | Chromium | Prototype, Bun / Node / Chromium |
+  |---|---|---|---|---|
+  | `animateComplex/loop` | −37.0% [−38.0, −35.6] | −7.2% [−8.1, −6.0] | −12.3% [−14.6, −11.6] | −38.4 / −7.5 / −11.6% |
+  | `chase/loop` | −26.2% [−30.0, −20.6] | −8.2% [−12.0, −7.6] | −10.0% [−10.0, −10.0] | −19.4 / −4.6 / −10.0% |
+  | `springValues/loop` | −4.9% [−13.9, +0.2] | −3.1% [−3.6, −2.9] | +1.8% [−3.3, +5.1] | −13.0 / −2.8 / −1.7% |
+  | `springBlend/loop` | −4.4% [−12.6, −0.4] | −2.9% [−4.5, +1.9] | +3.1% [+0.0, +6.5] | −12.9 / +0.5 / −0.0% |
+  | `animateComplex` (Stream) | −10.2% [−12.4, −7.9] | −1.6% [−1.8, −1.3] | −1.8% [−2.6, −1.3] | −12.6 / −1.3 / −1.6% |
+  | the rest | −5.7 to +2.5% | −0.7 to +1.7% | −4.4 to +1.3% | −6.1 to +3.6 / −1.5 to +0.7 / −2.1 to +1.6% |
+
+  - **The complex blend's gain holds:** `animateComplex/loop`, whose blend reads four entries per number each frame (five of the twelve call sites), lands within 1.4 points of the prototype on every engine.
+  - **The JavaScript on every benched path is the prototype's:** the casts are erased, and no workload interpolates an array. So where the columns differ, Bun's `springValues/loop` and `springBlend/loop` (−4.9% and −4.4% against −13.0% and −12.9%, each with a p25–p75 of 12–14 points) and Chromium's same two (+1.8% and +3.1% against −1.7% and −0.0%), it's one run against another, inside the gate both times.
