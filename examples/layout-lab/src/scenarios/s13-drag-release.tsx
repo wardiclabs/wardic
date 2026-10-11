@@ -154,7 +154,8 @@ export const s13: ScenarioDef = {
     "Since #26 a pointer move re-derives the dragged item, so it paints in the frame the move reaches it (with a " +
     "browser's own scheduler too since #32); a resized slot is painted at its new size about the same centre; a " +
     "FLIPing parent is re-derived with the item, which stays under the pointer; and the release is a FLIP to the " +
-    "slot with a Priming step (0 held from a pointerup), which always writes the resting projection when it " +
+    "slot whose first step is the next frame's tick, painted in that frame (0 held from a pointerup; ADR-0033), " +
+    "which always writes the resting projection when it " +
     "lands on the slot.",
   dragExpect: {
     underPointerMaxPx: 1,

@@ -77,7 +77,8 @@ export const s1: ScenarioDef = {
   rationale:
     "The signal write runs Wardic's layoutDependency effect synchronously, and its notify queues a Measure pass, " +
     "which the engine runs in a microtask at the end of the click task (ADR-0018). The pass seeds the FLIP and " +
-    "flushes that seed before it returns, so no paint shows the destination box. Its Priming step is applied by the " +
-    "next frame's gate flush, so the first painted frame is already one step along (held 0, cold or warm).",
+    "flushes that seed before it returns, so no paint shows the destination box. The next frame's tick takes the " +
+    "first step and the gate paints it in that frame (ADR-0033), so the first painted frame is already one step " +
+    "along (held 0, cold or warm).",
   View,
 }

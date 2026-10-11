@@ -10,7 +10,8 @@
  * `layoutId` twin stepped `5.1 4.9 10.3` where a click stepped `5.1 10.7 13.7`); the
  * size terms make a resize (scenario 2) count too. The origin, read at the trigger,
  * stands for the frame before the first sample, so a run whose first painted frame
- * already moved (a task-triggered layout's Priming step) starts with that step.
+ * already moved (a task-triggered layout, stepped by the next frame's tick) starts
+ * with that step.
  *
  * Pure (no DOM), so the node test tier imports it (`test/steps.test.ts`).
  *
@@ -56,7 +57,7 @@ export const firstStepsOf = (
  * About 1 when the pass left the motion alone (an undisturbed spring changes pace by
  * roughly 10% a frame). Well below 1 when it restarted the animation at zero
  * velocity or held a frame, above 1.6 when a frame skipped a step ahead. Two ratios,
- * not one, because a pass that runs after its frame's gate flush shows a restart
+ * not one, because a pass that runs after its frame's tick shows a restart
  * only in the step after the first one (ADR-0006 *Amendment (#2)*), and the first
  * read after a trigger can be the previous frame's (its post-paint message may run
  * after the trigger's task).

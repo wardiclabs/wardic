@@ -149,7 +149,7 @@ export const s10: ScenarioDef = {
   expectedHeld: 0,
   rationale:
     "A's move is scenario 1's: its Measure pass runs at the end of the click task and A moves on its first painted " +
-    "frame (held 0). B's new size reaches Wardic through its ResizeObserver after the frame's gate flush, while A is " +
+    "frame (held 0). B's new size reaches Wardic through its ResizeObserver after the frame's tick, while A is " +
     "mid-flight, and the second Measure pass it runs seeds B, finds A running with its box unchanged and leaves it " +
     "alone (ADR-0018): passes 2 (2 seeding), and A keeps its pace, a passStepRatio of about 1 (about 0.9, as A's " +
     "spring is slowing there). Had the pass re-written A, that frame would skip a step ahead and read about 2.",

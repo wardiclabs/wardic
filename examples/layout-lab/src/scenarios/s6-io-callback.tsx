@@ -165,7 +165,7 @@ export const s6: ScenarioDef = {
     "The browser computes intersections during the rendering update, then queues the IntersectionObserver " +
     "notification as a task. The callback's signal write, and the Measure pass its notify queues, therefore " +
     "happen in an ordinary task: the pass runs in a microtask at the end of it and flushes its seed (ADR-0018), " +
-    "and the next frame's gate flush applies the Priming step, so the first painted frame is already one step " +
-    "along (held 0, cold or warm).",
+    "and the next frame's tick takes the first step, painted in that frame (ADR-0033), so the first painted frame " +
+    "is already one step along (held 0, cold or warm).",
   View,
 }

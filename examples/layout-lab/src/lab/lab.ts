@@ -97,15 +97,15 @@ export interface LabRun extends RunResult {
    * `wardic.projection.measure` span after it. `null` when no measure span was
    * recorded (JSON has no `undefined`). Since #2's fix every layout trigger reads 0:
    * the Measure pass runs at the end of the triggering task or, for a change made
-   * after the frame's gate flush, inside that frame before it paints (ADR-0018).
+   * after the frame's tick, inside that frame before it paints (ADR-0018).
    */
   readonly framesToMeasure: number | null
   /**
    * Issues #14 and #2: painted frames held at the origin before the first motion,
    * counted from {@link heldFrom}. A layout change made in an ordinary task holds 0
    * (its first painted frame is already one step along); one measured after the
-   * frame's gate flush holds 1 (that frame paints the origin); cold or warm alike
-   * (ADR-0018). `null` when the anchor was never seen or nothing moved after it.
+   * frame's tick holds 1 (that frame paints the origin); cold or warm alike
+   * (ADR-0018, ADR-0033). `null` when the anchor was never seen or nothing moved after it.
    */
   readonly heldFrames: number | null
   /** Milliseconds from {@link heldFrom} to the first moved frame's post-paint delivery; `null` like {@link heldFrames}. */

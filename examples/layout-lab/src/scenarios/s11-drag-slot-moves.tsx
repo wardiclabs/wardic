@@ -7,7 +7,7 @@
  * once the drag has started, the slot moves every {@link SLOT_MOVE_MS} ms, or on R.
  *
  * - `resize` mode: S grows or shrinks by 60px. Only Wardic's shared ResizeObserver
- *   sees it, so its Measure pass runs after the frame's gate flush.
+ *   sees it, so its Measure pass runs after the frame's tick.
  * - `reorder` mode: S and D swap under `<LayoutGroup layoutDependency>`, so the
  *   Measure pass runs at the end of the task (as a `<Reorder>` would).
  *
@@ -219,8 +219,8 @@ export const s11: ScenarioDef = {
     "Since #26 a Measure pass during a drag gives the dragged item and its subtree a slot-only update (a Drag block, " +
     "ADR-0016 Amendment (#26)): the item keeps its target at the pointer, the pass seeds only the sibling, and the " +
     "item's layout child rides the drag. A pointer move re-derives the dragged item, so it paints in the frame the " +
-    "move arrives in, and the release is a FLIP to the latest slot with a Priming step, so it moves on its first " +
-    "painted frame.",
+    "move arrives in, and the release is a FLIP to the latest slot whose first step is the next frame's tick, " +
+    "painted in that frame (ADR-0033), so it moves on its first painted frame.",
   // Frames behind and release held: 0 with either scheduler, since pointer input reaches the
   // drag inside its event (#32, ADR-0032). Before, a browser's own scheduler made it 1.
   dragExpect: {

@@ -94,9 +94,9 @@ export const s2: ScenarioDef = {
   expectedHeld: 1,
   rationale:
     "Nothing Wardic tracks changes, so Wardic hears of the new size only from its shared ResizeObserver, which " +
-    "delivers in the next rendering update after the rAF callbacks and layout, so after the frame's gate flush. " +
+    "delivers in the next rendering update after the rAF callbacks and layout, so after the frame's tick. " +
     "The delivery queues a Measure pass, which runs in a microtask at the end of the callback and flushes its seed " +
-    "before the frame paints (ADR-0018), so that frame shows the box at its old size. The Priming step waits for " +
-    "the next frame's gate flush, so the box grows from the frame after (held 1, cold or warm).",
+    "before the frame paints (ADR-0018), so that frame shows the box at its old size. Its first step is the next " +
+    "frame's tick, painted in that frame (ADR-0033), so the box grows from the frame after (held 1, cold or warm).",
   View,
 }
