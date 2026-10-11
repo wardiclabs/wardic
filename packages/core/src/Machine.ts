@@ -590,7 +590,7 @@ export const decay = (initial: number, velocity: number, options: DecayOptions =
 
 /**
  * Two-axis decay: both axes stepped together, one `Point` per tick, settling once both rest. A
- * fling's tail: `Drag.fling`'s, and the Solid binding's release.
+ * Fling's tail: the Solid binding's release.
  */
 export const decayVec = (initial: Point.Point, velocity: Point.Point, options: DecayOptions): Machine<Frame.Frame<Point.Point>> => {
   const resolved = resolveDecay(options)

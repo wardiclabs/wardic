@@ -40,8 +40,8 @@ export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> 
  * mirroring {@link TestInput.pushable}. `observeIntersection(target)` subscribes
  * to a broadcast `PubSub`, so every subscriber sees the same transitions and only
  * events pushed *after* a subscription is live reach it. `pushIntersection`
- * yields a small budget of scheduler turns after publishing so subscribers drain
- * deterministically before the next push. measure/viewport/prefersReducedMotion
+ * doesn't yield: a waiting subscriber handles the transition inside the publish,
+ * as `TestInput.pushable`'s do (ADR-0032). measure/viewport/prefersReducedMotion
  * /observeResize behave as in {@link layer}.
  */
 export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
@@ -50,7 +50,6 @@ export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
 }> =>
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<boolean>()
-    const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
     return {
       layer: Layer.succeed(Probe.Probe, {
         measure: () => Effect.sync(() => options.bounds ?? ZERO_BOUNDS),
@@ -60,6 +59,6 @@ export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
         observeIntersection: () => Stream.fromPubSub(pubsub),
       }),
       pushIntersection: (inView: boolean) =>
-        PubSub.publish(pubsub, inView).pipe(Effect.flatMap(() => drain)),
+        PubSub.publish(pubsub, inView).pipe(Effect.asVoid),
     }
   })

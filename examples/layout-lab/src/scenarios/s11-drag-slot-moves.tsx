@@ -221,14 +221,14 @@ export const s11: ScenarioDef = {
     "item's layout child rides the drag. A pointer move re-derives the dragged item, so it paints in the frame the " +
     "move arrives in, and the release is a FLIP to the latest slot with a Priming step, so it moves on its first " +
     "painted frame.",
-  // Frames behind and release held: 0 with `?scheduler=microtask`; with a browser's own
-  // scheduler, pointer input reaches the drag one `setTimeout(0)` hop late, so 1.
+  // Frames behind and release held: 0 with either scheduler, since pointer input reaches the
+  // drag inside its event (#32, ADR-0032). Before, a browser's own scheduler made it 1.
   dragExpect: {
     underPointerMaxPx: 1,
-    framesBehindMax: { default: 1, microtask: 0 },
+    framesBehindMax: 0,
     childGlueMaxPx: 1,
     maxSeededPerPass: 1,
-    releaseHeldMax: { default: 1, microtask: 0 },
+    releaseHeldMax: 0,
     endsOnSlotMaxPx: 0.5,
     // #31: no gesture moves the item once it should have ended (ADR-0019).
     gestureEndsMaxPx: 1,

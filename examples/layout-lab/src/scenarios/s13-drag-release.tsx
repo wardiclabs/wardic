@@ -138,9 +138,9 @@ const View: ScenarioDef["View"] = (props) => {
 
 /**
  * Scenario 13, release and pointer lag: the release moves on its first painted frame
- * and ends on the slot; the item paints each move one frame after it (with a
- * browser's scheduler; #32) and stays under the pointer when its slot resizes (Z) or
- * its parent FLIPs (P). Expected to be safe.
+ * and ends on the slot; the item paints each move in the frame it's delivered in (with a
+ * browser's own scheduler too since #32) and stays under the pointer when its slot resizes
+ * (Z) or its parent FLIPs (P). Expected to be safe.
  */
 export const s13: ScenarioDef = {
   id: ID,
@@ -151,17 +151,17 @@ export const s13: ScenarioDef = {
     "Grab the blue item, move it, let go: still, while moving, or back where you grabbed while moving. While held, Z resizes the item's own slot and P FLIPs its parent 60px right.",
   prediction: "safe",
   rationale:
-    "Since #26 a pointer move re-derives the dragged item, so it paints in the frame the move reaches it (one frame " +
-    "late with a browser's scheduler, #32); a resized slot is painted at its new size about the same centre; a " +
+    "Since #26 a pointer move re-derives the dragged item, so it paints in the frame the move reaches it (with a " +
+    "browser's own scheduler too since #32); a resized slot is painted at its new size about the same centre; a " +
     "FLIPing parent is re-derived with the item, which stays under the pointer; and the release is a FLIP to the " +
     "slot with a Priming step (0 held from a pointerup), which always writes the resting projection when it " +
     "lands on the slot.",
   dragExpect: {
     underPointerMaxPx: 1,
-    framesBehindMax: { default: 1, microtask: 0 },
+    framesBehindMax: 0,
     childGlueMaxPx: 1,
     maxSeededPerPass: 1,
-    releaseHeldMax: { default: 1, microtask: 0 },
+    releaseHeldMax: 0,
     endsOnSlotMaxPx: 0.5,
     // #31: no gesture moves the item once it should have ended (ADR-0019).
     gestureEndsMaxPx: 1,

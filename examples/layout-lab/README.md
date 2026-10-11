@@ -191,17 +191,17 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     offset from where it went down), over the frames painted after the drag's
     first move and before the release. Each frame is compared with the latest move
     handled before its rAF callback (with a browser's own scheduler, before the
-    previous frame's: pointer input reaches the drag one `setTimeout(0)` hop late,
-    #32, and **frames behind** reports that lag). Centres, so a slot that resizes
-    mid-drag, which the item paints at the new size about the same centre, reads 0.
+    previous frame's: a tolerance from before #32, when pointer input reached the
+    drag one `setTimeout(0)` hop late; **frames behind** reports a lag). Centres,
+    so a slot that resizes mid-drag, which the item paints at the new size about
+    the same centre, reads 0.
     `· the pointer left the item` means a pointer event of the press landed outside
     the item. Before #31's fix the drag lost such a pointer; since ADR-0019 it keeps
     it, so the note is information only.
   - **frames behind**: for each move, how many painted frames it took for the item
     to show it (within 1px), and how many moves that measured: `1 · 41 moves`. A
     move the next one replaced before any frame could show it is skipped. Expected
-    1 with a browser's scheduler (the input's hop, #32) and 0 with
-    `?scheduler=microtask`.
+    0 with either scheduler (since #32, ADR-0032; before, 1 with a browser's own).
   - **child glued**: for each child, the largest distance, in px, between its
     painted offset from the item and its offset at the grab, over every frame of
     the run, release and settle included: `c1 0.00 · c2 0.00 px`.
@@ -216,9 +216,9 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     ResizeObserver report runs two), so a single pass reading 0 drag-blocked is fine.
   - **release held**: the frames painted after the release that still show the
     held box, before the first one that moves. A release from a task (a real
-    pointerup) moves on its first painted frame: 0 with `?scheduler=microtask`, up
-    to 1 with a browser's scheduler (the release reaches the drag one hop late,
-    #32). A release with nowhere to go reads 0; one that never moves although it is
+    pointerup) moves on its first painted frame: 0 with either scheduler (since
+    #32; before, up to 1 with a browser's own, the release reaching the drag one hop
+    late). A release with nowhere to go reads 0; one that never moves although it is
     off its slot reads `?`.
   - **ends on slot**: the distance, in px, between the last frame's painted box
     and its slot.
@@ -365,10 +365,10 @@ Method); the expected card, with a browser's own scheduler:
 | Check | Expected | Before #26 |
 | ----- | -------- | ---------- |
 | under pointer | ≤ 1 px | the same |
-| frames behind | 1 (0 with `?scheduler=microtask`) | one frame more (the engine's own) |
+| frames behind | 0 (1 with a browser's scheduler before #32) | one frame more (the engine's own) |
 | child glued | ≤ 1 px, every child | a `layout` child held at its slot while dragged, then jumping 100 px |
 | passes | each seeds the sibling (or parent) only; the dragged tree drag-blocked | the dragged item and its children seeded at every pass |
-| release held | ≤ 1 (0 with `?scheduler=microtask`) | 1 or 2 |
+| release held | 0 (≤ 1 with a browser's scheduler before #32) | 1 or 2 |
 | ends on slot | ≤ 0.5 px | stuck off the slot when the last move landed on it |
 | gesture ends | ≤ 1 px, and the gesture ends | (#31's line) |
 
@@ -406,7 +406,6 @@ Known and not fixed yet, so they don't surprise you:
   the item again and dragging ends the old gesture and starts a new one; a
   `layout` item is flying back to its slot by then, so it jumps to the slot plus
   the pointer offset, as any grab mid-flight does.
-- A move paints one frame after it with a browser's scheduler (#32).
 - A flick doesn't carry into the release (the release has no velocity), and
   grabbing the item while it is still flying back jumps it (#30).
 
@@ -467,9 +466,9 @@ expected card, with a browser's own scheduler:
 | Check | Expected | At `4d2fa2b` (the probe evidence) |
 | ----- | -------- | --------------------------------- |
 | under pointer | ≤ 1 px | 60 px after a scroll mid-drag; 100 px after a window resize |
-| frames behind | 1 (0 with `?scheduler=microtask`) | the same |
+| frames behind | 0 (1 with a browser's scheduler before #32) | the same |
 | passes | each seeds the displaced items only; the dragged item drag-blocked | the same |
-| release held | ≤ 1 (0 with `?scheduler=microtask`) | the same |
+| release held | 0 (≤ 1 with a browser's scheduler before #32) | the same |
 | ends on slot | ≤ 0.5 px | the same |
 | gesture ends | ≤ 1 px, and the gesture ends | touch cancelled after 8 moves |
 | reorders | one place each on a single axis; the drop reported | (no `<Reorder>`) |
@@ -498,7 +497,6 @@ Known and not fixed yet:
 - **A grab mid-flight jumps (#30).** Grabbing an item while it still settles, or a
   displaced sibling still flying, starts it at its slot plus the pointer offset;
   Motion slides it from where it is.
-- A move paints one frame after it with a browser's scheduler (#32).
 - The release has no velocity: a flick doesn't carry into the flight back.
 - There is no keyboard reorder yet (#43).
 

@@ -211,9 +211,9 @@ export interface DragRunInput {
   /**
    * Effect's scheduler on the page (`currentLabScheduler()`): `default` is a browser's
    * own (`setTimeout(0)`, as no browser has `setImmediate`), `microtask` the browser
-   * test harness's `queueMicrotask`-backed one (`?scheduler=microtask`). Pointer input
-   * reaches Wardic's drag through one scheduler hop, so it is one frame later with
-   * `default`. Left out, `default`.
+   * test harness's `queueMicrotask`-backed one (`?scheduler=microtask`). Since #32 pointer
+   * input reaches Wardic's drag inside its event with either (ADR-0032); before, one
+   * scheduler hop made it a frame later with `default`. Left out, `default`.
    */
   readonly scheduler?: "default" | "microtask"
   /** A `<Reorder>` scenario's press (scenario 14, `lab/reorder-run.ts`); left out otherwise. */
@@ -402,7 +402,7 @@ const forScheduler = (value: PerScheduler | undefined, run: DragRunInput): numbe
 export interface DragExpect {
   /** The most {@link DragRun.underPointerMaxPx} may read, in px. */
   readonly underPointerMaxPx?: number
-  /** The most {@link DragRun.framesBehindMax} may read (per scheduler: the input's hop adds one with `default`). */
+  /** The most {@link DragRun.framesBehindMax} may read (per scheduler, before #32: the input's hop added one with `default`). */
   readonly framesBehindMax?: PerScheduler
   /** The most any child's {@link DragRun.childGlueMaxPx} may read, in px. */
   readonly childGlueMaxPx?: number
@@ -412,7 +412,7 @@ export interface DragExpect {
    * dragged tree's slots without animating them (scenario 11: 1, the sibling only).
    */
   readonly maxSeededPerPass?: number
-  /** The most {@link DragRun.releaseHeld} may read (per scheduler: the release's hop can add one with `default`). */
+  /** The most {@link DragRun.releaseHeld} may read (per scheduler, before #32: the release's hop could add one with `default`). */
   readonly releaseHeldMax?: PerScheduler
   /** The most {@link DragRun.endsOnSlotPx} may read, in px. */
   readonly endsOnSlotMaxPx?: number
@@ -682,9 +682,11 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
 
   // One walk over the held frames: the distance from the latest move each could
   // show, and the newest move each one's painted centre does show (-1 for none).
-  // With Effect's default scheduler a move reaches the drag one hop (a frame) late,
-  // so "could show" means handled before the frame before (see `scheduler`): the
-  // under-pointer check then catches a position error, and `framesBehindMax` the lag.
+  // Before #32, with Effect's default scheduler a move reached the drag one hop (a frame)
+  // late, so "could show" means handled before the frame before (see `scheduler`): the
+  // under-pointer check then catches a position error, and `framesBehindMax` the lag. It
+  // stays a tolerance of under pointer only: frames behind reads the lag itself, and the
+  // drag cards hold it at 0 with either scheduler (ADR-0032).
   const hop = (input.scheduler ?? "default") === "default" ? 1 : 0
   // The distance the checks compare: the gesture's locked axis alone, when it has one.
   const lock = input.lock

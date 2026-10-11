@@ -2,6 +2,7 @@ import * as InputSource from "@wardic/core/InputSource"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import { MixedScheduler } from "effect/Scheduler"
 import * as Stream from "effect/Stream"
 
 // InputSource.heldPointer (ADR-0019, decision 6a): the Environment-agnostic Held pointer
@@ -528,5 +529,94 @@ describe("InputSource.heldPointer", () => {
         expect(global.subscribes()).toBe(0)
         expect(global.unsubscribes()).toBe(0)
       }))
+  })
+
+  describe("C25-C28: delivery inside the platform's dispatch (ADR-0032)", () => {
+    // The stream runs on a browser's scheduler: `setTimeout(0)` dispatch, what Effect picks with
+    // no `setImmediate`. A delivery through it would land after `push` returns (#32's hop 1);
+    // every expectation below is read synchronously, right after the push.
+
+    /** Run the stream on a `setTimeout(0)` scheduler; `onEvent` runs inside each delivery. */
+    const startOnTimers = async (
+      target: Feed,
+      global?: Feed,
+      scroll?: ScrollFeedFake,
+      onEvent: (event: InputSource.PointerLikeEvent) => void = () => {},
+    ) => {
+      const scheduler = new MixedScheduler("async", (task) => {
+        const timer = setTimeout(task, 0)
+        return () => clearTimeout(timer)
+      })
+      const seen: Array<string> = []
+      const fiber = Effect.runFork(
+        Stream.runForEach(InputSource.heldPointer({ target: target.feed, global: global?.feed, scroll: scroll?.feed }), (event) =>
+          Effect.sync(() => {
+            seen.push(key(event))
+            onEvent(event)
+          })),
+        { scheduler },
+      )
+      // `Stream.callback` registers the feeds in a task of its own; the consumer waits from then.
+      while (!target.subscribed()) await new Promise((resolve) => setTimeout(resolve, 0))
+      return { seen, stop: () => Effect.runPromise(Fiber.interrupt(fiber), { scheduler }) }
+    }
+
+    it("C25: a target event reaches a waiting consumer inside its emit", async () => {
+      const target = makeFeed()
+      const h = await startOnTimers(target)
+      target.push(ev({ type: "move", x: 1, buttons: 0 }))
+      expect(h.seen).toEqual(["move1@1"])
+      target.push(ev({ type: "down", x: 2 }))
+      target.push(ev({ type: "move", x: 3 }))
+      target.push(ev({ type: "up", x: 4 }))
+      expect(h.seen).toEqual(["move1@1", "down1@2", "move1@3", "up1@4"])
+      await h.stop()
+    })
+
+    it("C26: a held pointer's page-wide events, a page-wide down's lost release and a scroll's move arrive inside their emits", async () => {
+      const target = makeFeed()
+      const global = makeFeed()
+      const page = {}
+      const scroll = makeScrollFeed([[page, { x: 0, y: 0 }]])
+      const h = await startOnTimers(target, global, scroll)
+      target.push(ev({ type: "down", x: 0 }))
+      global.push(ev({ type: "move", x: 10 }))
+      expect(h.seen).toEqual(["down1@0", "move1@10"])
+      scroll.scrollTo(page, 0, 5, 20)
+      expect(h.seen).toEqual(["down1@0", "move1@10", "move1@10"])
+      // The page-wide down of the same pointer ends the hold with an unpressed move (decision 7).
+      global.push(ev({ type: "down", x: 50 }))
+      expect(h.seen).toEqual(["down1@0", "move1@10", "move1@10", "move1@10"])
+      await h.stop()
+    })
+
+    it("C27: the consumer handles an event after the hold has taken it: global subscribed at the down, released at the up", async () => {
+      const target = makeFeed()
+      const global = makeFeed()
+      const atDelivery: Array<string> = []
+      const h = await startOnTimers(target, global, undefined, (event) => {
+        atDelivery.push(`${event.type}: global ${global.subscribed() ? "on" : "off"}`)
+      })
+      target.push(ev({ type: "down" }))
+      global.push(ev({ type: "up", buttons: 0 }))
+      expect(atDelivery).toEqual(["down: global on", "up: global off"])
+      await h.stop()
+    })
+
+    it("C28: an event emitted while the consumer handles one is delivered after it, in order, still inside the first emit", async () => {
+      const target = makeFeed()
+      let nested = true
+      const h = await startOnTimers(target, undefined, undefined, (event) => {
+        if (nested && event.x === 1) {
+          nested = false
+          target.push(ev({ type: "move", x: 2, buttons: 0 }))
+          // Not yet: the consumer is still handling the first.
+          expect(h.seen).toEqual(["move1@1"])
+        }
+      })
+      target.push(ev({ type: "move", x: 1, buttons: 0 }))
+      expect(h.seen).toEqual(["move1@1", "move1@2"])
+      await h.stop()
+    })
   })
 })

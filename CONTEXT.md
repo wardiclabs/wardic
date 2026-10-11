@@ -99,7 +99,7 @@ _Avoid_: **layer** (collides with Effect/Environment Layer — never reuse it he
 ### Interaction
 
 **Recognizer**:
-A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at the Fling fusion, where `decay` ticks).
+A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at a Fling, where `decay` ticks).
 _Avoid_: gesture (names the whole feature, not the core piece), handler, listener.
 
 **State recognizer**:
@@ -115,7 +115,7 @@ One emission of the `drag` Sample recognizer — four `{ x, y }` vectors plus a 
 _Avoid_: drag event, pointer sample.
 
 **Fling** (momentum handoff):
-A drag release continuing under physics — a fresh `decay` (or `spring`) **per axis** seeded from the Drag sample's `end` velocity, so motion continues with no visible kink. Core ships it two ways: a binding-less **fusion combinator** (the `drag` sample stream switching into `decay` as one continuous Stream) and, inside a framework binding, a Retarget. The fusion combinator is the proof that *composing a Recognizer with a Primitive is core, not binding* — only variant-naming, tree propagation, lifecycle, and JSX are the binding's.
+A drag release continuing under physics — a fresh `decay` (or `spring`) **per axis** seeded from the Drag sample's `end` velocity, so motion continues with no visible kink. A press on the element (a grab) stops it where it is. The binding composes it from core's `drag` Sample recognizer and `decay` Primitive; core has no Fling of its own until a binding-less Environment needs one (ADR-0004, *Amendment (#32)*).
 _Avoid_: inertia, throw, momentum (name the mechanism — Fling).
 
 **Primary pointer**:
@@ -289,7 +289,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 - Target change has three regimes: a *static* target → `spring`; an *occasional/discrete* change → `spring` + **Retarget**; a *continuous* change → **Chase**.
 - A **Chase** never **Settle**s on its own; it ends only when cancelled. Every other Primitive Settles and completes.
 - A **Recognizer** consumes an **Environment**'s input/geometry and emits an interaction signal — a **State recognizer** a boolean, a **Sample recognizer** Drag samples. A Recognizer is *not* a Primitive: event-driven, no **Settle**.
-- A **Fling** composes the `drag` Sample recognizer with a `decay` Primitive — the proof that Recognizer+Primitive composition is core, not binding.
+- A **Fling** composes the `drag` Sample recognizer with a `decay` Primitive, in the binding.
 - Stacked gesture states resolve through an **Override stack** to the target that feeds the multi-value Primitives (`springValues`/`animateValues`).
 - **FLIP** animates from a prior **Measurement** to the current one; a **Measurement** is geometry and a **Snapshot** is a motion value — never interchanged.
 - A key that leaves the target animates to its **Base value**, whose last link is the element's **Own value**.

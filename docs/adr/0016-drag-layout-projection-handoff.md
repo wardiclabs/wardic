@@ -61,3 +61,11 @@ For a projection node the renderer **ignores the element's own `x`/`y`**: when `
 - **A drag's axis can be decided per gesture.** The drag track reads it at each gesture's start (internal, for `<Reorder>`); the public `drag` prop stays static.
 - **Q3c's "scrolling during a drag isn't reconciled" is fixed** by ADR-0019's and ADR-0012's *Amendments (Reorder)*.
 - **Pinned by** `packages/dom/test/projection-handle.browser.test.ts` (PH1–PH10: the getters, and the raise on every end path), `packages/solid/test/gate.browser.test.tsx` (GK1–GK3: the commit sink's key removal), and `reorder.browser.test.tsx` RO13 (the raise on screen) and RO10 / RO18 (the axis per gesture).
+
+## Amendment (#32, 2026-10-11): no hop between the pointer and the drag
+
+ADR-0032 removes the two scheduler hops this ADR's *Amendment (#26)* deferred to #32.
+- **A pointer move paints in the frame it's delivered in, with a browser's own scheduler too.** *Amendment (#26)*'s "pointer input still reaches the drag one `setTimeout(0)` hop late, so a move paints one frame late" no longer holds. The layout lab's scenario 11 reads 0 frames behind with both schedulers (ADR-0032, *Measured*), and `drag-hops.browser.test.tsx` H2 and H4 pin a layout drag's `dragMove` write inside its event and 0 frames late on a browser's scheduler.
+- **A grab interrupts a running free release through a `FiberHandle`, not `switchMap`.** The release is started inline, so it is on the Frame loop before its task ends; the next sample or grab interrupts it, which removes it from the loop at once. The handoff guarantee (a re-grab mid-release stops the tail where it is) holds: H5.
+- **The release's hop is gone too.** A projection node's release (`dragEnd`) starts in the up's dispatch and keeps *Amendment (#26)*'s Priming step; a free release is on the Frame loop by the end of its task (H3). #32's table measured up to 1 held at release with a browser's scheduler (2026-09-29); this change's headless lab runs read 0 held on main as well as here, released still or in the same breath as the last move, so they don't show that half (ADR-0032, *Measured*).
+- **Deferred list:** "Pointer input reaches the drag one scheduler hop late in a real page (#32)" is fixed.
