@@ -32,9 +32,11 @@ export type { WardicEnv, WardicRuntime, WardicServices } from "./provider.tsx"
 
 /**
  * The provider-owned reactive flush gate (ADR-0006): an accumulator + gated
- * rAF + single-`batch()` flush with two sink modes (signal / commit).
+ * Refresh frames + single-`batch()` flush with two sink modes (signal / commit).
+ * It's `@wardic/dom`'s, built by the provider with Solid's `batch` (ADR-0031), and
+ * `useWardicGate` returns it; the types are re-exported here.
  */
-export { type FlushGate, type FlushSink, makeFlushGate } from "./gate.ts"
+export type { FlushGate, FlushSink } from "@wardic/dom"
 
 /**
  * Reactive bridges (ADR-0006): `streamToSignal` (core `Stream` -> Solid signal,

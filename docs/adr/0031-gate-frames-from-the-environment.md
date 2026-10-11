@@ -171,3 +171,39 @@
   - **One reading repeats, and it's faster:** the Clock's callback at N = 1,000 with legs, −6.3% and −6.7% (about 0.07 ms). The change doesn't explain it. Per frame, the gate's first write calls `requestFrame` from a closure where it used to look up the global, and the Clock's tick is the same code. The same callback read +5.1% and +1.9% at N = 100, so its direction isn't the change's. Bundle layout is the likely cause (inferred, not checked).
   - Absolute ms are the bench server's, so only the ratios compare with #75's.
   - **The base needs main's `package.json`s.** Extracted without them, its packages lose `sideEffects: false`, and the base bundle came out 5.5 KB larger than the head. With them, the head is 246 bytes larger, which is the new module.
+
+## Implementation in #123 (slice 2): the flush gate in `@wardic/dom`, with `batch` from the binding
+
+- **dom: `gate.ts`, moved from solid** (`git mv`, so its history follows it).
+  - **The signature:** `makeFlushGate(runtime: FlushGateRuntime, options: FlushGateOptions)`. `FlushGateRuntime` is `ManagedRuntime<Renderer | RefreshFrameSource>`, which #122 had already narrowed. `FlushGateOptions` is `{ batch }`, with decision 3's contract in its docs.
+  - **Its two Solid imports go.** `batch` comes from the options, called once per frame flush and once per `flushPass`, as Solid's was. `dashCase` is dom's own (`./svg.ts`).
+  - **Exported, Tier 2:** `FlushGate`, `FlushSink`, `FlushGateOptions`, `FlushGateRuntime`, `INERT_GATE` and `makeFlushGate`.
+  - **Nothing else changes:** the merge, the gating, `flushPass`, `release`, the commit sink's restore. Its docs name the binding's cell and `batch` where they named Solid's.
+- **solid:**
+  - the provider builds `makeFlushGate(runtime, { batch })` with Solid's `batch`, and hands dom's `INERT_GATE` to a server render;
+  - `use-wardic.tsx` and `drag.ts` import the gate's types from dom;
+  - `index.ts` re-exports `FlushGate` and `FlushSink`, and drops `makeFlushGate`, with no alias.
+- **dom gains `@wardic/test` as a dev dependency,** as solid has it, for the node tests' `TestLive`, `TestRenderer` and `TestClock.pushable()`. `@wardic/test` depends on core alone, so there's no cycle.
+- **Tests** (decision 6):
+  - **dom, `gate.node.test.ts`:** the 14, on the hand-driven source (`gate-harness.ts`, shared with the browser file) and a `batch` that runs the flush as it is. GK3, GR1 and GR4 run on `RendererDomLive`. Two tests are new:
+    - the binding's `batch` is called once per frame flush and once per pass, with every apply inside it;
+    - on `pushable()`'s frames, each `advance` flushes what the last one's tick wrote, then ticks (`tick 1`, `flush 1`, `tick 2`, `flush 2`, `tick 3`). That's `pushable()`'s first gate caller, as #122 left it.
+  - **dom, `gate.browser.test.ts`:** the 7 that commit to a real element, on `DomLive`'s Renderer.
+  - **solid, `gate.browser.test.tsx`:** the 3 that test Solid's `batch` and effects, and #122's provider test. Each now takes its gate from a `WardicProvider` through `useWardicGate`, so they test the `batch` the provider passes in. Checked by mutation: with the identity passed in place of Solid's `batch`, the one-effect-run test fails, seeing two runs.
+- **Docs:** `upgrade-targets.md`'s note on the gate's `batch` (and its list of the files that import Solid), and dom's module doc.
+- **The per-frame probe** (`.tmp/122-frames/`, #122's, with base = main at `0762720`, #122 included). Chromium 147 on the bench server, 11 paired reps, total ms per Refresh frame, head / base, median [p25–p75]:
+
+  | Workload | Total | Gate's flush |
+  |---|---|---|
+  | N = 100, FLIPs alone | +3.4% [−5.3, +5.9]; rerun +1.0% [−1.3, +8.6] | +2.0% [−6.1, +2.8]; rerun +3.2% [+0.6, +6.0] |
+  | N = 100, with 2N legs | +0.9% [−1.3, +5.1] | +1.8% [−1.2, +3.0] |
+  | N = 1,000, FLIPs alone | −3.2% [−24.1, +9.1]; rerun +5.1% [+1.1, +20.2] | −2.7% [−22.7, +9.2]; rerun +4.6% [+1.8, +15.7] |
+  | N = 1,000, with 2N legs | −0.1% [−1.5, +1.0] | −0.1% [−2.0, +0.2] |
+
+  - **The two FLIPs-alone totals read outside ±2% and were rerun** (decision 7). They moved by 2 and 8 points, in opposite directions at N = 1,000.
+  - **An A/A run settles it:** main against itself, identical bundles, the same two workloads. N = 100 read −7.3% [−13.0, +1.1] (the gate −6.6%), and N = 1,000 read −3.0% [−25.1, −0.3]. At N = 1,000 the medians across reps were 4.96 and 3.72 ms for the same bundle.
+  - **So on the bench server the FLIPs-alone pages are bimodal and can't resolve ±2%,** and every #123 reading on them is inside their A/A noise. (#75 read spreads of about ±3% on the same workloads on the WSL host.)
+  - **The two with-legs workloads are tight, and read −0.1% and +0.9%.**
+  - **The code agrees:** per frame, the flush calls the same Solid `batch`, held in a closure instead of imported. No call is added.
+  - **Carried over from #122:** the Clock's callback at N = 1,000 with legs reads +0.5% against main now, so #122's −6.5% there is in main.
+  - **For the next per-frame gate on this probe:** fix the FLIPs-alone pages' bimodality first, or gate on the with-legs workloads, and run an A/A beside the A/B.

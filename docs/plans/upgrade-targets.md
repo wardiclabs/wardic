@@ -94,9 +94,9 @@ peer dependencies, not verified against Solid's docs.
 
 The core/binding boundary (ADR-0004) keeps Solid confined to `@wardic/solid`. `@wardic/core`
 and `@wardic/dom` (including the projection engine) import nothing from Solid. The binding
-imports these Solid APIs across 10 files (`bridge.ts`, `directive.ts`, `gate.ts`,
-`layout.tsx`, `presence.tsx`, `provider.tsx`, `sensors.ts`, `use-wardic.tsx`,
-`variants.ts`, `wardic.tsx`):
+imports these Solid APIs across 11 files (`bridge.ts`, `directive.ts`, `layout.tsx`,
+`presence.tsx`, `provider.tsx`, `reorder.tsx`, `sensors.ts`, `server.ts`, `use-wardic.tsx`,
+`variants.ts`, `wardic.tsx`; the flush gate moved to `@wardic/dom` with #123):
 
 - **Reactivity:** `createSignal`, `createMemo`, `createEffect`, `on`, `untrack`, `batch`, `from`
 - **Lifecycle:** `onMount`, `onCleanup`
@@ -106,10 +106,13 @@ imports these Solid APIs across 10 files (`bridge.ts`, `directive.ts`, `gate.ts`
 
 Two places carry timing guarantees that must be re-proven under Solid 2, not just re-typed:
 
-- **`gate.ts`** applies every frame's writes inside one `batch()`. The gate's same-frame
-  guarantee (measure → write in one rAF callback, PR #11; issue #2's rAF-vs-microtask
-  question) depends on `batch` flushing synchronously.
-- **The reactive bridge (ADR-0006)**, the per-element Stream→signal bridge that `gate.ts`
+- **The flush gate's `batch`.** `@wardic/dom`'s `makeFlushGate` applies every frame's writes
+  inside the `batch` its binding hands it (ADR-0031), and `provider.tsx` hands it Solid's
+  `batch()`. The gate's same-frame guarantee (measure → write in one rAF callback, PR #11;
+  issue #2's rAF-vs-microtask question) depends on that `batch` flushing synchronously. If
+  Solid 2's doesn't, the provider passes one that does, for example
+  `(apply) => { apply(); flush() }` (inferred, not researched): one argument, not the gate.
+- **The reactive bridge (ADR-0006)**, the per-element Stream→signal bridge that the gate
   flushes. Its signal sinks assume a signal write set inside that `batch()` reaches the DOM
   before the frame paints. If Solid 2 defers updates, that assumption breaks.
 

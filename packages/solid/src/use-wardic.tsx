@@ -37,6 +37,8 @@ import {
   DRAG_DEFAULT_ATTRIBUTES,
   dragDefaultStyle,
   type DragDefaultStyle,
+  type FlushGate,
+  type FlushSink,
   mergeStyle,
   ownValues,
   project as domProject,
@@ -75,7 +77,6 @@ import {
   untrack,
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
-import type { FlushGate, FlushSink } from "./gate.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
