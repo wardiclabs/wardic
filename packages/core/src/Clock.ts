@@ -309,27 +309,3 @@ export const fromRefreshFrames = <Handle>(
 
     return { time, dt, ticks, tick }
   })
-
-/**
- * Wait `seconds` of accumulated clock time, then complete. Built on the same
- * `dt` stream the primitives use, so delays advance with the animation clock
- * rather than wall-clock time. Traced as `wardic.delay`.
- */
-export const delay: (seconds: number) => Effect.Effect<void, never, Clock> = Effect.fn("wardic.delay")(
-  function* (seconds: number) {
-    yield* Effect.annotateCurrentSpan({ seconds })
-    yield* Effect.logDebug("wardic.delay: start").pipe(Effect.annotateLogs({ seconds }))
-    const clock = yield* Clock
-    yield* clock.ticks.pipe(
-      Stream.mapAccum(
-        () => 0,
-        (acc, dt) => {
-          const next = acc + dt
-          return [next, [next]] as const
-        },
-      ),
-      Stream.takeUntil((elapsed: number) => elapsed >= seconds),
-      Stream.runDrain,
-    )
-  },
-)
