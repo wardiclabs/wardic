@@ -285,3 +285,30 @@
   - **`fbbcd83`, the three changes with `Rec.fromEntries`' records:** every row passed, but Node's `springValues/loop` read −16.3% at 0.38 MB, which set off the bisect above.
   - **`33bb4a3`, the first version with the literal:** Bun's `animateComplex` (Stream) failed at +5.1% [+1.9, +7.3], the copy. Node's first reading had a noise control of −3.5%; its rerun passed every row on time, with the same bytes flap. `springValues/loop` read −35.0% / −27.0% / −40.4%.
 - **Declared (the maintainer's call, 2026-10-11): what the copy costs.** `toStream`'s copy costs the record Streams 1–4% and about 0.1 MB a frame in Node. Bun's crossed +5% in two of its five runs (`animateRepeatDelay` +6.1%, `animateComplex` +5.1%) and passed in the other three. The copy is decision 11's, so a Stream consumer keeps owning its Frames. It's on Tier 2's `Stream` path alone: the bindings run on the loop, which doesn't copy. Copying only what a step rewrites would need a field on the `Machine` data type that every combinator passes on; it wasn't taken.
+
+## Implementation in #109 (slice 1): `Clock.delay` and the Clock's `time` and `dt` Atoms go
+
+- **`Clock.delay` goes,** with no alias, and its test (`util-effect.test.ts`) with it (decision 1). Nothing else called it.
+- **`Clock.Clock` is `{ ticks, tick }`** (decision 12):
+  - `tick` and the Priming tick publish `dt` and write no Atom;
+  - `Clock.fromRefreshFrames` requires a `Scope` alone, and so does its build context;
+  - the module's doc drops "the only writer of the `time`/`dt` Atoms". Its clamp note, which still named `Machine.clampDt(MAX_DT)`, now says each leaf's step clamps at `MAX_DT` (#78).
+- **`ClockDomLive` is a `Layer<Clock>` requiring nothing.** `DomLive` keeps the `AtomRegistry`, for `Probe.viewport` and `prefersReducedMotion`, and its doc and `probe.ts`' no longer cite the Clock's Atoms.
+- **`@wardic/test`'s `makeTestClock` and `pushable`** drop their inert Atoms, and so do `frame-loop.test.ts`' two fake Clocks. Core's two Clock harnesses build `fromRefreshFrames` without a registry.
+- **The bench's harness still provides an `AtomRegistry`:** the base side's core needs it until main has this slice.
+- **The records:** an *Amendment (#109)* each in ADR-0025 (decision 8's `Schedule` bullet), ADR-0028 (decision 12's services row), ADR-0006 (`Clock.time` among the Atom inputs) and ADR-0017 (decision 2's `time` Atom), with a pointer from each amended line. CONTEXT.md's "Atom" ambiguity says the Clock's went with #109.
+- **Nothing differs from decisions 1 and 12.**
+- **Tests:**
+  - **Written first and passing on main,** in `refresh-frame-clock.test.ts`, where the Atoms' one reader was. "Writes the time and dt Atoms" became a test of what the Clock ticks: nothing before the end of the task, `NOMINAL_DT` for the Priming tick, `NOMINAL_DT` again for the first Refresh frame, which has no timestamp before it, then 0.1 s between 1000 and 1100 ms.
+  - **The repeated-timestamp test read `time` back on the timestamps.** It fires one more frame instead, its callback late, and checks that frame's `dt` is the timestamps' interval (1050.01 − 1033.34), not `now()`'s.
+  - **No Frame changes:** every other test passes as it was. That's 665 node tests, one fewer for `Clock.delay`'s, and 635 browser tests, the browser tier on a warm cache.
+- **The gate run** (`06d66df`, `bench:core --base main`, 11 paired reps on the bench server). Every row passes on every engine, and Node's bytes per frame are unchanged or lower on every row. Head / base medians, the ranges across each group's rows:
+
+  | | Bun | Node | Chromium |
+  |---|---|---|---|
+  | `ticksOnly`, the noise control | +2.8% [−4.3, +4.3] | −2.6% [−4.4, +2.0] | −0.0% [−4.1, +0.0] |
+  | the seven `Stream` workloads | −4.3 to +3.0% | −1.2 to +0.3% | −1.3 to +0.9% |
+  | the seven loop workloads | −1.9 to +2.2% | −2.4 to +0.8% | −3.0 to +1.9% |
+
+  - **`ticksOnly` runs each core's Clock,** so this slice's tick is on both sides of the noise control. The two writes it drops come once per Refresh frame, about 20–24 ns (decision 12), against `ticksOnly`'s 1.07–1.76 ms a frame at 1,000 subscribers, so it still reads the run's noise.
+  - **No workload was expected to move,** and none did past the noise: the Clock's tick is once per Refresh frame, not per element.

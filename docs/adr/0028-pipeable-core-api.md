@@ -216,7 +216,7 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
     | `AutoScroll` | `autoScrollStep` → `.step`, `autoScrollAxis` → `.axis`, `AutoScrollState`, its two constants | plain |
     | `ReducedMotion` | `respectReducedMotion` → `ReducedMotion.respect` | Stream combinator |
     | `Microtask` | `nextMicrotask` → `Microtask.next`, for the Clock and dom's projection | Effect |
-    | the services | decision 11, with `applyTo` → `Renderer.applyTo`, `dual`, the stream first, and `delay` → `Clock.delay` until #83 (A) replaces it | services |
+    | the services | decision 11, with `applyTo` → `Renderer.applyTo`, `dual`, the stream first, and `delay` → `Clock.delay`, which went with #109 (*Amendment (#109)*) | services |
 
     - **Gone:** `group`, `onFrame`, `onSettle` and `wait`, which effect's modules each say in one call (`Effect.all`, `Stream.tap`, `Stream.runDrain` and `Effect.andThen`, `Stream.takeUntil` and `Stream.runDrain`): the maintainer's "Effect's pipeable modules wherever they fit". None has a caller outside core's tests. And the aliases `draggable` and `animateFrom`.
     - **Found, not acted on here:** CONTEXT.md's *Flagged ambiguities* say the bindings apply `respectReducedMotion` by default, and solid never imports it: #98. #98 removed `ReducedMotion.respect` and made the module the policy and the Snap (ADR-0029).
@@ -478,3 +478,10 @@ ADR-0030's decision 11 changes decision 7's contract, items 2 and 4.
   `machines.test.ts` pins each over `springValues` against the same combinator over Frames that are fresh each tick.
 - **Item 4 is done for `springValues`:** stepping in place came back from #83's part D measured (ADR-0030, decision 11), and the other leaves wait for a measurement that asks.
 - **The contract a sink keeps,** in `pipeable.md` since ADR-0030's commit and now on `FrameLoop.Sink` and `Machine.run`: a Frame handed to a sink is the run's until the next tick, so a sink that keeps one copies it, and `run`'s settled Frame is stable. `Machine.toStream` copies a record Frame before it emits.
+
+## Amendment (#109, 2026-10-11): `Clock.delay` goes
+
+ADR-0030's decision 1 changes decision 12's services row.
+
+- **`delay` → `Clock.delay` is gone,** with no alias. A run held in frame time is `Machine.run(b.pipe(Machine.delay(seconds)), sink)`: its sink gets its start value, `done: false`, through the hold.
+- **The Clock's shape is `{ ticks, tick }`:** its `time` and `dt` Atoms went too (ADR-0030, decision 12), so `Clock.fromRefreshFrames` needs a `Scope` only.

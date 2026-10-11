@@ -112,7 +112,7 @@ Core's code uses Effect's modules for its loops, its boolean checks and its miss
      - it governs every fiber, so the Priming tick (ADR-0017), the Measure pass (ADR-0018) and input handling would move to the next frame;
      - a fiber waiting on frames can't process an interruption in a background tab;
      - and it would contradict ADR-0017's decision 3.
-   - **`Schedule`** sleeps after each step (`Effect.repeat`), and a 0 ms sleep is a `yieldNow`. It runs on wall time, while `delay`, `stagger` and the `repeat` legs run on frame time.
+   - **`Schedule`** sleeps after each step (`Effect.repeat`), and a 0 ms sleep is a `yieldNow`. It runs on wall time, as all of Effect's time does; `delay`, `stagger` and the `repeat` legs run on frame time, through the Machine combinators. It's not a mismatch to fix but the split: *Amendment (#109)*.
    - **No CPU to gain.** The element fibers already run on Effect's built-in scheduler, and its four configurations were within noise. Chromium, 1,000 elements, ms per frame:
 
      | Configuration | `ticksOnly` | `springValues` | `springBlend` |
@@ -171,3 +171,11 @@ Decision 4's bytes gate skipped a round with a GC in its window, but its `Perfor
 - **Decision 4's bench gains loop workloads:** `springValues`, `springBlend`, `animateValues`, `animateComplex` and `chase`, at N = 1,000.
   - They're report-only in #68, since main has no Frame loop, and gated from the next PR, after a baseline of head against itself (11 paired reps).
   - The `Stream` workloads keep gating as before. `ticksOnly` stays the ±3% noise control.
+
+## Amendment (#109, 2026-10-11): `Schedule` runs on wall time, and that's the split
+
+ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md) is what a run on the Clock counts.
+
+- **Decision 8's `Schedule` bullet** now reads: `Schedule` runs on wall time, as all of Effect's time does; `delay`, `stagger` and the `repeat` legs run on frame time, through the Machine combinators (`Machine.delay`, `holdAfter`, a tween's `duration`).
+- **`Clock.delay` goes,** the one wait in frame time outside the combinators. Its one caller was its own test.
+- **A frame-time `effect/Clock` waits for a caller,** with ADR-0030 decision 1's questions to answer: its reach, what its `currentTime*` report, what `sleep(0)` means, and raw or clamped `dt`.
