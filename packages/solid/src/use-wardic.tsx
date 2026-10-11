@@ -928,8 +928,9 @@ export function runSpine(opts: RunSpineOptions): void {
               }).pipe(Effect.onExit(legEnded), Effect.asVoid)
             }
             // Start a leg in this element's FiberSet: forked on the provider's runtime, which runs
-            // it inline up to its add on the loop, so a Cold start's Priming tick reaches every leg
-            // started in its task (ADR-0017, ADR-0027 decision 5). Not `FiberSet.run`: forked from
+            // it inline up to its add on the loop, so every leg started in a task is on the loop by
+            // the end of that task and takes its first step at the next tick (ADR-0027 decision 5,
+            // ADR-0033). Not `FiberSet.run`: forked from
             // a `runSync`, a leg would inherit that call's scheduler (ADR-0027, decision 6).
             const runLeg = <R extends WardicServices>(program: Effect.Effect<unknown, never, R>): void =>
               FiberSet.addUnsafe(legFibers, runtime.runFork(leg(program)))
