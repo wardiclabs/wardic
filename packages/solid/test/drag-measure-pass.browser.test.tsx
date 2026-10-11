@@ -10,7 +10,7 @@
 // dragged node and its subtree are drag-blocked: a pass updates their slots only,
 // the dragged node is its subtree's relative parent, a resting descendant rides the
 // drag through CSS, a pointer move re-derives the dragged group, and the release
-// takes a Priming step and always ends on its slot.
+// takes its first step at the next Refresh frame (ADR-0033) and always ends on its slot.
 //
 // How a frame is read: post-paint (rAF, then a MessageChannel message, as the layout
 // lab does). A read posted from a frame that started before a trigger can land after

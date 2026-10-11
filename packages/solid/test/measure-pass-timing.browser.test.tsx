@@ -7,9 +7,10 @@
 // only be measured in the next frame, so the current one painted the element at its
 // destination and the FLIP then pulled it back: a flash. Since #2 every trigger
 // queues one Measure pass at the end of its task; the pass has the gate apply what
-// it wrote before returning, the nodes it seeded take a Priming step, and a running
-// node whose box didn't change is left alone (ADR-0018). So a change made after the
-// frame's gate flush paints its origin in that frame and moves on the next one.
+// it wrote before returning, and a running node whose box didn't change is left alone
+// (ADR-0018). The nodes it seeded take their first step at the next tick, painted in that
+// frame (ADR-0033). So a change made after the frame's tick paints its origin in that frame
+// and moves on the next one.
 //
 // How a frame is read: post-paint, never inside a rAF callback. `paintedFrames`
 // starts from a task (its first box is the next frame's paint); a trigger that runs

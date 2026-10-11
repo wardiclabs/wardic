@@ -73,15 +73,20 @@ describe("use:ward — animate (commit sink)", () => {
 describe("use:ward — whileHover", () => {
   it("animates toward whileHover on pointerenter", async () => {
     let el: HTMLDivElement | undefined
+    // Clear of (5, 5), where the real-mouse files park the page's one mouse after each test:
+    // a file running beside this one would hover the element as it mounts, and since #73 its
+    // first painted frame is the hover's first step, never the base (ADR-0033).
     render(() => (
       <WardicProvider env={DomLive}>
-        <div
-          ref={(node: HTMLDivElement) => {
-            el = node
-          }}
-          use:ward={{ initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileHover: { opacity: 1 } }}
-          style={{ height: "100px" }}
-        />
+        <div style={{ "padding-top": "40px" }}>
+          <div
+            ref={(node: HTMLDivElement) => {
+              el = node
+            }}
+            use:ward={{ initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileHover: { opacity: 1 } }}
+            style={{ height: "100px" }}
+          />
+        </div>
       </WardicProvider>
     ))
 

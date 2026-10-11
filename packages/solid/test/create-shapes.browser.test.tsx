@@ -75,9 +75,9 @@ const TWEEN: WardicTransition = { type: "tween", duration: 0.3 }
 const TWEEN_MS = 300
 
 /**
- * The most a frame showing the Starting style can read: the Clock's Priming tick
- * (ADR-0017) runs the first frame before the first paint, so the first committed
- * value is one nominal frame into the tween (1/18 of 0.3 s). A flash reads 1.
+ * The most a frame showing the Starting style can read: the first Refresh frame's tick
+ * paints its value in that frame (ADR-0033), so the first committed value is one
+ * nominal frame into the tween (1/18 of 0.3 s). A flash reads 1.
  */
 const FIRST_FRAME = 0.1
 
