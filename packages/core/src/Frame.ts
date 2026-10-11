@@ -1,6 +1,8 @@
 /**
  * The `Frame` module: what every Primitive emits, one per tick (CONTEXT.md's Frame). A plain
- * shape a step allocates every tick, so it has no prototype (ADR-0028, decision 1).
+ * shape, so it has no prototype (ADR-0028, decision 1): a step allocates one every tick, or
+ * rewrites one per run in place, as `springValues`' does (ADR-0030, decision 11). A sink that
+ * keeps a Frame copies it.
  *
  * A `Frame<V>` is the current value plus whether motion has settled (the final, inclusive
  * Frame is `done: true`). A `Physics` Frame also carries `velocity`: only the physics
@@ -28,7 +30,9 @@ export type Physics = Frame<number> & { readonly velocity: number }
  * is physics-only (definite multi forms like `animateValues` emit a plain
  * `Frame`), and it's what makes a velocity-preserving retarget possible: a
  * caller can seed a fresh `springValues` from a prior frame's `value` AND
- * `velocity` so momentum is continuous rather than reset to 0.
+ * `velocity` so momentum is continuous rather than reset to 0. `springValues`
+ * rewrites its Frame each tick, so a caller that seeds from it after that
+ * tick copies both records first.
  */
 export interface MultiPhysics extends Frame<Record<string, number>> {
   readonly velocity: Record<string, number>

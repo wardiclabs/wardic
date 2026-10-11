@@ -242,9 +242,9 @@ describe("springValues against one spring per key (#111)", () => {
       { x: 300 },
     ],
     [
-      "options' from and velocity as the keys' defaults, and a delay",
+      "options' from and velocity as the keys' defaults, a mass and a delay",
       { x: 100, y: 50 },
-      { stiffness: 300, damping: 18, from: -20, velocity: 40, delay: 0.1 },
+      { stiffness: 300, damping: 18, mass: 1.5, from: -20, velocity: 40, delay: 0.1 },
       { y: 10 },
       {},
     ],
@@ -259,6 +259,38 @@ describe("springValues against one spring per key (#111)", () => {
         )
         expectSame(s, m, 10)
         expect(settledLast(s)).toBe(true)
+      }))
+  }
+})
+
+/**
+ * Each combinator over `springValues`, whose run rewrites one Frame (#111), against the same
+ * combinator over the oracle, whose Frames are fresh: a combinator that kept a Frame its leaf goes
+ * on rewriting would emit a later tick's values. Through `toStream`, then through both drivers.
+ */
+describe("the combinators over springValues' rewritten Frame (#111)", () => {
+  type Build = (
+    target: Record<string, number>,
+    options: Machine.SpringOptions,
+    from: Record<string, number>,
+    velocity: Record<string, number>,
+  ) => Machine.Machine<Frame.MultiPhysics>
+  const a = (build: Build) => build({ x: 100, y: -40 }, { stiffness: 260, damping: 20 }, { x: 0, y: 0 }, { x: 200 })
+  const b = (build: Build) => build({ x: -30, y: 0 }, {}, { x: 100, y: -40 }, {})
+  const cases: ReadonlyArray<readonly [string, (build: Build) => Machine.Machine<Frame.Frame<unknown>>]> = [
+    ["concat: the seam's re-stamp", (build) => Machine.concat(a(build), b(build))],
+    ["delay: the held start Frame", (build) => a(build).pipe(Machine.delay(0.3))],
+    ["holdAfter: the held settled Frame", (build) => Machine.concat(a(build).pipe(Machine.holdAfter(0.3)), b(build))],
+    ["map: a progress, as springBlend's", (build) => a(build).pipe(Machine.map((frame) => ({ value: frame.value.x! / 100, done: frame.done })))],
+    ["forever: each restart", (build) => Machine.forever(a(build))],
+  ]
+  for (const [name, combine] of cases) {
+    it.effect(name, () =>
+      Effect.gen(function* () {
+        const [s, m] = yield* sideBySide(Machine.toStream(combine(springValuesOracle)), Machine.toStream(combine(Machine.springValues)))
+        expectSame(s, m, 10)
+        const [viaStream, viaLoop] = yield* bothDrivers(() => Effect.succeed(combine(Machine.springValues)))
+        expectSame(viaStream, viaLoop, 10)
       }))
   }
 })

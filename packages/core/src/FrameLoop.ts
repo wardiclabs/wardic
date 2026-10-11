@@ -15,6 +15,10 @@ import * as internal from "./internal/frameLoop.ts"
  * Where a run's Frames go: a plain call, never an Effect. Its return type is `undefined`, so a
  * sink that returns an Effect doesn't compile, where a `void` one would drop the Effect silently
  * (ADR-0027, decision 8).
+ *
+ * A Frame handed to a sink is the run's until the next tick: a step may rewrite it in place
+ * (`Machine.springValues`' does), so a sink that keeps a Frame, its `value` or its `velocity`,
+ * copies it (ADR-0030, decision 11).
  */
 export type Sink<F> = (frame: F) => undefined
 
