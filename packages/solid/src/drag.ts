@@ -13,19 +13,24 @@
  * the decay PRIMITIVE (`decayVec`); the release driver, the gate writes, and the
  * snapshot sync are response concerns and live here (ADR-0004).
  *
- * STRUCTURE — it mirrors core's `momentum.ts`: a `merge(drag-samples,
- * pointer-down grabs)` switched over with `Stream.switchMap`, one local
- * `Ref<{ base; position }>`, pure `Ref` updates + effects-in-inners. That is what
- * makes the plain `Ref` interruption-safe (see `momentum.ts`'s INVARIANT
- * comment): `switchMap` serializes inners and interrupts the running one before
- * the next starts, so the single ref is never touched concurrently and a re-grab
- * mid-release interrupts the release inner — exactly what stops the tail.
+ * STRUCTURE (ADR-0032): input is handled inside its event. Two consumers, each a
+ * `Stream.runForEach` that applies what arrives in place, with no scheduler hop
+ * between a pointer event and its gate write:
+ *   - the drag's samples: a gesture's bookkeeping, then the direct-set, or at the
+ *     "end" the release;
+ *   - bare pointer-downs from the Primary pointer ("grabs"), which stop a running
+ *     release, so a re-grab mid-release stops the tail where it is.
+ * No `merge` and no `switchMap`: a `merge` yields once per element, so a second
+ * event in one task (a move and its up, a move and a scroll) waited a task, and
+ * `switchMap` forked every sample's inner, a task more. The release runs in a
+ * `FiberHandle`, started inline, so it is on the Frame loop before its task ends;
+ * the next sample or grab interrupts it, which removes it from the loop at once.
  *
- * The differences from `momentum.ts`: the inners do SIDE EFFECTS (gate.write,
- * snapshot sync, recordFrame, setDragging) instead of emitting, the release is
- * PLUGGABLE (decay momentum / snapToOrigin spring / rest-in-place), and a gesture's
- * start/end bookkeeping runs as each sample passes (`settleGesture`), since a grab
- * can interrupt an inner before it runs.
+ * The samples subscribe before the grabs, so one event's samples reach the track
+ * before its grab: a Stale gesture's "end" (ADR-0019, rule B) starts its release and
+ * the grab of the same down stops it before its first frame, on every Environment.
+ * The track's state is a plain `MutableRef`: each handler runs to completion, and a
+ * release is stopped before the next handler changes the state.
  */
 import * as Drag from "@wardic/core/Drag"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
@@ -34,10 +39,15 @@ import type * as Point from "@wardic/core/Point"
 import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import * as Microtask from "@wardic/core/Microtask"
 import type { DragProjectionHandle, FlushGate } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as FiberHandle from "effect/FiberHandle"
+import { constVoid } from "effect/Function"
+import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
-import * as Ref from "effect/Ref"
+import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { runScoped, type WardicRuntime } from "./provider.tsx"
@@ -121,7 +131,7 @@ const lockTo = (sample: Drag.Sample, axis: "x" | "y"): Drag.Sample => {
 }
 
 /**
- * Single-ref state: `base` is the rebase point, `position` the live absolute position,
+ * The track's state: `base` is the rebase point, `position` the live absolute position,
  * `held` whether a gesture is on (from its "start" to its "end").
  */
 interface DragTrackState {
@@ -130,13 +140,10 @@ interface DragTrackState {
   readonly held: boolean
 }
 
-const ORIGIN: Point.Point = { x: 0, y: 0 }
+/** The track's one cell, written by its handlers and by its release's sink, never at once. */
+type TrackState = MutableRef.MutableRef<DragTrackState>
 
-/**
- * The merged event the track switches over: a fresh drag sample, or a bare
- * "grab" (pointer-down) used purely to interrupt a running release.
- */
-type Event = { readonly _tag: "sample"; readonly s: Drag.Sample } | { readonly _tag: "grab" }
+const ORIGIN: Point.Point = { x: 0, y: 0 }
 
 /**
  * Read the current rested `x`/`y` off the snapshot (defaulting to 0, as for a string
@@ -172,176 +179,115 @@ const directSet = (opts: RunDragTrackOptions, p: Point.Point): void => {
   opts.recordFrame({ x: p.x, y: p.y })
 }
 
-/**
- * The inner stream for one merged event — the ONLY place effects run (the
- * `momentum.ts` INVARIANT applies verbatim: pure `Ref` updates + effects-in-
- * inners + `switchMap` serialization = interruption-safe with a plain `Ref`).
- */
-const inner = (
-  event: Event,
-  ref: Ref.Ref<DragTrackState>,
-  opts: RunDragTrackOptions,
-): Stream.Stream<never, never, FrameLoop.FrameLoop> => {
-  if (event._tag === "grab") {
-    // Interrupt any running release — `switchMap` cancels the previous inner. No
-    // emission, no jump. With no gesture held, the interrupted release (or the one a
-    // same-down "end" never got to start) hands `x`/`y` back to the spring; a drag that
-    // follows takes them again at its "start". The drag rebases at that "start" sample
-    // below, not here: a new down from a pointer whose release was lost also ends the
-    // old gesture (a Stale gesture, ADR-0019), and that "end" and this grab arrive in
-    // either order. `dragStart` is driven off the "start" SAMPLE too — the two race on
-    // pointerdown and switchMap can interrupt the grab inner before it runs (ADR-0016).
-    return Stream.fromEffect(
-      Ref.get(ref).pipe(
-        Effect.tap((st) =>
-          Effect.sync(() => {
-            if (!st.held) opts.setDragging(false)
-          })
-        ),
-      ),
-    ).pipe(Stream.drain)
-  }
-
-  const sample = event.s
-
-  if (sample.phase === "start" || sample.phase === "move") {
-    // Direct-set: absolute position = base + drag offset. A "start" rebases to wherever
-    // the element currently rests (the snapshot's x/y). For a projection node the
-    // snapshot x/y stays 0 (the projection owns position), so `base` stays the origin.
-    return Stream.fromEffect(
-      Ref.modify(ref, (st) => {
-        const base = sample.phase === "start" ? snapshotPos(opts.snapshot) : st.base
-        const p: Point.Point = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
-        return [p, { ...st, base, position: p }] as const
-      }).pipe(
-        Effect.tap((p) =>
-          Effect.sync(() => {
-            opts.setDragging(true)
-            // Projection node (ADR-0016): begin the drag on the "start" sample (not
-            // the racing grab event) so `dragStart` reliably runs before the first
-            // `dragMove`; `directSet` then routes the offset to `dragMove`.
-            if (opts.projection !== undefined && sample.phase === "start") opts.projection.dragStart()
-            directSet(opts, p)
-            opts.onSample?.(sample)
-          }),
-        ),
-      ),
-    ).pipe(Stream.drain)
-  }
-
-  // phase === "end": projection node (ADR-0016) → the FLIP to the current slot already
-  // began as the sample passed (see `settleGesture`); the free-drag tail is skipped.
-  if (opts.projection !== undefined) return Stream.empty
-
-  // phase === "end" (free drag): run the PLUGGABLE release seeded from the release
-  // position + velocity. The release inner's effects live here, so a re-grab
-  // interrupts them (switchMap), stopping the tail — the momentum.ts handoff guarantee.
-  return Stream.unwrap(
-    Ref.get(ref).pipe(
-      Effect.map((st) => {
-        const releasePos: Point.Point = { x: st.base.x + sample.offset.x, y: st.base.y + sample.offset.y }
-        return release(opts, ref, releasePos, sample.velocity)
-      }),
-    ),
-  )
-}
 
 /**
- * A gesture's bookkeeping, run as each sample passes, before the merge with the grabs:
- * the one effect outside the inners. A Stale gesture's "end" and the grab of the down
- * that ended it (ADR-0019, rule B) reach `switchMap` together, and the grab can
- * interrupt the "end" inner before it runs, so what must happen at every end can't
- * live there. "start" marks the gesture held; "end" clears it and, for a projection
- * node (ADR-0016), starts the FLIP to the slot (`dragEnd`) and hands back `dragging`.
+ * A gesture's bookkeeping, run as each sample arrives, before its response: "start"
+ * marks the gesture held; "end" clears it and, for a projection node (ADR-0016), starts
+ * the FLIP to the slot (`dragEnd`) and hands back `dragging`, then reports the sample.
  */
-const settleGesture = (
-  sample: Drag.Sample,
-  ref: Ref.Ref<DragTrackState>,
-  opts: RunDragTrackOptions,
-): Effect.Effect<void> => {
-  if (sample.phase === "start") return Ref.update(ref, (st) => ({ ...st, held: true }))
-  if (sample.phase !== "end") return Effect.void
-  return Ref.update(ref, (st) => ({ ...st, held: false })).pipe(
-    Effect.andThen(
-      Effect.sync(() => {
-        if (opts.projection !== undefined) {
-          opts.projection.dragEnd()
+const settleGesture = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOptions): void =>
+  Match.value(sample.phase).pipe(
+    Match.when("start", () => {
+      MutableRef.update(state, (st) => ({ ...st, held: true }))
+    }),
+    Match.when("move", constVoid),
+    Match.when("end", () => {
+      MutableRef.update(state, (st) => ({ ...st, held: false }))
+      UndefinedOr.match(opts.projection, {
+        onUndefined: constVoid,
+        onDefined: (projection) => {
+          projection.dragEnd()
           opts.setDragging(false)
-        }
-        opts.onSample?.(sample)
-      }),
-    ),
+        },
+      })
+      reportSample(opts, sample)
+    }),
+    Match.exhaustive,
   )
+
+/** A down from the Primary pointer: a grab, which stops a running release where it is. */
+const isGrab: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
+  (e: InputSource.PointerLikeEvent) => e.type === "down",
+  InputSource.isPrimaryPointer,
+)
+
+/** Hand `sample` to `onSample`, when there is one (a `<Reorder>` item's group). */
+const reportSample = (opts: RunDragTrackOptions, sample: Drag.Sample): void =>
+  UndefinedOr.match(opts.onSample, { onUndefined: constVoid, onDefined: (onSample) => onSample(sample) })
+
+/**
+ * Follow the pointer for a "start" or "move" sample: absolute position = base + drag
+ * offset. A "start" rebases to wherever the element currently rests (the snapshot's
+ * x/y); for a projection node the snapshot x/y stays 0 (the projection owns position),
+ * so `base` stays the origin, and the "start" begins the projection's drag first, so
+ * `dragStart` runs before the first `dragMove`.
+ */
+const follow = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOptions): void => {
+  const st = MutableRef.get(state)
+  const starts = sample.phase === "start"
+  const base = Bool.match(starts, { onTrue: () => snapshotPos(opts.snapshot), onFalse: () => st.base })
+  const p: Point.Point = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+  MutableRef.set(state, { ...st, base, position: p })
+  opts.setDragging(true)
+  if (starts) UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.dragStart() })
+  directSet(opts, p)
+  reportSample(opts, sample)
 }
 
 /**
- * The pluggable release driver (ADR-0004 binding orchestration):
- *   - `snapToOrigin`: spring `x`/`y` back to `{0,0}` (deterministic target),
- *     seeded from the release position + velocity.
- *   - else `momentum !== false`: fling under `decayVec` from the release position
- *     + velocity.
- *   - else: rest in place immediately.
+ * The pluggable release driver (ADR-0004 binding orchestration), seeded from the
+ * release position + velocity:
+ *   - `snapToOrigin`: spring `x`/`y` back to `{0,0}` (deterministic target).
+ *   - else `momentum: false`: rest in place: commit the exact release position once (so
+ *     the element rests at the pointer-up point, not the last move), and hand `x`/`y` back
+ *     at the end of the release's task.
+ *   - else: fling under `decayVec`.
  *
- * Each release frame taps `gate.write` + snapshot sync + recordFrame; on
- * completion `setDragging(false)` so ownership of `x`/`y` returns to the spring.
- * The spring and the fling run on the Frame loop (ADR-0027); the track stays a fiber.
+ * Each release frame taps `gate.write` + snapshot sync + recordFrame, and the track's
+ * state, so a re-grab mid-tail rebases from where the tail reached. On completion
+ * `setDragging(false)` hands ownership of `x`/`y` back to the spring. The spring and the
+ * fling run on the Frame loop (ADR-0027); interrupting the release removes its run from
+ * the loop at once, before the next handler touches the state.
  */
 const release = (
   opts: RunDragTrackOptions,
-  ref: Ref.Ref<DragTrackState>,
+  state: TrackState,
   position: Point.Point,
   velocity: Point.Point,
-): Stream.Stream<never, never, FrameLoop.FrameLoop> => {
+): Effect.Effect<void, never, FrameLoop.FrameLoop> => {
   const cfg = opts.config
 
-  // Tap one released Point into the gate + snapshot + ref (so a re-grab mid-tail
-  // rebases from where the tail reached). A plain call, as a run's sink on the Frame loop
-  // must be, so it writes the ref's cell in place, as `Ref.update` does. The INVARIANT
-  // holds: a re-grab interrupts the run (switchMap), which removes it from the loop at once,
-  // before the next inner touches the ref.
+  // A run's sink on the Frame loop is a plain call (ADR-0027, decision 8).
   const tapFrame = (p: Point.Point): undefined => {
-    MutableRef.update(ref.ref, (s) => ({ ...s, position: p }))
+    MutableRef.update(state, (s) => ({ ...s, position: p }))
     directSet(opts, p)
     return undefined
   }
 
-  const done: Stream.Stream<never, never, never> = Stream.fromEffect(
-    Effect.sync(() => opts.setDragging(false)),
-  ).pipe(Stream.drain)
+  const done = Effect.sync(() => opts.setDragging(false))
 
-  // The release's run, then `done` once it settles.
-  const settling = (run: Effect.Effect<unknown, never, FrameLoop.FrameLoop>): Stream.Stream<never, never, FrameLoop.FrameLoop> =>
-    Stream.fromEffect(run).pipe(Stream.drain, Stream.concat(done))
-
-  if (cfg.snapToOrigin === true) {
-    // snapToOrigin: spring x/y -> {0,0}, seeded from the release pos + velocity.
-    return settling(
+  return Match.value(cfg).pipe(
+    Match.when({ snapToOrigin: true }, () =>
       Machine.springValues({ x: 0, y: 0 }, cfg.springOpts, { x: position.x, y: position.y }, { x: velocity.x, y: velocity.y }).pipe(
         Machine.run((frame) => tapFrame({ x: UndefinedOr.getOrThrow(frame.value.x), y: UndefinedOr.getOrThrow(frame.value.y) })),
-      ),
-    )
-  }
-
-  if (cfg.momentum !== false) {
-    // Fling: decay from the release position at the release velocity.
-    return settling(Machine.decayVec(position, velocity, {}).pipe(Machine.run((frame) => tapFrame(frame.value))))
-  }
-
-  // Rest in place: commit the exact release position once (so the element rests
-  // at the pointer-up point, not the last move), then hand ownership back.
-  return Stream.fromEffect(Effect.sync(() => directSet(opts, position))).pipe(
-    Stream.drain,
-    Stream.concat(done),
+        Effect.andThen(done),
+      )),
+    // The position now; the hand-back at the end of the release's task, once every other
+    // consumer of the same event has handled it: a press that ends with the drag (`whileTap`)
+    // then finds `x`/`y` still the drag's, so a key the drag moved stays where it was dropped.
+    Match.when({ momentum: false }, () =>
+      Effect.sync(() => directSet(opts, position)).pipe(Effect.andThen(Microtask.next), Effect.andThen(done))),
+    Match.orElse(() => Machine.decayVec(position, velocity, {}).pipe(Machine.run((frame) => tapFrame(frame.value)), Effect.andThen(done))),
   )
 }
 
 /**
- * Run the drag track for one element. Mirrors `Drag.fling`'s shape: shape the
- * `drag(element)` stream (axisLock / withinBounds), merge it with bare pointer-
- * down grabs, and `switchMap` over the merge so each new event interrupts the
- * running inner. The WHOLE track runs as ONE fiber via `runScoped(...runDrain)`,
- * so the caller's `onCleanup` interrupts it (dropping the Shared-source
- * ref-count and stopping any in-flight release).
+ * Run the drag track for one element. Shape the `drag(element)` stream (axisLock /
+ * withinBounds), then consume it and the element's bare pointer-down grabs, each in place
+ * as it arrives (ADR-0032; the module doc). The WHOLE track runs under ONE fiber via
+ * `runScoped`, so the caller's `onCleanup` interrupts it (dropping the Shared-source
+ * ref-count and stopping any in-flight release); a failure of either consumer or of a
+ * release fails it.
  *
  * The drag config is read ONCE at setup (the caller passes a static
  * {@link DragTrackConfig} — drag config is a document, not reactive); only the
@@ -353,13 +299,15 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
   runScoped(
     runtime,
     Effect.gen(function* () {
-      const ref = yield* Ref.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false })
+      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false })
+      // The running release, if any: the next sample or grab interrupts it.
+      const releasing = yield* FiberHandle.make<void>()
 
       const input = yield* InputSource.InputSource
 
       // Shape the drag samples BEFORE the track: axisLock first (zero the off
-      // axis), then withinBounds (clamp the followed offset). Same fixed order as
-      // momentum.ts / sensors.ts. Probe-free numeric form (ADR-0004).
+      // axis), then withinBounds (clamp the followed offset). Probe-free numeric
+      // form (ADR-0004).
       let shaped: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element)
       const axisAt = opts.axisAt
       if (axisAt !== undefined) {
@@ -384,22 +332,54 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
         )
       }
 
-      const samples = shaped.pipe(
-        Stream.tap((s) => settleGesture(s, ref, opts)),
-        Stream.map((s) => ({ _tag: "sample" as const, s })),
-      )
-      // Bare pointer-downs from the Primary pointer interrupt a running release. The
-      // InputSource is a Shared source, so this shares the recognizer's single
-      // listener-set (no extra listeners — CONTEXT.md Shared source contract).
-      const grabs = input.pointer(element).pipe(
-        Stream.filter((e) => e.type === "down" && InputSource.isPrimaryPointer(e)),
-        Stream.map(() => ({ _tag: "grab" as const })),
-      )
+      // A free drag's "end" starts its release; a projection node's FLIP already began in
+      // `settleGesture`, so its drag track skips the tail (ADR-0016, Q3c).
+      const releaseFrom = (sample: Drag.Sample): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
+        UndefinedOr.match(opts.projection, {
+          onDefined: () => Effect.void,
+          onUndefined: () => {
+            const { base } = MutableRef.get(state)
+            const position: Point.Point = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+            return FiberHandle.run(releasing, release(opts, state, position, sample.velocity)).pipe(Effect.asVoid)
+          },
+        })
 
-      yield* Stream.merge(samples, grabs).pipe(
-        Stream.switchMap((event: Event) => inner(event, ref, opts)),
-        Stream.runDrain,
+      // Each sample: its bookkeeping, then its response. A "start" or "move" stops a running
+      // release first, as each new event did under `switchMap`.
+      const onSample = (sample: Drag.Sample): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
+        Effect.suspend(() => {
+          settleGesture(sample, state, opts)
+          return Match.value(sample.phase).pipe(
+            Match.when(Match.is("start", "move"), () =>
+              FiberHandle.clear(releasing).pipe(Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
+            Match.when("end", () => releaseFrom(sample)),
+            Match.exhaustive,
+          )
+        })
+
+      // A grab stops a running release where it is. With no gesture held, the stopped
+      // release (or the one a same-down "end" just started) hands `x`/`y` back to the
+      // spring; a drag that follows takes them again at its "start", where it rebases (a
+      // new down from a pointer whose release was lost also ends the old gesture, a Stale
+      // gesture, ADR-0019). The InputSource is a Shared source, so this shares the
+      // recognizer's single listener-set (CONTEXT.md Shared source contract).
+      const onGrab: Effect.Effect<void> = FiberHandle.clear(releasing).pipe(
+        Effect.andThen(Effect.sync(() => {
+          if (!MutableRef.get(state).held) opts.setDragging(false)
+        })),
       )
-    }),
+      const grabs = input.pointer(element).pipe(Stream.filter(isGrab))
+
+      // Started inline, in this order, so the samples subscribe before the grabs; a failure
+      // of either, or of a release (`FiberHandle.join`), fails the track.
+      yield* Effect.all(
+        [
+          Stream.runForEach(shaped, onSample),
+          Stream.runForEach(grabs, () => onGrab),
+          FiberHandle.join(releasing),
+        ],
+        { concurrency: "unbounded", discard: true },
+      )
+    }).pipe(Effect.scoped),
   )
 }
