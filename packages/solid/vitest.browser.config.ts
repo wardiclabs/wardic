@@ -102,6 +102,7 @@ export default defineConfig({
       "effect/Data",
       "effect/Deferred",
       "effect/Equivalence",
+      "effect/ErrorReporter",
       "effect/Exit",
       "effect/FiberHandle",
       "effect/FiberSet",
