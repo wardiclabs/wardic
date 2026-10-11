@@ -312,3 +312,41 @@
 
   - **`ticksOnly` runs each core's Clock,** so this slice's tick is on both sides of the noise control. The two writes it drops come once per Refresh frame, about 20–24 ns (decision 12), against `ticksOnly`'s 1.07–1.76 ms a frame at 1,000 subscribers, so it still reads the run's noise.
   - **No workload was expected to move,** and none did past the noise: the Clock's tick is once per Refresh frame, not per element.
+
+## Implementation in #112 (slice 4): `FrameLoop.CheckFrames`
+
+- **`FrameLoop.CheckFrames`,** a `Context.Reference<boolean>`, `false` by default.
+- **`FrameLoop.NonFiniteFrame`,** a `Data.TaggedError`, so an `Error` named `NonFiniteFrame`. It carries:
+  - `key`, the record key that held the value, `None` when the Frame's value is the number itself;
+  - `value`, what it held;
+  - a `message` naming both: `a non-finite Frame: x is NaN`, or `a non-finite Frame: its value is NaN`.
+- **`run` reads the switch from the caller's fiber, once per run** (`Effect.service` in its acquire), and wraps the run's sink only when it's on. The tick doesn't change, so off costs a `Reference` read per start and nothing per frame.
+- **The check, per frame with it on:**
+  - a number passes `Number.isFinite`;
+  - a string fails if it holds "NaN" or "Infinity";
+  - a record's values are checked one by one, in a loop over its keys.
+
+  A failure throws, so the tick's `try` ends the run with `Exit.die`. Decision 3's stack frame names the run: the cause pretty-prints `at <the run's span>`.
+- **Both live in `internal/frameLoop.ts`,** a per-frame loop file, and the `FrameLoop` module re-exports them. Defined in `FrameLoop.ts` instead, the two modules would import each other, and a module that imports the internal one first, as `frame-loop.test.ts` does, would find the service's `make` undefined.
+- **`effect/Data` is new to core,** so it joins `optimizeDeps.include` in the three browser configs (`effect-first.md`'s *Pitfalls*). The browser tier's second run found the cache warm.
+- **What decision 7 left open:** the key of a number Frame, which has none, is `None`.
+- **Not measured:** the on path as built. Decision 7 measured the same check in a second tick (+6% to +41% a frame); the wrapper adds a call per Frame to it. It's for development only.
+- **The `env` recipe that turns it on** is slice 5's (#113).
+- **Tests** (`check-frames.test.ts`):
+  - **On, merged beside the loop with `Layer.mergeAll`:**
+    - a number Frame's NaN, a record's Infinity and a blended string's NaN each kill their run with `NonFiniteFrame`, its key and its value, before its sink sees them;
+    - a healthy run on the same loop goes on and settles;
+    - the cause pretty-prints the message and `at <the run's span>`;
+    - finite Frames pass.
+  - **Off,** by default or set `false`: the NaN reaches the sink, and the run settles.
+  - **Where it's read:** provided to the run alone, the check is on; provided to the loop's build alone, it's off for a caller that doesn't see it. With the switch read at the loop's build instead, six of the nine tests fail.
+  - Every other test passes as it was: 674 node tests and 635 browser tests, the browser tier on a warm cache.
+- **The gate run** (`9c07bd5`, `bench:core --base main`, 11 paired reps on the bench server): the off path, the default. Every row passes on every engine, and Node's bytes per frame are unchanged or lower on every row. Head / base medians, the ranges across each group's rows:
+
+  | | Bun | Node | Chromium |
+  |---|---|---|---|
+  | `ticksOnly`, the noise control | +0.1% [−0.8, +3.4] | +2.7% [−1.3, +3.0] | +0.0% [−5.0, +0.9] |
+  | the seven `Stream` workloads | −4.1 to +0.8% | −0.6 to +1.2% | −1.1 to +1.0% |
+  | the seven loop workloads | −6.5 to +4.2% | −1.1 to +0.6% | −2.1 to +3.4% |
+
+  The read per start doesn't show: Node's loop starts moved −0.1 to +0.4 ms per 1,000 (starts are reported, not gated).
