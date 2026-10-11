@@ -124,3 +124,50 @@
 - **#114 is one Environment's source, and #73 is a hook on the Frame loop.** Neither needs the gate's frames moved again.
 - **The gate is framework-free and testable in node.** A React binding passes its `batch` and its sinks, and #27's dedupe and #79's profile work on the one gate every binding shares.
 - **Core still reads no DOM:** the gate's one DOM read stays in dom, and it's the only thing between the gate and core.
+
+## Implementation in #122 (slice 1): the Environment's `RefreshFrameSource`, and the gate's frames from it
+
+- **core: the `RefreshFrameSource` module** (decisions 2 and 4).
+  - **The service:** `RefreshFrameSource.RefreshFrameSource`, keyed `@wardic/RefreshFrameSource`. Its shape is `RefreshFrameSource.Shape`, the old interface (`requestFrame`, `cancelFrame`, `now?`). It stays generic in its handle, for `Clock.fromRefreshFrames` and the tests' typed sources, and the service's is `Shape<unknown>`. `RefreshFrameSource.layer(source)` provides one.
+  - **Its docs state the contract:** it calls back later, never inside `requestFrame`; a frame's callbacks run in request order; one requested during a frame's callbacks waits for the next. And callers call the two detached.
+  - **`Clock.RefreshFrameSource` is gone.** `Clock.layer` is `Layer.effect(Clock)(Effect.flatMap(Effect.service(RefreshFrameSource), fromRefreshFrames))`, and `fromRefreshFrames` takes a `RefreshFrameSource.Shape<Handle>`.
+- **dom: `ClockDomLive` is `Clock.layer` over a frames Layer, `provideMerge`d.**
+  - The frames Layer's build runs `requireGlobal("ClockDomLive", "requestAnimationFrame")` first, then reads both globals.
+  - `requestFrame` is `requestAnimationFrame` itself.
+  - `cancelFrame` cancels a numeric handle (`Predicate.isNumber`). That's decision 2's wrap for the `unknown` handle, with no cast.
+  - `DomLive`'s type gains the member.
+- **test:**
+  - `testLayer`'s source never calls back (`constUndefined` / `constVoid`).
+  - `TestClock.pushable()`'s layer is `Layer<Clock | RefreshFrameSource>`. `advance(dt)` runs the callbacks requested so far, by handle in request order, skipping one cancelled before its turn, at a timestamp that starts at 0 and grows by `dt`. Then it publishes `dt` and yields as before.
+- **solid:**
+  - `WardicServices` gains the member, and `WardicEnv` is now `Layer<WardicServices>`, one list for both.
+  - **`makeFlushGate`'s runtime is already `ManagedRuntime<Renderer | RefreshFrameSource>`,** which decision 3 had put in #123. It's what the gate needs once it reads the member, and it drops `gate.ts`'s type import of the provider. A provider's runtime is assignable to it.
+  - The gate takes `requestFrame` and `cancelFrame` out of the member once, with the Renderer, and calls them detached. Its pending handle is `unknown`.
+- **Lint:** `no-restricted-globals` on `requestAnimationFrame` and `cancelAnimationFrame`, and `no-restricted-properties` on them through `window`, `globalThis` and `self`, in `packages/{dom,solid}/src`, with `dom/src/clock.ts` exempt. Checked on a snippet: both forms are flagged in solid's `src`, and nothing in `clock.ts`.
+- **Where it differs from the decisions:**
+  - **The gate's browser tests drive frames through a hand-driven source provided as the member** (`RefreshFrameSource.layer`, merged over `TestLive` or `DomLive`), not through `pushable()`. They assert request and cancel counts and the pending request, which their own source shows and `pushable()`'s doesn't. No global is stubbed any more. `pushable()`'s frames have tests of their own, and #123's node tests are their first gate caller.
+  - **Only one of the three custom Environments in decision 6 hid the member:** `frame-loop.browser.test.tsx`, which now `provideMerge`s `ClockDomLive`. Its wrapped Clock still wins, since `provideMerge` merges the dependency's context first (`effect/dist/Layer.js:1115`). `error-reporting.browser.test.tsx` merges `ClockDomLive` itself, and `projection-coordinator.browser.test.ts` builds a `ProjectionRuntime`, which doesn't need the member.
+- **Tests:**
+  - **core, `refresh-frame-source.test.ts`:**
+    - `Clock.layer` takes its frames from the member: the Priming tick, then each next frame through its requests, and closing the Environment cancels the pending one.
+    - A gate-shaped second requester on a source that keeps the rules gets the steady order: the Priming tick, then flush, tick, flush, tick, its request during a tick waiting for the next frame.
+    - Core's Clock and Frame loop tests type their sources as `RefreshFrameSource.Shape<number>`.
+  - **dom, `clock.browser.test.ts`:** the member's `requestFrame` is the `requestAnimationFrame` the Layer was built with, called detached; its `cancelFrame` cancels; and the Clock's requests go through the same function.
+  - **test, `refresh-frames.test.ts`:** on `pushable()`, a frame requested before an `advance` runs in it, before the tick, at its timestamp; callbacks run in request order, and one requested during them waits; a cancelled frame never runs, even when an earlier callback in the same frame cancels it. `TestLive`'s source never calls back.
+  - **solid, `gate.browser.test.tsx`:** the 24 tests on the hand-driven member, and a new one through the provider. On `DomLive` with its member replaced by the hand-driven source, a write requests from that source, the global `requestAnimationFrame` (spied after the build) is never called, and the fired frame applies the patch.
+  - **Unchanged and passing:** server-guard G1 with its message word for word, and the painted-frame tests (`clock-cold-start`, `measure-pass-timing`, `frame-loop`, drag, layout, reorder). 680 node tests and 645 browser tests, the browser tier on a warm cache with no dependency reload.
+- **The per-frame probe** (`.tmp/122-frames/`: #75's page and runner, with a build whose base is main's core, dom and solid):
+  - **The setup:** Chromium 147, headless and cross-origin isolated, on the bench server (`wardic-quiet` before each run). Base is main at `0c4d898`. 11 paired reps, 4 rounds per page, ms per Refresh frame mid-flight, head / base, median [p25–p75]:
+
+    | Workload | Total | Gate's flush | Clock's callback |
+    |---|---|---|---|
+    | N = 100, FLIPs alone | −1.0% [−3.1, +1.6] | +0.0% [−2.6, +1.3] | +5.1% [−2.6, +10.5] |
+    | N = 100, with 2N legs | +0.9% [−2.4, +4.9] | +0.0% [−3.2, +1.8] | +1.9% [−1.9, +11.1] |
+    | N = 1,000, FLIPs alone | −3.4% [−8.9, +3.5]; rerun −1.5% [−14.6, +12.5] | −4.4% [−9.5, −0.7]; rerun −1.9% [−11.4, +11.2] | +0.7% [−12.5, +14.4]; rerun −0.8% [−19.0, +29.4] |
+    | N = 1,000, with 2N legs | −2.0% [−2.3, −1.7]; rerun −1.2% [−2.6, −0.5] | −0.1% [−2.0, +0.5]; rerun +0.2% [−2.5, +0.9] | −6.3% [−9.3, −3.7]; rerun −6.7% [−9.8, −5.4] |
+
+  - **No total is slower:** every median is at or under +0.9%.
+  - **Two N = 1,000 totals read outside ±2% in the first run, both faster, so both were rerun** (decision 7). The rerun read −1.5% for the FLIPs alone, with an even wider spread (that workload is noisy at this N), and −1.2% with the legs.
+  - **One reading repeats, and it's faster:** the Clock's callback at N = 1,000 with legs, −6.3% and −6.7% (about 0.07 ms). The change doesn't explain it. Per frame, the gate's first write calls `requestFrame` from a closure where it used to look up the global, and the Clock's tick is the same code. The same callback read +5.1% and +1.9% at N = 100, so its direction isn't the change's. Bundle layout is the likely cause (inferred, not checked).
+  - Absolute ms are the bench server's, so only the ratios compare with #75's.
+  - **The base needs main's `package.json`s.** Extracted without them, its packages lose `sideEffects: false`, and the base bundle came out 5.5 KB larger than the head. With them, the head is 246 bytes larger, which is the new module.

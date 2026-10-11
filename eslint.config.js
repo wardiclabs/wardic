@@ -5,10 +5,21 @@
 //
 // And the pipeable API's shape (#95, ADR-0028 decision 10, docs/agents/pipeable.md): the root
 // re-exports namespaces only, and code in the repo imports core's subpaths.
+//
+// And the Refresh frames (#52, ADR-0031 decision 6): dom and the bindings request frames from the
+// Environment's `RefreshFrameSource`, never from the browser's own functions.
 import { defineConfig } from "eslint/config"
 import tseslint from "typescript-eslint"
 
 const PAGE = "docs/agents/effect-first.md"
+
+/**
+ * The browser's frame functions, which only `ClockDomLive` reads: it provides them as the
+ * Environment's `RefreshFrameSource`, the one the Clock ticks on and the flush gate requests its
+ * flushes from (ADR-0031).
+ */
+const FRAME_FUNCTIONS = ["requestAnimationFrame", "cancelAnimationFrame"]
+const FRAME_MESSAGE = "Request Refresh frames from the Environment's RefreshFrameSource, not the browser (ADR-0031)."
 
 /** A `no-restricted-syntax` entry whose message points at the rules page. */
 const restrict = (selector, message) => ({ selector, message: `${message} (${PAGE}).` })
@@ -139,6 +150,19 @@ export default defineConfig([
     linterOptions: { reportUnusedDisableDirectives: "off" },
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS],
+    },
+  },
+  {
+    files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],
+    ignores: ["packages/dom/src/clock.ts"],
+    rules: {
+      "no-restricted-globals": ["error", ...FRAME_FUNCTIONS.map((name) => ({ name, message: FRAME_MESSAGE }))],
+      "no-restricted-properties": [
+        "error",
+        ...["window", "globalThis", "self"].flatMap((object) =>
+          FRAME_FUNCTIONS.map((property) => ({ object, property, message: FRAME_MESSAGE }))
+        ),
+      ],
     },
   },
 ])

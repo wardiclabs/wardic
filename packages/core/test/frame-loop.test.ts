@@ -2,6 +2,7 @@ import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
+import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 // The Frame loop's shape and `make` are internal (ADR-0028, decision 11): core's own tests reach them by path.
 import * as internal from "../src/internal/frameLoop.ts"
 import { describe, expect, it } from "@effect/vitest"
@@ -27,7 +28,7 @@ import * as Tracer from "effect/Tracer"
 const makeFrames = () => {
   const pending = new Map<number, (t: number) => void>()
   let nextHandle = 1
-  const source: Clock.RefreshFrameSource<number> = {
+  const source: RefreshFrameSource.Shape<number> = {
     requestFrame: (callback) => {
       const handle = nextHandle++
       pending.set(handle, callback)

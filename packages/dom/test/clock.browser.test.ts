@@ -1,4 +1,5 @@
 import * as Clock from "@wardic/core/Clock"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import { afterEach, describe, expect, it, vi } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -9,8 +10,9 @@ import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "../src/clock.ts"
 
 /**
- * `ClockDomLive` is core's `Clock.fromRefreshFrames` over the browser's REAL
- * `requestAnimationFrame` / `cancelAnimationFrame` (spied on, not stubbed). The
+ * `ClockDomLive` is core's `Clock.layer` over the browser's REAL
+ * `requestAnimationFrame` / `cancelAnimationFrame` (spied on, not stubbed), which it also
+ * provides as the Environment's `RefreshFrameSource` for the flush gate (ADR-0031). The
  * Clock's own contract — the Priming tick, the dt sequence, ref-counting, and no
  * Effect-scheduler dependence — is pinned in core's node tests
  * (`packages/core/test/refresh-frame-clock.test.ts`); these check the wiring: the
@@ -34,7 +36,8 @@ const buildClock = async () => {
     const fiber = runtime.runFork(Stream.runForEach(clock.ticks, (dt) => Effect.sync(() => void received.push(dt))))
     return { received, unsubscribe: () => runtime.runPromise(Fiber.interrupt(fiber)) }
   }
-  return { subscribe, dispose: () => runtime.dispose() }
+  const frames = await runtime.runPromise(Effect.service(RefreshFrameSource.RefreshFrameSource))
+  return { subscribe, frames, dispose: () => runtime.dispose() }
 }
 
 afterEach(() => {
@@ -86,5 +89,31 @@ describe("ClockDomLive", () => {
     const count = again.received.length
     await raf()
     expect(again.received.length).toBe(count)
+  })
+
+  it("provides the Environment's RefreshFrameSource: the requestAnimationFrame it was built with, the pair the Clock runs on", async () => {
+    const requestSpy = vi.spyOn(window, "requestAnimationFrame")
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame")
+    const env = await buildClock()
+    // The member's requestFrame is the global itself (the spy installed before the build), not a wrapper.
+    expect(env.frames.requestFrame).toBe(requestSpy)
+    const { requestFrame, cancelFrame } = env.frames
+    let ran = false
+    const handle = requestFrame(() => {
+      ran = true
+    })
+    expect(requestSpy).toHaveBeenCalledTimes(1) // called detached, with no "Illegal invocation"
+    cancelFrame(handle)
+    expect(cancelSpy).toHaveBeenCalledWith(handle)
+    await raf()
+    expect(ran).toBe(false)
+
+    // The Clock's frames go through the same pair.
+    const before = requestSpy.mock.calls.length // this test's own raf() included
+    const sub = env.subscribe()
+    await Promise.resolve()
+    expect(requestSpy.mock.calls.length).toBe(before + 1)
+    await sub.unsubscribe()
+    await env.dispose()
   })
 })

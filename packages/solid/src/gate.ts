@@ -19,10 +19,14 @@
  *      frame at a *constant* one-frame latency shared by every element.
  *
  * Three locked design decisions (this session's grills):
- *   - GATED rAF: a `write` schedules the rAF only if one is not already
+ *   - GATED frames: a `write` requests a Refresh frame only if one is not already
  *     pending; `flush` does NOT auto-reschedule. An idle accumulator therefore
- *     schedules no frames — the next `write` reschedules. (Contrast the Clock's
- *     self-perpetuating ref-counted loop.)
+ *     requests no frames — the next `write` does. (Contrast the Clock's
+ *     self-perpetuating ref-counted loop.) The frames come from the Environment's
+ *     `RefreshFrameSource` (ADR-0031), the one the Clock ticks on: on the web,
+ *     `requestAnimationFrame` itself, so the gate's flush runs before the Clock's tick
+ *     in each Refresh frame, in request order. No binding calls the browser's frame
+ *     functions itself.
  *   - ONE `batch()` per frame: all dirty elements flush together. The one exception
  *     is `flushPass` (ADR-0018): a projection Measure pass's own writes are applied
  *     at the end of its task, so a new layout never paints without its projection.
@@ -40,12 +44,12 @@
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
  * `tick` — it stays quiet (no span, no per-call log).
  */
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
 import { dashCase } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import { batch } from "solid-js"
-import type { WardicServices } from "./provider.tsx"
 
 /**
  * Where a flushed `Patch` is delivered:
@@ -130,21 +134,27 @@ export interface FlushGate {
 }
 
 /**
- * Build a flush gate against the provider's `runtime`.
+ * Build a flush gate against the provider's `runtime`: one that provides the `Renderer` and the
+ * Environment's `RefreshFrameSource` (a provider's full runtime is assignable here).
  *
- * Resolves the `Renderer` ONCE here: `project` is pure (called directly at
- * flush), `commit` returns an `Effect` (run via `runtime.runSync` at flush for
- * commit sinks). Both come from whichever env the provider was given
- * (`DomLive` / `TestLive`), so the gate inherits that environment's
- * grouping/unit logic with zero duplication.
+ * Resolves both ONCE here: `project` is pure (called directly at flush), `commit` returns an
+ * `Effect` (run via `runtime.runSync` at flush for commit sinks), and `requestFrame` /
+ * `cancelFrame` schedule and cancel the flush. All come from whichever env the provider was
+ * given (`DomLive` / `TestLive`), so the gate inherits that environment's grouping/unit logic
+ * and its Refresh frames with zero duplication.
  */
 export const makeFlushGate = (
-  runtime: ManagedRuntime.ManagedRuntime<WardicServices, never>,
+  runtime: ManagedRuntime.ManagedRuntime<Renderer.Renderer | RefreshFrameSource.RefreshFrameSource, never>,
 ): FlushGate => {
-  // Resolve the Renderer's two halves exactly once at creation.
-  const { commit, project } = runtime.runSync(
+  // Resolve the Renderer's two halves and the Refresh frame source exactly once at creation.
+  // `requestFrame` and `cancelFrame` are called detached, never as `frames.requestFrame(cb)`: a
+  // browser throws "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
+  // anything but the window (ADR-0031, decision 7).
+  const { commit, project, requestFrame, cancelFrame } = runtime.runSync(
     Effect.gen(function* () {
-      return yield* Renderer.Renderer
+      const { commit, project } = yield* Renderer.Renderer
+      const { requestFrame, cancelFrame } = yield* RefreshFrameSource.RefreshFrameSource
+      return { commit, project, requestFrame, cancelFrame }
     }),
   )
 
@@ -152,7 +162,8 @@ export const makeFlushGate = (
   // Commit sinks waiting for their first commit's `beforeFirstCommit` (usually empty).
   const firstCommits = new Set<string>()
   let scheduled = false
-  let rafId = 0
+  // The pending Refresh frame's handle, while `scheduled`.
+  let frame: unknown
   // The ids written while a `flushPass` pass runs; `undefined` otherwise.
   let recording: Set<string> | undefined
 
@@ -214,7 +225,7 @@ export const makeFlushGate = (
   const scheduleFlush = (): void => {
     if (scheduled) return
     scheduled = true
-    rafId = requestAnimationFrame(flush)
+    frame = requestFrame(flush)
   }
 
   const register: FlushGate["register"] = (id, sink) => {
@@ -274,7 +285,7 @@ export const makeFlushGate = (
 
   const dispose: FlushGate["dispose"] = () => {
     if (scheduled) {
-      cancelAnimationFrame(rafId)
+      cancelFrame(frame)
       scheduled = false
     }
     accumulator.clear()
