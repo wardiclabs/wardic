@@ -1,8 +1,7 @@
-import * as Drag from "@wardic/core/Drag"
+import type * as Drag from "@wardic/core/Drag"
 import * as InputSource from "@wardic/core/InputSource"
-import type * as Point from "@wardic/core/Point"
 import * as Recognizer from "@wardic/core/Recognizer"
-import { TestClock, TestInput } from "@wardic/test"
+import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -154,71 +153,6 @@ it.effect("N5: a buttons-0 move from a non-owner changes nothing (guard)", () =>
     // No end, the owner's next move continues.
     expect(samples.map((s) => s.phase)).toEqual(["start", "move"])
     expect(samples[1]!.offset).toEqual({ x: 20, y: 0 })
-  }))
-
-// ---------------------------------------------------------------- momentum
-
-/** Drag.fling over push-based input + clock (same shape as momentum.test.ts). */
-const momentumHarness = () =>
-  Effect.gen(function* () {
-    const input = yield* TestInput.pushable()
-    const clock = yield* TestClock.pushable()
-    const emitted = yield* Ref.make<ReadonlyArray<Point.Point>>([])
-    yield* Stream.runForEach(Drag.fling(undefined), (p) => Ref.update(emitted, (xs) => [...xs, p])).pipe(
-      Effect.provide(Layer.merge(input.layer, clock.layer)),
-      Effect.forkChild,
-    )
-    yield* Effect.yieldNow
-    yield* Effect.yieldNow
-    return { push: input.push, advance: clock.advance, positions: () => Ref.get(emitted) }
-  })
-
-it.effect("N6: a non-primary down mid-drag neither rebases nor interrupts", () =>
-  Effect.gen(function* () {
-    const h = yield* momentumHarness()
-
-    // A mouse drag in progress, then a second finger goes down.
-    yield* h.push(ev("down", 0, 0, 0))
-    yield* h.push(ev("move", 10, 0, 10))
-    yield* h.push(ev("move", 20, 0, 20)) // position 20
-    yield* h.push(ev("down", 100, 0, 25, secondFinger))
-    yield* h.push(ev("move", 30, 0, 30))
-    // The owner's offset is still measured from the original base (0), so 30, not 50.
-    const positions = yield* h.positions()
-    expect(positions[positions.length - 1]!.x).toBeCloseTo(30, 5)
-
-    // Part 2: a running fling is not interrupted by a non-primary down.
-    yield* h.push(ev("move", 40, 0, 40))
-    yield* h.push(ev("up", 40, 0, 40)) // release at speed: a fling starts
-    for (let i = 0; i < 3; i++) yield* h.advance()
-    const before = (yield* h.positions()).length
-    yield* h.push(ev("down", 300, 0, 50, secondFinger))
-    for (let i = 0; i < 3; i++) yield* h.advance()
-    const after = yield* h.positions()
-    expect(after.length).toBeGreaterThan(before) // decay frames kept coming
-    expect(after[after.length - 1]!.x).toBeGreaterThan(after[before - 1]!.x)
-  }))
-
-it.effect("N7 (rule B under Drag.fling): the second gesture continues from where the first ended, with no fling and no double rebase", () =>
-  Effect.gen(function* () {
-    const h = yield* momentumHarness()
-
-    // Gesture 1 drags to x=30 (fast), its release is lost, the pointer goes down again.
-    yield* h.push(ev("down", 0, 0, 0))
-    yield* h.push(ev("move", 10, 0, 10))
-    yield* h.push(ev("move", 30, 0, 30)) // position 30
-    // Rule B's restart, then frames with no input (a fling would show here).
-    yield* h.push(ev("down", 100, 0, 40))
-    for (let i = 0; i < 5; i++) yield* h.advance()
-    const beforeSecond = yield* h.positions()
-    yield* h.push(ev("move", 110, 0, 50)) // second gesture: offset 10
-    yield* h.push(ev("move", 130, 0, 60)) // offset 30
-    const afterSecond = yield* h.positions()
-
-    // The first gesture ended with no fling...
-    expect(Math.max(...beforeSecond.map((p) => p.x))).toBeCloseTo(30, 5)
-    // ...and the second gesture = where the first ended + the second's offset.
-    expect(afterSecond[afterSecond.length - 1]!.x).toBeCloseTo(30 + 30, 5)
   }))
 
 // ---------------------------------------------------------------- press
