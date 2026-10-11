@@ -67,6 +67,9 @@
       "dependencies": {
         "@wardic/core": "workspace:*",
       },
+      "devDependencies": {
+        "@wardic/test": "workspace:*",
+      },
       "peerDependencies": {
         "effect": "^4.0.2",
       },
