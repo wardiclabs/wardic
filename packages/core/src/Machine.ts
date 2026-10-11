@@ -257,7 +257,7 @@ export const concatAll = <F extends Frame.Frame<unknown>>(segments: Arr.NonEmpty
             const frame = step(dt)
             if (index === last || !frame.done) return frame
             index++
-            step = Arr.getUnsafe(reached, index).start()
+            step = reached[index].start()
             return unsettled(frame)
           }
         },

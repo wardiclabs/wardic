@@ -52,7 +52,7 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 - **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
 - **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `Spring.step`'s substeps, `blendAt`, `Interpolator.complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
-  - An index that is in range by construction is a plain read, `xs[i]`, never `Arr.getUnsafe(xs, i)`: that's a `dual` call with a bounds check, which V8 doesn't reduce to an index (×2.5–6 a read, and every frame workload faster without it; ADR-0030). tsconfig has no `noUncheckedIndexedAccess`, so `xs[i]` already types as `T`. Lint holds it in the per-frame files.
+  - An index that is in range by construction is a plain read, `xs[i]`, never `Arr.getUnsafe(xs, i)`: that's a `dual` call with a bounds check, which V8 doesn't reduce to an index (×2.5–6 a read, and every frame workload faster without it; ADR-0030). tsconfig has no `noUncheckedIndexedAccess`, so `xs[i]` already types as `T`. Lint holds it in the per-frame loop files and `Easing.ts`.
   - A value that is present by construction uses `UndefinedOr.getOrThrow(x)`, which measured free. It throws (a defect) rather than returning `undefined`.
   - A loop over a record's keys runs over an array of `[key, value]` pairs built when the stream is built (`Rec.toEntries`).
 - **Arithmetic stays arithmetic:** `a + b`, not `Num.sum(a, b)`.
@@ -108,7 +108,7 @@ For a single function, a named import is fine: `import { identity } from "effect
   - loops, except in the per-frame files listed there;
   - `!`;
   - a namespace import that hides a global;
-  - `Arr.getUnsafe` in the per-frame files (ADR-0030).
+  - `Arr.getUnsafe` in the per-frame loop files and `Easing.ts` (ADR-0030).
 
   It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match`, `Schema` or `Scope` fits, stay with review.
 - **`bun run bench:core --base main`** checks a change on the per-frame path (above).

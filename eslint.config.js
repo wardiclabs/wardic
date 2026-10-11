@@ -83,6 +83,14 @@ const PER_FRAME_LOOPS = [
   "packages/core/src/Projection.ts",
 ]
 
+/**
+ * The per-frame files whose reads by index are plain, `xs[i]`, never `Arr.getUnsafe`: a `dual`
+ * call with a bounds check, which V8 doesn't reduce to an index (ADR-0030, decision 10). The
+ * loop files, and `Easing.ts`' sampled spring. Input-event code (`Reorder.ts`,
+ * `Velocity.trailing`) keeps `getUnsafe`.
+ */
+const PER_FRAME_READS = [...PER_FRAME_LOOPS, "packages/core/src/Easing.ts"]
+
 export default defineConfig([
   { ignores: ["**/dist/**"] },
   {
@@ -99,6 +107,19 @@ export default defineConfig([
     files: PER_FRAME_LOOPS,
     rules: {
       "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES],
+    },
+  },
+  {
+    files: PER_FRAME_READS,
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "Arr",
+          property: "getUnsafe",
+          message: `An index in range on the per-frame path is a plain read, xs[i], not Arr.getUnsafe (${PAGE}).`,
+        },
+      ],
     },
   },
   {

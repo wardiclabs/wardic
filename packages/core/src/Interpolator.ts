@@ -120,11 +120,24 @@ const endAt = (to: ReadonlyArray<number>, index: number, fallback: number): numb
   return end
 }
 
+/**
+ * Two arrays' blend, element by element, `from`'s length: past `to`'s end an element holds
+ * `from`'s. On the per-frame path (ADR-0025): a counted loop into a new array each frame, and no
+ * closure per frame.
+ */
+const blendArrays =
+  (from: ReadonlyArray<number>, to: ReadonlyArray<number>) =>
+  (t: number): ReadonlyArray<number> => {
+    const out: Array<number> = []
+    for (let i = 0; i < from.length; i++) out.push(Scalar.lerp(from[i], endAt(to, i, from[i]), t))
+    return out
+  }
+
 /** Interpolates fixed-length numeric arrays element-wise (e.g. RGB tuples). */
 export const array: Entry<ReadonlyArray<number>, ReadonlyArray<number>> = {
   name: "array",
   codec: Schema.Array(Schema.Number),
-  blend: (from, to) => Option.some((t: number) => Arr.map(from, (a, i) => Scalar.lerp(a, endAt(to, i, a), t))),
+  blend: (from, to) => Option.some(blendArrays(from, to)),
 }
 
 /**
@@ -257,8 +270,8 @@ const parseComplex = (input: string): Option.Option<Complex> =>
  * On the per-frame path: a counted loop, and nothing allocated but the string.
  */
 const formatComplex = (parts: ReadonlyArray<string>, numbers: ReadonlyArray<number>): string => {
-  let out = Arr.getUnsafe(parts, 0)
-  for (let i = 0; i < numbers.length; i++) out += String(Arr.getUnsafe(numbers, i)) + Arr.getUnsafe(parts, i + 1)
+  let out = parts[0]
+  for (let i = 0; i < numbers.length; i++) out += String(numbers[i]) + parts[i + 1]
   return out
 }
 
@@ -293,7 +306,7 @@ const blendNumbers = (from: Complex, to: Complex): ((t: number) => string) => {
   const numbers = Arr.copy(from.numbers)
   return (t) => {
     for (let i = 0; i < numbers.length; i++) {
-      numbers[i] = Scalar.lerp(Arr.getUnsafe(from.numbers, i), Arr.getUnsafe(to.numbers, i), t)
+      numbers[i] = Scalar.lerp(from.numbers[i], to.numbers[i], t)
     }
     return formatComplex(from.parts, numbers)
   }

@@ -3,7 +3,6 @@
  * (ADR-0025), so a piecewise result is a statement `if` with an early return. Not `Math`, which
  * would hide the global (ADR-0028, decision 12).
  */
-import * as Arr from "effect/Array"
 
 /** Linear interpolation from `a` to `b` at `t` (t unclamped). */
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
@@ -56,10 +55,10 @@ export const snap = (value: number, step: number): number => {
 /** Snap `value` to the nearest entry in `points`. */
 export const snapTo = (value: number, points: ReadonlyArray<number>): number => {
   if (points.length === 0) return value
-  let best = Arr.getUnsafe(points, 0)
+  let best = points[0]
   let bestDist = Math.abs(value - best)
   for (let i = 1; i < points.length; i++) {
-    const point = Arr.getUnsafe(points, i)
+    const point = points[i]
     const d = Math.abs(value - point)
     if (d < bestDist) {
       best = point
