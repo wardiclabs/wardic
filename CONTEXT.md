@@ -214,7 +214,7 @@ _Avoid_: resize freeze, blocked update (Motion's name).
 ### Environment
 
 **Environment**:
-A complete set of Layer implementations of the five core services (Clock, Renderer, InputSource, Probe, InterpolatorRegistry) — e.g. DOM, Test.
+A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, InputSource, Probe, InterpolatorRegistry), with core's **Frame loop** over its Clock — e.g. DOM, Test.
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:
@@ -227,7 +227,7 @@ A pointer that went down on a target and hasn't been released. Until its release
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:
-One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the flush gate applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through a `RefreshFrameSource` (`requestFrame` / `cancelFrame`), from which core's `Clock.fromRefreshFrames` builds its Clock (ADR-0017). Not a **Frame**: that is a Primitive's per-tick emission.
+One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the **Flush gate** applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through its `RefreshFrameSource` (`requestFrame` / `cancelFrame`), one of its members: core builds the Clock from it (ADR-0017), and the gate requests its flushes from it (ADR-0031). Not a **Frame**: that is a Primitive's per-tick emission.
 _Avoid_: animation frame (browser API wording), display frame, vsync.
 
 **Cold start**:
@@ -250,6 +250,10 @@ _Avoid_: default (Motion's `defaultTransformValue`), zero, rest value.
 **Commit**:
 The imperative half of the Renderer — writing a projected patch onto a target.
 _Avoid_: apply, flush, paint.
+
+**Flush gate**:
+The accumulator every binding writes an element's values into. It merges each element's writes by key and applies them once per Refresh frame, a frame after they're written, all in one batch (ADR-0006). The one exception is a **Measure pass**'s own writes, applied at the end of its task (ADR-0018). A server render gets one that does nothing (ADR-0021).
+_Avoid_: batcher, scheduler (Effect's), coordinator (the **Frame loop**'s old name).
 
 **Reactive path**:
 How the declarative Solid surface renders — each Frame flows into a signal that JSX reads; the imperative Renderer is untouched.

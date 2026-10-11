@@ -485,3 +485,9 @@ ADR-0030's decision 1 changes decision 12's services row.
 
 - **`delay` → `Clock.delay` is gone,** with no alias. A run held in frame time is `Machine.run(b.pipe(Machine.delay(seconds)), sink)`: its sink gets its start value, `done: false`, through the hold.
 - **The Clock's shape is `{ ticks, tick }`:** its `time` and `dt` Atoms went too (ADR-0030, decision 12), so `Clock.fromRefreshFrames` needs a `Scope` only.
+
+## Amendment (#52, 2026-10-11): `RefreshFrameSource` is a service in its own module
+
+ADR-0031's decision 2 changes decision 11's table, and its first slice lands it.
+- **`Clock.RefreshFrameSource` → `RefreshFrameSource.RefreshFrameSource`,** a `Context.Service` whose shape is the old interface, with `RefreshFrameSource.layer(source)`. No alias.
+- **`Clock.layer`** builds the Clock from the member. `Clock.fromRefreshFrames(source)` stays.

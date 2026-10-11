@@ -48,3 +48,10 @@ The *Central coordinator over steppers* option is adopted: measurement showed th
 - **The Clock's `time` and `dt` Atoms go** (ADR-0030, decision 12). Nothing read them but a Clock test, which reads `ticks` now.
 - **Reactive service inputs are `Probe`'s alone,** `viewport` and `prefersReducedMotion`. A frame-time signal, if an app ever wants one, reads `Clock.ticks`, as the spine's legs do.
 - **`ClockDomLive` requires nothing:** `Clock.fromRefreshFrames` needs a `Scope` only. `DomLive` keeps the `AtomRegistry`, for `Probe`.
+
+## Amendment (#52, 2026-10-11): the gate's frames come from the Environment, and the gate is dom's
+
+ADR-0031 decides it, and its two slices land it.
+- **The gate requests its flushes from the Environment's `RefreshFrameSource`** (ADR-0031, decisions 1 and 2), not from a raw `requestAnimationFrame`. On the web that member *is* `requestAnimationFrame`, so the gate makes the same calls in the same order. The next-rAF flush, its one frame of latency and the *Synchronous flush* rejection stand. A flush at the end of the Frame loop's tick is still #73's.
+- **The gate lives in `@wardic/dom`,** framework-free: `makeFlushGate(runtime, { batch })`, with `batch` handed in by the binding (ADR-0031, decision 3). The one Effect runtime still lives in `WardicProvider`, which builds the gate with Solid's `batch`. A server render still gets the inert gate (ADR-0021, decision 9), now dom's too.
+- **The React bullet in *Consequences* now holds literally:** a React binding passes its own `batch` (the identity function with commit sinks, or `flushSync` with state sinks, inferred) and its sinks, and reuses the gate unchanged.
