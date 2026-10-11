@@ -22,9 +22,9 @@
  *     ELEMENT that is a registered node); for each node that moved, set up an
  *     animation (origin + target) and seed the progress-0 frame; start the
  *     coordinator. A running node whose box didn't change is left alone. A trigger
- *     during the pass's own flush repeats it (at most 5 rounds). Then every node the
- *     pass seeded takes one **Priming step** (the Clock's Priming tick on a Cold
- *     start), so it moves on the next painted frame whatever the Clock's state.
+ *     during the pass's own flush repeats it (at most 5 rounds). Every node the pass
+ *     seeded takes its first step at the Frame loop's next tick, whose end flushes the
+ *     gate, so it moves in that Refresh frame whatever the Clock's state (ADR-0033).
  *   - COORDINATOR (one run on the Environment's Frame loop while >=1 node animates,
  *     Q4; ADR-0027, #75): each tick steps every active node's progress spring, then
  *     `deriveAll()` walks the active nodes TOP-DOWN (ancestors first) computing
@@ -38,7 +38,7 @@
  * Measure pass updates their slots but starts no animation there, the dragged node is
  * its subtree's relative parent, and a resting descendant is left to ride the drag
  * through CSS. A pointer move re-derives the dragged group; the release is a FLIP from
- * the drag target to the latest slot, with a Priming step.
+ * the drag target to the latest slot, first stepped at the loop's next tick.
  *
  * Nesting: parent links come from a DOM-ancestry WALK (CSS composes by DOM
  * nesting, so that is exactly what projection must follow), and a child's box is
@@ -49,7 +49,6 @@
  * glued even when parent and child run DIFFERENT transitions ("not left behind").
  */
 import * as Box from "@wardic/core/Box"
-import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Microtask from "@wardic/core/Microtask"
@@ -228,7 +227,7 @@ export interface DragProjectionHandle {
    * Re-derives the dragged group into the sink at once, so the gate's next flush paints it.
    */
   readonly dragMove: (delta: Point.Point) => void
-  /** End the drag: FLIP from the dragged position to the node's latest slot, with a Priming step. */
+  /** End the drag: FLIP from the dragged position to the node's latest slot, from the loop's next tick. */
   readonly dragEnd: () => void
 }
 
@@ -373,13 +372,6 @@ interface NodeState {
    * until then, as while dragged, so the whole subtree flies back with it.
    */
   releasing: boolean
-  /**
-   * Whether the coordinator has stepped this node since a Measure pass last seeded it
-   * (or a drag's release started its FLIP). The Priming step skips a node the Clock's
-   * Priming tick already stepped (a Cold start), so the first step is never taken
-   * twice (ADR-0018).
-   */
-  steppedSinceSeed: boolean
 }
 
 /**
@@ -436,7 +428,7 @@ const passEnds = new WeakMap<ProjectionSystem, Set<() => void>>()
 /**
  * Run `listener` at the end of every Measure pass of `system`: once per pass, after
  * every round's boxes are stored (a blocked pass and one whose flush triggered more
- * rounds included), before its Priming step. Returns the unsubscribe. A listener that
+ * rounds included). Returns the unsubscribe. A listener that
  * throws is logged and doesn't stop the pass or the others.
  *
  * @internal for the Reorder controller (ADR-0020): not exported from `@wardic/dom`, so
@@ -1171,8 +1163,8 @@ export const makeProjectionSystem = (
   // --- One round of the Measure pass (reads, then FLIP seeds), run inside the ---
   // sink's `flushPass`, which applies what it writes before returning. The
   // {@link measurePass} wraps its rounds in the `wardic.projection.measure` span.
-  // Every node it (re)starts is added to `seeded`, for the Priming step; every node of
-  // a dragged subtree whose box changed is added to `dragBlocked` instead.
+  // Every node it (re)starts is added to `seeded`, counted on the pass's span; every node
+  // of a dragged subtree whose box changed is added to `dragBlocked` instead.
   /**
    * The slot-only update a blocked node takes (a dragged subtree's, or every node's
    * after a resize): its box becomes its slot, no animation starts or restarts, and a
@@ -1208,7 +1200,6 @@ export const makeProjectionSystem = (
     const start = (node: NodeState): void => {
       changed.add(node)
       seeded.add(node)
-      node.steppedSinceSeed = false
     }
 
     // --- WRITE: reset every node's transform, before ANY box is read. ---------
@@ -1322,7 +1313,7 @@ export const makeProjectionSystem = (
       // or switch included (Motion's blocked tree, create-projection-node.ts:507-511):
       // the dragged node keeps following the pointer from its new slot, and a descendant
       // rides the drag. The node counts as changed, so it is re-derived and flushed with
-      // its group in this pass, but it is not seeded and takes no Priming step. A
+      // its group in this pass, but it is not seeded. A
       // running descendant's origin moves with its box, so its animation keeps its delta
       // and doesn't jump (Motion keeps the running `targetDelta` of a blocked node).
       //
@@ -1417,9 +1408,9 @@ export const makeProjectionSystem = (
    * One **Measure pass** (ADR-0018), at the end of the task that queued it: rounds
    * of `sink.flushPass(round)` until a round ends with no new trigger (a trigger
    * during a round comes from an effect in its flush), at most {@link MAX_ROUNDS};
-   * past the cap the rest runs as a fresh Measure pass in the next task. Then, after
-   * the microtasks the rounds queued (a Cold start's Priming tick among them), the
-   * Priming step. Traced as one `wardic.projection.measure` span annotated with the
+   * past the cap the rest runs as a fresh Measure pass in the next task. The nodes it
+   * seeded take their first step at the Frame loop's next tick (ADR-0033). Traced as one
+   * `wardic.projection.measure` span annotated with the
    * node counts, how many nodes it seeded, how many it gave a slot-only update in a
    * dragged subtree (`dragBlocked`), how many rounds it ran, and whether a window
    * resize blocked it (`blocked`: every node took a slot-only update).
@@ -1468,10 +1459,7 @@ export const makeProjectionSystem = (
       dragBlocked: dragBlocked.size,
       rounds,
       blocked,
-    }).pipe(
-      Effect.andThen(Microtask.next),
-      Effect.andThen(Effect.sync(() => primingStep(seeded))),
-    )
+    })
   }).pipe(Effect.withSpan("wardic.projection.measure"))
 
   /**
@@ -1500,29 +1488,6 @@ export const makeProjectionSystem = (
   }
 
   /**
-   * The **Priming step** (ADR-0018): one nominal-dt step for each node the Measure
-   * pass seeded (or a drag's release, `primeRelease`) that no tick has stepped since (a Cold start's Priming tick already
-   * did; a node that settled or left is skipped), written into the gate for its next
-   * Refresh frame. So a layout animation moves on the next painted frame whether the
-   * Clock was idle or ticking. Only those nodes' groups are re-derived.
-   */
-  const primingStep = (seeded: ReadonlySet<NodeState>): void => {
-    const primed = new Set<NodeState>()
-    const settled: Array<NodeState> = []
-    for (const node of seeded) {
-      if (node.steppedSinceSeed || node.dragging || node.spring === undefined || !active.has(node)) continue
-      const r = Spring.step(node.spring, Clock.NOMINAL_DT, 1, Spring.resolve(node.springOptions()))
-      node.spring = r.state
-      node.steppedSinceSeed = true
-      primed.add(node)
-      if (r.done) settled.push(node)
-    }
-    if (primed.size === 0) return
-    deriveGroup(groupOf(primed))
-    finishSettled(settled)
-  }
-
-  /**
    * Derive `root` and every node below it once, top-down, resting ones included (the
    * drag start's cleanup, see `dragStart`).
    */
@@ -1531,21 +1496,6 @@ export const makeProjectionSystem = (
     for (const n of nodes) if (!isFollower(n) && isDescendantOf(n, root)) subtree.push(n)
     subtree.sort((a, b) => a.depth - b.depth)
     for (const n of subtree) derive(n)
-  }
-
-  /**
-   * The release's Priming step (ADR-0016 *Amendment (#26)*): at the end of the task
-   * that ended the drag, one nominal-dt step for the released node, unless a tick has
-   * already stepped it. So a release from a task moves on its first painted frame, and
-   * one after the frame's gate flush on its second, like any Measure pass's FLIP.
-   */
-  const primeRelease = (node: NodeState): void => {
-    node.steppedSinceSeed = false
-    endOfTask("wardic.projection.releasePriming", { id: node.id }, () => {
-      const primed = !node.steppedSinceSeed && active.has(node)
-      primingStep(new Set([node]))
-      return { primed }
-    })
   }
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
@@ -1564,7 +1514,6 @@ export const makeProjectionSystem = (
       }
       const r = Spring.step(node.spring, dt, 1, Spring.resolve(node.springOptions()))
       node.spring = r.state
-      node.steppedSinceSeed = true
       if (r.done) settled.push(node)
     }
     // 2) Derive all top-down (settled nodes are still in `active` here, so their
@@ -1703,9 +1652,9 @@ export const makeProjectionSystem = (
    *
    * Started as the spine's legs are (ADR-0027, *Implementation in #76*): `runFork` on the
    * runtime runs it inline up to its add on the loop. So when the loop is idle, its
-   * burst's `Clock.ticks` subscription is made in this call, and a Cold start's Priming
-   * tick is queued inside the Measure pass (ADR-0018). Added during a tick (from another
-   * run's continuation), it's stepped from the next one (ADR-0027, decision 5).
+   * burst's `Clock.ticks` subscription is made in this call, and the nodes take their first
+   * step at the next Refresh frame's tick, cold or warm (ADR-0033). Added during a tick (from
+   * another run's continuation), it's stepped from the next one (ADR-0027, decision 5).
    */
   const ensureRunning = (): void => {
     if (coordinating() || active.size === 0) return
@@ -1806,7 +1755,6 @@ export const makeProjectionSystem = (
     grabBox: undefined,
     dragDelta: { x: 0, y: 0 },
     releasing: false,
-    steppedSinceSeed: true,
   })
 
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
@@ -1902,7 +1850,6 @@ export const makeProjectionSystem = (
       grabBox: undefined,
       dragDelta: { x: 0, y: 0 },
       releasing: false,
-      steppedSinceSeed: true,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
@@ -2027,7 +1974,7 @@ export const makeProjectionSystem = (
           return
         }
         // FLIP from the dragged visual position to the latest slot, via the layout spring,
-        // with the Priming step a Measure pass gives the nodes it seeds (ADR-0018). Reduced
+        // first stepped at the loop's next tick, as a Measure pass's FLIP is (ADR-0033). Reduced
         // motion leaves it as it is: it continues the gesture, as Motion's release does (ADR-0029).
         node.origin = visual
         node.layoutBox = slot
@@ -2036,7 +1983,6 @@ export const makeProjectionSystem = (
         node.releasing = true
         active.add(node)
         ensureRunning()
-        primeRelease(node)
       },
       dispose: () => {
         // A leaving Follower's removal is owned by finishLeaver (presence retained
