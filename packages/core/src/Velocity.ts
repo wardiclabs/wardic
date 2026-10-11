@@ -1,15 +1,11 @@
 /**
- * The `Velocity` module: a velocity between two samples (`between`), a value stream's on the
- * Clock (`of`), and a pointer's over a trailing window (`trailing`), a **Reorder group**'s
- * direction.
+ * The `Velocity` module: a velocity between two samples (`between`), and a pointer's over a
+ * trailing window (`trailing`), a **Reorder group**'s direction. A Physics primitive's velocity
+ * is on its Frames (`Frame.Physics`).
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import * as Predicate from "effect/Predicate"
-import * as Stream from "effect/Stream"
-import * as Clock from "./Clock.ts"
 import type * as Point from "./Point.ts"
 
 /** Instantaneous velocity from two samples and the delta time between them. */
@@ -17,39 +13,6 @@ export const between = (previous: number, current: number, dt: number): number =
   if (dt === 0) return 0
   return (current - previous) / dt
 }
-
-/** The velocity since `previous`, or 0 at the first tick, which has none. Per frame: an early return. */
-const velocitySince = (previous: number | undefined, current: number, dt: number): number => {
-  if (Predicate.isUndefined(previous)) return 0
-  return between(previous, current, dt)
-}
-
-/**
- * Transform a value stream into a velocity stream sourced from the engine
- * `Clock`. Each emitted value is paired with the `dt` of the frame it was
- * produced on, so velocities reflect the real elapsed time (variable frame
- * times supported). The first frame reports `0` (no previous sample yet).
- *
- * For ad-hoc, non-Clock contexts the standalone {@link between} helper remains
- * available.
- */
-export const of = <E, R>(
-  values: Stream.Stream<number, E, R>,
-): Stream.Stream<number, E, R | Clock.Clock> =>
-  Stream.unwrap(
-    Effect.gen(function* () {
-      const clock = yield* Clock.Clock
-      return Stream.zipWith(values, clock.ticks, (current, dt) => [current, dt] as const).pipe(
-        Stream.mapAccum(
-          (): { previous: number | undefined } => ({ previous: undefined }),
-          (state, [current, dt]) => {
-            const v = velocitySince(state.previous, current, dt)
-            return [{ previous: current }, [v]] as const
-          },
-        ),
-      )
-    }),
-  )
 
 /**
  * A pointer position at a time (ms, the event's `timeStamp`).
