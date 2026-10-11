@@ -1,27 +1,31 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { cleanup, render } from "@solidjs/testing-library"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import * as Projection from "@wardic/core/Projection"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import { DomLive } from "@wardic/dom"
 import { TestLive } from "@wardic/test"
+import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import { createEffect, createRoot, createSignal, on } from "solid-js"
-import { makeFlushGate } from "../src/gate.ts"
+import { type FlushGate, makeFlushGate } from "../src/gate.ts"
+import { useWardicGate, WardicProvider } from "../src/provider.tsx"
 
 /**
- * Hand-driven requestAnimationFrame (mirrors packages/dom/test/clock.test.ts):
- * capture each scheduled callback so the test fires frames deterministically
- * and asserts scheduling via rAF/caf call counts. The gate keeps at most one
- * frame outstanding (gated), so `fireFrame` runs the single pending callback.
+ * A hand-driven Refresh frame source, provided as the Environment's `RefreshFrameSource`
+ * (ADR-0031), the member the gate requests its frames from: capture each requested callback so
+ * the test fires frames deterministically and asserts scheduling via request/cancel call counts.
+ * The gate keeps at most one frame outstanding (gated), so `fireFrame` runs the single pending
+ * callback. No global is stubbed: the gate never calls `requestAnimationFrame` itself.
  *
- * This stubs rAF/caf synchronously — the gate flush is NOT an Effect fiber, so
- * this deterministic approach runs as-is in a real browser.
+ * The gate flush is NOT an Effect fiber, so this deterministic approach runs as-is in a real browser.
  */
 type RafCallback = (t: number) => void
 
-let pending: Map<number, RafCallback>
+let pending: Map<unknown, RafCallback>
 let nextId: number
-let rafSpy: ReturnType<typeof vi.fn>
-let cafSpy: ReturnType<typeof vi.fn>
+let rafSpy: ReturnType<typeof vi.fn<(cb: RafCallback) => unknown>>
+let cafSpy: ReturnType<typeof vi.fn<(id: unknown) => void>>
 
 beforeEach(() => {
   pending = new Map()
@@ -31,18 +35,17 @@ beforeEach(() => {
     pending.set(id, cb)
     return id
   })
-  cafSpy = vi.fn((id: number) => {
+  cafSpy = vi.fn((id: unknown) => {
     pending.delete(id)
   })
-  vi.stubGlobal("requestAnimationFrame", rafSpy)
-  vi.stubGlobal("cancelAnimationFrame", cafSpy)
 })
 
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
+/** `env` with the hand-driven source as its Refresh frame source. */
+function withFrames<A>(env: Layer.Layer<A>) {
+  return Layer.merge(env, RefreshFrameSource.layer({ requestFrame: rafSpy, cancelFrame: cafSpy }))
+}
 
-/** Fire the single outstanding rAF callback. */
+/** Fire the single outstanding frame callback. */
 const fireFrame = (t = 0): void => {
   const entries = [...pending.entries()]
   const last = entries[entries.length - 1]
@@ -51,9 +54,40 @@ const fireFrame = (t = 0): void => {
   last[1](t)
 }
 
+describe("the gate's frames come from the Environment (ADR-0031)", () => {
+  it("a provider's gate requests its flush from the Environment's RefreshFrameSource, never from the global", () => {
+    let gate: FlushGate | undefined
+    function Probe() {
+      gate = useWardicGate()
+      return null
+    }
+    render(() => (
+      <WardicProvider env={withFrames(DomLive)}>
+        <Probe />
+      </WardicProvider>
+    ))
+    // Spied after the runtime built: only a direct call to the global could reach it.
+    const globalRequest = vi.spyOn(window, "requestAnimationFrame")
+    try {
+      let received: Renderer.Patch | undefined
+      gate!.register("a", { kind: "signal", set: (p) => (received = p) })
+      gate!.write("a", { opacity: 0.5 })
+      expect(rafSpy).toHaveBeenCalledTimes(1)
+      expect(globalRequest).not.toHaveBeenCalled()
+
+      fireFrame()
+      expect(received).toEqual({ opacity: 0.5 })
+      expect(globalRequest).not.toHaveBeenCalled()
+    } finally {
+      globalRequest.mockRestore()
+      cleanup()
+    }
+  })
+})
+
 describe("makeFlushGate", () => {
   it("signal sink receives the projected patch after one fired frame (1-frame latency)", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let received: Renderer.Patch | undefined
@@ -76,7 +110,7 @@ describe("makeFlushGate", () => {
 
   it("commit sink writes the projected patch onto an element's style", () => {
     // DomLive so project groups transforms / applies units and commit writes style.
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")
@@ -97,7 +131,7 @@ describe("makeFlushGate", () => {
   })
 
   it("one batch per frame applies multiple registered elements together", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let applied = 0
@@ -136,7 +170,7 @@ describe("makeFlushGate", () => {
   })
 
   it("same-key writes within a frame coalesce (last wins); different keys merge", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let received: Renderer.Patch | undefined
@@ -158,7 +192,7 @@ describe("makeFlushGate", () => {
   })
 
   it("gated rAF: a flush with nothing newly written schedules no new frame; a fresh write reschedules", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let received: Renderer.Patch | undefined
@@ -186,7 +220,7 @@ describe("makeFlushGate", () => {
   })
 
   it("unregister removes the element and a subsequent write is a no-op", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let received: Renderer.Patch | undefined
@@ -207,7 +241,7 @@ describe("makeFlushGate", () => {
   })
 
   it("dispose cancels a pending frame", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       gate.register("a", { kind: "signal", set: () => {} })
@@ -227,7 +261,7 @@ describe("makeFlushGate", () => {
     // Sanity: solid's batch() the gate uses is safe to call outside a tracking
     // scope, but exercise it within a root to mirror real provider usage.
     createRoot((dispose) => {
-      const runtime = ManagedRuntime.make(TestLive)
+      const runtime = ManagedRuntime.make(withFrames(TestLive))
       const gate = makeFlushGate(runtime)
       let received: Renderer.Patch | undefined
       gate.register("a", { kind: "signal", set: (p) => (received = p) })
@@ -243,7 +277,7 @@ describe("makeFlushGate", () => {
 
 describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-0006 amendment)", () => {
   it("runs the pass synchronously and applies exactly what it wrote before returning, with no frame fired", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       const order: Array<string> = []
@@ -264,7 +298,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("leaves an entry the pass did not write for the next frame, even if it was already dirty", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let a: Renderer.Patch | undefined
@@ -287,7 +321,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("applies everything the pass wrote inside one batch(): an effect reading two of them runs once", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     const gate = makeFlushGate(runtime)
     const runs: Array<[Renderer.Patch | undefined, Renderer.Patch | undefined]> = []
     // Effects go live once the root's setup returns, so the pass runs after it.
@@ -312,7 +346,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("commits a commit-sink entry the pass wrote through the Renderer", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")
@@ -328,7 +362,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("the next frame does not re-apply an entry the pass flushed unless it was written again", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let applied = 0
@@ -350,7 +384,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("a write from an effect inside the pass's flush waits for the next frame, and requests it", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     const gate = makeFlushGate(runtime)
     let b: Renderer.Patch | undefined
     const disposeRoot = createRoot((dispose) => {
@@ -375,7 +409,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("has no measure read-queue any more", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       expect("scheduleMeasure" in gate).toBe(false)
@@ -386,7 +420,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   })
 
   it("after dispose, a pass applies nothing and requests no frame", () => {
-    const runtime = ManagedRuntime.make(TestLive)
+    const runtime = ManagedRuntime.make(withFrames(TestLive))
     try {
       const gate = makeFlushGate(runtime)
       let applied = 0
@@ -415,7 +449,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
   const lowered = { [Projection.KEY]: { delta: IDENTITY, treeScale: { x: 1, y: 1 } } }
 
   it("GK1: a commit sink removes z-index once the projection stops carrying the raise", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")
@@ -433,7 +467,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
   })
 
   it("GK2: a commit sink restores the element's own inline value it overwrote", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")
@@ -452,7 +486,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
   })
 
   it("GK3: a signal sink's patch carries z-index while raised and lacks it after", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const patches: Array<Renderer.Patch> = []
@@ -472,7 +506,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
 
 describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the element's own style", () => {
   it("GR1: a signal sink's next patch lacks a released key and keeps the rest", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const patches: Array<Renderer.Patch> = []
@@ -489,7 +523,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   })
 
   it("GR2: a commit sink writes the value it's handed for a released key", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")
@@ -508,7 +542,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   })
 
   it("GR3: without one, a commit sink restores the inline value it overwrote", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")
@@ -527,7 +561,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   })
 
   it("GR4: releasing a key the entry doesn't hold, or an unknown id, schedules nothing", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       gate.register("a", { kind: "signal", set: () => {} })
@@ -544,7 +578,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   })
 
   it("GR5: a write after a release brings the key back", () => {
-    const runtime = ManagedRuntime.make(DomLive)
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
       const gate = makeFlushGate(runtime)
       const el = document.createElement("div")

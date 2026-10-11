@@ -56,7 +56,8 @@ const envWith = (options: {
 }): WardicEnv => {
   const { clock = identity, loop = identity, registry = identity, logs = [] } = options
   const services = Layer.mergeAll(
-    Layer.effect(Clock.Clock)(Clock.Clock.useSync(clock)).pipe(Layer.provide(ClockDomLive)),
+    // `provideMerge`: the wrapped Clock wins, and ClockDomLive's Refresh frame source stays visible.
+    Layer.effect(Clock.Clock)(Clock.Clock.useSync(clock)).pipe(Layer.provideMerge(ClockDomLive)),
     Layer.effect(InterpolatorRegistry.InterpolatorRegistry)(InterpolatorRegistry.InterpolatorRegistry.useSync(registry)).pipe(Layer.provide(InterpolatorRegistry.layer)),
     RendererDomLive,
     InputDomLive,

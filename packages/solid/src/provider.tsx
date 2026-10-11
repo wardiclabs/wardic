@@ -17,6 +17,7 @@ import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -34,20 +35,18 @@ import { isHydrating, isServer } from "./server.ts"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: all five core
- * service contracts, core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
+ * service contracts, the `RefreshFrameSource` the Clock ticks on and the flush gate requests its
+ * flushes from (ADR-0031), core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
  * animation the binding starts, ADR-0027), and the `AtomRegistry` that backs reactive service
  * inputs. Satisfied by `@wardic/dom`'s `DomLive` (real browser) or `@wardic/test`'s
  * `TestLive` (headless). `ER` and `R` are `never`: a fully self-contained Layer.
  */
-export type WardicEnv = Layer.Layer<
-  Clock.Clock | FrameLoop.FrameLoop | Renderer.Renderer | InputSource.InputSource | Probe.Probe | InterpolatorRegistry.InterpolatorRegistry | AtomRegistry.AtomRegistry,
-  never,
-  never
->
+export type WardicEnv = Layer.Layer<WardicServices, never, never>
 
 /** The runtime services a `WardicProvider` makes available to its subtree. */
 export type WardicServices =
   | Clock.Clock
+  | RefreshFrameSource.RefreshFrameSource
   | FrameLoop.FrameLoop
   | Renderer.Renderer
   | InputSource.InputSource
@@ -125,8 +124,8 @@ export function WardicProvider(props: {
   // owns the Layer's scope for the component's lifetime.
   const runtime = ManagedRuntime.make(props.env)
   // The flush gate is a provider-owned singleton (one per WardicProvider),
-  // built atop the runtime (ADR-0006). It resolves the Renderer once at
-  // construction.
+  // built atop the runtime (ADR-0006). It resolves the Renderer and the
+  // Environment's Refresh frame source once at construction (ADR-0031).
   const gate = makeFlushGate(runtime)
 
   // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
