@@ -1,8 +1,14 @@
 import * as Clock from "@wardic/core/Clock"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
+import * as MutableRef from "effect/MutableRef"
+import * as Predicate from "effect/Predicate"
 import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 /**
  * A deterministic Clock for frame-level tests. `ticks` replays the supplied `dt`
@@ -38,6 +44,38 @@ const flush = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, 
 })
 
 /**
+ * The Refresh frames `pushable`'s `advance` fires: a `RefreshFrameSource` that keeps the
+ * contract's order rules, as `requestAnimationFrame` does (ADR-0031, decision 4). `fire` runs the
+ * callbacks requested before it, in request order. One requested while they run waits for the
+ * next `fire`, and one cancelled before its turn never runs.
+ */
+const makeFrames = () => {
+  const pending = new Map<number, (timestampMs: number) => void>()
+  const nextHandle = MutableRef.make(1)
+  const source: RefreshFrameSource.Shape = {
+    requestFrame: (callback) => {
+      const handle = MutableRef.getAndIncrement(nextHandle)
+      pending.set(handle, callback)
+      return handle
+    },
+    cancelFrame: (handle) => {
+      if (Predicate.isNumber(handle)) pending.delete(handle)
+    },
+  }
+  /** Run the callbacks requested so far at timestamp `t` (ms). */
+  const fire = (t: number): void =>
+    Arr.forEach(Arr.fromIterable(pending.keys()), (handle) =>
+      UndefinedOr.match(pending.get(handle), {
+        onUndefined: constVoid,
+        onDefined: (callback) => {
+          pending.delete(handle)
+          callback(t)
+        },
+      }))
+  return { source, fire }
+}
+
+/**
  * A push-based Clock for tests that need to advance frames *on demand* —
  * interleaved with pointer input — rather than replaying a fixed sequence. The
  * static {@link layer} drains its whole `ticks` stream as fast as the consumer
@@ -46,8 +84,13 @@ const flush = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, 
  *
  * Backed by a `PubSub` (broadcast, no replay) so a consumer only sees ticks
  * pushed *after* it subscribes — matching a live rAF clock where motion starts
- * from the moment you subscribe. `advance` yields the fiber after publishing so
- * the subscribing stream processes the frame before the next `advance`.
+ * from the moment you subscribe. It has no Cold start, so no Priming tick.
+ *
+ * Its `layer` also provides the Environment's `RefreshFrameSource` (ADR-0031), and one `advance`
+ * is one Refresh frame in the web's order: it runs the frames requested so far (a flush gate's
+ * flush), in request order, then publishes `dt` (the Clock's tick), then yields the fiber so the
+ * subscribing stream processes the frame before the next `advance`. A frame requested during
+ * that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`.
  *
  * @example
  * const clock = yield* TestClock.pushable()
@@ -56,17 +99,25 @@ const flush = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, 
  * yield* clock.advance(1 / 30)  // a custom dt
  */
 export const pushable = (): Effect.Effect<{
-  readonly layer: Layer.Layer<Clock.Clock>
+  readonly layer: Layer.Layer<Clock.Clock | RefreshFrameSource.RefreshFrameSource>
   readonly advance: (dt?: number) => Effect.Effect<void>
 }> =>
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<number>()
+    const frames = makeFrames()
+    const time = MutableRef.make(0)
     return {
-      layer: Layer.succeed(Clock.Clock, {
-        ticks: Stream.fromPubSub(pubsub),
-        tick: (_t: number) => Effect.sync(() => {}),
-      }),
+      layer: Layer.merge(
+        Layer.succeed(Clock.Clock, {
+          ticks: Stream.fromPubSub(pubsub),
+          tick: (_t: number) => Effect.sync(() => {}),
+        }),
+        RefreshFrameSource.layer(frames.source),
+      ),
       advance: (dt = 1 / 60) =>
-        PubSub.publish(pubsub, dt).pipe(Effect.flatMap(() => flush)),
+        Effect.sync(() => frames.fire(MutableRef.updateAndGet(time, (t) => t + dt * 1000))).pipe(
+          Effect.andThen(PubSub.publish(pubsub, dt)),
+          Effect.flatMap(() => flush),
+        ),
     }
   })
