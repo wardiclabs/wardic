@@ -8,6 +8,10 @@
  * {@link ProbeDomLive} (`getBoundingClientRect` + Resize/Intersection
  * observers) — composed with core's real interpolator registry into the
  * {@link DomLive} Layer that apps provide to `WardicProvider`.
+ *
+ * And the framework-free pieces every binding shares: the flush gate ({@link makeFlushGate},
+ * ADR-0006, ADR-0031), the projection engine (ADR-0009) and the server-render helpers
+ * (ADR-0021).
  */
 import type * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -30,8 +34,19 @@ export { InputDomLive } from "./input.ts"
 export { ProbeDomLive } from "./probe.ts"
 export { project, RendererDomLive } from "./renderer.ts"
 
+// The flush gate (ADR-0006, ADR-0031) — framework-free; a binding builds one per provider with
+// its own `batch`, and hands the inert gate to a server render (ADR-0021, decision 9).
+export {
+  type FlushGate,
+  type FlushGateOptions,
+  type FlushGateRuntime,
+  type FlushSink,
+  INERT_GATE,
+  makeFlushGate,
+} from "./gate.ts"
+
 // Layout/projection engine (ADR-0009) — framework-agnostic; a binding wires it
-// with its own flush gate (as a ProjectionSink) + a runtime providing Clock.
+// with its flush gate (as a ProjectionSink) + a runtime providing the Frame loop.
 export { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
 export { DRAG_DEFAULT_ATTRIBUTES, type DragDefaultStyle, dragDefaultStyle, reorderTouchAction } from "./drag-defaults.ts"
 export { measureLayoutBox } from "./measure.ts"

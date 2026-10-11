@@ -1,9 +1,11 @@
 /**
- * `makeFlushGate` — the reactive bridge's deferred flush gate (ADR-0006).
+ * `makeFlushGate` — the reactive bridge's deferred **Flush gate** (ADR-0006), framework-free
+ * here in `@wardic/dom` so every binding shares one (ADR-0031, decision 3). The binding hands in
+ * its `batch` and its sinks; the gate imports nothing from a framework.
  *
  * Per ADR-0006 ("Reactive bridge: per-element Stream→signal with a deferred
- * flush gate"), per-frame writes do not set their Solid signal directly.
- * Instead each source `write(id, partialValues)`s into a provider-owned gate
+ * flush gate"), per-frame writes do not set their binding's cell (a Solid signal)
+ * directly. Instead each source `write(id, partialValues)`s into a provider-owned gate
  * that:
  *
  *   1. Accumulates *value-maps* (NOT already-projected Patches) per element,
@@ -14,9 +16,10 @@
  *   2. Resolves the Renderer's PURE `project` ONCE at creation and uses it to
  *      turn each dirty element's merged value-map into a `Patch` exactly once
  *      per element per frame.
- *   3. Applies every resulting Patch inside a SINGLE Solid `batch()` per frame,
- *      regardless of element count — one reactive flush + one DOM pass per
- *      frame at a *constant* one-frame latency shared by every element.
+ *   3. Applies every resulting Patch inside a SINGLE `batch` per frame (the
+ *      binding's: Solid's `batch()`), regardless of element count — one reactive
+ *      flush + one DOM pass per frame at a *constant* one-frame latency shared by
+ *      every element.
  *
  * Three locked design decisions (this session's grills):
  *   - GATED frames: a `write` requests a Refresh frame only if one is not already
@@ -31,7 +34,7 @@
  *     is `flushPass` (ADR-0018): a projection Measure pass's own writes are applied
  *     at the end of its task, so a new layout never paints without its projection.
  *   - TWO sink modes: a *signal sink* (`{ kind: "signal", set }`) sets the
- *     per-element Solid signal (the default for `wardic.create("div")`); a
+ *     element's cell (in Solid, the default for `wardic.create("div")`, a signal); a
  *     *commit sink* (`{ kind: "commit", target }`) runs `Renderer.commit(target,
  *     patch)` via a forwarded ref (used for `wardic.create(Component)` wraps).
  *     Both share the same merge + one-`project`-per-frame + single-`batch()`.
@@ -46,14 +49,13 @@
  */
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
-import { dashCase } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
-import { batch } from "solid-js"
+import { dashCase } from "./svg.ts"
 
 /**
  * Where a flushed `Patch` is delivered:
- *   - `signal`: set the element's per-element Solid signal with the patch.
+ *   - `signal`: set the element's cell with the patch (in Solid, its signal).
  *   - `commit`: write the patch onto `target` via `Renderer.commit` (run on the
  *     provider runtime at flush time).
  */
@@ -64,8 +66,8 @@ export type FlushSink =
     readonly target: unknown
     /**
      * Called once, just before the element's first commit in a frame flush (not a Measure
-     * pass's `flushPass`), outside the frame's `batch()` (ADR-0021, decision 6): a component
-     * wrap drops its Starting style from its `style` prop here, so Solid removes those keys
+     * pass's `flushPass`), outside the frame's `batch` (ADR-0021, decision 6): a component
+     * wrap drops its Starting style from its `style` prop here, so the binding removes those keys
      * and the commit writes the first frame in the same Refresh frame, with no paint in
      * between.
      */
@@ -110,9 +112,9 @@ export interface FlushGate {
    * Run a projection **Measure pass** now and apply exactly what it wrote before
    * returning (ADR-0018; the one exception ADR-0006's *Amendment (#2)* makes to the
    * one-frame latency). Only `write()`s made while `pass()` runs are recorded; each
-   * recorded entry is `project`ed once and applied inside ONE Solid `batch()`, and
+   * recorded entry is `project`ed once and applied inside ONE `batch`, and
    * marked clean. Everything else stays dirty for the next Refresh frame. A write
-   * made by a Solid effect that runs inside that `batch()` takes the ordinary
+   * made by an effect that runs inside that `batch` (a Solid effect) takes the ordinary
    * next-frame path. The projection engine calls it at the end of a task, so a new
    * layout never paints without its projection.
    */
@@ -134,8 +136,26 @@ export interface FlushGate {
 }
 
 /**
- * Build a flush gate against the provider's `runtime`: one that provides the `Renderer` and the
- * Environment's `RefreshFrameSource` (a provider's full runtime is assignable here).
+ * The runtime a flush gate needs: one that provides the `Renderer` and the Environment's
+ * `RefreshFrameSource` (ADR-0031). A binding's wider runtime (one providing the full
+ * Environment) is assignable here.
+ */
+export type FlushGateRuntime = ManagedRuntime.ManagedRuntime<Renderer.Renderer | RefreshFrameSource.RefreshFrameSource, never>
+
+/** What a binding hands its flush gate. */
+export interface FlushGateOptions {
+  /**
+   * Apply a flush's writes: run `apply`, and return once every cell write inside it will reach
+   * the screen before the next paint (ADR-0031, decision 3). Solid 1 passes its `batch`. A
+   * binding whose sinks all commit passes `(apply) => apply()`; React, with state sinks, would
+   * pass `flushSync` (inferred). Called once per frame flush and once per `flushPass`.
+   */
+  readonly batch: (apply: () => void) => void
+}
+
+/**
+ * Build a flush gate against the provider's `runtime`, applying each flush through the
+ * binding's `batch`.
  *
  * Resolves both ONCE here: `project` is pure (called directly at flush), `commit` returns an
  * `Effect` (run via `runtime.runSync` at flush for commit sinks), and `requestFrame` /
@@ -143,9 +163,8 @@ export interface FlushGate {
  * given (`DomLive` / `TestLive`), so the gate inherits that environment's grouping/unit logic
  * and its Refresh frames with zero duplication.
  */
-export const makeFlushGate = (
-  runtime: ManagedRuntime.ManagedRuntime<Renderer.Renderer | RefreshFrameSource.RefreshFrameSource, never>,
-): FlushGate => {
+export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptions): FlushGate => {
+  const { batch } = options
   // Resolve the Renderer's two halves and the Refresh frame source exactly once at creation.
   // `requestFrame` and `cancelFrame` are called detached, never as `frames.requestFrame(cb)`: a
   // browser throws "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
@@ -199,7 +218,7 @@ export const makeFlushGate = (
 
   /**
    * Run `beforeFirstCommit` for each waiting entry about to commit (dirty), outside the
-   * batch so Solid applies what it changes before the commit. A wrap that never commits
+   * batch so the binding applies what it changes before the commit. A wrap that never commits
    * stays waiting, so this loops over the wraps still waiting, once per frame flush.
    */
   const runFirstCommits = (): void => {
@@ -214,7 +233,7 @@ export const makeFlushGate = (
   const flush = (): void => {
     scheduled = false
     if (firstCommits.size > 0) runFirstCommits()
-    // One batch() per frame for every dirty element. No auto-reschedule — the next
+    // One batch per frame for every dirty element. No auto-reschedule — the next
     // write() does. A write() from an effect running inside the batch requests the
     // next frame (it isn't stranded).
     batch(() => {
@@ -301,7 +320,7 @@ const noop = (): void => {}
  * The gate a server render gets (ADR-0021, decision 9): a server builds no runtime and
  * flushes nothing, so `register` returns a no-op unregister and `write` / `flushPass` /
  * `release` / `dispose` do nothing. Code that grabs the gate at setup and uses it after mount keeps
- * working on the server. Internal (not a package export).
+ * working on the server. Every binding's server path hands it down (Tier 2, for binding authors).
  */
 export const INERT_GATE: FlushGate = Object.freeze({
   register: () => noop,

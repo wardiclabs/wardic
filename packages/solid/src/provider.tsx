@@ -27,10 +27,9 @@ import type * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import { AtomRegistry } from "effect/reactivity"
-import { createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
+import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
-import { makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
-import { type FlushGate, INERT_GATE, makeFlushGate } from "./gate.ts"
+import { type FlushGate, INERT_GATE, makeFlushGate, makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
 import { isHydrating, isServer } from "./server.ts"
 
 /**
@@ -124,9 +123,10 @@ export function WardicProvider(props: {
   // owns the Layer's scope for the component's lifetime.
   const runtime = ManagedRuntime.make(props.env)
   // The flush gate is a provider-owned singleton (one per WardicProvider),
-  // built atop the runtime (ADR-0006). It resolves the Renderer and the
-  // Environment's Refresh frame source once at construction (ADR-0031).
-  const gate = makeFlushGate(runtime)
+  // built atop the runtime (ADR-0006). It's dom's, framework-free, and applies each
+  // flush in Solid's `batch()`; it resolves the Renderer and the Environment's
+  // Refresh frame source once at construction (ADR-0031).
+  const gate = makeFlushGate(runtime, { batch })
 
   // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
   // never Retargets, and the user's preference through the Probe's atom. Read when each animation
