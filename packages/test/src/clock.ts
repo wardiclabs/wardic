@@ -33,17 +33,6 @@ export const frames = (count: number, dt = 1 / 60): ReadonlyArray<number> =>
   Array.from({ length: count }, () => dt)
 
 /**
- * Cooperatively hand the scheduler enough turns for a forked consumer fiber to
- * pull a freshly-published PubSub item all the way through its Stream pipeline
- * (subscription buffer -> chunk -> downstream emit) before the test proceeds.
- * One `yieldNow` is not enough across a `merge`/`switchMap`/`fromPubSub` graph;
- * a small fixed budget makes the interleaving deterministic without real time.
- */
-const flush = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, {
-  discard: true,
-})
-
-/**
  * The Refresh frames `pushable`'s `advance` fires: a `RefreshFrameSource` that keeps the
  * contract's order rules, as `requestAnimationFrame` does (ADR-0031, decision 4). `fire` runs the
  * callbacks requested before it, in request order. One requested while they run waits for the
@@ -88,9 +77,13 @@ const makeFrames = () => {
  *
  * Its `layer` also provides the Environment's `RefreshFrameSource` (ADR-0031), and one `advance`
  * is one Refresh frame in the web's order: it runs the frames requested so far (a flush gate's
- * flush), in request order, then publishes `dt` (the Clock's tick), then yields the fiber so the
- * subscribing stream processes the frame before the next `advance`. A frame requested during
+ * flush), in request order, then publishes `dt` (the Clock's tick). A frame requested during
  * that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`.
+ *
+ * It doesn't yield (ADR-0032): a subscriber waiting on the ticks handles the tick inside the
+ * publish, as every subscriber does inside a real Refresh frame's callback, so a consumer that
+ * hops through Effect's scheduler on its way to its sink hasn't got there when `advance`
+ * returns, and its test sees it.
  *
  * @example
  * const clock = yield* TestClock.pushable()
@@ -117,7 +110,7 @@ export const pushable = (): Effect.Effect<{
       advance: (dt = 1 / 60) =>
         Effect.sync(() => frames.fire(MutableRef.updateAndGet(time, (t) => t + dt * 1000))).pipe(
           Effect.andThen(PubSub.publish(pubsub, dt)),
-          Effect.flatMap(() => flush),
+          Effect.asVoid,
         ),
     }
   })

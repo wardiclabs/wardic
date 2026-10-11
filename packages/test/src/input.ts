@@ -26,17 +26,21 @@ export const layer = (
 
 /**
  * A push-based InputSource for tests that need to interleave pointer events with
- * other effects (e.g. advancing the Clock between a fling and a re-grab). Unlike
+ * other effects (e.g. advancing the Clock between a release and a re-grab). Unlike
  * {@link layer} — which replays a fixed script that drains immediately — this
  * form lets the test `push` events one at a time, on its own schedule.
  *
  * Backed by a `PubSub` (not a `Queue`) so that every call to `pointer(target)`
- * gets an **independent live subscription**: recognizers like `Drag.fling`
- * subscribe to `input.pointer(target)` more than once (the drag fold and the
- * re-grab detector), and a single-consumer Queue would split events between
+ * gets an **independent live subscription**: a consumer may subscribe to
+ * `input.pointer(target)` more than once (a binding's drag track reads the drag
+ * fold and the grabs), and a single-consumer Queue would split events between
  * them. Broadcast delivery hands every subscriber the same events. There is no
- * replay buffer, so only events pushed *after* a subscription is live reach it —
- * `push` accordingly yields the fiber so subscribers can drain before the next.
+ * replay buffer, so only events pushed *after* a subscription is live reach it.
+ *
+ * `push` doesn't yield (ADR-0032): a subscriber waiting on the stream handles the
+ * event inside the publish, as an Environment's consumers handle a real event inside
+ * its dispatch, so a pipeline that hops through Effect's scheduler on its way to its
+ * sink hasn't got there when `push` returns, and its test sees it.
  *
  * Returns `{ layer, push }`. Resolve it inside an `Effect.gen`, provide `layer`,
  * and drive the surface with `push`:
@@ -58,11 +62,6 @@ export const pushable = (): Effect.Effect<{
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<InputSource.PointerLikeEvent>()
     const focusPubsub = yield* PubSub.unbounded<InputSource.FocusLikeEvent>()
-    // Yield after publishing so the merged subscribers drain this event before
-    // the test pushes the next one — keeps interleaving deterministic. A single
-    // yieldNow isn't enough across a merge/switchMap/fromPubSub graph; hand the
-    // scheduler a small fixed budget of turns instead.
-    const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
     return {
       layer: Layer.succeed(InputSource.InputSource, {
         pointer: () => Stream.fromPubSub(pubsub),
@@ -70,9 +69,7 @@ export const pushable = (): Effect.Effect<{
         wheel: () => Stream.empty,
         focus: () => Stream.fromPubSub(focusPubsub),
       }),
-      push: (event: InputSource.PointerLikeEvent) =>
-        PubSub.publish(pubsub, event).pipe(Effect.flatMap(() => drain)),
-      pushFocus: (event: InputSource.FocusLikeEvent) =>
-        PubSub.publish(focusPubsub, event).pipe(Effect.flatMap(() => drain)),
+      push: (event: InputSource.PointerLikeEvent) => PubSub.publish(pubsub, event).pipe(Effect.asVoid),
+      pushFocus: (event: InputSource.FocusLikeEvent) => PubSub.publish(focusPubsub, event).pipe(Effect.asVoid),
     }
   })
