@@ -7,22 +7,21 @@
  * its own pair and gets the same Clock (ADR-0004: no per-Environment re-implementation).
  *
  * The loop is the **single update path**: every Refresh frame computes `dt` from
- * successive timestamps and calls `tick`, which (with the Priming tick below) is the
- * only publisher to the internal tick `PubSub`. There is deliberately no `MAX_DT` clamp
+ * successive timestamps and calls `tick`, the only publisher to the internal tick `PubSub`. There is deliberately no `MAX_DT` clamp
  * here — clamping is a consumer-boundary concern (each leaf's step clamps at
  * `Machine.MAX_DT`, #78), so the Clock reports raw deltas.
  *
- * **Cold start** (ADR-0017): the subscription that starts an idle loop gets a
- * **Priming tick** at the end of its task, with `dt = NOMINAL_DT`, before the first
- * Refresh frame. A start made inside a Refresh frame (a layout animation begins in
- * the gate's measure pass) therefore writes its first moved value in that same
- * frame, and the gate paints it in the next one — exactly like a warm start, whose
- * tick in that frame is already queued. `dt` stays nominal until two Refresh frame
- * timestamps exist (the first Refresh frame has nothing to measure against), then
- * it is the measured interval. The loop never goes through the Effect scheduler:
- * it starts synchronously, reaches the Priming tick via `Microtask.next`, and
- * requests each next Refresh frame inside the current one's callback, after the
- * tick is delivered — so timing is the same in browsers (scheduler =
+ * **Cold start** (ADR-0017, ADR-0033): the subscription that starts an idle loop gets its
+ * first tick at the next Refresh frame, as a warm start does, with `dt = NOMINAL_DT`: `dt`
+ * stays nominal until two Refresh frame timestamps exist (the first Refresh frame has nothing
+ * to measure against), then it is the measured interval. The flush gate paints what a tick
+ * writes at the end of the Frame loop's tick, in that Refresh frame, so a Cold start's first
+ * step paints in the first Refresh frame, as a warm start's does. (Until #73 the gate painted
+ * a frame later, and a Priming tick at the end of the subscribing task made up for it.) The
+ * loop never goes through the Effect scheduler: it starts synchronously, waits for the end of
+ * its task via `Microtask.next` (so a subscription made and dropped in one task requests no
+ * Refresh frame), and requests each next Refresh frame inside the current one's callback,
+ * after the tick is delivered — so timing is the same in browsers (scheduler =
  * `setTimeout(0)`), React Native and the test harness (scheduler = microtask).
  *
  * Per CONTEXT.md's **Shared source** contract, the loop is shared and counted:
@@ -32,7 +31,7 @@
  * does not stop it; the first Refresh frame that finds no subscriber ends it
  * without ticking or requesting another. A subscriber that arrives before that
  * frame — the new animation of a retarget, which `useWardic` starts right after
- * interrupting the old one — joins warm, with no Priming tick and a measured dt.
+ * interrupting the old one — joins warm, with a measured dt.
  *
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
  * authors; `InterpolatorRegistry.layer` is the precedent for a shared constructor
@@ -60,13 +59,13 @@ import * as RefreshFrameSource from "./RefreshFrameSource.ts"
  * Exposes a stream of `dt` values, which primitives subscribe to: frame time
  * (CONTEXT.md) is what they count of it. Environments drive it by calling `tick`.
  *
- * Cold start contract (ADR-0017), which `fromRefreshFrames` implements for
+ * Cold start contract (ADR-0017, ADR-0033), which `fromRefreshFrames` implements for
  * every Environment driven by Refresh frames: a subscription that starts an idle
- * Clock receives a Priming tick with `dt = NOMINAL_DT` at the end of its task,
- * before the first Refresh frame; `dt` stays nominal until two Refresh frame
- * timestamps exist; no tick depends on the Effect scheduler; and the Clock goes
- * idle only at the first Refresh frame that finds no subscriber, so an unsubscribe
- * followed by a subscribe before it (a retarget) is a warm start.
+ * Clock gets its first tick at the next Refresh frame, with `dt = NOMINAL_DT`; `dt`
+ * stays nominal until two Refresh frame timestamps exist; no tick depends on the
+ * Effect scheduler; and the Clock goes idle only at the first Refresh frame that
+ * finds no subscriber, so an unsubscribe followed by a subscribe before it (a
+ * retarget) is a warm start.
  */
 export class Clock extends Context.Service<Clock, {
   /** Stream of `dt` values, one per frame. */
@@ -77,8 +76,7 @@ export class Clock extends Context.Service<Clock, {
 
 /**
  * The delta-time (seconds) a Clock reports while it has no measured Refresh frame
- * interval yet: the Priming tick of a Cold start, and the first Refresh frame after
- * it (ADR-0017). One frame at 60 Hz — Motion's first-frame `delta = 1000 / 60`
+ * interval yet: the first Refresh frame of a Cold start (ADR-0017). One frame at 60 Hz — Motion's first-frame `delta = 1000 / 60`
  * after its frame loop wakes (motion-dom `frameloop/batcher.ts:47-49` @16c6122).
  */
 export const NOMINAL_DT = 1 / 60
@@ -110,9 +108,8 @@ export const fromRefreshFrames = <Handle>(
     const tickPubSub = yield* PubSub.unbounded<number>()
 
     // The previous Refresh frame's time (ms), for dt computation; None => no
-    // Refresh frame since the loop started. Only Refresh frames set it — the Priming
-    // tick has none (ADR-0017, decision 2). It is the frame's timestamp, except for a
-    // frame that repeats the previous timestamp (below).
+    // Refresh frame since the loop started (ADR-0017, decision 2). It is the frame's
+    // timestamp, except for a frame that repeats the previous timestamp (below).
     const lastTime = MutableRef.make(Option.none<number>())
     // The previous Refresh frame's raw timestamp, and `now()` when it was delivered.
     const lastStamp = MutableRef.make(Option.none<number>())
@@ -161,11 +158,6 @@ export const fromRefreshFrames = <Handle>(
         return PubSub.publish(tickPubSub, delta).pipe(Effect.asVoid)
       })
 
-    // The Priming tick: the nominal dt, published to whoever subscribed in the task
-    // that started the loop. It has no Refresh frame timestamp, so it leaves
-    // `lastTime` alone. Once per Cold start — not the hot path.
-    const primingTick: Effect.Effect<void> = PubSub.publish(tickPubSub, NOMINAL_DT).pipe(Effect.asVoid)
-
     // One Refresh frame as an interruptible Effect: requests a frame, resumes with
     // its timestamp, and cancels the pending request on interruption.
     const nextFrame = Effect.callback<number>((resume) => {
@@ -194,18 +186,13 @@ export const fromRefreshFrames = <Handle>(
     const loop = Effect.suspend(() => {
       let live = true
       return Microtask.next.pipe(
-        // Everyone left before the Priming tick (in the task that started the loop):
-        // end here, with no tick and no Refresh frame requested.
+        // Everyone left in the task that started the loop: end here, with no Refresh
+        // frame requested. Otherwise the first tick is the next Refresh frame's
+        // (ADR-0033: no Priming tick).
         Effect.andThen(
-          Effect.suspend(() =>
-            Bool.match(MutableRef.get(subscribers) > 0, {
-              onTrue: () => primingTick,
-              onFalse: () => {
-                live = false
-                return Effect.void
-              },
-            }),
-          ),
+          Effect.sync(() => {
+            live = MutableRef.get(subscribers) > 0
+          }),
         ),
         Effect.andThen(
           Effect.whileLoop({
@@ -252,9 +239,7 @@ export const fromRefreshFrames = <Handle>(
     })
 
     // Subscribing joins the tick PubSub, then joins the loop. Join the PubSub
-    // FIRST: a Cold start queues the Priming tick, and a fiber that yields to the
-    // scheduler between the two steps (its op budget ran out) would otherwise let
-    // that tick publish to nobody.
+    // FIRST, so no tick published once the loop runs can miss this subscriber.
     const ticks = Stream.unwrap(
       Effect.gen(function* () {
         yield* Effect.logDebug("wardic.clock: subscribe")

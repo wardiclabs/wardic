@@ -18,15 +18,20 @@
  *   throws ends only its own run (`Exit.die`); a failure of the loop itself fails every run
  *   still on it, and the next run starts a fresh burst. That includes a run a continuation
  *   starts while the ending burst resumes its runs (#81).
+ * - **The end of a tick** calls each `afterTick` hook, after every step and sink and the
+ *   continuations of the runs that settled in it, the tick that ends a burst included. The flush
+ *   gate flushes there, so a value paints in the Refresh frame that computed it (ADR-0033).
  *
  * Observability: a span per run, named after its Primitive (`machine.span`), and one per burst
  * (`wardic.frameloop`). Per tick, no span or log: a gauge of running animations and a histogram
- * of ms per tick, each one `updateUnsafe` (ADR-0027, decision 6).
+ * of ms per tick, each one `updateUnsafe` (ADR-0027, decision 6). The histogram ends before the
+ * hooks, so it measures the steps alone, not the gate's flush (ADR-0033).
  *
  * The dev check for non-finite Frames (`CheckFrames`, ADR-0030 decision 7) is a sink wrapper a
  * run gets at its start when the check is on, so the tick is the same either way.
  *
- * Internal (ADR-0028, decision 11): the service's shape and `make`, behind `FrameLoop.layer`.
+ * Internal (ADR-0028, decision 11): the service's shape (`run`, `afterTick`) and `make`, behind
+ * `FrameLoop.layer`.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -62,6 +67,19 @@ export interface Shape {
    * it removes it at once. One span per run, named after its Primitive.
    */
   readonly run: <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>) => Effect.Effect<F>
+  /**
+   * Call `hook` at the end of every tick, after every run's step and sink and the continuations
+   * of the runs that settled in it, until the `Scope` closes (ADR-0033). Hooks run in the order
+   * they were added. A plain call, typed like a `Sink`, so a hook that returns an Effect doesn't
+   * compile. A hook doesn't throw: one that does fails the tick, and with it every run on the
+   * loop, as a failure of the loop itself does. The flush gate is the one caller.
+   */
+  readonly afterTick: (hook: () => undefined) => Effect.Effect<void, never, Scope.Scope>
+}
+
+/** One hook on the loop's ticks, one object per `afterTick`, so removing it removes only that one. */
+interface Hook {
+  readonly hook: () => undefined
 }
 
 /** One run on the loop. */
@@ -174,6 +192,10 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
   const buildContext = yield* Effect.context<Clock.Clock | Scope.Scope>()
   const burst = yield* FiberHandle.make<void>()
   const entries: Array<Entry> = []
+  // The `afterTick` hooks, replaced (never changed in place) by an add or a removal, so the end
+  // of a tick calls the hooks there were when it began calling them, whatever a hook adds or
+  // removes.
+  let hooks: ReadonlyArray<Hook> = []
   // Whether a burst holds the loop's subscription. A run's continuation runs inline while the
   // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
   // handle (#81).
@@ -212,7 +234,24 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
     entries.length = kept
     animations.updateUnsafe(kept, buildContext)
     tickMs.updateUnsafe(performance.now() - t0, buildContext)
+    // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
+    // `tickMs`, which stays the cost of the steps alone.
+    const ended = hooks
+    for (let i = 0; i < ended.length; i++) ended[i].hook()
     return kept === 0
+  }
+
+  const afterTick = (hook: () => undefined): Effect.Effect<void, never, Scope.Scope> => {
+    const added: Hook = { hook }
+    return Effect.acquireRelease(
+      Effect.sync(() => {
+        hooks = Arr.append(hooks, added)
+      }),
+      () =>
+        Effect.sync(() => {
+          hooks = Arr.filter(hooks, (h) => h !== added)
+        }),
+    )
   }
 
   /**
@@ -287,5 +326,5 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
       Effect.withSpan(machine.span.name, { attributes: machine.span.attributes }),
     )
 
-  return { run } satisfies Shape
+  return { run, afterTick } satisfies Shape
 })

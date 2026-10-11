@@ -9,7 +9,7 @@ import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
-// The Clock's Cold start contract (ADR-0017), checked against a hand-driven
+// The Clock's Cold start contract (ADR-0017, and ADR-0033: no Priming tick), checked against a hand-driven
 // Refresh frame source. Every fiber runs on Effect's browser fallback scheduler
 // (`setTimeout(0)`, since browsers have no `setImmediate`) with its dispatches
 // counted, so these tests see real-browser timing: nothing in the Clock's timing
@@ -117,22 +117,27 @@ describe("Clock.fromRefreshFrames", () => {
     expect(h.frames.requests()).toBe(0)
   })
 
-  it("a Cold start delivers the Priming tick at the end of the subscribing task, with the nominal dt", async () => {
+  it("a Cold start ticks first at the first Refresh frame, with the nominal dt: nothing before it (no Priming tick)", async () => {
     const h = await makeHarness()
     const sub = h.subscribe()
-    expect(sub.received).toEqual([]) // not synchronously inside subscribe
+    expect(h.frames.requests()).toBe(0) // not synchronously inside subscribe
     await endOfTask()
-    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // before any Refresh frame or setTimeout(0)
-    expect(h.frames.requests()).toBe(1) // then the loop asks for its first Refresh frame
+    expect(h.frames.requests()).toBe(1) // the loop asks for its first Refresh frame at the end of the task
+    await nextTimeout()
+    expect(sub.received).toEqual([]) // and delivers nothing before it
+    await fireAndSettle(h.frames, 1000)
+    expect(sub.received).toEqual([Clock.NOMINAL_DT])
     await sub.close()
   })
 
-  it("a subscriber that yields to the scheduler while subscribing still gets its Priming tick", async () => {
+  it("a subscriber that yields to the scheduler while subscribing still gets the first Refresh frame's tick", async () => {
     const h = await makeHarness()
     const sub = h.subscribe({ maxOpsBeforeYield: 5 }) // below ~5 the fiber livelocks: it yields before every op
+    for (let i = 0; i < 100 && h.frames.pending.size === 0; i++) await nextTimeout()
+    expect(sub.received).toEqual([])
+    h.frames.fire(1000)
     for (let i = 0; i < 100 && sub.received.length === 0; i++) await nextTimeout()
-    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // the Priming tick, not a late first Refresh frame
-    expect(h.frames.pending.size).toBe(1) // and no Refresh frame has fired yet
+    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // the tick reached it: it had joined the PubSub first
     await sub.close()
   })
 
@@ -143,11 +148,10 @@ describe("Clock.fromRefreshFrames", () => {
     await fireAndSettle(h.frames, 1000) // first Refresh frame: no earlier one to measure against
     await fireAndSettle(h.frames, 1016)
     await fireAndSettle(h.frames, 1048)
-    expect(sub.received).toHaveLength(4)
-    expect(sub.received[0]).toBeCloseTo(Clock.NOMINAL_DT, 9) // Priming tick
-    expect(sub.received[1]).toBeCloseTo(Clock.NOMINAL_DT, 9) // first Refresh frame
-    expect(sub.received[2]).toBeCloseTo(0.016, 9)
-    expect(sub.received[3]).toBeCloseTo(0.032, 9)
+    expect(sub.received).toHaveLength(3)
+    expect(sub.received[0]).toBeCloseTo(Clock.NOMINAL_DT, 9) // first Refresh frame
+    expect(sub.received[1]).toBeCloseTo(0.016, 9)
+    expect(sub.received[2]).toBeCloseTo(0.032, 9)
     await sub.close()
   })
 
@@ -165,29 +169,28 @@ describe("Clock.fromRefreshFrames", () => {
     await endOfTask()
     await fireAndSettle(h.frames, 10000)
     await fireAndSettle(h.frames, 10016)
-    expect(b.received).toHaveLength(3)
+    expect(b.received).toHaveLength(2)
     expect(b.received[0]).toBeCloseTo(Clock.NOMINAL_DT, 9)
-    expect(b.received[1]).toBeCloseTo(Clock.NOMINAL_DT, 9)
-    expect(b.received[2]).toBeCloseTo(0.016, 9)
+    expect(b.received[1]).toBeCloseTo(0.016, 9)
     await b.close()
   })
 
-  it("a warm start gets no Priming tick, and nobody gets an extra tick", async () => {
+  it("a warm start gets the next Refresh frame's tick, with a measured dt, and nobody gets an extra tick", async () => {
     const h = await makeHarness()
     const a = h.subscribe()
     await endOfTask()
     await fireAndSettle(h.frames, 1000)
-    expect(a.received).toHaveLength(2) // Priming tick + first Refresh frame
+    expect(a.received).toHaveLength(1) // the first Refresh frame
 
     const b = h.subscribe() // joins the running loop
     await endOfTask()
     await nextTimeout()
     expect(b.received).toEqual([])
-    expect(a.received).toHaveLength(2)
+    expect(a.received).toHaveLength(1)
 
     await fireAndSettle(h.frames, 1016)
-    expect(a.received).toHaveLength(3)
-    expect(a.received[2]).toBeCloseTo(0.016, 9)
+    expect(a.received).toHaveLength(2)
+    expect(a.received[1]).toBeCloseTo(0.016, 9)
     expect(b.received).toHaveLength(1)
     expect(b.received[0]).toBeCloseTo(0.016, 9)
     await a.close()
@@ -208,7 +211,7 @@ describe("Clock.fromRefreshFrames", () => {
     }
     await nextTimeout()
     expect(h.dispatches() - before).toBe(0)
-    expect(sub.received).toHaveLength(4)
+    expect(sub.received).toHaveLength(3)
     await sub.close()
   })
 
@@ -235,7 +238,7 @@ describe("Clock.fromRefreshFrames", () => {
     expect(h.frames.cancels()).toBe(0)
   })
 
-  it("a subscriber that arrives before that frame joins warm: no Priming tick, a measured dt (a retarget)", async () => {
+  it("a subscriber that arrives before that frame joins warm: a measured dt (a retarget)", async () => {
     const h = await makeHarness()
     const a = h.subscribe()
     await endOfTask()
@@ -248,7 +251,7 @@ describe("Clock.fromRefreshFrames", () => {
     const b = h.subscribe()
     await endOfTask()
     await nextTimeout()
-    expect(b.received).toEqual([]) // no Priming tick
+    expect(b.received).toEqual([]) // nothing before the next Refresh frame
     await fireAndSettle(h.frames, 1033)
     expect(b.received).toHaveLength(1)
     expect(b.received[0]).toBeCloseTo(0.017, 9) // the loop kept its last timestamp
@@ -268,15 +271,15 @@ describe("Clock.fromRefreshFrames", () => {
     await sub.close()
   })
 
-  it("unsubscribing before the Priming tick delivers nothing and leaves no Refresh frame pending", async () => {
+  it("unsubscribing in the subscribing task delivers nothing and leaves no Refresh frame pending", async () => {
     const h = await makeHarness()
     const sub = h.subscribe()
-    sub.fiber.interruptUnsafe() // same synchronous block: the Priming microtask hasn't run
+    sub.fiber.interruptUnsafe() // same synchronous block: the loop's end-of-task microtask hasn't run
     await endOfTask()
     await nextTimeout()
     expect(sub.received).toEqual([])
     expect(h.frames.pending.size).toBe(0)
-    expect(h.frames.requests()).toBe(0) // the loop was stopped while it waited for the Priming tick
+    expect(h.frames.requests()).toBe(0) // the loop was stopped while it waited for the end of the task
     expect(h.frames.cancels()).toBe(0)
   })
 
@@ -297,11 +300,11 @@ describe("Clock.fromRefreshFrames", () => {
     await fireAndSettle(h.frames, 1033.34)
     h.frames.setNow(1055) // a late callback, which a frame timed by its timestamp ignores
     await fireAndSettle(h.frames, 1050.01)
-    expect(sub.received).toHaveLength(6)
-    expect(sub.received[2]).toBeCloseTo(0.01667, 9)
-    expect(sub.received[3]).toBeCloseTo(0.009, 9) // the repeated frame: the elapsed now()
-    expect(sub.received[4]).toBeCloseTo(0.00767, 9) // the rest of the interval
-    expect(sub.received[5]).toBeCloseTo(0.01667, 9) // back on the timestamps: 1050.01 - 1033.34
+    expect(sub.received).toHaveLength(5)
+    expect(sub.received[1]).toBeCloseTo(0.01667, 9)
+    expect(sub.received[2]).toBeCloseTo(0.009, 9) // the repeated frame: the elapsed now()
+    expect(sub.received[3]).toBeCloseTo(0.00767, 9) // the rest of the interval
+    expect(sub.received[4]).toBeCloseTo(0.01667, 9) // back on the timestamps: 1050.01 - 1033.34
     await sub.close()
   })
 
@@ -317,26 +320,24 @@ describe("Clock.fromRefreshFrames", () => {
     await fireAndSettle(h.frames, 1016.67)
     h.frames.setNow(1034.34)
     await fireAndSettle(h.frames, 1033.34)
-    expect(sub.received).toHaveLength(5)
-    expect(sub.received[2]).toBeCloseTo(0.01667, 9) // the timestamp dt, not now()'s 0.022
-    expect(sub.received[3]).toBeCloseTo(0.019, 9)
-    expect(sub.received[4]).toBe(0) // (1033.34 - (1016.67 + 19)) < 0: clamped, never negative
+    expect(sub.received).toHaveLength(4)
+    expect(sub.received[1]).toBeCloseTo(0.01667, 9) // the timestamp dt, not now()'s 0.022
+    expect(sub.received[2]).toBeCloseTo(0.019, 9)
+    expect(sub.received[3]).toBe(0) // (1033.34 - (1016.67 + 19)) < 0: clamped, never negative
     await sub.close()
   })
 
-  it("ticks the nominal dt for the Priming tick and the first Refresh frame, then the measured interval", async () => {
+  it("ticks the nominal dt for the first Refresh frame, then the measured interval", async () => {
     const h = await makeHarness()
     const sub = h.subscribe()
+    await endOfTask()
     expect(sub.received).toEqual([])
 
-    await endOfTask()
-    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // the Priming tick
-
-    await fireAndSettle(h.frames, 1000) // nothing to measure against: the Priming tick has no timestamp
+    await fireAndSettle(h.frames, 1000) // nothing to measure against
     await fireAndSettle(h.frames, 1100)
-    expect(sub.received).toHaveLength(3)
-    expect(sub.received[1]).toBe(Clock.NOMINAL_DT)
-    expect(sub.received[2]).toBeCloseTo(0.1, 9)
+    expect(sub.received).toHaveLength(2)
+    expect(sub.received[0]).toBe(Clock.NOMINAL_DT)
+    expect(sub.received[1]).toBeCloseTo(0.1, 9)
     await sub.close()
   })
 })
