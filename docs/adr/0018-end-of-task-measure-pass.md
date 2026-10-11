@@ -86,3 +86,14 @@ The projection coordinator is one run on the Environment's Frame loop (ADR-0027,
   - **If a run cold-started the Clock earlier in the same task,** the coordinator's run is added before the Priming tick publishes, and the tick steps its nodes. `steppedSinceSeed` then makes the Priming step skip them.
 - **The op-budget caveat** moves to two fibers: the run's (its start log and its add) and, on a Cold start, the burst's (its subscription). Either one running out of its budget there could still let a node take both steps. Documented, not guarded.
 - **Pinned,** unchanged: `measure-pass-timing.browser.test.tsx`, `clock-cold-start.browser.test.tsx` (a layout FLIP moves on the 1st painted frame, cold and warm) and `projection-measure-pass.browser.test.ts`. New: `projection-coordinator.browser.test.ts`, where a FLIP started after the coordinator settled is one step along before any Refresh frame, cold and warm.
+
+## Amendment (#73, 2026-10-11): no Priming step
+
+ADR-0033 decides it.
+- **Decision 3 is superseded.** The Priming step made up for the gate's one frame of latency. Since #73 the gate flushes at the end of the Frame loop's tick, so the next frame's tick paints the first step in that frame. A step taken at the end of the task was painted over by it before any paint. The first painted step was then doubled, cold and warm, in every task-triggered scenario (the layout lab: 15.7 px against 5.1).
+- **The held counts don't change:** a layout change made in an ordinary task moves on its first painted frame (0 held), and one made after the frame's tick paints its origin and moves on the next (1 held), cold or warm. All nine layout scenarios read the same as main, cold and warm (ADR-0033, decision 2).
+- **What the pass does:** its rounds, `flushPass` and the round cap are unchanged. It ends with its span. `primingStep`, `steppedSinceSeed` and the trailing `Microtask.next` go.
+- **Both documented edges in *Consequences* are gone:**
+  - **"A change made between a frame's gate flush and its Clock tick":** the flush is now inside the Clock's callback, after the tick. An effect inside it queues a pass that runs after the tick, so the frame paints the origin and the next one takes a single first step (scenario 8: 5.0 px, was 15.7).
+  - **The Priming tick queued inside the pass,** and the op-budget caveat of *Amendment (#75)*, went with the Priming tick (ADR-0017, *Amendment (#73)*).
+- **Pinned by** `projection-measure-pass.browser.test.ts` (the seed alone before the frame, cold and warm), `projection-coordinator.browser.test.ts`, and `measure-pass-timing.browser.test.tsx` and `clock-cold-start.browser.test.tsx`, which keep their painted-frame expectations.

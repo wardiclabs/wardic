@@ -481,3 +481,12 @@ ADR-0030's decision 11 takes up decision 4's "stepping in place is a later optim
 - **`springValues`' run steps in place.** It holds its keys' springs as arrays and rewrites one Frame, its `value` and its `velocity`, each tick, allocating nothing per tick. The other leaves (`tween`, `spring`, `decay`, `chase`, `decayVec`) allocate their Frame per tick, as decision 4 has it.
 - **The steppers stay pure,** and the unit-test target: `Spring.step`, `stepTween` and `stepDecay` are unchanged. `springValues`' step writes `Spring.step`'s integration out in place, and `machines.test.ts` holds it to one `Machine.spring` per key, every Frame equal.
 - **A Frame handed to a sink is the run's until the next tick,** on `FrameLoop.Sink` and `Machine.run`: a sink that keeps one copies it. `Machine.toStream` copies a record Frame before it emits, so a `Stream` consumer's Frames are its own (ADR-0030, *Implementation in #111*).
+
+## Amendment (#73, 2026-10-11): the end of the tick has a hook
+
+ADR-0033 decides it.
+- **Decision 10 is done.** The loop's shape gains `afterTick(hook): Effect<void, never, Scope>`, beside `run`. It calls `hook` at the end of every tick, after every step and sink and the continuations of the runs that settled in it, the tick that ends a burst included. Hooks run in the order they were added. dom's flush gate is its one caller, so a value paints in the Refresh frame that computed it.
+- **The tick stays allocation-free:** a counted loop over a hooks array that an add or a removal replaces. A hook that throws fails the tick, and so every run, like any failure of the loop itself (decision 7). The gate catches what its flush throws and reports it.
+- **`wardic_frameloop_tick_ms` ends before the hooks,** so it stays the cost of the steps alone, and the gate's flush (#79) stays separate from it.
+- **Decision 5's start rule reads:** "the first step is the loop's next tick", now the next Refresh frame's, cold or warm. The Priming tick is gone (ADR-0017, *Amendment (#73)*). A run added during a tick is stepped from the next one, as before, and painted in that frame.
+- ***Consequences*' "the gate's one frame of latency, until #73"** is resolved: it's gone for what a tick writes.

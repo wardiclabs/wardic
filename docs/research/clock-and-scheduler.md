@@ -111,6 +111,8 @@ The right scheduler differs by runtime (*inferred* from Part II, except where me
 
 ### Option C: flush the gate in the Clock's frame (no scheduler change)
 
+> **Since #73 (ADR-0033):** taken. The gate flushes at the end of the Frame loop's tick (`afterTick`), the chase paints 0 frames after the input (probe e, `hook`), and the Priming tick and Priming step went: measured, each painted over its own step, a doubled first painted step.
+
 - **Measured** (Chromium, dom's real Clock and solid's real gate, Playwright's mouse; probe e, `sameframe`): flushing the gate right after the Clock's tick, inside the same frame callback, painted the chase 0 frames after the input. With the same microtask scheduler and the gate on its own frame it was 1, and under today's default scheduler 2. That's possible because the fan-out is already inline.
 - **What it needs:**
   - **#52:** the gate's frames come from the Environment, not a raw `requestAnimationFrame`.
@@ -688,6 +690,8 @@ So interruption itself completes inline. What stalls is any work that needs a di
 - **A dispatcher drained on frames, not after input,** keeps the frame of lag: the drag's gate write would be requested from inside a rAF callback and so land in the next frame **(inferred)**.
 
 #### 2. The gate's one-frame latency (#67, part 2)
+
+> **Since #73 (ADR-0033):** gone for what a tick writes. The inferred "doubled first painted step" was measured (the layout lab, 15.7 px against 5.1), and the Priming tick and Priming step were removed for it. `flushPass` and the Measure pass's held counts are unchanged.
 
 **Today:** values computed in frame K paint in K+1.
 

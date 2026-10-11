@@ -207,3 +207,11 @@
   - **The code agrees:** per frame, the flush calls the same Solid `batch`, held in a closure instead of imported. No call is added.
   - **Carried over from #122:** the Clock's callback at N = 1,000 with legs reads +0.5% against main now, so #122's −6.5% there is in main.
   - **For the next per-frame gate on this probe:** fix the FLIPs-alone pages' bimodality first, or gate on the with-legs workloads, and run an A/A beside the A/B.
+
+## Amendment (#73, 2026-10-11): the flush moves into the Clock's callback
+
+ADR-0033 decides it.
+- **Decision 1's #73 bullet is realised as it said:** the gate flushes at the end of the loop's tick, through `afterTick` on the loop's shape, and keeps its source request for writes made outside a tick. The rejected "Frame loop's tick" option stays rejected: those writes have no tick coming.
+- **Decision 4's steady order becomes the tick, then its flush, in one callback,** on every Environment, changed at the loop and not at a source. The two order rules stay the source's contract, and they now order the gate's own requests (a drag's move from its input task runs before the Clock's next tick) against the Clock's.
+- **#114's open question goes:** a microtask the flush queues (an effect's Measure pass) runs after the tick on every Environment, since the flush is at the end of the tick, so a fan-out source that loops over its callbacks gives the web's order. In steady state the gate requests no frame of its own (it cancels the one its first write in a tick requested), so React Native commits once per Refresh frame with no fan-out. A fan-out matters only for frames that also carry a write made outside a tick.
+- **Decision 6's pushable frames:** one `advance` still runs the frames requested so far, then the tick. A Frame loop over that Clock flushes the gate at the tick's end, so a run's write is applied within the same `advance` (`gate.node.test.ts`, G1–G7).

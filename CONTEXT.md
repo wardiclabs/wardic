@@ -164,12 +164,8 @@ A layout-enabled element's entry in the **projection tree** — a parent link by
 _Avoid_: layout member (the prior flat name), FLIP node.
 
 **Measure pass**:
-The projection engine's end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. Then the nodes it seeded take a **Priming step**. A running animation whose box didn't change is left alone. A dragged node and its subtree get a slot-only update (**Drag block**). After a window resize, the next pass is a **Resize block**. A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018).
+The projection engine's end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. The nodes it seeded take their first step at the next tick, painted in that Refresh frame (ADR-0033). A running animation whose box didn't change is left alone. A dragged node and its subtree get a slot-only update (**Drag block**). After a window resize, the next pass is a **Resize block**. A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018).
 _Avoid_: commit (the Renderer's write), layout update (Motion's name).
-
-**Priming step**:
-The first step of a layout animation, given by the **Measure pass** that seeded it, or by a drag's release, with the nominal dt. On a **Cold start** it is the Clock's **Priming tick**; on a ticking Clock the projection engine takes it itself. It's written into the gate after the pass's flush. So a layout change made in an ordinary task moves on its first painted frame, and one made after the Refresh frame's gate flush (a ResizeObserver callback, a later rAF callback) moves on the next, cold or warm (ADR-0018).
-_Avoid_: Priming tick (the Clock's), first tick.
 
 **Drag block**:
 While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, and stays so after the release until it settles, so the subtree rides the drag and the flight back (ADR-0016, *Amendment (#26)*). A dragged node that opts in (a **Reorder group**'s items do) is also raised above its siblings, `z-index: 1`, until its release settles (ADR-0016, *Amendment (Reorder)*).
@@ -227,15 +223,12 @@ A pointer that went down on a target and hasn't been released. Until its release
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:
-One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the **Flush gate** applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through its `RefreshFrameSource` (`requestFrame` / `cancelFrame`), one of its members: core builds the Clock from it (ADR-0017), and the gate requests its flushes from it (ADR-0031). Not a **Frame**: that is a Primitive's per-tick emission.
+One refresh of an Environment's output: a display vsync in DOM and native, a timer-driven redraw where there is no display. The Clock ticks once per Refresh frame, and the **Flush gate** applies writes once per Refresh frame. Firefox can run a second Refresh frame right after an input with the previous one's timestamp; the Clock times it by elapsed time (ADR-0017, amended). An Environment supplies them through its `RefreshFrameSource` (`requestFrame` / `cancelFrame`), one of its members: core builds the Clock from it (ADR-0017), and the gate requests from it the flush of a write made outside the Frame loop's tick (ADR-0031, ADR-0033). Not a **Frame**: that is a Primitive's per-tick emission.
 _Avoid_: animation frame (browser API wording), display frame, vsync.
 
 **Cold start**:
-A subscription to `Clock.ticks` made while the Clock is idle, so it starts requesting Refresh frames. Its first tick is the **Priming tick**. A **warm start** joins a Clock that is already ticking and gets its next tick. The Clock goes idle only at the first Refresh frame that finds no subscriber, so an unsubscribe followed by a subscribe before the next Refresh frame (a retarget) is a warm start (ADR-0017).
+A subscription to `Clock.ticks` made while the Clock is idle, so it starts requesting Refresh frames. Its first tick is the next Refresh frame's, with the nominal dt (1/60 s), since there is no earlier Refresh frame to measure against. A **warm start** joins a Clock that is already ticking and gets its next tick, with a measured dt. Either way an animation's first step is painted in the Refresh frame that computed it (ADR-0017, ADR-0033). The Clock goes idle only at the first Refresh frame that finds no subscriber, so an unsubscribe followed by a subscribe before the next Refresh frame (a retarget) is a warm start (ADR-0017).
 _Avoid_: wake (Motion's term).
-
-**Priming tick**:
-The first tick of a **Cold start**. It's delivered at the end of the subscribing task with the nominal dt (1/60 s), before the first Refresh frame. A spring started from a task then moves on the first painted frame despite the gate's one-frame latency (ADR-0006, ADR-0017); a layout animation gets its first step from the **Priming step** of the Measure pass that seeded it (ADR-0018).
 
 ### Rendering
 
@@ -252,7 +245,7 @@ The imperative half of the Renderer — writing a projected patch onto a target.
 _Avoid_: apply, flush, paint.
 
 **Flush gate**:
-The accumulator every binding writes an element's values into. It merges each element's writes by key and applies them once per Refresh frame, a frame after they're written, all in one batch (ADR-0006). The one exception is a **Measure pass**'s own writes, applied at the end of its task (ADR-0018). A server render gets one that does nothing (ADR-0021).
+The accumulator every binding writes an element's values into. It merges each element's writes by key and applies them once per Refresh frame, all in one batch (ADR-0006): at the end of the **Frame loop**'s tick, in the Refresh frame that computed them, or, for a write made outside a tick (a drag's move, a release), at the next Refresh frame (ADR-0033). A **Measure pass**'s own writes are applied at the end of its task (ADR-0018). A server render gets one that does nothing (ADR-0021).
 _Avoid_: batcher, scheduler (Effect's), coordinator (the **Frame loop**'s old name).
 
 **Reactive path**:
