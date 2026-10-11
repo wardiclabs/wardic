@@ -2,13 +2,12 @@
 // (#26)*), checked against a fake ProjectionSink with every Refresh frame fired by hand.
 //
 // A dragged node and its subtree are drag-blocked: a Measure pass updates their slots
-// only, re-derives and flushes them with their group, seeds nothing there (no Priming
-// step), and counts them in the `wardic.projection.measure` span's `dragBlocked`. A
+// only, re-derives and flushes them with their group, seeds nothing there, and counts them in the `wardic.projection.measure` span's `dragBlocked`. A
 // resting descendant isn't derived while its only active ancestor is being dragged
 // (CSS carries it); a running one is. A pointer move re-derives the dragged group into
-// the sink at once, so the gate's next flush paints it. The release takes a Priming
-// step at the end of its task, starts from the drag target, ends on the latest slot,
-// and always writes the node's projection before it settles.
+// the sink at once, so the gate's next flush paints it. The release takes its first step
+// at the next Refresh frame (ADR-0033), starts from the drag target, ends on the latest
+// slot, and always writes the node's projection before it settles.
 //
 // Deterministic: requestAnimationFrame is stubbed before the runtime builds (the Clock
 // reads it when its Layer builds), so the test fires Refresh frames by hand;
@@ -201,8 +200,8 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     expect(pass?.seeded, "only S is seeded").toBe(1)
     expect(pass?.dragBlocked, "D and C took slot-only updates").toBe(2)
     const primed = afterLastFlush(sk.log)
-    expect(writesFor(primed, "d"), "no Priming step for D").toHaveLength(0)
-    expect(writesFor(primed, "c"), "no Priming step for C").toHaveLength(0)
+    expect(writesFor(primed, "d"), "nothing for D after the pass's flush").toHaveLength(0)
+    expect(writesFor(primed, "c"), "nothing for C after the pass's flush").toHaveLength(0)
     e.dispose()
   })
 
@@ -253,7 +252,7 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     e.dispose()
   })
 
-  it("N4: the release takes a Priming step: before the next frame, D is one step from the drag target toward its slot", async () => {
+  it("N4: the release takes its first step at the next Refresh frame: D is then one step from the drag target toward its slot", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const { d } = await mountScene(e.system)
@@ -265,8 +264,12 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     const from = sk.log.length
     d.dragEnd()
     await endOfTask()
+    // No Priming step (ADR-0033): D hasn't moved off the drag target before the frame.
+    const before = writesFor(sk.log.slice(from), "d").at(-1)
+    if (before !== undefined) expect(before.tx, "at the drag target before the frame").toBeCloseTo(100, 3)
+    fireFrame()
     const last = writesFor(sk.log.slice(from), "d").at(-1)
-    expect(last, "a write for D before the next frame").toBeDefined()
+    expect(last, "a write for D in the frame").toBeDefined()
     expect(last!.tx, "moved off the drag target").toBeLessThan(99.9)
     expect(last!.tx, "not yet at the slot").toBeGreaterThan(0.1)
     e.dispose()

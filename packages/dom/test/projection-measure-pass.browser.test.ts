@@ -5,9 +5,9 @@
 // (a node registering, the shared ResizeObserver, `notify`) queues ONE Measure pass,
 // which runs in a microtask at the end of that task through `sink.flushPass(pass)`:
 // the sink runs the pass and applies exactly what it wrote before returning. The
-// nodes the pass seeded then take one Priming step (the Clock's Priming tick on a
-// Cold start). A trigger during the pass's own flush repeats the pass, at most 5
-// rounds; a running node whose box didn't change is left alone.
+// nodes the pass seeded take their first step at the next Refresh frame, cold or warm
+// (ADR-0033: no Priming step). A trigger during the pass's own flush repeats the pass,
+// at most 5 rounds; a running node whose box didn't change is left alone.
 //
 // Deterministic: requestAnimationFrame is stubbed before the runtime builds (the
 // Clock reads it when its Layer builds), so the test fires Refresh frames with chosen
@@ -186,7 +186,7 @@ describe("the Measure pass (ADR-0018)", () => {
     e.dispose()
   })
 
-  it("warm Clock: a moved node's seed is written inside the flush, then exactly one Priming step before any Refresh frame", async () => {
+  it("warm Clock: a moved node's seed is written inside the flush, nothing more before the next Refresh frame, which steps it", async () => {
     const s = makeSink()
     const e = makeEngine(s.sink)
     keepClockWarm(e.runtime)
@@ -201,14 +201,16 @@ describe("the Measure pass (ADR-0018)", () => {
     const seed = writesFor(insideLastFlush(s.log), "n")
     expect(seed).toHaveLength(1)
     expect(seed[0]!.translateX).toBeCloseTo(-200, 3) // the origin
-    const prime = writesFor(afterLastFlush(s.log), "n")
-    expect(prime).toHaveLength(1) // one step, not two
-    expect(prime[0]!.translateX!).toBeGreaterThan(-200) // it moved
-    expect(prime[0]!.translateX!).toBeLessThan(-150)
+    expect(writesFor(afterLastFlush(s.log), "n")).toHaveLength(0) // no Priming step (ADR-0033)
+    fireFrame()
+    const step = writesFor(afterLastFlush(s.log), "n")
+    expect(step).toHaveLength(1) // one step, not two
+    expect(step[0]!.translateX!).toBeGreaterThan(-200) // it moved
+    expect(step[0]!.translateX!).toBeLessThan(-150)
     e.dispose()
   })
 
-  it("Cold start: the Priming step is the Clock's Priming tick, with no second step before the first Refresh frame", async () => {
+  it("Cold start: nothing steps the node before the first Refresh frame, which takes its first step", async () => {
     const s = makeSink()
     const e = makeEngine(s.sink)
     const n = await registerAt(e.system, "n", 0)
@@ -217,11 +219,14 @@ describe("the Measure pass (ADR-0018)", () => {
     n.handle.notify()
     await endOfTask()
     expect(writesFor(insideLastFlush(s.log), "n")).toHaveLength(1)
-    const prime = writesFor(afterLastFlush(s.log), "n")
-    expect(prime).toHaveLength(1)
-    expect(prime[0]!.translateX!).toBeGreaterThan(-200)
+    expect(writesFor(afterLastFlush(s.log), "n")).toHaveLength(0) // no Priming tick (ADR-0033)
 
-    fireFrame() // the first Refresh frame steps it again
+    fireFrame() // the first Refresh frame takes the first step
+    const first = writesFor(afterLastFlush(s.log), "n")
+    expect(first).toHaveLength(1)
+    expect(first[0]!.translateX!).toBeGreaterThan(-200)
+    expect(first[0]!.translateX!).toBeLessThan(-150)
+    fireFrame()
     const next = writesFor(afterLastFlush(s.log), "n")
     expect(next).toHaveLength(2)
     expect(next[1]!.translateX!).toBeGreaterThan(next[0]!.translateX!)
@@ -246,7 +251,7 @@ describe("the Measure pass (ADR-0018)", () => {
     n.handle.notify()
     await endOfTask()
     expect(s.flushes() - before).toBe(5) // capped within the task
-    expect(writesFor(afterLastFlush(s.log), "n")).toHaveLength(1) // one Priming step, after the last round
+    expect(writesFor(afterLastFlush(s.log), "n")).toHaveLength(0) // nothing after the last round (ADR-0033)
 
     await nextTask()
     await endOfTask()
@@ -256,7 +261,7 @@ describe("the Measure pass (ADR-0018)", () => {
     engine.dispose()
   })
 
-  it("a single re-trigger during the flush gives two rounds and one Priming step", async () => {
+  it("a single re-trigger during the flush gives two rounds, and nothing after them before the next frame", async () => {
     let engine: ReturnType<typeof makeEngine> | undefined
     let armed = false
     const s = makeSink(() => {
@@ -274,11 +279,11 @@ describe("the Measure pass (ADR-0018)", () => {
     n.handle.notify()
     await endOfTask()
     expect(s.flushes() - before).toBe(2)
-    expect(writesFor(afterLastFlush(s.log), "n")).toHaveLength(1)
+    expect(writesFor(afterLastFlush(s.log), "n")).toHaveLength(0)
     engine.dispose()
   })
 
-  it("leaves a running node whose box didn't change alone: no write in the flush, no Priming step, no restart", async () => {
+  it("leaves a running node whose box didn't change alone: no write in the flush, none after it, no restart", async () => {
     const s = makeSink()
     const e = makeEngine(s.sink)
     const u = await registerAt(e.system, "u", 0)
@@ -296,7 +301,7 @@ describe("the Measure pass (ADR-0018)", () => {
     await endOfTask()
     expect(writesFor(insideLastFlush(s.log), "v").length).toBeGreaterThan(0)
     expect(writesFor(insideLastFlush(s.log), "u")).toHaveLength(0) // not re-written
-    expect(writesFor(afterLastFlush(s.log), "u")).toHaveLength(0) // not primed
+    expect(writesFor(afterLastFlush(s.log), "u")).toHaveLength(0) // not written after it either
 
     fireFrame()
     const uAfter = writesFor(s.log, "u").map((w) => w.translateX!)

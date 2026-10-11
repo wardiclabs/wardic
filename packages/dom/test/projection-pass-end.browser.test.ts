@@ -2,7 +2,7 @@
 // from it), checked against a fake ProjectionSink with Refresh frames fired by hand.
 //
 // `onPassEnd(system, listener)` runs `listener` once per Measure pass, after every
-// round's boxes are stored and before the pass's Priming step: a blocked pass (after a
+// round's boxes are stored: a blocked pass (after a
 // window width change) and a pass whose flush triggered more rounds included. It isn't
 // exported from `@wardic/dom`: a binding reaches it only through the controller.
 import { describe, expect, it } from "@effect/vitest"

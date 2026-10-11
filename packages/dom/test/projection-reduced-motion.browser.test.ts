@@ -56,7 +56,7 @@ const moveTo = async (
 }
 
 describe("layout animations under reduced motion (ADR-0029)", () => {
-  it("RM1: a box move lands at once: every write is identity, and the node settles within the Priming step's frame", async () => {
+  it("RM1: a box move lands at once: every write is identity, and the node settles within its first Refresh frame", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink, { reducedMotion: () => true })
     const node = await mount(e, "a", 0)
