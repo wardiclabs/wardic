@@ -211,7 +211,7 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
     | `Stagger` | `stagger` → `Stagger.make`, its option types | plain |
     | `Wave` | `wave` → `.sine`, `pulse`, `noise` | plain |
     | `Recognizer` | `hover`, `press`, `focus`, `inView`, `drag`: CONTEXT's Recognizer | Stream constructors |
-    | `Drag` | `DragSample` → `Drag.Sample`; `axisLock` and `withinBounds`, now `dual`; `DragBounds`, `AxisRange`; `withMomentum` → `Drag.fling`, CONTEXT's Fling | plain, Stream combinators |
+    | `Drag` | `DragSample` → `Drag.Sample`; `axisLock` and `withinBounds`, now `dual`; `DragBounds`, `AxisRange`; `withMomentum` → `Drag.fling`, CONTEXT's Fling, which went with #32 (*Amendment (#32)*) | plain, Stream combinators |
     | `Reorder` | the group, `make` and `dual` `register`, `resolveAxis`, `dragStart`, `dragMove`, `dragEnd`, `move` in place of its methods; `checkReorder`, `detectAxis`, `moveItem`, the item types | data type |
     | `AutoScroll` | `autoScrollStep` → `.step`, `autoScrollAxis` → `.axis`, `AutoScrollState`, its two constants | plain |
     | `ReducedMotion` | `respectReducedMotion` → `ReducedMotion.respect` | Stream combinator |
@@ -499,3 +499,11 @@ ADR-0031's decision 2 changes decision 11's table, and #122 lands it.
 - **`velocityOf` → `Velocity.of` is gone,** with no alias, and its test (`util-effect.test.ts`) with it. Nothing outside that test called it: the reason decision 12's *Gone* gives, and ADR-0030's for `Clock.delay`. `pipeable.md`: a combinator needs a caller.
 - **Why not reshaped:** it zipped its values with `Clock.ticks`, which cost 2 dispatcher tasks per element per frame and paired a value with an older tick's `dt` when the values skipped a tick (ADR-0017, *Amendment (#25)*). A shape with neither takes its values from the tick, through a per-tick read or a machine, and nothing called it to choose between them. A Physics primitive's velocity is already on its Frames (`Frame.Physics`). A `createVelocity`, the v0.1 plan's, chooses its shape when it's built.
 - **`Velocity.between` stays,** a plain helper like `Scalar`'s and `Point`'s, on the per-frame path (`effect-first.md`). The module is `between`, `trailing` and `TimedPoint`.
+
+## Amendment (#32, 2026-10-11): `Drag.fling` goes
+
+#32 changes decision 12's `Drag` row.
+
+- **`withMomentum` → `Drag.fling` is gone,** with no alias, and its tests with it (`momentum.test.ts`, `pointer-rules.test.ts` N6 and N7). Nothing outside them called it: the reason this record's *Amendment (#25)* gives for `Velocity.of`.
+- **Why not reshaped:** it merged the drag's samples with the grabs and `switchMap`ped into emitting inners, 2 dispatcher tasks per element per frame. A `Stream` of both input-driven and Clock-driven positions can't be made inline without a `merge` or a `switchMap`, and its inline form is an `Effect` with a sink, the drag track's (ADR-0032, decision 3; ADR-0004, *Amendment (#32)*).
+- **The `Drag` module is `Sample`, `AxisRange`, `Bounds`, `axisLock` and `withinBounds`.**
