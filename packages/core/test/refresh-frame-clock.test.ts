@@ -7,7 +7,6 @@ import * as Fiber from "effect/Fiber"
 import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { AtomRegistry } from "effect/reactivity"
 
 // The Clock's Cold start contract (ADR-0017), checked against a hand-driven
 // Refresh frame source. Every fiber runs on Effect's browser fallback scheduler
@@ -66,11 +65,9 @@ const makeHarness = async () => {
     const timer = setTimeout(task, 0)
     return () => clearTimeout(timer)
   })
-  const registry = AtomRegistry.make()
   const scope = Scope.makeUnsafe()
   const clock: ClockShape = await Effect.runPromise(
     Clock.fromRefreshFrames(frames.source).pipe(
-      Effect.provideService(AtomRegistry.AtomRegistry, registry),
       Scope.provide(scope),
     ),
     { scheduler },
@@ -95,7 +92,6 @@ const makeHarness = async () => {
   return {
     clock,
     frames,
-    registry,
     subscribe,
     dispatches: () => dispatches,
     closeScope: () => Effect.runPromise(Scope.close(scope, Exit.void), { scheduler }),
@@ -298,11 +294,13 @@ describe("Clock.fromRefreshFrames", () => {
     await fireAndSettle(h.frames, 1016.67) // the repeat
     h.frames.setNow(1034.34)
     await fireAndSettle(h.frames, 1033.34)
-    expect(sub.received).toHaveLength(5)
+    h.frames.setNow(1055) // a late callback, which a frame timed by its timestamp ignores
+    await fireAndSettle(h.frames, 1050.01)
+    expect(sub.received).toHaveLength(6)
     expect(sub.received[2]).toBeCloseTo(0.01667, 9)
     expect(sub.received[3]).toBeCloseTo(0.009, 9) // the repeated frame: the elapsed now()
     expect(sub.received[4]).toBeCloseTo(0.00767, 9) // the rest of the interval
-    expect(h.registry.get(h.clock.time)).toBeCloseTo(1033.34, 9) // time is back on the timestamps
+    expect(sub.received[5]).toBeCloseTo(0.01667, 9) // back on the timestamps: 1050.01 - 1033.34
     await sub.close()
   })
 
@@ -325,20 +323,19 @@ describe("Clock.fromRefreshFrames", () => {
     await sub.close()
   })
 
-  it("writes the time and dt Atoms: the Priming tick sets dt only, Refresh frames set both", async () => {
+  it("ticks the nominal dt for the Priming tick and the first Refresh frame, then the measured interval", async () => {
     const h = await makeHarness()
     const sub = h.subscribe()
-    expect(h.registry.get(h.clock.time)).toBe(0)
-    expect(h.registry.get(h.clock.dt)).toBe(0)
+    expect(sub.received).toEqual([])
 
     await endOfTask()
-    expect(h.registry.get(h.clock.dt)).toBeCloseTo(Clock.NOMINAL_DT, 9)
-    expect(h.registry.get(h.clock.time)).toBe(0) // the Priming tick has no Refresh frame timestamp
+    expect(sub.received).toEqual([Clock.NOMINAL_DT]) // the Priming tick
 
-    await fireAndSettle(h.frames, 1000)
+    await fireAndSettle(h.frames, 1000) // nothing to measure against: the Priming tick has no timestamp
     await fireAndSettle(h.frames, 1100)
-    expect(h.registry.get(h.clock.time)).toBe(1100)
-    expect(h.registry.get(h.clock.dt)).toBeCloseTo(0.1, 9)
+    expect(sub.received).toHaveLength(3)
+    expect(sub.received[1]).toBe(Clock.NOMINAL_DT)
+    expect(sub.received[2]).toBeCloseTo(0.1, 9)
     await sub.close()
   })
 })

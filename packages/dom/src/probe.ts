@@ -3,8 +3,8 @@
  * (`getBoundingClientRect`), reactive viewport size, the `prefers-reduced-motion`
  * preference, and per-target resize/intersection observation streams.
  *
- * Like {@link ClockDomLive}, the writable Atoms (`viewport`,
- * `prefersReducedMotion`) are pinned with `keepAlive` and written through the
+ * The writable Atoms (`viewport`, `prefersReducedMotion`) are pinned with
+ * `keepAlive` and written through the
  * Environment's {@link AtomRegistry} captured at build time — the same registry
  * a consumer reads `Probe.viewport`/`Probe.prefersReducedMotion` from — so the
  * `make`/event path can update them without leaking an `AtomRegistry`
@@ -45,7 +45,7 @@ const toBounds = (r: DOMRect): Probe.Bounds => ({
 /**
  * Captures the Environment's {@link AtomRegistry} and forks the `resize` /
  * media-query `change` listeners into the layer scope; both are the sole writers
- * of their respective Atoms, mirroring `ClockDomLive`'s `tick` → `registry.set`.
+ * of their respective Atoms.
  * `Layer.effect` runs `make` in the layer's own scope (it `Exclude`s `Scope`),
  * which the shared helpers' `RcMap`s and the forked listeners need.
  */
@@ -136,7 +136,7 @@ const make = Effect.gen(function* () {
 /**
  * `Probe` Layer backed by the DOM. Requires the Environment's `AtomRegistry`
  * (the registry consumers read `viewport`/`prefersReducedMotion` from); `DomLive`
- * provides it via `AtomRegistry.layer`, exactly as `ClockDomLive` does. Built
+ * provides it via `AtomRegistry.layer`, as `testLayer` does. Built
  * with `Layer.effect` so `make` runs in the layer's scope — the shared helpers'
  * `RcMap`s and the forked listeners live for the layer's lifetime. Building it on a
  * server (no `window`) fails with the client-only error (ADR-0021, decision 7).

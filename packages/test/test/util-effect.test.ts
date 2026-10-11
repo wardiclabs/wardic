@@ -1,17 +1,8 @@
-import * as Clock from "@wardic/core/Clock"
 import * as Velocity from "@wardic/core/Velocity"
 import { TestClock } from "@wardic/test"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { expect, it } from "@effect/vitest"
-
-it.effect("Clock.delay completes once accumulated dt reaches the target", () =>
-  // [0.25, 0.25, 0.25] accumulates 0.25 → 0.50 (>= 0.5, stop). Resolves cleanly.
-  Effect.gen(function* () {
-    const result = yield* Clock.delay(0.5)
-    expect(result).toBeUndefined()
-  }).pipe(Effect.provide(TestClock.layer([0.25, 0.25, 0.25]))),
-)
 
 it.effect("Velocity.of zips values with Clock.ticks for variable frame times", () =>
   // Samples: 0, 1, 3, 7. Frames: 0.5, 0.25, 0.25 (non-uniform).
