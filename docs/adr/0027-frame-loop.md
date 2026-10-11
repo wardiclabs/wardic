@@ -54,7 +54,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
      - an infinite `repeat` cycles its segment, or its forward and back pair, without settling.
    - **`springBlend` and `animateValues`** resolve their blenders when the machine is built, an Effect needing `InterpolatorRegistry`. The step stays pure, with `display` / `visibility`'s hold-until-done rule in the blender.
    - **`chase`** reads `getTarget()` on each step and never settles.
-   - **The steppers stay pure,** and the machine holds the current state. Stepping in place is a later optimisation, if the bench asks for it.
+   - **The steppers stay pure,** and the machine holds the current state. Stepping in place is a later optimisation, if the bench asks for it. `springValues` steps in place since #111: *Amendment (#111)*.
    - **Two quirks are reproduced, so the Frames don't change, and filed:**
      - `delay` applies again on every segment of `animate`'s `repeat` / `yoyo` and at every stop of `keyframes` (`scalar.ts:168`, `:208`; #77). Fixed by #77: *Amendment (#77)*;
      - `springValues` passes a raw `dt` to `stepSpring`, never clamped at `MAX_DT` (`multi.ts:202`; #78). Fixed by #78: *Amendment (#78)*.
@@ -142,7 +142,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
   - it closes at the last release (`:129-139`), so a lone animation's Retarget would close and reopen the burst, with a new fork and a new burst span each time;
   - its only keep-alive, `idleTimeToLive`, is wall-clock, the keep-warm ADR-0017 rejected for the Clock;
   - with the per-run `Scope`, it costs 1–3 ms more on a frame where many settle.
-- **Stepping state in place.** Deferred: not measured, and the steppers stay the unit-test target.
+- **Stepping state in place.** Deferred: not measured, and the steppers stay the unit-test target. Taken up for `springValues` by #111, measured: *Amendment (#111)*.
 - **Fixing the two quirks in #68.** Rejected: #68 is behaviour-neutral, so a parity test can pin today's Frames. Each fix lands once, in its machine (#77, #78).
 - **A same-frame gate flush now** (Option C of the research note). Rejected for #68: it's a visible behaviour change, it needs #52 and a rethink of the Priming tick and step, and the pipelines that hop would miss it (#73).
 - **Merging the projection coordinator in the first slice.** Rejected: it saves no measurable time, and ADR-0018's subtleties deserve their own review (#75).
@@ -473,3 +473,11 @@ ADR-0028 takes this record's rejected option, "Primitives return a machine, and 
 - ***Implementation in #68's first PR* is reversed:** the sequencing exists once, in the combinators, not in the machines and again in the composites' `Stream`s. Its one difference between the drivers goes: a fractional `repeat` settles on its last segment through the `Stream` too.
 - **The quirks' fixes move.** #77's `delay` once is `Machine.delay`'s hold, outside the segments, where `animatePlan`'s `optionsFor` kept it in the first segment's stepper; a Frame after the hold can differ from main's in its last bit (ADR-0028, decision 9). #78's clamp stays in each leaf's step, once per step, and the hold counts each tick at most `MAX_DT` too: as a `clampDt` layer it failed the gate in V8 (ADR-0028, *Implementation in #94*).
 - **The binding** runs every animation with `Machine.run(sink)`, and solid's `runOnLoop` goes (*Implementation in #74*); dom's coordinator is `Machine.make({ … })` (*Implementation in #75*).
+
+## Amendment (#111, 2026-10-11): `springValues` steps in place
+
+ADR-0030's decision 11 takes up decision 4's "stepping in place is a later optimisation, if the bench asks for it", and *Considered Options*' deferral: #83 measured allocation first, and the bench asked.
+
+- **`springValues`' run steps in place.** It holds its keys' springs as arrays and rewrites one Frame, its `value` and its `velocity`, each tick, allocating nothing per tick. The other leaves (`tween`, `spring`, `decay`, `chase`, `decayVec`) allocate their Frame per tick, as decision 4 has it.
+- **The steppers stay pure,** and the unit-test target: `Spring.step`, `stepTween` and `stepDecay` are unchanged. `springValues`' step writes `Spring.step`'s integration out in place, and `machines.test.ts` holds it to one `Machine.spring` per key, every Frame equal.
+- **A Frame handed to a sink is the run's until the next tick,** on `FrameLoop.Sink` and `Machine.run`: a sink that keeps one copies it. `Machine.toStream` copies a record Frame before it emits, so a `Stream` consumer's Frames are its own (ADR-0030, *Implementation in #111*).

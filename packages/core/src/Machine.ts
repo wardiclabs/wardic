@@ -434,18 +434,39 @@ export const withSpan: {
 /** A settled Frame: a settling machine's run ends at its first. */
 const isSettled = (frame: Frame.Frame<unknown>): boolean => frame.done
 
+/** A Frame with a record `velocity` beside its record `value`: `springValues`' (`Frame.MultiPhysics`). */
+const isMultiPhysics = (frame: Frame.Frame<unknown>): frame is Frame.MultiPhysics =>
+  Predicate.isObject((frame as Frame.MultiPhysics).velocity)
+
+/**
+ * A Frame its Stream consumer owns: a record `value`, and a record `velocity` beside it, copied,
+ * since a step may rewrite them in place (`springValues`, ADR-0030 decision 11). Any other Frame
+ * passes as it is: a leaf's is fresh each tick, and a held one is never rewritten. On the
+ * per-frame path (ADR-0025): statement `if`s and plain calls.
+ */
+const owned = <F extends Frame.Frame<unknown>>(frame: F): F => {
+  if (!Predicate.isObject(frame.value)) return frame
+  if (isMultiPhysics(frame)) return { ...frame, value: { ...frame.value }, velocity: { ...frame.velocity } }
+  return { ...frame, value: { ...frame.value } }
+}
+
 /**
  * Run `self` over `Clock.ticks`: one Frame per tick, through its first settled Frame when it
  * settles. Each subscription starts its own run, under the machine's one span, with a
  * `<name>: subscribe` debug log annotated with the span's attributes. Per-frame work is
  * un-logged: it is the hot path.
+ *
+ * Each emission is its consumer's to keep: a record Frame is copied (`owned`) before it's
+ * emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11).
  */
 export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock.Clock> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const clock = yield* Clock.Clock
       yield* Effect.logDebug(`${self.span.name}: subscribe`)
-      const frames = clock.ticks.pipe(Stream.map(self.start()))
+      const step = self.start()
+      // Per frame (ADR-0025): the step, then the copy, plain calls in one closure built here.
+      const frames = clock.ticks.pipe(Stream.map((dt: number) => owned(step(dt))))
       return Bool.match(self.settles, {
         onTrue: () => frames.pipe(Stream.takeUntil(isSettled)),
         onFalse: () => frames,
@@ -459,6 +480,10 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
  * decision 8). Succeeds with the settled Frame; a machine that never settles runs until
  * interrupted. Dies if the step or the sink throws, or with the loop's own failure. Interrupting
  * it removes the run at once. One span per run, with a `<name>: start` debug log.
+ *
+ * A Frame handed to `sink` is the run's until the next tick, so a sink that keeps one copies it:
+ * `springValues` rewrites one Frame per run (ADR-0030, decision 11). The settled Frame it succeeds
+ * with is stable: nothing steps after a settle.
  *
  * A machine built with a service runs under its Effect: `Effect.flatMap(Machine.run(sink))`.
  */
@@ -597,6 +622,10 @@ export const decayVec = (initial: Point.Point, velocity: Point.Point, options: D
  * Each Frame carries a per-key `velocity` map beside `value`, straight from each spring's step;
  * a settled key reports 0. Seeding both `from` and `velocity` from a prior Frame makes a
  * velocity-preserving retarget: momentum stays continuous across the handoff.
+ *
+ * Each run steps in place (ADR-0030, decision 11): it rewrites one Frame, its `value` and its
+ * `velocity`, every tick. A sink that keeps a Frame, or either record, copies it; the settled
+ * Frame is stable, since nothing steps after a settle. `toStream` copies each one it emits.
  */
 export const springValues = (
   target: Record<string, number>,
@@ -616,32 +645,66 @@ export const springValues = (
     settles: true,
     span: { name: "wardic.springValues", attributes: { keys: keys.length } },
     start: () => {
-      let states: Rec.ReadonlyRecord<string, Spring.State> = Rec.map(target, (_, key) =>
-        Spring.init({
-          ...options,
-          from: startOf(from, key, options.from),
-          velocity: startOf(velocity, key, options.velocity),
-        }),
-      )
-      // Per frame (ADR-0025): `dt` clamped once (#78), then a loop over the keys, every key's
-      // state and target present by construction. Records, as before: #63's bench measured an array of states, filled by
-      // `push` and destructured, at +18% bytes per frame.
+      // One run's state, each key's spring at its index, and the one Frame the run hands out.
+      const count = keys.length
+      const targets = Arr.map(keys, (key) => UndefinedOr.getOrThrow(target[key]))
+      const positions = Arr.map(keys, (key) => startOf(from, key, options.from))
+      const velocities = Arr.map(keys, (key) => startOf(velocity, key, options.velocity))
+      const elapsed = Arr.map(keys, () => 0)
+      // The Frame's records, built from `{}` a key at a time. Built with `Rec.fromEntries`, the
+      // step allocated 0.38 MB a frame on Node's `springValues/loop`, against 0.14, and ran slower
+      // (ADR-0030, *Implementation in #111*).
+      const recordOf = (xs: ReadonlyArray<number>): Record<string, number> =>
+        Arr.reduce(keys, {}, (record: Record<string, number>, key, i) => {
+          record[key] = xs[i]
+          return record
+        })
+      const frame = { value: recordOf(positions), velocity: recordOf(velocities), done: false }
+      const frameValue = frame.value
+      const frameVelocity = frame.velocity
+      const { stiffness, damping, mass, restDelta, restVelocity, delay } = spring
+      // Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), then a
+      // counted loop over the keys with plain reads, nothing allocated, the run's records and the
+      // spring's fields read as this closure's locals. Each key steps by `Spring.step`'s
+      // integration, written out in place: called per key, `Spring.step` returns a new state and
+      // result. One spring per key gives the same Frames (machines.test.ts).
       return (dt) => {
         const clamped = Math.min(dt, MAX_DT)
-        const nextStates: Record<string, Spring.State> = {}
-        const values: Record<string, number> = {}
-        const velocities: Record<string, number> = {}
-        let allDone = true
-        for (const key of keys) {
-          const state = UndefinedOr.getOrThrow(states[key])
-          const result = Spring.step(state, clamped, UndefinedOr.getOrThrow(target[key]), spring)
-          nextStates[key] = result.state
-          values[key] = result.value
-          velocities[key] = result.velocity
-          if (!result.done) allDone = false
+        let done = true
+        for (let i = 0; i < count; i++) {
+          const goal = targets[i]
+          const time = elapsed[i] + clamped
+          let position = positions[i]
+          let speed = velocities[i]
+          // Only the part of this tick past the delay is integrated.
+          const simDt = Math.max(0, Math.min(clamped, time - delay))
+          if (simDt > 0) {
+            // `Spring.step`'s 1/240 s substep, as a literal, which V8 folds: dividing by a module
+            // constant ran Node's `springValues/loop` about 3% slower (ADR-0030, *Implementation in #111*).
+            const substeps = Math.max(1, Math.ceil(simDt / (1 / 240)))
+            const h = simDt / substeps
+            for (let s = 0; s < substeps; s++) {
+              const springForce = -stiffness * (position - goal)
+              const dampingForce = -damping * speed
+              speed += ((springForce + dampingForce) / mass) * h
+              position += speed * h
+            }
+          }
+          const settled = simDt > 0 && Math.abs(speed) < restVelocity && Math.abs(position - goal) < restDelta
+          if (settled) {
+            position = goal
+            speed = 0
+          }
+          if (!settled) done = false
+          positions[i] = position
+          velocities[i] = speed
+          elapsed[i] = time
+          const key = keys[i]
+          frameValue[key] = position
+          frameVelocity[key] = speed
         }
-        states = nextStates
-        return { value: values, velocity: velocities, done: allDone }
+        frame.done = done
+        return frame
       }
     },
   })

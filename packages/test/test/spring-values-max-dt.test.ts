@@ -32,7 +32,19 @@ const expectClamped = <F extends Frame.Frame<unknown>>(stalled: ReadonlyArray<F>
   expect(stalled.at(0)?.done).toBe(false)
 }
 
-/** `machine` on the Frame loop over a pushable Clock fed `dts`: the Frames its sink gets. */
+/** A Frame a sink keeps, copied with its records (`value`, `velocity`): `springValues` rewrites one per run. */
+const kept = <F extends Frame.Frame<unknown>>(frame: F): F => {
+  const records: Record<string, unknown> = {}
+  for (const [field, value] of Object.entries(frame)) {
+    if (typeof value === "object" && value !== null) records[field] = { ...value }
+  }
+  return { ...frame, ...records }
+}
+
+/**
+ * `machine` on the Frame loop over a pushable Clock fed `dts`: the Frames its sink gets, each
+ * copied, since a Frame handed to a sink is the run's until the next tick (ADR-0030, decision 11).
+ */
 const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, dts: ReadonlyArray<number>) =>
   Effect.gen(function* () {
     const clock = yield* TestClock.pushable()
@@ -40,7 +52,7 @@ const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, 
       const frames: Array<F> = []
       const run = yield* machine.pipe(
         Machine.run((frame) => {
-          frames.push(frame)
+          frames.push(kept(frame))
           return undefined
         }),
         Effect.forkChild({ startImmediately: true }),

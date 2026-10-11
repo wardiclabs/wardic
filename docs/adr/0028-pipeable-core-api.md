@@ -111,9 +111,9 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
 7. **The per-frame contract, and how it's measured (amends ADR-0025's decision 3 and ADR-0027's decision 12).**
    - **The contract:**
      1. A combinator's `start()` starts its inner machine and resolves everything once; its step makes plain calls only, in ADR-0025's per-frame forms (statement `if`s, `Math.min`, no `Option`, `Match`, Effect or new closure).
-     2. `dual` and `pipe` run when a machine is built, never in a step. A step allocates only the Frame it returns, and only when it changes it: a seam re-stamps one Frame, and `holdAfter` re-stamps the settled Frame once and returns that object on every held tick.
+     2. `dual` and `pipe` run when a machine is built, never in a step. A step allocates only the Frame it returns, and only when it changes it: a seam re-stamps one Frame, and `holdAfter` re-stamps the settled Frame once and returns that object on every held tick. Since #111 a leaf may rewrite its Frame in place: *Amendment (#111)*.
      3. Defaults add no layer: `delay(0)`, `holdAfter(0)` and a one-segment `concatAll` return their input when the machine is built.
-     4. Stepping in place stays deferred (ADR-0027, decision 4), to #83's part D, which measures allocation first.
+     4. Stepping in place stays deferred (ADR-0027, decision 4), to #83's part D, which measures allocation first. `springValues` steps in place since #111: *Amendment (#111)*.
    - **The depth of a step,** in calls:
 
      | Run | At `7967900` | With the module |
@@ -463,3 +463,18 @@ Core's API moves to the way Effect organises its own (#93): every export lives i
   - `machines.test.ts`: parity on the uneven dts;
   - `machine.test.ts`: both `dual` forms.
 - **#93's slices have all landed.**
+
+## Amendment (#111, 2026-10-11): a leaf may rewrite its Frame
+
+ADR-0030's decision 11 changes decision 7's contract, items 2 and 4.
+
+- **Item 2 holds for the combinators,** which still allocate only the Frame they return, and only when they change it. A leaf may now rewrite one Frame per run in place, as `springValues`' does. So a combinator that keeps a Frame across ticks keeps one its leaf no longer steps:
+  - `concat`'s seam re-stamps the settled Frame, and the settled segment never steps again;
+  - `holdAfter`'s held Frame is the settled one's re-stamp, after the last step;
+  - `delay`'s held start Frame is the leaf's own, returned while nothing steps, and no longer returned once the first step after the hold rewrites it;
+  - `map`'s function reads its tick's Frame;
+  - `forever` restarts with a new run, which has its own Frame.
+
+  `machines.test.ts` pins each over `springValues` against the same combinator over Frames that are fresh each tick.
+- **Item 4 is done for `springValues`:** stepping in place came back from #83's part D measured (ADR-0030, decision 11), and the other leaves wait for a measurement that asks.
+- **The contract a sink keeps,** in `pipeable.md` since ADR-0030's commit and now on `FrameLoop.Sink` and `Machine.run`: a Frame handed to a sink is the run's until the next tick, so a sink that keeps one copies it, and `run`'s settled Frame is stable. `Machine.toStream` copies a record Frame before it emits.

@@ -65,6 +65,15 @@ const expectSame = <A>(expected: ReadonlyArray<A>, actual: ReadonlyArray<A>, atL
 
 const settledLast = (frames: ReadonlyArray<Frame.Frame<unknown>>) => frames.at(-1)?.done
 
+/** A Frame a sink keeps, copied with its records (`value`, `velocity`): `springValues` rewrites one per run. */
+const kept = <F extends Frame.Frame<unknown>>(frame: F): F => {
+  const records: Record<string, unknown> = {}
+  for (const [field, value] of Object.entries(frame)) {
+    if (typeof value === "object" && value !== null) records[field] = { ...value }
+  }
+  return { ...frame, ...records }
+}
+
 // --- The oracle: the composites' Streams as they were before #94 ---------------------------------
 
 /** `frame`, re-stamped `done: false`: a seam's re-stamp. */
@@ -188,6 +197,104 @@ const blenderOf = (from: Values.Values, to: Values.Values) =>
     })
   })
 
+/**
+ * `springValues` as it stepped before #111 stepped it in place: one spring per key
+ * (`Machine.spring`'s step, `Spring.step` with `dt` clamped), each from its own start (its
+ * `from`, else `options.from`, else 0, and the same for `velocity`), every key stepped on every
+ * tick, settling once every key is at rest.
+ */
+const springValuesOracle = (
+  target: Record<string, number>,
+  options: Machine.SpringOptions,
+  from: Record<string, number>,
+  velocity: Record<string, number>,
+): Machine.Machine<Frame.MultiPhysics> =>
+  Machine.make({
+    settles: true,
+    span: { name: "oracle.springValues", attributes: {} },
+    start: () => {
+      const keys = Object.keys(target)
+      const steps = keys.map((key) =>
+        Machine.spring(target[key]!, {
+          ...options,
+          from: from[key] ?? options.from ?? 0,
+          velocity: velocity[key] ?? options.velocity ?? 0,
+        }).start(),
+      )
+      return (dt) => {
+        const frames = steps.map((step) => step(dt))
+        return {
+          value: Object.fromEntries(keys.map((key, i) => [key, frames[i]!.value])),
+          velocity: Object.fromEntries(keys.map((key, i) => [key, frames[i]!.velocity])),
+          done: frames.every((frame) => frame.done),
+        }
+      }
+    },
+  })
+
+describe("springValues against one spring per key (#111)", () => {
+  const cases = [
+    [
+      "four keys, from a velocity, through both stalls",
+      { x: 120, y: -40, scale: 1.2, opacity: 1 },
+      {},
+      { x: 0, y: 0, scale: 1, opacity: 0 },
+      { x: 300 },
+    ],
+    [
+      "options' from and velocity as the keys' defaults, a mass and a delay",
+      { x: 100, y: 50 },
+      { stiffness: 300, damping: 18, mass: 1.5, from: -20, velocity: 40, delay: 0.1 },
+      { y: 10 },
+      {},
+    ],
+    ["a key at its target from the start, stepped on with the others", { x: 10, y: 0 }, {}, { x: 0, y: 0 }, {}],
+  ] as const
+  for (const [name, target, options, from, velocity] of cases) {
+    it.effect(name, () =>
+      Effect.gen(function* () {
+        const [s, m] = yield* sideBySide(
+          Machine.toStream(springValuesOracle(target, options, from, velocity)),
+          Machine.toStream(Machine.springValues(target, options, from, velocity)),
+        )
+        expectSame(s, m, 10)
+        expect(settledLast(s)).toBe(true)
+      }))
+  }
+})
+
+/**
+ * Each combinator over `springValues`, whose run rewrites one Frame (#111), against the same
+ * combinator over the oracle, whose Frames are fresh: a combinator that kept a Frame its leaf goes
+ * on rewriting would emit a later tick's values. Through `toStream`, then through both drivers.
+ */
+describe("the combinators over springValues' rewritten Frame (#111)", () => {
+  type Build = (
+    target: Record<string, number>,
+    options: Machine.SpringOptions,
+    from: Record<string, number>,
+    velocity: Record<string, number>,
+  ) => Machine.Machine<Frame.MultiPhysics>
+  const a = (build: Build) => build({ x: 100, y: -40 }, { stiffness: 260, damping: 20 }, { x: 0, y: 0 }, { x: 200 })
+  const b = (build: Build) => build({ x: -30, y: 0 }, {}, { x: 100, y: -40 }, {})
+  const cases: ReadonlyArray<readonly [string, (build: Build) => Machine.Machine<Frame.Frame<unknown>>]> = [
+    ["concat: the seam's re-stamp", (build) => Machine.concat(a(build), b(build))],
+    ["delay: the held start Frame", (build) => a(build).pipe(Machine.delay(0.3))],
+    ["holdAfter: the held settled Frame", (build) => Machine.concat(a(build).pipe(Machine.holdAfter(0.3)), b(build))],
+    ["map: a progress, as springBlend's", (build) => a(build).pipe(Machine.map((frame) => ({ value: frame.value.x! / 100, done: frame.done })))],
+    ["forever: each restart", (build) => Machine.forever(a(build))],
+  ]
+  for (const [name, combine] of cases) {
+    it.effect(name, () =>
+      Effect.gen(function* () {
+        const [s, m] = yield* sideBySide(Machine.toStream(combine(springValuesOracle)), Machine.toStream(combine(Machine.springValues)))
+        expectSame(s, m, 10)
+        const [viaStream, viaLoop] = yield* bothDrivers(() => Effect.succeed(combine(Machine.springValues)))
+        expectSame(viaStream, viaLoop, 10)
+      }))
+  }
+})
+
 describe("the composites against their Streams before #94", () => {
   const animateCases = [
     ["one segment", { duration: 0.3 }],
@@ -253,7 +360,8 @@ describe("the composites against their Streams before #94", () => {
  * A machine through both drivers on one pushable Clock: `Machine.toStream`, and `Machine.run` on
  * the Frame loop. Each collects up to `DTS.length` Frames; a run that never settles is
  * interrupted at the end. `build` is called once per driver, so a machine that closes over state
- * of its own (a moving target) gives each driver the same.
+ * of its own (a moving target) gives each driver the same. The loop's sink keeps each Frame, so it
+ * copies it: a Frame handed to a sink is the run's until the next tick (ADR-0030, decision 11).
  */
 const bothDrivers = <F extends Frame.Frame<unknown>>(build: () => Effect.Effect<Machine.Machine<F>, never, InterpolatorRegistry.InterpolatorRegistry>) =>
   Effect.gen(function* () {
@@ -266,7 +374,7 @@ const bothDrivers = <F extends Frame.Frame<unknown>>(build: () => Effect.Effect<
       const viaLoop: Array<F> = []
       const run = yield* (yield* build()).pipe(
         Machine.run((frame) => {
-          if (viaLoop.length < DTS.length) viaLoop.push(frame)
+          if (viaLoop.length < DTS.length) viaLoop.push(kept(frame))
           return undefined
         }),
         Effect.forkChild({ startImmediately: true }),
@@ -299,6 +407,10 @@ describe("every constructor through both drivers", () => {
     [
       "springValues, from a velocity",
       () => Effect.succeed(Machine.springValues({ x: 0, y: 10 }, { stiffness: 200 }, { x: 100, y: -20 }, { x: 50 })),
+    ],
+    [
+      "springValues, options' from and velocity, a delay",
+      () => Effect.succeed(Machine.springValues({ x: 100, y: 50 }, { stiffness: 300, from: -20, velocity: 40, delay: 0.1 }, { y: 10 })),
     ],
     ["animate, repeat 2, yoyo, a delay", () => Effect.succeed(Machine.animate(-5, 20, OPTIONS))],
     ["animate, repeat Infinity", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity }))],
