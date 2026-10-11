@@ -71,6 +71,7 @@ import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox, readScrollStyle, type ScrollStyle } from "./measure.ts"
+import { reportFailure } from "./report.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
 /**
@@ -574,7 +575,7 @@ export const makeProjectionSystem = (
         Microtask.next.pipe(
           Effect.map(expire),
           Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
-          Effect.tapCause((cause) => Effect.logError(`wardic.projection: ${span} failed`, cause)),
+          Effect.tapCause((cause) => reportFailure(`wardic.projection: ${span} failed`, cause)),
           Effect.withSpan(span, { attributes }),
         ),
       ),
@@ -1448,8 +1449,8 @@ export const makeProjectionSystem = (
     for (const listener of passEndListeners) {
       try {
         listener()
-      } catch (cause) {
-        runtime.runFork(Effect.logError("wardic.projection: pass-end listener failed", cause))
+      } catch (defect) {
+        runtime.runFork(reportFailure("wardic.projection: pass-end listener failed", Cause.die(defect)))
       }
     }
     if (triggeredDuringPass && !disposed) {
@@ -1492,7 +1493,7 @@ export const makeProjectionSystem = (
       runtime.runFork(
         Microtask.next.pipe(
           Effect.andThen(measurePass),
-          Effect.tapCause((cause) => Effect.logError("wardic.projection: measure pass failed", cause)),
+          Effect.tapCause((cause) => reportFailure("wardic.projection: measure pass failed", cause)),
         ),
       ),
     )
@@ -1641,7 +1642,7 @@ export const makeProjectionSystem = (
     FiberSet.addUnsafe(
       taskFibers,
       runtime.runFork(
-        measurePass.pipe(Effect.tapCause((cause) => Effect.logError("wardic.projection: blocked pass failed", cause))),
+        measurePass.pipe(Effect.tapCause((cause) => reportFailure("wardic.projection: blocked pass failed", cause))),
       ),
     )
   }
@@ -1674,20 +1675,15 @@ export const makeProjectionSystem = (
   /**
    * The coordinator's end, told apart (ADR-0027, decision 7): a settle, or an
    * interruption (a stop outside its step, the system's dispose), is nothing; anything
-   * else (a step that threw, the Frame loop's own failure) is logged. Its nodes then wait
-   * where the last step left them, and the next trigger starts a fresh run.
+   * else (a step that threw, the Frame loop's own failure) is logged and reported
+   * (`reportFailure`, ADR-0030 decision 4). Its nodes then wait where the last step left
+   * them, and the next trigger starts a fresh run.
    */
   const coordinatorEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
     Exit.match(exit, {
       onSuccess: () => Effect.void,
       onFailure: (cause) =>
-        Bool.match(Cause.hasInterruptsOnly(cause), {
-          onTrue: () => Effect.void,
-          onFalse: () =>
-            Effect.logError("wardic.projection: coordinator failed", cause).pipe(
-              Effect.annotateLogs({ active: active.size }),
-            ),
-        }),
+        reportFailure("wardic.projection: coordinator failed", cause).pipe(Effect.annotateLogs({ active: active.size })),
     })
 
   /** Whether the coordinator's run is on the Frame loop: its fiber is still in the handle. */

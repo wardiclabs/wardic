@@ -350,3 +350,43 @@
   | the seven loop workloads | −6.5 to +4.2% | −1.1 to +0.6% | −2.1 to +3.4% |
 
   The read per start doesn't show: Node's loop starts moved −0.1 to +0.4 ms per 1,000 (starts are reported, not gated).
+
+## Implementation in #113 (slice 5): failures reported where they stop, and observability on `env`
+
+- **`reportFailure(message, cause)`,** in dom's `report.ts`, Tier 2 and exported for binding authors: it logs at Error with the cause, then calls `ErrorReporter.report(cause)`. An interruption is neither. Every boundary in both bindings calls it, so the interruption rule holds in one place, and each passes the cause on as it came, which is what lets a reporter dedupe it.
+- **The boundaries, as landed:**
+  - **Logged before, now reported too:**
+    - the spine's `wardic.spine: a leg failed`, annotated with the element's `id`;
+    - dom's five `wardic.projection: … failed`: a pass's end-of-task span, a pass-end listener (reported as `Cause.die` of what it threw), the measure pass, the blocked pass, and the coordinator, annotated with `active`.
+  - **Silent before, now logged at Error and reported:**
+    - presence's exit, `wardic.presence: an exit failed`;
+    - `runScoped`, `wardic.runScoped: a fiber failed`, which covers drag's track, `streamToSignal` (the hover, press and focus signals) and `useWardicFiber`.
+- **One change at the edges:** dom's three `tapCause` boundaries logged an interruption too. Now none does, as the coordinator and the spine already didn't.
+- **`useWardicFiber` hands its fiber to the app,** which may join it. Its failure is logged and reported anyway, since decision 4 has `runScoped` cover it, and the fiber still fails with it.
+- **Core doesn't report, and nothing installs a Logger, a level or a reporter** (decisions 4 and 5).
+- **The `env` recipe** is in the root README, under *Observability in development*, merged beside `DomLive`:
+  - `Logger.layer([Logger.consolePrettyBrowser()])`;
+  - `Layer.succeed(References.MinimumLogLevel, "Debug")`;
+  - `ErrorReporter.layer([reporter])`;
+  - `DevTools.layer()`;
+  - `Layer.succeed(FrameLoop.CheckFrames, true)`.
+
+  A test builds that `env`, typed `WardicEnv`.
+- **The devtools check confirms decision 6's inference.** The real devtools client ran over a fake WebSocket standing in for the devtools process, merged beside `DomLive` with `Layer.mergeAll`, through a tween, a spring and a run whose step throws. It sent the burst's `wardic.frameloop` span and each run's span. Its last metrics snapshot, sent as its scope closes, held `wardic_frameloop_animations`, `_settled`, `_failed` and `_tick_ms`. The loop and the client share the default `MetricRegistry`.
+- **`optimizeDeps.include`:** `effect/ErrorReporter` in the three browser configs; `effect/devtools` in dom's and solid's browser configs; `effect/socket` in dom's. The tests import the last two.
+- **Nothing else differs from decisions 4 to 6.**
+- **Tests:**
+  - **`error-reporting.browser.test.tsx`,** on `DomLive` with a logger and a recording reporter in `env`, each boundary failing for real:
+    - the spine's leg, through a blend that throws;
+    - presence's exit, through an exit to that colour, with the node removed either way;
+    - `runScoped`, through a `useWardicFiber` fiber that dies;
+    - drag's track, through `runScoped`: with `CheckFrames` on, a `snapToOrigin` release whose spring steps NaN dies with `NonFiniteFrame`, slice 4's check meeting this slice's report.
+
+    Each is logged at Error with its cause and reported once. Retargets mid-flight and an unmount log nothing and report nothing. A cause that crosses two boundaries is logged twice and reported once. Without the report call, five of these fail; without the interruption guard, the interruption test fails.
+  - **`projection-coordinator.browser.test.ts`:**
+    - the coordinator whose step throws is reported once, with the defect;
+    - the six tests that log no error report nothing.
+  - **`devtools.browser.test.ts`:** the check above.
+  - Every other test passes as it was: 674 node tests and 643 browser tests, the browser tier on a warm cache.
+- **No bench run:** nothing changes per frame.
+- **#83's slices have all landed:** #109, #110, #111, #112 and this one.

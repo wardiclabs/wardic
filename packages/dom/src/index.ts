@@ -43,6 +43,9 @@ export {
   type ProjectionSystemOptions,
   type RegisterNodeOptions,
 } from "./projection.ts"
+// Where a binding's failure stops (ADR-0030, decision 4): logged at Error and reported to the
+// Environment's ErrorReporters. Tier 2, for binding authors.
+export { reportFailure } from "./report.ts"
 // The Reorder group's controller (ADR-0020): the framework-free half of <Reorder>.
 export {
   INERT_REORDER_CONTROLLER,

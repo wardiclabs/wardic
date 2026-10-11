@@ -23,6 +23,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as ErrorReporter from "effect/ErrorReporter"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -138,6 +139,8 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
     }
   }
   const logs: Array<Logged> = []
+  // What the app's ErrorReporters would get (ADR-0030, decision 4): each reported error's message.
+  const reports: Array<string> = []
   const services = Layer.mergeAll(
     Layer.effect(Clock.Clock)(Clock.Clock.useSync(countTicks)).pipe(Layer.provide(ClockDomLive)),
     RendererDomLive,
@@ -160,6 +163,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
         }),
       ]),
       Layer.succeed(References.MinimumLogLevel, "Debug"),
+      ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))]),
     ),
   )
   const system = makeProjectionSystem(runtime, sink)
@@ -175,6 +179,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
     mostCoordinators: () => mostCoordinators,
     onSpanEnd: (listener: (record: SpanRecord) => void) => spanEnds.push(listener),
     errors: () => logs.filter((l) => l.level === "ERROR"),
+    reports: (): ReadonlyArray<string> => reports,
   }
 }
 
@@ -268,6 +273,7 @@ describe("a coordinator that settled is started afresh by the next trigger", () 
       settle(sk, "a")
       expect(offset(sk.of("a").at(-1)!), "the second FLIP ends on its slot").toBeLessThan(0.5)
       expect(e.errors()).toEqual([])
+      expect(e.reports()).toEqual([])
     })
   }
 })
@@ -317,6 +323,7 @@ describe("a coordinator started inside a tick, after it settled earlier in that 
     settle(sk, "b")
     expect(offset(sk.of("b").at(-1)!), "the release ends on b's slot").toBeLessThan(0.5)
     expect(e.errors()).toEqual([])
+    expect(e.reports()).toEqual([])
   })
 })
 
@@ -347,6 +354,7 @@ describe("stopping the coordinator outside a tick", () => {
         expect(e.open(), "the other run holds the Clock").toBe(1)
       }
       expect(e.errors()).toEqual([])
+      expect(e.reports()).toEqual([])
     })
   }
 
@@ -368,6 +376,7 @@ describe("stopping the coordinator outside a tick", () => {
     expect(offset(sk.of("b").at(-1)!), "b at its slot").toBeLessThan(0.01)
     expect(e.open(), "nothing holds the Clock").toBe(0)
     expect(e.errors()).toEqual([])
+    expect(e.reports()).toEqual([])
   })
 
   it("the last active node's dispose stops it: no write after, and the Clock's subscription goes", async () => {
@@ -387,6 +396,7 @@ describe("stopping the coordinator outside a tick", () => {
     expect(sk.writes.length, "no write after the dispose").toBe(writes)
     expect(e.open(), "nothing holds the Clock").toBe(0)
     expect(e.errors()).toEqual([])
+    expect(e.reports()).toEqual([])
   })
 })
 
@@ -506,6 +516,7 @@ describe("the coordinator is one run on the Frame loop (#75)", () => {
       expect(sk.writes.length, "no write after the stop").toBe(writes)
       expect(e.open(), "nothing holds the Clock").toBe(0)
       expect(e.errors()).toEqual([])
+      expect(e.reports()).toEqual([])
     })
   }
 
@@ -559,6 +570,7 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     fireFrame()
     expect(e.errors().map((l) => l.message)).toEqual(["wardic.projection: coordinator failed"])
     expect(e.errors()[0]!.cause).toContain("springOptions failed")
+    expect(e.reports(), "reported once, with the defect").toEqual(["springOptions failed"])
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure"])
     const writes = sk.of("a").length
     fireFrames(3)
@@ -574,5 +586,6 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     expect(offset(sk.of("a").at(-1)!), "the node settles on its slot").toBeLessThan(0.5)
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure", "Success"])
     expect(e.errors()).toHaveLength(1)
+    expect(e.reports()).toHaveLength(1)
   })
 })

@@ -41,6 +41,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import { reportFailure } from "@wardic/dom"
 import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
 import { useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -217,9 +218,11 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
 
     // One `wardic.presence.exit` span spans the whole exit animation (from the last
     // snapshot to the exit target), so a devtool/timeline shows each parent-driven
-    // exit as a bar with its key counts. Removal-on-settle is the span's end.
+    // exit as a bar with its key counts. Removal-on-settle is the span's end. A failed run
+    // is logged and reported (ADR-0030, decision 4); the node is removed either way.
     const fiber = runtime.runFork(
       Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
+        Effect.tapCause((cause) => reportFailure("wardic.presence: an exit failed", cause)),
         Effect.ensuring(Effect.sync(() => finishExit(el))),
         Effect.withSpan("wardic.presence.exit", {
           attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped },

@@ -41,6 +41,7 @@ import {
   ownValues,
   project as domProject,
   type ProjectionNodeHandle,
+  reportFailure,
   resolveInitial,
   setSvgAttrs,
   splitPatch,
@@ -52,7 +53,6 @@ import {
 } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
-import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
@@ -902,15 +902,12 @@ export function runSpine(opts: RunSpineOptions): void {
             })
             // A leg's end, told apart (ADR-0027, decision 7): a settle counts toward the returns;
             // an interruption (a Retarget, an unmount) is nothing; anything else (a step or a
-            // sink that threw, the Frame loop's own failure) is logged, and doesn't count.
+            // sink that threw, the Frame loop's own failure) is logged and reported (ADR-0030,
+            // decision 4), and doesn't count.
             const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
               Exit.match(exit, {
                 onSuccess: () => legDone,
-                onFailure: (cause) =>
-                  Bool.match(Cause.hasInterruptsOnly(cause), {
-                    onTrue: () => Effect.void,
-                    onFalse: () => Effect.logError("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
-                  }),
+                onFailure: (cause) => reportFailure("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
               })
             // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
             // numeric one, so each leg's frames report, and only the last leg's settle reports done.
