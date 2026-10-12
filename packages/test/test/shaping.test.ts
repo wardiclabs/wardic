@@ -17,36 +17,6 @@ const sample = (over: Partial<Drag.Sample> = {}): Drag.Sample => ({
 const collect = <E, R>(stream: Stream.Stream<Drag.Sample, E, R>) =>
   Stream.runCollect(stream) as Effect.Effect<ReadonlyArray<Drag.Sample>, E, R>
 
-it.effect("axisLock zeroes the off-axis on offset/delta/velocity but keeps point", () =>
-  Effect.gen(function* () {
-    const input = sample({
-      point: { x: 7, y: 13 },
-      offset: { x: 10, y: 5 },
-      delta: { x: 2, y: 3 },
-      velocity: { x: 100, y: 50 },
-    })
-    const out = yield* collect(Stream.make(input).pipe(Drag.axisLock("x")))
-
-    const [s] = out
-    expect(s!.offset).toEqual({ x: 10, y: 0 })
-    expect(s!.delta).toEqual({ x: 2, y: 0 })
-    expect(s!.velocity).toEqual({ x: 100, y: 0 })
-    // point (true pointer position) and phase are untouched.
-    expect(s!.point).toEqual({ x: 7, y: 13 })
-    expect(s!.phase).toBe("move")
-  }))
-
-it.effect("axisLock('y') zeroes the x component", () =>
-  Effect.gen(function* () {
-    const input = sample({ offset: { x: 10, y: 5 }, delta: { x: 2, y: 3 }, velocity: { x: 100, y: 50 } })
-    const out = yield* collect(Stream.make(input).pipe(Drag.axisLock("y")))
-
-    const [s] = out
-    expect(s!.offset).toEqual({ x: 0, y: 5 })
-    expect(s!.delta).toEqual({ x: 0, y: 3 })
-    expect(s!.velocity).toEqual({ x: 0, y: 50 })
-  }))
-
 it.effect("withinBounds hard clamp (elastic 0) clamps offset to min/max", () =>
   Effect.gen(function* () {
     const below = sample({ offset: { x: -50, y: 0 } })

@@ -102,7 +102,7 @@ describe("drag — (c) axis lock", () => {
     ))
 
     await dragTo(el!, 40, 40)
-    expect(translateXOf(el!)).toBe(0) // off-axis x zeroed by axisLock
+    expect(translateXOf(el!)).toBe(0) // off-axis x zeroed by the drag's axis
     expect(translateYOf(el!)).toBeCloseTo(40, 0)
   })
 })

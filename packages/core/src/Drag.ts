@@ -1,10 +1,9 @@
 /**
- * The `Drag` module: a drag gesture's `Sample`, its `Axis`, and the shaping combinators over a stream
- * of them (`axisLock`, `withinBounds`, `dual`, the stream first). `Recognizer.drag` recognizes the
- * gesture, kept to its `axis`; a binding composes its response, the Fling included (ADR-0004,
- * *Amendment (#32)*).
+ * The `Drag` module: a drag gesture's `Sample`, its `Axis`, and the shaping combinator over a stream
+ * of them (`withinBounds`, `dual`, the stream first). `Recognizer.drag` recognizes the gesture, kept
+ * to its `axis` (ADR-0019, *Amendment (#29)*); a binding composes its response, the Fling included
+ * (ADR-0004, *Amendment (#32)*).
  */
-import * as Bool from "effect/Boolean"
 import { dual } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
@@ -61,31 +60,6 @@ export interface Bounds {
  * *Amendment (#29)*).
  */
 export type Axis = "x" | "y" | "xy"
-
-/**
- * Lock a drag to a single `axis`, zeroing the off-axis component of `offset`,
- * `delta`, and `velocity` so the element only moves along `axis`. `point` (the
- * true pointer position) and `phase` are left unchanged.
- *
- * Pure and stateless: a `Stream.map`, `dual`, the stream first, that preserves the source
- * stream's `E`/`R`, so it pipes directly over `Recognizer.drag`'s output without widening its
- * dependency surface (see ADR-0004 — shaping combinators stay Probe-free).
- *
- * @example
- * Recognizer.drag(el).pipe(Drag.axisLock("x")) // offset.y, delta.y, velocity.y forced to 0
- */
-export const axisLock: {
-  (axis: "x" | "y"): <E, R>(stream: Stream.Stream<Sample, E, R>) => Stream.Stream<Sample, E, R>
-  <E, R>(stream: Stream.Stream<Sample, E, R>, axis: "x" | "y"): Stream.Stream<Sample, E, R>
-} = dual(2, <E, R>(stream: Stream.Stream<Sample, E, R>, axis: "x" | "y"): Stream.Stream<Sample, E, R> => {
-  const off: "x" | "y" = Bool.match(axis === "x", { onTrue: () => "y", onFalse: () => "x" })
-  return Stream.map(stream, (sample) => ({
-    ...sample,
-    offset: { ...sample.offset, [off]: 0 },
-    delta: { ...sample.delta, [off]: 0 },
-    velocity: { ...sample.velocity, [off]: 0 },
-  }))
-})
 
 /** `v` past the range's `min`, pulled back toward it by `elastic`; `None` within it. */
 const belowMin = (v: number, range: AxisRange, elastic: number): Option.Option<number> =>
