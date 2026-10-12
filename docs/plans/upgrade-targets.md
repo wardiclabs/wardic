@@ -106,15 +106,17 @@ imports these Solid APIs across 11 files (`bridge.ts`, `directive.ts`, `layout.t
 
 Two places carry timing guarantees that must be re-proven under Solid 2, not just re-typed:
 
-- **The flush gate's `batch`.** `@wardic/dom`'s `makeFlushGate` applies every frame's writes
-  inside the `batch` its binding hands it (ADR-0031), and `provider.tsx` hands it Solid's
-  `batch()`. The gate's same-frame guarantee (measure → write in one rAF callback, PR #11;
-  issue #2's rAF-vs-microtask question) depends on that `batch` flushing synchronously. If
-  Solid 2's doesn't, the provider passes one that does, for example
+- **The flush gate's `batch`.** `@wardic/dom`'s `makeFlushGate` runs a frame's
+  Starting-style switches inside the `batch` its binding hands it, before it commits
+  (ADR-0031, ADR-0034), and `provider.tsx` hands it Solid's `batch()`. The switch and the
+  first frame landing in one Refresh frame depends on that `batch` flushing synchronously.
+  If Solid 2's doesn't, the provider passes one that does, for example
   `(apply) => { apply(); flush() }` (inferred, not researched): one argument, not the gate.
-- **The reactive bridge (ADR-0006)**, the per-element Stream→signal bridge that the gate
-  flushes. Its signal sinks assume a signal write set inside that `batch()` reaches the DOM
-  before the frame paints. If Solid 2 defers updates, that assumption breaks.
+- **The keys the gate holds (ADR-0034).** Since #79 no frame goes through a signal: the
+  gate commits every element. But the hook that tells an element which keys the gate holds
+  sets a signal outside any `batch`, and assumes Solid has applied the element's `style`
+  when the set returns, before the commit that follows. If Solid 2 defers updates, that
+  assumption breaks the same way.
 
 ### Server rendering, from #41 (read at `solid-js` / `@solidjs/web` 2.0.0-rc.13, 2026-10-01)
 

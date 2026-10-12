@@ -215,3 +215,10 @@ ADR-0033 decides it.
 - **Decision 4's steady order becomes the tick, then its flush, in one callback,** on every Environment, changed at the loop and not at a source. The two order rules stay the source's contract, and they now order the gate's own requests (a drag's move from its input task runs before the Clock's next tick) against the Clock's.
 - **#114's open question goes:** a microtask the flush queues (an effect's Measure pass) runs after the tick on every Environment, since the flush is at the end of the tick, so a fan-out source that loops over its callbacks gives the web's order. In steady state the gate requests no frame of its own (it cancels the one its first write in a tick requested), so React Native commits once per Refresh frame with no fan-out. A fan-out matters only for frames that also carry a write made outside a tick.
 - **Decision 6's pushable frames:** one `advance` still runs the frames requested so far, then the tick. A Frame loop over that Clock flushes the gate at the tick's end, so a run's write is applied within the same `advance` (`gate.node.test.ts`, G1–G7).
+
+## Amendment (#79, 2026-10-12): the binding's `batch` runs the Starting-style switches
+
+ADR-0034 decides it.
+- **Every sink commits,** and `Renderer.commit` is a plain call. Decision 3's `batch` now runs a frame's Starting-style switches (`beforeFirstCommit`), together, before any commit, and nothing else: Solid hands its `batch()`, and a binding with no switch hands `(apply) => apply()`.
+- **The check against a React binding holds literally:** its per-frame writes go through the gate's commits, and it would hand `flushSync` for its switches (inferred).
+- **A second hook reaches the binding:** `onHeld`, the keys the gate holds on the element, called outside any `batch` before the commit that first writes a key. The gate never flushes inside the binding's own update, so the binding has applied what it changes when the call returns.

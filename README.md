@@ -95,7 +95,7 @@ function Hero() {
 }
 ```
 
-`ward()` returns a spread containing `ref`, `style`, and any event handlers needed for the animation. The initial styles are serialized into server-rendered HTML, so no flash on hydration.
+`ward()` returns a spread containing `ref`, `style`, and any event handlers needed for the animation. The initial styles are serialized into server-rendered HTML, so no flash on hydration. From the first frame on, Wardic writes each frame straight onto the element through `ref`, without re-running your component's JSX, and `style` carries only yours: a key Wardic animates is Wardic's while it drives it, and your `style` is the value it falls back to.
 
 ### The `wardic.create()` HOC for declarative usage
 
