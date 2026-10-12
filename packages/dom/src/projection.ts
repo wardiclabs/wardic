@@ -599,7 +599,7 @@ export const makeProjectionSystem = (
       : { delta, treeScale }
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
-      runtime.runSync(renderer.commit(node.element, renderer.project(patch)))
+      renderer.commit(node.element, renderer.project(patch))
     } else {
       sink.write(node.id, patch)
     }

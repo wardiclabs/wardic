@@ -1,7 +1,8 @@
 /**
  * The Starting style (ADR-0003, ADR-0021): an element's style before its first Frame,
  * `project(resolveInitial(config))`, computed purely with no runtime. It is the server's
- * markup, the style the hydration render keeps, and the animation's `from`.
+ * markup, the style the hydration render keeps, and the animation's `from`. And the style
+ * after the first Frame, the fallback: the user's, without the keys Wardic holds (ADR-0034).
  *
  * Framework-free, so every binding renders it the same way on a server and on the client
  * (the thin-bindings rule): a binding reads its config, calls these, and casts the style to
@@ -12,9 +13,11 @@
  */
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
+import * as Arr from "effect/Array"
+import * as Rec from "effect/Record"
 import type { DragDefaultStyle } from "./drag-defaults.ts"
 import { project } from "./renderer.ts"
-import { type SplitPatch, splitPatchForTag } from "./svg.ts"
+import { dashCase, type SplitPatch, splitPatchForTag } from "./svg.ts"
 
 /**
  * A values map with only the keys an animation can take: numbers and strings (custom
@@ -114,6 +117,41 @@ export const mergeStyle = (
     }
   }
   return merged
+}
+
+/**
+ * An element's style once its first frame is committed (ADR-0034): the user's style over a
+ * drag element's defaults and a component's base style, merged as {@link mergeStyle} merges
+ * them, without the keys the flush gate holds on the element (`held`, by patch key). Wardic
+ * writes those while it drives them, and `style` is their fallback: a key the gate lets go of
+ * comes back. A user style given as CSS text is parsed, so a framework never writes `cssText`
+ * over the keys the gate holds.
+ */
+export const fallbackStyle = (
+  user: object | string | undefined,
+  held: ReadonlyArray<string>,
+  defaults?: DragDefaultStyle,
+  base?: object,
+): Record<string, unknown> => {
+  const merged = mergeStyle(user, {}, defaults, base)
+  return Rec.filter(merged, (_, key) => !Arr.some(held, (patchKey) => patchKey === key || dashCase(patchKey) === key))
+}
+
+/**
+ * Whether the keys the flush gate holds, changing from `prev` to `next`, change an element's
+ * {@link fallbackStyle}: whether a key that was taken or let go of is one `style` sets
+ * (`style` as {@link mergeStyle} merges it, keyed by CSS property). Most changes touch none, and
+ * a binding then leaves its `style` alone (ADR-0034).
+ */
+export const heldTouches = (
+  prev: ReadonlyArray<string>,
+  next: ReadonlyArray<string>,
+  style: Readonly<Record<string, unknown>>,
+): boolean => {
+  const sets = (key: string): boolean => Object.hasOwn(style, key) || Object.hasOwn(style, dashCase(key))
+  const leftBehind = (from: ReadonlyArray<string>, to: ReadonlyArray<string>): boolean =>
+    Arr.some(from, (key) => !Arr.contains(to, key) && sets(key))
+  return leftBehind(prev, next) || leftBehind(next, prev)
 }
 
 /**
