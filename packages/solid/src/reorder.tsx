@@ -22,6 +22,7 @@
 import * as CoreReorder from "@wardic/core/Reorder"
 import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
+import * as Bool from "effect/Boolean"
 import {
   type Accessor,
   type Component,
@@ -40,6 +41,7 @@ import { Dynamic } from "solid-js/web"
 import { useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardUserProps } from "./use-wardic.tsx"
 import { isServer } from "./server.ts"
+import { changesContext, createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 import { MOTION_PROPS, motionToConfig, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
 
@@ -235,16 +237,22 @@ export type ReorderItemDirectiveValue = { readonly group: ItemGroup<never>; read
  */
 export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiveValue>): void {
   const first = untrack(value)
+  const cfg = (): WardicConfig => {
+    const { group: _group, value: _value, ...rest } = value()
+    return { ...rest, layout: true }
+  }
+  // As `use:ward`: a Variant child joins the nearest variant context; it provides none (#50).
+  const node = createVariantNode(cfg, useVariantContext())
   runSpine({
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
     id: createUniqueId(),
     el: () => el,
-    cfg: () => {
-      const { group: _group, value: _value, ...rest } = value()
-      return { ...rest, layout: true }
-    },
-    parent: useVariantContext(),
+    cfg,
+    parent: node.inherited,
+    extraDelay: node.extraDelay,
+    canStart: node.canStart,
+    onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
     internal: itemInternals(first.group as ItemGroup<unknown>, first.value, () => el),
   })
@@ -374,11 +382,17 @@ export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: Reor
       return local.style
     },
   })
-  return (
+  const element = (): JSX.Element => (
     <Dynamic component={tag} {...rest} {...spread}>
       {local.children}
     </Dynamic>
   )
+  // An item that changes what its children read renders its variant context's Provider around
+  // them (#50), as every Wardic element does; any other renders none.
+  return Bool.match(changesContext(untrack(config)), {
+    onFalse: element,
+    onTrue: () => <item.Provider>{element()}</item.Provider>,
+  })
 }
 
 /** `<Reorder>`: `Reorder.Group` and `Reorder.Item` (ADR-0020), as Motion's `Reorder`. */

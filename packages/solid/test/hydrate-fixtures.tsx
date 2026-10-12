@@ -331,7 +331,20 @@ export const F17 = live(() => (
   </wardic.div>
 ))
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17 } as const
+// #50 (ADR-0007, ADR-0021's amendments): a Variant child with no `initial` of its own
+// server-renders its `wardic.ul`'s `initial` name, the hydrating client holds it, and the list
+// enters staggered from it.
+const LIST = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
+export const F18 = live(() => (
+  <wardic.ul initial="hidden" animate="shown" variants={LIST} transition={{ ...TWEEN, staggerChildren: 0.05 }}>
+    <wardic.li variants={LIST}>a</wardic.li>
+    <wardic.li data-k="f18" variants={LIST}>
+      b
+    </wardic.li>
+  </wardic.ul>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -378,4 +391,6 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F16: { startK: "f16", starting: { transform: "none" }, tracks: [] },
   // A string `initial`: in the markup, held at the first paint, then animated (not snapped) to white.
   F17: { startK: "f17", starting: projected({ "background-color": "#000" }), tracks: [{ label: "red", read: red("f17"), from: 0, to: 1 }] },
+  // #50: a Variant child's Starting style is its ancestor's `initial` name.
+  F18: { startK: "f18", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f18"), from: 0, to: 1 }] },
 }

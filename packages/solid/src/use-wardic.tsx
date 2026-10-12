@@ -78,18 +78,13 @@ import {
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
+import { createVariantNode, initialOf, serverVariantNode } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
 import { useWardicGate, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
-import {
-  type WardicChildRegistration,
-  type WardicStaggerConfig,
-  type WardicVariantContextValue,
-  useVariantContext,
-  WardicVariantContext,
-} from "./variants.ts"
+import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 
 /**
  * The transform-shorthand keys the `@wardic/dom` renderer's `TRANSFORM_KEYS`
@@ -234,6 +229,13 @@ export interface WardicConfig {
   readonly animate?: WardicValues | string
   /** Named value maps `initial` / `animate` strings resolve against. */
   readonly variants?: Record<string, WardicValues>
+  /**
+   * `false` keeps an element with `variants` out of its ancestors' variants (#50, Motion's
+   * `inherit`): it inherits no names, takes no stagger slot, and hands its children no names
+   * from above it. By default a Variant child (`variants`, no `initial` or `animate` name of
+   * its own) joins its nearest ancestor with variants (CONTEXT.md).
+   */
+  readonly inherit?: boolean
   /** Target merged in (highest-but-one priority) while hovered. */
   readonly whileHover?: WardicValues
   /** Target merged in (highest priority) while pressed. */
@@ -458,10 +460,12 @@ export interface RunSpineOptions {
   /** Reactive config accessor (animate / whileHover / whileTap / transition read reactively). */
   readonly cfg: Accessor<WardicConfig>
   /**
-   * The nearest parent variant context (ADR-0007), or `undefined` at the root.
-   * The spine reads `parent.variant()` reactively to resolve an INHERITED variant
-   * name against THIS element's own `variants` (when no local `animate`), and
-   * falls back to `parent.transition()` when this config has no local transition.
+   * The variant context this element inherits from (ADR-0007): its nearest ancestor's with
+   * variants, for a Variant child (#50, `variant-node.ts`'s `inherited`), else `undefined`.
+   * The spine reads `parent.variant()` reactively to resolve an INHERITED variant name against
+   * THIS element's own `variants` (when no local `animate`), starts from `parent.initial` when
+   * it has no `initial` of its own, and falls back to `parent.transition()` when this config
+   * has no local transition.
    */
   readonly parent: WardicVariantContextValue | undefined
   /**
@@ -539,9 +543,11 @@ export function runSpine(opts: RunSpineOptions): void {
   const reducedMotion = useWardicReducedMotion()
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
-  // reactive dependency, must not re-seed after mount). Seeds the spring `from`
-  // Snapshot so frame 1 flows continuously out of it (no snap).
-  const initialValues = resolveInitial(untrack(cfg))
+  // reactive dependency, must not re-seed after mount), with the inherited `initial`
+  // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
+  // frame 1 flows continuously out of it (no snap).
+  const initialConfig = untrack(cfg)
+  const initialValues = resolveInitial({ initial: initialOf(initialConfig, parent), variants: initialConfig.variants })
 
   // Plain (non-reactive) Snapshot ref: each key's last emitted value, a number or a
   // string, + the numeric velocities, seeded from the SSR initial (velocities 0). Used
@@ -1110,25 +1116,20 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // so `typeof config === "function"` is a safe discriminant for the accessor.
   const cfg: Accessor<WardicConfig> = typeof config === "function" ? config : () => config
 
-  // The nearest parent variant context (ADR-0007), or undefined at the root.
-  // Read at hook-call time (component body owner) so the inheritance is wired
-  // for this instance's lifetime; the spine reads parent.variant() reactively.
-  const parent = useVariantContext()
-
-  // --- Orchestration: child registration (ADR-0007, step 21b) -------------
-  // If under a parent Provider, register on mount to obtain this child's
-  // snapshot index/total + settle reporter. The handle is read reactively by
-  // the spine (extraDelay/canStart) and onCleanup disposes it.
-  const registration: WardicChildRegistration | undefined = parent?.register()
-  if (registration !== undefined) onCleanup(registration.dispose)
+  // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
+  // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
+  // `when`). Read at hook-call time (component body owner), for this instance's lifetime.
+  const node = createVariantNode(cfg, useVariantContext())
 
   // Resolve the Renderer's PURE project once (ADR-0003: synchronous, no engine).
   const { project } = runtime.runSync(Renderer.Renderer)
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
-  // reactive dependency, must not re-seed after mount). It's the `style` until the
-  // first commit, so pre-mount render carries the initial style (no flash).
-  const initialValues = resolveInitial(untrack(cfg))
+  // reactive dependency, must not re-seed after mount), with the inherited `initial`
+  // name for a Variant child that has none (#50). It's the `style` until the first
+  // commit, so pre-mount render carries the initial style (no flash).
+  const initialConfig = untrack(cfg)
+  const initialValues = resolveInitial({ initial: initialOf(initialConfig, node.inherited), variants: initialConfig.variants })
 
   // The Starting style: the projected SSR initial, carried by `style` until the gate's
   // first commit (ADR-0021 decision 6, ADR-0034). An svg-inner tag's attribute keys are
@@ -1163,110 +1164,20 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // The element, available only after ref-mount. The spine is gated on it.
   const [el, setEl] = createSignal<HTMLElement>()
 
-  // --- Orchestration: this instance as a PARENT Provider (ADR-0007) -------
-  // An ordered registry of child records (mount order). register() pushes a
-  // record carrying per-child index/total/settled signals; the snapshot effect
-  // (below, keyed on currentVariant) rewrites index/total at each trigger.
-  interface ChildRecord {
-    readonly setIndex: (i: number) => void
-    readonly setTotal: (n: number) => void
-    readonly settled: Accessor<boolean>
-  }
-  const [registry, setRegistry] = createSignal<ReadonlyArray<ChildRecord>>([], { equals: false })
-
-  // parentSettled: flipped true when THIS instance's own spine settles; reset
-  // false at each variant change. Drives `beforeChildren` (children wait for it).
-  const [parentSettled, setParentSettled] = createSignal(false)
-
-  const register = (): WardicChildRegistration => {
-    const [index, setIndex] = createSignal(0)
-    const [total, setTotal] = createSignal(1)
-    const [settled, setSettled] = createSignal(false)
-    const record: ChildRecord = { setIndex, setTotal, settled }
-    setRegistry((prev) => [...prev, record])
-    const dispose = (): void => {
-      setRegistry((prev) => prev.filter((r) => r !== record))
-    }
-    return { index, total, setSettled, dispose }
-  }
-
-  // This instance's resolved stagger config, from cfg().transition (ADR-0007).
-  const staggerConfig: Accessor<WardicStaggerConfig> = createMemo(() => {
-    const t = cfg().transition
-    return {
-      amount: t?.staggerChildren ?? 0,
-      delayChildren: t?.delayChildren ?? 0,
-      from: t?.from ?? "first",
-      direction: t?.staggerDirection ?? 1,
-    }
-  })
-  const whenMode: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => cfg().transition?.when
-
-  // Snapshot-at-trigger (ADR-0007): recompute each child's index/total ONLY when
-  // THIS instance's variant changes (the trigger). A mount/unmount/reorder
-  // mid-transition does NOT reshuffle in-flight indices — this effect is keyed
-  // on the variant, not on the registry. `staggerDirection: -1` reverses index.
-  // (`currentVariant` is defined below; referenced lazily inside the effect.)
-  createEffect(
-    on(
-      () => currentVariant(),
-      () => {
-        const ordered = untrack(registry)
-        const n = ordered.length
-        const dir = untrack(staggerConfig).direction
-        ordered.forEach((rec, i) => {
-          rec.setTotal(n)
-          rec.setIndex(dir === -1 ? n - 1 - i : i)
-        })
-        // A new transition has begun: this parent is no longer settled.
-        setParentSettled(false)
-      },
-    ),
-  )
-
-  // childrenMayStart: true immediately UNLESS beforeChildren, in which case true
-  // once this parent's own animation settles (ADR-0007 `when`).
-  const childrenMayStart: Accessor<boolean> = () => whenMode() !== "beforeChildren" || parentSettled()
-  // allChildrenSettled: every registered child reported settled.
-  const allChildrenSettled: Accessor<boolean> = createMemo(() => registry().every((rec) => rec.settled()))
-
-  // The parent gates its OWN spine start when when==='afterChildren' (it owns the
-  // registry, so it reads allChildrenSettled directly — NOT via a context).
-  const ownCanStart: () => boolean = () => whenMode() !== "afterChildren" || allChildrenSettled()
-
   // Run the shared spine: the gate commits each flushed Patch onto this element
-  // (ADR-0006, ADR-0034), and the sink's hooks switch its `style`. `parent`
-  // wires the variant-name inheritance (ADR-0007) into the base resolution.
-  // Orchestration wiring (ADR-0007 21b):
-  //   - extraDelay: this child's per-transition stagger delay (under a parent).
-  //   - canStart: gate this child on the parent's `beforeChildren`, AND gate this
-  //     instance's OWN spine on its `afterChildren` (both must hold).
-  //   - onFrame: report settle BOTH to the parent's registry (child role) and to
-  //     this instance's own parentSettled (parent role for beforeChildren).
-  const extraDelay: (() => number) | undefined =
-    registration !== undefined
-      ? () => {
-          const s = parent!.stagger()
-          return s.delayChildren + Stagger.make(s.amount, { from: s.from })(registration.index(), registration.total())
-        }
-      : undefined
-  const canStart: () => boolean = () => (parent?.childrenMayStart() ?? true) && ownCanStart()
-  const onFrame = (done: boolean): void => {
-    registration?.setSettled(done)
-    if (done) setParentSettled(true)
-    else setParentSettled(false)
-  }
-
+  // (ADR-0006, ADR-0034), and the sink's hooks switch its `style`. Its variant node
+  // wires the orchestration (ADR-0007, #50): the context it inherits names from, its
+  // stagger delay as a Variant child, the `when` gates on its start, and its settle report.
   runSpine({
     runtime,
     gate,
     id,
     el,
     cfg,
-    parent,
-    extraDelay,
-    canStart,
-    onFrame,
+    parent: node.inherited,
+    extraDelay: node.extraDelay,
+    canStart: node.canStart,
+    onFrame: node.onFrame,
     internal,
     styleOf: () => lastUserProps?.style,
     // The gate commits onto the element (an svg-inner element's attribute keys as
@@ -1276,41 +1187,10 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
     defaultsInProps: true,
   })
 
-  // This instance's CURRENT variant NAME, reactive (ADR-0007 name propagation).
-  // Propagation is BY NAME: when this config's resolved `animate` is a string it
-  // IS the name to publish; when `animate` is a Values map (or absent) there is
-  // no name — but an inherited name flows THROUGH (so a mid-tree wrapper without
-  // its own `animate` re-publishes the variant it inherited).
-  const currentVariant: Accessor<string | undefined> = createMemo(() => {
-    const animate = cfg().animate
-    if (typeof animate === "string") return animate
-    if (animate !== undefined) return undefined
-    return parent?.variant()
-  })
-
-  // The effective transition published to children: this config's transition, or
-  // the inherited one as the default (ADR-0007).
-  const effectiveTransition: Accessor<WardicTransition | undefined> = createMemo(
-    () => cfg().transition ?? parent?.transition(),
-  )
-
-  // The variant context value published by `ward.Provider` — accessors so the
-  // subtree stays reactive to this instance's variant / transition changes.
-  // Orchestration members (ADR-0007 21b) expose this instance's registry +
-  // stagger config + when settle signals to its children.
-  const providedValue: WardicVariantContextValue = {
-    variant: currentVariant,
-    transition: effectiveTransition,
-    register,
-    stagger: staggerConfig,
-    when: whenMode,
-    childrenMayStart,
-    allChildrenSettled,
-  }
-
-  // `<ward.Provider>` publishes this instance's variant context to the subtree.
+  // `<ward.Provider>` publishes what this instance hands its children (#50): its own
+  // variant context, its parent's passed through, or none.
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
-    <WardicVariantContext.Provider value={providedValue}>{props.children}</WardicVariantContext.Provider>
+    <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
   )
 
   // The callable + its `.Provider` property (ADR-0007). Object.assign keeps the
@@ -1360,14 +1240,6 @@ export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Re
   )
 }
 
-/** A registration that does nothing: a server render has no orchestration to join. */
-const INERT_REGISTRATION: WardicChildRegistration = Object.freeze({
-  index: () => 0,
-  total: () => 1,
-  setSettled: () => {},
-  dispose: () => {},
-})
-
 /**
  * {@link useWardicWith} during a server render (ADR-0021, decisions 1 and 4): the element's
  * Starting style and static attributes, computed purely, and nothing else: no runtime, no
@@ -1379,28 +1251,15 @@ const INERT_REGISTRATION: WardicChildRegistration = Object.freeze({
 const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals | undefined): Ward => {
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
-  const parent = useVariantContext()
   const c = typeof config === "function" ? config() : config
-  const seed = startingStyle(internal?.tag, resolveInitial(c))
+  // The same names the client hands down, read once, with orchestration that does nothing
+  // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
+  const node = serverVariantNode(c, useVariantContext())
+  const seed = startingStyle(internal?.tag, resolveInitial({ initial: initialOf(c, node.inherited), variants: c.variants }))
   const dragAxis = dragAxisOf(c, internal)
   const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
-  const t = c.transition
-  const value: WardicVariantContextValue = {
-    variant: () => (typeof c.animate === "string" ? c.animate : c.animate !== undefined ? undefined : parent?.variant()),
-    transition: () => t ?? parent?.transition(),
-    register: () => INERT_REGISTRATION,
-    stagger: () => ({
-      amount: t?.staggerChildren ?? 0,
-      delayChildren: t?.delayChildren ?? 0,
-      from: t?.from ?? "first",
-      direction: t?.staggerDirection ?? 1,
-    }),
-    when: () => t?.when,
-    childrenMayStart: () => true,
-    allChildrenSettled: () => true,
-  }
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
-    <WardicVariantContext.Provider value={value}>{props.children}</WardicVariantContext.Provider>
+    <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
   )
   return Object.assign(
     (userProps?: WardUserProps): WardProps => ({

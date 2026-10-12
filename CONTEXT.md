@@ -96,6 +96,10 @@ _Avoid_: instant animation (Motion's), snap.
 An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`Override.resolve`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
 _Avoid_: **layer** (collides with Effect/Environment Layer — never reuse it here), variant stack, state stack.
 
+**Variant child**:
+A Wardic element with `variants` that names neither its own `initial` nor `animate`, and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a named `initial` or `animate`): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
+_Avoid_: registered child, orchestrated child.
+
 ### Interaction
 
 **Recognizer**:
@@ -253,7 +257,7 @@ How a Frame stream renders outside a binding (canvas, native, tests): pushed thr
 _Avoid_: manual path; reactive path (gone with #79: no Frame reaches an element through JSX).
 
 **Starting style**:
-An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A binding's element receives it through `style` until its first frame is committed (ADR-0021, #79).
+An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). A **Variant child** with no `initial` of its own resolves its ancestor's `initial` name (#50). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A binding's element receives it through `style` until its first frame is committed (ADR-0021, #79).
 _Avoid_: initial style (`initial` is its input, not its projected result), SSR seed.
 
 **Hydration hold**:

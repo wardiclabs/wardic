@@ -15,7 +15,7 @@ Wardic is a fine-grained reactive animation engine built on [Effect v4](https://
 
 **SSR-correct by default.** `useWardic` computes initial styles synchronously during render and applies them via spread props. Server-rendered HTML arrives at the client already in the correct initial state. No flash of unanimated content, no hydration mismatch.
 
-**Variant orchestration as a first-class feature.** Declarative named animation states propagate through the component tree via the `ward.Provider` context. Children inherit the current variant from their parent, with automatic stagger support and configurable ordering. Familiar pattern from Framer Motion, but built on a reactive foundation that scales cleanly to complex trees.
+**Variant orchestration as a first-class feature.** Declarative named animation states propagate through the component tree, from every Wardic element to its children. Children inherit the current variant from their parent, with automatic stagger support and configurable ordering. Familiar pattern from Framer Motion, but built on a reactive foundation that scales cleanly to complex trees.
 
 **Built-in observability.** Every animation primitive wraps in `Effect.withSpan`. Hook up OpenTelemetry once at app entry and get hierarchical traces of every animation in your application — performance attribution, causality across the app, replay-from-trace capabilities. Production observability of animation behavior without custom instrumentation.
 
@@ -123,52 +123,32 @@ function App() {
 
 ### Variant orchestration
 
-Named animation states propagate from parent to children automatically:
+Named animation states pass from a Wardic element to its children automatically, as Motion's do. A child with `variants` and no `initial` or `animate` of its own starts from its parent's `initial` and follows its `animate`, staggered by the parent's `transition`:
 
 ```tsx
-import { useWardic, springs } from "@wardic/solid"
+import { wardic } from "@wardic/solid"
 import { For } from "solid-js"
 
+const menu = { closed: { opacity: 0, x: -200 }, open: { opacity: 1, x: 0 } }
+const item = { closed: { opacity: 0, y: 10 }, open: { opacity: 1, y: 0 } }
+
 function NavMenu(props: { isOpen: boolean }) {
-  const ward = useWardic({
-    variants: {
-      closed: { opacity: 0, x: -200 },
-      open:   { opacity: 1, x: 0 },
-    },
-    initial: "closed",
-    animate: () => (props.isOpen ? "open" : "closed"),
-    transition: {
-      type: "spring",
-      ...springs.gentle,
-      staggerChildren: 0.05,
-    },
-  })
-
   return (
-    <ward.Provider>
-      <nav {...ward()}>
-        <For each={menuItems}>
-          {(item) => <NavItem label={item.label} />}
-        </For>
-      </nav>
-    </ward.Provider>
+    <wardic.nav
+      variants={menu}
+      initial="closed"
+      animate={props.isOpen ? "open" : "closed"}
+      transition={{ staggerChildren: 0.05 }}
+    >
+      <For each={menuItems}>{(entry) => <wardic.a variants={item}>{entry.label}</wardic.a>}</For>
+    </wardic.nav>
   )
-}
-
-function NavItem(props: { label: string }) {
-  // No `initial` or `animate` — inherits the current variant from the parent
-  const ward = useWardic({
-    variants: {
-      closed: { opacity: 0, y: 10 },
-      open:   { opacity: 1, y: 0 },
-    },
-  })
-
-  return <a {...ward()}>{props.label}</a>
 }
 ```
 
-When `isOpen` flips, the parent's variant changes, the Provider propagates the change to children, and each child animates to its matching variant with the stagger applied.
+When `isOpen` flips, the nav's variant changes and each item animates to its own entry of the same name, with the stagger applied. A server render gives every item its `closed` style, so the entrance starts from it with no flash.
+
+Only those children join: an element without `variants` takes no stagger slot, an element in between passes the names through, and `inherit={false}` keeps a child out. With `useWardic`, wrap the children in `<ward.Provider>` to pass its variants down.
 
 ### Imperative primitives for fine-grained control
 

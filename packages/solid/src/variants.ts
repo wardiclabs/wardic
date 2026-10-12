@@ -9,9 +9,10 @@
  *
  *   local `animate` > parent-context variant name > `initial`.
  *
- * This file owns only the context plumbing. `useWardic` reads it and applies the
- * resolution priority; `ward.Provider` (an added property on the `useWardic`
- * callable) publishes the parent instance's current variant name down the tree.
+ * This file owns only the context plumbing. `variant-node.ts` decides what each element
+ * provides and whether it joins its ancestor (CONTEXT.md, **Variant child**); every
+ * `wardic.*` element, component wrap and `<Reorder.Item>` provides it, and a `useWardic`
+ * spread publishes it through `ward.Provider` (#50).
  *
  * Extensibility (ADR-0007, step 21b): the context value is intentionally an
  * open object — registry / stagger / `when` fields are added later as OPTIONAL
@@ -60,6 +61,10 @@ export interface WardicStaggerConfig {
  *   `undefined` when the parent's resolved `animate` is a `Values` map rather
  *   than a name (propagation is by name only — a values map has no name to
  *   inherit).
+ * - `initial` — the parent's `initial` NAME, read once (#50).
+ *
+ * Every Wardic element provides one (#50): its own if it has variants of its own, else its
+ * parent's, passed through (`variant-node.ts`).
  * - `transition` — the parent's transition, inherited as the DEFAULT for
  *   children that supply no local `transition`.
  *
@@ -69,6 +74,11 @@ export interface WardicStaggerConfig {
 export interface WardicVariantContextValue {
   /** The parent's current variant NAME, reactive (undefined if it's a values map). */
   readonly variant: Accessor<string | undefined>
+  /**
+   * The parent's `initial` variant NAME, read once (undefined if it's a values map or absent):
+   * a Variant child with no `initial` of its own starts from it (#50).
+   */
+  readonly initial: string | undefined
   /** The parent's transition, inherited as the default for children. */
   readonly transition: Accessor<WardicTransition | undefined>
   /**

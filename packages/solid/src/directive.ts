@@ -29,6 +29,7 @@
 import { createUniqueId, type Accessor } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { runSpine, type WardicConfig } from "./use-wardic.tsx"
+import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 
 /**
@@ -38,15 +39,20 @@ import { useVariantContext } from "./variants.ts"
  * @param value the reactive config accessor (Solid wraps `use:ward={config}` as `() => config`).
  */
 export function ward(el: HTMLElement, value: Accessor<WardicConfig>): void {
+  // The directive runs in a component owner, so it reads the nearest variant context
+  // (ADR-0007) and, as a Variant child, joins it (#50). It renders no children, so it
+  // provides none.
+  const node = createVariantNode(value, useVariantContext())
   runSpine({
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
     id: createUniqueId(),
     el: () => el,
     cfg: value,
-    // The directive runs in a component owner, so it inherits any parent variant
-    // context (ADR-0007) just like useWardic does.
-    parent: useVariantContext(),
+    parent: node.inherited,
+    extraDelay: node.extraDelay,
+    canStart: node.canStart,
+    onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
   })
 }

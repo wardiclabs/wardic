@@ -164,15 +164,19 @@ function Sensors(): JSX.Element {
 }
 
 /**
- * The fixture's `data-hk` values in document order, recorded under TestLive at 9531ff4
- * (before #41's fix, when the server ran the client's full code path). A Solid upgrade
- * re-records it.
+ * The fixture's `data-hk` values in document order. First recorded under TestLive at 9531ff4
+ * (before #41's fix, when the server ran the client's full code path). Re-recorded for #50: an
+ * element that changes what its children read (variants of its own, or `inherit={false}`)
+ * renders its variant context's Provider, one more component boundary, on the server and the
+ * client alike. In this fixture that's only the `wardic.span` with `variants` (the 4th key);
+ * every other key is 9531ff4's. The hydrate project (the same fixtures rendered on a server and
+ * hydrated in Chromium) checks that the client's keys still match. A Solid upgrade re-records it.
  */
-const HK_9531FF4: ReadonlyArray<string> = [
+const HK: ReadonlyArray<string> = [
   "0000",
   "000110",
   "00021",
-  "000220010",
+  "00022001000",
   "000310",
   "00040010",
   "00040011010",
@@ -453,12 +457,12 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(wrapped?.style, "a component wrap's Starting style through style").toEqual({ "background-color": "#000" })
   })
 
-  it("SV15a (guard): under TestLive, the fixture's hydration keys are 9531ff4's", () => {
-    expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK_9531FF4)
+  it("SV15a (guard): under TestLive, the fixture's hydration keys are the recorded ones", () => {
+    expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK)
   })
 
-  it("SV15b: under DomLive, the fixture's hydration keys are 9531ff4's", () => {
-    expect(keysOf(serve(() => <KeysFixture />))).toEqual(HK_9531FF4)
+  it("SV15b: under DomLive, the fixture's hydration keys are the recorded ones", () => {
+    expect(keysOf(serve(() => <KeysFixture />))).toEqual(HK)
   })
 
   it("SV16: a server render builds no runtime", () => {
