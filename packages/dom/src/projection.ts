@@ -57,6 +57,7 @@ import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Spring from "@wardic/core/Spring"
 import * as Machine from "@wardic/core/Machine"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -69,7 +70,22 @@ import { constFalse, constTrue, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { isScrollRoot, measureDocumentScroll, measureScroll, readLayoutBox, readScrollStyle, type ScrollStyle } from "./measure.ts"
+import {
+  type Holdable,
+  holdTransform,
+  isHoldable,
+  isScrollRoot,
+  measureDocumentScroll,
+  measureScroll,
+  readLayoutBox,
+  releaseTransforms,
+  type ScrollStyle,
+  scrollStyleFrom,
+  type TransformHold,
+  type TransformStyle,
+  transformStyleFrom,
+  transitionRunning,
+} from "./measure.ts"
 import { reportFailure } from "./report.ts"
 import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
 
@@ -134,6 +150,13 @@ const boxesEqual = (a: Box.Box, b: Box.Box): boolean =>
   Math.abs(a.y.min - b.y.min) < BOX_EPSILON &&
   Math.abs(a.y.max - b.y.max) < BOX_EPSILON
 
+/** Whether `b` moved by `shift` is `a`, within {@link BOX_EPSILON}, without building the moved box. */
+const equalShifted = (a: Box.Box, b: Box.Box, shift: Point.Point): boolean =>
+  Math.abs(a.x.min - b.x.min - shift.x) < BOX_EPSILON &&
+  Math.abs(a.x.max - b.x.max - shift.x) < BOX_EPSILON &&
+  Math.abs(a.y.min - b.y.min - shift.y) < BOX_EPSILON &&
+  Math.abs(a.y.max - b.y.max - shift.y) < BOX_EPSILON
+
 /** Translate a box by a point (ADR-0016: the dragged target is `grabBox + dragDelta`). */
 const offsetBox = (box: Box.Box, delta: Point.Point): Box.Box => ({
   x: { min: box.x.min + delta.x, max: box.x.max + delta.x },
@@ -142,6 +165,27 @@ const offsetBox = (box: Box.Box, delta: Point.Point): Box.Box => ({
 
 /** The centre of a box. */
 const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
+
+/**
+ * `box`, in `node`'s frame, as `node`'s ancestors that aren't nodes paint it (ADR-0012,
+ * *Amendment (#136)*). Unchanged when none of them moves it. Per frame for a Follower.
+ */
+const paintedOf = (node: NodeState, box: Box.Box): Box.Box => {
+  if (Predicate.isUndefined(node.paintDelta)) return box
+  return Projection.applyBoxDelta(box, node.paintDelta)
+}
+
+/** A box as painted, in `node`'s frame: the inverse of {@link paintedOf}. */
+const unpaintedOf = (node: NodeState, box: Box.Box): Box.Box => {
+  if (Predicate.isUndefined(node.unpaintDelta)) return box
+  return Projection.applyBoxDelta(box, node.unpaintDelta)
+}
+
+/**
+ * A box in twin `from`'s frame, in twin `to`'s (ADR-0012, *Amendment (#136)*): through
+ * where it paints, so twins under different transforms meet on screen.
+ */
+const between = (from: NodeState, to: NodeState, box: Box.Box): Box.Box => unpaintedOf(to, paintedOf(from, box))
 
 /** Whether two boxes have the same width and height (within {@link BOX_EPSILON}). */
 const sameSize = (a: Box.Box, b: Box.Box): boolean =>
@@ -301,6 +345,20 @@ interface NodeState {
    * into this node's Scroll-stable frame. `undefined` otherwise.
    */
   seed: Box.Box | undefined
+  /**
+   * How this `layoutId` node's ancestors that aren't nodes paint it, at its last pass
+   * (ADR-0012, *Amendment (#136)*): the delta from its box (which carries no transform)
+   * to the box as painted, and back. Twins are compared as painted, each converted
+   * through its own. `undefined` when no such ancestor moves it, or for a plain node.
+   */
+  paintDelta: Projection.Delta | undefined
+  unpaintDelta: Projection.Delta | undefined
+  /**
+   * This node's box as its last pass read it, with its ancestors' transforms still on
+   * (ADR-0012, *Amendment (#136)*). A pass that reads the same knows nothing moved the
+   * node, layout or transform, and keeps its stored box without reading what's above it.
+   */
+  seenBox: Box.Box | undefined
   /** Marked a scroll container (ADR-0012): its scroll is sampled + folded out of descendants. */
   readonly isScroll: boolean
   /** This scroll container's offset, sampled at measure (`{0,0}` for a non-scroll node). */
@@ -382,6 +440,9 @@ interface NodeState {
 interface RecentLeaver {
   readonly layoutId: string
   readonly box: Box.Box
+  /** The leaver's paint deltas at its last pass, for the leaving Follower it may become (#136). */
+  readonly paintDelta: Projection.Delta | undefined
+  readonly unpaintDelta: Projection.Delta | undefined
   reintroduced: boolean
 }
 
@@ -824,8 +885,10 @@ export const makeProjectionSystem = (
     const box = node.layoutBox ?? node.retained
     if (box === undefined) return
     const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
-    const delta = Projection.calcBoxDelta(layoutCorrected, lead.lastTarget) // lock onto the lead's box
-    node.lastTarget = lead.lastTarget
+    // Lock onto the lead's box, where it paints (#136): the two may sit under different transforms.
+    const target = between(lead, node, lead.lastTarget)
+    const delta = Projection.calcBoxDelta(layoutCorrected, target)
+    node.lastTarget = target
     node.lastDelta = delta
     const progress = lead.spring !== undefined ? lead.spring.position : 1
     const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
@@ -965,11 +1028,30 @@ export const makeProjectionSystem = (
   const scrollStyleOf = (el: Element): ScrollStyle => {
     let style = scrollStyles.get(el)
     if (style === undefined) {
-      style = readScrollStyle(el)
+      style = scrollStyleFrom(computedOf(el))
       scrollStyles.set(el, style)
     }
     return style
   }
+
+  /**
+   * Each element's computed style, from one `getComputedStyle` call for the system's life.
+   * The declaration is live, so the transform read each pass (ADR-0012, *Amendment
+   * (#136)*) reads current values from it: a property read per pass, not a call.
+   */
+  const computedStyles = new WeakMap<Element, CSSStyleDeclaration>()
+  const computedOf = (el: Element): CSSStyleDeclaration =>
+    UndefinedOr.match(computedStyles.get(el), {
+      onDefined: identity,
+      onUndefined: () => {
+        const style = getComputedStyle(el)
+        computedStyles.set(el, style)
+        return style
+      },
+    })
+
+  /** The twins that carry paint deltas (ADR-0012, *Amendment (#136)*): a pass that moves one sets them again. */
+  const painted = new Set<NodeState>()
 
   /**
    * The fold of everything from `el` up to the page (inclusive of `el`), memoized per
@@ -1001,6 +1083,54 @@ export const makeProjectionSystem = (
       : { containers: [{ element: el, scroll }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
     memo.set(el, fold)
     return fold
+  }
+
+  /**
+   * Whether the nodes inside `el` are moved by a transform the projection doesn't own:
+   * `el`'s, or one above it (ADR-0012, *Amendment (#136)*). Memoized per pass by element.
+   * Each such element that isn't a node goes into `holds`, to be held at its identity for
+   * the read, unless its transform is mid CSS transition: that one is left as it is, the
+   * documented limit, and still counts. A node's own transform is the projection's, and the
+   * pass clears it. Read phase only.
+   */
+  const transformedFrom = (el: Element | null, memo: Map<Element, boolean>, holds: Array<readonly [Holdable, TransformStyle]>): boolean => {
+    if (Predicate.isNull(el)) return false
+    const hit = memo.get(el)
+    if (Predicate.isNotUndefined(hit)) return hit
+    const above = transformedFrom(el.parentElement, memo, holds)
+    const moved = Bool.or(above, movesNodes(el, holds))
+    memo.set(el, moved)
+    return moved
+  }
+
+  /** Whether `el` itself, not a node, carries a transform; collected into `holds` when it can be held. */
+  const movesNodes = (el: Element, holds: Array<readonly [Holdable, TransformStyle]>): boolean => {
+    if (elementToNode.has(el as HTMLElement)) return false
+    if (isHoldable(el)) return carriesTransform(el, holds)
+    return false
+  }
+
+  const carriesTransform = (el: Holdable, holds: Array<readonly [Holdable, TransformStyle]>): boolean => {
+    const style = transformStyleFrom(computedOf(el))
+    if (Arr.isReadonlyArrayEmpty(style.moved)) return false
+    if (Bool.not(transitionRunning(el))) holds.push([el, style])
+    return true
+  }
+
+  /**
+   * Whether `node`'s box, read this pass with its ancestors' transforms still on and moved
+   * by `shift` (its fold), is what its last pass read (ADR-0012, *Amendment (#136)*).
+   */
+  const readsAsBefore = (node: NodeState, box: Box.Box, shift: Point.Point): boolean => {
+    const seen = node.seenBox
+    if (Predicate.isUndefined(seen)) return false
+    return equalShifted(seen, box, shift)
+  }
+
+  /** `node`'s box this pass: its stored one when nothing moved it, else the box just read, folded. */
+  const boxThisPass = (node: NodeState, moved: boolean, read: Box.Box, documentScroll: Point.Point): Box.Box => {
+    if (Bool.not(moved)) return UndefinedOr.getOrThrow(node.retained)
+    return foldScroll(node, read, documentScroll)
   }
 
   /** `node`'s fold this pass: nothing when it is itself a scroll root, else its ancestors'. */
@@ -1069,7 +1199,8 @@ export const makeProjectionSystem = (
    * Motion's `measuredBox`. While the element is connected it is read fresh: own
    * transform cleared and every read inside one write → read → restore window, so it
    * costs the one forced layout the binding's seed read used to. Once disconnected it
-   * is derived from the last measured (Scroll-stable) box by taking the containers'
+   * is derived from the last measured (Scroll-stable) box, put back where it painted
+   * through its paint delta (ADR-0012 *Amendment (#136)*), by taking the containers'
    * share of the fold back out — at each container's LIVE scroll while it is still
    * connected (its last-pass sample otherwise), so a container scrolled since the
    * last pass doesn't shift the seed. The root's scroll needs no such care: the Root
@@ -1087,8 +1218,10 @@ export const makeProjectionSystem = (
         el.style.transform = saved
       }
     }
-    const stable = node.layoutBox ?? node.retained
-    if (stable === undefined) return undefined
+    const stored = node.layoutBox ?? node.retained
+    if (Predicate.isUndefined(stored)) return undefined
+    // Where it painted: the stored box leaves its ancestors' transforms out (#136).
+    const stable = paintedOf(node, stored)
     let dx = 0
     let dy = 0
     for (const container of node.fold.containers) {
@@ -1125,7 +1258,13 @@ export const makeProjectionSystem = (
    */
   const holdLeaver = (node: NodeState, layoutId: string): void => {
     const box = node.layoutBox ?? node.retained
-    const recent: RecentLeaver | undefined = box !== undefined ? { layoutId, box, reintroduced: false } : undefined
+    const recent = UndefinedOr.map(box, (stored): RecentLeaver => ({
+      layoutId,
+      box: stored,
+      paintDelta: node.paintDelta,
+      unpaintDelta: node.unpaintDelta,
+      reintroduced: false,
+    }))
     if (recent !== undefined) recentLeavers.set(node.element, recent)
 
     const seedBox = rootFrameBox(node)
@@ -1234,6 +1373,12 @@ export const makeProjectionSystem = (
     // that the clamp itself is not undone by the restore — the ADR-0012
     // scroll-during-transition limit.
     const viewportBoxes: Array<Box.Box> = []
+    // Per node, in `ordered`: whether anything moved it since its last pass.
+    const moved: Array<boolean> = []
+    // The nodes a transform that isn't the projection's moves (their indices), and each one's box as painted.
+    const under: Array<number> = []
+    const paintedBoxes: Array<Box.Box> = []
+    let holds: ReadonlyArray<TransformHold> = []
     let documentScroll: Point.Point
     try {
       documentScroll = measureDocumentScroll()
@@ -1254,6 +1399,43 @@ export const makeProjectionSystem = (
       // sample is in: every container that can scroll, read once this pass.
       const folds = new Map<Element, Fold>()
       for (const node of ordered) node.fold = foldOf(node, folds)
+
+      // --- READ: what moved each node, besides the projection (ADR-0012, *Amendment (#136)*).
+      // A box carries no transform, its node's own or an ancestor's, whoever set it, so a
+      // parent moved between two passes (by `animate`, a free drag, a stylesheet, another
+      // library) carries its nodes, as CSS does, instead of leaving a stale box. The boxes
+      // just read still carry what the ancestors that aren't nodes paint. A node that reads
+      // as it did at its last pass hasn't moved, whatever is above it, and keeps its stored
+      // box: an unrelated pass reads nothing more. For one that moved, the elements above it
+      // that carry a transform are found (each one's style read once a pass), held at their
+      // identity, and its box read again.
+      const wanted: Array<readonly [Holdable, TransformStyle]> = []
+      const transformMemo = new Map<Element, boolean>()
+      for (let i = 0; i < ordered.length; i++) {
+        const node = ordered[i]
+        const shift = scrollOffset(node, documentScroll)
+        if (readsAsBefore(node, viewportBoxes[i], shift)) {
+          moved.push(false)
+          continue
+        }
+        moved.push(true)
+        node.seenBox = offsetBox(viewportBoxes[i], shift)
+        // Its paint deltas are this pass's to set again, below.
+        if (painted.delete(node)) {
+          node.paintDelta = undefined
+          node.unpaintDelta = undefined
+        }
+        if (transformedFrom(node.element.parentElement, transformMemo, wanted)) under.push(i)
+      }
+      // --- WRITE: hold the ancestors that carry a transform at their identity. -----
+      holds = Arr.map(wanted, ([el, style]) => holdTransform(el, style))
+      // --- READ: those nodes' boxes again, with nothing transformed. ----------
+      if (Arr.isArrayNonEmpty(wanted)) {
+        for (const i of under) {
+          paintedBoxes.push(viewportBoxes[i])
+          viewportBoxes[i] = Box.fromBounds(readLayoutBox(ordered[i].element))
+        }
+      }
     } finally {
       // --- WRITE: restore the transforms we cleared. --------------------------
       // `deriveAll()` at the tail re-derives the inline transform from the new delta
@@ -1267,7 +1449,26 @@ export const makeProjectionSystem = (
       // otherwise leave EVERY node's transform wiped (the per-node helper this
       // replaced could only ever strand one), and the gate's `flush` has no
       // `finally` of its own, so it would stay latched mid-flush.
+      releaseTransforms(holds)
       for (let i = 0; i < ordered.length; i++) ordered[i].element.style.transform = savedTransforms[i]
+    }
+
+    // Each moved twin's paint deltas, between its box and its box as painted, both in its
+    // Scroll-stable frame (the fold is the same shift for the two). Before the loop below
+    // folds the boxes in place, and for every twin first, so a crossfade reads its prior
+    // Lead's from this pass. A twin that didn't move keeps its last pass's; one that moved
+    // out from under every transform had them dropped above.
+    if (Arr.isArrayNonEmpty(paintedBoxes)) {
+      Arr.forEach(under, (i, k) => {
+        const node = ordered[i]
+        if (Predicate.isUndefined(node.layoutId)) return
+        const shift = scrollOffset(node, documentScroll)
+        const local = offsetBox(viewportBoxes[i], shift)
+        const seen = offsetBox(paintedBoxes[k], shift)
+        node.paintDelta = Projection.calcBoxDelta(local, seen)
+        node.unpaintDelta = Projection.calcBoxDelta(seen, local)
+        painted.add(node)
+      })
     }
 
     // --- WRITE: FLIP detection + seeding, on the already-measured boxes. ------
@@ -1276,8 +1477,10 @@ export const makeProjectionSystem = (
       // Store the box in the SCROLL-STABLE frame (ADR-0012), so a scroll change
       // between triggers doesn't leak into the delta. Every scroll offset was
       // sampled in the read phase, so the whole ancestor chain is available.
-      const newBox = foldScroll(node, viewportBoxes[i], documentScroll)
+      // A node nothing moved keeps its stored box (#136): the box just read may still carry
+      // what an ancestor's transform paints.
       const prev = node.retained
+      const newBox = boxThisPass(node, moved[i], viewportBoxes[i], documentScroll)
       node.retained = newBox
       node.layoutVersion++
       // A Switch seed only ever serves a node's first measure (ADR-0010 *Amendment
@@ -1335,8 +1538,9 @@ export const makeProjectionSystem = (
         //     FROM the prior lead's box (the prior twins become Followers locked
         //     onto us, fading out via the stack derive). Takes priority over the
         //     switch seed — the live twin's box is authoritative.
-        const priorLead = priorLeadOf(node)
-        const priorBox = priorLead !== undefined ? (priorLead.layoutBox ?? priorLead.retained) : undefined
+        // The prior Lead's box in this node's frame, through where it paints (#136).
+        const priorBox = UndefinedOr.map(priorLeadOf(node), (lead) =>
+          UndefinedOr.map(UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }), (box) => between(lead, node, box)))
         if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
           node.origin = priorBox
           node.layoutBox = newBox
@@ -1349,11 +1553,12 @@ export const makeProjectionSystem = (
         // (2) SWITCH: a disposed twin left this node a seed — no live twin in the
         //     stack. The seed is in the Root frame; rebase it into this node's
         //     Scroll-stable frame by adding its containers' scroll (sampled this
-        //     pass), then FLIP from it to the measured box (a move, no
-        //     crossfade — the leaver is gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
+        //     pass) and taking out what its ancestors' transforms paint (#136), then
+        //     FLIP from it to the measured box (a move, no crossfade — the leaver is
+        //     gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
         if (seed !== undefined) {
           const containers = scrollOffset(node, ZERO_POINT)
-          const origin = containers === ZERO_POINT ? seed : offsetBox(seed, containers)
+          const origin = unpaintedOf(node, containers === ZERO_POINT ? seed : offsetBox(seed, containers))
           if (!boxesEqual(origin, newBox)) {
             node.origin = origin
             node.layoutBox = newBox
@@ -1688,9 +1893,13 @@ export const makeProjectionSystem = (
   }
 
   /** Promote `node` to an animating Lead from `fromBox` → its own box (un-hide + move home). */
-  const promoteFrom = (node: NodeState, fromBox: Box.Box | undefined): void => {
+  const promoteFrom = (node: NodeState, from: NodeState): void => {
     const ownBox = node.retained
-    if (fromBox === undefined || ownBox === undefined || boxesEqual(fromBox, ownBox)) return
+    const fromStored = from.layoutBox ?? from.retained
+    if (Predicate.isUndefined(fromStored)) return
+    if (Predicate.isUndefined(ownBox)) return
+    const fromBox = between(from, node, fromStored)
+    if (boxesEqual(fromBox, ownBox)) return
     node.origin = fromBox
     node.layoutBox = ownBox
     node.spring = startSpring(node)
@@ -1717,20 +1926,24 @@ export const makeProjectionSystem = (
     }
     active.delete(node)
     nodes.delete(node)
+    painted.delete(node)
     cb?.()
   }
 
   /** Build a transient leaving-Follower node for a re-introduced (already-disposed) leaver. */
-  const makeFollowerNode = (el: HTMLElement, layoutId: string, box: Box.Box, onDone: () => void): NodeState => ({
+  const makeFollowerNode = (el: HTMLElement, layoutId: string, recent: RecentLeaver, onDone: () => void): NodeState => ({
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     springOptions: () => ({}),
     respectReducedMotion: () => true,
     layoutId,
     seed: undefined,
-    retained: box,
+    paintDelta: recent.paintDelta,
+    unpaintDelta: recent.unpaintDelta,
+    seenBox: undefined,
+    retained: recent.box,
     origin: undefined,
-    layoutBox: box,
+    layoutBox: recent.box,
     spring: undefined,
     animating: false,
     parent: undefined,
@@ -1778,7 +1991,7 @@ export const makeProjectionSystem = (
         const last = stack.length - 1
         stack[last - 1] = live
         stack[last] = twin
-        promoteFrom(twin, live.layoutBox ?? live.retained)
+        promoteFrom(twin, live)
       }
       // After a possible swap, re-read the (new) Lead — never assert it exists.
       const newLead = leadOf(layoutId)
@@ -1793,7 +2006,7 @@ export const makeProjectionSystem = (
     if (lead === undefined || lead.element === el || recent === undefined) return false
     const stack = stacks.get(layoutId)
     if (stack === undefined) return false
-    const follower = makeFollowerNode(el, layoutId, recent.box, onDone)
+    const follower = makeFollowerNode(el, layoutId, recent, onDone)
     recent.reintroduced = true
     nodes.add(follower)
     elementToNode.set(el, follower)
@@ -1823,6 +2036,9 @@ export const makeProjectionSystem = (
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutId: opts.layoutId,
       seed: undefined,
+      paintDelta: undefined,
+      unpaintDelta: undefined,
+      seenBox: undefined,
       retained: undefined,
       origin: undefined,
       layoutBox: undefined,
@@ -1997,6 +2213,7 @@ export const makeProjectionSystem = (
         elementToNode.delete(node.element)
         active.delete(node)
         nodes.delete(node)
+        painted.delete(node)
         // Stack relegation / promotion (ADR-0010): a leaving Lead promotes the new
         // newest node, animating it FROM the leaver's box (un-hide + move home).
         if (node.layoutId !== undefined) {
@@ -2006,7 +2223,7 @@ export const makeProjectionSystem = (
             const i = stack.indexOf(node)
             if (i >= 0) stack.splice(i, 1)
             if (stack.length === 0) stacks.delete(node.layoutId)
-            else if (wasLead) promoteFrom(stack[stack.length - 1]!, node.layoutBox ?? node.retained)
+            else if (wasLead) promoteFrom(stack[stack.length - 1]!, node)
           }
         }
         if (active.size === 0) stopTicking()

@@ -8,6 +8,12 @@
  */
 import type * as Point from "@wardic/core/Point"
 import type * as Probe from "@wardic/core/Probe"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import { constVoid } from "effect/Function"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Str from "effect/String"
 
 /**
  * Read `el`'s box AS IT CURRENTLY RENDERS — a raw `getBoundingClientRect`, no
@@ -77,14 +83,14 @@ export interface ScrollStyle {
   readonly fixed: boolean
 }
 
+/** {@link ScrollStyle} from an element's computed style. */
+export const scrollStyleFrom = (style: CSSStyleDeclaration): ScrollStyle => ({
+  scrollable: !UNSCROLLED.has(style.overflowX) || !UNSCROLLED.has(style.overflowY),
+  fixed: style.position === "fixed",
+})
+
 /** {@link ScrollStyle} of `el`, uncached: one `getComputedStyle` per call. */
-export const readScrollStyle = (el: Element): ScrollStyle => {
-  const style = getComputedStyle(el)
-  return {
-    scrollable: !UNSCROLLED.has(style.overflowX) || !UNSCROLLED.has(style.overflowY),
-    fixed: style.position === "fixed",
-  }
-}
+export const readScrollStyle = (el: Element): ScrollStyle => scrollStyleFrom(getComputedStyle(el))
 
 /**
  * The scrollers whose scroll moves `el` on screen: its ancestors that can scroll,
@@ -103,6 +109,152 @@ export const scrollersOf = (el: Element): { readonly ancestors: Array<Element>; 
     if (style.fixed) return { ancestors, page: false }
   }
   return { ancestors, page: true }
+}
+
+/** The properties that move an element on screen without moving its layout (ADR-0012, *Amendment (#136)*). */
+const TRANSFORM_PROPERTIES = ["transform", "translate", "scale", "rotate"] as const
+type TransformProperty = (typeof TRANSFORM_PROPERTIES)[number]
+
+/**
+ * Each property's identity that isn't `none`. An element held at it keeps the containing
+ * block and stacking context its transform gives it, so nothing inside lays out
+ * differently while it's held.
+ */
+const IDENTITY: Readonly<Record<TransformProperty, string>> = {
+  transform: "translate(0px)",
+  translate: "0px",
+  scale: "1",
+  rotate: "0deg",
+}
+
+const isTransformProperty = (property: string): property is TransformProperty =>
+  Arr.contains(TRANSFORM_PROPERTIES as ReadonlyArray<string>, property)
+
+/** A transition on a transform property: `all`, or one of them by name. */
+const transitionsTransform = (property: string): boolean => Bool.or(property === "all", isTransformProperty(property))
+
+/** A CSS time (`0.3s`, `200ms`) in seconds. */
+const seconds = (time: string): number =>
+  Bool.match(Str.endsWith("ms")(time), { onTrue: () => Number.parseFloat(time) / 1000, onFalse: () => Number.parseFloat(time) })
+
+/** The list a computed `transition-*` value holds, one entry per transition. */
+const entries = (value: string): Array<string> => Arr.map(value.split(","), Str.trim)
+
+/**
+ * Whether `style` declares a transition that would run on one of the transform
+ * properties: its name or `all`, with a combined duration (`max(duration, 0) + delay`)
+ * above 0. The durations and delays repeat to the properties' length, as CSS does.
+ */
+const declaresTransformTransition = (style: CSSStyleDeclaration): boolean => {
+  const durations = entries(style.transitionDuration)
+  const delays = entries(style.transitionDelay)
+  return Arr.some(entries(style.transitionProperty), (property, i) =>
+    Bool.and(
+      transitionsTransform(property),
+      Math.max(seconds(durations[i % durations.length]), 0) + seconds(delays[i % delays.length]) > 0,
+    ))
+}
+
+/** A computed transform property that moves its element: set, and not `none` (`""` is unsupported, or no style). */
+const isMoving = (value: string): boolean => Bool.and(Str.isNonEmpty(value), value !== "none")
+
+/** What the Measure pass needs from an element's style to hold its transform. */
+export interface TransformStyle {
+  /** The transform properties that aren't `none`. Empty: nothing moves it. */
+  readonly moved: ReadonlyArray<TransformProperty>
+  /** Whether a CSS transition is declared on one of them. */
+  readonly transitioned: boolean
+}
+
+/**
+ * Whether one of `style`'s transform properties moves its element. Read through the
+ * properties' accessors, which cost less than `getPropertyValue` (0.57 against 0.70 µs for
+ * the four in Chromium 147), and nothing is allocated.
+ */
+const movesAny = (style: CSSStyleDeclaration): boolean =>
+  Bool.or(Bool.or(isMoving(style.transform), isMoving(style.translate)), Bool.or(isMoving(style.scale), isMoving(style.rotate)))
+
+/**
+ * {@link TransformStyle} from an element's computed style. `getComputedStyle` returns a
+ * live declaration, so a caller that keeps one per element reads the current values each
+ * time without calling it again.
+ */
+export const transformStyleFrom = (style: CSSStyleDeclaration): TransformStyle => {
+  // Most elements carry none: they cost the four reads, and nothing else.
+  if (Bool.not(movesAny(style))) return UNMOVED
+  return {
+    moved: Arr.filter(TRANSFORM_PROPERTIES, (property) => isMoving(style[property])),
+    transitioned: declaresTransformTransition(style),
+  }
+}
+
+/** The answer for an element no transform moves, shared. */
+const UNMOVED: TransformStyle = { moved: [], transitioned: false }
+
+/**
+ * Whether a CSS transition is running on one of `el`'s transform properties. Holding it
+ * would cancel or restart that transition, so the pass leaves it as it is: its offset
+ * stays in the box (the documented limit).
+ */
+export const transitionRunning = (el: Element): boolean =>
+  Arr.some(el.getAnimations(), (animation) => Bool.and(animation instanceof CSSTransition, isTransformProperty((animation as CSSTransition).transitionProperty)))
+
+/** An element the pass can hold: one with an inline style. */
+export type Holdable = Element & ElementCSSInlineStyle
+
+/** Whether `el` has an inline style the pass can hold its transform through. */
+export const isHoldable = (el: Element): el is Holdable => Predicate.hasProperty(el, "style")
+
+/** An element held at its transform's identity for a read, and what to put back. */
+export interface TransformHold {
+  readonly element: Holdable
+  /** Each held property's own inline value and priority (`""` for none). */
+  readonly saved: ReadonlyArray<readonly [TransformProperty, string, string]>
+  /** The inline `transition-property` and priority, when the hold turned transitions off. */
+  readonly transition: Option.Option<readonly [string, string]>
+}
+
+/** Put an inline property back as it was: removed when it had no inline value. */
+const restoreProperty = (inline: CSSStyleDeclaration, property: string, value: string, priority: string): void =>
+  Bool.match(Str.isEmpty(value), {
+    onTrue: () => {
+      inline.removeProperty(property)
+    },
+    onFalse: () => inline.setProperty(property, value, priority),
+  })
+
+/**
+ * Hold `el`'s transform properties at their identity (ADR-0012, *Amendment (#136)*):
+ * inline and `!important`, so a stylesheet rule, a CSS animation and a Web Animation
+ * all give way. An element with a transition declared on one of them also gets
+ * `transition-property: none` for the hold, so it starts none.
+ */
+export const holdTransform = (el: Holdable, style: TransformStyle): TransformHold => {
+  const inline = el.style
+  const saved = Arr.map(style.moved, (property) => [property, inline.getPropertyValue(property), inline.getPropertyPriority(property)] as const)
+  const transition = Bool.match(style.transitioned, {
+    onFalse: () => Option.none<readonly [string, string]>(),
+    onTrue: () => Option.some([inline.getPropertyValue("transition-property"), inline.getPropertyPriority("transition-property")] as const),
+  })
+  if (Option.isSome(transition)) inline.setProperty("transition-property", "none", "important")
+  Arr.forEach(style.moved, (property) => inline.setProperty(property, IDENTITY[property], "important"))
+  return { element: el, saved, transition }
+}
+
+/**
+ * Put back what {@link holdTransform} replaced. The elements whose transitions it turned
+ * off get their transform back first, then a style read, then their transition, so the
+ * return from identity starts no transition either.
+ */
+export const releaseTransforms = (holds: ReadonlyArray<TransformHold>): void => {
+  Arr.forEach(holds, (hold) => Arr.forEach(hold.saved, ([property, value, priority]) => restoreProperty(hold.element.style, property, value, priority)))
+  const transitioned = Arr.filter(holds, (hold) => Option.isSome(hold.transition))
+  Arr.forEach(transitioned, (hold) => getComputedStyle(hold.element).getPropertyValue("transform"))
+  Arr.forEach(transitioned, (hold) =>
+    Option.match(hold.transition, {
+      onNone: constVoid,
+      onSome: ([value, priority]) => restoreProperty(hold.element.style, "transition-property", value, priority),
+    }))
 }
 
 /**

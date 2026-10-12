@@ -24,6 +24,21 @@
  * too, so the drag lines' seeded bound doubles (the run's `nodesPerItem`); watch the
  * children ride their items, and a retarget for #28's glued-child jump.
  *
+ * The card select (#136, ADR-0012 *Amendment (#136)*) puts the list (and its scroll
+ * container) on a card that a transform moves, which no box should carry:
+ *
+ * - **draggable card**: a `drag="x"` `wardic.div` (not `layout`). Drag it by its edge
+ *   between reorders; in the y list, drag an item diagonally and the card takes x while
+ *   the item takes y (ADR-0019, *Amendment (#29)*).
+ * - **card C moves by CSS**: C (while nothing is held) toggles a stylesheet rule's
+ *   `translate` on the card, 48px across the list's axis (a row moves down, a list or
+ *   grid right). Nothing tells Wardic.
+ *
+ * Before #136 the next pass read every item where the card had carried it and FLIPed it
+ * from where the card used to be: the items flew in by the card's move (`uninvolved
+ * still` fails), and in a diagonal drag the dragged item drifted off its card. On a
+ * card, the drag lines read boxes relative to the card instead of the stage.
+ *
  * Two toggles break it on purpose: "items via .map" renders the items without
  * `<For>`, so each reorder remounts them (the console shows one warning, and the
  * reorder doesn't animate); "touch-action: auto on items" overrides the drag default
@@ -37,7 +52,7 @@
  * @module
  */
 import { LayoutGroup, Reorder, wardic } from "@wardic/solid"
-import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
+import { batch, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import type { Box, Point } from "../lab/drag-run.ts"
 import type { ReorderEvent, ReorderFrame } from "../lab/reorder-run.ts"
 import { Checkbox, CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
@@ -58,6 +73,15 @@ const LAYOUTS: ReadonlyArray<Option<Layout>> = [
   { value: "column-reverse", label: "column-reverse" },
 ]
 
+/** What the list sits on (#136): the stage, a card dragged by Wardic, or a card a stylesheet rule moves. */
+type Card = "none" | "drag" | "css"
+
+const CARDS: ReadonlyArray<Option<Card>> = [
+  { value: "none", label: "none" },
+  { value: "drag", label: "draggable card (#136)" },
+  { value: "css", label: "card C moves by CSS (#136)" },
+]
+
 const VALUES = ["a", "b", "c", "d", "e", "f"]
 
 /** The group's axis for a layout (what the group detects). */
@@ -67,12 +91,12 @@ const axisOf = (layout: Layout): "x" | "y" | "xy" =>
 const ROOT_STYLE: JSX.CSSProperties = { display: "flex", "flex-direction": "column", "align-items": "flex-start", gap: "8px" }
 const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "460px", "--stage-h": "300px" }
 
-/** The group: a flex list of 8px gaps, 16px in from the stage (or the container). */
-const groupStyle = (layout: Layout): JSX.CSSProperties => ({
+/** The group: a flex list of 8px gaps, 16px in from the stage (or the container); flush on a card. */
+const groupStyle = (layout: Layout, carded: boolean): JSX.CSSProperties => ({
   position: "relative",
   display: "flex",
   gap: "8px",
-  margin: "16px",
+  margin: carded ? "0" : "16px",
   padding: "0",
   ...(layout === "rtl" ? { direction: "rtl" } : {}),
   ...(layout === "y" ? { "flex-direction": "column", width: "180px" } : {}),
@@ -95,13 +119,11 @@ const itemStyle = (layout: Layout, touchAuto: boolean): JSX.CSSProperties => {
   }
 }
 
-/** The scroll container: smaller than its list on the list's axis, so it scrolls. */
-const containerStyle = (layout: Layout): JSX.CSSProperties => {
+/** The scroll container: smaller than its list on the list's axis, so it scrolls. In flow on a card. */
+const containerStyle = (layout: Layout, carded: boolean): JSX.CSSProperties => {
   const column = layout === "y" || layout === "column-reverse"
   return {
-    position: "absolute",
-    left: "16px",
-    top: "16px",
+    ...(carded ? {} : { position: "absolute", left: "16px", top: "16px" }),
     overflow: "auto",
     border: "1px dashed var(--lab-border)",
     // An rtl row's container is rtl too, as in an rtl app: its scroll starts at the row's start.
@@ -109,6 +131,30 @@ const containerStyle = (layout: Layout): JSX.CSSProperties => {
     ...(column ? { width: "220px", height: "160px" } : layout === "xy" ? { width: "336px", height: "80px" } : { width: "260px", height: "80px" }),
   }
 }
+
+/**
+ * The card: 8px in from the stage, an 18px strip on top to grab it by, 6px around the
+ * list. Positioned, so the drag lines can read the items' boxes relative to it.
+ */
+const CARD_STYLE: JSX.CSSProperties = {
+  position: "absolute",
+  left: "8px",
+  top: "8px",
+  padding: "18px 6px 6px",
+  border: "1px dashed var(--lab-muted)",
+  "border-radius": "6px",
+  "user-select": "none",
+}
+const CARD_LABEL_STYLE: JSX.CSSProperties = {
+  position: "absolute",
+  left: "6px",
+  top: "2px",
+  "font-size": "10px",
+  color: "var(--lab-muted)",
+}
+
+/** The axis C moves the CSS card along: across the list, so it stays in the stage. */
+const crossAxisOf = (layout: Layout): "x" | "y" => (layout === "x" || layout === "rtl" || layout === "row-reverse" ? "y" : "x")
 
 const LIFT = { scale: 1.05 } as const
 const NO_LIFT = {} as const
@@ -128,11 +174,14 @@ const View: ScenarioDef["View"] = (props) => {
   const [viaMap, setViaMap] = createSignal(false)
   const [touchAuto, setTouchAuto] = createSignal(false)
   const [layoutChild, setLayoutChild] = createSignal(false)
+  const [card, setCard] = createSignal<Card>("none")
+  const [cardMoved, setCardMoved] = createSignal(false)
   const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES)
 
   let stage: HTMLDivElement | undefined
   let group: HTMLElement | undefined
   let container: HTMLElement | undefined
+  let cardEl: HTMLElement | undefined
   /** The item the current press is on, picked by the group's capture-phase pointerdown. */
   let pressed: HTMLElement | undefined
   let noteLayoutChange = (): void => {}
@@ -178,8 +227,20 @@ const View: ScenarioDef["View"] = (props) => {
     if (current !== undefined) current.scrolledByHand = { x: current.scrolledByHand.x + after.x - before.x, y: current.scrolledByHand.y + after.y - before.y }
   }
 
+  /** A new card choice starts it back where it rests. */
+  const chooseCard = (next: Card): void => {
+    batch(() => {
+      setCardMoved(false)
+      setCard(next)
+    })
+  }
+
+  /** What the drag lines read boxes against: the card, when the list is on one. */
+  const boxesFrame = (): HTMLElement | undefined => (card() === "none" ? stage : (cardEl ?? stage))
+
   const onKey = (e: KeyboardEvent): void => {
     if ((e.key === "s" || e.key === "S") && pressing()) scrollBy60()
+    else if ((e.key === "c" || e.key === "C") && !pressing() && card() === "css") setCardMoved((m) => !m)
     else if ((e.key === "m" || e.key === "M") && !pressing()) {
       const values = [...order()]
       const [first] = values.splice(0, 1)
@@ -232,13 +293,14 @@ const View: ScenarioDef["View"] = (props) => {
     const area = stage!
     area.addEventListener("pointerdown", pick, { capture: true, passive: true })
     const recorder = attachDragRecorder({
-      stage: () => stage,
+      stage: boxesFrame,
       item: () => pressed,
       pressArea: () => stage,
       children: () => ({}),
       reorderFrame,
       scroller: () => (inContainer() ? container : window),
-      mode: () => `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}`,
+      mode: () =>
+        `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}${card() === "none" ? "" : ` · ${card()} card`}`,
       record: (input) => {
         const press = cutShort ?? current
         if (press === undefined) return
@@ -302,22 +364,47 @@ const View: ScenarioDef["View"] = (props) => {
         ref={(el: HTMLElement) => (group = el)}
         values={order()}
         onReorder={onReorder}
-        style={groupStyle(layout())}
+        style={groupStyle(layout(), card() !== "none")}
       >
         {viaMap() ? order().map((value) => item(value)) : <For each={order()}>{(value) => item(value)}</For>}
       </Reorder.Group>
     </LayoutGroup>
   )
 
+  // The list, in its scroll container when that's on.
+  const content = (): JSX.Element => (
+    <Show when={inContainer()} fallback={list()}>
+      {/* eslint-disable-next-line solid/reactivity */}
+      <div ref={(el) => (container = el)} style={containerStyle(layout(), card() !== "none")}>
+        {list()}
+      </div>
+    </Show>
+  )
+
   return (
     <div data-scenario={ID} style={ROOT_STYLE}>
       <div class="stage" ref={stage} style={STAGE_STYLE}>
-        <Show when={inContainer()} fallback={list()}>
-          {/* eslint-disable-next-line solid/reactivity */}
-          <div ref={(el) => (container = el)} style={containerStyle(layout())}>
-            {list()}
-          </div>
-        </Show>
+        <Switch fallback={content()}>
+          <Match when={card() === "drag"}>
+            {/* eslint-disable-next-line solid/reactivity */}
+            <wardic.div ref={(el: HTMLElement) => (cardEl = el)} drag="x" dragMomentum={false} style={{ ...CARD_STYLE, cursor: "grab" }}>
+              <span style={CARD_LABEL_STYLE}>card: drag it by this edge</span>
+              {content()}
+            </wardic.div>
+          </Match>
+          <Match when={card() === "css"}>
+            <div
+              // eslint-disable-next-line solid/reactivity
+              ref={(el) => (cardEl = el)}
+              class="lab-s14-card"
+              data-moved={cardMoved() ? crossAxisOf(layout()) : undefined}
+              style={CARD_STYLE}
+            >
+              <span style={CARD_LABEL_STYLE}>card: C moves it</span>
+              {content()}
+            </div>
+          </Match>
+        </Switch>
       </div>
       <div style={CONTROLS_STYLE}>
         <Select label="layout" name="reorder-layout" options={LAYOUTS} value={layout()} onChange={setLayout} />
@@ -326,10 +413,12 @@ const View: ScenarioDef["View"] = (props) => {
         <Checkbox label="items via .map (breaks it)" name="reorder-map" checked={viaMap()} onChange={setViaMap} />
         <Checkbox label="touch-action: auto on items (breaks touch)" name="reorder-touch" checked={touchAuto()} onChange={setTouchAuto} />
         <Checkbox label="a layout child in each item (#28)" name="reorder-child" checked={layoutChild()} onChange={setLayoutChild} />
+        <Select label="card" name="reorder-card" options={CARDS} value={card()} onChange={chooseCard} />
       </div>
       <p style={NOTE_STYLE}>
         Drag an item past one neighbour, past several, and flick it. While you hold it: S scrolls the container (or the
-        page) 60px; hold it near an edge to Auto-scroll. M moves the first item to the end in code.
+        page) 60px; hold it near an edge to Auto-scroll. M moves the first item to the end in code. On a card (#136),
+        move the card (drag its edge, or C), then reorder: nothing should fly in from where the card was.
       </p>
     </div>
   )
@@ -346,13 +435,15 @@ export const s14: ScenarioDef = {
   title: "Reorder",
   kind: "drag",
   mechanism:
-    "Drag an item to reorder the list, in any layout, in a scroll container or on the page. While held, S scrolls 60px; near an edge it Auto-scrolls. M moves the first item to the end in code.",
+    "Drag an item to reorder the list, in any layout, in a scroll container or on the page, optionally on a card a transform moves. While held, S scrolls 60px; near an edge it Auto-scrolls. M moves the first item to the end in code; C moves the CSS card.",
   prediction: "safe",
   rationale:
     "The group runs Motion's Crossover on each drag sample, with the neighbour on the side of the motion (so rtl " +
     "and reversed lists reorder), and waits for the item's next Measure pass after each reorder. The dragged item is " +
     "a layout drag (ADR-0016) raised while dragged; a scroll mid-drag moves the held pointer and is folded out of " +
-    "every box, so nothing else in the list moves; the release FLIPs to the new slot.",
+    "every box, so nothing else in the list moves; the release FLIPs to the new slot. A card's transform is held " +
+    "at its identity while a moved item is measured (ADR-0012, Amendment (#136)), so the card carries the list " +
+    "and no item flies from where the card was.",
   dragExpect: {
     underPointerMaxPx: 1,
     framesBehindMax: 0,

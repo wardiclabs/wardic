@@ -179,7 +179,7 @@ While I was dragged, Motion's O kept its `whileHover` and its `whileTap` (the pr
   - Per gesture, at the drag's start and end, the claim reads and writes one `MutableRef` per axis, and the count.
   - Per drag sample, the stage after the fold is now a `Stream.filterMapEffect` that keeps or drops the sample, where it was a `Stream.tap` that claimed the Drag activity. A one-axis drag loses `axisLock`'s `Stream.map`.
   - Nothing is added per Clock tick. See *Measured* below.
-- **Found, not fixed here.** A `<Reorder>` item that reorders while its card is dragged on the other axis loses the card's offset on that axis: main and this change both paint it `30,60` where Motion paints `60,60`, and then `-60,60` on the next grab (`.tmp/29-nested/`, `DY=60`). It happens with no claim refused, so it isn't the claim's; it's left for a follow-up issue.
+- **Found, not fixed here.** A `<Reorder>` item that reorders while its card is dragged on the other axis loses the card's offset on that axis: main and this change both paint it `30,60` where Motion paints `60,60`, and then `-60,60` on the next grab (`.tmp/29-nested/`, `DY=60`). It happens with no claim refused, so it isn't the claim's: #136, fixed by ADR-0012, *Amendment (#136)*.
 - **Pinned by:**
   - `packages/core/test/pointer.test.ts`: C3 and C4 (the count), and C5–C8 (claims per axis, refused for another target, shared by one target, a count that claims nothing);
   - `packages/test/test/drag-activity.test.ts` A7–A13 (the drag that starts first claims, refused for the whole gesture, an unmount mid-gesture, the axis table, one target's subscriptions, `claim: false`, an axis read per gesture, a Stale gesture's release), and `drag.test.ts`'s two `axis` tests;
