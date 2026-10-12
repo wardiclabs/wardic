@@ -131,8 +131,12 @@ A gesture whose release was lost, e.g. swallowed by another listener or released
 _Avoid_: stuck drag.
 
 **Drag activity**:
-The number of drags active on the page, counted in one core `Context.Reference`. A drag claims it once past its threshold and releases it at its end or when interrupted. While it is non-zero, no hover and no press starts. The nested-drag lock (#29) grows out of it (ADR-0019).
-_Avoid_: drag lock (#29's claim), dragging (a projection node's flag, ADR-0016).
+The number of drags active on the page, counted in one core `Context.Reference` that also holds the **Drag claims**. A drag counts in it once past its threshold and counts off at its end or when interrupted. While it is non-zero, no hover and no press starts (ADR-0019).
+_Avoid_: drag lock (that's a **Drag claim**), dragging (a projection node's flag, ADR-0016).
+
+**Drag claim**:
+A target's hold on the page's drag axes, each claimed on its own: the axis of an `x` or `y` drag, or both for a free one. It's taken at the drag's start and kept until that gesture ends or the drag is interrupted, and every drag subscription on one target shares it. A drag that needs an axis another target holds is refused for its whole gesture, so of nested draggables the innermost drags, unless they drag on different axes (ADR-0019, *Amendment (#29)*).
+_Avoid_: drag lock (Motion's name), axis lock (a drag kept to one axis), pointer capture.
 
 **Reorder group**:
 The items a drag can reorder, and the rules that do it. Core's `Reorder.Group` (built by `Reorder.make`) holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
@@ -173,7 +177,7 @@ _Avoid_: commit (the Renderer's write), layout update (Motion's name).
 
 **Drag block**:
 While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, and stays so after the release until it settles, so the subtree rides the drag and the flight back (ADR-0016, *Amendment (#26)*). A dragged node that opts in (a **Reorder group**'s items do) is also raised above its siblings, `z-index: 1`, until its release settles (ADR-0016, *Amendment (Reorder)*).
-_Avoid_: held (the layout lab's held frames), drag lock (claiming the gesture between nested draggables, #29).
+_Avoid_: held (the layout lab's held frames), drag lock (that's a **Drag claim**).
 
 **Shared layout**:
 A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from the leaver's Measurement, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from the leaver's last Measurement, captured in the **Root frame** at the leaver's removal and held by the projection engine until the end of the current task) and a **Crossfade** (the twins coexist). The per-element box geometry stays in core.
