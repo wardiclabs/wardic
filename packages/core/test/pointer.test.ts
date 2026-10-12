@@ -2,6 +2,7 @@ import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 
 // The pointer helpers core ships for Environments and tests (ADR-0019, decision 5
 // and 3b): the event builder with mouse defaults, Motion's Primary pointer rule,
@@ -126,5 +127,74 @@ describe("DragActivity", () => {
     expect(provided.isDragActive()).toBe(true)
     expect(first.isDragActive()).toBe(false)
     release()
+  })
+  // The Drag claims (#29): a target holds the axes it claimed, each on its own; another target
+  // that needs one is refused; one target's claims share its hold, which ends at the last release.
+  const A = { name: "A" }
+  const B = { name: "B" }
+  const C = { name: "C" }
+  const take = (activity: DragActivity.Shape, target: unknown, axis: "x" | "y" | "xy") =>
+    Option.getOrThrowWith(activity.claim(target, axis), () => new Error(`refused: ${axis}`))
+
+  it("C5: a free claim refuses another target on either axis, and a refused claim counts nothing", () => {
+    const activity = DragActivity.make()
+    const releaseA = take(activity, A, "xy")
+    expect(activity.isDragActive()).toBe(true)
+    expect(Option.isNone(activity.claim(B, "xy"))).toBe(true)
+    expect(Option.isNone(activity.claim(B, "x"))).toBe(true)
+    expect(Option.isNone(activity.claim(B, "y"))).toBe(true)
+    releaseA()
+    // The refusals counted nothing, so nothing is active once A has released.
+    expect(activity.isDragActive()).toBe(false)
+    // And B claims now.
+    const releaseB = take(activity, B, "xy")
+    releaseB()
+    expect(activity.isDragActive()).toBe(false)
+  })
+
+  it("C6: each axis is claimed on its own: x and y by two targets, and a free claim needs both", () => {
+    const activity = DragActivity.make()
+    const releaseX = take(activity, A, "x")
+    // Another target takes the other axis.
+    const releaseY = take(activity, B, "y")
+    // A third needs both, or either, and is refused.
+    expect(Option.isNone(activity.claim(C, "xy"))).toBe(true)
+    expect(Option.isNone(activity.claim(C, "x"))).toBe(true)
+    expect(Option.isNone(activity.claim(C, "y"))).toBe(true)
+    // Once x is free, a free claim still needs y.
+    releaseX()
+    expect(Option.isNone(activity.claim(C, "xy"))).toBe(true)
+    const releaseCx = take(activity, C, "x")
+    releaseY()
+    releaseCx()
+    expect(activity.isDragActive()).toBe(false)
+    take(activity, C, "xy")()
+  })
+
+  it("C7: one target's claims share its hold, which ends at its last release; a repeated release frees nothing more", () => {
+    const activity = DragActivity.make()
+    const first = take(activity, A, "xy")
+    // The same target claims again: never refused by itself.
+    const second = take(activity, A, "x")
+    first()
+    first()
+    // A still holds x through its second claim, so B is refused x; y is free again.
+    expect(Option.isNone(activity.claim(B, "x"))).toBe(true)
+    const releaseBy = take(activity, B, "y")
+    second()
+    const releaseBx = take(activity, B, "x")
+    releaseBx()
+    releaseBy()
+    expect(activity.isDragActive()).toBe(false)
+  })
+
+  it("C8: a count claims no axis and refuses no one, but keeps the activity on", () => {
+    const activity = DragActivity.make()
+    const counted = activity.count()
+    const releaseA = take(activity, A, "xy")
+    releaseA()
+    expect(activity.isDragActive()).toBe(true)
+    counted()
+    expect(activity.isDragActive()).toBe(false)
   })
 })
