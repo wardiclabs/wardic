@@ -150,6 +150,20 @@ When `isOpen` flips, the nav's variant changes and each item animates to its own
 
 Only those children join: an element without `variants` takes no stagger slot, an element in between passes the names through, and `inherit={false}` keeps a child out. With `useWardic`, wrap the children in `<ward.Provider>` to pass its variants down.
 
+### Nested draggables
+
+A draggable inside a draggable drags on its own, as in Motion. A drag claims its axes when it starts (both for `drag`, one for `drag="x"` or `drag="y"`), and an ancestor that needs one of them stays where it is for that gesture:
+
+```tsx
+<wardic.div drag="x">
+  <wardic.div drag="y">Slides down; the card slides across</wardic.div>
+  <wardic.div drag>Drags alone</wardic.div>
+  <wardic.div drag dragPropagation>Drags the card with it</wardic.div>
+</wardic.div>
+```
+
+The card's `whileHover` and `whileTap` still show while a child is dragged. `dragPropagation` makes an element claim nothing, so its ancestors drag with it; `createDrag(el, { claim: false })` watches a pan over an area without blocking the draggables in it.
+
 ### Imperative primitives for fine-grained control
 
 When the declarative API doesn't fit, the lower-level hooks are there:

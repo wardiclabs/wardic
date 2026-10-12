@@ -98,3 +98,102 @@ The rest of the grill, for the record:
 - **The rest of the grill's "Rule B's `"end"` and the grab of the same down arrive through two subscriptions in no set order" now has a set order.** The drag track subscribes its samples before its grabs (ADR-0032, decision 2), so on an Environment with no page-wide feed the stale gesture's `"end"` starts its release and the grab of the same down stops it before its first frame. On main the grab came first and the release ran, so a `dragSnapToOrigin` element sprang back toward its origin while the pointer was down again (H7). In dom, decision 7's unpressed move already splits the two into separate emits, in that order.
 - **"A gesture's release can't be dropped by the grab of the same down"** holds, and more simply: a gesture's bookkeeping and its response run in one handler per sample, in place. The grab handler stops a running release and, with no gesture held, hands `x`/`y` back to the spring.
 - **N6 and N7 go with `Drag.fling`** (ADR-0032, decision 3). Their rules, a non-primary press doesn't stop a release and rule B rebases once, are pinned on the drag track by `drag-hops.browser.test.tsx` H6 and H7.
+
+## Amendment (#29, 2026-10-12): a drag claims its axes; of nested draggables the innermost drags
+
+**What was wrong.** A `pointerdown` on an inner draggable bubbles to its draggable ancestors, and every drag recognizer on the way took the gesture. Grabbing the inner element dragged the outer one too, and a free inner element rode its ancestor as well as following the pointer, so it moved twice as far.
+
+Measured 2026-10-12 with Playwright's real mouse, in Chromium 147 and Firefox 148 (both gave the same rows). `.tmp/29-nested/` drives the same scenes on a Wardic page and a framer-motion 13.4.0 page (motion-dom 13.3.0, the reference at `16c6122`). The scene is an outer draggable O holding an inner draggable I; each gesture grabs I and moves +60,+30, and the cells show each element's movement while held:
+
+| Scene (O / I) | Motion 13.4.0 | main at `a663972` |
+|---|---|---|
+| free / free | O `0,0` · I `60,30` | O `60,30` · I `120,60` |
+| layout / layout | O `0,0` · I `60,30` | O `60,30` · I `60,30` |
+| free / layout, layout / free | O stays | both drag (I `120,60`) |
+| `x` / `x` | O `0,0` · I `60,0` | O `60,0` · I `120,0` |
+| free / `x`, `x` / free | O stays | both drag |
+| `x` / `y` | both drag, each on its axis | the same |
+| free / free with `dragPropagation` on I | both drag | the same (no such prop) |
+| `x` card / `<Reorder>` list on y | both drag | the same |
+| free card / `<Reorder>` list on y | the card stays | both drag |
+
+While I was dragged, Motion's O kept its `whileHover` and its `whileTap` (the press started at the bubbled down, before any drag), but not its `whileDrag`. Grabbing O after I's release dragged O alone, and grabbing I again dragged I alone, in every scene. Motion's mechanism is a lock on each axis, taken when the drag passes its threshold: "If we don't have the lock, don't start dragging" ([VisualElementDragControls.ts:119-128](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/drag/VisualElementDragControls.ts#L119-L128), [set-active.ts](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/gestures/drag/state/set-active.ts)).
+
+**Decisions** (grilled 2026-10-12; each matches Motion unless it says otherwise):
+
+1. **The lock lives in core's Drag activity (decision 3b), claimed by `Recognizer.drag`.**
+   - Claiming a gesture is recognition (ADR-0004). The Drag activity is already page-wide by default and per runtime in tests.
+   - Every consumer of the recognizer gets the lock: the drag track, `createDrag`, and `<Reorder>` items, which run through the track.
+   - *Rejected:*
+     - the `InputSource`, whose pointer stream hover, press and drag share, so it can't tell which targets drag;
+     - the binding's drag track, which `createDrag` would bypass;
+     - a second `Context.Reference` beside the Drag activity, two page-wide references that change together.
+2. **It's claimed at the drag's `"start"`, and a refused drag stays refused until its gesture ends.**
+   - The first drag to start claims. A refused drag emits nothing for that gesture, as a tap emits nothing, and doesn't retry if the claim frees mid-gesture. Motion's `onMove` returns early without the lock in the same way.
+   - **No explicit innermost rule; it comes from listener order.**
+     - The down bubbles innermost first, so the inner target adds its page-wide listeners first (`InputSource.heldPointer`, inside each target's down).
+     - Each move then reaches the inner target's listener first and, since ADR-0032, is handled inside it.
+     - The inner and outer drags share a down point and a threshold, so they start on the same move and the inner one claims first.
+     - Motion's pan sessions update in the order their window listeners were added, which is the same mechanism.
+   - *Rejected:* claiming at the down. It gives the same outcome in every case constructed, but a `<Reorder>` item's axis is decided at the gesture's start (ADR-0020, D5).
+3. **The target holds the claim (CONTEXT.md **Drag claim**).**
+   - Every drag subscription on one target shares its claim, and a target never refuses itself. An element's drag track and a `createDrag` on the same element both see its gestures, whichever subscribed first.
+   - The axes free at the last of the target's claims' releases.
+   - The glossary avoids "drag lock", Motion's word, because `Drag.axisLock` used "lock" for a drag kept to one axis.
+4. **Claims are per axis.**
+   - A drag claims the axis of an `x` or `y` drag, or both for a free one. It's refused if another target holds any axis it needs, so `x` around `y` drags both, as Motion's does.
+   - **`Recognizer.drag(target, { axis })` is the one input.** `axis` is a `Drag.Axis` (`"x" | "y" | "xy"`), or a function read at each gesture's start, which a `<Reorder>` item passes. The recognizer keeps the samples to the axis (off-axis offset, delta and velocity zeroed) and claims it.
+   - **`Drag.axisLock` goes, with no alias** (`pipeable.md`: a combinator needs a caller).
+   - *Rejected:* keeping `axisLock` as shaping beside a claim-only `axis`. The two inputs could disagree: `Recognizer.drag(el).pipe(Drag.axisLock("x"))` would claim both axes while moving on one, and an `x` card would silently block a `y` list inside it.
+   - *Rejected:* one claim for the whole page. It would stop `x` around `y` from dragging both, which Motion and main both allow.
+5. **An opt-out: `dragPropagation` in the binding, `claim: false` in core.**
+   - The drag neither claims nor is refused, so an element with it drags with its draggable ancestors (Motion's `dragPropagation`).
+   - `createDrag(el, { claim: false })` also lets an app watch a pan over an area without blocking the draggables in it, the role of Motion's `onPan`, which takes no lock.
+   - **A non-claiming drag still counts in the Drag activity** (`DragActivity.count()`), so no hover or press starts while it runs, as decision 3b decided. *This departs from Motion,* whose `isDragActive` is the lock itself, so a propagating drag there blocks nothing.
+6. **`<Reorder>` and layout drags need nothing more, and a grab on a child still stops an ancestor's release.**
+   - **Reorder items:** the item's per-gesture axis becomes the recognizer's `axis`. A `y` list in an `x` card drags both; an `"xy"` grid claims both axes and refuses its card.
+   - **Layout drags:** a refused projection node gets no `"start"`, so no `dragStart`, no `whileDrag` and no release.
+   - **The grab:** a bare primary down on an element stops its running release (ADR-0032, decision 2). That down comes before any claim and bubbles, so grabbing a child mid-fling catches the ancestor where it is. Motion stops it too: every pan session calls `onSessionStart → stopAnimation()` at its down ([PanSession.ts:147-149](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L147-L149)).
+   - *Rejected:* a grab that waits for the claim, which adds a hop between the down and the decision.
+   - *Not changed here:* after a click that stopped it, Motion restarts a `dragSnapToOrigin` element's snap-back at the release ([PanSession.ts:322-325](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L322-L325)). Wardic leaves it where the grab stopped it, both for a direct click and for a grab on a child. That belongs to the release and velocity work (#30, #38).
+7. **A claim is released at the gesture's end, or when the drag is interrupted, and never held through the release.**
+   - The end is a release, a cancel or a Stale gesture's end. An interruption is an unmount mid-drag.
+   - Nothing holds the claim through a fling, a snap-back or a layout node's flight to its slot, so the outer element can be grabbed while the inner one still flies.
+   - A lost release can't leak a claim: this ADR's rules end a Stale gesture by the next press at the latest.
+   - *This departs from Motion,* which keeps its pan session, and so its lock, across an unmount until the pointer's release ([drag/index.ts:45-58](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/drag/index.ts#L45-L58)), because React 19 briefly remounts Reorder items mid-drag. Solid's `<For>` moves an item's node without remounting it, and a claim held for an element that is gone would only block other drags. The refused ancestors still stay put until the release (decision 2).
+8. **The outer element's hover and press stay as they were.** Its press starts at the bubbled down, before any drag, and the Drag activity only stops a hover or press from *starting*. So a card's `whileTap` shows while a slider inside it is dragged, as in Motion.
+   - *Not copied:* when two drags run at once (`x` around `y`, `dragPropagation`, the `<Reorder>` row), Motion leaves the inner element's `whileTap` on after the release, because its press end is ignored while any lock is held. Here a press ends at its pointer's release whatever the Drag activity says.
+
+**Consequences.**
+- **Behaviour.** Grabbing a draggable inside a draggable that needs one of its axes drags the inner one alone. Two nested drags on different axes, or with `dragPropagation`, still drag together. Hover, press and `whileTap` on ancestors are unchanged.
+- **API.**
+  - Core:
+    - `Recognizer.drag(target, { axis?, claim? })` and `Recognizer.DragOptions`;
+    - `Drag.Axis`;
+    - `DragActivity.Shape`'s `claim(target, axis): Option<release>` (refused: `None`) and `count()`, in place of the argument-less `claim()`;
+    - `Drag.axisLock` removed.
+  - Solid:
+    - `dragPropagation` on `wardic.*`, `useWardic`, `use:ward` and `Reorder.Item`;
+    - `createDrag`'s `claim` option.
+- **Cost.**
+  - Per gesture, at the drag's start and end, the claim reads and writes one `MutableRef` per axis, and the count.
+  - Per drag sample, the stage after the fold is now a `Stream.filterMapEffect` that keeps or drops the sample, where it was a `Stream.tap` that claimed the Drag activity. A one-axis drag loses `axisLock`'s `Stream.map`.
+  - Nothing is added per Clock tick. See *Measured* below.
+- **Found, not fixed here.** A `<Reorder>` item that reorders while its card is dragged on the other axis loses the card's offset on that axis: main and this change both paint it `30,60` where Motion paints `60,60`, and then `-60,60` on the next grab (`.tmp/29-nested/`, `DY=60`). It happens with no claim refused, so it isn't the claim's; it's left for a follow-up issue.
+- **Pinned by:**
+  - `packages/core/test/pointer.test.ts`: C3 and C4 (the count), and C5–C8 (claims per axis, refused for another target, shared by one target, a count that claims nothing);
+  - `packages/test/test/drag-activity.test.ts` A7–A13 (the drag that starts first claims, refused for the whole gesture, an unmount mid-gesture, the axis table, one target's subscriptions, `claim: false`, an axis read per gesture, a Stale gesture's release), and `drag.test.ts`'s two `axis` tests;
+  - `packages/solid/test/drag-nested.browser.test.tsx` NC1–NC10, with the real mouse: free, layout and mixed nesting; per-axis rows; presses after two drags; `dragPropagation`; `createDrag`'s claim; an unmount mid-drag; the grab; `<Reorder>` in a card.
+    - On main, NC1–NC4.3, NC7, NC8 and NC10.1 fail.
+    - NC4.4, NC5, NC6, NC9 and NC10.2 pin what main already did, and fail under a whole-page claim, a `dragPropagation` that's ignored, or a grab that's ignored.
+
+**Measured** (2026-10-12, the bench server, `wardic-quiet` first):
+- **`bun run bench:core --base main`** (11 paired reps):
+  - Every timing gate is `ok` in Bun, Node and Chromium. The noise controls were Bun +0.8%, Node −1.1% and Chromium +0.9%.
+  - Node's bytes gate flagged `animateValues/loop` (0.73 → 0.80 MB, +9.5%) and `springBlend/loop` (0.69 → 0.76 MB, +9.9%). These two flap on identical code (#94), so the steps-only probe (`.tmp/94-bytes/`, 1,000 machines over 2,000 frames, 11 reps, Node, `--expose-gc`) decided them:
+    - `springBlend`: 480,295 bytes per frame on main and on this change.
+    - `animateValues`: main's median was 672,525 [640,334–704,383] and this change's 688,305 [640,339–736,350]. An A/A run of main against main gave 688,305 against 672,521: the same swing.
+  - None of the changed code runs per frame. `Recognizer`, `DragActivity` and `Drag` run per pointer event, and the bench's workloads use none of them.
+- **The layout lab** (`.tmp/73-proto/drive.ts`, headless Chromium, k = 5, cold and warm, main against this change): identical.
+  - Drag scenarios 11–14 (40 runs each): 0 frames behind, 0 release held, every run settled.
+  - Scenarios 1–10: the same held frames, first steps and verdicts.

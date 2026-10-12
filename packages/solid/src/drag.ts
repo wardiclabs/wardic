@@ -9,9 +9,10 @@
  * layout/Reorder FLIP can take over from the rested position).
  *
  * This module is the RESPONSE half (binding orchestration). Core ships the
- * RECOGNITION (`drag()` + the `axisLock`/`withinBounds` shaping combinators) and
- * the decay PRIMITIVE (`decayVec`); the release driver, the gate writes, and the
- * snapshot sync are response concerns and live here (ADR-0004).
+ * RECOGNITION (`drag()`, kept to its axis and holding its **Drag claim**, + the
+ * `withinBounds` shaping combinator) and the decay PRIMITIVE (`decayVec`); the
+ * release driver, the gate writes, and the snapshot sync are response concerns and
+ * live here (ADR-0004).
  *
  * STRUCTURE (ADR-0032): input is handled inside its event. Two consumers, each a
  * `Stream.runForEach` that applies what arrives in place, with no scheduler hop
@@ -68,6 +69,11 @@ export interface DragSnapshot {
 export interface DragTrackConfig {
   /** `true` = free; `"x"`/`"y"` = axis-locked. */
   readonly axis: boolean | "x" | "y"
+  /**
+   * `true`: the drag takes no **Drag claim** and is never refused, so a draggable ancestor can
+   * drag with it (Motion's `dragPropagation`, ADR-0019 *Amendment (#29)*). Default `false`.
+   */
+  readonly propagation?: boolean | undefined
   /** Optional numeric constraint box (per axis) applied to the drag offset. */
   readonly constraints?: Drag.Bounds | undefined
   /** Rubber-band resistance past `constraints` (0 = hard clamp). */
@@ -107,8 +113,8 @@ export interface RunDragTrackOptions {
   readonly projection?: DragProjectionHandle | undefined
   /**
    * The gesture's axis, read at each gesture's "start" and held until its "end"
-   * (`true` = free), in place of `config.axis`'s lock (internal: a `<Reorder>` item,
-   * whose group decides the axis per gesture, D5).
+   * (`true` = free), in place of `config.axis`: the axis it moves on and claims
+   * (internal: a `<Reorder>` item, whose group decides the axis per gesture, D5).
    */
   readonly axisAt?: (() => boolean | "x" | "y") | undefined
   /**
@@ -119,16 +125,13 @@ export interface RunDragTrackOptions {
   readonly onSample?: ((sample: Drag.Sample) => void) | undefined
 }
 
-/** `sample` with its off-axis offset, delta and velocity zeroed (core's `axisLock`, for one sample). */
-const lockTo = (sample: Drag.Sample, axis: "x" | "y"): Drag.Sample => {
-  const off = axis === "x" ? "y" : "x"
-  return {
-    ...sample,
-    offset: { ...sample.offset, [off]: 0 },
-    delta: { ...sample.delta, [off]: 0 },
-    velocity: { ...sample.velocity, [off]: 0 },
-  }
-}
+/** A drag config's axis as core's: `true` (free) is `"xy"`. */
+const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
+  Match.value(axis).pipe(
+    Match.when("x", () => "x" as const),
+    Match.when("y", () => "y" as const),
+    Match.orElse(() => "xy" as const),
+  )
 
 /**
  * The track's state: `base` is the rebase point, `position` the live absolute position,
@@ -281,9 +284,13 @@ const release = (
 }
 
 /**
- * Run the drag track for one element. Shape the `drag(element)` stream (axisLock /
- * withinBounds), then consume it and the element's bare pointer-down grabs, each in place
- * as it arrives (ADR-0032; the module doc). The WHOLE track runs under ONE fiber via
+ * Run the drag track for one element. Recognize `drag(element)` on its axis (read at
+ * each gesture's start for a `<Reorder>` item) with its **Drag claim** (none with
+ * `propagation`), shape it (withinBounds), then consume it and the element's bare
+ * pointer-down grabs, each in place as it arrives (ADR-0032; the module doc). A drag
+ * refused its claim emits nothing, so a draggable ancestor of the element that claimed
+ * neither follows the pointer nor turns `whileDrag` on; its grab still stops its running
+ * release (ADR-0019, *Amendment (#29)*). The WHOLE track runs under ONE fiber via
  * `runScoped`, so the caller's `onCleanup` interrupts it (dropping the Shared-source
  * ref-count and stopping any in-flight release); a failure of either consumer or of a
  * release fails it.
@@ -304,24 +311,18 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
 
       const input = yield* InputSource.InputSource
 
-      // Shape the drag samples BEFORE the track: axisLock first (zero the off
-      // axis), then withinBounds (clamp the followed offset). Probe-free numeric
-      // form (ADR-0004).
-      let shaped: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element)
+      // The gesture's axis, read by the recognizer at each start: a `<Reorder>` item's group
+      // decides it per gesture (D5). Then the numeric shaping (Probe-free, ADR-0004).
       const axisAt = opts.axisAt
-      if (axisAt !== undefined) {
-        // The gesture's axis, read at its "start" and held to its "end" (one fiber reads
-        // the samples in order, so a plain variable is enough).
-        let gestureAxis: boolean | "x" | "y" = true
-        shaped = shaped.pipe(
-          Stream.map((s) => {
-            if (s.phase === "start") gestureAxis = axisAt()
-            const out = gestureAxis === "x" || gestureAxis === "y" ? lockTo(s, gestureAxis) : s
-            if (s.phase === "end") gestureAxis = true
-            return out
-          }),
-        )
-      } else if (config.axis === "x" || config.axis === "y") shaped = shaped.pipe(Drag.axisLock(config.axis))
+      const axis: Drag.Axis | (() => Drag.Axis) = UndefinedOr.match(axisAt, {
+        onUndefined: () => toDragAxis(config.axis),
+        onDefined: (at) => () => toDragAxis(at()),
+      })
+      const { propagation = false } = config
+      let shaped: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element, {
+        axis,
+        claim: Bool.not(propagation),
+      })
       if (config.constraints !== undefined) {
         shaped = shaped.pipe(
           Drag.withinBounds(

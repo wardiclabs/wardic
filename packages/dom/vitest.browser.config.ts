@@ -44,6 +44,7 @@ export default defineConfig({
       "effect/Predicate",
       "effect/Record",
       "effect/References",
+      "effect/Result",
       "effect/Schema",
       "effect/SchemaGetter",
       "effect/SchemaTransformation",

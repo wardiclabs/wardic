@@ -249,7 +249,7 @@ export interface WardicConfig {
    *
    * STATIC (LOW-3, reactivity-layering rule): the drag CONFIG — this field plus
    * {@link dragConstraints} / {@link dragElastic} / {@link dragMomentum} /
-   * {@link dragSnapToOrigin} — is read EXACTLY ONCE at mount (`untrack`); only
+   * {@link dragSnapToOrigin} / {@link dragPropagation} — is read EXACTLY ONCE at mount (`untrack`); only
    * {@link whileDrag} participates in the reactive override / `dragging` path. A
    * reactively-changed axis / constraints is NOT re-read in v0.1.
    *
@@ -258,6 +258,11 @@ export interface WardicConfig {
    * `user-select` and `-webkit-user-select` / `-webkit-touch-callout` `none`, and
    * `draggable="false"`, so a touch drag isn't taken for a scroll and a drag
    * starting on text isn't a native drag. The element's own `style` overrides them.
+   *
+   * Nested draggables (ADR-0019, *Amendment (#29)*): a drag takes its element's **Drag
+   * claim** on its axis (both for `true`) when it starts, so of an element and a draggable
+   * ancestor that grabs with it, the innermost drags and the other doesn't, unless they
+   * drag on different axes. {@link dragPropagation} opts out.
    *
    * With {@link layout} or {@link layoutId} the drag moves the projection target
    * instead of `x`/`y`, and the release FLIPs to the slot (ADR-0016). To drag the
@@ -278,6 +283,13 @@ export interface WardicConfig {
   readonly dragMomentum?: boolean
   /** Spring `x`/`y` back to the origin on release (overrides momentum). Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
   readonly dragSnapToOrigin?: boolean
+  /**
+   * `true`: the drag takes no **Drag claim** and is never refused one, so a draggable
+   * ancestor drags with it (Motion's `dragPropagation`, ADR-0019 *Amendment (#29)*). It
+   * still keeps hovers and presses from starting while it runs. Only when `drag` is on.
+   * Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
+   */
+  readonly dragPropagation?: boolean
   /** Primitive selector + options (default spring). */
   readonly transition?: WardicTransition
   /**
@@ -732,6 +744,7 @@ export function runSpine(opts: RunSpineOptions): void {
           elastic: c0d.dragElastic,
           momentum: c0d.dragMomentum,
           snapToOrigin: c0d.dragSnapToOrigin,
+          propagation: c0d.dragPropagation,
           springOpts: (c0d.transition ?? parent?.transition()) as Machine.SpringOptions | undefined,
         }
         runDragTrack({
