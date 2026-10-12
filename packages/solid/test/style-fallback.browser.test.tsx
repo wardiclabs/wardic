@@ -145,4 +145,42 @@ describe("the user's style is the fallback (ADR-0034)", () => {
     await until(() => root.style.opacity === "0.2", 2000)
     expect(inner.style.opacity).toBe("")
   })
+
+  it("F7: a useWardic spread onto a component that forwards its ref only animates that element", async () => {
+    let root!: HTMLElement
+    const RefOnly: Component<{ ref?: (el: HTMLElement) => void }> = (props) => <div ref={props.ref}>x</div>
+    const Box = () => {
+      const ward = useWardic({ initial: { opacity: 1 }, animate: { opacity: 0.2 }, transition: TWEEN })
+      return <RefOnly {...ward({ ref: (n) => (root = n) })} />
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await until(() => root.style.opacity === "0.2", 2000)
+  })
+
+  it("F8: a useWardic spread onto a component that reads props.style once animates its ref's element", async () => {
+    let root!: HTMLElement
+    const ReadsOnce: Component<{ ref?: (el: HTMLElement) => void; style?: JSX.CSSProperties }> = (props) => {
+      const style = props.style
+      return (
+        <div ref={props.ref} style={style}>
+          x
+        </div>
+      )
+    }
+    const Box = () => {
+      const ward = useWardic({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN })
+      return <ReadsOnce {...ward({ ref: (n) => (root = n) })} />
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    expect(root.style.opacity).toBe("0") // the Starting style, read once
+    await until(() => root.style.opacity === "1", 2000)
+  })
 })
