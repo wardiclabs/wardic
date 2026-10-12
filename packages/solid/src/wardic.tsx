@@ -80,6 +80,7 @@ export const MOTION_PROPS = [
   "dragElastic",
   "dragMomentum",
   "dragSnapToOrigin",
+  "dragPropagation",
   "layout",
   "layoutDependency",
   "layoutId",
@@ -142,6 +143,11 @@ export interface WardicMotionProps {
   readonly dragMomentum?: boolean
   /** Spring `x`/`y` back to the origin on release (overrides momentum). Only when `drag` is on. */
   readonly dragSnapToOrigin?: boolean
+  /**
+   * `true`: the drag takes no Drag claim, so a draggable ancestor drags with it (Motion's
+   * `dragPropagation`). Only when `drag` is on.
+   */
+  readonly dragPropagation?: boolean
   /**
    * Enable layout FLIP (ADR-0005). Under a `<LayoutGroup>` sibling reflow is
    * animated too; standalone, only this element's own size/`layoutDependency`
@@ -210,6 +216,7 @@ export const motionToConfig =
     const dragElastic = motion.dragElastic
     const dragMomentum = motion.dragMomentum
     const dragSnapToOrigin = motion.dragSnapToOrigin
+    const dragPropagation = motion.dragPropagation
     const layout = motion.layout
     const layoutDependency = motion.layoutDependency
     const layoutId = motion.layoutId
@@ -230,6 +237,7 @@ export const motionToConfig =
     if (dragElastic !== undefined) config.dragElastic = dragElastic
     if (dragMomentum !== undefined) config.dragMomentum = dragMomentum
     if (dragSnapToOrigin !== undefined) config.dragSnapToOrigin = dragSnapToOrigin
+    if (dragPropagation !== undefined) config.dragPropagation = dragPropagation
     if (layout !== undefined) config.layout = layout
     if (layoutDependency !== undefined) config.layoutDependency = layoutDependency
     if (layoutId !== undefined) config.layoutId = layoutId
