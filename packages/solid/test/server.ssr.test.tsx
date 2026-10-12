@@ -164,22 +164,25 @@ function Sensors(): JSX.Element {
 }
 
 /**
- * The fixture's `data-hk` values in document order, recorded under TestLive at 9531ff4
- * (before #41's fix, when the server ran the client's full code path). A Solid upgrade
- * re-records it.
+ * The fixture's `data-hk` values in document order. First recorded under TestLive at 9531ff4
+ * (before #41's fix, when the server ran the client's full code path). Re-recorded for #50:
+ * every Wardic element and component wrap now renders its variant context's Provider, one more
+ * component boundary each, on the server and the client alike; the hydrate project (the same
+ * fixtures rendered on a server and hydrated in Chromium) checks that the client's keys still
+ * match. A Solid upgrade re-records it.
  */
-const HK_9531FF4: ReadonlyArray<string> = [
+const HK: ReadonlyArray<string> = [
   "0000",
-  "000110",
+  "00011000",
   "00021",
-  "000220010",
-  "000310",
-  "00040010",
-  "00040011010",
-  "00040011110",
-  "00040011210",
-  "0005000010",
-  "0006010",
+  "00022001000",
+  "0003100",
+  "0004001000",
+  "000400100101000",
+  "000400100111000",
+  "000400100121000",
+  "000500001000",
+  "000601000",
 ]
 
 const keysOf = (html: string): ReadonlyArray<string> => [...html.matchAll(/data-hk="([^"]*)"/g)].map((m) => m[1]!)
@@ -453,12 +456,12 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(wrapped?.style, "a component wrap's Starting style through style").toEqual({ "background-color": "#000" })
   })
 
-  it("SV15a (guard): under TestLive, the fixture's hydration keys are 9531ff4's", () => {
-    expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK_9531FF4)
+  it("SV15a (guard): under TestLive, the fixture's hydration keys are the recorded ones", () => {
+    expect(keysOf(serve(() => <KeysFixture />, TestLive))).toEqual(HK)
   })
 
-  it("SV15b: under DomLive, the fixture's hydration keys are 9531ff4's", () => {
-    expect(keysOf(serve(() => <KeysFixture />))).toEqual(HK_9531FF4)
+  it("SV15b: under DomLive, the fixture's hydration keys are the recorded ones", () => {
+    expect(keysOf(serve(() => <KeysFixture />))).toEqual(HK)
   })
 
   it("SV16: a server render builds no runtime", () => {
