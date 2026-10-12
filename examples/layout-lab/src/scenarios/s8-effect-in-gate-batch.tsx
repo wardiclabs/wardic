@@ -116,7 +116,7 @@ const View: ScenarioDef["View"] = (props) => {
  * Scenario 8, Solid effect during gate batch: an effect on a driver element's
  * `ward().style` writes the `layoutDependency` signal from inside the gate flush's
  * `batch()`. Expected to be safe, holding 1: the Measure pass runs right after the
- * frame's gate flush.
+ * frame's flush, at the end of the Clock's callback.
  */
 export const s8: ScenarioDef = {
   id: ID,
@@ -127,11 +127,11 @@ export const s8: ScenarioDef = {
   prediction: "safe",
   expectedHeld: 1,
   rationale:
-    "The gate sets signal-sink styles inside its flush's batch(), and Solid runs this effect before that batch() " +
-    "returns, so the layoutDependency flip reaches notify during the frame's gate flush. The Measure pass it queues " +
-    "runs in a microtask at the end of the gate's rAF callback, after that flush and before the Clock's callback, " +
-    "and flushes its own seed (ADR-0018), so the frame paints the origin (held 1). Both the Priming step and that " +
-    "frame's Clock tick then step the FLIP before its first painted move, so that move is about a click's first " +
-    "two steps together (ADR-0018, Consequences).",
+    "The gate sets signal-sink styles inside its flush's batch(), at the end of the Frame loop's tick in the Clock's " +
+    "callback (ADR-0033), and Solid runs this effect before that batch() returns, so the layoutDependency flip " +
+    "reaches notify during the frame's flush. The Measure pass it queues runs in a microtask at the end of the " +
+    "Clock's callback and flushes its own seed (ADR-0018), so the frame paints the origin (held 1), and the next " +
+    "frame's tick takes the first step: a click's first step. Before #73 the flush ran before the Clock's callback, " +
+    "so a Priming step and that frame's tick both stepped the FLIP before its first painted move.",
   View,
 }

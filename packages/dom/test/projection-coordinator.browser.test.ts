@@ -106,6 +106,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   let coordinators = 0
   let mostCoordinators = 0
   const recordRuns = (loop: LoopShape): LoopShape => ({
+    afterTick: loop.afterTick,
     run: (machine, sink) =>
       Effect.suspend(() => {
         const record: RunRecord = { name: machine.span.name, attributes: machine.span.attributes, exit: "open" }
@@ -246,7 +247,7 @@ const hold = (e: Engine, onFrame: () => void = () => {}) => {
 
 describe("a coordinator that settled is started afresh by the next trigger", () => {
   for (const clock of ["cold", "warm"] as const) {
-    it(`${clock}: the node moves one step before any Refresh frame, then settles on its slot`, async () => {
+    it(`${clock}: the node is seeded at once, steps at the next Refresh frame, then settles on its slot`, async () => {
       const sk = makeSink()
       const e = makeEngine(sk.sink)
       if (clock === "warm") hold(e)
@@ -266,8 +267,11 @@ describe("a coordinator that settled is started afresh by the next trigger", () 
       element.style.left = "0px"
       a.notify()
       await endOfTask()
+      // No Priming step (ADR-0033): the seed alone before the frame, the first step at it.
+      expect(sk.of("a").slice(before).length, "the seed alone").toBe(1)
+      fireFrame()
       const since = sk.of("a").slice(before)
-      expect(since.length, "the seed, then one step").toBe(2)
+      expect(since.length, "the seed, then the first Refresh frame's step").toBe(2)
       expect(Math.abs(since[0]!.tx - 200), "the seed paints the origin").toBeLessThan(0.5)
       expect(offset(since[1]!), "the first step moved it").toBeLessThan(offset(since[0]!))
       settle(sk, "a")

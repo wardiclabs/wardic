@@ -199,17 +199,18 @@ interface CountingRun {
 }
 
 describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
-  it("a run started in a task gets the Priming tick at its end, then each Refresh frame, with no dispatch", async () => {
+  it("a run started in a task is first stepped at the first Refresh frame, with the nominal dt, then at each one, with no dispatch", async () => {
     const h = await makeHarness()
     const runs = Array.from({ length: 50 }, () => h.start(counting(Infinity)))
-    expect(runs.every((r) => r.received.length === 0)).toBe(true)
     await endOfTask()
-    expect(runs.every((r) => r.received.length === 1 && r.received[0]!.value[0] === Clock.NOMINAL_DT)).toBe(true)
+    // No Priming tick (ADR-0033): nothing before the first Refresh frame, which is requested.
+    expect(runs.every((r) => r.received.length === 0)).toBe(true)
+    expect(h.frames.pending.size).toBe(1)
     // Every run is stepped inside the Refresh frame callback: synchronously, in `fire`.
     h.frames.fire(1000)
-    expect(runs.every((r) => r.received.length === 2)).toBe(true)
+    expect(runs.every((r) => r.received.length === 1 && r.received[0]!.value[0] === Clock.NOMINAL_DT)).toBe(true)
     h.frames.fire(1016)
-    expect(runs.every((r) => r.received.length === 3)).toBe(true)
+    expect(runs.every((r) => r.received.length === 2)).toBe(true)
     expect(h.dispatches()).toBe(0)
   })
 
@@ -217,7 +218,7 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     const h = await makeHarness()
     let late: CountingRun | undefined
     h.start(counting(Infinity), (frame) => {
-      if (frame.value.length === 2) late = h.start(counting(Infinity))
+      if (frame.value.length === 1) late = h.start(counting(Infinity))
     })
     await endOfTask()
     h.frames.fire(1000)
@@ -235,8 +236,9 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     })
     removed = h.start(counting(Infinity))
     await endOfTask()
-    expect(removed.received.length).toBe(1)
     h.frames.fire(1000)
+    expect(removed.received.length).toBe(1)
+    h.frames.fire(1016)
     expect(removed.received.length).toBe(1)
     await nextTimeout()
     const exit = removed.fiber.pollUnsafe()
@@ -253,6 +255,7 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     await endOfTask()
     h.frames.fire(1000)
     h.frames.fire(1016)
+    h.frames.fire(1032)
     expect(events).toEqual(["frame 1", "frame 2", "frame 3 done", "completed"])
     const exit = run.fiber.pollUnsafe()
     expect(exit !== undefined && Exit.isSuccess(exit) && exit.value.done).toBe(true)
@@ -264,6 +267,7 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     for (const name of ["a", "b", "c"]) h.start(counting(Infinity), () => order.push(name))
     await endOfTask()
     h.frames.fire(1000)
+    h.frames.fire(1016)
     expect(order).toEqual(["a", "b", "c", "a", "b", "c"])
   })
 
@@ -286,9 +290,10 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     const h = await makeHarness()
     h.start(counting(2))
     await endOfTask()
-    h.frames.fire(1000) // the run settles here; the burst ends with it
+    h.frames.fire(1000)
+    h.frames.fire(1016) // the run settles here; the burst ends with it
     expect(h.frames.pending.size).toBe(1)
-    h.frames.fire(1016) // the Clock finds no subscriber and stops
+    h.frames.fire(1032) // the Clock finds no subscriber and stops
     expect(h.frames.pending.size).toBe(0)
   })
 })
@@ -301,6 +306,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
     await endOfTask()
     h.frames.fire(1000)
     h.frames.fire(1016)
+    h.frames.fire(1032)
     expect(healthy.received.length).toBe(3)
     const exit = failing.fiber.pollUnsafe()
     expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
@@ -315,6 +321,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
     await endOfTask()
     h.frames.fire(1000)
     h.frames.fire(1016)
+    h.frames.fire(1032)
     expect(healthy.received.length).toBe(3)
     const exit = failing.fiber.pollUnsafe()
     expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
@@ -461,6 +468,7 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
     h.start(counting(1))
     h.start(throwing(1))
     await endOfTask()
+    h.frames.fire(1000)
     const after = counts()
     expect(countOf(after["wardic_frameloop_settled"]) - countOf(before["wardic_frameloop_settled"])).toBe(1)
     expect(countOf(after["wardic_frameloop_failed"]) - countOf(before["wardic_frameloop_failed"])).toBe(1)
@@ -475,9 +483,10 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
     const h = await makeHarness()
     const runs = [h.start(counting(Infinity)), h.start(counting(Infinity)), h.start(counting(Infinity))]
     await endOfTask()
+    h.frames.fire(1000)
     expect(gauge()).toBe(3)
     h.interrupt(runs[0]!.fiber)
-    h.frames.fire(1000)
+    h.frames.fire(1016)
     expect(gauge()).toBe(2)
     await h.close()
     expect(gauge()).toBe(0)
@@ -488,9 +497,80 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
     const before = ticks()
     const h = await makeHarness()
     h.start(counting(Infinity))
-    await endOfTask() // the Priming tick
+    await endOfTask()
     h.frames.fire(1000)
     h.frames.fire(1016)
-    expect(ticks() - before).toBe(3)
+    expect(ticks() - before).toBe(2)
+  })
+})
+
+describe("the Frame loop: afterTick (ADR-0033)", () => {
+  /** Add `hook` to `h`'s loop in a fresh Scope, inline; closing the Scope removes it. */
+  const addHook = (h: Awaited<ReturnType<typeof makeHarness>>, hook: () => undefined): Scope.Closeable => {
+    const scope = Scope.makeUnsafe()
+    Effect.runSync(h.loop.afterTick(hook).pipe(Scope.provide(scope)))
+    return scope
+  }
+
+  it("a hook runs at the end of every tick, after every sink and a settled run's continuation, the tick that ends the burst included", async () => {
+    const h = await makeHarness()
+    const events: Array<string> = []
+    addHook(h, () => {
+      events.push("hook")
+      return undefined
+    })
+    const a = h.start(counting(1), () => events.push("a"))
+    a.fiber.addObserver(() => events.push("a settled"))
+    const b = h.start(counting(2), () => events.push("b"))
+    b.fiber.addObserver(() => events.push("b settled"))
+    await endOfTask()
+    expect(events).toEqual([])
+    h.frames.fire(1000)
+    expect(events).toEqual(["a", "a settled", "b", "hook"])
+    h.frames.fire(1016) // b settles: the last run, so this tick ends the burst
+    expect(events).toEqual(["a", "a settled", "b", "hook", "b", "b settled", "hook"])
+    h.frames.fire(1032) // the Clock idles: no tick, no hook
+    expect(events).toHaveLength(7)
+  })
+
+  it("hooks run in the order they were added, each until its Scope closes; an idle loop calls none", async () => {
+    const h = await makeHarness()
+    const events: Array<string> = []
+    const first = addHook(h, () => {
+      events.push("first")
+      return undefined
+    })
+    addHook(h, () => {
+      events.push("second")
+      return undefined
+    })
+    await endOfTask()
+    expect(h.frames.pending.size).toBe(0) // no run, no burst, no tick
+    h.start(counting(Infinity))
+    await endOfTask()
+    h.frames.fire(1000)
+    expect(events).toEqual(["first", "second"])
+    Effect.runSync(Scope.close(first, Exit.void))
+    h.frames.fire(1016)
+    expect(events).toEqual(["first", "second", "second"])
+  })
+
+  it("a hook that throws fails the tick: every run on the loop fails with the defect", async () => {
+    const h = await makeHarness()
+    let throws = true
+    addHook(h, () => {
+      if (throws) {
+        throws = false
+        throw new Error("hook threw")
+      }
+      return undefined
+    })
+    const runs = [h.start(counting(Infinity)), h.start(counting(Infinity))]
+    await endOfTask()
+    h.frames.fire(1000)
+    for (const run of runs) {
+      const exit = run.fiber.pollUnsafe()
+      expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+    }
   })
 })

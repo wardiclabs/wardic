@@ -16,20 +16,24 @@
  *   2. Resolves the Renderer's PURE `project` ONCE at creation and uses it to
  *      turn each dirty element's merged value-map into a `Patch` exactly once
  *      per element per frame.
- *   3. Applies every resulting Patch inside a SINGLE `batch` per frame (the
+  *   3. Applies every resulting Patch inside a SINGLE `batch` per frame (the
  *      binding's: Solid's `batch()`), regardless of element count — one reactive
- *      flush + one DOM pass per frame at a *constant* one-frame latency shared by
- *      every element.
+ *      flush + one DOM pass per frame, shared by every element: at the end of the
+ *      Frame loop's tick, in the Refresh frame that computed the values (ADR-0033).
  *
  * Three locked design decisions (this session's grills):
- *   - GATED frames: a `write` requests a Refresh frame only if one is not already
- *     pending; `flush` does NOT auto-reschedule. An idle accumulator therefore
- *     requests no frames — the next `write` does. (Contrast the Clock's
- *     self-perpetuating ref-counted loop.) The frames come from the Environment's
- *     `RefreshFrameSource` (ADR-0031), the one the Clock ticks on: on the web,
- *     `requestAnimationFrame` itself, so the gate's flush runs before the Clock's tick
- *     in each Refresh frame, in request order. No binding calls the browser's frame
- *     functions itself.
+ *   - FLUSHED at the end of the Frame loop's tick (ADR-0033): the gate registers a hook on
+ *     the Environment's loop (`afterTick`), so everything a tick writes is applied at the end
+ *     of that tick, inside the Clock's callback, and paints in that Refresh frame. A write
+ *     made outside a tick (a drag's move, a `release` from a task, an effect inside a flush's
+ *     `batch`, a Tier 2 `Stream` on `Clock.ticks` subscribed after the loop) still requests a
+ *     Refresh frame, only if one is not already pending, and the hook withdraws that request
+ *     when it flushes first. `flush` does NOT auto-reschedule, so an idle accumulator
+ *     requests no frames — the next `write` does. The frames come from the Environment's
+ *     `RefreshFrameSource` (ADR-0031): on the web, `requestAnimationFrame` itself. No binding
+ *     calls the browser's frame functions itself. A Tier 2 `Stream` that writes here paints in
+ *     the loop's frame or the next one, by its subscription order (ADR-0033): run it on the
+ *     loop (`Machine.run`) to paint with it.
  *   - ONE `batch()` per frame: all dirty elements flush together. The one exception
  *     is `flushPass` (ADR-0018): a projection Measure pass's own writes are applied
  *     at the end of its task, so a new layout never paints without its projection.
@@ -45,12 +49,19 @@
  *
  * Observability (CONTEXT.md convention): the hot path (`write`/`flush`) is the
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
- * `tick` — it stays quiet (no span, no per-call log).
+ * `tick` — it stays quiet (no span, no per-call log, no metric). A flush that throws (an
+ * effect inside the binding's `batch`, a commit) is reported (`reportFailure`) and the gate
+ * goes on, so it can't fail the Frame loop's tick it runs in (ADR-0033).
  */
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Scope from "effect/Scope"
+import { reportFailure } from "./report.ts"
 import { dashCase } from "./svg.ts"
 
 /**
@@ -104,18 +115,17 @@ export interface FlushGate {
   readonly register: (id: string, sink: FlushSink) => () => void
   /**
    * Merge `partial` into the element's value-map by key, mark it dirty, and
-   * schedule a flush. A `write` for an unregistered (or unregistered-since) id
+   * schedule a flush: the end of the Frame loop's tick, for a write made in one, or else the
+   * next Refresh frame (ADR-0033). A `write` for an unregistered (or unregistered-since) id
    * is a no-op.
    */
   readonly write: (id: string, partial: Record<string, unknown>) => void
   /**
    * Run a projection **Measure pass** now and apply exactly what it wrote before
-   * returning (ADR-0018; the one exception ADR-0006's *Amendment (#2)* makes to the
-   * one-frame latency). Only `write()`s made while `pass()` runs are recorded; each
-   * recorded entry is `project`ed once and applied inside ONE `batch`, and
-   * marked clean. Everything else stays dirty for the next Refresh frame. A write
-   * made by an effect that runs inside that `batch` (a Solid effect) takes the ordinary
-   * next-frame path. The projection engine calls it at the end of a task, so a new
+   * returning (ADR-0018, and ADR-0006's *Amendment (#2)*). Only `write()`s made while
+   * `pass()` runs are recorded; each recorded entry is `project`ed once and applied inside
+   * ONE `batch`, and marked clean. Everything else stays dirty for its flush. A write made by
+   * an effect that runs inside that `batch` (a Solid effect) takes the ordinary path. The projection engine calls it at the end of a task, so a new
    * layout never paints without its projection.
    */
   readonly flushPass: (pass: () => void) => void
@@ -129,18 +139,22 @@ export interface FlushGate {
    */
   readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
   /**
-   * Cancel any pending frame and clear the accumulator. Wired into the
-   * provider's `onCleanup`.
+   * Take the gate's hook off the Frame loop, cancel any pending frame and clear the
+   * accumulator. Wired into the provider's `onCleanup`.
    */
   readonly dispose: () => void
 }
 
 /**
- * The runtime a flush gate needs: one that provides the `Renderer` and the Environment's
+ * The runtime a flush gate needs: one that provides the `Renderer`, the Frame loop it flushes at
+ * the end of each tick of (ADR-0033), and the Environment's
  * `RefreshFrameSource` (ADR-0031). A binding's wider runtime (one providing the full
  * Environment) is assignable here.
  */
-export type FlushGateRuntime = ManagedRuntime.ManagedRuntime<Renderer.Renderer | RefreshFrameSource.RefreshFrameSource, never>
+export type FlushGateRuntime = ManagedRuntime.ManagedRuntime<
+  Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop,
+  never
+>
 
 /** What a binding hands its flush gate. */
 export interface FlushGateOptions {
@@ -158,10 +172,11 @@ export interface FlushGateOptions {
  * binding's `batch`.
  *
  * Resolves both ONCE here: `project` is pure (called directly at flush), `commit` returns an
- * `Effect` (run via `runtime.runSync` at flush for commit sinks), and `requestFrame` /
- * `cancelFrame` schedule and cancel the flush. All come from whichever env the provider was
- * given (`DomLive` / `TestLive`), so the gate inherits that environment's grouping/unit logic
- * and its Refresh frames with zero duplication.
+ * `Effect` (run via `runtime.runSync` at flush for commit sinks), `requestFrame` /
+ * `cancelFrame` schedule and cancel the flush of a write made outside a tick, and the Frame
+ * loop's `afterTick` takes the gate's hook for its lifetime. All come from whichever env the
+ * provider was given (`DomLive` / `TestLive`), so the gate inherits that environment's
+ * grouping/unit logic, its Refresh frames and its loop with zero duplication.
  */
 export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptions): FlushGate => {
   const { batch } = options
@@ -169,11 +184,12 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   // `requestFrame` and `cancelFrame` are called detached, never as `frames.requestFrame(cb)`: a
   // browser throws "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
   // anything but the window (ADR-0031, decision 7).
-  const { commit, project, requestFrame, cancelFrame } = runtime.runSync(
+  const { commit, project, requestFrame, cancelFrame, afterTick } = runtime.runSync(
     Effect.gen(function* () {
       const { commit, project } = yield* Renderer.Renderer
       const { requestFrame, cancelFrame } = yield* RefreshFrameSource.RefreshFrameSource
-      return { commit, project, requestFrame, cancelFrame }
+      const { afterTick } = yield* FrameLoop.FrameLoop
+      return { commit, project, requestFrame, cancelFrame, afterTick }
     }),
   )
 
@@ -232,13 +248,28 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
 
   const flush = (): void => {
     scheduled = false
-    if (firstCommits.size > 0) runFirstCommits()
-    // One batch per frame for every dirty element. No auto-reschedule — the next
-    // write() does. A write() from an effect running inside the batch requests the
-    // next frame (it isn't stranded).
-    batch(() => {
-      for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
-    })
+    try {
+      if (firstCommits.size > 0) runFirstCommits()
+      // One batch per frame for every dirty element. No auto-reschedule — the next
+      // write() does. A write() from an effect running inside the batch requests the
+      // next frame (it isn't stranded).
+      batch(() => {
+        for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
+      })
+    } catch (defect) {
+      runtime.runFork(reportFailure("wardic.gate: a flush failed", Cause.die(defect)))
+    }
+  }
+
+  /**
+   * The end of the Frame loop's tick (ADR-0033): flush now, in the Refresh frame that computed
+   * the values, and withdraw the frame the first write since the last flush requested.
+   */
+  const flushTicked = (): undefined => {
+    if (!scheduled) return undefined
+    cancelFrame(frame)
+    flush()
+    return undefined
   }
 
   const scheduleFlush = (): void => {
@@ -303,6 +334,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const dispose: FlushGate["dispose"] = () => {
+    Effect.runSync(Scope.close(ticks, Exit.void))
     if (scheduled) {
       cancelFrame(frame)
       scheduled = false
@@ -310,6 +342,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     accumulator.clear()
     firstCommits.clear()
   }
+
+  // The gate's hook on the loop, for the gate's lifetime.
+  const ticks = Scope.makeUnsafe()
+  runtime.runSync(afterTick(flushTicked).pipe(Scope.provide(ticks)))
 
   return { register, write, flushPass, release, dispose }
 }

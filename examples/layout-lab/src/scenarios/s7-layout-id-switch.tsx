@@ -229,7 +229,7 @@ export const s7: ScenarioDef = {
     "projection node and takes that seed. The registration queues a Measure pass, which runs at the end of the click " +
     "task, rebases the seed into the new twin's frame, FLIPs it from the leaver's painted box and flushes that seed " +
     "(ADR-0018), so the first painted frame is already one step along (held 0). The engine's ResizeObserver then " +
-    "makes its first delivery for the new twin after the next frame's gate flush, and the Measure pass it runs finds " +
+    "makes its first delivery for the new twin after the next frame's tick, and the Measure pass it runs finds " +
     "the running twin's box unchanged and leaves it alone: passes 2 (1 seeding), until that first delivery is " +
     "filtered.",
   View,

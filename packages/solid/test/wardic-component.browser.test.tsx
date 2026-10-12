@@ -104,9 +104,14 @@ describe("wardic.create(Component) — commit sink drives the forwarded element"
     )
     const W = wardic.create(Card)
 
+    // Clear of (5, 5), where the real-mouse files park the page's one mouse after each test:
+    // a file running beside this one would hover the element as it mounts, and since #73 its
+    // first painted frame is the hover's first step, never the base (ADR-0033).
     render(() => (
       <WardicProvider env={DomLive}>
-        <W initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} whileHover={{ opacity: 1 }} />
+        <div style={{ "padding-top": "40px" }}>
+          <W initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} whileHover={{ opacity: 1 }} />
+        </div>
       </WardicProvider>
     ))
 

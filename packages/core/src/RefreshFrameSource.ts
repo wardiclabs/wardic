@@ -1,8 +1,8 @@
 /**
  * The `RefreshFrameSource` module: where an Environment's **Refresh frames** come from, one of
  * its members (ADR-0031). Core builds the Clock from it (`Clock.layer`, ADR-0017), and the flush
- * gate requests its flushes from it, so the two run on the same frames and no binding calls
- * `requestAnimationFrame` itself. `@wardic/dom`'s `ClockDomLive` provides
+ * gate requests from it the flush of a write made outside the Frame loop's tick (ADR-0033), so
+ * the two run on the same frames and no binding calls `requestAnimationFrame` itself. `@wardic/dom`'s `ClockDomLive` provides
  * `requestAnimationFrame` / `cancelAnimationFrame`; a native or canvas Environment provides its
  * own pair.
  *
@@ -21,9 +21,10 @@ import * as Layer from "effect/Layer"
  * - **It calls back later, never inside `requestFrame` itself.** The Clock requests each next frame
  *   from inside the current callback and doesn't yield in between, so a source that answered
  *   synchronously would spin.
- * - **A Refresh frame's callbacks run in the order they were requested.** So the gate's flush,
- *   which a write requested during the last frame's tick, runs before the Clock's tick, which the
- *   Clock requested after that tick: ADR-0017's steady order, on every Environment.
+ * - **A Refresh frame's callbacks run in the order they were requested.** The flush gate flushes
+ *   what a tick writes inside the Clock's callback, at the end of the Frame loop's tick (ADR-0033),
+ *   and requests a frame of its own only for a write made outside a tick: requested before the
+ *   Clock's next frame (a drag's move, from its input task), it runs first, on every Environment.
  * - **A callback requested while a frame's callbacks run waits for the next frame.**
  *
  * Call `requestFrame` and `cancelFrame` detached, never as `source.requestFrame(cb)`: a browser

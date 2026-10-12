@@ -155,10 +155,10 @@ export interface ScenarioDef {
    *
    * A layout change made in an ordinary task (a click, an IntersectionObserver
    * callback) is measured at the end of that task, and its first painted frame is
-   * already one step along: 0. One made after the frame's gate flush (a
-   * ResizeObserver callback, a later rAF callback, the Clock's callback, an effect
-   * inside the gate's flush) paints the origin in that frame and moves on the next:
-   * 1. Both hold cold or warm (ADR-0018).
+   * already one step along: 0. One made after the frame's tick (a ResizeObserver
+   * callback, a later rAF callback, the Clock's callback, an effect inside the gate's
+   * flush) paints the origin in that frame and moves on the next: 1. Both hold cold or
+   * warm (ADR-0018, ADR-0033).
    */
   readonly expectedHeld?: number | { readonly cold: number; readonly warm: number }
   /**

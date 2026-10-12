@@ -7,10 +7,11 @@
 // Effect scheduler (ADR-0017).
 //
 // Since #2 a layout change is measured in a Measure pass at the end of the task that
-// made it, and the pass's Priming step takes the animation's first step there too
-// (ADR-0018): on a Cold start that step is the Clock's Priming tick, on a ticking
-// Clock the projection engine takes it itself. A layout FLIP triggered from a task
-// therefore moves on the 1st painted frame, cold or warm.
+// made it (ADR-0018). Since #73 the flush gate paints what a tick writes in that Refresh
+// frame, so the Priming tick and the Priming step that made up for its frame of latency
+// went, and every animation started from a task, cold or warm, a layout FLIP or a spring,
+// moves on the 1st painted frame with a single first step (ADR-0033). Before #73 a warm
+// spring moved on the 2nd.
 //
 // How a frame is read: `paintedFrames` samples each box just after its paint (a
 // rAF posts a message; the handler reads). A read inside a rAF callback depends on
@@ -51,12 +52,14 @@ const FlipStage = (props: { env: WardicEnv; moved: () => boolean; drive?: () => 
 
 /**
  * The first painted frame has already moved one step: more than 1px, and less than
- * 10% of the 200px move (one nominal step of the default spring from rest is about
- * 2.4%). The origin itself is never painted.
+ * 5% of the 200px move. One nominal step of the default spring from rest is about
+ * 2.5% (5.1px); two, a step taken before the frame and painted over by the frame's own,
+ * are about 7.8% (15.7px), the doubled first step ADR-0033 measured. The origin itself
+ * is never painted.
  */
 const expectMovesOnFirstFrame = (frames: ReadonlyArray<DOMRect>, origin: number): void => {
   expect(frames[0]!.left - origin).toBeGreaterThan(1)
-  expect(frames[0]!.left - origin).toBeLessThan(20)
+  expect(frames[0]!.left - origin, "a single first step, not a doubled one").toBeLessThan(10)
 }
 
 it("Cold start: a layout FLIP with nothing else animating moves on the 1st painted frame", async () => {
@@ -128,9 +131,30 @@ it("Cold start: a useWardic spring set from a task moves on the 1st painted fram
   const origin = dot.getBoundingClientRect().left
 
   setGo(true)
-  const [first] = await paintedFrames(dot, 1)
-  expect(first!.left - origin).toBeGreaterThan(1)
-  expect(first!.left - origin).toBeLessThan(200)
+  expectMovesOnFirstFrame(await paintedFrames(dot, 2), origin)
+})
+
+it("warm start: a useWardic spring set from a task while another spring runs moves on the 1st painted frame (ADR-0033; was the 2nd)", async () => {
+  const [go, setGo] = createSignal(false)
+  const [drive, setDrive] = createSignal(0)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <style>{CSS}</style>
+      <div class="cs-stage">
+        <wardic.div data-dot class="cs-dot" animate={{ x: go() ? 200 : 0 }} />
+        <wardic.div class="cs-dot" style={{ top: "180px" }} animate={{ x: drive() }} transition={{ stiffness: 4, damping: 1 }} />
+      </div>
+    </WardicProvider>
+  ))
+  const dot = container.querySelector("[data-dot]") as HTMLElement
+  for (let i = 0; i < 3; i++) await raf()
+  setDrive(2000)
+  for (let i = 0; i < 10; i++) await raf()
+  await afterPaint()
+  const origin = dot.getBoundingClientRect().left
+
+  setGo(true)
+  expectMovesOnFirstFrame(await paintedFrames(dot, 2), origin)
 })
 
 it("retargeting the only running spring mid-motion paints no doubled or frozen step", async () => {
@@ -139,7 +163,8 @@ it("retargeting the only running spring mid-motion paints no doubled or frozen s
   // warm through that (its loop ends only at a Refresh frame that finds nobody):
   // restarting cold froze a frame before #14, and after the Priming tick landed it
   // doubled a step instead (the new spring's first value overwrote the old one's
-  // unpainted value in the gate).
+  // unpainted value in the gate). The Priming tick went with #73 (ADR-0033); this still
+  // pins decision 9's warm Retarget.
   const [x, setX] = createSignal(0)
   const { container } = render(() => (
     <WardicProvider env={DomLive}>

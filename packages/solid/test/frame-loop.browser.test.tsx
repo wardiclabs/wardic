@@ -111,6 +111,7 @@ const countingLoop = () => {
   const ends: Array<Exit.Exit<unknown>> = []
   const names: Array<string> = []
   const wrap = (loop: LoopShape): LoopShape => ({
+    afterTick: loop.afterTick,
     run: (machine, sink) =>
       Effect.suspend(() => {
         names.push(machine.span.name)

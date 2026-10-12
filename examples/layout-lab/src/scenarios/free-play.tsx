@@ -231,10 +231,10 @@ export const freePlay: ScenarioDef = {
   rationale:
     "It depends on the selection. A sync, queueMicrotask or setTimeout(0) write happens in an ordinary task (or a " +
     "microtask of one), so its Measure pass runs at the end of that task and the first painted frame is already " +
-    "one step along (held 0). A rAF or double-rAF write runs in a rAF callback: after the frame's gate flush, or in " +
+    "one step along (held 0). A rAF or double-rAF write runs in a rAF callback: after the frame's tick, or in " +
     "a frame with none, the frame paints the origin and the FLIP moves on the next (held 1), while a callback that " +
-    "runs before the gate's flush behaves like a task (held 0). The content-only path waits for the engine's " +
-    "ResizeObserver, which delivers after the frame's gate flush (held 1), and a pure move never changes the box's " +
+    "runs before the Clock's tick behaves like a task (held 0). The content-only path waits for the engine's " +
+    "ResizeObserver, which delivers after the frame's tick (held 1), and a pure move never changes the box's " +
     "size, so the observer never reports it and Wardic misses it.",
   View,
 }

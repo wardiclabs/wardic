@@ -7,13 +7,12 @@
  * box starts moving. Its `heldFrames` therefore counts from the trigger
  * (`heldFramesFrom: "trigger"`).
  *
- * With nothing else animating, the click is a Cold start: the Clock delivers its
- * Priming tick at the end of the click task, the spring writes its first moved value
- * there, and the gate paints it in the next frame, so the run holds 0 frames. Before
- * #14's fix the first tick came a frame later and carried dt 0, and the run held 2.
- * With Keep Clock warm on, the spring joins a Clock that is already ticking: its
- * first value comes from the next frame's tick and the gate paints it a frame later
- * (ADR-0006's one-frame latency), so a warm run holds 1.
+ * Cold (nothing else animating) or warm (Keep Clock warm on), the spring's first value
+ * comes from the next frame's tick, and the gate paints it in that frame (ADR-0033), so
+ * the run holds 0 frames either way. Before #14's fix a cold run's first tick came a
+ * frame later and carried dt 0, and it held 2. From #14 to #73 a cold run held 0 through
+ * the Clock's Priming tick, and a warm one held 1: the gate painted a tick's value a
+ * frame later (ADR-0006's one-frame latency).
  *
  * @module
  */
@@ -75,11 +74,11 @@ export const s9: ScenarioDef = {
   mechanism: "The Run click handler flips a useWardic animate target. No layout change, so no measure pass.",
   prediction: "safe",
   heldFramesFrom: "trigger",
-  expectedHeld: { cold: 0, warm: 1 },
+  expectedHeld: 0,
   rationale:
-    "Nothing changes layout, so nothing can flash; the run measures the Clock's Cold start (#14). With nothing else " +
-    "animating, the Priming tick runs at the end of the click task, so the first moved frame is the next paint " +
-    "(held 0 · cold). With Keep Clock warm on, the spring's first value comes from the next tick and paints a frame " +
-    "later (held 1 · warm). Before the fix a cold run held 2.",
+    "Nothing changes layout, so nothing can flash; the run measures when a spring started from a task first moves " +
+    "(#14, #73). Cold or warm, its first value comes from the next frame's tick, and the gate paints it in that " +
+    "frame (ADR-0033), so the first moved frame is the next paint (held 0). Before #73 a warm run held 1, and " +
+    "before #14 a cold one held 2.",
   View,
 }

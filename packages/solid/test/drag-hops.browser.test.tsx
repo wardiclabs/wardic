@@ -10,6 +10,7 @@
 // released its consumer through the scheduler, and the drag track's `switchMap` forked every
 // sample's inner. A move then painted one frame late, and a release could hold one.
 import { cleanup, render } from "@solidjs/testing-library"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Projection from "@wardic/core/Projection"
 import { DomLive, type FlushGate } from "@wardic/dom"
@@ -170,7 +171,19 @@ describe("a move is written inside its pointermove's dispatch", () => {
 })
 
 it("H3: a move and its release in one task: the release is on the Frame loop by the end of that task", async () => {
-  const { el, writes } = await mount("free", { momentum: true })
+  // The runs added to the loop, by their machine's span name.
+  const added: Array<string> = []
+  const recording = Layer.effect(FrameLoop.FrameLoop)(
+    FrameLoop.FrameLoop.useSync((loop) => ({
+      afterTick: loop.afterTick,
+      run: (machine, sink) =>
+        Effect.suspend(() => {
+          added.push(machine.span.name)
+          return loop.run(machine, sink)
+        }),
+    })),
+  )
+  const { el, writes } = await mount("free", { momentum: true, env: recording.pipe(Layer.provideMerge(onBrowserScheduler(DomLive))) })
   dispatch(el, "pointerdown", 100, 1)
   for (const x of [104, 112]) {
     dispatch(el, "pointermove", x, 1)
@@ -178,15 +191,20 @@ it("H3: a move and its release in one task: the release is on the Frame loop by 
   }
   // A browser flushes a queued move when its up comes, in one task: here, one synchronous run.
   const from = writes.length
+  const runsFrom = added.length
   dispatch(el, "pointermove", 130, 1)
   dispatch(el, "pointerup", 140, 0)
   // The end of the task: microtasks only, no timer and no frame.
   for (let i = 0; i < 20; i++) await Promise.resolve()
+  // The move and the release's position were written in the dispatch, and the release is on
+  // the loop by the end of the task, with no step before the next Refresh frame (ADR-0033).
+  expect(xWritesFrom(writes, from).filter((w) => w.inDispatch).map((w) => w.x)).toEqual([30])
+  expect(added.length - runsFrom, "the release is on the loop by the end of the task").toBe(1)
+  expect(xWritesFrom(writes, from).filter((w) => !w.inDispatch)).toEqual([])
+  // Its first step at that frame, past the release point.
+  await raf()
   const tail = xWritesFrom(writes, from)
-  // The move and the release's position were written in the dispatch, and the release's
-  // first step (the Clock's Priming tick) by the end of the task, past the release point.
-  expect(tail.filter((w) => w.inDispatch).map((w) => w.x)).toEqual([30])
-  expect(tail.filter((w) => !w.inDispatch).length, "release steps by the end of the task").toBeGreaterThan(0)
+  expect(tail.filter((w) => !w.inDispatch).length, "the release steps at the next Refresh frame").toBeGreaterThan(0)
   expect(tail[tail.length - 1]!.x!).toBeGreaterThan(30)
   await settle()
 })

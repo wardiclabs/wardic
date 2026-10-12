@@ -73,12 +73,13 @@ const makeFrames = () => {
  *
  * Backed by a `PubSub` (broadcast, no replay) so a consumer only sees ticks
  * pushed *after* it subscribes — matching a live rAF clock where motion starts
- * from the moment you subscribe. It has no Cold start, so no Priming tick.
+ * from the moment you subscribe. It has no Cold start: its ticks are the advances.
  *
  * Its `layer` also provides the Environment's `RefreshFrameSource` (ADR-0031), and one `advance`
  * is one Refresh frame in the web's order: it runs the frames requested so far (a flush gate's
- * flush), in request order, then publishes `dt` (the Clock's tick). A frame requested during
- * that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`.
+ * flush of a write made outside a tick), in request order, then publishes `dt` (the Clock's
+ * tick, at whose end a Frame loop over this Clock calls its `afterTick` hooks: the gate's
+ * flush, ADR-0033). A frame requested during that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`.
  *
  * It doesn't yield (ADR-0032): a subscriber waiting on the ticks handles the tick inside the
  * publish, as every subscriber does inside a real Refresh frame's callback, so a consumer that

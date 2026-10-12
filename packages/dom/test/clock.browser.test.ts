@@ -13,7 +13,7 @@ import { ClockDomLive } from "../src/clock.ts"
  * `ClockDomLive` is core's `Clock.layer` over the browser's REAL
  * `requestAnimationFrame` / `cancelAnimationFrame` (spied on, not stubbed), which it also
  * provides as the Environment's `RefreshFrameSource` for the flush gate (ADR-0031). The
- * Clock's own contract — the Priming tick, the dt sequence, ref-counting, and no
+ * Clock's own contract — the first Refresh frame's nominal dt, the dt sequence, ref-counting, and no
  * Effect-scheduler dependence — is pinned in core's node tests
  * (`packages/core/test/refresh-frame-clock.test.ts`); these check the wiring: the
  * real functions are called (detached, so no "Illegal invocation"), the loop stops
@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 describe("ClockDomLive", () => {
-  it("ticks on the real requestAnimationFrame: the Priming tick, then measured Refresh frames", async () => {
+  it("ticks on the real requestAnimationFrame: the first Refresh frame with the nominal dt, then measured ones", async () => {
     const requestSpy = vi.spyOn(window, "requestAnimationFrame")
     const env = await buildClock()
     const sub = env.subscribe()
@@ -53,15 +53,15 @@ describe("ClockDomLive", () => {
     expect(requestSpy).not.toHaveBeenCalled()
 
     await Promise.resolve() // the end of the subscribing task
-    expect(sub.received).toEqual([Clock.NOMINAL_DT])
+    expect(sub.received).toEqual([]) // no Priming tick (ADR-0033)
     expect(requestSpy).toHaveBeenCalledTimes(1)
 
     await raf()
     await raf()
     await raf()
-    expect(sub.received.length).toBeGreaterThanOrEqual(3)
-    expect(sub.received[1]).toBeCloseTo(Clock.NOMINAL_DT, 9) // first Refresh frame: nothing to measure against yet
-    expect(sub.received[2]).toBeGreaterThan(0) // a real, measured interval
+    expect(sub.received.length).toBeGreaterThanOrEqual(2)
+    expect(sub.received[0]).toBeCloseTo(Clock.NOMINAL_DT, 9) // first Refresh frame: nothing to measure against yet
+    expect(sub.received[1]).toBeGreaterThan(0) // a real, measured interval
     await sub.unsubscribe()
     await env.dispose()
   })

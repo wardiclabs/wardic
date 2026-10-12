@@ -1,6 +1,6 @@
 /**
- * The `Microtask` module: the end of the current task, for the Clock's Priming tick and dom's
- * end-of-task holds.
+ * The `Microtask` module: the end of the current task, where the Clock starts its loop (ADR-0017)
+ * and dom runs its end-of-task holds.
  */
 import * as Effect from "effect/Effect"
 

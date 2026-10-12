@@ -4,7 +4,13 @@
 // deterministically and asserts scheduling through the request and cancel spies and `pending`.
 // The gate keeps at most one frame outstanding (gated), so `fireFrame` runs the single pending
 // callback. Call `resetFrames()` in a `beforeEach`.
+//
+// The gate also hooks the end of the Environment's Frame loop's tick (ADR-0033), so its runtime
+// needs a loop: `TestLive` and `DomLive` have one, and `stillLoop` is one that never ticks, for
+// an Environment without (the Renderer alone).
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
+import { TestClock } from "@wardic/test"
 import * as Layer from "effect/Layer"
 import { vi } from "vitest"
 import type { FlushGateOptions } from "../src/index.ts"
@@ -36,6 +42,9 @@ export const resetFrames = (): void => {
 /** `env` with the hand-driven source as its Refresh frame source. */
 export const withFrames = <A, E>(env: Layer.Layer<A, E>) =>
   Layer.merge(env, RefreshFrameSource.layer({ requestFrame: (cb) => frames.request(cb), cancelFrame: (id) => frames.cancel(id) }))
+
+/** A Frame loop over a Clock that never ticks: the gate's hook is on it and never runs. */
+export const stillLoop = FrameLoop.layer.pipe(Layer.provide(TestClock.layer([])))
 
 /** Fire the single outstanding frame callback. */
 export const fireFrame = (t = 0): void => {

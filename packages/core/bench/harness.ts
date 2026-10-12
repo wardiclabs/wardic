@@ -8,7 +8,9 @@
  * - One frame is: fire the Refresh frame callback, then wait until all N sinks have their frame.
  * - Effect's scheduler runs on microtasks (`MixedScheduler("sync")`), so the wait is CPU work,
  *   not `setTimeout` latency. #63 measured the scheduler's configuration as CPU-neutral.
- * - `start` is the construction time: forking all N fibers, through the Priming tick's frames.
+ * - `start` is the construction time: forking all N fibers, through their first frames. A core
+ *   before #73 delivers them at the end of the starting task (the Priming tick); since #73 the
+ *   first tick is the first Refresh frame's (ADR-0033), which the bench fires there.
  *
  * `run.ts` builds one bundle of this file per core (a base ref and the working tree) and runs
  * them in Bun, Node and Chromium. It reads core's modules (ADR-0028), so a base ref is #95 or later.
@@ -39,7 +41,7 @@ export interface WorkloadResult {
   readonly frameMs: number
   /** 95th percentile ms per frame. */
   readonly p95Ms: number
-  /** Median ms to start all N streams, through the Priming tick's frames. */
+  /** Median ms to start all N streams, through their first frames. */
   readonly startMs: number
   /** Bytes allocated per frame, when the host exposes it. */
   readonly bytesPerFrame?: number
@@ -207,6 +209,8 @@ const manualFrames = () => {
       pending = []
       for (const callback of callbacks) callback(timestamp)
     },
+    /** Whether a Refresh frame is requested. */
+    requested: () => pending.length > 0,
   }
 }
 
@@ -267,6 +271,11 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
   } else {
     for (let i = 0; i < options.n; i++) runtime.runFork(Stream.runForEach(workload.make(core, i), () => sink))
   }
+  // The first frames: a core before #73 delivers them in a Priming tick at the end of this task;
+  // since #73 (ADR-0033) the first tick is the first Refresh frame's, requested at the end of
+  // this task, which the bench fires. Both are one tick at the nominal dt.
+  for (let i = 0; i < 100 && received < options.n && !frames.requested(); i++) await Promise.resolve()
+  if (received < options.n) frames.fire(1000)
   await waitFor(options.n)
   const startMs = performance.now() - t0
 
