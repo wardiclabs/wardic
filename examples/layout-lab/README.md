@@ -287,14 +287,14 @@ and the card's `passes`.
 | 4 | Change inside rAF | A `requestAnimationFrame` callback writes the `layoutDependency` signal. | safe | 1 | 1 (1 seeding) |
 | 5 | On Wardic animation complete | The end of the projection coordinator span (the finished FLIP) writes the signal back. | safe | 1 | 1 (1 seeding) |
 | 6 | IntersectionObserver callback | An IntersectionObserver callback, fired by a scroll, writes the `layoutDependency` signal. | safe | 0 | 1 (1 seeding) |
-| 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`: on the page, in one `layoutScroll` box, or across two (the Container select). | safe | 0 | 2 (1 seeding) |
+| 7 | layoutId switch | The click swaps two `layoutId` twins under `<Show>`: on the page, in one `layoutScroll` box, across two, or into a `scale(0.5)` modal (the Container select). | safe | 0 | 2 (1 seeding) |
 | 8 | Solid effect during gate batch | A `createEffect` that runs inside the flush gate's `batch()` writes the `layoutDependency` signal. | safe | 1 | 1 (1 seeding) |
 | 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no Measure pass. | safe | 0 cold, 1 warm | 0 |
 | 10 | Sibling resize mid-flight | The click moves box A; 150 ms later a timer grows box B's content, which only Wardic's shared ResizeObserver sees, while A is mid-flight. | safe | 0 | 2 (2 seeding), `passStepRatio` about 1 |
 | 11 | Drag while the slot moves | Hold the item; its slot moves every 600 ms or on R: the sibling resizes (the engine ResizeObserver's pass) or the two swap under a `LayoutGroup` (a task's pass). | safe | drag card | each pass seeds the sibling only; the dragged tree drag-blocked |
 | 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms or on S) and the release. | safe | drag card | as 11 |
 | 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent. | safe | drag card | a pass seeds the parent at most |
-| 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code. | safe | drag card + reorder lines | each pass seeds the displaced items only |
+| 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container, optionally on a card a transform moves; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code, C moves the CSS card. | safe | drag card + reorder lines | each pass seeds the displaced items only |
 | 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets; each gesture is judged on where it starts and where it ends. | safe | board card | – |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
 
@@ -335,6 +335,15 @@ Container mode should grade `clean` whatever the page or box scroll. `split` is 
 mode where the two twins' containers differ, so it is the one that tells the fix
 apart from folding each twin with its own container's scroll (which would be off
 by `scrollA − scrollB`).
+
+Its `scaled` mode is #136's check for twins. Twin B sits in a modal that
+`transform: scale(0.5)` shrinks from its top-left corner, so B paints 32 px square.
+A box leaves out every ancestor transform, and twins are compared where they paint
+(ADR-0012, *Amendment (#136)*), so A to B should shrink straight into the modal and
+B to A grow straight out of it: both `clean`. Before the fix, A to B measured B
+where it painted but moved it in the modal's half-size frame, so its first frame
+started halfway: `wrong-origin`, `originOffset.left` 95.4 (main at `08b92a6`,
+scripted in headless Chromium 147, 2 runs each way). B to A was already `clean`.
 
 Issues #14 and #2 are checked with the `held` column, on every scenario. Before
 #14's fix, a run that had to start the Clock (a Cold start: `cold`) held 3 frames
@@ -450,6 +459,25 @@ drag, a reorder and the release. A displaced item's pass seeds its child too, so
 `passes` line's bound doubles (the run's `nodesPerItem`); a retarget is where #28's
 glued-child jump would show. The mode reads `· child` while it's on.
 
+**card** (#136) puts the list, and its scroll container, on a card that a transform
+moves, which no box should carry (ADR-0012, *Amendment (#136)*).
+
+- **draggable card** is a `drag="x"` `wardic.div`, not `layout`. Drag it by its top
+  edge between reorders, or drag an item of the `y` list diagonally: the card takes x
+  while the item takes y (ADR-0019, *Amendment (#29)*, where #136 was found).
+- **card C moves by CSS** is a plain card. C (while nothing is held) toggles a
+  stylesheet rule's `translate`, 48 px across the list's axis, and nothing tells
+  Wardic.
+
+On a card the drag lines read boxes against the card, not the stage, so a card that
+moves during the drag isn't counted against the item. Before the fix, the first pass
+after the card moved read every item where the card had carried it, and FLIPed it
+from where the card used to be. `uninvolved still` read 58.5 px after a 60 px card
+drag, 39.0 px after a 40 px one, 29.2 px in a diagonal drag and 46.8 px after C (main
+at `08b92a6`, scripted in headless Chromium 147 with Playwright's mouse); since the
+fix, 0. `under pointer` stayed ✓ there: it reads the gesture's axis, and the card
+moved across it. The mode reads `· drag card` or `· css card`.
+
 Two toggles break it on purpose:
 
 - **items via .map** renders the items without `<For>`: each reorder remounts them,
@@ -499,6 +527,9 @@ Known and not fixed yet:
   Motion slides it from where it is.
 - The release has no velocity: a flick doesn't carry into the flight back.
 - There is no keyboard reorder yet (#43).
+- **A card mid CSS transition (#136's limit).** A transition running on the card's
+  transform when a pass reads stays in the boxes. The CSS card declares none, so it
+  doesn't show here.
 
 Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
@@ -517,6 +548,8 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R22 | any | press M twice; then once with "items via .map" on (watch the console) | 1 |
 | R23 | `y`, `xy` | with "a layout child in each item" on: as R13, then drag back and forth across one neighbour (a retarget); watch each child stay on its item | 2 each |
 | R24 | `y`, with Lift on | drag an item past one neighbour, hold, release: it lifts from 1 and lands at 1 | 3 |
+| R30 | `y`, draggable card | drag the card by its edge, then drag an item past one neighbour: nothing flies in from where the card was (#136); then drag an item diagonally, the card following on x | 2 each |
+| R31 | `y`, `x`, card C moves by CSS | press C, then drag an item past one neighbour; press C again and repeat (#136) | 2 each |
 
 ## Base values (#47)
 

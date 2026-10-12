@@ -597,3 +597,15 @@ body {
   fill: var(--lab-muted);
   font-size: 9px;
 }
+
+/*
+ * Scenario 14's card moved by CSS (#136): a stylesheet rule's `translate` (the
+ * individual property, as Tailwind v4 writes one), across the list's axis.
+ */
+.lab-s14-card[data-moved="x"] {
+  translate: 48px 0;
+}
+
+.lab-s14-card[data-moved="y"] {
+  translate: 0 48px;
+}

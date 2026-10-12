@@ -1,6 +1,6 @@
 /**
- * Scenario 7: a click swaps two `layoutId` twins, on the page or inside
- * `layoutScroll` containers (issue #13).
+ * Scenario 7: a click swaps two `layoutId` twins, on the page, inside
+ * `layoutScroll` containers (issue #13), or into a scaled modal (issue #136).
  *
  * The stage holds exactly one of two 64x64 `wardic.div` twins sharing a
  * `layoutId`, swapped on Run; twin B has the alternate colour. The Container
@@ -18,6 +18,14 @@
  *   own `<Show>`. Both show at 48px, 176px apart, so a correct switch is purely
  *   horizontal. Folding each twin with its own container's scroll (the option #13
  *   rejected) would start the enterer 80px off vertically.
+ * - `scaled`: twin A on the page as in `page`; twin B in a "modal" that a
+ *   `transform: scale(0.5)` shrinks (ADR-0012, *Amendment (#136)*). The modal is
+ *   224px square at left 192px, top 24px, from its top-left corner, so it paints
+ *   112px square; twin B sits 80px in, so it paints 32px square at left 232px, top
+ *   64px. Twins are compared where they paint, so A to B shrinks straight into the
+ *   modal and B to A grows straight out. Before #136 the A to B switch measured B
+ *   as painted but moved it in the modal's frame, so its first frame landed halfway,
+ *   the `wrong-origin` verdict; B to A was already right.
  *
  * Changing the select rebuilds the stage at once (twin A showing, the boxes back
  * at their starting scroll) and starts no run. Each mode uses its own `layoutId`,
@@ -39,13 +47,14 @@ import type { ScenarioDef, TriggerMeta } from "./types.ts"
 const ID = "layout-id-switch"
 
 /** Where the twins sit. */
-type Container = "page" | "shared" | "split"
+type Container = "page" | "shared" | "split" | "scaled"
 
 /** The container choices, in the order the select lists them. */
 const CONTAINERS: ReadonlyArray<Option<Container>> = [
   { value: "page", label: "page (no container)" },
   { value: "shared", label: "shared: one layoutScroll box" },
   { value: "split", label: "split: two layoutScroll boxes" },
+  { value: "scaled", label: "scaled: twin B in a scale(0.5) modal (#136)" },
 ]
 
 /** The `layoutId` both twins share in `mode`: one per mode, so a rebuild never switches. */
@@ -81,6 +90,19 @@ const splitBoxStyle = (left: number): JSX.CSSProperties => ({
   height: "100%",
   overflow: "auto",
 })
+
+/** The `scaled` modal: 224px square, shrunk to half from its top-left corner, so it paints 112px square. */
+const MODAL_STYLE: JSX.CSSProperties = {
+  position: "absolute",
+  top: "24px",
+  left: "192px",
+  width: "224px",
+  height: "224px",
+  transform: "scale(0.5)",
+  "transform-origin": "0 0",
+  border: "2px dashed var(--lab-border)",
+  "box-sizing": "border-box",
+}
 
 /** The scrollable content inside a box: 480px tall, the twins' positioning context. */
 const CONTENT_STYLE: JSX.CSSProperties = { position: "relative", height: "480px" }
@@ -136,6 +158,7 @@ const View: ScenarioDef["View"] = (props) => {
   const meta = (): TriggerMeta | undefined => {
     switch (container()) {
       case "page":
+      case "scaled":
         return undefined
       case "shared":
         return { scroll: boxA?.scrollTop ?? 0 }
@@ -195,6 +218,12 @@ const View: ScenarioDef["View"] = (props) => {
               <Show when={showB()}>{twinB("split", at(88, 40))}</Show>
             </ScrollBox>
           </Match>
+          <Match when={container() === "scaled"}>
+            <Show when={!showB()}>{twinA("scaled", at(48, 32))}</Show>
+            <div style={MODAL_STYLE}>
+              <Show when={showB()}>{twinB("scaled", at(80, 80))}</Show>
+            </div>
+          </Match>
         </Switch>
       </div>
       <button type="button" class="btn" data-action="run" onClick={run}>
@@ -202,7 +231,8 @@ const View: ScenarioDef["View"] = (props) => {
       </button>
       <p style={NOTE_STYLE}>
         shared/split put the twins in layoutScroll boxes (scroll them by hand before Run). split is the case where
-        folding each twin with its own container's scroll would start the enterer 80px off.
+        folding each twin with its own container's scroll would start the enterer 80px off. scaled puts twin B in a
+        modal shrunk by a transform: each switch should run straight between where the twins paint (#136).
       </p>
     </div>
   )
@@ -210,7 +240,7 @@ const View: ScenarioDef["View"] = (props) => {
 
 /**
  * Scenario 7, layoutId switch: a click swaps two `layoutId` twins under `<Show>` —
- * on the page, in one `layoutScroll` box, or across two — and the new twin's mount
+ * on the page, in one `layoutScroll` box, across two, or into a scaled modal — and the new twin's mount
  * queues the Measure pass. Expected to be safe, holding 0, with a second Measure
  * pass that seeds nothing (the engine ResizeObserver's first delivery for the new
  * twin).
@@ -220,7 +250,7 @@ export const s7: ScenarioDef = {
   index: 7,
   title: "layoutId switch",
   mechanism:
-    "The Run click swaps two layoutId twins under <Show> (on the page, or inside layoutScroll boxes); the new twin's mount registers its projection node, which queues a Measure pass.",
+    "The Run click swaps two layoutId twins under <Show> (on the page, inside layoutScroll boxes, or into a scale(0.5) modal); the new twin's mount registers its projection node, which queues a Measure pass.",
   prediction: "safe",
   expectedHeld: 0,
   rationale:
@@ -231,6 +261,7 @@ export const s7: ScenarioDef = {
     "(ADR-0018), so the first painted frame is already one step along (held 0). The engine's ResizeObserver then " +
     "makes its first delivery for the new twin after the next frame's tick, and the Measure pass it runs finds " +
     "the running twin's box unchanged and leaves it alone: passes 2 (1 seeding), until that first delivery is " +
-    "filtered.",
+    "filtered. In the scaled mode each twin's box leaves out the modal's scale, and the seed is converted between " +
+    "the twins as painted (ADR-0012, Amendment (#136)), so the switch runs straight between where they paint.",
   View,
 }
