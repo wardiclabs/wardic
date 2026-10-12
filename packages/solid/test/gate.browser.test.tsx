@@ -1,18 +1,17 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
-import type * as Renderer from "@wardic/core/Renderer"
 import { DomLive, type FlushGate } from "@wardic/dom"
-import { TestLive } from "@wardic/test"
 import * as Layer from "effect/Layer"
 import { createEffect, createRoot, createSignal, on } from "solid-js"
 import { useWardicGate, WardicProvider, type WardicEnv } from "../src/provider.tsx"
 
 /**
  * The flush gate is `@wardic/dom`'s (ADR-0031): its logic is pinned in dom's `gate.node.test.ts`
- * and its commit sinks in dom's `gate.browser.test.ts`. What's solid's is what the provider hands
- * it: Solid's `batch()`, and the Environment the gate takes its frames from. So each test here
- * gets its gate from a `WardicProvider`, through `useWardicGate`.
+ * and its commits onto real elements in dom's `gate.browser.test.ts`. What's solid's is what the
+ * provider hands it: Solid's `batch()`, for a frame's Starting-style switches (ADR-0034), and the
+ * Environment the gate takes its frames from. So each test here gets its gate from a
+ * `WardicProvider`, through `useWardicGate`.
  *
  * A hand-driven Refresh frame source, provided as the Environment's `RefreshFrameSource`,
  * captures each requested callback, so a test fires frames deterministically. No global is
@@ -73,14 +72,14 @@ describe("the provider's gate takes its frames from the Environment (ADR-0031)",
     // Spied after the runtime built: only a direct call to the global could reach it.
     const globalRequest = vi.spyOn(window, "requestAnimationFrame")
     try {
-      let received: Renderer.Patch | undefined
-      gate.register("a", { kind: "signal", set: (p) => (received = p) })
+      const el = document.createElement("div")
+      gate.register("a", { target: el })
       gate.write("a", { opacity: 0.5 })
       expect(rafSpy).toHaveBeenCalledTimes(1)
       expect(globalRequest).not.toHaveBeenCalled()
 
       fireFrame()
-      expect(received).toEqual({ opacity: 0.5 })
+      expect(el.style.opacity).toBe("0.5")
       expect(globalRequest).not.toHaveBeenCalled()
     } finally {
       globalRequest.mockRestore()
@@ -88,58 +87,48 @@ describe("the provider's gate takes its frames from the Environment (ADR-0031)",
   })
 })
 
-describe("the provider's gate applies through Solid's batch()", () => {
-  it("a frame flush inside a root owner applies the patch", () => {
-    const gate = providerGate(withFrames(TestLive))
-    createRoot((dispose) => {
-      let received: Renderer.Patch | undefined
-      gate.register("a", { kind: "signal", set: (p) => (received = p) })
-      gate.write("a", { x: 7 })
-      fireFrame()
-      expect(received).toEqual({ x: 7 })
-      dispose()
-    })
-  })
-
-  it("applies everything a pass wrote inside one batch(): an effect reading two of them runs once", () => {
-    const gate = providerGate(withFrames(TestLive))
-    const runs: Array<[Renderer.Patch | undefined, Renderer.Patch | undefined]> = []
-    // Effects go live once the root's setup returns, so the pass runs after it.
+describe("the provider's gate and Solid (ADR-0034)", () => {
+  it("a frame's Starting-style switches run in one batch(): an effect reading two of them runs once, before either commit", () => {
+    const gate = providerGate(withFrames(DomLive))
+    const a = document.createElement("div")
+    const b = document.createElement("div")
+    const runs: Array<[boolean, boolean, string, string]> = []
+    // Effects go live once the root's setup returns, so the flush runs after it.
     const disposeRoot = createRoot((dispose) => {
-      const [a, setA] = createSignal<Renderer.Patch | undefined>(undefined)
-      const [b, setB] = createSignal<Renderer.Patch | undefined>(undefined)
-      gate.register("a", { kind: "signal", set: setA })
-      gate.register("b", { kind: "signal", set: setB })
-      createEffect(on([a, b], ([va, vb]) => runs.push([va, vb]), { defer: true }))
+      const [switchedA, setSwitchedA] = createSignal(false)
+      const [switchedB, setSwitchedB] = createSignal(false)
+      gate.register("a", { target: a, beforeFirstCommit: () => setSwitchedA(true) })
+      gate.register("b", { target: b, beforeFirstCommit: () => setSwitchedB(true) })
+      createEffect(
+        on([switchedA, switchedB], ([va, vb]) => runs.push([va, vb, a.style.opacity, b.style.opacity]), { defer: true }),
+      )
       return dispose
     })
 
-    gate.flushPass(() => {
-      gate.write("a", { x: 1 })
-      gate.write("b", { y: 2 })
-    })
-    expect(runs).toEqual([[{ x: 1 }, { y: 2 }]])
+    gate.write("a", { opacity: 0.5 })
+    gate.write("b", { opacity: 0.25 })
+    fireFrame()
+    expect(runs).toEqual([[true, true, "", ""]])
+    expect(a.style.opacity).toBe("0.5")
+    expect(b.style.opacity).toBe("0.25")
     disposeRoot()
   })
 
-  it("a write from an effect inside the pass's flush waits for the next frame, and requests it", () => {
-    const gate = providerGate(withFrames(TestLive))
-    let b: Renderer.Patch | undefined
+  it("a signal the keys-held hook sets has run its effects before the commit", () => {
+    const gate = providerGate(withFrames(DomLive))
+    const el = document.createElement("div")
+    const seen: Array<[ReadonlyArray<string>, string]> = []
     const disposeRoot = createRoot((dispose) => {
-      const [a, setA] = createSignal<Renderer.Patch | undefined>(undefined)
-      gate.register("a", { kind: "signal", set: setA })
-      gate.register("b", { kind: "signal", set: (p) => (b = p) })
-      // Runs inside flushPass's batch(), after the pass itself has returned.
-      createEffect(on(a, () => gate.write("b", { y: 1 }), { defer: true }))
+      const [held, setHeld] = createSignal<ReadonlyArray<string>>([])
+      gate.register("a", { target: el, onHeld: (keys) => setHeld(keys) })
+      createEffect(on(held, (keys) => seen.push([keys, el.style.opacity]), { defer: true }))
       return dispose
     })
 
-    gate.flushPass(() => gate.write("a", { x: 1 }))
-    expect(b).toBeUndefined() // not part of the pass
-    expect(pending.size).toBe(1) // but not stranded either: the next frame is requested
-
-    fireFrame() // the frame the pass's own write requested also applies b
-    expect(b).toEqual({ y: 1 })
+    gate.write("a", { opacity: 0.5 })
+    fireFrame()
+    expect(seen).toEqual([[["opacity"], ""]])
+    expect(el.style.opacity).toBe("0.5")
     disposeRoot()
   })
 })

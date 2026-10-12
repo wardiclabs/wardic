@@ -232,16 +232,19 @@ it("a layout change from an effect inside the gate's flush paints its origin fir
   let box!: HTMLElement
   let armed = false
   let sampled: Promise<ReadonlyArray<DOMRect>> | undefined
-  /** A driver spring whose style signal the gate only ever sets inside its flush's batch(). */
+  /**
+   * A driver whose `style` changes only at its first frame's Starting-style switch, which the
+   * gate runs inside its flush, in the binding's batch() (ADR-0034): it mounts when armed.
+   */
   const Driver = () => {
-    const ward = useWardic(() => ({ animate: { x: driven() ? 256 : 0 } }))
+    const ward = useWardic({ initial: { x: 0 }, animate: { x: 256 } })
     createEffect(
       on(
         () => ward().style,
         () => {
           if (!armed) return
           armed = false
-          setAtB(true) // still inside the gate's batch()
+          setAtB(true) // still inside the gate's flush
           sampled = paintedFramesFromHere(box, 3)
         },
         { defer: true },
@@ -252,7 +255,9 @@ it("a layout change from an effect inside the gate's flush paints its origin fir
   render(() => (
     <Stage>
       <LayoutBox atB={atB} to={240} ref={(el) => (box = el)} />
-      <Driver />
+      <Show when={driven()}>
+        <Driver />
+      </Show>
     </Stage>
   ))
   await settle()
@@ -274,11 +279,13 @@ it("a layout change from an effect inside the gate's flush on an otherwise idle 
   /** One gate write, and nothing else animating: no later gate frame can rescue a stranded pass. */
   const IdleDriver = () => {
     const gate = useWardicGate()
-    const [style, setStyle] = createSignal<unknown>(undefined)
-    onCleanup(gate.register("mp-idle-driver", { kind: "signal", set: setStyle }))
+    const [held, setHeld] = createSignal<ReadonlyArray<string>>([])
+    // A binding's hook, which the flush runs before the commit (ADR-0034): the effect its
+    // signal set runs is inside the gate's flush.
+    onCleanup(gate.register("mp-idle-driver", { target: document.createElement("div"), onHeld: (keys) => setHeld(keys) }))
     createEffect(
       on(
-        style,
+        held,
         () => {
           if (!armed) return
           armed = false
