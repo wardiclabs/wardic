@@ -165,24 +165,25 @@ function Sensors(): JSX.Element {
 
 /**
  * The fixture's `data-hk` values in document order. First recorded under TestLive at 9531ff4
- * (before #41's fix, when the server ran the client's full code path). Re-recorded for #50:
- * every Wardic element and component wrap now renders its variant context's Provider, one more
- * component boundary each, on the server and the client alike; the hydrate project (the same
- * fixtures rendered on a server and hydrated in Chromium) checks that the client's keys still
- * match. A Solid upgrade re-records it.
+ * (before #41's fix, when the server ran the client's full code path). Re-recorded for #50: an
+ * element that changes what its children read (variants of its own, or `inherit={false}`)
+ * renders its variant context's Provider, one more component boundary, on the server and the
+ * client alike. In this fixture that's only the `wardic.span` with `variants` (the 4th key);
+ * every other key is 9531ff4's. The hydrate project (the same fixtures rendered on a server and
+ * hydrated in Chromium) checks that the client's keys still match. A Solid upgrade re-records it.
  */
 const HK: ReadonlyArray<string> = [
   "0000",
-  "00011000",
+  "000110",
   "00021",
   "00022001000",
-  "0003100",
-  "0004001000",
-  "000400100101000",
-  "000400100111000",
-  "000400100121000",
-  "000500001000",
-  "000601000",
+  "000310",
+  "00040010",
+  "00040011010",
+  "00040011110",
+  "00040011210",
+  "0005000010",
+  "0006010",
 ]
 
 const keysOf = (html: string): ReadonlyArray<string> => [...html.matchAll(/data-hk="([^"]*)"/g)].map((m) => m[1]!)
