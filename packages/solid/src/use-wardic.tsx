@@ -6,15 +6,17 @@
  *   Recognizers (hover/press) -> Override stack -> Override.resolve -> reactive
  *   `target()` -> a settling primitive (spring/Retarget by default, tween for
  *   `transition.type: "tween"`) -> per-frame `gate.write(id, values)` -> the
- *   gate projects + flushes the `Patch` into this element's Solid style signal.
+ *   gate projects the `Patch` and commits it onto the element (ADR-0034).
  *
  * The hook returns a callable `ward`: `<div {...ward()}>` spreads `ref` (wires
- * the element on mount) and a reactive `style` getter (the projected `Patch`).
+ * the element on mount, where the gate commits) and a reactive `style` getter: the
+ * Starting style until the first commit, then the user's style without the keys the
+ * gate holds (ADR-0034). No frame goes through Solid.
  *
  * SSR contract (ADR-0003): the initial style is resolved synchronously and
  * purely as `project(resolveInitial(config))` — never by spinning the engine.
- * That one resolved value seeds the style signal (so the server / pre-mount
- * render emits it with no flash) AND the spring's `from` Snapshot (so frame 1
+ * That one resolved value is the `style` until the first commit (so the server /
+ * pre-mount render emits it with no flash) AND the spring's `from` Snapshot (so frame 1
  * flows continuously out of the seed). `initial` is a static map / variant name
  * (SSR-serializable) at the hook boundary; the component layer unwraps an
  * accessor `initial` once before passing it in (see {@link WardicConfig.initial}).
@@ -45,8 +47,6 @@ import {
   type ProjectionNodeHandle,
   reportFailure,
   resolveInitial,
-  setSvgAttrs,
-  splitPatch,
   splitPatchForTag,
   startingStyle,
   styleValueOf,
@@ -77,6 +77,7 @@ import {
   untrack,
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
+import { createElementStyle } from "./element-style.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
@@ -496,13 +497,18 @@ export interface RunSpineOptions {
    */
   readonly styleOf?: (() => object | string | undefined) | undefined
   /**
-   * Builds the {@link FlushSink} for the registered element — the ONE thing that
-   * differs between callers: `useWardic` supplies a SIGNAL sink (sets a style
-   * signal), `wardic.create(Component)` supplies a COMMIT sink (writes the patch
-   * onto the forwarded element via `Renderer.commit`). The spine itself is
-   * sink-agnostic.
+   * Builds the {@link FlushSink} for the registered element: the element itself, plus, for a
+   * surface whose `style` prop reaches it (`useWardic`, `wardic.create(Component)`), the hooks
+   * that switch that `style` (ADR-0034). The spine itself never reads the sink's hooks.
    */
   readonly makeSink: (el: HTMLElement) => FlushSink
+  /**
+   * Whether the element's drag defaults and base style reach it with its props: a `useWardic`
+   * spread's `style` and attributes. Otherwise the spine sets them on the element at mount (the
+   * directives, and a `wardic.create(Component)` wrap, in case its component doesn't pass them
+   * on).
+   */
+  readonly defaultsInProps?: boolean | undefined
 }
 
 /**
@@ -512,16 +518,15 @@ export interface RunSpineOptions {
  *   (hover/press) -> override-stack memo from cfg() -> on(target) Retarget
  *   (springValues / animateValues seeded from the Snapshot ref) -> gate.write.
  *
- * It is sink-agnostic: the caller supplies `makeSink`, so the spine has no idea
- * whether the flushed `Patch` drives a Solid signal or commits to a forwarded
- * DOM element. `initial` is read EXACTLY ONCE at setup (`untrack`) to seed the
+ * The caller supplies `makeSink`: the gate commits the flushed `Patch` onto the element,
+ * whichever surface owns it (ADR-0034). `initial` is read EXACTLY ONCE at setup (`untrack`) to seed the
  * spring's `from` Snapshot (ADR-0003); `animate` / `whileHover` / `whileTap` /
  * `transition` / `variants` are read reactively through `cfg()`.
  *
  * Must be called within a Solid owner (it registers `createEffect` / `onCleanup`).
  */
 export function runSpine(opts: RunSpineOptions): void {
-  const { canStart, cfg, el, extraDelay, gate, id, internal, makeSink, onFrame, parent, runtime, styleOf } = opts
+  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal, makeSink, onFrame, parent, runtime, styleOf } = opts
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -556,15 +561,14 @@ export function runSpine(opts: RunSpineOptions): void {
       if (element === undefined) return
 
       // Register the element with the caller-supplied sink (ADR-0006): each
-      // flushed frame's Patch is delivered through it (signal or commit).
-      const sink = makeSink(element)
-      const unregister = gate.register(id, sink)
+      // flushed frame's Patch is committed onto it (ADR-0034).
+      const unregister = gate.register(id, makeSink(element))
       onCleanup(unregister)
 
-      // A commit sink has no style prop to carry a drag element's defaults
-      // (ADR-0019 *Amendment (Reorder)*): set each one the element's inline style
-      // doesn't already, and the attribute unless it has one, once at mount.
-      if (sink.kind === "commit") {
+      // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
+      // (Reorder)*): set each one the element's inline style doesn't already, and the
+      // attribute unless it has one, once at mount.
+      if (defaultsInProps !== true) {
         const base = internal?.baseStyle
         if (base !== undefined) {
           // The base style goes under the user's: a key the element's own inline style
@@ -649,9 +653,9 @@ export function runSpine(opts: RunSpineOptions): void {
         }
         if (handedBack.length === 0) return
         let restore: Record<string, string> | undefined
-        if (sink.kind === "commit" && styleOf !== undefined) {
-          // A commit sink writes the user's current value back: Solid applied it last.
-          // A key gone from the user's style by now is cleared, not restored stale.
+        if (styleOf !== undefined) {
+          // The gate writes the user's current value back, as the element's `style` would
+          // (ADR-0034). A key gone from the user's style by now is cleared, not restored stale.
           const style = untrack(styleOf)
           restore = {}
           for (const key of handedBack) {
@@ -1122,23 +1126,39 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   const { project } = runtime.runSync(Renderer.Renderer)
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
-  // reactive dependency, must not re-seed after mount). Seeds the style signal
-  // so pre-mount render carries the initial style (no flash).
+  // reactive dependency, must not re-seed after mount). It's the `style` until the
+  // first commit, so pre-mount render carries the initial style (no flash).
   const initialValues = resolveInitial(untrack(cfg))
 
-  // The style signal: seeded to the projected SSR initial so pre-mount render
-  // carries the initial style (no flash). The gate's signal sink updates it. An
-  // svg-inner tag's attribute keys are split off and set once as attributes, as the
-  // server renders them (ADR-0021); the sink's setSvgAttrs takes over at mount.
-  // While hydrating, seed with what the server rendered, the DOM's project (the Hydration
-  // hold, ADR-0021 decision 2): the Environment's Renderer takes over at the first frame,
-  // and a different Starting style from it is noted once (cold path).
+  // The Starting style: the projected SSR initial, carried by `style` until the gate's
+  // first commit (ADR-0021 decision 6, ADR-0034). An svg-inner tag's attribute keys are
+  // split off and set once as attributes, as the server renders them (ADR-0021); the
+  // gate's commits take over at mount. While hydrating, it's what the server rendered, the
+  // DOM's project (the Hydration hold, ADR-0021 decision 2): the Environment's Renderer
+  // takes over at the first frame, and a different Starting style from it is noted once
+  // (cold path).
   const projected = project(initialValues)
   const hydrating = isHydrating()
   const startingPatch = hydrating ? domProject(initialValues) : projected
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = splitPatchForTag(internal?.tag, startingPatch)
-  const [style, setStyle] = createSignal<Renderer.Patch>(seed.style)
+
+  // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
+  // style: `drag` is static, so they're chosen once.
+  const dragAxis = dragAxisOf(untrack(cfg), internal)
+  const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
+  const baseStyle = internal?.baseStyle
+
+  // The props `ward(userProps)` was last called with: their `style` is this element's style
+  // link (ADR-0022), read untracked at need (the live getter on `wardic.*`), and its
+  // fallback once the gate commits (ADR-0034).
+  let lastUserProps: WardUserProps | undefined
+  const elementStyle = createElementStyle({
+    userStyle: () => lastUserProps?.style,
+    starting: seed.style,
+    defaults: dragDefaults,
+    base: baseStyle,
+  })
 
   // The element, available only after ref-mount. The spine is gated on it.
   const [el, setEl] = createSignal<HTMLElement>()
@@ -1214,8 +1234,8 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // registry, so it reads allChildrenSettled directly — NOT via a context).
   const ownCanStart: () => boolean = () => whenMode() !== "afterChildren" || allChildrenSettled()
 
-  // Run the shared spine with a SIGNAL sink: each flushed Patch sets this
-  // element's style signal (ADR-0006, the default element-wrap path). `parent`
+  // Run the shared spine: the gate commits each flushed Patch onto this element
+  // (ADR-0006, ADR-0034), and the sink's hooks switch its `style`. `parent`
   // wires the variant-name inheritance (ADR-0007) into the base resolution.
   // Orchestration wiring (ADR-0007 21b):
   //   - extraDelay: this child's per-transition stagger delay (under a parent).
@@ -1231,9 +1251,6 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
         }
       : undefined
   const canStart: () => boolean = () => (parent?.childrenMayStart() ?? true) && ownCanStart()
-  // The props `ward(userProps)` was last called with: their `style` is this element's style
-  // link (ADR-0022), read untracked at need (the live getter on `wardic.*`).
-  let lastUserProps: WardUserProps | undefined
   const onFrame = (done: boolean): void => {
     registration?.setSettled(done)
     if (done) setParentSettled(true)
@@ -1252,18 +1269,11 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
     onFrame,
     internal,
     styleOf: () => lastUserProps?.style,
-    // SIGNAL sink (ADR-0014): split the projected Patch — CSS `style` keys feed
-    // the declarative style signal (preserving the user-style merge + SSR seed),
-    // SVG `attrs` are applied imperatively via setAttribute. For an HTML element
-    // the attr map is empty, so this is the prior `setStyle(patch)` behavior.
-    makeSink: (element) => ({
-      kind: "signal",
-      set: (patch) => {
-        const { style, attrs } = splitPatch(element, patch)
-        setStyle(style)
-        setSvgAttrs(element, attrs)
-      },
-    }),
+    // The gate commits onto the element (an svg-inner element's attribute keys as
+    // attributes, ADR-0014); the hooks switch the spread's `style` (ADR-0034).
+    makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
+    // The spread's `style` and attributes carry the drag defaults and the base style.
+    defaultsInProps: true,
   })
 
   // This instance's CURRENT variant NAME, reactive (ADR-0007 name propagation).
@@ -1306,12 +1316,6 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // The callable + its `.Provider` property (ADR-0007). Object.assign keeps the
   // callable's merge API (ward() / ward({ ref, style })) intact while attaching
   // Provider as a property, and the cast aligns it with the `Ward` type.
-  // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
-  // style: `drag` is static, so they're chosen once.
-  const dragAxis = dragAxisOf(untrack(cfg), internal)
-  const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
-  const baseStyle = internal?.baseStyle
-
   const ward: Ward = Object.assign(
     (userProps?: WardUserProps): WardProps => {
       lastUserProps = userProps
@@ -1319,10 +1323,11 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
         // Merge the user's ref (if any) with ward's internal element setter so BOTH
         // are invoked with the live element on mount (Option A).
         ref: mergeRefs(userProps?.ref, setEl),
-        // Getter so spreading {...ward()} stays reactive (Solid tracks the access).
-        // The user's static style is the base; ward's animated keys merge ON TOP.
+        // Getter so spreading {...ward()} stays reactive (Solid tracks the access): the
+        // Starting style over the user's until the first commit, then the user's without the
+        // keys the gate holds (ADR-0034). It never changes per frame.
         get style() {
-          return mergeStyle(userProps?.style, style(), dragDefaults, baseStyle?.()) as JSX.CSSProperties
+          return elementStyle.style(userProps?.style)
         },
         ...seed.attrs,
         ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),

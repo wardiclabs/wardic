@@ -63,8 +63,8 @@ export {
 
 /**
  * `useWardic` — the primary motion spine (ADR-0005): recognizers -> Override
- * stack -> spring/tween Retarget -> the gate's projected style signal, with an
- * SSR-correct synchronous initial (ADR-0003). Returns a callable `ward` to
+ * stack -> spring/tween Retarget -> the gate, which commits each frame onto the
+ * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable `ward` to
  * spread onto a JSX element (`<div {...ward()}>`).
  */
 export {
@@ -174,8 +174,8 @@ export { measureLayoutBox } from "@wardic/dom"
 
 /**
  * `use:ward` — the directive surface (ADR-0008 Tier 1). `<div use:ward={config}>`
- * drives the host element through the shared spine with a COMMIT sink (same path
- * as `wardic.create(Component)`). CLIENT-ONLY (post-hydration, no SSR initial —
+ * drives the host element through the shared spine (the same path as every Wardic
+ * element). CLIENT-ONLY (post-hydration, no SSR initial —
  * may flash; use `useWardic` / `wardic.create` for SSR-correct initial, ADR-0003).
  *
  * IMPORTANT: consumers MUST `import { ward } from "@wardic/solid"` for `use:ward`
