@@ -129,3 +129,35 @@ it.effect("a cancel ends at the last move's point, not its own: Chromium's point
     expect(end!.delta).toEqual({ x: 0, y: 0 })
     expect(end!.velocity).toEqual(move!.velocity)
   }))
+
+// A drag's `axis` (#29: it replaced `Drag.axisLock`): a one-axis drag's samples have their
+// off-axis offset, delta and velocity zeroed; `point` and `phase` stay as they were.
+const collectOn = (axis: "x" | "y" | "xy", events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
+  Stream.runCollect(Recognizer.drag(undefined, { axis })).pipe(Effect.provide(TestInput.layer(events)))
+
+it.effect("axis 'x' zeroes the off-axis offset, delta and velocity, and keeps point and phase", () =>
+  Effect.gen(function* () {
+    const events = [ev("down", 0, 0, 0), ev("move", 10, 5, 10), ev("move", 20, 15, 20), ev("up", 20, 15, 30)]
+    const samples = yield* collectOn("x", events)
+    expect(samples.map((s) => s.phase)).toEqual(["start", "move", "end"])
+    const [, move] = samples as ReadonlyArray<Drag.Sample>
+    expect(move!.offset).toEqual({ x: 20, y: 0 })
+    expect(move!.delta).toEqual({ x: 10, y: 0 })
+    expect(move!.velocity.y).toBe(0)
+    expect(move!.velocity.x).toBeGreaterThan(0)
+    // point is the true pointer position.
+    expect(move!.point).toEqual({ x: 20, y: 15 })
+  }))
+
+it.effect("axis 'y' zeroes x; 'xy' (the default) passes both", () =>
+  Effect.gen(function* () {
+    const events = [ev("down", 0, 0, 0), ev("move", 10, 5, 10), ev("move", 20, 15, 20)]
+    const [, onY] = (yield* collectOn("y", events)) as ReadonlyArray<Drag.Sample>
+    expect(onY!.offset).toEqual({ x: 0, y: 15 })
+    expect(onY!.delta).toEqual({ x: 0, y: 10 })
+    expect(onY!.velocity.x).toBe(0)
+    const [, free] = (yield* collectOn("xy", events)) as ReadonlyArray<Drag.Sample>
+    expect(free!.offset).toEqual({ x: 20, y: 15 })
+    const [, byDefault] = (yield* collect(events)) as ReadonlyArray<Drag.Sample>
+    expect(byDefault!.offset).toEqual({ x: 20, y: 15 })
+  }))
