@@ -71,3 +71,112 @@ What changes:
 Considered:
 - **Shifting boxes when something scrolls.** Rejected: an always-on page-wide `scroll` listener doing work at rest.
 - **Requiring `layoutScroll`.** Rejected: every plain container stays broken, including the one Motion's own tests use.
+
+## Amendment (#136, 2026-10-12): a box leaves out every ancestor transform
+
+**What was wrong.** A Measure pass cleared only the projection nodes' transforms, then read `getBoundingClientRect`. So every box carried the transforms of the node's ancestors that aren't nodes, as they were when that pass ran, and the next pass compared against it. When such an ancestor moved between two passes, the stored box was stale by that move. The ancestor could be moved by its `animate={{ x }}`, a free drag on an element that isn't `layout`, a stylesheet, a hand-set style or another library. A layout animation then started from where the node was painted before its parent moved, and a drag anchored at `grabBox` (ADR-0016, Q3a) lost the parent's travel. Measured 2026-10-12 on main `08b92a6` against framer-motion 13.4.0, real Playwright mouse, Chromium 147 and Firefox 148, both browsers within 0.5 px (`.tmp/vel/`):
+
+| Scene | main | Motion |
+|---|---|---|
+| A `layout` child at left 20 in a parent moved +100 (its `animate={{ x }}`, or a free drag), then given `left: 70`. The child's x against the parent, from the frame before. | `20 → -76 -67.8 -57.1 …` (96 px back, then it flies) | `20 → 20.1 21.7 24.6 …` |
+| A `<Reorder>` item in a card moved on x (a `drag="x"` card, or a hand-set `translateX`), dragged +60,+60 so that it reorders. Its x against the card. | `0 → -30`, then `0 → -60` on the next grab | `0` |
+
+A scaled ancestor went wrong too. The delta was computed in screen px and applied in the ancestor's own px, so inside `scale(0.5)` a FLIP started halfway.
+
+Motion avoids this in two ways.
+- It removes its own components' transforms before measuring (`removeTransform`, [create-projection-node.ts:1113-1145](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L1113-L1145)).
+- It snapshots just before each change (`willUpdate`, `:656-718`), so the before and after boxes are taken with the parent in one place.
+
+Wardic can't take the snapshot: its pass runs after the change (ADR-0018). For a change the binding never sees, such as a ResizeObserver delivery or a sibling's reflow, there's no moment to take one.
+
+**Decisions** (grilled 2026-10-12):
+
+1. **A box leaves out every ancestor transform, whoever set it** (CONTEXT.md **Scroll-stable frame**). A parent's transform carries its nodes, as CSS does. The projection's transform is applied inside every ancestor's transform, so the box it's computed from is measured in that frame.
+   - *Rejected:*
+     - Only the transforms Wardic writes (Motion's scope). A stylesheet, a hand-set style or another library that moves a parent between passes still leaves a stale box.
+     - Keeping screen boxes and refreshing the "before" box at each change. That works only for changes the binding sees (`layoutDependency`), not for a ResizeObserver delivery or a reflow.
+2. **The pass holds each transformed ancestor at a non-`none` identity for the read.**
+   - An ancestor whose computed `transform`, `translate`, `scale` or `rotate` isn't `none` gets an inline `!important` identity: `translate(0px)`, `0px`, `1` or `0deg`. That beats a stylesheet rule, a CSS animation and a Web Animation. Its own inline values and priorities are put back after the read.
+   - The identity isn't `none`, so the ancestor stays the containing block and stacking context its transform makes it. Nothing inside it lays out differently for the read.
+   - Some ancestors declare a transition on a transform property (`all`, or the property by name) with a combined duration above 0. Such an ancestor also gets `transition-property: none !important` for the hold. The release puts its transform back, reads its style, then puts its transition back, so neither the hold nor the release starts a transition.
+   - A node's own transform keeps the clear it had: its inline `transform` is blanked for the read.
+   - *Rejected:*
+     - Resetting to `none`, as Motion's `resetTransform` does for its own elements. A transform makes the element the containing block of its absolute and fixed descendants, so they'd move for the read.
+     - Taking the transform out by calculation from each ancestor's matrix, as Motion's `removeBoxTransforms` does for its own values. `getBoundingClientRect` is axis-aligned, so this is exact for translate and scale only. It also needs each ancestor's untransformed box and origin, worked out up the chain.
+3. **`layoutId` twins are compared as painted** (CONTEXT.md **Root frame**), then converted into each twin's frame through its ancestors' transforms as of its pass.
+   - When a twin's box is read with ancestors held, the pass also keeps the box as painted (its own transform cleared, its ancestors' still on). The two boxes give the twin a paint delta and its inverse (`Projection.calcBoxDelta`, per axis).
+   - The deltas convert a crossfade's origin, a Switch seed at its first measure, a Follower locked onto its Lead, and a leaving Follower made from a recent leaver.
+   - A twin already detached when its node is disposed (one that leaves with its modal) seeds the Switch from its stored box. That box now leaves its ancestors' transforms out, so it's put back where it painted through the same delta.
+   - The conversion is exact for translate and scale, and axis-aligned under a rotation.
+   - Measured on main: a switch into a modal centred by `transform: translate(-50%, -50%)` starts on the leaver's painted box, in Wardic and in Motion. Comparing twins without their ancestors' transforms would start it 150,100 off.
+   - *Rejected:*
+     - Comparing twins untransformed, like every other box. The centred modal above jumps.
+     - Also compensating Wardic's own ancestor transforms every frame, as Motion's `applyTreeDeltas` does. A modal that scales while its twin flies would then stay exact all the way, but the projection would have to read the gate's values for elements that aren't nodes. That's follow-up #137.
+4. **A drag inside a scaled or rotated parent stays as it was.**
+   - The pointer's movement in screen px is applied in the parent's own px, so inside `scale(0.5)` the element covers half the pointer's distance. Motion does the same unless the app supplies `transformPagePoint` ([PanSession.ts:140](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/gestures/pan/PanSession.ts#L140), `:311`).
+   - A translated parent (the card above, or `animate={{ x }}`) is exact, because a translation is the same in both frames.
+   - *Rejected:* converting the pointer's movement through the ancestors' scale at the drag's start (a forced layout per drag start, exact for scale only), and a `transformPagePoint`-like option. Neither is #136's.
+
+**How the pass finds the transformed ancestors** (chosen on cost, below).
+- After its usual reads, the pass compares each node's box with the box its last pass read. Both are read with the ancestors' transforms still on, and both are moved by the node's fold.
+- A node that reads the same hasn't moved, by its layout or by a transform above it, and keeps its stored box. A pass that moves nothing reads nothing it didn't read before.
+- For each node that moved, the pass walks its ancestors, each element once a pass and nodes skipped. It reads their transform properties through one live `getComputedStyle` declaration kept per element, so each element is asked for its style once in its life. It holds those ancestors that carry a transform, and reads the node's box again.
+- *Rejected:* walking every node's ancestors on every pass. In Chromium it made a pass that moved nothing 2–4× slower wherever nodes have wrapper elements. In the one case it handles differently (the last limit below), it moves the node twice instead.
+
+**Limits:**
+- **A transform mid CSS transition when a pass reads.** Holding it would cancel or restart the transition, so it's left alone and its current offset stays in the box. The common hover lift meets this only during its transition.
+- **A drag inside a scaled or rotated parent** (decision 4).
+- **Twins are converted as of each twin's pass**, and axis-aligned under a rotation. An ancestor transform that changes mid-flight drifts until the animation ends, as before (#137).
+- **A node's own transform from a stylesheet**, or its `translate`, `scale` or `rotate`, stays in its box, as before. Only its inline `transform` is cleared.
+- **An ancestor whose layout and transform change together**, so that the node doesn't move on screen (another library's FLIP on a wrapper, for example). The node keeps its stored box, as on main, and the next pass after the wrapper's transform comes off FLIPs it from there.
+
+**Cost.** Measured with `.tmp/136-pass/`: N nodes against a fake sink, each pass timed by its `wardic.projection.measure` span, 30 passes a page, 6 rounds of a fresh page each, against main and against main itself. On the bench server, `wardic-quiet` first, Chromium 147:
+
+| Pass | main (ms) | main against itself | this change |
+|---|---|---|---|
+| nothing moved, 1,000 / 5,000 nodes in one container | 0.96 / 3.18 | −7% / +1% | −1% / +3% |
+| nothing moved, 1,000 / 5,000 nodes, each three wrappers deep | 1.54 / 5.83 | +9% / 0% | +7% / 0% |
+| nothing moved, 1,000 nodes, every wrapper transformed | 1.75 | −1% | +1% |
+| every node moved 1 px, 1,000 / 5,000 in one container | 1.32 / 4.81 | −1% / +1% | +8% / +6% |
+| every node moved 1 px, 1,000 / 5,000, three wrappers deep | 1.89 / 7.11 | 0% / +1% | +119% / +162% |
+| every node moved 1 px, 1,000, every wrapper transformed | 1.87 | −1% | +360% |
+| the first pass (mount), 1,000 / 5,000, three wrappers deep | 10.0 / 44.6 | | 14.5 / 65.7 ms |
+
+- **A pass that moves a node pays for the elements above it that aren't nodes.** Each one costs a read of its four transform properties, about 0.75 µs in Chromium (`.tmp/136-reads/`: 0.57 µs through the accessors, 0.70 through `getPropertyValue`, 0.27 for one property alone). The cost scales with those wrappers, not with the nodes: a list in one container pays 6–8%. A transformed wrapper is also written, read again and put back.
+- **Firefox 148** (its clock is 1 ms, 6 rounds of 1,000 nodes):
+  - with wrappers and nothing moved, 0% (main against itself +3%);
+  - every node moved through wrappers, +32%;
+  - every node moved in one container, +8% (0%).
+  - In one container with nothing moved it read +13% to +18% in four runs, against 0–3% for main against itself. That's within main's own per-round spread (−38% to +24%). Neither the three new per-node fields alone (+6%) nor keeping the stored box (+13%) accounts for it.
+- **Per frame**, only a Follower under a transformed ancestor does more: its Lead's box is converted, two delta applications.
+- `bench:core` wasn't run: core is unchanged.
+
+**Pinned by:**
+- `packages/dom/test/projection-transform-frame.browser.test.ts`, TF1–TF13, against a fake sink:
+  - a parent's inline transform, and a stylesheet's `transform`, `translate`, `scale` and `rotate`;
+  - a child moved inside a moved parent, and inside a scaled one;
+  - the containing block kept;
+  - a declared transition not started, and inline values and priorities restored;
+  - a running transition (the limit), and a keyframes animation;
+  - a node parent not held;
+  - a Switch into a scaled modal, and two out of one that leaves with its twin: through a pass that didn't move the twin, and after the modal's scale came off.
+  - On main, TF1–TF5, TF9 and TF11 fail. TF6, TF7, TF8, TF10, TF12 and TF13 pin what main already did.
+- `packages/solid/test/transform-frame.browser.test.tsx`, TS1–TS7, with the real mouse:
+  - the `<Reorder>` item on a card Wardic drags, and on one a hand-set transform moves;
+  - a `layout` child under `animate={{ x }}` and under a free drag;
+  - the centred-modal Switch, a guard;
+  - a crossfade and an `AnimatePresence` close into and out of a scaled modal, with the Followers locked.
+  - On main, TS1–TS4, TS6 and TS7 fail.
+- `packages/dom/test/projection-auto-fold.browser.test.ts` AF7 (each element's style read once).
+- The layout lab: scenario 7's `scaled` container and scenario 14's card.
+- Each test was checked against a mutation of the code it pins, 16 in all, and each mutation fails the test meant for it. The mutations: an identity of `none`, no transition hold, no style read before a transition comes back, holding a running transition, holding a node, a priority lost, no `!important`, a seed not converted, a Follower, a crossfade, a promotion or a leaving Follower not converted, a node that didn't move taking the box just read, a twin keeping or dropping its deltas wrongly, and a detached twin's seed left unpainted.
+
+**Measured** (2026-10-12, the bench server, `wardic-quiet` first):
+- **Against Motion** (`.tmp/vel/`, real Playwright mouse, Chromium 147 and Firefox 148, 2 reps each, and 4 more in Firefox for the flips with main's build alongside):
+  - A `<Reorder>` item on a card that's dragged or moved by CSS stays 0.0 px off its card on every frame of both grabs, as in Motion. On main it was off by −30, then −60.
+  - A `layout` child of a parent moved +100 by `animate` or a free drag starts where it was and flies: `20.0 → 21.3 24.1 27.7 …`, where Motion gives `20.0 → 20.4 22.5 25.5 …` and main gave `20.0 → -76.1 -67.6 …`.
+  - The switch into the centred modal starts where it did on main: `46.1,297.9`, one step in from the leaver's `40,300`.
+- **The layout lab's new modes** (`.tmp/136-lab/drive.ts`, headless Chromium 147, Playwright's mouse):
+  - scenario 7 `scaled`: main grades A to B `wrong-origin`, its first frame 95.4 px off; this change grades both directions `clean`;
+  - scenario 14's card: main's `uninvolved still` reads 58.5 and 39.0 px after a card drag, 29.2 px in a diagonal drag and 46.8 px after C; this change reads 0 on every run.
+- **The layout lab against main** (`.tmp/73-proto/drive.ts`, headless Chromium, k = 5, cold and warm): identical. Scenarios 1–10 held the same frames, with the same first steps to 0.2 px and every run `clean`; drag scenarios 11–14 were 0 frames behind and 0 release held, every run settled.
