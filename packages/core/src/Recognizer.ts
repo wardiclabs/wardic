@@ -6,11 +6,12 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { constVoid } from "effect/Function"
+import { constant, constVoid, type LazyArg } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
 import type * as Drag from "./Drag.ts"
 import * as DragActivity from "./DragActivity.ts"
@@ -509,59 +510,135 @@ const step = (state: DragState, event: InputSource.PointerLikeEvent): Step =>
     ),
   )
 
+/** `drag`'s options (ADR-0019, *Amendment (#29)*). */
+export interface DragOptions {
+  /**
+   * The axes the drag moves on, and claims (`"xy"` by default). A one-axis drag's samples have
+   * their off-axis `offset`, `delta` and `velocity` zeroed; `point` and `phase` are left as they
+   * are. A function is read at each gesture's start and holds to its end (a `<Reorder>` item's
+   * axis, decided per gesture, ADR-0020).
+   */
+  readonly axis?: Drag.Axis | LazyArg<Drag.Axis> | undefined
+  /**
+   * `false`: the drag takes no **Drag claim** and is never refused (Motion's `dragPropagation`).
+   * It still counts in the **Drag activity**, so no hover or press starts while it is on.
+   */
+  readonly claim?: boolean | undefined
+}
+
+/** `sample` kept to `axis`: a one-axis drag's off-axis offset, delta and velocity zeroed. */
+const keepTo = (sample: Drag.Sample, axis: Drag.Axis): Drag.Sample =>
+  Match.value(axis).pipe(
+    Match.when("x", () => ({
+      ...sample,
+      offset: { x: sample.offset.x, y: 0 },
+      delta: { x: sample.delta.x, y: 0 },
+      velocity: { x: sample.velocity.x, y: 0 },
+    })),
+    Match.when("y", () => ({
+      ...sample,
+      offset: { x: 0, y: sample.offset.y },
+      delta: { x: 0, y: sample.delta.y },
+      velocity: { x: 0, y: sample.velocity.y },
+    })),
+    Match.orElse(() => sample),
+  )
+
+/** `axis` as a function read at each gesture's start. */
+const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
+  Match.value(axis).pipe(
+    Match.when(Predicate.isString, (fixed) => constant(fixed)),
+    Match.orElse((read) => read),
+  )
+
 /**
- * Recognize a drag gesture on `target`, emitting a `Drag.Sample` stream.
+ * Recognize a drag gesture on `target`, emitting a `Drag.Sample` stream, kept to its `axis`.
  *
  * Built like the scalar primitives (`scalar.ts`/`chase.ts`): a `Stream.unwrap`
  * over an `Effect.gen` that resolves `InputSource`, logs subscribe (annotated),
  * and folds the pointer stream with `Stream.mapAccum`. The whole stream runs in
  * a `wardic.drag` span; per-sample folding stays silent (hot path).
  *
- * The drag claims the runtime's **Drag activity** at its `"start"` and releases it at
- * its `"end"`, or when the stream is interrupted mid-gesture, so a hover or press
- * elsewhere can't start while it is on (ADR-0019). A Stale gesture's end is the one
- * cold-path log: `wardic.drag: stale gesture` with its rule.
+ * At its `"start"` the drag reads its axis and takes its target's **Drag claim** on it, which
+ * also counts it in the runtime's **Drag activity**, so a hover or press elsewhere can't start
+ * while it is on (ADR-0019). Every subscription on one target shares the claim. When another
+ * target holds an axis it needs, the gesture is refused: it emits nothing until its end, as a tap
+ * emits nothing, and doesn't retry. Of nested draggables the innermost claims first: a pointer's
+ * moves reach the targets it went down on innermost first, and each is handled inside its event
+ * (ADR-0032). With `claim: false` the drag only counts in the Drag activity. Either is released at
+ * the gesture's `"end"`, or when the stream is interrupted mid-gesture (ADR-0019, *Amendment
+ * (#29)*). A Stale gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its
+ * rule.
  *
  * Velocity is a time-windowed (~30ms) per-axis estimate read from event
  * `timeStamp`s, so the recognizer needs no `Clock` — only `InputSource`.
  */
-export const drag = (target: unknown): Stream.Stream<Drag.Sample, never, InputSource.InputSource> => {
+export const drag = (
+  target: unknown,
+  { axis = "xy", claim = true }: DragOptions = {},
+): Stream.Stream<Drag.Sample, never, InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
+  const axisAt = axisAtOf(axis)
   return Stream.unwrap(
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const activity = yield* DragActivity.DragActivity
       yield* Effect.logDebug("wardic.drag: subscribe").pipe(Effect.annotateLogs(attributes))
-      // This subscription's claim on the Drag activity, held from "start" to "end": its release.
-      const claim = MutableRef.make(Option.none<() => void>())
-      const unclaim = (): void => {
-        Option.match(MutableRef.get(claim), { onNone: constVoid, onSome: (release) => release() })
-        MutableRef.set(claim, Option.none())
+      // This subscription's gesture: its release (of its claim, or its count) while it holds one,
+      // its axis, and whether it was refused, from its "start" to its "end".
+      const held = MutableRef.make(Option.none<() => void>())
+      const gestureAxis = MutableRef.make<Drag.Axis>("xy")
+      const refused = MutableRef.make(false)
+      const release = (): void =>
+        Option.match(MutableRef.getAndSet(held, Option.none()), { onNone: constVoid, onSome: (releaseIt) => releaseIt() })
+
+      /** A gesture's start: its axis read, then its claim taken, or refused. Whether it was taken. */
+      const begin = (): boolean => {
+        release()
+        const gesture = axisAt()
+        MutableRef.set(gestureAxis, gesture)
+        const taken = Bool.match(claim, {
+          onTrue: () => activity.claim(target, gesture),
+          onFalse: () => Option.some(activity.count()),
+        })
+        MutableRef.set(held, taken)
+        MutableRef.set(refused, Option.isNone(taken))
+        return Option.isSome(taken)
       }
+
+      const kept = (sample: Drag.Sample): Result.Result<Drag.Sample, Drag.Sample> =>
+        Result.succeed(keepTo(sample, MutableRef.get(gestureAxis)))
+
+      /** Each sample of a claimed gesture, kept to its axis; nothing of a refused one. */
+      const admit = (sample: Drag.Sample): Effect.Effect<Result.Result<Drag.Sample, Drag.Sample>> =>
+        Match.value(sample.phase).pipe(
+          Match.when("start", () =>
+            Effect.sync(() => Bool.match(begin(), { onTrue: () => kept(sample), onFalse: () => Result.fail(sample) }))),
+          Match.when("move", () =>
+            Effect.sync(() =>
+              Bool.match(MutableRef.get(refused), { onTrue: () => Result.fail(sample), onFalse: () => kept(sample) })
+            )),
+          Match.when("end", () =>
+            Bool.match(MutableRef.getAndSet(refused, false), {
+              onTrue: () => Effect.succeed(Result.fail(sample)),
+              onFalse: () =>
+                Effect.sync(release).pipe(
+                  Effect.andThen(
+                    Option.match(Option.fromUndefinedOr(staleEnds.get(sample)), {
+                      onNone: () => Effect.void,
+                      onSome: (rule) => Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ rule })),
+                    }),
+                  ),
+                  Effect.andThen(Effect.sync(() => kept(sample))),
+                ),
+            })),
+          Match.exhaustive,
+        )
+
       return input.pointer(target).pipe(
         Stream.mapAccum(() => initState, step),
-        Stream.tap((sample) =>
-          Match.value(sample.phase).pipe(
-            Match.when("start", () =>
-              Effect.sync(() => {
-                unclaim()
-                MutableRef.set(claim, Option.some(activity.claim()))
-              }),
-            ),
-            Match.when("end", () =>
-              Effect.sync(unclaim).pipe(
-                Effect.andThen(
-                  Option.match(Option.fromUndefinedOr(staleEnds.get(sample)), {
-                    onNone: () => Effect.void,
-                    onSome: (rule) => Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ rule })),
-                  }),
-                ),
-              ),
-            ),
-            Match.orElse(() => Effect.void),
-          ),
-        ),
-        Stream.ensuring(Effect.sync(unclaim)),
+        Stream.filterMapEffect(admit),
+        Stream.ensuring(Effect.sync(release)),
       )
     }).pipe(Effect.annotateLogs(attributes)),
   ).pipe(Stream.withSpan("wardic.drag", { attributes }))

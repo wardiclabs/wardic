@@ -1,7 +1,8 @@
 /**
- * The `Drag` module: a drag gesture's `Sample` and the shaping combinators over a stream of them
- * (`axisLock`, `withinBounds`, `dual`, the stream first). `Recognizer.drag` recognizes the
- * gesture; a binding composes its response, the Fling included (ADR-0004, *Amendment (#32)*).
+ * The `Drag` module: a drag gesture's `Sample`, its `Axis`, and the shaping combinators over a stream
+ * of them (`axisLock`, `withinBounds`, `dual`, the stream first). `Recognizer.drag` recognizes the
+ * gesture, kept to its `axis`; a binding composes its response, the Fling included (ADR-0004,
+ * *Amendment (#32)*).
  */
 import * as Bool from "effect/Boolean"
 import { dual } from "effect/Function"
@@ -54,8 +55,12 @@ export interface Bounds {
   readonly y?: AxisRange
 }
 
-/** The axis a drag is locked to; the other axis is zeroed. */
-type Axis = "x" | "y"
+/**
+ * The axes a drag moves on: `"x"` or `"y"` alone, or `"xy"` for a free drag. `Recognizer.drag`'s
+ * `axis` zeroes a one-axis drag's off-axis and claims only its axis (a **Drag claim**, ADR-0019,
+ * *Amendment (#29)*).
+ */
+export type Axis = "x" | "y" | "xy"
 
 /**
  * Lock a drag to a single `axis`, zeroing the off-axis component of `offset`,
@@ -70,10 +75,10 @@ type Axis = "x" | "y"
  * Recognizer.drag(el).pipe(Drag.axisLock("x")) // offset.y, delta.y, velocity.y forced to 0
  */
 export const axisLock: {
-  (axis: Axis): <E, R>(stream: Stream.Stream<Sample, E, R>) => Stream.Stream<Sample, E, R>
-  <E, R>(stream: Stream.Stream<Sample, E, R>, axis: Axis): Stream.Stream<Sample, E, R>
-} = dual(2, <E, R>(stream: Stream.Stream<Sample, E, R>, axis: Axis): Stream.Stream<Sample, E, R> => {
-  const off: Axis = Bool.match(axis === "x", { onTrue: () => "y", onFalse: () => "x" })
+  (axis: "x" | "y"): <E, R>(stream: Stream.Stream<Sample, E, R>) => Stream.Stream<Sample, E, R>
+  <E, R>(stream: Stream.Stream<Sample, E, R>, axis: "x" | "y"): Stream.Stream<Sample, E, R>
+} = dual(2, <E, R>(stream: Stream.Stream<Sample, E, R>, axis: "x" | "y"): Stream.Stream<Sample, E, R> => {
+  const off: "x" | "y" = Bool.match(axis === "x", { onTrue: () => "y", onFalse: () => "x" })
   return Stream.map(stream, (sample) => ({
     ...sample,
     offset: { ...sample.offset, [off]: 0 },

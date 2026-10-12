@@ -5,7 +5,8 @@ import * as Effect from "effect/Effect"
 
 // The pointer helpers core ships for Environments and tests (ADR-0019, decision 5
 // and 3b): the event builder with mouse defaults, Motion's Primary pointer rule,
-// and the Drag activity counter. Written against the pinned shapes before they exist.
+// and the Drag activity counter, with its Drag claims (ADR-0019, *Amendment (#29)*). Written
+// against the pinned shapes before they exist.
 
 type PointerType = InputSource.PointerLikeEvent["type"]
 
@@ -84,24 +85,24 @@ describe("isPrimaryPointer", () => {
 })
 
 describe("DragActivity", () => {
-  it("C3: a claim makes it active, two claims need two releases, a release is idempotent", () => {
+  it("C3: a count makes it active, two counts need two releases, a release is idempotent", () => {
     const activity = DragActivity.make()
     // A fresh one is inactive.
     expect(activity.isDragActive()).toBe(false)
-    // One claim.
-    const releaseA = activity.claim()
+    // One count.
+    const releaseA = activity.count()
     expect(activity.isDragActive()).toBe(true)
-    // A second claim, then release the first twice.
-    const releaseB = activity.claim()
+    // A second count, then release the first twice.
+    const releaseB = activity.count()
     releaseA()
     releaseA()
     // The double release counted once, so B still holds it.
     expect(activity.isDragActive()).toBe(true)
     releaseB()
     expect(activity.isDragActive()).toBe(false)
-    // Releasing again after it reached zero doesn't go negative and break the next claim.
+    // Releasing again after it reached zero doesn't go negative and break the next count.
     releaseB()
-    const releaseC = activity.claim()
+    const releaseC = activity.count()
     expect(activity.isDragActive()).toBe(true)
     releaseC()
     expect(activity.isDragActive()).toBe(false)
@@ -121,7 +122,7 @@ describe("DragActivity", () => {
     // It is the provided one, independent of the default.
     expect(seen).toBe(provided)
     expect(seen).not.toBe(first)
-    const release = provided.claim()
+    const release = provided.count()
     expect(provided.isDragActive()).toBe(true)
     expect(first.isDragActive()).toBe(false)
     release()

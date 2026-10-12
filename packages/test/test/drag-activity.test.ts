@@ -112,7 +112,7 @@ it.effect("A3: interrupting the drag stream mid-gesture releases the claim (fina
 
     // Interrupting a drag that never started must not release another's claim
     const shared = DragActivity.make()
-    const other = shared.claim()
+    const other = shared.count()
     const idle = yield* rig(shared, [Recognizer.drag(undefined)])
     yield* idle.push(ev("down", 0, 0, 0)) // no start yet
     yield* Fiber.interrupt(idle.fibers[0]!)
@@ -125,7 +125,7 @@ it.effect("A4: a press can't start while the activity is claimed; a press alread
   Effect.gen(function* () {
     // (a) claimed before the down: the press doesn't start
     const busy = DragActivity.make()
-    const release = busy.claim()
+    const release = busy.count()
     const ha = yield* rig(busy, [Recognizer.press(undefined)])
     yield* ha.push(ev("down", 0, 0, 0))
     yield* ha.push(ev("up", 0, 0, 10))
@@ -150,7 +150,7 @@ it.effect("A5: hover ignores an enter while claimed; a leave while claimed still
   Effect.gen(function* () {
     // (a) an enter while claimed is ignored
     const busy = DragActivity.make()
-    const release = busy.claim()
+    const release = busy.count()
     const ha = yield* rig(busy, [Recognizer.hover(undefined)])
     yield* ha.push(ev("enter", 0, 0, 0, { buttons: 0 }))
     expect(yield* ha.seen).toEqual([])
@@ -163,7 +163,7 @@ it.effect("A5: hover ignores an enter while claimed; a leave while claimed still
     const activity = DragActivity.make()
     const hb = yield* rig(activity, [Recognizer.hover(undefined)])
     yield* hb.push(ev("enter", 0, 0, 0, { buttons: 0 }))
-    const claim = activity.claim()
+    const claim = activity.count()
     yield* hb.push(ev("leave", 200, 0, 10))
     expect(yield* hb.seen).toEqual([true, false])
     claim()
@@ -173,8 +173,8 @@ it.effect("A6: two drags claim twice; releasing one leaves the activity active",
   Effect.gen(function* () {
     // (a) the API: a counter, and each release is idempotent
     const counter = DragActivity.make()
-    const first = counter.claim()
-    const second = counter.claim()
+    const first = counter.count()
+    const second = counter.count()
     first()
     expect(counter.isDragActive()).toBe(true)
     first() // a repeated release must not take the second's claim

@@ -119,6 +119,7 @@ export default defineConfig({
       "effect/Pipeable",
       "effect/Predicate",
       "effect/Record",
+      "effect/Result",
       "effect/Schema",
       "effect/SchemaGetter",
       "effect/SchemaTransformation",
