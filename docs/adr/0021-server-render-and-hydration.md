@@ -148,3 +148,14 @@ ADR-0034 decides it.
   - Forwards its ref only: animates (F7).
   - Reads `props.style` once: shows the Starting style, then animates (F8).
   - `style` but no ref: never animates, as before. Unlike a component wrap, it gives no warning (inferred from the code: the spine starts on the ref).
+
+## Amendment (#50, 2026-10-12): the server renders each element's variant context, and a Variant child's inherited `initial`
+
+ADR-0007's *Amendment (#50)* sets the rule: every Wardic element hands its children a variant context, and a Variant child inherits its ancestor's `initial` and `animate` names. On a server it resolves through the same function as on the client (`variant-node.ts`), once.
+
+- **The same nesting.** An element that changes what its children read renders its variant context's Provider where the client does: it has variants of its own, or it sets `inherit={false}`. Each Provider is a component boundary and draws a hydration key (decision 4). The decision is made once, at setup, from the same props on both sides, so the nesting never changes after mount. Only the names inside the context follow later changes.
+- **Names only, read once.** The server's context carries the names and inert orchestration: stagger and `when` are timing and never change the markup.
+- **The markup comes from `initial` only.** A Variant child's Starting style is its own `initial`, else its ancestor's `initial` name resolved against its own `variants`. The inherited `animate` name never reaches the markup, as before. Motion's server render is the same: its values come from `animate` only under `initial={false}`, which Wardic doesn't have.
+- **The Hydration hold is unchanged.** The client's first render resolves the same names to the same Starting style, and holds it until the first commit (the hydrate project's F18: a variant list entering from its `initial` name).
+- **The keys fixture changed in one place** (SV15, re-recorded): the `wardic.span` with `variants` under `Spread`'s `ward.Provider` now renders its own Provider. Every other key is still 9531ff4's.
+- **Rejected: a Provider on every element** (the grill's first answer, before measuring). It cost about 1.2 µs per plain element on a server, +37% of a `wardic.div`'s server render (1,000 elements, 9 alternating pairs: 3.09 → 4.25 ms), for nothing a child could read.
