@@ -1,5 +1,4 @@
 import * as Renderer from "@wardic/core/Renderer"
-import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
 /** A single recorded `project` call. */
@@ -21,12 +20,12 @@ export interface CommitCall {
  *
  * Defaults:
  *  - `project` is identity (`(values) => values as Patch`).
- *  - `commit` pushes onto `commitCalls` and resolves with `void`.
+ *  - `commit` pushes onto `commitCalls`.
  */
 export const makeRecordingRenderer = (): {
   readonly service: {
     readonly project: (values: Record<string, unknown>) => Renderer.Patch
-    readonly commit: <T>(target: T, patch: Renderer.Patch) => Effect.Effect<void>
+    readonly commit: (target: unknown, patch: Renderer.Patch) => void
   }
   readonly projectCalls: ReadonlyArray<ProjectCall>
   readonly commitCalls: ReadonlyArray<CommitCall>
@@ -39,10 +38,9 @@ export const makeRecordingRenderer = (): {
         projectCalls.push({ values })
         return values as Renderer.Patch
       },
-      commit: <T>(target: T, patch: Renderer.Patch) =>
-        Effect.sync(() => {
-          commitCalls.push({ target, patch })
-        }),
+      commit: (target: unknown, patch: Renderer.Patch): void => {
+        commitCalls.push({ target, patch })
+      },
     },
     projectCalls,
     commitCalls,

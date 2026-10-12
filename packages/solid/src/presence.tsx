@@ -143,7 +143,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
   // Commit a projected value-map onto a retained node via the Renderer.
   const commitValues = (el: HTMLElement, values: Values.Values): void => {
     const patch: Renderer.Patch = project(values)
-    runtime.runSync(commit(el, patch))
+    commit(el, patch)
   }
 
   // Remove a retained node from the DOM + drop its registration + clear its

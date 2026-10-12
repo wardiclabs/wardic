@@ -344,7 +344,7 @@ describe("a server render on DomLive (ADR-0021)", () => {
     function Gate(): JSX.Element {
       try {
         const gate = useWardicGate()
-        gate.register("sv13", { kind: "signal", set: () => {} })()
+        gate.register("sv13", { target: undefined })()
         gate.write("sv13", { opacity: 1 })
         gate.flushPass(() => {})
         gate.dispose()

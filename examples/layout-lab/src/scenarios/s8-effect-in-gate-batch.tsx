@@ -6,16 +6,17 @@
  * the watched 64x64 `wardic.div` with `layout` at the top (left 32px or 224px, top
  * 24px, 192px apart) and, below it, a 28x28 driver dot driven by `useWardic`. Its
  * `animate` translates it (`x` 0 or 256px), a transform that reflows nothing. Run
- * arms a one-shot and flips the driver's `animate`. A `createEffect` tracks
- * `ward().style`, the gate's signal-sink output, which the gate only ever sets
- * inside its flush's `batch()`. The first style change after arming disarms, marks
- * the trigger and moves the watched box through the signal bound to its `left` and
- * `layoutDependency`, so repeated runs alternate.
+ * arms a one-shot and mounts a new driver, which animates from where the last one
+ * ended to the other end. A `createEffect` tracks the driver's `style`, which changes
+ * once: at its first frame's Starting-style switch, which the gate runs inside its
+ * flush's `batch()` (ADR-0034; a frame itself never goes through `style`). That change
+ * disarms, marks the trigger and moves the watched box through the signal bound to
+ * its `left` and `layoutDependency`, so repeated runs alternate.
  *
  * @module
  */
 import { useWardic, wardic } from "@wardic/solid"
-import { createEffect, createSignal, type JSX, on } from "solid-js"
+import { createEffect, createSignal, For, type JSX, on } from "solid-js"
 import type { ScenarioDef } from "./types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
@@ -56,41 +57,47 @@ const boxStyle = (atB: boolean): JSX.CSSProperties => ({
   left: atB ? "224px" : "32px",
 })
 
+/** The driver's `x` after `run` Runs: 0, then alternately the far end and back. */
+const driverX = (run: number): number => (run % 2 === 1 ? DRIVER_TRAVEL : 0)
+
 /**
- * The scenario View. Run drops a `drive` note, arms the one-shot and flips the
- * driver's `animate` target. The effect on `ward().style` then marks the
- * `gate-batch-effect` trigger and moves the watched box, once per Run.
+ * The scenario View. Run drops a `drive` note, arms the one-shot and mounts the next
+ * driver. The effect on that driver's `style` then marks the `gate-batch-effect`
+ * trigger and moves the watched box, once per Run.
  */
 const View: ScenarioDef["View"] = (props) => {
-  const [driven, setDriven] = createSignal(false)
+  const [runs, setRuns] = createSignal(0)
   const [atB, setAtB] = createSignal(false)
   // Plain flag, not a signal: the effect must not track it.
   let armed = false
 
-  const ward = useWardic(() => ({ animate: { x: driven() ? DRIVER_TRAVEL : 0 } }))
-  const driver = ward({ style: DRIVER_STYLE })
-
-  // `ward().style` reads the per-element style signal, which only the gate's flush
-  // sets, inside its batch(). Solid runs this effect before that batch() returns,
-  // so the write below happens while the gate is still flushing. `defer` skips the
-  // mount run, and `on` runs the body untracked.
-  createEffect(
-    on(
-      () => ward().style,
-      () => {
-        if (!armed) return
-        armed = false
-        props.ctx.markTrigger("gate-batch-effect")
-        setAtB((b) => !b)
-      },
-      { defer: true },
-    ),
-  )
+  /** One Run's driver: `x` from the last Run's end to this one's. */
+  const Driver = (p: { readonly run: number }): JSX.Element => {
+    const ward = useWardic({ initial: { x: driverX(p.run - 1) }, animate: { x: driverX(p.run) } })
+    const driver = ward({ style: DRIVER_STYLE })
+    // The driver's `style` changes once, when the gate switches its Starting style out
+    // just before its first commit, inside the flush's batch() (ADR-0034). Solid runs this
+    // effect before that batch() returns, so the write below happens while the gate is
+    // still flushing. `defer` skips the mount run, and `on` runs the body untracked.
+    createEffect(
+      on(
+        () => driver.style,
+        () => {
+          if (!armed) return
+          armed = false
+          props.ctx.markTrigger("gate-batch-effect")
+          setAtB((b) => !b)
+        },
+        { defer: true },
+      ),
+    )
+    return <div ref={driver.ref} style={driver.style} aria-hidden="true" />
+  }
 
   const run = (): void => {
     props.ctx.mark("drive")
     armed = true
-    setDriven((d) => !d)
+    setRuns((n) => n + 1)
   }
 
   return (
@@ -103,7 +110,7 @@ const View: ScenarioDef["View"] = (props) => {
           layoutDependency={atB()}
           style={boxStyle(atB())}
         />
-        <div ref={driver.ref} style={driver.style} aria-hidden="true" />
+        <For each={[runs()]}>{(n) => <Driver run={n} />}</For>
       </div>
       <button type="button" class="btn" data-action="run" onClick={run}>
         Run
@@ -113,22 +120,24 @@ const View: ScenarioDef["View"] = (props) => {
 }
 
 /**
- * Scenario 8, Solid effect during gate batch: an effect on a driver element's
- * `ward().style` writes the `layoutDependency` signal from inside the gate flush's
- * `batch()`. Expected to be safe, holding 1: the Measure pass runs right after the
- * frame's flush, at the end of the Clock's callback.
+ * Scenario 8, Solid effect during gate batch: an effect on a new driver element's
+ * `style`, which its first frame's Starting-style switch changes, writes the
+ * `layoutDependency` signal from inside the gate flush's `batch()`. Expected to be safe,
+ * holding 1: the Measure pass runs right after the frame's flush, at the end of the
+ * Clock's callback.
  */
 export const s8: ScenarioDef = {
   id: ID,
   index: 8,
   title: "Solid effect during gate batch",
   mechanism:
-    "A createEffect on a driver element's ward().style, run inside the gate flush's batch(), writes the layoutDependency signal.",
+    "A createEffect on a new driver element's style, changed by its first frame's Starting-style switch inside the gate flush's batch(), writes the layoutDependency signal.",
   prediction: "safe",
   expectedHeld: 1,
   rationale:
-    "The gate sets signal-sink styles inside its flush's batch(), at the end of the Frame loop's tick in the Clock's " +
-    "callback (ADR-0033), and Solid runs this effect before that batch() returns, so the layoutDependency flip " +
+    "The gate switches a new element's Starting style out inside its flush's batch(), at the end of the Frame loop's " +
+    "tick in the Clock's callback (ADR-0033, ADR-0034), and Solid runs this effect before that batch() returns, so the " +
+    "layoutDependency flip " +
     "reaches notify during the frame's flush. The Measure pass it queues runs in a microtask at the end of the " +
     "Clock's callback and flushes its own seed (ADR-0018), so the frame paints the origin (held 1), and the next " +
     "frame's tick takes the first step: a click's first step. Before #73 the flush ran before the Clock's callback, " +

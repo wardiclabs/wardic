@@ -139,3 +139,10 @@ The Consequences left #57 open: a transform key that returned to its Own value, 
 ## Amendment (#56, 2026-10-07): string keys start and return by animating
 
 The Consequences left #56 open: string keys snapped through the spine, so a colour returned by snapping. ADR-0024 gives the Snapshot strings, starts a string key with no value from its `style` value, else its Own value (decision 1's start links, now wired for strings), and drives it under a spring by the spring's progress. A string key that leaves the target now returns through the chain by animating, and decision 5's state at rest is unchanged. A pair that can't blend (an Own value of `auto` for a length target) switches at its leg's first frame (ADR-0024, decision 3).
+
+## Amendment (#79, 2026-10-12): `style` is a key's fallback while a layer sets it
+
+ADR-0034 decides it.
+- **While any entry of the Override stack sets a key, the element shows Wardic's value, whatever its `style` says.** `style` is the key's fallback (its Base value's `style` link), never an override. That was `wardic.div`'s behaviour, through `mergeStyle`, and Motion's (`motion-values.ts:42`). Since the gate commits every element, the binding's `style` leaves out the keys the gate holds, so the rule holds on component wraps too.
+- **The hand-back is unchanged:** a key back at its `style` value is released, the gate writes the user's current value, and the key returns to the element's `style`, so a later `style` change shows at rest. Every sink now commits, so decision 5's "a commit sink" means every element.
+- **The directives** (`use:ward`, `use:reorderItem`) don't own `style`. There, a key both set goes to whichever wrote last.

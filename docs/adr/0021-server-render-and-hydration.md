@@ -136,3 +136,15 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
 - The hydrating client holds the same Starting style (the Hydration hold), and a custom Renderer's hydration seed is the DOM's `project` (decision 2), so server and client still agree by construction. The first frame after mount continues from `none`.
 - Not taken: opting the Starting style out to keep the identity functions. It would no longer be `project(resolveInitial(config))`, and the first frame after mount would switch `scale(1)` to `none`.
 - **Pinned by** `starting-style.node.test.ts` ST15–ST16, `server.ssr.test.tsx` SV20 and the hydrate project's F15 (held, then animated) and F16 (held at rest).
+
+## Amendment (#79, 2026-10-12): decision 6's switch is every element's, and `style` gives up the keys Wardic holds
+
+ADR-0034 decides it.
+- **A `useWardic` spread, and so `wardic.*`, takes decision 6's switch.** The gate commits its frames onto the element, so its `style` carries the Starting style until the first commit, and from then on the user's style. The server render and the Hydration hold are unchanged: they're the same `style` until that commit.
+- **After the first commit, `style` is the user's style without the keys the gate holds,** on component wraps too. Decision 6's "only the user's style" let a reactive user style write over an animated key, and a CSS-text style wipe every key Wardic wrote. Wardic's value now wins a key while it drives it, and a CSS-text style is parsed.
+- **The switch runs inside the frame's `batch()`,** with every other element's, not outside it, before any commit. A first commit still lands with no paint in between.
+- **The table's last column, `useWardic` on the component,** now follows the ref: the gate commits onto the element the ref reaches.
+  - Ref on the root, `style` on an inner element: the root animates, and the inner element shows the Starting style until the first commit (`style-fallback.browser.test.tsx` F6).
+  - Forwards its ref only: animates (F7).
+  - Reads `props.style` once: shows the Starting style, then animates (F8).
+  - `style` but no ref: never animates, as before. Unlike a component wrap, it gives no warning (inferred from the code: the spine starts on the ref).

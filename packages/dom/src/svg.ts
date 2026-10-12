@@ -15,6 +15,7 @@
  * deferred). So the HTML path is unchanged: its attribute map is always empty.
  */
 import type * as Renderer from "@wardic/core/Renderer"
+import * as Predicate from "effect/Predicate"
 
 /**
  * Keys that remain CSS `style` on an svg-inner element; everything else routes
@@ -71,8 +72,20 @@ const CAMEL_CASE_ATTRS: ReadonlySet<string> = new Set([
  */
 const ATTR_ALIASES: Record<string, string> = { attrX: "x", attrY: "y", attrScale: "scale" }
 
+/**
+ * Each key's dash-cased name, computed once (ADR-0034): the commit dash-cases every key of
+ * every patch, each frame. Keys come from animation configs, so the set stays small.
+ */
+const DASHED = new Map<string, string>()
+
 /** camelCase → dash-case for a CSS/attribute name (`transformBox` → `transform-box`). */
-export const dashCase = (key: string): string => key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+export const dashCase = (key: string): string => {
+  const cached = DASHED.get(key)
+  if (Predicate.isNotUndefined(cached)) return cached
+  const dashed = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+  DASHED.set(key, dashed)
+  return dashed
+}
 
 /** The attribute name for an engine key: dash-cased unless it's a known camelCase attr. */
 const attrName = (key: string): string => (CAMEL_CASE_ATTRS.has(key) ? key : dashCase(key))

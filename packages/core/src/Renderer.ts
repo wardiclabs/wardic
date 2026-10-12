@@ -24,11 +24,14 @@ export type Patch = Record<string, unknown>
  *
  * Split into two halves (see ADR-0002):
  *   - `project` — pure, synchronous: translates engine values into the
- *     environment's representation (`Patch`). Side-effect-free; reused by the
- *     reactive Solid path so DOM grouping/unit logic isn't duplicated.
- *   - `commit` — imperative: writes a `Patch` to `target`. Used only by the
- *     imperative path (`Renderer.applyTo`, `createAnimate`, `use:ward`); the Solid
- *     declarative surface skips it entirely.
+ *     environment's representation (`Patch`). Side-effect-free; the Starting style
+ *     reuses it, so DOM grouping/unit logic isn't duplicated.
+ *   - `commit` — imperative: writes a `Patch` to `target`, now. The flush gate commits
+ *     every binding element's patch once per Refresh frame (ADR-0006, ADR-0034), and
+ *     `applyTo` commits a Frame stream outside a binding.
+ *
+ * Both are plain functions, not Effects: they run once per element per frame, where an
+ * Effect round trip per call costs a fiber each (ADR-0034, docs/agents/effect-first.md).
  *
  * `target` is environment-defined and opaque to the engine; the DOM renderer
  * treats it as an `HTMLElement`, a canvas renderer as a draw context, and so on.
@@ -36,8 +39,8 @@ export type Patch = Record<string, unknown>
 export class Renderer extends Context.Service<Renderer, {
   /** Pure: translate engine values into the environment's patch shape. */
   readonly project: (values: Record<string, unknown>) => Patch
-  /** Imperative: write a projected patch onto `target`. */
-  readonly commit: <T>(target: T, patch: Patch) => Effect.Effect<void>
+  /** Imperative: write a projected patch onto `target`, synchronously. */
+  readonly commit: (target: unknown, patch: Patch) => void
 }>()("@wardic/Renderer") {}
 
 /**
@@ -48,9 +51,9 @@ export class Renderer extends Context.Service<Renderer, {
  * environment's patch shape (e.g. grouping `x`/`y`/`scale` into one DOM
  * `transform` string), and `commit` writes that patch onto the target.
  *
- * The Solid declarative surface renders reactively and never calls this — it's
- * the consumer-facing combinator behind `createAnimate` / `use:ward`, canvas,
- * and native bindings, where the engine must push values into a sink each tick.
+ * A binding's elements go through its flush gate instead (ADR-0006, ADR-0034): this is
+ * the combinator for a Frame stream rendered outside a binding (canvas, native, tests),
+ * where the engine pushes values into a sink each tick, one commit per Frame.
  *
  * The typed surface accepts a `Frame<Record<string, unknown>>`, which is the
  * shape `springValues` and `animateValues` already emit (their `Values` map is
@@ -74,6 +77,6 @@ export const applyTo: {
     yield* Effect.annotateCurrentSpan({ target: typeof target })
     const renderer = yield* Renderer
     yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(Effect.annotateLogs({ target: typeof target }))
-    yield* stream.pipe(Stream.runForEach((frame) => renderer.commit(target, renderer.project(frame.value))))
+    yield* stream.pipe(Stream.runForEach((frame) => Effect.sync(() => renderer.commit(target, renderer.project(frame.value)))))
   }),
 )

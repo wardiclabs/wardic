@@ -63,3 +63,11 @@ ADR-0033 decides it.
 - **The *Synchronous flush* rejection is narrowed again.** Its risk, some elements' patches missing the flush under load, can't happen for the loop's runs: every Primitive the binding runs is stepped in the one pass, and a settle's continuation runs inside the tick. It still describes a Tier 2 `Stream` on `Clock.ticks` that a user wires into the gate: such a writer paints in the loop's frame or the next one, by its subscription order (ADR-0033, decision 4). One batch per frame stands.
 - ***Amendment (#2)*'s offset is gone.** "When a Measure pass runs after its Refresh frame's gate flush, those nodes paint their pending value one frame early and hold it for one frame": the gate holds nothing a tick wrote once the tick ends, so a pass after it has no pending value to paint early. `flushPass` itself is unchanged.
 - **The first *Consequences* bullet on Cold starts no longer holds:** the Priming tick and the Priming step went with the latency they met (ADR-0033, decision 2). An animation's first step is the next tick's, painted in that frame, cold or warm.
+
+## Amendment (#79, 2026-10-12): one sink shape, and no frame through Solid
+
+ADR-0034 decides it.
+- **The signal sink goes.** Its only producer was `useWardic`, and Solid re-running each element's spread effect was 82–87% of the flush at 1,000 elements. Every sink is now the element the gate commits onto: `{ target, beforeFirstCommit?, onHeld? }`. The opening's "JSX reads `style={patch()}`" and the *Consequences*' "two sink modes" no longer hold.
+- **The binding's `batch()` wraps a frame's Starting-style switches,** all of them, before any commit, and nothing else. The commits are plain calls (`Renderer.commit` is no longer an Effect).
+- ***Amendment (#41)*'s switch is every binding element's now,** `useWardic`'s included, and it runs inside the `batch()`, not outside it. After it, `style` is the user's without the keys the gate holds (`onHeld`), so a user style change never writes over a key Wardic drives.
+- **The React bullet holds with commit sinks:** a React binding hands the gate `flushSync` for its switches (inferred), and commits like Solid's.

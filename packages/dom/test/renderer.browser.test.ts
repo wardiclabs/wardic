@@ -15,9 +15,8 @@ const IDENTITY_PROJECTION = {
 }
 
 /**
- * Reach the concrete `project`/`commit` out of the Layer once so the pure
- * assertions don't each have to build an Effect — `project` is pure and
- * `commit` is the only Effect-returning half.
+ * Reach the concrete `project`/`commit` out of the Layer once, so the assertions
+ * call them directly: both are plain functions (ADR-0034).
  */
 const renderer = await Effect.runPromise(
   Effect.provide(
@@ -110,34 +109,36 @@ describe("RendererDomLive.project (pure)", () => {
 })
 
 describe("RendererDomLive.commit (imperative)", () => {
-  it.effect("writes a projected patch onto a happy-dom element's style", () =>
-    Effect.gen(function* () {
-      const el = document.createElement("div")
-      const patch = renderer.project({ x: 10, y: 0, opacity: 0.5 })
-      yield* renderer.commit(el, patch)
+  // A plain call, not an Effect (ADR-0034): the gate commits once per element per frame.
+  it("writes a projected patch onto a happy-dom element's style", () => {
+    const el = document.createElement("div")
+    const patch = renderer.project({ x: 10, y: 0, opacity: 0.5 })
+    renderer.commit(el, patch)
 
-      expect(el.style.transform).toBe("translateX(10px)")
-      expect(el.style.opacity).toBe("0.5")
-    }),
-  )
+    expect(el.style.transform).toBe("translateX(10px)")
+    expect(el.style.opacity).toBe("0.5")
+  })
 
   // #57 (ADR-0023 decision 2): back at its identity, the commit writes `none` over the
   // transform before it, so no stale function stays inline.
-  it.effect("writes none over a transform once its keys are back at their identity", () =>
-    Effect.gen(function* () {
-      const el = document.createElement("div")
-      yield* renderer.commit(el, renderer.project({ scale: 1.2, x: 4 }))
-      expect(el.style.transform).toBe("translateX(4px) scale(1.2)")
-      yield* renderer.commit(el, renderer.project({ scale: 1, x: 0 }))
-      expect(el.style.transform).toBe("none")
-    }),
-  )
+  it("writes none over a transform once its keys are back at their identity", () => {
+    const el = document.createElement("div")
+    renderer.commit(el, renderer.project({ scale: 1.2, x: 4 }))
+    expect(el.style.transform).toBe("translateX(4px) scale(1.2)")
+    renderer.commit(el, renderer.project({ scale: 1, x: 0 }))
+    expect(el.style.transform).toBe("none")
+  })
 
-  it.effect("writes a length px value onto style", () =>
-    Effect.gen(function* () {
-      const el = document.createElement("div")
-      yield* renderer.commit(el, renderer.project({ width: 100 }))
-      expect(el.style.width).toBe("100px")
-    }),
-  )
+  it("writes a length px value onto style", () => {
+    const el = document.createElement("div")
+    renderer.commit(el, renderer.project({ width: 100 }))
+    expect(el.style.width).toBe("100px")
+  })
+
+  it("writes a camelCase key under its dash-cased name, every time", () => {
+    const el = document.createElement("div")
+    renderer.commit(el, { backgroundColor: "rgb(1, 2, 3)" })
+    renderer.commit(el, { backgroundColor: "rgb(4, 5, 6)" })
+    expect(el.style.getPropertyValue("background-color")).toBe("rgb(4, 5, 6)")
+  })
 })

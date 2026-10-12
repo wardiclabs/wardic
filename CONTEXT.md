@@ -245,19 +245,15 @@ The imperative half of the Renderer — writing a projected patch onto a target.
 _Avoid_: apply, flush, paint.
 
 **Flush gate**:
-The accumulator every binding writes an element's values into. It merges each element's writes by key and applies them once per Refresh frame, all in one batch (ADR-0006): at the end of the **Frame loop**'s tick, in the Refresh frame that computed them, or, for a write made outside a tick (a drag's move, a release), at the next Refresh frame (ADR-0033). A **Measure pass**'s own writes are applied at the end of its task (ADR-0018). A server render gets one that does nothing (ADR-0021).
+The accumulator every binding writes an element's values into. It merges each element's writes by key and commits them onto each element once per Refresh frame, all in one flush (ADR-0006, ADR-0034): at the end of the **Frame loop**'s tick, in the Refresh frame that computed them, or, for a write made outside a tick (a drag's move, a release), at the next Refresh frame (ADR-0033). A **Measure pass**'s own writes are applied at the end of its task (ADR-0018). A server render gets one that does nothing (ADR-0021).
 _Avoid_: batcher, scheduler (Effect's), coordinator (the **Frame loop**'s old name).
 
-**Reactive path**:
-How the declarative Solid surface renders — each Frame flows into a signal that JSX reads; the imperative Renderer is untouched.
-_Avoid_: declarative path.
-
 **Imperative path**:
-How canvas/native and the low-level `createX`/`use:ward` consumers render — a Frame stream is pushed through Project→Commit via the `applyTo` combinator.
-_Avoid_: manual path.
+How a Frame stream renders outside a binding (canvas, native, tests): pushed through Project→Commit by the `applyTo` combinator, one Commit per Frame, with no **Flush gate**. A binding's elements, `wardic.*`, `useWardic` and `use:ward` alike, are committed by the gate (#79).
+_Avoid_: manual path; reactive path (gone with #79: no Frame reaches an element through JSX).
 
 **Starting style**:
-An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A component wrap receives it through `style` until its first frame is committed (ADR-0021).
+An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A binding's element receives it through `style` until its first frame is committed (ADR-0021, #79).
 _Avoid_: initial style (`initial` is its input, not its projected result), SSR seed.
 
 **Hydration hold**:
@@ -265,7 +261,7 @@ From a server render until the element mounts, a client hydrating that markup re
 _Avoid_: deferred hydration, two-pass render.
 
 **Base value**:
-The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change.
+The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
 _Avoid_: default (a transform key's Identity, which is one kind of Own value), fallback.
 
 **Own value**:

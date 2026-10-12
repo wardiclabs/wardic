@@ -10,6 +10,8 @@
 import * as Renderer from "@wardic/core/Renderer"
 import {
   dragDefaultStyle,
+  fallbackStyle,
+  heldTouches,
   isSvgInnerTag,
   mergeStyle,
   RendererDomLive,
@@ -132,5 +134,42 @@ describe("Starting style helpers (ADR-0021)", () => {
       expect(isSvgInnerTag(tag), tag).toBe(true)
     }
     for (const tag of ["svg", "div", "a", "title", "span", "my-element"]) expect(isSvgInnerTag(tag), tag).toBe(false)
+  })
+})
+
+// The style after the first frame (ADR-0034): the user's, as `mergeStyle` merges it, without the
+// keys the flush gate holds on the element. Wardic writes those; `style` is their fallback.
+describe("The fallback style (ADR-0034)", () => {
+  it("FS1: leaves out the keys the gate holds and keeps the user's others", () => {
+    expect(fallbackStyle({ opacity: 0.5, color: "red" }, ["opacity", "transform"])).toEqual({ color: "red" })
+  })
+
+  it("FS2: matches a held patch key by its CSS property, dash-cased", () => {
+    expect(fallbackStyle({ "background-color": "red", width: "4px" }, ["backgroundColor"])).toEqual({ width: "4px" })
+  })
+
+  it("FS3: parses a user style given as CSS text, so it's never written as cssText", () => {
+    expect(fallbackStyle("color: red; opacity: 0.5", ["opacity"])).toEqual({ color: "red" })
+  })
+
+  it("FS4: an element with no user style gets an empty style, never undefined", () => {
+    expect(fallbackStyle(undefined, ["opacity"])).toEqual({})
+  })
+
+  it("FS5: leaves out a held key from a drag element's defaults and a base style too", () => {
+    const defaults = dragDefaultStyle(true)
+    const out = fallbackStyle({ color: "red" }, ["touch-action", "z-index"], defaults, { "z-index": "0", position: "relative" })
+    expect("touch-action" in out).toBe(false)
+    expect("z-index" in out).toBe(false)
+    expect(out).toMatchObject({ color: "red", position: "relative" })
+  })
+
+  it("FS6: heldTouches is true only when a key taken or let go of is one the style sets", () => {
+    const style = { opacity: "0.5", "background-color": "red" }
+    expect(heldTouches([], ["transform"], style)).toBe(false)
+    expect(heldTouches([], ["transform", "opacity"], style)).toBe(true)
+    expect(heldTouches(["opacity"], [], style)).toBe(true)
+    expect(heldTouches(["opacity"], ["opacity", "transform"], style)).toBe(false)
+    expect(heldTouches([], ["backgroundColor"], style)).toBe(true)
   })
 })

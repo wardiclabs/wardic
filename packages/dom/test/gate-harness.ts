@@ -8,12 +8,17 @@
 // The gate also hooks the end of the Environment's Frame loop's tick (ADR-0033), so its runtime
 // needs a loop: `TestLive` and `DomLive` have one, and `stillLoop` is one that never ticks, for
 // an Environment without (the Renderer alone).
+//
+// The gate commits every patch onto its sink's target (ADR-0034). In the node tier the target is
+// a `sinkOf` callback, and the Renderer is `HEARD` (an identity `project`, as `TestLive`'s) or
+// `HEARD_DOM` (the DOM's `project`, which builds anywhere): its `commit` hands the patch to it.
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
+import * as Renderer from "@wardic/core/Renderer"
 import { TestClock } from "@wardic/test"
 import * as Layer from "effect/Layer"
 import { vi } from "vitest"
-import type { FlushGateOptions } from "../src/index.ts"
+import { type FlushGateOptions, type FlushSink, project } from "../src/index.ts"
 
 type FrameCallback = (t: number) => void
 
@@ -57,3 +62,22 @@ export const fireFrame = (t = 0): void => {
 
 /** A binding whose sinks need no batching: `batch` runs the flush as it is. */
 export const NO_BATCH: FlushGateOptions = { batch: (apply) => apply() }
+
+/** A node-tier sink target: it hears each patch the gate commits onto it. */
+interface HeardTarget {
+  readonly heard: (patch: Renderer.Patch) => void
+}
+
+/** A sink whose target hears each committed patch, with the binding's hooks, if any. */
+export const sinkOf = (heard: (patch: Renderer.Patch) => void, hooks: Omit<FlushSink, "target"> = {}): FlushSink => ({
+  target: { heard } satisfies HeardTarget,
+  ...hooks,
+})
+
+const hear = (target: unknown, patch: Renderer.Patch): void => (target as HeardTarget).heard(patch)
+
+/** A Renderer whose `project` is identity and whose `commit` hands the patch to its target. */
+export const HEARD: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project: (values) => values, commit: hear })
+
+/** The same, with the DOM's `project`. */
+export const HEARD_DOM: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project, commit: hear })

@@ -225,7 +225,7 @@ export type ReorderItemDirectiveValue = { readonly group: ItemGroup<never>; read
 >
 
 /**
- * `use:reorderItem` — make an element a `<Reorder>` item (commit sink, like `use:ward`):
+ * `use:reorderItem` — make an element a `<Reorder>` item (like `use:ward`):
  * `<li use:reorderItem={{ group, value }}>`. CLIENT-ONLY (ADR-0003): its drag
  * defaults and `touch-action` are set at mount, not in server markup; use
  * {@link createReorderItem} or `Reorder.Item` for server-rendered items.
@@ -245,7 +245,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
       return { ...rest, layout: true }
     },
     parent: useVariantContext(),
-    makeSink: (element) => ({ kind: "commit", target: element }),
+    makeSink: (element) => ({ target: element }),
     internal: itemInternals(first.group as ItemGroup<unknown>, first.value, () => el),
   })
 }

@@ -7,10 +7,11 @@
  *     `Patch`. Its one piece of real work is grouping the individual transform
  *     keys (`x`/`y`/`scale`/`rotate`/…) into a single CSS `transform` string in
  *     a canonical order, and applying default units (px/deg) to bare numbers.
- *     Reused by the reactive Solid path so this grouping/unit logic isn't
- *     duplicated in the binding (ADR-0002). No side effects, no Effect.
- *   - {@link commit} — imperative: writes each `Patch` entry onto `target.style`.
- *     Used only by the imperative path (`applyTo`, `createAnimate`, `use:ward`).
+ *     Reused by the Starting style so this grouping/unit logic isn't duplicated in
+ *     the binding (ADR-0002). No side effects, no Effect.
+ *   - {@link commit} — imperative: writes each `Patch` entry onto `target.style`, now.
+ *     The flush gate calls it once per element per Refresh frame (ADR-0034), and
+ *     `applyTo` once per Frame.
  *
  * Observability (CONTEXT.md convention): `project` and `commit` are the
  * per-frame hot path, so — exactly like core's `applyTo` per-frame writes and
@@ -20,8 +21,7 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
-import * as Effect from "effect/Effect"
-import { dashCase, setSvgAttrs, splitPatch } from "./svg.ts"
+import { dashCase, isSvgInner, setSvgAttrs, splitPatch } from "./svg.ts"
 import * as Layer from "effect/Layer"
 
 /**
@@ -276,17 +276,21 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
 
   // Grouped transform: walk the canonical order, emitting a func per present key not at
   // its identity. `none` when every present key is (ADR-0023): written, so a class's
-  // transform stays overridden and a commit sink's last transform doesn't stay inline.
-  const funcs: Array<string> = []
+  // transform stays overridden and an element's last transform doesn't stay inline.
+  // Built by concatenation, not an array joined (ADR-0034): this runs per element per frame.
+  let transform = ""
+  let separator = ""
   let present = false
   for (const { key, fn, identity } of TRANSFORM_FUNCS) {
     if (!Object.hasOwn(values, key)) continue
     present = true
     const value = values[key]
     if (isIdentity(value, identity)) continue
-    funcs.push(`${fn}(${formatTransformValue(key, value)})`)
+    transform = `${transform}${separator}${fn}(${formatTransformValue(key, value)})`
+    separator = " "
   }
-  if (present) patch.transform = funcs.length > 0 ? funcs.join(" ") : "none"
+  if (present && transform === "") transform = "none"
+  if (present) patch.transform = transform
 
   // Non-transform keys: copy across with default-unit handling.
   for (const key in values) {
@@ -298,22 +302,30 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
 }
 
 /**
- * Imperative: write a `Patch` onto `target`. The engine treats `target` as
- * opaque; the DOM renderer narrows it to an `HTMLElement`/`SVGElement`. Routing
- * (ADR-0014) goes through {@link splitPatch}: CSS `style` keys via `setProperty`
- * (dash-cased so `transform-box` etc. apply — `el.style[kebab]=` silently fails)
- * and SVG `attrs` via `setAttribute`. For an HTML element the attribute map is
- * empty, so this is the prior behavior. Quiet per-frame hot path — no span/log.
+ * Imperative: write a `Patch` onto `target`, now. The engine treats `target` as
+ * opaque; the DOM renderer narrows it to an `HTMLElement`/`SVGElement`. CSS keys go
+ * through `setProperty` (dash-cased so `transform-box` etc. apply — `el.style[kebab]=`
+ * silently fails). An svg-inner element's patch is routed first (ADR-0014,
+ * {@link splitPatch}): its attribute keys via `setAttribute`.
+ *
+ * On the per-frame path (ADR-0034): an HTML element's patch is written as it is, with no
+ * routing objects, and each key's dash-cased name is cached. Quiet — no span/log.
  */
-const commit = <T>(target: T, patch: Renderer.Patch): Effect.Effect<void> =>
-  Effect.sync(() => {
-    const el = target as Element & { style: CSSStyleDeclaration }
+const commit = (target: unknown, patch: Renderer.Patch): void => {
+  const el = target as Element & { style: CSSStyleDeclaration }
+  if (isSvgInner(el)) {
     const { style, attrs } = splitPatch(el, patch)
-    for (const key in style) {
-      el.style.setProperty(dashCase(key), String(style[key]))
-    }
+    writeStyle(el.style, style)
     setSvgAttrs(el, attrs)
-  })
+    return
+  }
+  writeStyle(el.style, patch)
+}
+
+/** Each key of `patch` onto `style`, through `setProperty`. */
+const writeStyle = (style: CSSStyleDeclaration, patch: Record<string, unknown>): void => {
+  for (const key in patch) style.setProperty(dashCase(key), String(patch[key]))
+}
 
 /**
  * `Renderer` Layer for the browser. `project`/`commit` are pure/simple with no

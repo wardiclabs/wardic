@@ -1,12 +1,10 @@
 /**
- * `makeFlushGate` — the reactive bridge's deferred **Flush gate** (ADR-0006), framework-free
- * here in `@wardic/dom` so every binding shares one (ADR-0031, decision 3). The binding hands in
- * its `batch` and its sinks; the gate imports nothing from a framework.
+ * `makeFlushGate` — the deferred **Flush gate** (ADR-0006), framework-free here in `@wardic/dom`
+ * so every binding shares one (ADR-0031, decision 3). The binding hands in its `batch` and its
+ * sinks; the gate imports nothing from a framework.
  *
- * Per ADR-0006 ("Reactive bridge: per-element Stream→signal with a deferred
- * flush gate"), per-frame writes do not set their binding's cell (a Solid signal)
- * directly. Instead each source `write(id, partialValues)`s into a provider-owned gate
- * that:
+ * Per ADR-0006, per-frame writes never reach their element directly. Each source
+ * `write(id, partialValues)`s into a provider-owned gate that:
  *
  *   1. Accumulates *value-maps* (NOT already-projected Patches) per element,
  *      merging partials by key — so multiple sources can feed one element
@@ -16,17 +14,18 @@
  *   2. Resolves the Renderer's PURE `project` ONCE at creation and uses it to
  *      turn each dirty element's merged value-map into a `Patch` exactly once
  *      per element per frame.
-  *   3. Applies every resulting Patch inside a SINGLE `batch` per frame (the
- *      binding's: Solid's `batch()`), regardless of element count — one reactive
- *      flush + one DOM pass per frame, shared by every element: at the end of the
- *      Frame loop's tick, in the Refresh frame that computed the values (ADR-0033).
+ *   3. Commits each resulting Patch onto its element with the Renderer's `commit`, a plain
+ *      call (ADR-0034) — one DOM pass per frame, shared by every element: at the end of the
+ *      Frame loop's tick, in the Refresh frame that computed the values (ADR-0033). No
+ *      framework runs per frame: a binding's JSX carries an element's style only until its
+ *      first commit (ADR-0021, decision 6), and after it only the keys the gate doesn't hold.
  *
  * Three locked design decisions (this session's grills):
  *   - FLUSHED at the end of the Frame loop's tick (ADR-0033): the gate registers a hook on
  *     the Environment's loop (`afterTick`), so everything a tick writes is applied at the end
  *     of that tick, inside the Clock's callback, and paints in that Refresh frame. A write
- *     made outside a tick (a drag's move, a `release` from a task, an effect inside a flush's
- *     `batch`, a Tier 2 `Stream` on `Clock.ticks` subscribed after the loop) still requests a
+ *     made outside a tick (a drag's move, a `release` from a task, an effect a sink's hook ran,
+ *     a Tier 2 `Stream` on `Clock.ticks` subscribed after the loop) still requests a
  *     Refresh frame, only if one is not already pending, and the hook withdraws that request
  *     when it flushes first. `flush` does NOT auto-reschedule, so an idle accumulator
  *     requests no frames — the next `write` does. The frames come from the Environment's
@@ -34,23 +33,21 @@
  *     calls the browser's frame functions itself. A Tier 2 `Stream` that writes here paints in
  *     the loop's frame or the next one, by its subscription order (ADR-0033): run it on the
  *     loop (`Machine.run`) to paint with it.
- *   - ONE `batch()` per frame: all dirty elements flush together. The one exception
+ *   - ONE flush per frame: all dirty elements flush together. The one exception
  *     is `flushPass` (ADR-0018): a projection Measure pass's own writes are applied
  *     at the end of its task, so a new layout never paints without its projection.
- *   - TWO sink modes: a *signal sink* (`{ kind: "signal", set }`) sets the
- *     element's cell (in Solid, the default for `wardic.create("div")`, a signal); a
- *     *commit sink* (`{ kind: "commit", target }`) runs `Renderer.commit(target,
- *     patch)` via a forwarded ref (used for `wardic.create(Component)` wraps).
- *     Both share the same merge + one-`project`-per-frame + single-`batch()`.
- *     A commit sink also removes a key its last patch had and this one doesn't (a
- *     dragged node's `z-index` once its raise is dropped, ADR-0016 *Amendment
- *     (Reorder)*), restoring the element's own inline value, saved before the gate
- *     first wrote the key. A signal sink needs nothing: its next patch lacks the key.
+ *   - ONE sink shape (ADR-0034): a sink is the element its patch is committed onto. The gate
+ *     also removes a key its last patch had and this one doesn't (a dragged node's `z-index`
+ *     once its raise is dropped, ADR-0016 *Amendment (Reorder)*), restoring the element's own
+ *     inline value, saved before the gate first wrote the key. Two hooks reach the binding,
+ *     outside the commits: the Starting-style switch before an element's first commit
+ *     (`beforeFirstCommit`, run in the binding's `batch`), and the keys the gate holds on the
+ *     element whenever they change (`onHeld`), so the binding's `style` leaves them to Wardic.
  *
  * Observability (CONTEXT.md convention): the hot path (`write`/`flush`) is the
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
- * `tick` — it stays quiet (no span, no per-call log, no metric). A flush that throws (an
- * effect inside the binding's `batch`, a commit) is reported (`reportFailure`) and the gate
+ * `tick` — it stays quiet (no span, no per-call log, no metric). A flush that throws (a
+ * binding's hook, a commit) is reported (`reportFailure`) and the gate
  * goes on, so it can't fail the Frame loop's tick it runs in (ADR-0033).
  */
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -60,30 +57,36 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import { reportFailure } from "./report.ts"
 import { dashCase } from "./svg.ts"
 
 /**
- * Where a flushed `Patch` is delivered:
- *   - `signal`: set the element's cell with the patch (in Solid, its signal).
- *   - `commit`: write the patch onto `target` via `Renderer.commit` (run on the
- *     provider runtime at flush time).
+ * Where a flushed `Patch` is delivered: committed onto `target` with the Renderer's `commit`,
+ * at flush time (ADR-0034).
  */
-export type FlushSink =
-  | { readonly kind: "signal"; readonly set: (patch: Renderer.Patch) => void }
-  | {
-    readonly kind: "commit"
-    readonly target: unknown
-    /**
-     * Called once, just before the element's first commit in a frame flush (not a Measure
-     * pass's `flushPass`), outside the frame's `batch` (ADR-0021, decision 6): a component
-     * wrap drops its Starting style from its `style` prop here, so the binding removes those keys
-     * and the commit writes the first frame in the same Refresh frame, with no paint in
-     * between.
-     */
-    readonly beforeFirstCommit?: (() => void) | undefined
-  }
+export interface FlushSink {
+  /** The element the patch is committed onto. */
+  readonly target: unknown
+  /**
+   * Called once, just before the element's first commit in a frame flush (not a Measure
+   * pass's `flushPass`), inside the binding's `batch` with every other element's switch that
+   * flush (ADR-0021, decision 6): a binding drops its Starting style from its `style` prop here,
+   * so its framework removes those keys and the commit writes the first frame in the same
+   * Refresh frame, with no paint in between.
+   */
+  readonly beforeFirstCommit?: (() => void) | undefined
+  /**
+   * Called with every key the gate now holds on the element, each time that set changes
+   * (ADR-0034): after the gate restores a key it dropped, and before the commit that first
+   * writes a key. A binding whose `style` prop reaches the element leaves these keys out of it,
+   * so its framework never writes over Wardic's value (`style` is a key's fallback). The gate
+   * never flushes inside the binding's own update, so the binding applies what it changes
+   * before this returns.
+   */
+  readonly onHeld?: ((keys: ReadonlyArray<string>) => void) | undefined
+}
 
 /** Accumulated pre-`project` state for one registered element. */
 interface Entry {
@@ -94,9 +97,9 @@ interface Entry {
   /** Whether a `write` has landed since the last flush. */
   dirty: boolean
   /**
-   * A commit sink's keys its last patch wrote, each with the element's own inline value
-   * from before the gate first wrote it (`""` for none), to restore when the key drops
-   * out. Unused by a signal sink.
+   * The keys the gate holds on the element: its last patch's, each with the element's own
+   * inline value from before the gate first wrote it (`""` for none), to restore when the
+   * key drops out.
    */
   readonly committed: Map<string, string>
 }
@@ -123,19 +126,19 @@ export interface FlushGate {
   /**
    * Run a projection **Measure pass** now and apply exactly what it wrote before
    * returning (ADR-0018, and ADR-0006's *Amendment (#2)*). Only `write()`s made while
-   * `pass()` runs are recorded; each recorded entry is `project`ed once and applied inside
-   * ONE `batch`, and marked clean. Everything else stays dirty for its flush. A write made by
-   * an effect that runs inside that `batch` (a Solid effect) takes the ordinary path. The projection engine calls it at the end of a task, so a new
-   * layout never paints without its projection.
+   * `pass()` runs are recorded; each recorded entry is `project`ed and committed once, and
+   * marked clean. Everything else stays dirty for its flush. A write made by an effect a sink's
+   * hook runs (a Solid effect) takes the ordinary path. The projection engine calls it at the
+   * end of a task, so a new layout never paints without its projection.
    */
   readonly flushPass: (pass: () => void) => void
   /**
    * Hand `keys` back to the element's own style (ADR-0022): drop each from the element's
-   * value-map and schedule a flush. A signal sink's next patch lacks them, so the user's
-   * style shows; a commit sink writes `restore[key]` (CSS text) for a key it had written, or
-   * else the inline value it overwrote. A key the entry doesn't hold, or an unknown id, is
-   * a no-op. The spine releases a key back at its `style` value, so a later `style` change
-   * shows at rest. A later `write` brings the key back.
+   * value-map and schedule a flush, which writes `restore[key]` (CSS text) for a key it had
+   * written, or else the inline value it overwrote, and tells the sink (`onHeld`). A key the
+   * entry doesn't hold, or an unknown id, is a no-op. The spine releases a key back at its
+   * `style` value, so a later `style` change shows at rest. A later `write` brings the key
+   * back.
    */
   readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
   /**
@@ -159,20 +162,21 @@ export type FlushGateRuntime = ManagedRuntime.ManagedRuntime<
 /** What a binding hands its flush gate. */
 export interface FlushGateOptions {
   /**
-   * Apply a flush's writes: run `apply`, and return once every cell write inside it will reach
-   * the screen before the next paint (ADR-0031, decision 3). Solid 1 passes its `batch`. A
-   * binding whose sinks all commit passes `(apply) => apply()`; React, with state sinks, would
-   * pass `flushSync` (inferred). Called once per frame flush and once per `flushPass`.
+   * Apply a frame flush's Starting-style switches (`beforeFirstCommit`) together: run `apply`,
+   * and return once every update inside it has reached the elements, before the gate commits
+   * (ADR-0031, decision 3; ADR-0034). Solid 1 passes its `batch`; React would pass `flushSync`
+   * (inferred). A binding with no switch passes `(apply) => apply()`. Called once per frame
+   * flush that has a first commit.
    */
   readonly batch: (apply: () => void) => void
 }
 
 /**
- * Build a flush gate against the provider's `runtime`, applying each flush through the
- * binding's `batch`.
+ * Build a flush gate against the provider's `runtime`, running each frame flush's Starting-style
+ * switches through the binding's `batch`.
  *
- * Resolves both ONCE here: `project` is pure (called directly at flush), `commit` returns an
- * `Effect` (run via `runtime.runSync` at flush for commit sinks), `requestFrame` /
+ * Resolves both ONCE here: `project` is pure and `commit` a plain call (both called directly at
+ * flush, ADR-0034), `requestFrame` /
  * `cancelFrame` schedule and cancel the flush of a write made outside a tick, and the Frame
  * loop's `afterTick` takes the gate's hook for its lifetime. All come from whichever env the
  * provider was given (`DomLive` / `TestLive`), so the gate inherits that environment's
@@ -194,7 +198,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   )
 
   const accumulator = new Map<string, Entry>()
-  // Commit sinks waiting for their first commit's `beforeFirstCommit` (usually empty).
+  // Sinks waiting for their first commit's `beforeFirstCommit` (usually empty).
   const firstCommits = new Set<string>()
   let scheduled = false
   // The pending Refresh frame's handle, while `scheduled`.
@@ -202,21 +206,26 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   // The ids written while a `flushPass` pass runs; `undefined` otherwise.
   let recording: Set<string> | undefined
 
-  /** Project and apply one dirty entry (once per element per flush), marking it clean. */
+  /**
+   * Project and commit one dirty entry (once per element per flush), marking it clean. Plain
+   * calls only: this is the per-frame path (ADR-0034).
+   */
   const apply = (entry: Entry): void => {
     const patch = project(entry.values)
     entry.dirty = false
-    if (entry.sink.kind === "signal") {
-      entry.sink.set(patch)
-      return
-    }
-    const target = entry.sink.target
+    const sink = entry.sink
+    const target = sink.target
     const committed = entry.committed
     const before = committed.size
     let kept = 0
+    let added = false
     for (const key in patch) {
-      if (committed.has(key)) kept++
-      else committed.set(key, inlineValueOf(target, key))
+      if (committed.has(key)) {
+        kept++
+        continue
+      }
+      committed.set(key, inlineValueOf(target, key))
+      added = true
     }
     // A key the last patch wrote and this one doesn't: the element gets its own value
     // back. Only looked for when one dropped out (the usual frame keeps every key).
@@ -228,34 +237,35 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
         committed.delete(key)
       }
     }
-    if (restore !== undefined) runtime.runSync(commit(target, restore))
-    runtime.runSync(commit(target, patch))
+    if (Predicate.isNotUndefined(restore)) commit(target, restore)
+    // The keys held changed (the usual frame changes none): the binding hears before the commit.
+    if ((added || Predicate.isNotUndefined(restore)) && Predicate.isNotUndefined(sink.onHeld)) {
+      sink.onHeld(Array.from(committed.keys()))
+    }
+    commit(target, patch)
   }
 
   /**
-   * Run `beforeFirstCommit` for each waiting entry about to commit (dirty), outside the
-   * batch so the binding applies what it changes before the commit. A wrap that never commits
-   * stays waiting, so this loops over the wraps still waiting, once per frame flush.
+   * Run `beforeFirstCommit` for each waiting entry about to commit (dirty), in the binding's
+   * `batch` before any commit, so the binding applies what it changes first. A wrap that never
+   * commits stays waiting, so this loops over the wraps still waiting, once per frame flush.
    */
   const runFirstCommits = (): void => {
     for (const id of firstCommits) {
       const entry = accumulator.get(id)
       if (entry === undefined || !entry.dirty) continue
       firstCommits.delete(id)
-      if (entry.sink.kind === "commit") entry.sink.beforeFirstCommit?.()
+      entry.sink.beforeFirstCommit?.()
     }
   }
 
   const flush = (): void => {
     scheduled = false
     try {
-      if (firstCommits.size > 0) runFirstCommits()
-      // One batch per frame for every dirty element. No auto-reschedule — the next
-      // write() does. A write() from an effect running inside the batch requests the
-      // next frame (it isn't stranded).
-      batch(() => {
-        for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
-      })
+      if (firstCommits.size > 0) batch(runFirstCommits)
+      // Every dirty element, once. No auto-reschedule — the next write() does. A write()
+      // from an effect a sink's hook runs requests the next frame (it isn't stranded).
+      for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
     } catch (defect) {
       runtime.runFork(reportFailure("wardic.gate: a flush failed", Cause.die(defect)))
     }
@@ -280,7 +290,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
 
   const register: FlushGate["register"] = (id, sink) => {
     accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map() })
-    if (sink.kind === "commit" && sink.beforeFirstCommit !== undefined) firstCommits.add(id)
+    if (sink.beforeFirstCommit !== undefined) firstCommits.add(id)
     return () => {
       accumulator.delete(id)
       firstCommits.delete(id)
@@ -308,12 +318,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     // No `beforeFirstCommit` here: a Measure pass may write only a node's projection, and
     // dropping the Starting style then would leave its animated keys unset until the frame
     // flush (a frame later for an element mounted inside a frame). The frame flush switches.
-    batch(() => {
-      for (const id of written) {
-        const entry = accumulator.get(id)
-        if (entry !== undefined && entry.dirty) apply(entry)
-      }
-    })
+    for (const id of written) {
+      const entry = accumulator.get(id)
+      if (entry !== undefined && entry.dirty) apply(entry)
+    }
   }
 
   const release: FlushGate["release"] = (id, keys, restore) => {

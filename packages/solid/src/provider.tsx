@@ -123,9 +123,10 @@ export function WardicProvider(props: {
   // owns the Layer's scope for the component's lifetime.
   const runtime = ManagedRuntime.make(props.env)
   // The flush gate is a provider-owned singleton (one per WardicProvider),
-  // built atop the runtime (ADR-0006). It's dom's, framework-free, and applies each
-  // flush in Solid's `batch()`; it resolves the Renderer and the Environment's
-  // Refresh frame source once at construction (ADR-0031).
+  // built atop the runtime (ADR-0006). It's dom's, framework-free, and commits each
+  // frame onto the elements; a frame's Starting-style switches run in Solid's `batch()`
+  // (ADR-0034). It resolves the Renderer and the Environment's Refresh frame source
+  // once at construction (ADR-0031).
   const gate = makeFlushGate(runtime, { batch })
 
   // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
@@ -150,7 +151,7 @@ export function WardicProvider(props: {
   onCleanup(() => {
     // Stop the projection coordinator's run + drop its observer first, then cancel
     // any pending frame and clear the gate, before tearing down the runtime the
-    // gate runs commit sinks on.
+    // gate resolved its Renderer from.
     projection.dispose()
     gate.dispose()
     // dispose() returns a Promise; fire-and-forget on unmount.

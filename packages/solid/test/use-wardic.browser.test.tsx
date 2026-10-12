@@ -3,8 +3,9 @@
 // calibrated frame count. Here the engine runs in REAL time: synchronous SSR/seed
 // assertions stay (they hold before any frame), and every animation asserts a
 // robust invariant (departs the seed, passes through, settles near target) by
-// polling real frames. `ward().style` is the projected style object (no layout
-// dependency), so those reads are identical to before — only the driver changed.
+// polling real frames. `ward().style` carries the projected Starting style until the
+// first commit, so the seed reads stay on it; from then on the gate commits each frame
+// onto the element (ADR-0034), so an animation is read from the element's inline style.
 import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
@@ -15,6 +16,9 @@ import { raf, until } from "./browser-helpers.ts"
 afterEach(cleanup)
 
 const opacityOf = (style: JSX.CSSProperties): number => Number(style.opacity)
+
+/** The opacity the gate last committed onto `el`. */
+const inlineOpacity = (el: HTMLElement | undefined): number => Number(el!.style.opacity)
 
 describe("useWardic — SSR/initial", () => {
   it("renders the projected initial style synchronously (before any frame)", () => {
@@ -69,10 +73,11 @@ describe("useWardic — SSR/initial", () => {
 describe("useWardic — animate", () => {
   it("moves opacity 0 -> 1 across real frames and settles near 1", async () => {
     let ward: ReturnType<typeof useWardic> | undefined
+    let el: HTMLElement | undefined
     render(() => {
       function C() {
         ward = useWardic({ initial: { opacity: 0 }, animate: { opacity: 1 } })
-        return <div {...ward()}>x</div>
+        return <div {...ward({ ref: (node) => (el = node) })}>x</div>
       }
       return (
         <WardicProvider env={DomLive}>
@@ -84,12 +89,12 @@ describe("useWardic — animate", () => {
 
     let sawMid = false
     await until(() => {
-      const v = opacityOf(ward!().style)
+      const v = inlineOpacity(el)
       if (v > 0.01 && v < 0.99) sawMid = true
       return v >= 0.99
     })
     expect(sawMid).toBe(true) // animated through (not an instant jump)
-    expect(opacityOf(ward!().style)).toBeCloseTo(1, 1)
+    expect(inlineOpacity(el)).toBeCloseTo(1, 1)
   })
 })
 
@@ -113,27 +118,28 @@ describe("useWardic — whileHover", () => {
       )
     })
 
-    await until(() => opacityOf(ward!().style) <= 0.25 && opacityOf(ward!().style) >= 0.15) // settle base 0.2
-    expect(opacityOf(ward!().style)).toBeCloseTo(0.2, 1)
+    await until(() => inlineOpacity(el) <= 0.25 && inlineOpacity(el) >= 0.15) // settle base 0.2
+    expect(inlineOpacity(el)).toBeCloseTo(0.2, 1)
 
     // The recognizer attaches its listener asynchronously; re-dispatch each frame
     // until the hover override departs the base.
     await until(() => {
       el!.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
-      return opacityOf(ward!().style) > 0.3
+      return inlineOpacity(el) > 0.3
     })
-    await until(() => opacityOf(ward!().style) >= 0.99)
-    expect(opacityOf(ward!().style)).toBeCloseTo(1, 1)
+    await until(() => inlineOpacity(el) >= 0.99)
+    expect(inlineOpacity(el)).toBeCloseTo(1, 1)
 
     el!.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, bubbles: true }))
-    await until(() => opacityOf(ward!().style) <= 0.25)
-    expect(opacityOf(ward!().style)).toBeCloseTo(0.2, 1)
+    await until(() => inlineOpacity(el) <= 0.25)
+    expect(inlineOpacity(el)).toBeCloseTo(0.2, 1)
   })
 })
 
 describe("useWardic — reactive config (Accessor)", () => {
   it("retargets when a signal the accessor config depends on flips", async () => {
     let ward: ReturnType<typeof useWardic> | undefined
+    let el: HTMLElement | undefined
     let setOpen: (v: boolean) => void = () => {}
     render(() => {
       function C() {
@@ -143,7 +149,7 @@ describe("useWardic — reactive config (Accessor)", () => {
           initial: { opacity: 0 },
           animate: { opacity: open() ? 1 : 0 },
         }))
-        return <div {...ward()}>x</div>
+        return <div {...ward({ ref: (node) => (el = node) })}>x</div>
       }
       return (
         <WardicProvider env={DomLive}>
@@ -154,22 +160,23 @@ describe("useWardic — reactive config (Accessor)", () => {
     expect(opacityOf(ward!().style)).toBe(0) // pre-frame seed
 
     await raf()
-    await until(() => opacityOf(ward!().style) <= 0.05) // settles at 0 (open false)
-    expect(opacityOf(ward!().style)).toBeCloseTo(0, 1)
+    await until(() => inlineOpacity(el) <= 0.05) // settles at 0 (open false)
+    expect(inlineOpacity(el)).toBeCloseTo(0, 1)
 
     setOpen(true) // target -> 1; override-stack drives a Retarget
     let sawMid = false
     await until(() => {
-      const v = opacityOf(ward!().style)
+      const v = inlineOpacity(el)
       if (v > 0.01 && v < 0.99) sawMid = true
       return v >= 0.99
     })
     expect(sawMid).toBe(true)
-    expect(opacityOf(ward!().style)).toBeCloseTo(1, 1)
+    expect(inlineOpacity(el)).toBeCloseTo(1, 1)
   })
 
   it("initial is read once at setup — a signal in initial does NOT re-seed", async () => {
     let ward: ReturnType<typeof useWardic> | undefined
+    let el: HTMLElement | undefined
     let setSeed: (v: number) => void = () => {}
     render(() => {
       function C() {
@@ -179,7 +186,7 @@ describe("useWardic — reactive config (Accessor)", () => {
           initial: { opacity: seed() },
           animate: { opacity: seed() },
         }))
-        return <div {...ward()}>x</div>
+        return <div {...ward({ ref: (node) => (el = node) })}>x</div>
       }
       return (
         <WardicProvider env={DomLive}>
@@ -190,20 +197,20 @@ describe("useWardic — reactive config (Accessor)", () => {
     expect(opacityOf(ward!().style)).toBe(0.3) // seed read once at setup
 
     await raf()
-    await until(() => Math.abs(opacityOf(ward!().style) - 0.3) <= 0.05) // base 0.3
-    expect(opacityOf(ward!().style)).toBeCloseTo(0.3, 1)
+    await until(() => Math.abs(inlineOpacity(el) - 0.3) <= 0.05) // base 0.3
+    expect(inlineOpacity(el)).toBeCloseTo(0.3, 1)
 
     // animate IS reactive -> retargets toward 0.9, but the SEED was 0.3 (not
     // re-seeded): the value MOVES from 0.3 through the range (no jump-reseed).
     setSeed(0.9)
     let sawMid = false
     await until(() => {
-      const v = opacityOf(ward!().style)
+      const v = inlineOpacity(el)
       if (v > 0.31 && v < 0.89) sawMid = true
       return v >= 0.89
     })
     expect(sawMid).toBe(true)
-    expect(opacityOf(ward!().style)).toBeCloseTo(0.9, 1)
+    expect(inlineOpacity(el)).toBeCloseTo(0.9, 1)
   })
 })
 
@@ -241,7 +248,7 @@ describe("useWardic — teardown", () => {
 })
 
 describe("useWardic — ward({ ref, style }) merge API", () => {
-  it("merges the user ref + static style with ward's animated style", async () => {
+  it("merges the user ref + static style; the gate's frames land on the element", async () => {
     let el: HTMLElement | undefined
     const userRefSpy = vi.fn<(node: HTMLElement) => void>((node) => {
       el = node
