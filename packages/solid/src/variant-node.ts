@@ -119,7 +119,6 @@ interface OwnOrchestration {
 interface ChildRecord {
   readonly setIndex: (i: number) => void
   readonly setTotal: (n: number) => void
-  readonly settled: Accessor<boolean>
 }
 
 /**
@@ -132,8 +131,11 @@ const ownOrchestration = (
   inherited: WardicVariantContextValue | undefined,
 ): OwnOrchestration => {
   const config = untrack(cfg)
-  // Children register in mount order; the effect below snapshots that order at each trigger.
-  const [registry, setRegistry] = createSignal<ReadonlyArray<ChildRecord>>([], { equals: false })
+  // Children in mount order (a Set keeps insertion order); the effect below snapshots that
+  // order at each trigger. Kept with a count of the unsettled ones rather than a signal of the
+  // records, so a child's mount, unmount or settle costs the same at 1,000 children as at 1.
+  const records = new Set<ChildRecord>()
+  const [unsettled, setUnsettled] = createSignal(0)
   // True once this element's own animation settles; false again at each variant change.
   // Drives `beforeChildren`.
   const [ownSettled, setOwnSettled] = createSignal(false)
@@ -141,10 +143,21 @@ const ownOrchestration = (
   const register = (): WardicChildRegistration => {
     const [index, setIndex] = createSignal(0)
     const [total, setTotal] = createSignal(1)
-    const [settled, setSettled] = createSignal(false)
-    const record: ChildRecord = { setIndex, setTotal, settled }
-    setRegistry((prev) => [...prev, record])
-    return { index, total, setSettled, dispose: () => setRegistry((prev) => prev.filter((r) => r !== record)) }
+    const record: ChildRecord = { setIndex, setTotal }
+    // A child starts unsettled; its spine reports each frame, so only a change counts.
+    let settled = false
+    records.add(record)
+    setUnsettled((k) => k + 1)
+    const setSettled = (done: boolean): void => {
+      if (done === settled) return
+      settled = done
+      setUnsettled((k) => k + (done ? -1 : 1))
+    }
+    const dispose = (): void => {
+      if (!records.delete(record)) return
+      if (!settled) setUnsettled((k) => k - 1)
+    }
+    return { index, total, setSettled, dispose }
   }
 
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(cfg().transition))
@@ -162,10 +175,9 @@ const ownOrchestration = (
   // in-flight delays. `staggerDirection: -1` reverses the index.
   createEffect(
     on(variant, () => {
-      const ordered = untrack(registry)
-      const n = ordered.length
+      const n = records.size
       const direction = untrack(stagger).direction
-      ordered.forEach((record, i) => {
+      Array.from(records).forEach((record, i) => {
         record.setTotal(n)
         record.setIndex(direction === -1 ? n - 1 - i : i)
       })
@@ -174,7 +186,7 @@ const ownOrchestration = (
   )
 
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || ownSettled()
-  const allChildrenSettled: Accessor<boolean> = createMemo(() => registry().every((record) => record.settled()))
+  const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => cfg().transition ?? inherited?.transition())
 
