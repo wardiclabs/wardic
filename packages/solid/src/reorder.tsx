@@ -22,6 +22,7 @@
 import * as CoreReorder from "@wardic/core/Reorder"
 import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
+import * as Bool from "effect/Boolean"
 import {
   type Accessor,
   type Component,
@@ -40,7 +41,7 @@ import { Dynamic } from "solid-js/web"
 import { useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardUserProps } from "./use-wardic.tsx"
 import { isServer } from "./server.ts"
-import { createVariantNode } from "./variant-node.ts"
+import { changesContext, createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 import { MOTION_PROPS, motionToConfig, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
 
@@ -381,14 +382,17 @@ export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: Reor
       return local.style
     },
   })
-  // The item's children read its variant context (#50), as every Wardic element's do.
-  return (
-    <item.Provider>
-      <Dynamic component={tag} {...rest} {...spread}>
-        {local.children}
-      </Dynamic>
-    </item.Provider>
+  const element = (): JSX.Element => (
+    <Dynamic component={tag} {...rest} {...spread}>
+      {local.children}
+    </Dynamic>
   )
+  // An item that changes what its children read renders its variant context's Provider around
+  // them (#50), as every Wardic element does; any other renders none.
+  return Bool.match(changesContext(untrack(config)), {
+    onFalse: element,
+    onTrue: () => <item.Provider>{element()}</item.Provider>,
+  })
 }
 
 /** `<Reorder>`: `Reorder.Group` and `Reorder.Item` (ADR-0020), as Motion's `Reorder`. */

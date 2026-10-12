@@ -10,7 +10,8 @@
  *   children, and counts for the ancestor's `when`.
  * - An element with variants of its own (`variants`, or a name) is what its Variant children
  *   join: it owns their registry, their stagger and their `when`. Any other element passes its
- *   parent's context through, so a Variant child joins its nearest such ancestor.
+ *   parent's context through, so a Variant child joins its nearest such ancestor; it renders no
+ *   Provider unless it sets `inherit={false}` ({@link changesContext}).
  *
  * Membership is decided once, at setup, as `initial` is read. The names stay reactive.
  *
@@ -46,6 +47,14 @@ export const namesOwnVariants = (config: VariantConfig): boolean =>
 /** Whether an element has variants of its own, so Variant children join it (Motion's `isVariantNode`). */
 export const hasOwnVariants = (config: VariantConfig): boolean =>
   Predicate.isNotUndefined(config.variants) || namesOwnVariants(config)
+
+/**
+ * Whether an element changes what its children read, so it renders its variant context's
+ * Provider (#50): it has variants of its own, or it sets `inherit={false}`. Any other element hands
+ * its children its parent's context as it is, so it renders none. Decided once, at setup, from the
+ * same props on a server and on the client, so the nesting never changes after mount.
+ */
+export const changesContext = (config: VariantConfig): boolean => hasOwnVariants(config) || config.inherit === false
 
 /** Whether an element is a **Variant child** (CONTEXT.md). */
 export const isVariantChild = (config: VariantConfig): boolean =>

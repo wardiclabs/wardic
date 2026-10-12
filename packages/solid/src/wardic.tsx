@@ -36,6 +36,7 @@ import { mergeRefs } from "@solid-primitives/refs"
 import type * as Drag from "@wardic/core/Drag"
 import * as Renderer from "@wardic/core/Renderer"
 import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, resolveInitial, startingStyle } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { createElementStyle } from "./element-style.ts"
@@ -51,7 +52,7 @@ import {
   type WardicValues,
   type WardUserProps,
 } from "./use-wardic.tsx"
-import { createVariantNode, initialOf, serverVariantNode } from "./variant-node.ts"
+import { changesContext, createVariantNode, initialOf, serverVariantNode } from "./variant-node.ts"
 import { useVariantContext, WardicVariantContext } from "./variants.ts"
 
 /**
@@ -353,18 +354,21 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // `cssText` over every inline key (ADR-0034).
       const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
       const style = (): JSX.CSSProperties => elementStyle.style(userStyle())
-      // The component's children read this element's variant context (#50).
-      return (
-        <WardicVariantContext.Provider value={node.provided}>
-          <Dynamic
-            component={Wrapped}
-            {...rest}
-            ref={mergeRefs(userRef, setEl)}
-            style={style()}
-            draggable={dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
-          />
-        </WardicVariantContext.Provider>
+      const element = (): JSX.Element => (
+        <Dynamic
+          component={Wrapped}
+          {...rest}
+          ref={mergeRefs(userRef, setEl)}
+          style={style()}
+          draggable={dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
+        />
       )
+      // A wrap that changes what the component's children read renders its variant context's
+      // Provider around them (#50); any other renders none.
+      return Bool.match(changesContext(config), {
+        onFalse: element,
+        onTrue: () => <WardicVariantContext.Provider value={node.provided}>{element()}</WardicVariantContext.Provider>,
+      })
     }
   }
 
@@ -381,7 +385,8 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
     // inside the accessor, so a changed `animate` / `whileHover` / `transition`
     // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
     // render its Starting style's attribute keys as attributes (ADR-0021).
-    const ward = useWardicWith(motionToConfig(motion), { tag })
+    const cfg = motionToConfig(motion)
+    const ward = useWardicWith(cfg, { tag })
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the
     // user's ref and ward's internal ref, and gives the element its `style`: the
@@ -402,12 +407,13 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       },
     }
 
-    // The element's children read its variant context (#50), as every Wardic element's do.
-    return (
-      <ward.Provider>
-        <Dynamic component={tag} {...rest} {...ward(userProps)} />
-      </ward.Provider>
-    )
+    // An element that changes what its children read renders its variant context's Provider
+    // around them (#50); any other renders none (`changesContext`, decided once, as on a server).
+    const element = (): JSX.Element => <Dynamic component={tag} {...rest} {...ward(userProps)} />
+    return Bool.match(changesContext(untrack(cfg)), {
+      onFalse: element,
+      onTrue: () => <ward.Provider>{element()}</ward.Provider>,
+    })
   }
 }
 
@@ -456,12 +462,18 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
     ...(props.ref !== undefined ? { ref: props.ref } : {}),
     component: Wrapped,
   })
-  // The client's nesting: the variant context's Provider, then the component.
-  return createComponent(WardicVariantContext.Provider, {
-    value: node.provided,
-    get children() {
-      return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
-    },
+  // The client's nesting: the variant context's Provider when the wrap changes what its
+  // children read (#50), then the component.
+  const element = (): JSX.Element => createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+  return Bool.match(changesContext(config), {
+    onFalse: element,
+    onTrue: () =>
+      createComponent(WardicVariantContext.Provider, {
+        value: node.provided,
+        get children() {
+          return element()
+        },
+      }),
   })
 }
 
@@ -475,13 +487,20 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
  */
 const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element => {
   const out = passThrough(props)
-  const ward = useWardicWith(motionToConfig(props as WardicMotionProps), { tag })
+  const cfg = motionToConfig(props as WardicMotionProps)
+  const ward = useWardicWith(cfg, { tag })
   override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component: tag })
-  // The client's nesting: the element's `ward.Provider`, then the element (#50).
-  return createComponent(ward.Provider, {
-    get children() {
-      return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
-    },
+  // The client's nesting: the element's `ward.Provider` when it changes what its children read
+  // (#50), then the element.
+  const element = (): JSX.Element => createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+  return Bool.match(changesContext(cfg()), {
+    onFalse: element,
+    onTrue: () =>
+      createComponent(ward.Provider, {
+        get children() {
+          return element()
+        },
+      }),
   })
 }
 
