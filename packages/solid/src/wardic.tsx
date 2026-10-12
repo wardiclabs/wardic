@@ -51,7 +51,8 @@ import {
   type WardicValues,
   type WardUserProps,
 } from "./use-wardic.tsx"
-import { useVariantContext } from "./variants.ts"
+import { createVariantNode, initialOf, serverVariantNode } from "./variant-node.ts"
+import { useVariantContext, WardicVariantContext } from "./variants.ts"
 
 /**
  * Every motion prop the HOC consumes off the props object so it never leaks to
@@ -66,6 +67,7 @@ export const MOTION_PROPS = [
   "initial",
   "animate",
   "variants",
+  "inherit",
   "whileHover",
   "whileTap",
   "whileFocus",
@@ -102,6 +104,8 @@ export interface WardicMotionProps {
   readonly initial?: WardicValues | string
   readonly animate?: WardicValues | string
   readonly variants?: Record<string, WardicValues>
+  /** `false` keeps a `variants` element out of its ancestors' variants (#50, Motion's `inherit`). */
+  readonly inherit?: boolean
   readonly whileHover?: WardicValues
   readonly whileTap?: WardicValues
   readonly transition?: WardicTransition
@@ -197,6 +201,7 @@ export const motionToConfig =
     const whileTap = motion.whileTap
     const transition = motion.transition
     const variants = motion.variants
+    const inherit = motion.inherit
     const exit = motion.exit
     const drag = motion.drag
     const whileDrag = motion.whileDrag
@@ -216,6 +221,7 @@ export const motionToConfig =
     if (whileTap !== undefined) config.whileTap = whileTap
     if (transition !== undefined) config.transition = transition
     if (variants !== undefined) config.variants = variants
+    if (inherit !== undefined) config.inherit = inherit
     if (exit !== undefined) config.exit = exit
     if (drag !== undefined) config.drag = drag
     if (whileDrag !== undefined) config.whileDrag = whileDrag
@@ -286,6 +292,9 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // Reactive config accessor from the motion props (tracks changes ->
       // Retarget). motionToConfig reads each prop getter inside its accessor.
       const cfg = motionToConfig(motion)
+      // Its place in variant orchestration (ADR-0007, #50): the context it hands the
+      // component's children, and, as a Variant child, the ancestor it inherits from and joins.
+      const node = createVariantNode(cfg, useVariantContext())
 
       // The Starting style, the drag defaults, and whether the first frame has been
       // committed: until then `style` carries the Starting style, so a component that
@@ -293,7 +302,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // While hydrating it's what the server rendered, the DOM's project (the Hydration
       // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
       const config = untrack(cfg)
-      const initialValues = resolveInitial(config)
+      const initialValues = resolveInitial({ initial: initialOf(config, node.inherited), variants: config.variants })
       const projected = runtime.runSync(Renderer.Renderer).project(initialValues)
       const hydrating = isHydrating()
       const starting = hydrating ? domProject(initialValues) : projected
@@ -303,8 +312,8 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
       const elementStyle = createElementStyle({ userStyle, starting, defaults: dragDefaults })
 
-      // The gate commits each frame onto the forwarded element (ADR-0034).
-      // `parent` wires variant-name inheritance (ADR-0007) into the base target.
+      // The gate commits each frame onto the forwarded element (ADR-0034). The node wires
+      // the variant orchestration (ADR-0007, #50) into the spine.
       // Just before the first commit the Starting style leaves `style`: Solid removes
       // those keys and the commit writes the first frame, with no paint in between. From
       // then on `style` gives up the keys the gate holds (ADR-0034).
@@ -314,7 +323,10 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         id,
         el,
         cfg,
-        parent: useVariantContext(),
+        parent: node.inherited,
+        extraDelay: node.extraDelay,
+        canStart: node.canStart,
+        onFrame: node.onFrame,
         // The user's style is the style link of a key's Base value (ADR-0022).
         styleOf: userStyle,
         makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
@@ -341,14 +353,17 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // `cssText` over every inline key (ADR-0034).
       const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
       const style = (): JSX.CSSProperties => elementStyle.style(userStyle())
+      // The component's children read this element's variant context (#50).
       return (
-        <Dynamic
-          component={Wrapped}
-          {...rest}
-          ref={mergeRefs(userRef, setEl)}
-          style={style()}
-          draggable={dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
-        />
+        <WardicVariantContext.Provider value={node.provided}>
+          <Dynamic
+            component={Wrapped}
+            {...rest}
+            ref={mergeRefs(userRef, setEl)}
+            style={style()}
+            draggable={dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
+          />
+        </WardicVariantContext.Provider>
       )
     }
   }
@@ -387,7 +402,12 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       },
     }
 
-    return <Dynamic component={tag} {...rest} {...ward(userProps)} />
+    // The element's children read its variant context (#50), as every Wardic element's do.
+    return (
+      <ward.Provider>
+        <Dynamic component={tag} {...rest} {...ward(userProps)} />
+      </ward.Provider>
+    )
   }
 }
 
@@ -425,15 +445,24 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   createUniqueId()
   const out = passThrough(props)
   const config = motionToConfig(props as WardicMotionProps)()
+  // The same variant context the client provides, read once (#50).
+  const node = serverVariantNode(config, useVariantContext())
   const axis = dragAxisOf(config, undefined)
   const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
+  const initial = resolveInitial({ initial: initialOf(config, node.inherited), variants: config.variants })
   override(out, {
-    style: mergeStyle(props.style as JSX.CSSProperties | string | undefined, startingStyle(undefined, resolveInitial(config)).style, dragDefaults),
+    style: mergeStyle(props.style as JSX.CSSProperties | string | undefined, startingStyle(undefined, initial).style, dragDefaults),
     ...(dragDefaults !== undefined ? { draggable: DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
     ...(props.ref !== undefined ? { ref: props.ref } : {}),
     component: Wrapped,
   })
-  return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+  // The client's nesting: the variant context's Provider, then the component.
+  return createComponent(WardicVariantContext.Provider, {
+    value: node.provided,
+    get children() {
+      return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+    },
+  })
 }
 
 /**
@@ -448,7 +477,12 @@ const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element
   const out = passThrough(props)
   const ward = useWardicWith(motionToConfig(props as WardicMotionProps), { tag })
   override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component: tag })
-  return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+  // The client's nesting: the element's `ward.Provider`, then the element (#50).
+  return createComponent(ward.Provider, {
+    get children() {
+      return createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
+    },
+  })
 }
 
 /**
