@@ -221,6 +221,13 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVa
     onFalse: constUndefined,
     onTrue: () => ownOrchestration(cfg, parent, inherited),
   })
+  // The spine reports on every frame (the per-frame path, docs/agents/effect-first.md): both
+  // reports are resolved here, once, so a frame makes two plain calls and allocates nothing.
+  const reportJoined: (done: boolean) => void = UndefinedOr.match(joined, {
+    onUndefined: () => constVoid,
+    onDefined: ({ registration }) => registration.setSettled,
+  })
+  const reportOwn: (done: boolean) => void = UndefinedOr.match(own, { onUndefined: () => constVoid, onDefined: (o) => o.settled })
   return {
     provided: UndefinedOr.match(own, { onDefined: (o) => o.context, onUndefined: () => passedThrough(config, parent) }),
     inherited,
@@ -232,8 +239,8 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVa
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&
       UndefinedOr.match(own, { onUndefined: constTrue, onDefined: (o) => o.canStart() }),
     onFrame: (done) => {
-      UndefinedOr.match(joined, { onUndefined: constVoid, onDefined: ({ registration }) => registration.setSettled(done) })
-      UndefinedOr.match(own, { onUndefined: constVoid, onDefined: (o) => o.settled(done) })
+      reportJoined(done)
+      reportOwn(done)
     },
   }
 }
