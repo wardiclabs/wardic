@@ -1912,8 +1912,13 @@ export const makeProjectionSystem = (
         stepFlight(node, dt)
         continue
       }
+      // Both stepped every tick; it settles once both are at rest. Statement `if`s: `Bool.and` is a
+      // `dual`, a cost per node per frame (ADR-0025).
       const landed = stepFlight(node, dt)
-      if (Bool.and(landed, stepRelease(node, dt))) settled.push(node)
+      const released = stepRelease(node, dt)
+      if (!landed) continue
+      if (!released) continue
+      settled.push(node)
     }
     // 2) Derive all top-down (settled nodes are still in `active` here, so their
     //    progress=1 identity-ish delta is available to descendants this frame).
@@ -1944,7 +1949,8 @@ export const makeProjectionSystem = (
     const y = Spring.step(release.y, dt, 0, options)
     release.x = x.state
     release.y = y.state
-    return Bool.and(x.done, y.done)
+    if (!x.done) return false
+    return y.done
   }
 
   /** Finalise settled nodes (at rest, projection-owned at identity), finish their leavers, and stop at idle. */
