@@ -20,7 +20,9 @@
  *   - the drag's samples: a gesture's bookkeeping, then the direct-set, or at the
  *     "end" the release;
  *   - bare pointer-downs from the Primary pointer ("grabs"), which stop a running
- *     release, so a re-grab mid-release stops the tail where it is.
+ *     release, so a re-grab mid-release stops the tail where it is, and the ends of
+ *     its presses, which let a projection node's release go on after a press that
+ *     didn't drag.
  * No `merge` and no `switchMap`: a `merge` yields once per element, so a second
  * event in one task (a move and its up, a move and a scroll) waited a task, and
  * `switchMap` forked every sample's inner, a task more. The release runs in a
@@ -39,10 +41,12 @@ import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
 import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Values from "@wardic/core/Values"
+import * as Velocity from "@wardic/core/Velocity"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
 import type { DragProjectionHandle, FlushGate } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import { constVoid } from "effect/Function"
@@ -108,7 +112,8 @@ export interface RunDragTrackOptions {
    * When the element is a projection node (ADR-0016), the drag feeds the projection
    * instead of writing raw `x`/`y` (which the renderer ignores for a projected
    * element): grab → `dragStart`, each sample → `dragMove(offset)`, release →
-   * `dragEnd` (FLIP to slot — the momentum/snap tail is skipped). Absent ⇒ free drag.
+   * `dragEnd(velocity)` (its Release offset — the free tail is skipped), a press →
+   * `stopRelease`, a press that ends with no drag → `resumeRelease`. Absent ⇒ free drag.
    */
   readonly projection?: DragProjectionHandle | undefined
   /**
@@ -135,12 +140,14 @@ const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
 
 /**
  * The track's state: `base` is the rebase point, `position` the live absolute position,
- * `held` whether a gesture is on (from its "start" to its "end").
+ * `held` whether a gesture is on (from its "start" to its "end"), and, for a projection
+ * node, the gesture's last offsets, for its release's velocity.
  */
 interface DragTrackState {
   readonly base: Point.Point
   readonly position: Point.Point
   readonly held: boolean
+  readonly history: ReadonlyArray<Velocity.TimedPoint>
 }
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
@@ -148,6 +155,37 @@ type TrackState = MutableRef.MutableRef<DragTrackState>
 
 const ORIGIN: Point.Point = { x: 0, y: 0 }
 
+/** The window (ms) a projection node's release reads its velocity over: Motion's `getVelocity`'s (ADR-0016, *Amendment (velocity family)*). */
+const RELEASE_VELOCITY_WINDOW_MS = 100
+
+/** How many offsets the release's velocity keeps: enough for 100 ms of pointer events at 60–120 Hz (as the Reorder group's). */
+const HISTORY = 12
+
+/**
+ * A projection node's gesture history with `sample`'s offset added, oldest first, its last
+ * {@link HISTORY} kept; a free drag keeps none (its Fling reads the sample's own velocity).
+ */
+const recordOffset = (
+  opts: RunDragTrackOptions,
+  history: ReadonlyArray<Velocity.TimedPoint>,
+  sample: Drag.Sample,
+): ReadonlyArray<Velocity.TimedPoint> =>
+  UndefinedOr.match(opts.projection, {
+    onUndefined: () => history,
+    onDefined: () =>
+      Arr.takeRight(Arr.append(history, { x: sample.offset.x, y: sample.offset.y, timeStamp: sample.timeStamp }), HISTORY),
+  })
+
+/**
+ * A projection node's release velocity (ADR-0016, *Amendment (velocity family)*, decision 2):
+ * its gesture's offsets over the last 100 ms (`Velocity.trailing`, Motion's `getVelocity`), so a
+ * release after moves more than 30 ms apart doesn't read zero; at rest with `dragMomentum={false}`.
+ */
+const releaseVelocity = (config: DragTrackConfig, history: ReadonlyArray<Velocity.TimedPoint>): Point.Point =>
+  Bool.match(config.momentum === false, {
+    onTrue: () => ORIGIN,
+    onFalse: () => Velocity.trailing(history, RELEASE_VELOCITY_WINDOW_MS),
+  })
 /**
  * Read the current rested `x`/`y` off the snapshot (defaulting to 0, as for a string
  * translate the drag can't continue from). Captured at a drag's "start" so a drag (or a
@@ -184,21 +222,25 @@ const directSet = (opts: RunDragTrackOptions, p: Point.Point): void => {
 
 /**
  * A gesture's bookkeeping, run as each sample arrives, before its response: "start"
- * marks the gesture held; "end" clears it and, for a projection node (ADR-0016), starts
- * the FLIP to the slot (`dragEnd`) and hands back `dragging`, then reports the sample.
+ * marks the gesture held; each sample keeps a projection node's offset for its release's
+ * velocity; "end" clears both and, for a projection node (ADR-0016), starts its Release
+ * offset at that velocity (`dragEnd`) and hands back `dragging`, then reports the sample.
  */
 const settleGesture = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOptions): void =>
   Match.value(sample.phase).pipe(
     Match.when("start", () => {
-      MutableRef.update(state, (st) => ({ ...st, held: true }))
+      MutableRef.update(state, (st) => ({ ...st, held: true, history: recordOffset(opts, [], sample) }))
     }),
-    Match.when("move", constVoid),
+    Match.when("move", () => {
+      MutableRef.update(state, (st) => ({ ...st, history: recordOffset(opts, st.history, sample) }))
+    }),
     Match.when("end", () => {
-      MutableRef.update(state, (st) => ({ ...st, held: false }))
+      const history = recordOffset(opts, MutableRef.get(state).history, sample)
+      MutableRef.update(state, (st) => ({ ...st, held: false, history: [] }))
       UndefinedOr.match(opts.projection, {
         onUndefined: constVoid,
         onDefined: (projection) => {
-          projection.dragEnd()
+          projection.dragEnd(releaseVelocity(opts.config, history))
           opts.setDragging(false)
         },
       })
@@ -210,6 +252,17 @@ const settleGesture = (sample: Drag.Sample, state: TrackState, opts: RunDragTrac
 /** A down from the Primary pointer: a grab, which stops a running release where it is. */
 const isGrab: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
   (e: InputSource.PointerLikeEvent) => e.type === "down",
+  InputSource.isPrimaryPointer,
+)
+
+/**
+ * The end of a Primary pointer's press: its up, its cancel, or a move with no button pressed
+ * (its release was lost, ADR-0019). A press with no drag lets a projection node's stopped
+ * release go on; any other unpressed move (a hover) finds none stopped.
+ */
+const isPressEnd: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
+  (e: InputSource.PointerLikeEvent) =>
+    Bool.some([e.type === "up", e.type === "cancel", Bool.and(e.type === "move", e.buttons === 0)]),
   InputSource.isPrimaryPointer,
 )
 
@@ -305,7 +358,7 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
   runScoped(
     runtime,
     Effect.gen(function* () {
-      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false })
+      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false, history: [] })
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
 
@@ -332,8 +385,8 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
         )
       }
 
-      // A free drag's "end" starts its release; a projection node's FLIP already began in
-      // `settleGesture`, so its drag track skips the tail (ADR-0016, Q3c).
+      // A free drag's "end" starts its release; a projection node's Release offset already
+      // began in `settleGesture`, so its drag track skips the tail (ADR-0016, Q3c).
       const releaseFrom = (sample: Drag.Sample): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
         UndefinedOr.match(opts.projection, {
           onDefined: () => Effect.void,
@@ -361,19 +414,31 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
       // release (or the one a same-down "end" just started) hands `x`/`y` back to the
       // spring; a drag that follows takes them again at its "start", where it rebases (a
       // new down from a pointer whose release was lost also ends the old gesture, a Stale
-      // gesture, ADR-0019). The InputSource is a Shared source, so this shares the
-      // recognizer's single listener-set (CONTEXT.md Shared source contract).
+      // gesture, ADR-0019). A projection node's Release offset stops where it is too, and a
+      // drag that follows starts from there; a press that ends with no drag lets it go on,
+      // from rest (Motion's `stopAnimation` at the press and `resumeAnimation`, ADR-0016,
+      // *Amendment (velocity family)*). The InputSource is a Shared source, so this shares
+      // the recognizer's single listener-set (CONTEXT.md Shared source contract).
       const onGrab: Effect.Effect<void> = FiberHandle.clear(releasing).pipe(
         Effect.andThen(Effect.sync(() => {
+          UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.stopRelease() })
           if (!MutableRef.get(state).held) opts.setDragging(false)
         })),
       )
-      const grabs = input.pointer(element).pipe(Stream.filter(isGrab))
+      // The samples subscribe first, so a drag's own up has ended its gesture by now: only a
+      // press that never dragged finds no gesture held.
+      const onPressEnd: Effect.Effect<void> = Effect.sync(() => {
+        if (MutableRef.get(state).held) return
+        UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.resumeRelease() })
+      })
+      const presses = input.pointer(element).pipe(Stream.filter(Predicate.or(isGrab, isPressEnd)))
+      const onPress = (event: InputSource.PointerLikeEvent): Effect.Effect<void> =>
+        Bool.match(isGrab(event), { onTrue: () => onGrab, onFalse: () => onPressEnd })
 
       // Started inline, in this order, so the samples subscribe before the grabs. Once both
       // inputs end (a test's script), the track ends when its release does; a failure of
       // either input, or of a release (`FiberHandle.join`), fails the track.
-      const inputs = Effect.all([Stream.runForEach(shaped, onSample), Stream.runForEach(grabs, () => onGrab)], {
+      const inputs = Effect.all([Stream.runForEach(shaped, onSample), Stream.runForEach(presses, onPress)], {
         concurrency: "unbounded",
         discard: true,
       })
