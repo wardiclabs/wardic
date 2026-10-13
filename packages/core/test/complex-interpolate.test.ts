@@ -55,6 +55,32 @@ it("can't blend two number counts, even with the same leading commands", () => {
   expect(blendOf("M0,0 L10,10", "M0,0 L10,10 L20,20")).toEqual(Option.none())
 })
 
+it("decodes one number inside a function, and colours as tokens, but not a lone colour (#61)", () => {
+  expect(decodes("blur(4px)")).toBe(true)
+  expect(decodes("translateX(10px)")).toBe(true)
+  expect(decodes("0px 0px 10px rgb(255, 0, 0)")).toBe(true)
+  expect(decodes("#f00")).toBe(false) // a lone colour → color's job
+  expect(decodes("120")).toBe(false) // a bare number string → unit's job
+})
+
+it("blends a shadow's colour as a colour, in sRGB as the colour tier does (#61)", () => {
+  expect(at("0px 0px 10px rgb(255, 0, 0)", "0px 0px 20px rgb(0, 0, 255)", 0.5)).toBe("0px 0px 15px rgb(128, 0, 128)")
+  expect(at("0px 0px 0px rgba(255, 0, 0, 0)", "0px 0px 10px rgb(255, 0, 0)", 0.5)).toBe("0px 0px 5px rgba(255, 0, 0, 0.5)")
+  // A hex and an rgb() are both colours, so they match.
+  expect(at("0px 0px 10px #f00", "0px 0px 20px rgb(0, 0, 255)", 0.5)).toBe("0px 0px 15px rgb(128, 0, 128)")
+})
+
+it("matches kind by kind, in order, written in the target's structure (#61, Motion's mixComplex)", () => {
+  // A computed shadow (colour first, a spread) into an authored one: the start's extra number is dropped.
+  expect(at("rgba(0, 0, 0, 0.2) 0px 1px 2px 0px", "0px 8px 24px rgba(0, 0, 0, 0.3)", 0.5)).toBe("0px 4.5px 13px rgba(0, 0, 0, 0.25)")
+  // Fewer numbers in the start than the target: Motion's rule can't blend it (the shadow rule pads it, in Machine).
+  expect(blendOf("0px 8px 24px rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.2) 0px 1px 2px 0px")).toEqual(Option.none())
+  // A different count of colours can't blend.
+  expect(blendOf("0px 0px 10px rgb(255, 0, 0)", "0px 0px 10px rgb(255, 0, 0), 0px 0px 4px rgb(0, 0, 0)")).toEqual(Option.none())
+  // A named colour isn't a token: it's text, and the target's text is written.
+  expect(at("0px 0px 10px red", "0px 0px 20px blue", 0.5)).toBe("0px 0px 15px blue")
+})
+
 // Registry-backed: resolution order — `complex` only catches what the specific
 // interpolators don't.
 layer(InterpolatorRegistry.layer)("complex interpolator routing", (it) => {

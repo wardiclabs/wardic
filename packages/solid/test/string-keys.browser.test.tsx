@@ -334,12 +334,14 @@ describe("a filter holding a length (#154)", () => {
     expect(filterOf(el)).toBe("blur(8px)")
   })
 
-  it("SK16: under a spring, the filter is painted on every frame and lands", async () => {
+  it("SK16: under a spring, the filter is painted on every frame, blurs through radii in between (#61) and lands", async () => {
     const el = filtered({ filter: "blur(4px)", opacity: 1 }, { filter: "blur(8px)", opacity: 0.5 }, { stiffness: 170, damping: 26 })
     const s = sampleFrames(() => filterOf(el))
-    await until(() => opacityOf(el) < 0.501, 3000)
+    await until(() => filterOf(el) === "blur(8px)", 3000)
     await settle()
-    s.stop().forEach((f, i) => expect(["blur(4px)", "blur(8px)"], `frame ${i}: ${f.v}`).toContain(f.v))
+    const frames = s.stop().map((f) => f.v)
+    frames.forEach((f, i) => expect(f, `frame ${i}`).toMatch(/^blur\([\d.]+px\)$/))
+    expect(frames.filter((f) => /^blur\((4\.[1-9]|[5-7]\.)/.test(f)).length, "radii on the way").toBeGreaterThanOrEqual(5)
     expect(filterOf(el)).toBe("blur(8px)")
   })
 
