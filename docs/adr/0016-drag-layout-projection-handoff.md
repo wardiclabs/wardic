@@ -81,3 +81,75 @@ ADR-0032 removes the two scheduler hops this ADR's *Amendment (#26)* deferred to
 ADR-0012's *Amendment (#136)* takes every ancestor transform out of a node's box, so `grabBox`, the drag target and the slot a pass gives a dragged node are all in the frame of its parent's own px.
 - A parent moved by a transform the projection doesn't own carries the dragged node, as CSS does. On main, a `<Reorder>` item on a card dragged on x lost the card's travel since its last pass (`0 → -30`, then `-60` on the next grab); it now stays on its card (`transform-frame.browser.test.tsx` TS1, TS2).
 - **A limit, unchanged:** inside a scaled or rotated parent, the pointer's movement in screen px is applied in the parent's own px, so inside `scale(0.5)` the element covers half the pointer's distance. Motion does the same unless the app supplies `transformPagePoint`. See ADR-0012, *Amendment (#136)*, decision 4.
+
+## Amendment (velocity family, 2026-10-12): the release is an offset on top of the layout animation
+
+Re-measured on main `de5e2ec` against framer-motion 13.4.0 (`.tmp/vel/`, real Playwright mouse, Chromium 147 and Firefox 148, 3 runs each). Motion's page ran `dragSnapToOrigin` with `dragMomentum: false` on the same 170/26 spring, so no gap below comes from velocity:
+
+| Issue | Scene | Motion | main |
+|---|---|---|---|
+| #30 | a box grabbed 9 frames into its FLIP | the FLIP runs on under the pointer: about 25 px over 16 frames | jumps 24–28 px in one frame |
+| #28 | the slot moves 80 ms into a release | steps `7.7 8.5 \| 8.2 7.3 7.4` | steps `8.3 8.4 \| 2.1 4.3 5.6`: the release stalls |
+| #28 | a resting child of that released node | stays at its 10,10 offset | jumps 70 px (`-57.1,-10.1`), then springs back |
+| #38 | a running child as its released parent settles | largest step change 0.15–0.32 px | a 1.58 px kink |
+| #34 | a released `layoutId` Lead with a Follower | opacity 1/0 throughout | drops to 0.03/0.97, then fades back |
+| #88 | an item grabbed while the last one flies back | covered by it for 22 frames (Chromium) / 20 (Firefox) | 26 / 25 |
+
+Each comes from Q3b's fold of the drag offset into one FLIP on the node's progress spring. A slot move restarted that spring at rest, so the whole flight stalled. The released node restarted from its painted box while its child restarted from its layout box. `finishSettled` cleared `releasing` at the spring's last step, switching the child's frame. And a release started the spring a Lead's crossfade reads. Motion's release is the drag offset springing back on its own (`dragSnapToOrigin`, `VisualElementDragControls.startAnimation`), on top of a layout animation that runs only when the layout changes.
+
+### Decisions (grilled)
+
+1. **The release is a Release offset (Q1; CONTEXT.md **Release offset**).**
+   - `dragEnd` keeps how far the drag left the node from its slot, per axis, and springs each axis to zero on its own. The node's layout animation (the progress spring) runs only when its slot moves, under the offset, and a slot move restarts only that.
+   - The offset is a translation: a dragged node paints at its slot's size (`dragTargetOf`).
+   - The released node stays its subtree's relative parent until it comes to rest, as *Amendment (#26)* has it, so the subtree rides the offset and a `layoutAnchor: false` child still flies back with it. What goes is the FLIP: the node's own frame no longer switches when a spring settles.
+   - Rejected: keeping Q3b's one FLIP and patching each symptom (seeding a restarted spring with the box's speed projected onto the new path, restarting the child from its painted box, landing the settle exactly, skipping the crossfade while releasing). Four patches, and a one-dimensional progress spring still loses the speed across a retarget that changes direction.
+2. **The offset starts with the drag's velocity (Q2).**
+   - `dragMomentum` now works for a layout drag as for Motion's `Reorder.Item`: on by default, each axis's spring starts at the release's velocity; `dragMomentum={false}` starts them at rest. Q3c's "`momentum` is a no-op for layout-node drags" goes; `snapToOrigin` stays one, since a layout drag always returns to its slot.
+   - The velocity is `Velocity.trailing` (Motion's `getVelocity`, 100 ms) over the gesture's offsets, the window the Reorder group's direction already uses (ADR-0020). Core `drag`'s own 30 ms window reads zero whenever two moves are more than 30 ms apart (ADR-0020: 11–26% of headless mouse moves, 17 of 18 touch moves), so a slow or touch release would read no velocity. Core `drag` is unchanged, so a free Fling is too (#139).
+   - Rejected: keeping Q3c (a flick stops dead at the release, then springs back); core `drag`'s 30 ms window.
+3. **The offset runs on the element's `transition` (Q3)**, as the node's layout animation and a free `dragSnapToOrigin` release do: 170/26 by default. Each axis runs in units of its starting distance (at least 1 px), so the transition's rest thresholds mean what they meant for the progress spring Q3b ran: a release with no velocity and no slot move paints the same curve as before and settles on the same frame. In px, the default 0.01 thresholds kept a 15 px release raised about 0.4 s longer (`reorder.browser.test.tsx` RO13 caught it).
+   - Rejected: adding Motion's `dragTransition` here (new API, and it would change the free drag's default release too; #140); Motion's 200/40 bounce for layout releases only (it splits Wardic's own releases and gives no way to change it).
+4. **A grab leaves a running layout animation running (Q4, #30).**
+   - The drag is a layer on top of the layout animation, as the release is: a node grabbed mid-FLIP keeps flying under the pointer, and the drag target is that flight moved by the pointer's offset. The slot moves that come during the drag still start nothing (**Drag block**).
+   - A grab during a release stops its offset where it is, at the press (Motion's `stopAnimation` at the pan session's start), and the drag continues from there. A press that ends with no drag starts the offset again from rest (Motion's `resumeAnimation` for `dragSnapToOrigin`): at its up, its cancel, or, when its release was lost, the pointer's first move with no button pressed (ADR-0019).
+   - The handle gains `stopRelease()` and `resumeRelease()`, which the drag track calls at those events, and `dragEnd(velocity)`.
+   - Rejected: stopping the flight at the grab (no drift, but unlike Motion, and a flight that also resizes would need its size frozen); keeping the jump.
+5. **Only a shared-element handover crossfades (Q5, #34).**
+   - A node's animation is a crossfade only when a handover starts it: the first-measure crossfade, a Switch from a seed, or a promotion (`promoteFrom`). A Lead's opacity factor and its Followers' come from that crossfade alone; any other layout animation of a Lead with Followers, or its Release offset, leaves them at 1 and 0.
+   - A layout animation that interrupts a running crossfade continues it from the opacity it had, to 1 over the new flight, so nothing pops.
+   - Rejected: leaving it (the release no longer starts it, but a slot move of a Lead with Followers still would). See ADR-0010's *Note (velocity family)*.
+6. **The dragged item paints above one flying back (Q6, #88).** A raised node's projection carries `raise: 2` while dragged and `1` while it comes to rest after its release, so the item under the pointer is on top and an item flying back still paints above its resting neighbours.
+   - Motion raises an item while its drag offset is non-zero (`x || y ? 1 : "unset"`, `Reorder/Item.tsx`), with no notion of which one is held, so two items tie and DOM order decides. This is a deliberate step past Motion.
+   - The cost is one more `z-index` value change per drag (2 → 1 at the release); every frame of a raised node already writes its `z-index`. A sibling the app gives `z-index: 1` now paints under a dragged item instead of tying with it.
+   - Rejected: accepting Motion's tie (with the layout lab's check skipping covered frames); dropping every other item's raise at a grab (a released item would fly back under its neighbours, the covering the raise was added for).
+
+### What stays
+
+- A release ends on its slot; one released in place, at rest, settles at once.
+- One change at the edge: a Measure pass no longer ends a released `layoutRoot`'s flight. Its self-snap is about its own layout, and the Release offset isn't a layout animation, so it goes on from the new slot (`projection-handle.browser.test.ts` PH10, which pinned the old cut).
+- Reduced motion leaves a release alone, since it continues the gesture (ADR-0029).
+- The release's first step is the loop's next tick (*Amendment (#73)*).
+- Free drags are unchanged.
+
+### Limits
+
+- A layout drag always returns to its slot, as a `Reorder.Item` does. Motion's `drag layout` without `dragSnapToOrigin`, which rests where dropped, is out of scope.
+- A slot move during the release restarts the layout layer at rest, as Motion's layout animation does.
+- *Amendment (#26)*'s deferred list: #28, #30 and #34 are fixed here, and "velocity across grab, release and retarget" is decided.
+
+### Pinned by
+
+- `packages/dom/test/projection-release.browser.test.ts`, RL1–RL15, against a fake sink:
+  - RL1: a release with no velocity paints a FLIP's curve and settles on the same frame (a guard);
+  - RL2 and RL3: a slot move mid-release keeps the release's speed, and a resting child stays on its parent through it (#28);
+  - RL4: a running child keeps its line as its released parent comes to rest (#38);
+  - RL5, RL6 and RL14: a grab leaves a running layout animation running, with no jump at the grab or at a release, also after a slot move mid-drag (#30);
+  - RL7: a press stops a release, and a press with no drag lets it go on, from rest;
+  - RL8: the release's velocity, per axis;
+  - RL9–RL13: only a handover crossfades (#34): a released Lead and one moved by a layout change keep 1/0, an interrupted crossfade continues, and a promotion and a Switch crossfade;
+  - RL15: a settled release leaves nothing behind.
+- `packages/solid/test/drag-release.browser.test.tsx`, DR1–DR4, with the real mouse: a flick's velocity over 100 ms carries the release past its slot and `dragMomentum={false}` doesn't; a press mid-release holds it and one with no drag, or whose release is lost, lets it go on; a `<Reorder>` item re-grabbed over the last one's flight paints above it on every frame (#88).
+- Updated: `projection-handle.browser.test.ts` PH5 and PH8 (the raise is 2 while dragged), PH10 (a pass no longer ends a released `layoutRoot`'s flight), and `drag-pointer.browser.test.tsx` P6 (a restart after a lost release starts where the release was stopped, as a free drag's does).
+- On main, RL2–RL11, RL14, RL15 and DR1–DR4 fail; RL1, RL12 and RL13 pin what main already did (a release's curve, and the crossfades that stay).
+- Mutation-checked: 31 single-point mutations of the new code, each failing the test meant for it.
