@@ -158,7 +158,10 @@ export interface DragFrame {
 }
 
 /** Why a drag scenario's recorder stopped after the release (see {@link DragRunInput.endedBy}). */
-export type DragRunEnd = "settled" | "timeout" | "next-press"
+export type DragRunEnd = "settled" | "timeout" | "next-press" | "removed"
+
+/** Whether a run stopped before its release could settle: the next press, or its item leaving the page. */
+const cutShort = (end: DragRunEnd | undefined): boolean => end === "next-press" || end === "removed"
 
 /**
  * What a drag scenario's recorder hands `ctx.recordDragRun` for one press. Every
@@ -209,10 +212,11 @@ export interface DragRunInput {
   /**
    * Why the recorder stopped after the release: `settled` (the item's painted box stood
    * still for the recorder's `STILL_FRAMES` frames), `timeout` (its `SETTLE_MS` passed
-   * first) or `next-press` (the next press started while the release was still
+   * first), `next-press` (the next press started while the release was still
    * settling: the run was cut short, so its last frame may still be on the way to the
-   * slot). Left out in a log from before #31's lab fix, whose runs are judged as if they
-   * had settled.
+   * slot) or `removed` (the item left the page while the run was on, as scenario 13's boxes
+   * remount it: cut short the same way). Left out in a log from before #31's lab fix, whose
+   * runs are judged as if they had settled.
    */
   readonly endedBy?: DragRunEnd
   /**
@@ -487,6 +491,12 @@ const NOT_PRIMARY_TEXT = "not the primary pointer, no drag"
 /** The `release held` and `ends on slot` note of a run the next press cut short (`endedBy: "next-press"`). */
 const CUT_SHORT_TEXT = "cut short by the next press"
 
+/** The same note for a run whose item left the page (`endedBy: "removed"`). */
+const REMOVED_TEXT = "cut short: the item left the page"
+
+/** The note of a run cut short, by why it was. */
+const cutTextOf = (run: DragRun): string => (run.endedBy === "removed" ? REMOVED_TEXT : CUT_SHORT_TEXT)
+
 /** The `release held` and `ends on slot` text of a lost release no unpressed move followed: its gesture hadn't ended. */
 const LOST_OPEN_TEXT = "lost release, no unpressed move"
 
@@ -619,8 +629,11 @@ const gestureEndOf = (
   let endBox = grabBox
   if (end !== null) {
     const unpressed = (input.releaseMoves ?? []).slice(end.from).filter((m) => m.buttons === 0)
+    // At the move's place exactly, as a gesture left on applies the pointer's offset: a release
+    // carrying on in the drag's direction, or flying back past where the pointer rests, comes
+    // within a pixel of it for a frame or two by chance (ADR-0016's momentum).
     const sitsAt = (centre: Point, m: DragMove | undefined): boolean =>
-      m !== undefined && pointDistance(targetOf(m), pressedAt) > NEAR_PX && pointDistance(centre, targetOf(m)) <= NEAR_PX
+      m !== undefined && pointDistance(targetOf(m), pressedAt) > NEAR_PX && pointDistance(centre, targetOf(m)) <= EXACT_PX
     let visible = 0
     let reachable = 0
     let inARow = 0
@@ -642,7 +655,7 @@ const gestureEndOf = (
   }
   const lastSlot = frames[frames.length - 1]?.slot
   const offAtEnd = lastSlot === undefined ? 0 : boxDistance(endBox, lastSlot)
-  const stuckPx = framesAfter > 0 && !moved && input.endedBy !== "next-press" && offAtEnd > NEAR_PX ? offAtEnd : null
+  const stuckPx = framesAfter > 0 && !moved && !cutShort(input.endedBy) && offAtEnd > NEAR_PX ? offAtEnd : null
 
   let notPrimaryPx = 0
   if (!isPrimaryPress(input)) {
@@ -658,7 +671,7 @@ const gestureEndOf = (
   let pressOnOpen: GestureEnd["pressOnOpen"] = null
   if (previous !== undefined && previous.gestureEnd.openAtEnd) {
     const previousEnd = previous.frames[previous.frames.length - 1]?.d ?? previous.grabBox
-    if (previous.endedBy !== "next-press") inheritedPx = offSlotAtGrab ? boxDistance(grabBox, previousEnd) : 0
+    if (!cutShort(previous.endedBy)) inheritedPx = offSlotAtGrab ? boxDistance(grabBox, previousEnd) : 0
     if (!offSlotAtGrab) pressOnOpen = "ended"
     else {
       // Rule B: this down ends the old gesture, whose release then flies the item to its
@@ -902,10 +915,10 @@ const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined):
       return lineOf("gesture ends", `${CLICK_TEXT}${rest.join("")}`, undefined, true)
     }
     if (g.at === null) {
-      const text = `${LOST_OPEN_TEXT}${run.endedBy === "next-press" ? " before the next press" : ""}`
+      const text = `${LOST_OPEN_TEXT}${cutShort(run.endedBy) ? " before the next press" : ""}`
       return lineOf("gesture ends", text, undefined, true)
     }
-    if (g.framesAfter === 0 && run.endedBy === "next-press") return lineOf("gesture ends", CUT_SHORT_TEXT, undefined, true)
+    if (g.framesAfter === 0 && cutShort(run.endedBy)) return lineOf("gesture ends", cutTextOf(run), undefined, true)
   }
   return lineOf("gesture ends", [px(g.stalePx), ...notes, ...misses].join(" · "), expected, misses.length === 0)
 }
@@ -974,7 +987,7 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   const releaseHeldMax = forScheduler(expect.releaseHeldMax, run)
   // A lost release no unpressed move followed: its gesture's end never came in the run.
   const lostOpen = run.releaseLost === true && run.gestureEnd.at === null
-  const cut = run.endedBy === "next-press"
+  const cut = cutShort(run.endedBy)
   return [
     run.flight === undefined
       ? lineOf(
@@ -1010,7 +1023,7 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
       ? lineOf("release held", LOST_OPEN_TEXT, undefined, true)
       : run.releaseHeld === null && cut
         ? // Cut before the release's first moving frame: too soon to read.
-          lineOf("release held", `? · ${CUT_SHORT_TEXT}`, undefined, true)
+          lineOf("release held", `? · ${cutTextOf(run)}`, undefined, true)
         : lineOf(
             "release held",
             run.releaseHeld === null ? "?" : String(run.releaseHeld),
@@ -1023,7 +1036,7 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
         ? // Still settling when the next press came: the last frame is not where the release ends.
           lineOf(
             "ends on slot",
-            run.endsOnSlotPx === null ? CUT_SHORT_TEXT : `${px(run.endsOnSlotPx)} · ${CUT_SHORT_TEXT}`,
+            run.endsOnSlotPx === null ? cutTextOf(run) : `${px(run.endsOnSlotPx)} · ${cutTextOf(run)}`,
             undefined,
             true,
           )

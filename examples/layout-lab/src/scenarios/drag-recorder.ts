@@ -262,6 +262,12 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     const stage = opts.stage()
     const item = opts.item()
     if (p === undefined || stage === undefined || item === undefined) return
+    // The item left the page (scenario 13's boxes remount it): its boxes would read 0x0 from
+    // here, so the run ends, cut short, as a next press would end it.
+    if (!item.isConnected) {
+      finish("removed")
+      return
+    }
     if (changes !== changesAtTick) {
       // A layout change landed between this frame's paint and this read: skip the read.
       rafId = requestAnimationFrame(tick)

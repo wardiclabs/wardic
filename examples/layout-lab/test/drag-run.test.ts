@@ -364,6 +364,11 @@ describe("dragChecksOf", () => {
   const textsOf = (run: DragRun, want: DragExpect) => dragChecksOf(run, want).map((c) => [c.name, c.ok, c.text])
   const underOf = (run: DragRun) => textsOf(run, S11_EXPECT)[0]
 
+  it("doesn't judge where a run ends when its item left the page (scenario 13's boxes remount it)", () => {
+    const run = dragRunOf(input(cleanFrames.slice(0, 8), { endedBy: "removed" }), cleanSpans)
+    expect(textsOf(run, S11_EXPECT)[5]).toEqual(["ends on slot", true, `${run.endsOnSlotPx?.toFixed(2)} px · cut short: the item left the page`])
+  })
+
   it("judges a grab mid-flight from where its flight lands under the pointer, and says how far it slid (#30)", () => {
     const run = dragRunOf(input(flightFrames(SLIDE), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
     expect(run.flight).toEqual({ slidePx: 30, jumpPx: 3, remainingPx: 27, landed: true })
@@ -704,6 +709,16 @@ describe("the gesture ends line (#31)", () => {
       ok: false,
       text: "25.00 px · lost release · follows the unpressed pointer ✗ expected ≤ 1 px, and an end",
     })
+  })
+
+  it("passes a release whose momentum brings it near the unpressed pointer for a few frames, not onto it", () => {
+    // A flick's release carries on the way the pointer goes, within a pixel of it for three
+    // frames (a log's run, 2026-10-13), then flies back to its slot.
+    const near = [0, 1, 2].map((j) => frameOf(7 + j, moved(at(UNPRESSED[j]!), 0.5, 0.4), SLOT_B))
+    const back = [0.4, 0.8, 1, 1, 1].map((f, i) => frameOf(10 + i, toward(near[2]!.d, SLOT_B, f), SLOT_B))
+    const run = dragRunOf(input([...cleanHeld, ...near, ...back], { releaseMoves: UNPRESSED, endedAt: frameAtOf(14) + 10, endedBy: "settled" }), cleanSpans)
+    expect(run.gestureEnd).toMatchObject({ at: "release", followedPx: 0, openAtEnd: false })
+    expect(gestureOf(run)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px ✓" })
   })
 
   it("passes a gesture that ends at its release, however the pointer moves after it", () => {

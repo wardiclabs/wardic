@@ -230,8 +230,9 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     release, and records the pointer's moves (`releaseMoves`, with `buttons`),
     until the item settles; after a lost release the settle starts at that first
     unpressed move. The line fails, each with its reason, when:
-    `follows the unpressed pointer` (a frame after the gesture's end sat where the
-    unpressed pointer put the item, two in a row); `never ends, … off its slot`
+    `follows the unpressed pointer` (a frame after the gesture's end sat exactly
+    where the unpressed pointer put the item, within 0.25 px, two in a row: a
+    release's momentum carrying it on the pointer's way only comes near it); `never ends, … off its slot`
     (nothing moved after its end although the item was off its slot); `inherited a
     stale gesture` (the scenario's previous run left its gesture on, and the item
     moved between that run's last frame and this grab); `the press doesn't end the
@@ -254,6 +255,9 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     distance) and `? · cut short by the next press` on a `release held` it
     couldn't read: a new press while the last release is still settling ends
     that run first. A run that timed out (1.5 s) is judged.
+  - `cut short: the item left the page` on the same lines: the item was removed
+    while its run was on (scenario 13's momentum and twin boxes remount it), so the
+    run ends at that frame.
   - `lost release, no unpressed move` on `release held` and `ends on slot`: the
     release was lost and the pointer didn't move before the recorder stopped, so
     the gesture's end never came in the run; the next press judges it.
