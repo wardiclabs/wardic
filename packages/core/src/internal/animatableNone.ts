@@ -13,7 +13,7 @@
  *   from the start's shadow counts as 0, CSS's default, and a shadow missing from one end grows from
  *   its Animatable none.
  *
- * Either way the leg's last frame writes its target as given (`lands`), so a shadow, filter or fill
+ * Either way the leg's last frame writes its target as given, so a shadow, filter or fill
  * that animates to `"none"` rests at `"none"`, with no stacking context, containing block or
  * painted fill left behind.
  *
@@ -38,12 +38,10 @@ type Pair = readonly [from: Value, to: Value]
 
 /**
  * A key's pair as the registry resolves it: one pair, or, for a shadow list, one per shadow,
- * joined with `", "` each frame.
+ * joined with `", "` each frame. Either way the leg's last frame writes the target as given.
  */
 export interface Prepared {
   readonly pairs: ReadonlyArray<Pair>
-  /** Whether the leg's last frame writes its target as given, not the blend at progress 1. */
-  readonly lands: boolean
 }
 
 const decodeComplex = Schema.decodeUnknownOption(Interpolator.ComplexString)
@@ -92,12 +90,11 @@ const isEmptyWord: Predicate.Predicate<string> = Predicate.mapInput(
   Str.trim,
 )
 
+/** The number 0. */
+const isZero: Predicate.Predicate<Value> = (value) => value === 0
+
 /** An empty end (Motion's `isNone`): the number 0, `"none"`, `"0"`, or a zero with a unit. */
-const isEmptyEnd = (value: Value): boolean =>
-  Match.value(value).pipe(
-    Match.when(Predicate.isNumber, (n) => n === 0),
-    Match.orElse(isEmptyWord),
-  )
+const isEmptyEnd: Predicate.Predicate<Value> = Predicate.or(isZero, (value: Value) => Predicate.isString(value) && isEmptyWord(value))
 
 /** The first number in a filter function's arguments. */
 const FIRST_NUMBER_RE = /-?\d*\.?\d+(?:e[-+]?\d+)?/i
@@ -190,7 +187,7 @@ const fromNone = (key: string, from: Value, to: Value): Option.Option<Prepared> 
     Option.liftPredicate(from, isEmptyEnd),
     Option.flatMap(() => templateOf(to)),
     Option.flatMap((template) => animatableNone(key, template)),
-    Option.map((none): Prepared => ({ pairs: [[none, to]], lands: true })),
+    Option.map((none): Prepared => ({ pairs: [[none, to]] })),
   )
 
 /** `to` empty and `from` a template: the pair to `from`'s Animatable none, landing on `to` as given. */
@@ -199,7 +196,7 @@ const toNone = (key: string, from: Value, to: Value): Option.Option<Prepared> =>
     Option.liftPredicate(to, isEmptyEnd),
     Option.flatMap(() => templateOf(from)),
     Option.flatMap((template) => animatableNone(key, template)),
-    Option.map((none): Prepared => ({ pairs: [[from, none]], lands: true })),
+    Option.map((none): Prepared => ({ pairs: [[from, none]] })),
   )
 
 
@@ -239,17 +236,24 @@ const shadows = (key: string, from: Value, to: Value): Option.Option<Prepared> =
       return Arr.makeBy(Math.max(as.length, bs.length), (i) => shadowPair(Arr.get(as, i), Arr.get(bs, i)))
     }),
     Option.filter(Predicate.not(isAsGiven(from, to))),
-    Option.map((pairs): Prepared => ({ pairs, lands: true })),
+    Option.map((pairs): Prepared => ({ pairs })),
   )
+
+/** Whether any rule here can apply: an empty end, or a shadow key. Cheap, so a pair none applies to costs little. */
+const mayApply = (key: string, from: Value, to: Value): boolean =>
+  Bool.or(Bool.or(isEmptyEnd(from), isEmptyEnd(to)), isOneOf(SHADOW_KEYS)(key))
 
 /**
  * `key`'s pair, ready for the registry (#61): from or to its Animatable none when one end is empty,
- * shadow by shadow for a shadow list, or as it is.
+ * or shadow by shadow for a shadow list. `None` when no rule applies: the pair is resolved as it is.
  */
-export const prepare = (key: string, from: Value, to: Value): Prepared =>
-  pipe(
-    fromNone(key, from, to),
-    Option.orElse(() => toNone(key, from, to)),
-    Option.orElse(() => shadows(key, from, to)),
-    Option.getOrElse((): Prepared => ({ pairs: [[from, to]], lands: false })),
-  )
+export const prepare = (key: string, from: Value, to: Value): Option.Option<Prepared> =>
+  Bool.match(mayApply(key, from, to), {
+    onFalse: () => Option.none(),
+    onTrue: () =>
+      pipe(
+        fromNone(key, from, to),
+        Option.orElse(() => toNone(key, from, to)),
+        Option.orElse(() => shadows(key, from, to)),
+      ),
+  })

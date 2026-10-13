@@ -834,15 +834,10 @@ const holdUntilDone =
 /** One resolved blend: the registry's closure for a pair. */
 type Blend = (t: number) => number | string
 
-/** One pair's blender, as the registry resolved it. Per frame: one call. */
-const blendOne =
-  (blend: Blend): Blender =>
-  (t) =>
-    blend(t)
-
 /**
- * One pair's blender that writes its target as given on the run's last Frame (#61): a pair from or
- * to its Animatable none rests at `"none"` itself, not its zero. Per frame: a statement `if`.
+ * A prepared pair's blender (#61): it writes its target as given on the run's last Frame, so a
+ * pair from or to its Animatable none rests at `"none"` itself, not its zero. Per frame: a
+ * statement `if`.
  */
 const landOn =
   (blend: Blend, to: number | string): Blender =>
@@ -864,15 +859,11 @@ const joinShadows =
     return out
   }
 
-/** A prepared pair's blender: one blend, landing or not, or a shadow list's joined blends. */
-const blenderOf = (prepared: AnimatableNone.Prepared, to: number | string, blends: ReadonlyArray<Blend>): Blender =>
+/** A prepared pair's blender: one blend, or a shadow list's blends joined. */
+const blenderOf = (to: number | string, blends: ReadonlyArray<Blend>): Blender =>
   Bool.match(blends.length > 1, {
     onTrue: () => joinShadows(blends, to),
-    onFalse: () =>
-      Bool.match(prepared.lands, {
-        onTrue: () => landOn(blends[0], to),
-        onFalse: () => blendOne(blends[0]),
-      }),
+    onFalse: () => landOn(blends[0], to),
   })
 
 /**
@@ -900,13 +891,18 @@ const blendersFor = (
         return Option.liftPredicate([key, a, b] as const, hides).pipe(
           Option.map(([, shown, hidden]) => holdUntilDone(shown, hidden)),
           Option.match({
-            onNone: () => {
-              const prepared = AnimatableNone.prepare(key, a, b)
-              return Effect.map(
-                Effect.forEach(prepared.pairs, ([x, y]) => registry.resolve(x, y)),
-                (blends) => blenderOf(prepared, b, blends),
-              )
-            },
+            onNone: () =>
+              Option.match(AnimatableNone.prepare(key, a, b), {
+                // No rule applies: the registry's blend, through a blender made here, as before #61. A
+                // blender made by one shared factory for every key made its call site megamorphic,
+                // and Node's string workloads 7–9% slower per frame (#61's bench).
+                onNone: () => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)),
+                onSome: (prepared) =>
+                  Effect.map(
+                    Effect.forEach(prepared.pairs, ([x, y]) => registry.resolve(x, y)),
+                    (blends) => blenderOf(b, blends),
+                  ),
+              }),
             onSome: Effect.succeed,
           }),
         )
