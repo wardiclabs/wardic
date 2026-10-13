@@ -62,6 +62,18 @@ describe("ColorString", () => {
     rejectsAll(decodeColor, ["auto", "none", "inherit", "10px", "#zzz", "rgb(var(--x))", 0])
   })
 
+  it("rejects a CSS function holding a length, which culori's parse throws on (#154)", () => {
+    rejectsAll(decodeColor, [
+      "blur(4px)",
+      "blur(0px)",
+      "drop-shadow(0px 0px 4px red)",
+      "translateX(10px)",
+      "inset(10px)",
+      "circle(10px)",
+      "rgb(1px 2px 3px)",
+    ])
+  })
+
   it("encodes as rgb() / rgba(), so a round trip canonicalises", () => {
     expect(roundTrip(Interpolator.ColorString)("#000")).toBe("rgb(0, 0, 0)")
     expect(roundTrip(Interpolator.ColorString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")

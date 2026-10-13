@@ -149,9 +149,16 @@ type Color = { readonly mode: string; readonly [channel: string]: number | strin
 /** A culori colour: an object tagged with its colour space. */
 const isColor = (value: unknown): value is Color => Predicate.hasProperty(value, "mode")
 
-/** Parse a colour string, trimmed, or `None` when culori rejects it (`"auto"`, `"#zzz"`). */
+/**
+ * culori's `parse`, with a throw read as no colour. It throws on a CSS function holding a length,
+ * `blur(4px)`, `inset(10px)`, `drop-shadow(0px 0px 4px red)`, and the throw escaped the codec's
+ * decode at `resolve`, so the leg failed (#154).
+ */
+const culoriParseOption = Option.liftThrowable(culoriParse)
+
+/** Parse a colour string, trimmed, or `None` when culori rejects it (`"auto"`, `"#zzz"`) or throws on it (`"blur(4px)"`). */
 const parseColor = (input: string): Option.Option<Color> =>
-  Option.filter(Option.fromUndefinedOr(culoriParse(Str.trim(input))), isColor)
+  Option.filter(Option.flatMap(culoriParseOption(Str.trim(input)), Option.fromUndefinedOr), isColor)
 
 /**
  * A colour string (ADR-0026; CONTEXT.md's "color string") ↔ a culori colour. A string is a colour

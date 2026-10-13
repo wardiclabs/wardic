@@ -155,4 +155,20 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
       expect((yield* registry.resolve("10px", "1em"))(0.5)).toBe("1em")
     }),
   )
+
+  it.effect("DP15: a CSS function holding a length isn't a colour: the pair resolves, where culori's parse threw (#154)", () =>
+    Effect.gen(function* () {
+      // No tier takes a string with one number inside a function yet, so these switch, silently.
+      expect(yield* resolved("blur(4px)", "blur(8px)")).toEqual({ start: "blur(4px)", first: "blur(8px)", half: "blur(8px)", end: "blur(8px)" })
+      expect(yield* resolved("translateX(10px)", "translateX(20px)")).toEqual({
+        start: "translateX(10px)",
+        first: "translateX(20px)",
+        half: "translateX(20px)",
+        end: "translateX(20px)",
+      })
+      // `to` threw too, once `from` decoded as a colour.
+      expect(yield* resolved("#000", "blur(4px)")).toEqual({ start: "#000", first: "blur(4px)", half: "blur(4px)", end: "blur(4px)" })
+      expect(yield* warningsOf("blur(4px)", "blur(8px)")).toEqual([])
+    }),
+  )
 })

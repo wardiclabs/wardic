@@ -84,6 +84,18 @@ layer(InterpolatorRegistry.layer)("complex interpolator routing", (it) => {
     }),
   )
 
+  it.effect("blends a drop-shadow, a two-function filter and a two-length clip path, where culori's parse threw at resolve (#154)", () =>
+    Effect.gen(function* () {
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
+      const shadow = yield* registry.resolve("drop-shadow(0px 0px 4px red)", "drop-shadow(0px 0px 8px red)")
+      expect(shadow(0.5)).toBe("drop-shadow(0px 0px 6px red)")
+      const filter = yield* registry.resolve("blur(2px) brightness(1.5)", "blur(4px) brightness(2)")
+      expect(filter(0.5)).toBe("blur(3px) brightness(1.75)")
+      const inset = yield* registry.resolve("inset(10px 20px)", "inset(20px 40px)")
+      expect(inset(0.5)).toBe("inset(15px 30px)")
+    }),
+  )
+
   it.effect("switches two templates at the first frame through the registry", () =>
     Effect.gen(function* () {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
