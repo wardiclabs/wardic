@@ -20,6 +20,9 @@ import {
   type DragRunInput,
   dragChecksOf,
   dragRunOf,
+  FLING_CHECK_NAMES,
+  type FlingExpect,
+  flingChecksOf,
   formatDragPasses,
   type Point,
 } from "../src/lab/drag-run.ts"
@@ -1083,3 +1086,124 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
     expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeCloseTo(3, 6)
   })
 })
+
+// #139: scenario 13's free box F, a plain `drag` whose release is a Fling. A 64px box at
+// (16, 180); the pointer moves 20 px right per move, one move between each two frames (the
+// frames 16 ms apart), so 1250 px/s; after the release the frames show what the Fling did.
+describe("a free item's release (#139, scenario 13's free box)", () => {
+  const F: Box = box(16, 180, 64, 64)
+  const EXPECT: FlingExpect = { movingSpeed: 100, stillSpeed: 1, carriesMinPx: 2, staysMaxPx: 0.5 }
+  const S13: DragExpect = { underPointerMaxPx: 1, framesBehindMax: 0, childGlueMaxPx: 1, maxSeededPerPass: 1, releaseHeldMax: 0, endsOnSlotMaxPx: 0.5, gestureEndsMaxPx: 1 }
+  /**
+   * F's press: 8 moves, let go `pause` ms after the last (2 ms: in the same breath), then
+   * `after` frames, the item `carried(k)` px right of where it was let go in the k-th.
+   */
+  const flingInput = (opts: {
+    readonly mode?: string
+    readonly pause?: number
+    readonly after?: number
+    readonly carried?: (k: number) => number
+    readonly endedBy?: DragRunInput["endedBy"]
+    readonly speedPerMove?: number
+  }): DragRunInput => {
+    const step = opts.speedPerMove ?? 20
+    const moves: Array<DragMove> = Array.from({ length: 8 }, (_, i) => ({ t: frameAtOf(i + 1) + 8, frame: i + 1, dx: step * (i + 1), dy: 0 }))
+    const releaseAt = moves[7]!.t + (opts.pause ?? 2)
+    const letGo = moved(F, step * 8, 0)
+    const held: Array<DragFrame> = []
+    for (let k = 1; frameAtOf(k) < releaseAt; k++) held.push(frameOf(k, moved(F, step * Math.min(k - 1, 8), 0), F, {}))
+    const first = held.length + 1
+    const after = Array.from({ length: opts.after ?? 30 }, (_, i) => frameOf(first + i, moved(letGo, (opts.carried ?? (() => 0))(i + 1), 0), F, {}))
+    const frames = [...held, ...after]
+    return {
+      scenarioId: "drag-release",
+      mode: opts.mode ?? "fling",
+      grabAt: GRAB_AT,
+      grabBox: F,
+      moves,
+      frames,
+      childOffsets: {},
+      releaseAt,
+      endedAt: frames.at(-1)!.t + 1,
+      endedBy: opts.endedBy ?? "settled",
+      scheduler: "microtask",
+    }
+  }
+  /** A Fling's carry by its k-th frame after the release: `total` px, most of it early. */
+  const decaying = (total: number) => (k: number) => total * (1 - Math.exp(-k / 6))
+  const lines = (input: DragRunInput) => {
+    const run = dragRunOf(input, [])
+    return { run, fling: flingChecksOf(run, EXPECT), drag: dragChecksOf(run, S13) }
+  }
+  const line = (checks: ReadonlyArray<{ readonly name: string; readonly ok: boolean; readonly text: string }>, name: string) => checks.find((c) => c.name === name)!
+
+  it("FR1: let go while moving with momentum, it carries on along the throw, and rests", () => {
+    const { run, fling } = lines(flingInput({ carried: decaying(150) }))
+    expect(run.fling!.speed).toBeGreaterThan(1000)
+    expect(run.fling!.carriedPx).toBeGreaterThan(140)
+    expect(fling.map((c) => c.name)).toEqual([...FLING_CHECK_NAMES])
+    expect(line(fling, "fling")).toMatchObject({ ok: true })
+    expect(line(fling, "fling").text).toMatch(/^carries on 14\d\.\d\d px · let go at 1\d{3} px\/s ✓$/)
+    expect(line(fling, "rests")).toEqual({ name: "rests", ok: true, text: "settled ✓" })
+  })
+
+  it("FR2: let go while moving with momentum but stopped dead (the 30 ms window's zero), the fling line fails", () => {
+    const { fling } = lines(flingInput({}))
+    expect(line(fling, "fling")).toMatchObject({ ok: false })
+    expect(line(fling, "fling").text).toContain("carries on 0.00 px")
+    expect(line(fling, "fling").text).toContain("✗ expected ≥ 2 px along the throw")
+  })
+
+  it("FR3: let go after a 150 ms pause, the pointer's speed is 0 and it stays", () => {
+    const { run, fling } = lines(flingInput({ pause: 150 }))
+    expect(run.fling!.speed).toBe(0)
+    expect(line(fling, "fling")).toEqual({ name: "fling", ok: true, text: "stays: 0.00 px · let go still ✓" })
+  })
+
+  it("FR4: with momentum off it stays, however fast it was let go; moving fails it", () => {
+    expect(line(lines(flingInput({ mode: "fling-off" })).fling, "fling")).toMatchObject({ ok: true })
+    expect(line(lines(flingInput({ mode: "fling-off" })).fling, "fling").text).toMatch(/^stays: 0\.00 px · momentum off · let go at 1\d{3} px\/s ✓$/)
+    const moving = line(lines(flingInput({ mode: "fling-off", carried: decaying(3) })).fling, "fling")
+    expect(moving.ok).toBe(false)
+    expect(moving.text).toContain("✗ expected ≤ 0.5 px")
+  })
+
+  it("FR5: a slow release, between the still and moving speeds, is shown and not judged", () => {
+    // 1 px per move: under 100 px/s.
+    const slow = line(lines(flingInput({ speedPerMove: 1, carried: decaying(20) })).fling, "fling")
+    expect(slow.ok).toBe(true)
+    expect(slow.text).toContain("a slow release, not judged")
+  })
+
+  it("FR6: the slot lines don't judge a free item, and one that stays isn't stuck", () => {
+    const { run, drag } = lines(flingInput({ pause: 150 }))
+    expect(run.gestureEnd.stuckPx).toBeNull()
+    expect(line(drag, "gesture ends")).toMatchObject({ ok: true })
+    expect(line(drag, "child glued")).toEqual({ name: "child glued", ok: true, text: "no child" })
+    expect(line(drag, "release held")).toEqual({ name: "release held", ok: true, text: "nothing to move: it stays" })
+    expect(line(drag, "ends on slot").text).toBe("160.00 px off it · a free item rests where it lands")
+    expect(line(drag, "ends on slot").ok).toBe(true)
+    // A carried run's release moves on its first painted frame, judged as the blue item's.
+    expect(line(lines(flingInput({ carried: decaying(150) })).drag, "release held")).toEqual({ name: "release held", ok: true, text: "0 ✓" })
+  })
+
+  it("FR7: rests fails a run still moving at the timeout, and doesn't judge one cut short", () => {
+    expect(line(lines(flingInput({ carried: decaying(150), endedBy: "timeout" })).fling, "rests")).toEqual({
+      name: "rests",
+      ok: false,
+      text: "still moving at the timeout ✗ expected settled",
+    })
+    expect(line(lines(flingInput({ carried: decaying(150), endedBy: "next-press" })).fling, "rests")).toEqual({
+      name: "rests",
+      ok: true,
+      text: "cut short by the next press",
+    })
+  })
+
+  it("FR8: the blue item's runs have no fling read and no fling lines", () => {
+    const run = dragRunOf(flingInput({ mode: "release" }), [])
+    expect(run.fling).toBeNull()
+    expect(flingChecksOf(run, EXPECT)).toEqual([])
+  })
+})
+

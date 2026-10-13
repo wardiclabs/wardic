@@ -18,6 +18,7 @@ import * as DragActivity from "./DragActivity.ts"
 import * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
 import * as Probe from "./Probe.ts"
+import * as Velocity from "./Velocity.ts"
 
 /**
  * One state recognizer's fold: a start state, a pure step per event, and the boolean
@@ -269,25 +270,18 @@ export const inView = (
 const THRESHOLD = 3
 
 /**
- * Width (ms) of the trailing window used to estimate release velocity. Velocity
- * is computed from the oldest sample still inside `newest.t - VELOCITY_WINDOW_MS`
- * up to the newest, so a single stale frame can't skew the fling speed.
+ * Width (ms) of the trailing window a sample's velocity is read over: Motion's `getVelocity`'s
+ * (`Velocity.trailing`; ADR-0004, *Amendment (#139)*), so moves more than a frame or two apart
+ * still have a velocity.
  */
-const VELOCITY_WINDOW_MS = 30
-
-/** A timestamped pointer position retained for the velocity window. */
-interface HistorySample {
-  readonly x: number
-  readonly y: number
-  readonly t: number
-}
+const VELOCITY_WINDOW_MS = 100
 
 interface DragState {
   readonly phase: "idle" | "active"
   readonly ownerId: number | null
   readonly origin: Point.Point
   readonly last: Point.Point
-  readonly history: ReadonlyArray<HistorySample>
+  readonly history: ReadonlyArray<Velocity.TimedPoint>
 }
 
 const initState: DragState = {
@@ -301,45 +295,26 @@ const initState: DragState = {
 /** Euclidean distance between two points. */
 const dist = (a: Point.Point, b: Point.Point): number => Math.hypot(a.x - b.x, a.y - b.y)
 
-/** No motion: a velocity of zero on both axes. */
-const still = (): Point.Point => ({ x: 0, y: 0 })
-
 /**
- * Push the newest sample and drop everything older than the window, keeping at
- * least the oldest entry still inside `newest.t - VELOCITY_WINDOW_MS`.
+ * The gesture's history with `point` added, oldest first, keeping what `Velocity.trailing`
+ * reads: the press point, the newest point older than the window, and every point inside it.
+ * It reads as the whole gesture's history would, the skip of a stale press point included.
  */
 const pushHistory = (
-  history: ReadonlyArray<HistorySample>,
-  sample: HistorySample,
-): ReadonlyArray<HistorySample> => {
-  const cutoff = sample.t - VELOCITY_WINDOW_MS
-  // Keep every sample within the window; the boundary check uses `>=` so the
-  // sample exactly at the cutoff is retained, guaranteeing a non-empty window.
-  return Arr.filter(Arr.append(history, sample), (s) => s.t >= cutoff)
-}
-
-/** Per-axis velocity (units/sec) from `oldest` to `newest`; a zero time span is still. */
-const velocityBetween = (oldest: HistorySample, newest: HistorySample): Point.Point => {
-  const dtSeconds = (newest.t - oldest.t) / 1000
-  return Bool.match(dtSeconds === 0, {
-    onTrue: still,
-    onFalse: () => ({ x: (newest.x - oldest.x) / dtSeconds, y: (newest.y - oldest.y) / dtSeconds }),
+  history: ReadonlyArray<Velocity.TimedPoint>,
+  point: Velocity.TimedPoint,
+): ReadonlyArray<Velocity.TimedPoint> => {
+  const points = Arr.append(history, point)
+  const cutoff = point.timeStamp - VELOCITY_WINDOW_MS
+  return Option.match(Arr.findLastIndex(points, (p) => p.timeStamp < cutoff), {
+    onNone: () => points,
+    onSome: (older) => Arr.filter(points, (_, i) => i === 0 || i >= older),
   })
 }
 
-/**
- * Per-axis time-windowed velocity (units/sec) from the oldest in-window sample
- * to the newest. A single sample, or a zero time span, is still.
- */
-const windowVelocity = (history: ReadonlyArray<HistorySample>): Point.Point =>
-  Arr.match(history, {
-    onEmpty: still,
-    onNonEmpty: (samples) =>
-      Bool.match(samples.length < 2, {
-        onTrue: still,
-        onFalse: () => velocityBetween(Arr.headNonEmpty(samples), Arr.lastNonEmpty(samples)),
-      }),
-  })
+/** Per-axis velocity (units/sec) over the history's last 100 ms (`Velocity.trailing`, Motion's `getVelocity`). */
+const windowVelocity = (history: ReadonlyArray<Velocity.TimedPoint>): Point.Point =>
+  Velocity.trailing(history, VELOCITY_WINDOW_MS)
 
 /** Why a Stale gesture ended: its owner moved with no button pressed (rule A), or went down again (rule B). */
 type StaleRule = "unpressed move" | "second down"
@@ -381,7 +356,7 @@ const claimedBy = (event: InputSource.PointerLikeEvent, point: Point.Point): Dra
   ownerId: event.pointerId,
   origin: point,
   last: point,
-  history: [{ x: point.x, y: point.y, t: event.timeStamp }],
+  history: [{ x: point.x, y: point.y, timeStamp: event.timeStamp }],
 })
 
 /** One fold step: the next state, and the samples it emits. */
@@ -430,7 +405,8 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
         }),
         onFalse: () => {
           const point = pointOf(event)
-          const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
+          // The release point counts: a pause before letting go weakens the throw (ADR-0004, *Amendment (#139)*).
+          const history = pushHistory(state.history, { x: point.x, y: point.y, timeStamp: event.timeStamp })
           return {
             point,
             offset: { x: point.x - state.origin.x, y: point.y - state.origin.y },
@@ -448,7 +424,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
 /** The owner's move: below the threshold it primes the history; crossing it starts; then every move emits. */
 const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => {
   const point = pointOf(event)
-  const history = pushHistory(state.history, { x: point.x, y: point.y, t: event.timeStamp })
+  const history = pushHistory(state.history, { x: point.x, y: point.y, timeStamp: event.timeStamp })
   const offset: Point.Point = { x: point.x - state.origin.x, y: point.y - state.origin.y }
   const delta: Point.Point = { x: point.x - state.last.x, y: point.y - state.last.y }
   const sample = (phase: Drag.Sample["phase"]): Drag.Sample => ({
@@ -570,8 +546,10 @@ const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
  * (#29)*). A Stale gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its
  * rule.
  *
- * Velocity is a time-windowed (~30ms) per-axis estimate read from event
- * `timeStamp`s, so the recognizer needs no `Clock` — only `InputSource`.
+ * Velocity is the pointer's per axis over the gesture's last 100 ms (Motion's `getVelocity`,
+ * `Velocity.trailing`), on every sample; the `"end"` sample counts the release point too
+ * (ADR-0004, *Amendment (#139)*). It's read from event `timeStamp`s, so the recognizer needs
+ * no `Clock` — only `InputSource`.
  */
 export const drag = (
   target: unknown,

@@ -35,7 +35,7 @@
  *   frame 1.05 px off the pointer). A lost release changes nothing.
  * - **The end.** After the release it keeps sampling, and recording the pointer's
  *   moves (`releaseMoves`), until the item's painted box has stood still for
- *   {@link STILL_FRAMES} frames, or {@link SETTLE_MS} ms have passed, or the next press
+ *   {@link STILL_FRAMES} frames, or {@link SETTLE_MS} ms (the scenario's `settleMs`) have passed, or the next press
  *   starts, then calls `record` with which of the three it was (`endedBy`: `settled`,
  *   `timeout` or `next-press`). A run the next press cut short was still settling, so
  *   the card doesn't judge where it ended. After a lost release the gesture should end
@@ -122,6 +122,12 @@ export interface DragRecorderOptions {
   readonly opacity?: () => Readonly<Record<string, HTMLElement | undefined>>
   /** The scenario's mode at the grab. */
   readonly mode: () => string
+  /**
+   * The most the press's release may take to settle, in ms (optional, read at the grab;
+   * {@link SETTLE_MS} when left out or `undefined`): scenario 13's free box (#139), whose
+   * Fling decays for a few seconds before it stands still.
+   */
+  readonly settleMs?: () => number | undefined
   /**
    * Called as the press goes on: `start` when the pointer first moves past the drag
    * threshold (the drag has started), `release` on the pointerup, `end` once the run
@@ -247,6 +253,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         still: number
         /** When the gesture should end: the release, or a lost release's first unpressed move (unset until then). */
         endAt: number | undefined
+        /** The most its release may take to settle, in ms. */
+        readonly settleMs: number
       }
     | undefined
   let frame = 0
@@ -428,7 +436,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         Math.abs(prev.d.y - d.y) < STILL_PX
       p.still = still ? p.still + 1 : 0
       const settled = p.still >= STILL_FRAMES
-      if (settled || performance.now() - (p.endAt ?? p.input.releaseAt) > SETTLE_MS) {
+      if (settled || performance.now() - (p.endAt ?? p.input.releaseAt) > p.settleMs) {
         finish(settled ? "settled" : "timeout")
         return
       }
@@ -567,6 +575,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       started: false,
       still: 0,
       endAt: undefined,
+      settleMs: opts.settleMs?.() ?? SETTLE_MS,
     }
     lastScroll = scrollOf()
     window.addEventListener("pointermove", onMove, { capture: true, passive: true })

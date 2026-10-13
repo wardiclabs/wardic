@@ -27,3 +27,77 @@ A second, sharper consequence of the seam: **composing a Recognizer with a Primi
 - **`Drag.fling` goes, with no alias** (ADR-0032, decision 3). The "second, sharper consequence" above shipped the Fling as a core fusion combinator, so that a binding-less Environment would get momentum without a framework. No such Environment exists, and its only callers were its own tests. Its shape, the drag's samples merged with the grabs and `switchMap`ped into emitting inners, cost 2 dispatcher tasks per element per frame. As a `Stream` it can't be made inline without a `merge` or a `switchMap`.
 - **What stands:** composing a Recognizer with a Primitive may be core; it isn't the binding's by definition. The Fling today is the binding's release, over core's `Recognizer.drag` and `Machine.decayVec`. A core Fling comes back with its first binding-less caller, as an `Effect` with a sink (ADR-0032's drag-track shape), not a `Stream`. CONTEXT.md's **Fling** says so.
 - **The drag track's shape** (the response half): two consumers, the samples and the grabs, each handled in place as it arrives, with no `merge` and no `switchMap`. The release runs in a `FiberHandle` that the next sample or grab interrupts (ADR-0032, decision 2).
+
+## Amendment (#139, 2026-10-13): a drag's velocity is the pointer's over its last 100 ms
+
+Re-measured on main `3154f2e` against framer-motion 13.4.0 (`.tmp/vel/`; a free `drag` box with each library's default momentum; real Playwright input, Chromium 147 and Firefox 148, 3 runs each; touch through CDP, Chromium only):
+
+- `drag`'s velocity was the pointer's over a trailing 30 ms window, with the release point counted. Headless, the moves arrived about 33 ms apart, and the up about 17 ms after the last move, at the same point. So the window held only those two and read 0: **a free drag never flung.** That held for a flick, a release a frame late, moves 40 ms apart, and touch. Motion read 594–792 px/s for the flick.
+- After a 150 ms pause before the release, Motion reads 0. `PanSession` samples its history once a frame, so the frames the pointer stood still count.
+
+Grilled on 2026-10-13:
+
+1. **`drag`'s velocity is Motion's `getVelocity` over the gesture's last 100 ms** (`Velocity.trailing`) (Q1).
+   - The `"end"` sample counts the release point as its last point. A pause before letting go therefore weakens the throw, down to none, as ADR-0016's *Amendment (velocity family)* kept for a layout release, and as Motion's per-frame history does.
+   - A cancel still reads the moves only, since its coordinates aren't the pointer's. A Stale gesture's end still carries no velocity.
+   - The history keeps the press point, the newest point older than the window, and every point inside it. So it reads what the whole gesture's history would, Motion's skip of a stale press point included.
+   - Rejected:
+     - the moves only: it reads the pointer's own speed, but flings at full speed after a pause, which Motion doesn't;
+     - Motion's per-frame history: it would put a `Clock` into `drag`, which otherwise needs none.
+2. **Every sample carries it** (Q2), as Motion's `onDrag`/`onPan` `info.velocity` is the same reading on every frame. A `createDrag` reader no longer sees 0 mid-gesture between moves more than 30 ms apart.
+   - Rejected: the `"end"` sample only, which gives one field two meanings.
+3. **It is the only drag velocity** (Q3). A layout drag's release (ADR-0016, *Amendment (velocity family)*, decision 2) and a Reorder group's direction (ADR-0020) read the sample's velocity, and their own histories go.
+   - `Reorder.dragStart` no longer takes a point and a time. `Reorder.dragMove` takes the sample's velocity in place of them.
+   - A layout drag past elastic `dragConstraints` now releases with the pointer's velocity, not with its slower elastic offsets'. Motion's does the same.
+   - Rejected: only the layout release reading it; keeping three histories.
+4. **How far a Fling carries is unchanged** (Q4). A `decayVec` with friction 3 carries about v/3; Motion's drag inertia (`power` 0.8, `timeConstant` 750) carries 0.8·v. That's the release's physics, #140's question; the side-by-side is measured there.
+5. **The layout lab's scenario 13 gains a free-drag box** (Q5). It is recorded by the same drag recorder and judged:
+   - **carries on:** a release while moving travels on in the pointer's direction;
+   - **stays:** a release made still, or after a pause, stays within 0.5 px of where it was let go;
+   - **rests:** the run settles.
+   Scenario 13's momentum box switches it too. How far it carries isn't judged.
+
+### Measured on this branch
+
+- **The probe** (`.tmp/vel/`, label `f139`), release velocity in px/s:
+
+  | Scene | Motion | main | this branch |
+  |---|---|---|---|
+  | flick, let go at once | 594–792 | 0 | 505–511 |
+  | let go a frame later | 513–594 | 0 | 396–514 |
+  | moves 40 ms apart | 396–517 | 0 | 364–366 |
+  | a 150 ms pause, then let go | 0 | 0 | 0 |
+  | touch | 599–686 | 0 | 514–590 |
+
+  Motion's per-frame history reads above the pointer's own 606 px/s here.
+- **The layout lab**, scripted (`.tmp/vel-lab/drive.ts`, `ONLY=s13f`, Chromium):
+  - the free box's flicks (8 moves of 20 px, 35 ms apart, let go at once) read `carries on 64–87 px · let go at 287–290 px/s ✓`;
+  - a 500 ms pause reads `stays: 0.00 px ✓`, and momentum off reads `stays ✓`;
+  - a slow drag at 25 px/s is shown and not judged;
+  - every run reads `rests: settled ✓`.
+
+  On main's engine the flicks read `carries on 0.00 px ✗`.
+- **Cost** (`.tmp/139-cost/bench.ts`: Bun, gestures of 4,000 moves through `Recognizer.drag`, the median of 31 interleaved runs). Per pointer event:
+  - moves 16 ms apart: 1.60 µs on main, 1.85 µs here (+16%);
+  - moves 4 ms apart: 1.53 µs on main, 1.89 µs here (+23%).
+
+  That's about 0.3 µs per event, and a gesture delivers about one event a frame. The recognizer isn't on the per-frame path (ADR-0025: once per Clock tick, per key or per node), so it stays in combinators. The Reorder group and the layout release no longer keep a history each.
+
+### Pinned by
+
+- `packages/test/test/drag.test.ts`:
+  - DV1: moves 40 ms apart each carry the pointer's speed;
+  - DV2: the headless flick;
+  - DV3: a pause weakens the throw, down to none;
+  - DV4: a held press doesn't dilute a flick, Motion's stale-point skip;
+  - DV5: on 60 seeded gestures, every sample reads what the whole gesture's history would.
+- `packages/solid/test/fling.browser.test.tsx`, with the real mouse:
+  - FL1: a flick with moves about 50 ms apart carries on;
+  - FL2: a 200 ms pause stays;
+  - FL3: `dragMomentum={false}` stays;
+  - FL4: `dragSnapToOrigin` carries on outward first;
+  - FL5: a layout drag past elastic constraints releases at the pointer's velocity: the same carry as an unconstrained one at the same offset, 1.01 against main's 0.27.
+- `packages/core/test/reorder-group.test.ts` (its harness passes the velocity a drag sample would carry) and `reorder-controller.browser.test.ts` RC4 and RC5 (its synthetic samples carry their steady speed): the group reads the sample's velocity.
+- `examples/layout-lab/test/drag-run.test.ts` FR1–FR8: the free box's `fling` and `rests` lines, and the slot lines that don't judge it.
+- On main, DV1–DV3, DV5, FL1, FL4 and FL5 fail. DV4, FL2 and FL3 pin what main already did.
+- Mutation-checked: 14 single-point mutations of the new code, each failing the test meant for it.

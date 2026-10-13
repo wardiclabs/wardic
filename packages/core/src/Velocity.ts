@@ -1,6 +1,6 @@
 /**
  * The `Velocity` module: a velocity between two samples (`between`), and a pointer's over a
- * trailing window (`trailing`), a **Reorder group**'s direction. A Physics primitive's velocity
+ * trailing window (`trailing`), every Drag sample's velocity. A Physics primitive's velocity
  * is on its Frames (`Frame.Physics`).
  */
 import * as Arr from "effect/Array"
@@ -33,8 +33,8 @@ export interface TimedPoint {
  * flick doesn't dilute it. Motion's `getVelocity` (gestures/pan/PanSession.ts:383-440
  * at 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
  * https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L383-L440),
- * ported; a **Reorder group** takes its drag direction from it. `Recognizer.drag`'s own
- * velocity keeps its 30 ms window.
+ * ported. `Recognizer.drag`'s velocity is this, over each gesture's points (ADR-0004,
+ * *Amendment (#139)*).
  *
  * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
  */

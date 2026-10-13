@@ -339,7 +339,7 @@ it.effect("N15: the scroll-driven move counts toward the drag's velocity", () =>
     input.scrollTo(60, 20)
     for (let i = 0; i < 10; i++) yield* Effect.yieldNow
     const samples = yield* seen
-    // The scroll-driven move is a sample of its own, and drag's 30 ms window measures it:
+    // The scroll-driven move is a sample of its own, and drag's velocity (its last 100 ms) counts it:
     // (70 - 0) px over 20 ms.
     const moved = samples.find((s) => s.phase === "move")
     expect(moved?.velocity.y).toBeCloseTo(3500, 6)
