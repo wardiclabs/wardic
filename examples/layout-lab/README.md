@@ -231,8 +231,9 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     until the item settles; after a lost release the settle starts at that first
     unpressed move. The line fails, each with its reason, when:
     `follows the unpressed pointer` (a frame after the gesture's end sat exactly
-    where the unpressed pointer put the item, within 0.25 px, two in a row: a
-    release's momentum carrying it on the pointer's way only comes near it); `never ends, … off its slot`
+    where the unpressed pointer put the item, within 0.25 px, three in a row: a
+    release's momentum carrying it on the pointer's way only comes near it, or
+    passes its place once or twice); `never ends, … off its slot`
     (nothing moved after its end although the item was off its slot); `inherited a
     stale gesture` (the scenario's previous run left its gesture on, and the item
     moved between that run's last frame and this grab); `the press doesn't end the

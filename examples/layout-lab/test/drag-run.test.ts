@@ -721,6 +721,16 @@ describe("the gesture ends line (#31)", () => {
     expect(gestureOf(run)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px ✓" })
   })
 
+  it("passes a release that passes the unpressed pointer's place exactly for two frames, then turns back", () => {
+    // A flick's release carries on the pointer's way and slows as the pointer does: two frames
+    // land on its place (a log's run, 2026-10-13), the third turns back toward the slot.
+    const on = [0, 1].map((j) => frameOf(7 + j, at(UNPRESSED[j]!), SLOT_B))
+    const back = [0.3, 0.6, 0.9, 1, 1, 1].map((f, i) => frameOf(9 + i, toward(on[1]!.d, SLOT_B, f), SLOT_B))
+    const run = dragRunOf(input([...cleanHeld, ...on, ...back], { releaseMoves: UNPRESSED, endedAt: frameAtOf(14) + 10, endedBy: "settled" }), cleanSpans)
+    expect(run.gestureEnd).toMatchObject({ at: "release", followedPx: 0, openAtEnd: false })
+    expect(gestureOf(run)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px ✓" })
+  })
+
   it("passes a gesture that ends at its release, however the pointer moves after it", () => {
     const run = dragRunOf(input(cleanFrames, { releaseMoves: UNPRESSED }), cleanSpans)
     expect(run.gestureEnd).toMatchObject({ at: "release", followedPx: 0, stuckPx: null, inheritedPx: null, openAtEnd: false })

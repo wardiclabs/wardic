@@ -650,7 +650,9 @@ const gestureEndOf = (
       const sits =
         boxDistance(f.d, f.slot) > NEAR_PX && (sitsAt(centre, unpressed[visible - 1]) || sitsAt(centre, unpressed[reachable - 1]))
       inARow = sits ? inARow + 1 : 0
-      if (inARow >= 2) followedPx = Math.max(followedPx, pointDistance(centre, centreOf(endBox)))
+      // Three frames in a row: a gesture left on follows every move, while a release that
+      // carries on the pointer's way and turns back can pass its place twice by chance.
+      if (inARow >= 3) followedPx = Math.max(followedPx, pointDistance(centre, centreOf(endBox)))
     }
   }
   const lastSlot = frames[frames.length - 1]?.slot
