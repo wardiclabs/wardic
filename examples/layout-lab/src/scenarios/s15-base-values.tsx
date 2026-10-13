@@ -71,7 +71,9 @@ const LEVEL = { ...BOX, opacity: "var(--brandLevel)", "--brandLevel": "1" } as J
 const LEVEL_SVG = { fill: "var(--lab-accent, rgb(0, 102, 204))", opacity: "var(--brandLevel)", "--brandLevel": "1" } as JSX.CSSProperties
 /** Where the custom property cells go. */
 const HALF_LEVEL = { "--brandLevel": 0.5 } as WardicValues
-const BUTTONS: JSX.CSSProperties = { display: "flex", gap: "6px", "margin-top": "6px" }
+const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
+/** Four rows of cells, three across, each wide enough for its label on one line. */
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "320px" }
 
 /** The painted uniform scale: the computed transform matrix's x-axis length, 1 for none. */
 const scaleOf = (el: Element): number => {
@@ -263,7 +265,7 @@ const View: ScenarioDef["View"] = (props) => {
 
   return (
     <div data-scenario={ID}>
-      <div class="stage">
+      <div class="stage" style={STAGE_STYLE}>
         <div style={GRID}>
           <div style={CELL}>
             <wardic.div
