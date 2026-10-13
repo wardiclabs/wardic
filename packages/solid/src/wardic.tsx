@@ -35,7 +35,7 @@
 import { mergeRefs } from "@solid-primitives/refs"
 import type * as Drag from "@wardic/core/Drag"
 import * as Renderer from "@wardic/core/Renderer"
-import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, resolveInitial, startingStyle } from "@wardic/dom"
+import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, startingStyle } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
@@ -52,7 +52,8 @@ import {
   type WardicValues,
   type WardUserProps,
 } from "./use-wardic.tsx"
-import { changesContext, createVariantNode, initialOf, serverVariantNode } from "./variant-node.ts"
+import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
+import { changesContext, createVariantNode, serverVariantNode, startingValuesOf } from "./variant-node.ts"
 import { useVariantContext, WardicVariantContext } from "./variants.ts"
 
 /**
@@ -103,7 +104,8 @@ export const MOTION_PROPS = [
  * function — passing `animate={() => ...}` is a type error here (props are values).
  */
 export interface WardicMotionProps {
-  readonly initial?: WardicValues | string
+  /** The seed: a values map, a `variants` name, or `false` to start at `animate` with no mount animation (#134). */
+  readonly initial?: WardicValues | string | false
   readonly animate?: WardicValues | string
   readonly variants?: Record<string, WardicValues>
   /** `false` keeps a `variants` element out of its ancestors' variants (#50, Motion's `inherit`). */
@@ -311,7 +313,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // While hydrating it's what the server rendered, the DOM's project (the Hydration
       // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
       const config = untrack(cfg)
-      const initialValues = resolveInitial({ initial: initialOf(config, node.inherited), variants: config.variants })
+      const initialValues = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
       const projected = runtime.runSync(Renderer.Renderer).project(initialValues)
       const hydrating = isHydrating()
       const starting = hydrating ? domProject(initialValues) : projected
@@ -463,7 +465,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   const node = serverVariantNode(config, useVariantContext())
   const axis = dragAxisOf(config, undefined)
   const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
-  const initial = resolveInitial({ initial: initialOf(config, node.inherited), variants: config.variants })
+  const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
   override(out, {
     style: mergeStyle(props.style as JSX.CSSProperties | string | undefined, startingStyle(undefined, initial).style, dragDefaults),
     ...(dragDefaults !== undefined ? { draggable: DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),

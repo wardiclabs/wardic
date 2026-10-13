@@ -43,7 +43,7 @@ export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freez
 export const transformIdentity = (key: string): Option.Option<number> => Rec.get(TRANSFORM_IDENTITY, key)
 
 /** Which link of the chain a Base value came from. */
-export type BaseSource = "base" | "initial" | "style" | "own"
+export type BaseSource = "base" | "initial" | "style" | "started" | "own"
 
 /** A Base value and the link it came from. */
 export interface BaseValue {
@@ -63,6 +63,9 @@ export type ValueLookup = (key: string) => Option.Option<number | string>
  *   here.
  * - `style`: the element's user style for the key, coerced to the key's shape; a surface
  *   with no style link passes `() => Option.none()`.
+ * - `started`: the values an element with `initial={false}` started at, its `animate` at
+ *   mount (#134, Motion's `baseTarget`); such an element passes an empty `initial`. Optional:
+ *   left out, no value.
  * - `own`: the element's Own value, read by its Environment; asked only when every earlier
  *   link misses.
  */
@@ -70,6 +73,7 @@ export interface BaseSources {
   readonly base: Values.Values
   readonly initial: Values.Values
   readonly style: ValueLookup
+  readonly started?: Values.Values | undefined
   readonly own: ValueLookup
 }
 
@@ -79,14 +83,21 @@ const own = (values: Values.Values, key: string): Option.Option<number | string>
 
 /**
  * A key's Base value: where it returns once no layer sets it. The first link that has the
- * key wins: `base`, then `initial`, then `style`, then `own`. A later link is never asked
- * once one hits. `None` means no link has it, so the key doesn't return (it stays where
- * it is).
+ * key wins: `base`, then `initial`, then `style`, then `started`, then `own`. A later link
+ * is never asked once one hits. `None` means no link has it, so the key doesn't return (it
+ * stays where it is).
  */
 export const of = (key: string, sources: BaseSources): Option.Option<BaseValue> =>
   Option.map(own(sources.base, key), (value): BaseValue => ({ value, source: "base" })).pipe(
     Option.orElse(() => Option.map(own(sources.initial, key), (value): BaseValue => ({ value, source: "initial" }))),
-    Option.orElse(() => start(key, sources)),
+    Option.orElse(() => Option.map(sources.style(key), (value): BaseValue => ({ value, source: "style" }))),
+    Option.orElse(() =>
+      Option.map(
+        Option.flatMap(Option.fromUndefinedOr(sources.started), (started) => own(started, key)),
+        (value): BaseValue => ({ value, source: "started" }),
+      ),
+    ),
+    Option.orElse(() => Option.map(sources.own(key), (value): BaseValue => ({ value, source: "own" }))),
   )
 
 /**
