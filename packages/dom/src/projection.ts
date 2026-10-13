@@ -37,8 +37,11 @@
  * its target (`grabBox + dragDelta`), and it and its subtree are drag-blocked: a
  * Measure pass updates their slots but starts no animation there, the dragged node is
  * its subtree's relative parent, and a resting descendant is left to ride the drag
- * through CSS. A pointer move re-derives the dragged group; the release is a FLIP from
- * the drag target to the latest slot, first stepped at the loop's next tick.
+ * through CSS. A pointer move re-derives the dragged group. The drag is a layer on top of
+ * the node's layout animation, which a grab leaves running; the release is a **Release
+ * offset**, the drag target's distance from where the layout puts the node, springing to
+ * zero per axis on top of it from the loop's next tick (ADR-0016, *Amendment (velocity
+ * family)*).
  *
  * Nesting: parent links come from a DOM-ancestry WALK (CSS composes by DOM
  * nesting, so that is exactly what projection must follow), and a child's box is
@@ -163,6 +166,41 @@ const offsetBox = (box: Box.Box, delta: Point.Point): Box.Box => ({
   y: { min: box.y.min + delta.y, max: box.y.max + delta.y },
 })
 
+/** A node's `@projection` value, with the crossfade factor (ADR-0010) and the raise (ADR-0016) only when it carries them. Per frame. */
+const projectionValue = (
+  delta: Projection.Delta,
+  treeScale: Point.Point,
+  opacity: number | undefined,
+  raise: number | undefined,
+): Projection.Value => {
+  if (Predicate.isUndefined(raise)) {
+    if (Predicate.isUndefined(opacity)) return { delta, treeScale }
+    return { delta, treeScale, opacity }
+  }
+  if (Predicate.isUndefined(opacity)) return { delta, treeScale, raise }
+  return { delta, treeScale, opacity, raise }
+}
+
+/** How far `to` sits from `from`, by their top-left corners. */
+const distanceBetween = (from: Box.Box, to: Box.Box): Point.Point => ({ x: to.x.min - from.x.min, y: to.y.min - from.y.min })
+
+/** Whether a release has nothing to do: no offset, within {@link BOX_EPSILON}, and no velocity. */
+const releasesInPlace = (offset: Point.Point, velocity: Point.Point): boolean =>
+  Bool.every([Math.abs(offset.x) < BOX_EPSILON, Math.abs(offset.y) < BOX_EPSILON, velocity.x === 0, velocity.y === 0])
+
+/** A Release offset (ADR-0016, *Amendment (velocity family)*) from `offset`, each axis starting at `velocity`'s. */
+const releaseFrom = (offset: Point.Point, velocity: Point.Point): Release => {
+  const scaleX = Math.max(Math.abs(offset.x), 1)
+  const scaleY = Math.max(Math.abs(offset.y), 1)
+  return {
+    x: Spring.init({ from: offset.x / scaleX, velocity: velocity.x / scaleX }),
+    y: Spring.init({ from: offset.y / scaleY, velocity: velocity.y / scaleY }),
+    scaleX,
+    scaleY,
+    stopped: false,
+  }
+}
+
 /** The centre of a box. */
 const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
 
@@ -249,9 +287,10 @@ export interface RegisterNodeOptions {
   /**
    * Raise the node while it's dragged (ADR-0016, *Amendment (Reorder)*): from the drag
    * start until its release settles (at once for a release in place) its projection
-   * carries a raise the renderer emits as `z-index: 1`, so it paints above its
-   * siblings, as Motion's Reorder items do; then one last write drops it. A
-   * `<Reorder>` item sets it.
+   * carries a raise the renderer emits as `z-index`, so it paints above its siblings, as
+   * Motion's Reorder items do; then one last write drops it. It is `2` while dragged and
+   * `1` once released, so the item under the pointer paints above one flying back
+   * (*Amendment (velocity family)*, decision 6). A `<Reorder>` item sets it.
    */
   readonly raiseWhileDragged?: boolean
 }
@@ -264,15 +303,30 @@ export interface RegisterNodeOptions {
  * release. A subset of {@link ProjectionNodeHandle}.
  */
 export interface DragProjectionHandle {
-  /** Begin a drag: capture the grab-time slot box as the pointer anchor; hold the node active. */
+  /**
+   * Begin a drag: capture the grab-time slot box as the pointer anchor, from where a stopped
+   * release left the node; hold the node active. A layout animation running at the grab runs
+   * on under the drag.
+   */
   readonly dragStart: () => void
   /**
    * The live pointer translate from the grab point — the node tracks `grabBox + delta`.
    * Re-derives the dragged group into the sink at once, so the gate's next flush paints it.
    */
   readonly dragMove: (delta: Point.Point) => void
-  /** End the drag: FLIP from the dragged position to the node's latest slot, from the loop's next tick. */
-  readonly dragEnd: () => void
+  /**
+   * End the drag: from the loop's next tick, the drag target's distance from where the layout
+   * puts the node springs to zero on each axis (a **Release offset**), starting at `velocity`
+   * (px/s; at rest when omitted) on top of the node's layout animation.
+   */
+  readonly dragEnd: (velocity?: Point.Point) => void
+  /**
+   * A grab (a press on the element): stop a running release where it is, as Motion's drag
+   * stops its offset at the press. A drag that follows continues from there.
+   */
+  readonly stopRelease: () => void
+  /** A press that ends with no drag: start a stopped release again, from rest. */
+  readonly resumeRelease: () => void
 }
 
 /** Handle returned from {@link ProjectionSystem.register}. */
@@ -287,7 +341,8 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
   readonly layoutBox: () => Box.Box | undefined
   /**
    * How far the node paints from its slot while dragged (the drag target minus the
-   * slot, per axis); `{ x: 0, y: 0 }` otherwise, the release flight included.
+   * slot, per axis, leaving out a layout animation the grab left running); `{ x: 0, y: 0 }`
+   * otherwise, the release included.
    */
   readonly dragOffset: () => Point.Point
   /**
@@ -375,6 +430,12 @@ interface NodeState {
   readonly raiseWhileDragged: boolean
   /** Whether its projection carries the raise now: from its drag start until its release settles. */
   raised: boolean
+  /**
+   * The Lead's crossfade factor when its crossfade (re)started, or `undefined` when its layout
+   * animation isn't a shared-element handover (ADR-0010, *Note (velocity family)*). A handover
+   * starts it at 0; a layout animation that interrupts it continues it from where it was.
+   */
+  crossfadeFrom: number | undefined
   /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the subtree, persistent relativeParent. */
   readonly layoutRoot: boolean
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
@@ -424,12 +485,33 @@ interface NodeState {
   grabBox: Box.Box | undefined
   /** The live pointer translate from the grab point (zero when not dragging). */
   dragDelta: Point.Point
+  /** Where a stopped release left the node at the grab, from its slot: the drag starts from there (zero otherwise). */
+  grabOffset: Point.Point
   /**
-   * Whether this node's FLIP is a drag's release (set by `dragEnd`, cleared when it
-   * settles or the node is grabbed again): it stays its subtree's relative parent
-   * until then, as while dragged, so the whole subtree flies back with it.
+   * Whether this node is coming to rest after a drag's release (set by `dragEnd`, cleared when
+   * it settles or the node is grabbed again): it stays its subtree's relative parent until
+   * then, as while dragged, so the whole subtree flies back with it.
    */
   releasing: boolean
+  /** Its **Release offset** while one runs (ADR-0016, *Amendment (velocity family)*). */
+  release: Release | undefined
+}
+
+/**
+ * A **Release offset** (ADR-0016, *Amendment (velocity family)*): per axis, how far the
+ * released node paints from where its layout puts it, a spring toward zero on the node's
+ * transition. Each axis runs in units of its starting distance (`scaleX`/`scaleY` px, at least
+ * 1), so the transition's rest thresholds mean what they did for the progress spring a release
+ * used to run, and a release with no velocity settles on the same frame. Stopped by a grab
+ * (`stopped`), it holds where it is until a drag takes it or the press ends, which starts it
+ * again from rest.
+ */
+interface Release {
+  x: Spring.State
+  y: Spring.State
+  readonly scaleX: number
+  readonly scaleY: number
+  stopped: boolean
 }
 
 /**
@@ -636,6 +718,17 @@ export const makeProjectionSystem = (
   }
 
   /**
+   * A raised node's `z-index` (ADR-0016, *Amendment (velocity family)*, decision 6): `2` while
+   * dragged, `1` while it comes to rest after its release, so the item under the pointer
+   * paints above one flying back; none otherwise. Per frame.
+   */
+  const raiseOf = (node: NodeState): number | undefined => {
+    if (Bool.not(node.raised)) return undefined
+    if (node.dragging) return 2
+    return 1
+  }
+
+  /**
    * Write a node's per-frame `@projection` value (Option A) plus any scale-corrected
    * style keys (ADR-0011). The optional `opacity` is the crossfade factor (ADR-0010)
    * the renderer multiplies with the user opacity; omitted for a non-crossfading node
@@ -653,11 +746,7 @@ export const makeProjectionSystem = (
     opacity?: number,
     corrected?: Record<string, string>,
   ): void => {
-    const value: Projection.Value = node.raised
-      ? opacity !== undefined ? { delta, treeScale, opacity, raise: 1 } : { delta, treeScale, raise: 1 }
-      : opacity !== undefined
-      ? { delta, treeScale, opacity }
-      : { delta, treeScale }
+    const value = projectionValue(delta, treeScale, opacity, raiseOf(node))
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
       renderer.commit(node.element, renderer.project(patch))
@@ -717,12 +806,25 @@ export const makeProjectionSystem = (
   const isFollower = (node: NodeState): boolean =>
     node.layoutId !== undefined && leadOf(node.layoutId) !== node
 
-  /** The crossfade factor for a LEAD (its own progress) — only when it has Followers; else undefined. */
+  /**
+   * A Lead's crossfade factor (ADR-0010, *Note (velocity family)*): from where its crossfade
+   * (re)started to 1 over its progress, while a handover's animation runs; 1 otherwise, so
+   * any other layout animation, or its Release offset, leaves its Followers hidden. Per frame.
+   */
+  const fadeOf = (node: NodeState): number => {
+    const from = node.crossfadeFrom
+    if (Predicate.isUndefined(from)) return 1
+    const spring = node.spring
+    if (Predicate.isUndefined(spring)) return 1
+    return from + (1 - from) * spring.position
+  }
+
+  /** The crossfade factor for a LEAD ({@link fadeOf}) — only when it has Followers; else undefined. */
   const leadOpacity = (node: NodeState): number | undefined => {
     if (node.layoutId === undefined) return undefined
     const stack = stacks.get(node.layoutId)
     if (stack === undefined || stack.length < 2 || stack[stack.length - 1] !== node) return undefined
-    return node.spring !== undefined ? node.spring.position : 1 // mix(0,1,progress)
+    return fadeOf(node)
   }
 
   /**
@@ -748,12 +850,14 @@ export const makeProjectionSystem = (
    * counter-correct). A dragged ancestor doesn't count: its transform is where the user
    * put it, not a FLIP to undo, so a resting descendant keeps its identity projection
    * and CSS carries it with the drag (ADR-0016 *Amendment (#26)*; Motion projects no
-   * resting node, create-projection-node.ts:1262, :1484-1498 at 16c6122).
+   * resting node, create-projection-node.ts:1262, :1484-1498 at 16c6122). One whose grab
+   * left its layout animation running counts until the drag ends (*Amendment (velocity
+   * family)*): that flight may scale it.
    */
   const hasActiveAncestor = (node: NodeState): boolean => {
     let p = node.parent
     while (p !== undefined) {
-      if (active.has(p) && !p.dragging) return true
+      if (active.has(p) && (!p.dragging || p.animating)) return true
       if (p.layoutRoot) return false // boundary (ADR-0013): ancestors above a layoutRoot don't carry this node
       p = p.parent
     }
@@ -797,9 +901,43 @@ export const makeProjectionSystem = (
    * back to its grab size (Motion shifts a dragged node by the layout delta measured at
    * the centre, VisualElementDragControls.ts:742-759, delta-calc.ts:24-36).
    */
-  const dragTargetOf = (node: NodeState, slot: Box.Box): Box.Box => {
-    const moved = offsetBox(node.grabBox!, node.dragDelta)
-    return sameSize(moved, slot) ? moved : resizeAboutCentre(moved, slot)
+  const dragTargetOf = (node: NodeState, slot: Box.Box): Box.Box => offsetBox(anchorOf(node, slot), dragOffsetOf(node))
+
+  /** The drag's anchor: its grab box, at the slot's size about its centre once that differs. Per frame. */
+  const anchorOf = (node: NodeState, slot: Box.Box): Box.Box => {
+    const grab = UndefinedOr.getOrThrow(node.grabBox)
+    if (sameSize(grab, slot)) return grab
+    return resizeAboutCentre(grab, slot)
+  }
+
+  /** How far the drag moves its anchor: where a stopped release left it, plus the pointer's offset. Per frame. */
+  const dragOffsetOf = (node: NodeState): Point.Point => ({
+    x: node.grabOffset.x + node.dragDelta.x,
+    y: node.grabOffset.y + node.dragDelta.y,
+  })
+
+  /** Whether the node has a layout animation running: its origin, target and spring. */
+  const flying = (node: NodeState): boolean =>
+    Bool.and(node.animating, Bool.and(Predicate.isNotUndefined(node.origin), Predicate.isNotUndefined(node.spring)))
+
+  /**
+   * Where a dragged node paints (ADR-0016, *Amendment (velocity family)*, decision 4): its
+   * drag target, or, while a layout animation its grab left running goes on, that flight
+   * (toward the anchor) moved by the drag's offset. Per frame.
+   */
+  const dragPaintedOf = (node: NodeState, slot: Box.Box): Box.Box => {
+    const origin = node.origin
+    const spring = node.spring
+    if (Predicate.isUndefined(origin)) return dragTargetOf(node, slot)
+    if (Predicate.isUndefined(spring)) return dragTargetOf(node, slot)
+    return offsetBox(Box.mix(origin, anchorOf(node, slot), spring.position), dragOffsetOf(node))
+  }
+
+  /** `box` moved by `node`'s Release offset, while one runs. Per frame. */
+  const releasedOf = (node: NodeState, box: Box.Box): Box.Box => {
+    const release = node.release
+    if (Predicate.isUndefined(release)) return box
+    return offsetBox(box, { x: release.x.position * release.scaleX, y: release.y.position * release.scaleY })
   }
 
   /**
@@ -820,9 +958,10 @@ export const makeProjectionSystem = (
     // DRAGGING (ADR-0016): the target is the pointer's visual position — the grab-time
     // slot translated by the live pointer delta. Anchored at `grabBox` (not the current
     // `layoutBox`), so a mid-drag reorder that moves the slot keeps the item under the
-    // pointer (the delta just recomputes against the new layoutBox). No spring.
+    // pointer (the delta just recomputes against the new layoutBox). A layout animation the
+    // grab left running carries the anchor until it lands (*Amendment (velocity family)*).
     if (node.dragging && node.grabBox !== undefined) {
-      const targetBox = dragTargetOf(node, box)
+      const targetBox = dragPaintedOf(node, box)
       const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
       const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
       node.lastTarget = targetBox
@@ -832,6 +971,28 @@ export const makeProjectionSystem = (
       return
     }
 
+    // Where its layout puts it, moved by its Release offset while one runs.
+    const targetBox = releasedOf(node, layoutTargetOf(node, box))
+    const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
+    // delta source is the element's REAL box pushed through ancestor transforms;
+    // target is where it should appear.
+    const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
+    node.lastTarget = targetBox
+    node.lastDelta = delta
+    // A Lead with Followers carries the crossfade factor (fades IN over its handover's
+    // progress); otherwise none (a plain/switch node — user opacity passes through).
+    // Scale-correct border-radius/box-shadow at the true visual scale (ADR-0011).
+    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+    writeProjection(node, delta, treeScale, leadOpacity(node), corrected)
+  }
+
+  /**
+   * Where `node`'s layout puts it this frame (its box `box`), its Release offset left out:
+   *   - RELATIVE to an animating relativeParent;
+   *   - ABSOLUTE, its own animation's mix;
+   *   - CARRIED or at rest: its real box (applyTreeDeltas supplies the counter-transform).
+   */
+  const layoutTargetOf = (node: NodeState, box: Box.Box): Box.Box => {
     const rp = relativeParentOf(node)
     let targetBox: Box.Box
     if (rp !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
@@ -857,23 +1018,12 @@ export const makeProjectionSystem = (
       // supplies the counter-transform.
       targetBox = box
     }
-
-    const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
-    // delta source is the element's REAL box pushed through ancestor transforms;
-    // target is where it should appear.
-    const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
-    node.lastTarget = targetBox
-    node.lastDelta = delta
-    // A Lead with Followers carries the crossfade factor (fades IN over its own
-    // progress); otherwise none (a plain/switch node — user opacity passes through).
-    // Scale-correct border-radius/box-shadow at the true visual scale (ADR-0011).
-    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
-    writeProjection(node, delta, treeScale, leadOpacity(node), corrected)
+    return targetBox
   }
 
   /**
    * Derive a FOLLOWER (ADR-0010): lock it onto its Lead's CURRENT target box (so it
-   * overlaps the lead) and fade it OUT over the lead's progress. Run AFTER the lead
+   * overlaps the lead) and fade it OUT as the lead's crossfade fades it in. Run AFTER the lead
    * (pass 2 of {@link deriveAll}) so `lead.lastTarget` is fresh; lead and follower
    * can live in unrelated subtrees, so this is NOT tree-depth ordered. `treeScale` +
    * the ancestor correction still apply to the follower's OWN box.
@@ -890,9 +1040,8 @@ export const makeProjectionSystem = (
     const delta = Projection.calcBoxDelta(layoutCorrected, target)
     node.lastTarget = target
     node.lastDelta = delta
-    const progress = lead.spring !== undefined ? lead.spring.position : 1
     const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
-    writeProjection(node, delta, treeScale, 1 - progress, corrected) // follower fades out: mix(1,0,progress)
+    writeProjection(node, delta, treeScale, 1 - fadeOf(lead), corrected) // follower fades out as its Lead fades in
   }
 
   /**
@@ -1502,7 +1651,14 @@ export const makeProjectionSystem = (
         node.origin = undefined
         node.spring = undefined
         node.animating = false
-        // A released layoutRoot's flight ends here, so its raise goes with this write.
+        node.crossfadeFrom = undefined
+        // A released layoutRoot's Release offset isn't a layout animation: it goes on from
+        // its new slot, derived with the pass's group (ADR-0016, *Amendment (velocity family)*).
+        if (Predicate.isNotUndefined(node.release)) {
+          changed.add(node)
+          continue
+        }
+        // One whose release has nothing left to run comes to rest here, its raise with this write.
         node.releasing = false
         node.raised = false
         active.delete(node)
@@ -1545,6 +1701,8 @@ export const makeProjectionSystem = (
           node.origin = priorBox
           node.layoutBox = newBox
           node.spring = startSpring(node)
+          // A handover: the crossfade fades the new Lead in from 0 (ADR-0010).
+          node.crossfadeFrom = 0
           node.animating = true
           active.add(node)
           start(node)
@@ -1563,6 +1721,8 @@ export const makeProjectionSystem = (
             node.origin = origin
             node.layoutBox = newBox
             node.spring = startSpring(node) // progress spring restarts at 0
+            // A handover: a leaver re-introduced as a Follower (`handleLeave`) fades out with it.
+            node.crossfadeFrom = 0
             node.animating = true
             active.add(node)
             start(node)
@@ -1592,6 +1752,9 @@ export const makeProjectionSystem = (
           ? Box.mix(node.origin, node.layoutBox, node.spring.position)
           : prev
 
+      // A crossfade this interrupts goes on from the factor it had (ADR-0010, *Note (velocity
+      // family)*); any other restart is no handover, and leaves the factors alone.
+      if (Predicate.isNotUndefined(node.crossfadeFrom)) node.crossfadeFrom = fadeOf(node)
       node.origin = origin
       node.layoutBox = newBox
       node.spring = startSpring(node) // progress spring restarts at 0 (velocity 0)
@@ -1692,6 +1855,38 @@ export const makeProjectionSystem = (
     )
   }
 
+  /** How far `node`'s Release offset has it from where its layout puts it now (zero with none). */
+  const releaseOffsetOf = (node: NodeState): Point.Point =>
+    UndefinedOr.match(node.release, {
+      onUndefined: () => ZERO_POINT,
+      onDefined: (release) => ({ x: release.x.position * release.scaleX, y: release.y.position * release.scaleY }),
+    })
+
+  /** Whether `n` is placed in `frame`'s frame: its relative parent is `frame`, or a running node that is. */
+  const placedIn = (n: NodeState, frame: NodeState): boolean => {
+    const rp = relativeParentOf(n)
+    if (Predicate.isUndefined(rp)) return false
+    if (rp === frame) return true
+    if (Bool.not(rp.animating)) return false
+    return placedIn(rp, frame)
+  }
+
+  /**
+   * Move a released node's layout animation by `shift`, with the running descendants placed in
+   * its frame (ADR-0016, *Amendment (velocity family)*), so none of them jumps. One placed in
+   * another frame (a layoutRoot's inside this node) keeps its origin. Run before the node
+   * stops being dragged, while it is its subtree's relative parent.
+   */
+  const shiftFlight = (node: NodeState, shift: Point.Point): void => {
+    if (Bool.and(shift.x === 0, shift.y === 0)) return
+    const running = Arr.filter(Arr.fromIterable(nodes), (n) =>
+      Bool.every([n.animating, Predicate.isNotUndefined(n.origin), isDescendantOf(n, node), placedIn(n, node)]))
+    Arr.forEach(running, (n) => {
+      n.origin = offsetBox(UndefinedOr.getOrThrow(n.origin), shift)
+    })
+    node.origin = offsetBox(UndefinedOr.getOrThrow(node.origin), shift)
+  }
+
   /**
    * Derive `root` and every node below it once, top-down, resting ones included (the
    * drag start's cleanup, see `dragStart`).
@@ -1707,19 +1902,18 @@ export const makeProjectionSystem = (
   const step = (dtRaw: number): void => {
     const dt = dtRaw > Machine.MAX_DT ? Machine.MAX_DT : dtRaw
     const settled: Array<NodeState> = []
-    // 1) Step every active node's progress spring (no derive yet — the tree-aware
-    //    derive needs ALL springs advanced before computing parent-first).
+    // 1) Step every active node's springs (no derive yet — the tree-aware derive needs
+    //    ALL springs advanced before computing parent-first): its layout animation's
+    //    progress, and its Release offset's two axes. It settles when both are at rest.
     for (const node of active) {
-      // A dragging node (ADR-0016) follows the pointer with no spring — keep it
-      // active + derived each frame, never spring-stepped or settled.
-      if (node.dragging) continue
-      if (node.spring === undefined) {
-        settled.push(node)
+      // A dragging node (ADR-0016) follows the pointer — kept active + derived each frame,
+      // never settled. A layout animation its grab left running goes on under it.
+      if (node.dragging) {
+        stepFlight(node, dt)
         continue
       }
-      const r = Spring.step(node.spring, dt, 1, Spring.resolve(node.springOptions()))
-      node.spring = r.state
-      if (r.done) settled.push(node)
+      const landed = stepFlight(node, dt)
+      if (Bool.and(landed, stepRelease(node, dt))) settled.push(node)
     }
     // 2) Derive all top-down (settled nodes are still in `active` here, so their
     //    progress=1 identity-ish delta is available to descendants this frame).
@@ -1727,13 +1921,41 @@ export const makeProjectionSystem = (
     finishSettled(settled)
   }
 
+  /** Step `node`'s layout animation, if one runs; whether it is at rest. Per frame. */
+  const stepFlight = (node: NodeState, dt: number): boolean => {
+    const spring = node.spring
+    if (Predicate.isUndefined(spring)) return true
+    const r = Spring.step(spring, dt, 1, Spring.resolve(node.springOptions()))
+    node.spring = r.state
+    return r.done
+  }
+
+  /**
+   * Step `node`'s Release offset toward zero on each axis, on the node's transition, if one
+   * runs (ADR-0016, *Amendment (velocity family)*); whether it is at rest. A stopped one holds
+   * where it is. Reduced motion leaves it alone: it continues the gesture (ADR-0029). Per frame.
+   */
+  const stepRelease = (node: NodeState, dt: number): boolean => {
+    const release = node.release
+    if (Predicate.isUndefined(release)) return true
+    if (release.stopped) return false
+    const options = Spring.resolve(node.springOptions())
+    const x = Spring.step(release.x, dt, 0, options)
+    const y = Spring.step(release.y, dt, 0, options)
+    release.x = x.state
+    release.y = y.state
+    return Bool.and(x.done, y.done)
+  }
+
   /** Finalise settled nodes (at rest, projection-owned at identity), finish their leavers, and stop at idle. */
   const finishSettled = (settled: ReadonlyArray<NodeState>): void => {
     for (const node of settled) {
       node.releasing = false
+      node.release = undefined
       node.animating = false
       node.spring = undefined
       node.origin = undefined
+      node.crossfadeFrom = undefined
       node.lastDelta = IDENTITY_DELTA
       active.delete(node)
       // A raised node's release has settled: one last write, at rest, drops the raise.
@@ -1777,6 +1999,7 @@ export const makeProjectionSystem = (
         node.origin = undefined
         node.spring = undefined
         node.animating = false
+        node.release = undefined
       }
       deriveGroup(groupOf(new Set(finished)))
       finishSettled(finished)
@@ -1903,6 +2126,8 @@ export const makeProjectionSystem = (
     node.origin = fromBox
     node.layoutBox = ownBox
     node.spring = startSpring(node)
+    // A handover: the promoted twin fades in from 0 as the one it takes over from fades out.
+    node.crossfadeFrom = 0
     node.animating = true
     active.add(node)
     ensureRunning()
@@ -1962,12 +2187,15 @@ export const makeProjectionSystem = (
     layoutVersion: 0,
     raiseWhileDragged: false,
     raised: false,
+    crossfadeFrom: undefined,
     layoutRoot: false,
     layoutAnchor: undefined,
     dragging: false,
     grabBox: undefined,
     dragDelta: { x: 0, y: 0 },
+    grabOffset: ZERO_POINT,
     releasing: false,
+    release: undefined,
   })
 
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
@@ -2060,12 +2288,15 @@ export const makeProjectionSystem = (
       layoutVersion: 0,
       raiseWhileDragged: opts.raiseWhileDragged === true,
       raised: false,
+      crossfadeFrom: undefined,
       layoutRoot: opts.layoutRoot === true,
       layoutAnchor: opts.layoutAnchor,
       dragging: false,
       grabBox: undefined,
       dragDelta: { x: 0, y: 0 },
+      grabOffset: ZERO_POINT,
       releasing: false,
+      release: undefined,
     }
     nodes.add(node)
     elementToNode.set(node.element, node)
@@ -2125,13 +2356,21 @@ export const makeProjectionSystem = (
         node.grabBox = node.layoutBox ?? node.retained
         if (node.grabBox === undefined) return // not measured yet — nothing to anchor
         debug("dragStart", { id: node.id })
+        // A release the grab stopped hands the drag where it left the node, so it doesn't jump
+        // (ADR-0016, *Amendment (velocity family)*, decision 4).
+        node.grabOffset = releaseOffsetOf(node)
+        node.release = undefined
         node.dragging = true
         node.releasing = false
         node.raised = node.raiseWhileDragged
         node.dragDelta = { x: 0, y: 0 }
-        node.spring = undefined
-        node.origin = undefined
-        node.animating = false
+        // A layout animation running at the grab runs on under the drag, toward the grab's
+        // slot (decision 4; Motion's drag blocks new layout animations, not a running one).
+        if (Bool.not(flying(node))) {
+          node.spring = undefined
+          node.origin = undefined
+          node.animating = false
+        }
         // The slot: the delta source, and the frame its subtree is placed in while dragged.
         node.layoutBox = node.grabBox
         active.add(node)
@@ -2149,35 +2388,29 @@ export const makeProjectionSystem = (
         // Motion renders in its move handler (VisualElementDragControls.ts:216).
         deriveGroup(groupOf(new Set([node])))
       },
-      dragEnd: () => {
+      dragEnd: (velocity = ZERO_POINT) => {
         if (!node.dragging || node.grabBox === undefined) return
         debug("dragEnd", { id: node.id })
         const slot = node.layoutBox ?? node.grabBox
-        const visual = dragTargetOf(node, slot)
-        // A running descendant placed in this node's frame (its relative parent is this
-        // node, or a running node that is) animated relative to the slot while dragged;
-        // from here it animates relative to this node's release, which starts at
-        // `visual`. Move its origin with that frame, so it doesn't jump. One placed in
-        // another frame (a layoutRoot's inside this node) keeps its origin.
-        const shift = { x: visual.x.min - slot.x.min, y: visual.y.min - slot.y.min }
-        if (shift.x !== 0 || shift.y !== 0) {
-          const moved: Array<NodeState> = []
-          for (const n of nodes) {
-            if (!n.animating || n.origin === undefined || !isDescendantOf(n, node)) continue
-            let frame = relativeParentOf(n)
-            while (frame !== undefined && frame !== node && frame.animating) frame = relativeParentOf(frame)
-            if (frame === node) moved.push(n)
-          }
-          for (const n of moved) n.origin = offsetBox(n.origin!, shift)
-        }
+        const painted = dragPaintedOf(node, slot)
+        // A layout animation the grab left running goes on, toward the slot now: it moves by
+        // the anchor's distance to the slot, with the running descendants placed in its frame.
+        if (flying(node)) shiftFlight(node, distanceBetween(anchorOf(node, slot), slot))
         node.dragging = false
         node.grabBox = undefined
         node.dragDelta = { x: 0, y: 0 }
-        if (boxesEqual(visual, slot)) {
-          // No travel (released in place at its slot) — settle now, no FLIP. Write the
-          // resting projection first, so no frame keeps an offset an earlier write left
-          // (a safety net: every pointer move writes its offset, so the last write is
-          // normally the slot already).
+        node.grabOffset = ZERO_POINT
+        node.layoutBox = slot
+        // The Release offset (ADR-0016, *Amendment (velocity family)*): how far the drag left
+        // the node from where its layout puts it now, springing to zero per axis from the
+        // loop's next tick, on top of that layout, as a Measure pass's FLIP is first stepped
+        // (ADR-0033). Reduced motion leaves it as it is: it continues the gesture, as Motion's
+        // release does (ADR-0029).
+        const offset = distanceBetween(layoutTargetOf(node, slot), painted)
+        if (Bool.and(releasesInPlace(offset, velocity), Bool.not(flying(node)))) {
+          // Released in place, at rest: settle now. Write the resting projection first, so no
+          // frame keeps an offset an earlier write left (a safety net: every pointer move writes
+          // its offset, so the last write is normally the slot already).
           node.animating = false
           node.spring = undefined
           node.origin = undefined
@@ -2189,15 +2422,25 @@ export const makeProjectionSystem = (
           if (active.size === 0) stopTicking()
           return
         }
-        // FLIP from the dragged visual position to the latest slot, via the layout spring,
-        // first stepped at the loop's next tick, as a Measure pass's FLIP is (ADR-0033). Reduced
-        // motion leaves it as it is: it continues the gesture, as Motion's release does (ADR-0029).
-        node.origin = visual
-        node.layoutBox = slot
-        node.spring = Spring.init({ from: 0 })
-        node.animating = true
+        node.release = releaseFrom(offset, velocity)
         node.releasing = true
         active.add(node)
+        ensureRunning()
+      },
+      stopRelease: () => {
+        const release = node.release
+        if (Predicate.isUndefined(release)) return
+        if (release.stopped) return
+        // Where it is, at rest: a press drops the release's speed, as Motion's `stopAnimation` does.
+        release.stopped = true
+        release.x = Spring.init({ from: release.x.position })
+        release.y = Spring.init({ from: release.y.position })
+      },
+      resumeRelease: () => {
+        const release = node.release
+        if (Predicate.isUndefined(release)) return
+        // From rest where the press stopped it, as Motion's `resumeAnimation` for `dragSnapToOrigin`.
+        release.stopped = false
         ensureRunning()
       },
       dispose: () => {
