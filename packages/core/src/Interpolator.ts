@@ -17,6 +17,7 @@ import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Str from "effect/String"
+import { COLOR_START_RE, TOKEN_RE } from "./internal/complexTokens.ts"
 import * as Scalar from "./Scalar.ts"
 
 /**
@@ -247,22 +248,6 @@ export const unit: Entry<ParsedUnit, string | number> = {
     }),
 }
 
-/**
- * A colour inside a complex value: a hex, or an `rgb()`, `rgba()`, `hsl()` or `hsla()` (#61; Motion's
- * colour token, motion-dom value/types/utils/color-regex.ts at 16c6122). A named colour (`red`)
- * isn't one: it stays part of the text around the tokens.
- */
-const COLOR_TOKEN = String.raw`#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+){2}-?[\d.]+%?\s*(?:[,/]\s*)?(?:\b\d+(?:\.\d+)?|\.\d+)?%?\)`
-
-/** A single number token: optional sign, int/decimal, optional exponent. */
-const NUMBER_TOKEN = String.raw`-?\d*\.?\d+(?:e[-+]?\d+)?`
-
-/** A complex value's tokens, colours tried first, so a colour's channels aren't read as numbers. */
-const TOKEN_RE = new RegExp(`${COLOR_TOKEN}|${NUMBER_TOKEN}`, "gi")
-
-/** A token that starts like a colour (`#`, `rgb(`, `hsl(`), not like a number. */
-const COLOR_START_RE = /^[#a-z]/i
-
 /** A complex value's token, decoded: a number, or a colour as culori holds it (#61). */
 export type ComplexToken = number | Color
 
@@ -370,36 +355,22 @@ const colorsOf = (complex: Complex): ReadonlyArray<Color> => Arr.filter(complex.
 const matches = (from: Complex, to: Complex): boolean =>
   colorsOf(from).length === colorsOf(to).length && numbersOf(from).length >= numbersOf(to).length
 
-/** How far through the start's numbers and colours `slotsOf` has read, with the slots so far. */
-interface Reading {
-  readonly slots: ReadonlyArray<Slot>
-  readonly numbers: number
-  readonly colors: number
-}
-
 /**
  * The target's slots, kind by kind, in order (Motion's `matchOrder`): its n-th number blends from
  * the start's n-th number, its n-th colour from the start's n-th colour, through culori in sRGB as
  * the colour tier blends by default. A start's numbers past the target's are dropped. In range by
- * construction: `matches` held first.
+ * construction: `matches` held first. Built when a stream is built: one pass, counting each kind
+ * in a mutable pair as it goes.
  */
 const slotsOf = (from: Complex, to: Complex): ReadonlyArray<Slot> => {
   const fromNumbers = numbersOf(from)
   const fromColors = colorsOf(from)
-  const start: Reading = { slots: [], numbers: 0, colors: 0 }
-  return Arr.reduce(to.tokens, start, (read, token): Reading =>
+  const read = { numbers: 0, colors: 0 }
+  return Arr.map(to.tokens, (token): Slot =>
     Match.value(token).pipe(
-      Match.when(Predicate.isNumber, (value): Reading => ({
-        slots: Arr.append(read.slots, { from: fromNumbers[read.numbers], to: value, color: undefined }),
-        numbers: read.numbers + 1,
-        colors: read.colors,
-      })),
-      Match.orElse((color): Reading => ({
-        slots: Arr.append(read.slots, { from: 0, to: 0, color: culoriInterpolate([fromColors[read.colors], color], "rgb") }),
-        numbers: read.numbers,
-        colors: read.colors + 1,
-      })),
-    )).slots
+      Match.when(Predicate.isNumber, (value): Slot => ({ from: fromNumbers[read.numbers++], to: value, color: undefined })),
+      Match.orElse((color): Slot => ({ from: 0, to: 0, color: culoriInterpolate([fromColors[read.colors++], color], "rgb") })),
+    ))
 }
 
 /**

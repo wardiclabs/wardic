@@ -28,6 +28,7 @@ import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
 import * as Interpolator from "../Interpolator.ts"
+import { numberCountOf } from "./complexTokens.ts"
 
 /** A value a key blends: a number or a string. */
 type Value = number | string
@@ -54,7 +55,15 @@ const encodeColor = Schema.encodeSync(Interpolator.ColorString)
  * A key as its CSS property name: `boxShadow` → `box-shadow`, `WebkitFilter` → `-webkit-filter`.
  * Keys come both ways: `WardicValues` types them as CSS names, and camelCase works as well.
  */
-const cssNameOf = (key: string): string => key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+const cssNameOf = (key: string): string =>
+  Option.getOrElse(Option.fromUndefinedOr(CSS_NAMES.get(key)), () => {
+    const name = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+    CSS_NAMES.set(key, name)
+    return name
+  })
+
+/** Each key's CSS name, once: keys repeat across elements and legs. */
+const CSS_NAMES = new Map<string, string>()
 
 /** The keys whose empty end takes each filter function's identity (Motion's `filter` type, and the backdrop it leaves out). */
 const FILTER_KEYS: ReadonlySet<string> = new Set(["filter", "-webkit-filter", "backdrop-filter", "-webkit-backdrop-filter"])
@@ -121,34 +130,17 @@ const zeroOf = (value: string, turn: ColorTurn): Option.Option<string> =>
     () => Option.map(decodeColor(value), (color) => encodeColor(turn(color) as typeof color)),
   )
 
-/** What `splitAtDepth0` has read: the pieces so far, the one it's reading, and how deep in brackets it is. */
-interface Splitting {
-  readonly pieces: ReadonlyArray<string>
-  readonly current: string
-  readonly depth: number
-}
+/** A top-level comma: one not inside a bracket (a shadow's colour, `rgba(…)`, holds commas). One level deep, as shadows are. */
+const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 
-/** How a character moves the bracket depth. */
-const depthStep = (ch: string): number =>
-  Match.value(ch).pipe(
-    Match.when("(", () => 1),
-    Match.when(")", () => -1),
-    Match.orElse(() => 0),
-  )
+/** A filter's functions, each with what's in its brackets, one bracket level deep (`drop-shadow(0px 0px 4px rgb(…))`). */
+const FILTER_FUNCTION_RE = /[a-z-]+\((?:[^()]|\([^()]*\))*\)/gi
 
-/** `input` split at each top-level character `isSeparator` takes, not inside brackets; pieces trimmed, empty ones dropped. */
-const splitAtDepth0 = (input: string, isSeparator: Predicate.Predicate<string>): ReadonlyArray<string> => {
-  const start: Splitting = { pieces: [], current: "", depth: 0 }
-  const read = Arr.reduce(Str.split(input, ""), start, (s, ch): Splitting =>
-    Bool.match(Bool.and(s.depth === 0, isSeparator(ch)), {
-      onTrue: () => ({ pieces: Arr.append(s.pieces, s.current), current: "", depth: 0 }),
-      onFalse: () => ({ pieces: s.pieces, current: s.current + ch, depth: s.depth + depthStep(ch) }),
-    }))
-  return Arr.filter(Arr.map(Arr.append(read.pieces, read.current), Str.trim), Str.isNonEmpty)
-}
+/** A shadow list's shadows, trimmed. */
+const shadowsOf = (value: string): ReadonlyArray<string> => Arr.filter(Arr.map(value.split(TOP_LEVEL_COMMA_RE), Str.trim), Str.isNonEmpty)
 
-const isWhitespace: Predicate.Predicate<string> = (ch) => /\s/.test(ch)
-const isComma: Predicate.Predicate<string> = (ch) => ch === ","
+/** A filter's functions. */
+const filterFunctionsOf = (value: string): ReadonlyArray<string> => Option.getOrElse(Str.match(FILTER_FUNCTION_RE)(value), () => [])
 
 /**
  * One filter function at its identity (Motion's `applyDefaultFilter`): its first number becomes 1
@@ -176,7 +168,7 @@ const filterFunctionAtIdentity = (fn: string): string => {
 
 /** A filter at its identity: each top-level function at its own (Motion's `filter.getAnimatableNone`). */
 const filterAtIdentity = (value: string): Option.Option<string> =>
-  Option.map(decodeComplex(value), () => Arr.join(Arr.map(splitAtDepth0(value, isWhitespace), filterFunctionAtIdentity), " "))
+  Option.map(decodeComplex(value), () => Arr.join(Arr.map(filterFunctionsOf(value), filterFunctionAtIdentity), " "))
 
 /** What `key`'s empty end stands for, facing `template` (CONTEXT.md's Animatable none); `None` when `template` can't be one. */
 const animatableNone = (key: string, template: string): Option.Option<string> =>
@@ -210,9 +202,6 @@ const toNone = (key: string, from: Value, to: Value): Option.Option<Prepared> =>
     Option.map((none): Prepared => ({ pairs: [[from, none]], lands: true })),
   )
 
-/** How many numbers a complex value holds; `None` when it isn't one. */
-const numberCountOf = (value: string): Option.Option<number> =>
-  Option.map(decodeComplex(value), (complex) => Arr.filter(complex.tokens, Predicate.isNumber).length)
 
 /**
  * One shadow's pair: a shadow missing from one end is the other's Animatable none, and a start
@@ -223,10 +212,7 @@ const numberCountOf = (value: string): Option.Option<number> =>
 const shadowPair = (from: Option.Option<string>, to: Option.Option<string>): Pair => {
   const a = Option.getOrElse(from, () => Option.getOrElse(Option.flatMap(to, (t) => zeroOf(t, transparent)), () => "none"))
   const b = Option.getOrElse(to, () => Option.getOrElse(Option.flatMap(from, (f) => zeroOf(f, transparent)), () => "none"))
-  const missing = Option.getOrElse(
-    Option.map(Option.all([numberCountOf(a), numberCountOf(b)]), ([na, nb]) => Math.max(0, nb - na)),
-    () => 0,
-  )
+  const missing = Math.max(0, numberCountOf(b) - numberCountOf(a))
   return [a + Str.repeat(missing)(" 0px"), b]
 }
 
@@ -248,8 +234,8 @@ const shadows = (key: string, from: Value, to: Value): Option.Option<Prepared> =
     Option.liftPredicate(key, isOneOf(SHADOW_KEYS)),
     Option.flatMap(() => Option.all([Option.liftPredicate(from, Predicate.isString), Option.liftPredicate(to, Predicate.isString)])),
     Option.map(([a, b]) => {
-      const as = splitAtDepth0(a, isComma)
-      const bs = splitAtDepth0(b, isComma)
+      const as = shadowsOf(a)
+      const bs = shadowsOf(b)
       return Arr.makeBy(Math.max(as.length, bs.length), (i) => shadowPair(Arr.get(as, i), Arr.get(bs, i)))
     }),
     Option.filter(Predicate.not(isAsGiven(from, to))),
