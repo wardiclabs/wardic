@@ -645,9 +645,9 @@ it("T16: a dragged `layoutRoot` node stays under the pointer through a mid-drag 
 })
 
 it("T17: a running descendant keeps its animation, without a jump, through a mid-drag pass and through the release", async () => {
-  // Under a `layoutRoot` inside D, only the drag and the pass are checked: once D flies
-  // back, D is a FLIPing parent, and a running node inside a layoutRoot inside a FLIPing
-  // parent counts the parent's motion twice (no drag needed), which is outside #26.
+  // Under a `layoutRoot` inside D too, through the release: the root's target carries D's
+  // drag and its Release offset, and the child's correction counts D (ADR-0013, Amendment
+  // (#33); before, the child jumped about 100 px at the release).
   /** Frame-to-frame change of `child`'s offset from D, at its largest. */
   const maxJumpOf = (frames: ReadonlyArray<Painted<{ d: DOMRect; child: DOMRect }>>): number => {
     let jump = 0
@@ -705,14 +705,13 @@ it("T17: a running descendant keeps its animation, without a jump, through a mid
     await afterPaint()
     setSibling(100) // a mid-drag pass moves D's slot (and the running child's box) down by 60
     for (let i = 0; i < 6; i++) await raf()
-    const releasedAt = performance.now()
     el.dispatchEvent(up(DRAG.x, DRAG.y)) // released while the child still runs
     const frames = await sampling
     cleanup()
-    return maxJumpOf(under === "d" ? frames : frames.filter((f) => f.frameAt < releasedAt))
+    return maxJumpOf(frames)
   }
   expect.soft(await run("d"), "a running child of D: no jump").toBeLessThan(15)
-  expect.soft(await run("layout-root"), "a running child of a layoutRoot inside D: no jump while dragged").toBeLessThan(15)
+  expect.soft(await run("layout-root"), "a running child of a layoutRoot inside D: no jump, through the release").toBeLessThan(15)
 })
 
 it("T18: a `layoutAnchor: false` child stays on the dragged node through the release", async () => {
