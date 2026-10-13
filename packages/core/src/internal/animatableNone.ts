@@ -243,9 +243,21 @@ const shadows = (key: string, from: Value, to: Value): Option.Option<Prepared> =
     Option.map((pairs): Prepared => ({ pairs })),
   )
 
-/** Whether any rule here can apply: an empty end, or a shadow key. Cheap, so a pair none applies to costs little. */
+/** An end a template can come from, checked cheaply: a string other than an empty end or `auto`. */
+const isTemplateEnd: Predicate.Predicate<Value> = (value) => Predicate.isString(value) && !isEmptyWord(value) && !isAuto(value)
+
+/**
+ * Whether any rule here can apply: an empty end facing a template, or a shadow key between two
+ * strings. Checked first, allocating nothing, so a pair no rule applies to (`opacity` from `0`,
+ * `pointer-events` to `none`) never reaches the `Option` chains below: their calls at stream
+ * build, through library functions the frame path shares, cost Node's `animateValues` about 5%
+ * per frame when it ran after other workloads (#61's bench).
+ */
 const mayApply = (key: string, from: Value, to: Value): boolean =>
-  Bool.or(Bool.or(isEmptyEnd(from), isEmptyEnd(to)), isOneOf(SHADOW_KEYS)(key))
+  Bool.or(
+    Bool.or(Bool.and(isEmptyEnd(from), isTemplateEnd(to)), Bool.and(isEmptyEnd(to), isTemplateEnd(from))),
+    Bool.and(isOneOf(SHADOW_KEYS)(key), Bool.and(Predicate.isString(from), Predicate.isString(to))),
+  )
 
 /**
  * `key`'s pair, ready for the registry (#61): from or to its Animatable none when one end is empty,
