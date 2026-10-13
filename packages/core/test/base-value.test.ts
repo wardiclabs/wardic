@@ -99,3 +99,15 @@ it("B12: a zero or an empty string is a value, not a miss", () => {
     Option.some({ value: 0, source: "style" }),
   )
 })
+
+it("B13: BaseValue.of: with initial={false}, the style value before the value the element started at (#134, Motion's baseTarget)", () => {
+  const styled = BaseValue.of("opacity", empty({ style: (k) => Option.filter(Option.some(0.8), () => k === "opacity"), started: { opacity: 0.5 }, own: never("own") }))
+  expect(Option.getOrUndefined(styled)).toEqual({ value: 0.8, source: "style" })
+  const started = BaseValue.of("opacity", empty({ started: { opacity: 0.5 }, own: never("own") }))
+  expect(Option.getOrUndefined(started)).toEqual({ value: 0.5, source: "started" })
+})
+
+it("B14: BaseValue.of: a key the element didn't start at falls to its own value past an empty started link", () => {
+  const r = BaseValue.of("scale", empty({ started: { opacity: 0.5 }, own: (k) => BaseValue.transformIdentity(k) }))
+  expect(Option.getOrUndefined(r)).toEqual({ value: 1, source: "own" })
+})

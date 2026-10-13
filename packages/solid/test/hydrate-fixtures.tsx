@@ -344,7 +344,31 @@ export const F18 = live(() => (
   </wardic.ul>
 ))
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18 } as const
+// #134: `initial={false}` starts at `animate`, in the markup and from the first paint, and
+// nothing animates at mount: on an element (F19), a Variant child (F20) and the child of an
+// `<AnimatePresence initial={false}>` with an `initial` of its own (F21).
+export const F19 = live(() => (
+  <wardic.div data-k="f19" initial={false} animate={{ opacity: 0.5 }} transition={TWEEN}>
+    f19
+  </wardic.div>
+))
+export const F20 = live(() => (
+  <wardic.ul initial={false} animate="shown" variants={LIST} transition={{ ...TWEEN, staggerChildren: 0.05 }}>
+    <wardic.li variants={LIST}>a</wardic.li>
+    <wardic.li data-k="f20" variants={LIST}>
+      b
+    </wardic.li>
+  </wardic.ul>
+))
+export const F21 = live(() => (
+  <AnimatePresence initial={false}>
+    <wardic.div data-k="f21" initial={{ opacity: 0 }} animate={{ opacity: 0.5 }} transition={TWEEN}>
+      f21
+    </wardic.div>
+  </AnimatePresence>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -393,4 +417,8 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F17: { startK: "f17", starting: projected({ "background-color": "#000" }), tracks: [{ label: "red", read: red("f17"), from: 0, to: 1 }] },
   // #50: a Variant child's Starting style is its ancestor's `initial` name.
   F18: { startK: "f18", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f18"), from: 0, to: 1 }] },
+  // #134: at its `animate` in the markup, at the first paint and after: no motion at all.
+  F19: { startK: "f19", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f19"), from: 0.5, to: 0.5 }] },
+  F20: { startK: "f20", starting: projected({ opacity: 1 }), tracks: [{ label: "opacity", read: opacity("f20"), from: 1, to: 1 }] },
+  F21: { startK: "f21", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f21"), from: 0.5, to: 0.5 }] },
 }
