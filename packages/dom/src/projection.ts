@@ -1895,7 +1895,40 @@ export const makeProjectionSystem = (
     const subtree: Array<NodeState> = [root]
     for (const n of nodes) if (!isFollower(n) && isDescendantOf(n, root)) subtree.push(n)
     subtree.sort((a, b) => a.depth - b.depth)
-    for (const n of subtree) derive(n)
+    Arr.forEach(subtree, (n) => {
+      if (restsInsideRootOf(n, root)) {
+        restInPlace(n)
+        return
+      }
+      derive(n)
+    })
+  }
+
+  /**
+   * Whether `n` rests inside a `layoutRoot` that is itself inside `root`. CSS carries it with
+   * `root` through that layoutRoot, so its projection is the identity. Derived, it would count
+   * `root`'s offset from its slot twice (#33: its anchor, the layoutRoot's target, carries the
+   * offset, and its own correction stops at the layoutRoot), which a grab during a release,
+   * starting off the slot, would leave on it (ADR-0016, *Amendment (velocity family)*).
+   */
+  const restsInsideRootOf = (n: NodeState, root: NodeState): boolean => {
+    if (n === root) return false
+    if (n.animating) return false
+    return Predicate.isNotUndefined(layoutRootBetween(n.parent, root))
+  }
+
+  /** The nearest `layoutRoot` from `p` up to `root` (`root` left out), or `undefined`. */
+  const layoutRootBetween = (p: NodeState | undefined, root: NodeState): NodeState | undefined => {
+    if (Predicate.isUndefined(p)) return undefined
+    if (p === root) return undefined
+    if (p.layoutRoot) return p
+    return layoutRootBetween(p.parent, root)
+  }
+
+  /** Write `n`'s resting projection: the identity, its scale corrections put back (ADR-0011). */
+  const restInPlace = (n: NodeState): void => {
+    n.lastDelta = IDENTITY_DELTA
+    writeProjection(n, IDENTITY_DELTA, TREE_SCALE_IDENTITY, leadOpacity(n), correctionsFor(n, 1, 1))
   }
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
