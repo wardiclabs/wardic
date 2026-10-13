@@ -39,6 +39,7 @@ import * as Clock from "./Clock.ts"
 import type * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
+import * as AnimatableNone from "./internal/animatableNone.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import {
   DEFAULT_DURATION,
@@ -830,6 +831,50 @@ const holdUntilDone =
     return from
   }
 
+/** One resolved blend: the registry's closure for a pair. */
+type Blend = (t: number) => number | string
+
+/** One pair's blender, as the registry resolved it. Per frame: one call. */
+const blendOne =
+  (blend: Blend): Blender =>
+  (t) =>
+    blend(t)
+
+/**
+ * One pair's blender that writes its target as given on the run's last Frame (#61): a pair from or
+ * to its Animatable none rests at `"none"` itself, not its zero. Per frame: a statement `if`.
+ */
+const landOn =
+  (blend: Blend, to: number | string): Blender =>
+  (t, done) => {
+    if (done) return to
+    return blend(t)
+  }
+
+/**
+ * A shadow list's blender (#61): each shadow's blend, joined with `", "`, and its target as given
+ * on the run's last Frame. Per frame: a counted loop building the string.
+ */
+const joinShadows =
+  (blends: ReadonlyArray<Blend>, to: number | string): Blender =>
+  (t, done) => {
+    if (done) return to
+    let out = String(blends[0](t))
+    for (let i = 1; i < blends.length; i++) out += ", " + String(blends[i](t))
+    return out
+  }
+
+/** A prepared pair's blender: one blend, landing or not, or a shadow list's joined blends. */
+const blenderOf = (prepared: AnimatableNone.Prepared, to: number | string, blends: ReadonlyArray<Blend>): Blender =>
+  Bool.match(blends.length > 1, {
+    onTrue: () => joinShadows(blends, to),
+    onFalse: () =>
+      Bool.match(prepared.lands, {
+        onTrue: () => landOn(blends[0], to),
+        onFalse: () => blendOne(blends[0]),
+      }),
+  })
+
 /**
  * Each key's blender from `from[key]` (its target when absent) to `to[key]`, resolved through
  * the `InterpolatorRegistry` once. A pair the registry can't blend is a Discrete pair and
@@ -838,6 +883,10 @@ const holdUntilDone =
  * instead (decision 4): Motion's `mixVisibility` (motion-dom utils/mix/visibility.ts:1-14 at
  * 16c61222c4166bbef5ff6ab0051192faa79fa8c8), keyed on the Frame's `done` rather than on progress
  * 1, so a spring's progress crossing 1 and back can't flicker it.
+ *
+ * Every other pair is prepared first (#61, ADR-0015 *Amendment (#61)*): an empty end facing a
+ * complex value or a colour stands for its Animatable none and the run's last Frame writes the
+ * target as given, and a shadow list is blended shadow by shadow.
  */
 const blendersFor = (
   from: Values.Values,
@@ -851,7 +900,13 @@ const blendersFor = (
         return Option.liftPredicate([key, a, b] as const, hides).pipe(
           Option.map(([, shown, hidden]) => holdUntilDone(shown, hidden)),
           Option.match({
-            onNone: () => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)),
+            onNone: () => {
+              const prepared = AnimatableNone.prepare(key, a, b)
+              return Effect.map(
+                Effect.forEach(prepared.pairs, ([x, y]) => registry.resolve(x, y)),
+                (blends) => blenderOf(prepared, b, blends),
+              )
+            },
             onSome: Effect.succeed,
           }),
         )

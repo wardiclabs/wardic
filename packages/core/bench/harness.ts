@@ -92,8 +92,8 @@ const STRING_TO = { "background-color": "#ffffff", width: "200px", "pointer-even
 
 /**
  * Two complex values of one structure each (ADR-0015): an icon-sized SVG `d` (20 numbers) and a
- * `box-shadow`, whose rgba channels blend as plain numbers. Through `complex`, the only tier
- * the string workloads above don't reach (#65).
+ * `box-shadow`, whose `rgba()` blends as a colour since #61 (as plain numbers before). Through
+ * `complex`, the only tier the string workloads above don't reach (#65).
  */
 const COMPLEX_FROM = (i: number) => ({
   d: `M${spread(i, 10, 4).toFixed(2)} 2 C6.48 2 2 6.48 2 12 S6.48 22 12 22 S22 17.52 22 12 S17.52 2 12 2 Z`,

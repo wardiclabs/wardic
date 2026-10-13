@@ -81,7 +81,11 @@ A value kind and how two values of it blend: it decodes an endpoint of its kind 
 _Avoid_: easing (distinct — see ambiguities), tween, mixer (Motion's).
 
 **Complex value**:
-A string carrying two or more numbers in a fixed structure: an SVG `d` or `points`, a `filter`, a multi-part `box-shadow`. Two of the same structure blend number by number; two of different structures are a **Discrete pair**.
+A string carrying one or more numbers among other text: an SVG `d` or `points`, a `filter` such as `blur(4px)`, a `box-shadow`. A string that is only a number with a unit is a unit string, not a complex value. A colour written inside one (`#hex`, `rgb()`, `hsl()`) is part of it as a colour, not as plain numbers.
+
+Two complex values blend when they hold the same count of colours and the start holds at least as many numbers as the target. The first colour blends with the first colour and the first number with the first number, and so on, written in the target's structure, so `rgba(0, 0, 0, 0.2) 0px 1px 2px 0px` blends with `0px 8px 24px rgba(0, 0, 0, 0.3)`. Any other two are a **Discrete pair**.
+
+A shadow (`boxShadow`, `textShadow`) is a list of shadows, matched one by one. A length missing from a shadow counts as 0, CSS's own default, and a shadow missing from one end grows from its **Animatable none**.
 _Avoid_: path (a path is one kind of complex value).
 
 **Easing**:
@@ -89,8 +93,16 @@ A reshaping of normalized time `t`∈[0,1]→[0,1] applied by Definite primitive
 _Avoid_: curve, interpolator.
 
 **Discrete pair**:
-A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two paths of different structure, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
+A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two complex values with different counts of colours, a path into a longer one, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
 _Avoid_: instant animation (Motion's), snap.
+
+**Animatable none**:
+What a pair's empty end stands for, so the pair blends instead of being a **Discrete pair**. An empty end is `"none"`, `0`, `"0"`, or a zero with a unit like `"0px"`. When the other end carries a number or a colour (a **Complex value** or a lone colour), the empty end becomes that value with every number at zero and every colour transparent. Two kinds of key differ:
+- **A filter** (`filter`, `backdropFilter`) puts each function at its identity: 1 for `brightness`, `contrast`, `saturate` and `opacity`, and 0 for the rest. A `drop-shadow()` grows from a transparent zero, like a shadow.
+- **A mask** (`mask`, `maskImage`) keeps its colours opaque, so the element stays visible.
+
+A shadow from `"none"` grows from a transparent zero shadow, and a `padding` of `"0px"` opens to `"4px 8px"`. On the way back the pair blends to its Animatable none and takes its empty end, as written, on its leg's last frame, so at rest the element is exactly what the author wrote. When the other end carries neither (`"auto"`), or is a plain length like `"100px"` (`none` isn't 0 for `max-height`), the pair stays a Discrete pair.
+_Avoid_: zero value (a zero with a unit is one kind of empty end).
 
 **Override stack**:
 An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`Override.resolve`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
