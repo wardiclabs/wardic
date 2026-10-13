@@ -19,7 +19,7 @@ const COLOR_TOKEN = String.raw`#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+)
 /** A single number token: optional sign, int/decimal, optional exponent. */
 const NUMBER_TOKEN = String.raw`-?\d*\.?\d+(?:e[-+]?\d+)?`
 
-/** A complex value's tokens, colours tried first, so a colour's channels aren't read as numbers. */
+/** A complex value's tokens. A colour matches whole from its first character (`#`, `r`, `h`), where no number can start, so its channels aren't read as numbers. */
 export const TOKEN_RE = new RegExp(`${COLOR_TOKEN}|${NUMBER_TOKEN}`, "gi")
 
 /** A token that starts like a colour (`#`, `rgb(`, `hsl(`), not like a number. */
