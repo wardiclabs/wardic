@@ -310,3 +310,49 @@ describe("display and visibility (#56, ADR-0024 decision 4)", () => {
     frames.filter((f) => f.v === "hidden").forEach((f, i) => expect(f.o, `frame ${i} hidden at opacity ${f.o}`).toBe(0))
   })
 })
+
+describe("a filter holding a length (#154)", () => {
+  // culori's parse threw on `blur(4px)`, at resolve: the leg failed, so a tween moved no key at all
+  // and a spring dropped the filter. A string culori throws on now isn't a colour.
+  const filtered = (from: Record<string, string | number>, to: Record<string, string | number>, transition: WardicTransition): HTMLElement => {
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={from} animate={to} transition={transition} />
+      </WardicProvider>
+    ))
+    return el
+  }
+  const filterOf = (el: Element): string => getComputedStyle(el).filter
+
+  it("SK15: under a tween, blur(4px) → blur(8px) beside an opacity: the opacity fades and the filter lands", async () => {
+    const el = filtered({ filter: "blur(4px)", opacity: 1 }, { filter: "blur(8px)", opacity: 0.5 }, { type: "tween", duration: 0.5 })
+    const s = sampleFrames(() => opacityOf(el))
+    await until(() => opacityOf(el) < 0.501, 3000)
+    await settle()
+    expect(s.stop().filter((f) => f.v > 0.55 && f.v < 0.95).length, "frames on the way").toBeGreaterThanOrEqual(10)
+    expect(filterOf(el)).toBe("blur(8px)")
+  })
+
+  it("SK16: under a spring, the filter is painted on every frame and lands", async () => {
+    const el = filtered({ filter: "blur(4px)", opacity: 1 }, { filter: "blur(8px)", opacity: 0.5 }, { stiffness: 170, damping: 26 })
+    const s = sampleFrames(() => filterOf(el))
+    await until(() => opacityOf(el) < 0.501, 3000)
+    await settle()
+    s.stop().forEach((f, i) => expect(["blur(4px)", "blur(8px)"], `frame ${i}: ${f.v}`).toContain(f.v))
+    expect(filterOf(el)).toBe("blur(8px)")
+  })
+
+  it("SK17: a drop-shadow blends through radii in between", async () => {
+    const el = filtered(
+      { filter: "drop-shadow(0px 0px 4px red)" },
+      { filter: "drop-shadow(0px 0px 8px red)" },
+      { type: "tween", duration: 0.5 },
+    )
+    const radius = (): number => Number(/([\d.]+)px\)$/.exec(filterOf(el))?.[1] ?? Number.NaN)
+    const s = sampleFrames(radius)
+    await until(() => radius() > 7.999, 3000)
+    await settle()
+    expect(s.stop().filter((f) => f.v > 4.1 && f.v < 7.9).length, "radii on the way").toBeGreaterThanOrEqual(10)
+  })
+})
