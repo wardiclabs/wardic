@@ -16,7 +16,9 @@ import type * as Point from "./Point.ts"
  * - `offset`: `point - origin`, measured from the down-point that started the
  *   gesture (total displacement of the drag).
  * - `delta`: `point - lastPoint`, the change since the previous emitted event.
- * - `velocity`: a per-axis, time-windowed estimate in units per second.
+ * - `velocity`: the pointer's, per axis in units per second, over the gesture's last 100 ms
+ *   (Motion's `getVelocity`); the `"end"` sample counts the release point, so a pause before
+ *   letting go weakens it, down to none.
  * - `phase`: `"start"` on activation, `"move"` while dragging, `"end"` on
  *   release/cancel. A cancel ends at the last move's point with the moves' velocity
  *   (a `pointercancel`'s own coordinates aren't the pointer's: Chromium's carries

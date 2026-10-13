@@ -19,7 +19,6 @@ import * as Predicate from "effect/Predicate"
 import type { Invariant } from "effect/Types"
 import type * as Box from "./Box.ts"
 import type * as Point from "./Point.ts"
-import * as Velocity from "./Velocity.ts"
 
 /**
  * The axis a **Reorder group** reorders on: a column (`"y"`), a row (`"x"`), or a
@@ -343,8 +342,9 @@ interface Gesture<V> {
  * - `resolveAxis(group)` is the override, else {@link detectAxis} over the measured items'
  *   boxes in `values` order.
  * - `dragStart` fixes the gesture's axis and direction and returns the axis;
- *   `dragMove` runs the **Crossover** for the dragged item and returns the pointer's
- *   velocity over the last 100 ms (its direction, for Auto-scroll); `dragEnd` ends it.
+ *   `dragMove` runs the **Crossover** for the dragged item with the drag sample's velocity
+ *   (the pointer's over its last 100 ms, ADR-0004 *Amendment (#139)*) and returns it, for
+ *   Auto-scroll; `dragEnd` ends it.
  * - `move(group, value, toIndex)` moves a value in code (clamped to the list, an unknown
  *   value ignored).
  *
@@ -360,8 +360,6 @@ export interface Group<in out V> extends Pipeable, Inspectable.Inspectable {
   readonly sources: Map<V, ItemSource>
   /** The drag gesture, while one runs. */
   readonly gesture: MutableRef.MutableRef<Option.Option<Gesture<V>>>
-  /** The gesture's last points, oldest first, for its direction. */
-  readonly history: MutableRef.MutableRef<ReadonlyArray<Velocity.TimedPoint>>
 }
 
 const Proto = {
@@ -390,21 +388,17 @@ const Proto = {
  * back; Motion waits for React's next commit (its guard is set at Group.tsx:158 and
  * cleared by an effect at :172-174). The registry is a plain `Map` keyed by value.
  *
- * Per sample it allocates only the velocity point (and a new order on a reorder).
+ * Per sample it allocates nothing but a new order on a reorder.
  */
 export const make = <V>(options: GroupOptions<V>): Group<V> =>
   Object.assign(Object.create(Proto), {
     options,
     sources: new Map<V, ItemSource>(),
     gesture: MutableRef.make(Option.none<Gesture<V>>()),
-    history: MutableRef.make<ReadonlyArray<Velocity.TimedPoint>>([]),
   })
 
 /** Whether `u` is a **Reorder group** (built by {@link make}). */
 export const isGroup = (u: unknown): u is Group<unknown> => Predicate.hasProperty(u, TypeId)
-
-/** How many points the direction keeps: enough for 100 ms of pointer events at 60–120 Hz. */
-const RING = 12
 
 const ZERO: Point.Point = { x: 0, y: 0 }
 
@@ -416,17 +410,6 @@ interface Measured<V> extends ItemData<V> {
 /** A cold-path event, to the group's `debug`. */
 const log = <V>(group: Group<V>, event: string, annotations: Record<string, unknown>): void => {
   if (Predicate.isNotUndefined(group.options.debug)) group.options.debug(event, annotations)
-}
-
-/** Keep `point` among the gesture's last RING points, oldest first. */
-const record = <V>(group: Group<V>, point: Point.Point, timeStamp: number): void => {
-  MutableRef.update(group.history, (points) =>
-    Arr.takeRight(Arr.append(points, { x: point.x, y: point.y, timeStamp }), RING),
-  )
-}
-
-const clearHistory = <V>(group: Group<V>): void => {
-  MutableRef.set(group.history, [])
 }
 
 /** An item's box, while it is registered and has one. */
@@ -501,34 +484,31 @@ export const resolveAxis = <V>(group: Group<V>): Axis =>
 
 /** Start dragging `value`'s item: the gesture's axis and direction are fixed now. Returns the axis. */
 export const dragStart: {
-  <V>(value: V, point: Point.Point, timeStamp: number): (group: Group<V>) => Axis
-  <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Axis
-} = dual(4, <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Axis => {
+  <V>(value: V): (group: Group<V>) => Axis
+  <V>(group: Group<V>, value: V): Axis
+} = dual(2, <V>(group: Group<V>, value: V): Axis => {
   const axis = resolveAxis(group)
   const direction = Option.fromUndefinedOr(group.options.direction).pipe(
     Option.flatMap((directionOf) => Option.fromNullishOr(directionOf())),
     Option.getOrElse((): "ltr" | "rtl" => "ltr"),
   )
   MutableRef.set(group.gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
-  clearHistory(group)
-  record(group, point, timeStamp)
   log(group, "reorder start", { value, axis, direction })
   return axis
 })
 
 /**
- * A drag sample of `value`'s item: runs the **Crossover**, and returns the pointer's velocity
- * over the last 100 ms (no motion when `value` isn't the one dragged).
+ * A drag sample of `value`'s item, moving at `velocity` (the sample's: the pointer's over its
+ * last 100 ms): runs the **Crossover**, and returns `velocity` (no motion when `value` isn't
+ * the one dragged).
  */
 export const dragMove: {
-  <V>(value: V, point: Point.Point, timeStamp: number): (group: Group<V>) => Point.Point
-  <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Point.Point
-} = dual(4, <V>(group: Group<V>, value: V, point: Point.Point, timeStamp: number): Point.Point =>
+  <V>(value: V, velocity: Point.Point): (group: Group<V>) => Point.Point
+  <V>(group: Group<V>, value: V, velocity: Point.Point): Point.Point
+} = dual(3, <V>(group: Group<V>, value: V, velocity: Point.Point): Point.Point =>
   Option.match(Option.filter(MutableRef.get(group.gesture), (g) => g.value === value), {
     onNone: () => ZERO,
     onSome: (g) => {
-      record(group, point, timeStamp)
-      const velocity = Velocity.trailing(MutableRef.get(group.history), 100)
       Option.match(Option.fromUndefinedOr(group.sources.get(value)), {
         onNone: constVoid,
         onSome: (source) => reorderOn(group, g, value, source, velocity),
@@ -544,7 +524,6 @@ export const dragEnd: {
 } = dual(2, <V>(group: Group<V>, value: V): void => {
   if (Option.exists(MutableRef.get(group.gesture), (g) => g.value === value)) {
     MutableRef.set(group.gesture, Option.none())
-    clearHistory(group)
   }
 })
 

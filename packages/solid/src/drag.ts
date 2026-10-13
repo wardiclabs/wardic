@@ -41,12 +41,10 @@ import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
 import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Values from "@wardic/core/Values"
-import * as Velocity from "@wardic/core/Velocity"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
 import type { DragProjectionHandle, FlushGate } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
-import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import { constVoid } from "effect/Function"
@@ -140,14 +138,12 @@ const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
 
 /**
  * The track's state: `base` is the rebase point, `position` the live absolute position,
- * `held` whether a gesture is on (from its "start" to its "end"), and, for a projection
- * node, the gesture's last offsets, for its release's velocity.
+ * and `held` whether a gesture is on (from its "start" to its "end").
  */
 interface DragTrackState {
   readonly base: Point.Point
   readonly position: Point.Point
   readonly held: boolean
-  readonly history: ReadonlyArray<Velocity.TimedPoint>
 }
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
@@ -155,36 +151,15 @@ type TrackState = MutableRef.MutableRef<DragTrackState>
 
 const ORIGIN: Point.Point = { x: 0, y: 0 }
 
-/** The window (ms) a projection node's release reads its velocity over: Motion's `getVelocity`'s (ADR-0016, *Amendment (velocity family)*). */
-const RELEASE_VELOCITY_WINDOW_MS = 100
-
-/** How many offsets the release's velocity keeps: enough for 100 ms of pointer events at 60–120 Hz (as the Reorder group's). */
-const HISTORY = 12
-
-/**
- * A projection node's gesture history with `sample`'s offset added, oldest first, its last
- * {@link HISTORY} kept; a free drag keeps none (its Fling reads the sample's own velocity).
- */
-const recordOffset = (
-  opts: RunDragTrackOptions,
-  history: ReadonlyArray<Velocity.TimedPoint>,
-  sample: Drag.Sample,
-): ReadonlyArray<Velocity.TimedPoint> =>
-  UndefinedOr.match(opts.projection, {
-    onUndefined: () => history,
-    onDefined: () =>
-      Arr.takeRight(Arr.append(history, { x: sample.offset.x, y: sample.offset.y, timeStamp: sample.timeStamp }), HISTORY),
-  })
-
 /**
  * A projection node's release velocity (ADR-0016, *Amendment (velocity family)*, decision 2):
- * its gesture's offsets over the last 100 ms (`Velocity.trailing`, Motion's `getVelocity`), so a
- * release after moves more than 30 ms apart doesn't read zero; at rest with `dragMomentum={false}`.
+ * the "end" sample's, the pointer's over its last 100 ms (ADR-0004, *Amendment (#139)*); at
+ * rest with `dragMomentum={false}`.
  */
-const releaseVelocity = (config: DragTrackConfig, history: ReadonlyArray<Velocity.TimedPoint>): Point.Point =>
+const releaseVelocity = (config: DragTrackConfig, velocity: Point.Point): Point.Point =>
   Bool.match(config.momentum === false, {
     onTrue: () => ORIGIN,
-    onFalse: () => Velocity.trailing(history, RELEASE_VELOCITY_WINDOW_MS),
+    onFalse: () => velocity,
   })
 /**
  * Read the current rested `x`/`y` off the snapshot (defaulting to 0, as for a string
@@ -222,25 +197,22 @@ const directSet = (opts: RunDragTrackOptions, p: Point.Point): void => {
 
 /**
  * A gesture's bookkeeping, run as each sample arrives, before its response: "start"
- * marks the gesture held; each sample keeps a projection node's offset for its release's
- * velocity; "end" clears both and, for a projection node (ADR-0016), starts its Release
- * offset at that velocity (`dragEnd`) and hands back `dragging`, then reports the sample.
+ * marks the gesture held; "end" clears it and, for a projection node (ADR-0016), starts its
+ * Release offset at the sample's velocity (`dragEnd`) and hands back `dragging`, then
+ * reports the sample.
  */
 const settleGesture = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOptions): void =>
   Match.value(sample.phase).pipe(
     Match.when("start", () => {
-      MutableRef.update(state, (st) => ({ ...st, held: true, history: recordOffset(opts, [], sample) }))
+      MutableRef.update(state, (st) => ({ ...st, held: true }))
     }),
-    Match.when("move", () => {
-      MutableRef.update(state, (st) => ({ ...st, history: recordOffset(opts, st.history, sample) }))
-    }),
+    Match.when("move", constVoid),
     Match.when("end", () => {
-      const history = recordOffset(opts, MutableRef.get(state).history, sample)
-      MutableRef.update(state, (st) => ({ ...st, held: false, history: [] }))
+      MutableRef.update(state, (st) => ({ ...st, held: false }))
       UndefinedOr.match(opts.projection, {
         onUndefined: constVoid,
         onDefined: (projection) => {
-          projection.dragEnd(releaseVelocity(opts.config, history))
+          projection.dragEnd(releaseVelocity(opts.config, sample.velocity))
           opts.setDragging(false)
         },
       })
@@ -358,7 +330,7 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
   runScoped(
     runtime,
     Effect.gen(function* () {
-      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false, history: [] })
+      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false })
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
 

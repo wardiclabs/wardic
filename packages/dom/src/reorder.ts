@@ -154,11 +154,11 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
       onSample: (sample) => {
         if (sample.phase === "start") {
           inGesture = true
-          gestureAxis = Reorder.dragStart(group, value, sample.point, sample.timeStamp)
+          gestureAxis = Reorder.dragStart(group, value)
           return
         }
         if (sample.phase === "move") {
-          const velocity = Reorder.dragMove(group, value, sample.point, sample.timeStamp)
+          const velocity = Reorder.dragMove(group, value, sample.velocity)
           if (autoScroller !== undefined) {
             const on = AutoScroll.axis(gestureAxis, velocity)
             autoScroller.update(sample.point, on, velocity[on], itemElement())
