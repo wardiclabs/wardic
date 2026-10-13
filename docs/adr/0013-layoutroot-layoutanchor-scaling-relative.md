@@ -42,7 +42,7 @@ The decisions above promised Motion's behaviour ("a `layoutRoot` subtree isolate
 
 ### Decisions (grilled)
 
-1. **A `layoutRoot` isolates its subtree from an ancestor's layout animation (Q1), as Motion's does.** It paints at its new box from the first frame (Motion animates it with `type: false`), its projection counter-acting the ancestor's FLIP, and its subtree with it. What still carries it: CSS transforms, the Release offset of every released ancestor, and the nearest dragged ancestor's drag (its drag target's distance from its slot; a drag target is where that node paints, so nothing above it adds). A FLIP that (re)starts in the root's frame in the pass that moved the root starts where it paints there: its origin moves with the root, at the anchor of the node placed in it (Motion fixes `relativeTargetOrigin` against the root's snapshot), so only the node's own move animates, a node nested in another running one moving with it, and a resting node that only moved with the root doesn't animate at all. Rejected: riding the ancestor, which is what leaving `layoutRoot` off already does.
+1. **A `layoutRoot` isolates its subtree from an ancestor's layout animation (Q1), as Motion's does.** It paints at its new box from the first frame (Motion animates it with `type: false`), its projection counter-acting the ancestor's FLIP, and its subtree with it. What still carries it: CSS transforms, the Release offset of every released ancestor, and the nearest dragged ancestor's drag (its drag target's distance from its slot; a drag target is where that node paints, so nothing above it adds). A FLIP that (re)starts in the root's frame in the pass that moved the root starts where it paints there: its origin moves with the root, at the anchor of the node placed in it (Motion fixes `relativeTargetOrigin` against the root's snapshot), so only the node's own move animates, a node nested in another running one moving with it, and a resting node that only moved with the root doesn't animate at all. (*Amendment (#146)* makes this a case of every restart starting from where the node paints.) Rejected: riding the ancestor, which is what leaving `layoutRoot` off already does.
 2. **Every ancestor's delta counts in a descendant's correction (Q2)**: `ancestorDeltas` walks the whole path, as Motion's `applyTreeDeltas` does and CSS composes. The decisions above called a `layoutRoot` an "accumulation boundary"; it stays only the boundary of the relative-parent search and its subtree's persistent anchor. Rejected: keeping the boundary and giving the root two boxes (an anchor in its descendants' frame and a viewport target), which adds state per root and leaves the projection's sum different from what CSS applies.
 3. **ADR-0016's drag-start stopgap goes (Q3).** It wrote a resting node inside a `layoutRoot` inside a dragged node at identity, because a derive double-counted the drag's offset; after 1 and 2 a derive gives identity on its own. `projection-release.browser.test.ts` RL16 stays as the test.
 4. **The layout lab (Q4, Q5).** Scenario 12's S moves the slot only while the item is held again (drag-blocked, nothing animates), since under 1 a slot move during the flight back moves R and G to their new place by design, and their glue lines would fail for correct behaviour; #28's glued child stays shown in scenario 13. Scenario 12 gains X, an eye check: at rest it moves the item's slot, the item FLIPs, its children ride it, and R and G take their new place at once.
@@ -98,7 +98,7 @@ The layout lab's scenario 12 showed it in a hand run: X moves the item's slot, a
 
 ### Limits
 
-- A running node placed relative to its parent still jumps when the parent's layout animation is interrupted mid-flight (#146, found in a hand run of the at-rest runs): its restart starts from its own progress in page space, against a parent at another. Motion keeps it on the parent; 45 px in the probe's `slow-child-back`, on main too.
+- A running node placed relative to its parent still jumped when the parent's layout animation was interrupted mid-flight (#146, found in a hand run of the at-rest runs): its restart started from its own progress in page space, against a parent at another. Motion keeps it on the parent; 45 px in the probe's `slow-child-back`, on main too. Fixed by *Amendment (#146)*.
 
 ### Measured
 
@@ -121,3 +121,73 @@ The layout lab, scripted (`.tmp/vel-lab/drive.ts`), scenario 12's X both ways, r
 - `examples/layout-lab/test/rest-run.test.ts`, AR1–AR6: the at-rest lines, passing X with both fixes and failing #144's snap and #33's ride; M left out while its own slide from a grab runs.
 - On the engine before this change SC1–SC6 fail; SC7 pins what it already did.
 - Mutation-checked: 8 single-point mutations of the new code, 7 failing the test meant for them; the eighth drops the early return when no landing node had a layout animation, which only saves work.
+
+## Amendment (#146, 2026-10-13): a restart starts from where the node paints
+
+A Measure pass that interrupts a layout animation restarts it from where the element appears. The engine took that as `mix(origin, box, progress)` at the node's own progress, in page space, or its box before the pass at rest. That is where an absolutely placed node paints. A node placed relative to a running parent paints at its relative offset placed in where the parent paints, so its restart was off whenever the two progresses differ:
+
+- a slower child mid-flight, by (the parent's progress − its own) × the parent's move;
+- a faster child already at rest under a parent still flying, by the parent's remaining flight.
+
+Re-measured against framer-motion 13.4.0 (`.tmp/vel/`, scene `slow-child-back`: P FLIPs 100 px down on the default spring, then back up 200 ms in, its child M on a 30/12 spring only moving with it; Chromium 147 and Firefox 148, 3 runs each; issue #146):
+
+| | M's offset from P, biggest frame-to-frame step change |
+|---|---|
+| Motion | 0.00 px |
+| main, and *Amendments (#33)* and *(#144)* | 45.23–45.31 px at the reversal (row 40 → 2.5), then back over about 70 frames |
+
+The layout lab's hand run (2026-10-13, scenario 12's at-rest runs) showed it as an X pressed while the item still slid from the last one: 44 of 56 runs, M 1.5–22.9 px off the item.
+
+### Decisions (grilled)
+
+1. **A restart starts from where the node paints (Q1).**
+   - Where it paints is its box as the pass begins, through its ancestors' projections and its own as they were then (as CSS composes them), less its own Release offset, which runs on top.
+   - With no relative parent, that is its origin.
+   - Placed relative to a parent, it keeps the offset it paints at from where that parent paints, inside the parent's start box (its origin, or its box).
+   - So a child at any progress against its parent's, or at rest under it, goes on from where it is. *Amendment (#33)*'s "origin moves with the root" is a case of it: its own rule goes.
+   - Motion's snapshot of a node mid-animation is its painted box, which reads the same.
+   - The pass keeps each node's box and delta as it begins, since the update walks top-down and changes both before a descendant restarts.
+   - Rejected: patching only a running child of a running parent (its relative offset carried over), which leaves a faster child at rest under a flying parent jumping (15.9 px in a fake-sink check) and #33's rule beside it.
+   - Verified before deciding: the prototype read 0.00 px in the probe and in the lab's scripted double X, with every browser test green.
+
+   - The pass keeps each node's box and delta as it begins, and an active node's last target, which is where it paints since it is derived every frame. A chain of identity deltas, any pass from rest, reads the box itself.
+
+### Measured
+
+`.tmp/vel/`, Chromium 147 and Firefox 148, 3 runs each, framer-motion 13.4.0; M's offset from P, the biggest frame-to-frame step change:
+
+| Scene | Motion | *Amendment (#144)* | this change |
+|---|---|---|---|
+| `slow-child-back`: P sent back up 200 ms into its FLIP | 0.00 px | 45.23–45.31 px | 0.00 px |
+| `slow-child` | 0.00 px | 0.00 px | 0.00 px |
+| `slow-child-own` | 0.67–0.73 px | 0.66–0.68 px | 0.67–0.68 px |
+
+*Amendment (#33)*'s scenes read as before: `root-flip` C's row worst 97.4 px, the same as before (Motion 98.1–99.7), and `release-root-running` 0.32–0.34 px (Motion 0.33–0.36).
+
+The layout lab, scripted (`.tmp/vel-lab/drive.ts`, `ONLY=s12x`): X, then X again 200, 400 or 600 ms later, reads `m 0.00 px` on the card each time (before: 22.49, 17.67, 9.76 px).
+
+Cost, `.tmp/vel-cost/` (a Measure pass timed whole, from the notify to the end of its task, against a fake sink; 8 rounds; *Amendment (#144)*'s engine against itself as the control):
+
+| Pass | Chromium: control / this change | Firefox (1 ms clock): control / this change |
+|---|---|---|
+| 1,000 nodes starting a FLIP from rest | +3% / +3% | 0% / +20% (5.0 ms either way) |
+| 3,000 nodes, the same | 0% / +3% | +11% / 0% |
+| 1,000 running FLIPs restarted 10 frames in | 0% / −10% | 0% / 0% |
+| 3,000, the same | 0% / 0% | +14% / 0% |
+| 1,000, each with a child | −5% / +5% | 0% / 0% |
+
+A first version read every node into a map and called `UndefinedOr.match` (a `dual`) twice per restarting node: +32–44% on a pass from rest. It now keeps the snapshot in two fields per node, reads an active node's last target, and uses statement `if`s.
+
+### Pinned by
+
+- `packages/dom/test/projection-interrupt.browser.test.ts`, IR1–IR7, against a fake sink:
+  - IR1: #146's scene, a slow child running on its FLIPping parent stays on it when the parent is sent back mid-flight;
+  - IR2: a fast child already at rest under its slow, still-flying parent stays on it;
+  - IR3: a child on its parent's own spring (a guard);
+  - IR4: a slow child moving inside its parent slides on, with no jump;
+  - IR5: nodes running inside each other on slower springs stay on their lines;
+  - IR6: a slow node running inside a `layoutRoot` keeps its row in the root;
+  - IR7: a node placed absolutely inside a `layoutRoot` restarts from where it paints (the pass's snapshot: the root's delta is reset before it).
+- `projection-layout-root.browser.test.ts` LR1–LR11 pass with *Amendment (#33)*'s own rule gone.
+- On *Amendment (#144)*'s engine IR1, IR2, IR4 and IR5 fail; IR3, IR6 and IR7 pin what it already did.
+- Mutation-checked: 12 single-point mutations of the new code, 11 failing the test meant for them; the twelfth drops the last-target shortcut, which only saves work (an active node's last target is the composed box).
