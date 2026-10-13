@@ -87,6 +87,10 @@ export interface ReorderRunData {
   readonly nodesPerItem?: number
   /** The Lift toggle's `whileDrag` scale at the grab; left out with Lift off. */
   readonly lift?: number
+  /** The items' Layout mode at the grab (#42), `"position"`; left out, `true`. */
+  readonly itemLayout?: "position"
+  /** Whether the items' sizes followed their index at the grab (#42); left out, they didn't. */
+  readonly variableSizes?: boolean
 }
 
 /** What a reorder scenario expects of every press (see {@link reorderChecksOf}). */
@@ -97,6 +101,11 @@ export interface ReorderExpect {
   readonly uninvolvedMaxPx?: number
   /** The dragged item is the one at the pointer on every held frame it covers the pointer. */
   readonly raised?: boolean
+  /**
+   * With the items' Layout mode `"position"` (#42), the most {@link ReorderRun.stretchMaxPx} may
+   * read, in px: each item paints at its slot's size on every frame. Not judged with `true`.
+   */
+  readonly noStretchMaxPx?: number
 }
 
 /** What {@link reorderRunOf} reads from a press. */
@@ -120,10 +129,17 @@ export interface ReorderRun {
   readonly liftLowest: number | null
   readonly liftHeld: number | null
   readonly liftAfter: number | null
+  /**
+   * The most any item's painted size was off its slot's, in px (the larger of width and
+   * height), over every frame of the press, and which item (#42); the dragged item is left
+   * out while Lift scales it. `null` item when none was off.
+   */
+  readonly stretchMaxPx: number
+  readonly stretchItem: string | null
 }
 
 /** The card's reorder lines, in display order. */
-export const REORDER_CHECK_NAMES = ["reorders", "uninvolved still", "raised", "auto-scrolled", "lift"] as const
+export const REORDER_CHECK_NAMES = ["reorders", "uninvolved still", "raised", "auto-scrolled", "lift", "no stretch"] as const
 
 /** One of {@link REORDER_CHECK_NAMES}. */
 export type ReorderCheckName = (typeof REORDER_CHECK_NAMES)[number]
@@ -219,6 +235,23 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
   }
   const heldScales = held.map(scaleOn).filter((r): r is number => r !== null)
 
+  // How far any item's painted size was off its slot's (#42): a `true` item scales from its
+  // old size as its slot changes size; a `"position"` one takes the new size at once.
+  let stretchMaxPx = 0
+  let stretchItem: string | null = null
+  for (const f of frames) {
+    for (const [v, slotBox] of Object.entries(f.reorder!.slots)) {
+      if (v === data.dragged && data.lift !== undefined) continue
+      const painted = f.reorder!.items[v]
+      if (painted === undefined) continue
+      const off = Math.max(Math.abs(painted.width - slotBox.width), Math.abs(painted.height - slotBox.height))
+      if (off > stretchMaxPx) {
+        stretchMaxPx = off
+        stretchItem = v
+      }
+    }
+  }
+
   const moved = {
     x: data.scrollAtEnd.x - data.scrollAtGrab.x - data.scrolledByHand.x,
     y: data.scrollAtEnd.y - data.scrollAtGrab.y - data.scrolledByHand.y,
@@ -235,6 +268,8 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     liftLowest: heldScales.length === 0 ? null : Math.min(...heldScales),
     liftHeld: heldScales.length === 0 ? null : Math.max(...heldScales),
     liftAfter: scaleOn(frames[frames.length - 1]),
+    stretchMaxPx,
+    stretchItem,
   }
 }
 
@@ -300,7 +335,16 @@ export const reorderChecksOf = (input: DragRunInput, expect: ReorderExpect): Arr
     ),
     lineOf("auto-scrolled", px(run.autoScrolledPx), undefined, true),
     liftLineOf(run, data.lift),
+    noStretchLineOf(run, data, expect.noStretchMaxPx),
   ]
+}
+
+/** The no stretch line (#42): judged with the items' Layout mode `"position"`, shown with `true`. */
+const noStretchLineOf = (run: ReorderRun, data: ReorderRunData, max: number | undefined): ReorderCheck => {
+  const position = data.itemLayout === "position"
+  const text = `${px(run.stretchMaxPx)}${run.stretchItem === null || run.stretchMaxPx < 0.005 ? "" : ` · item ${run.stretchItem}`} · layout ${position ? "position" : "true"}${data.variableSizes === true ? " · variable sizes" : ""}`
+  if (!position || max === undefined) return lineOf("no stretch", `${text}${position ? "" : ", not judged"}`, undefined, true)
+  return lineOf("no stretch", text, `≤ ${max} px`, run.stretchMaxPx <= max)
 }
 
 const scale3 = (r: number | null): string => (r === null ? "?" : r.toFixed(3))

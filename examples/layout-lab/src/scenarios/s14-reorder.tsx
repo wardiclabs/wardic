@@ -73,6 +73,21 @@ const LAYOUTS: ReadonlyArray<Option<Layout>> = [
   { value: "column-reverse", label: "column-reverse" },
 ]
 
+/** The items' Layout mode (#42): `true` scales an item whose slot changes size; `position` takes the new size at once. */
+type ItemLayout = "true" | "position"
+
+const ITEM_LAYOUTS: ReadonlyArray<Option<ItemLayout>> = [
+  { value: "true", label: "true" },
+  { value: "position", label: "position (#42)" },
+]
+
+/**
+ * With **variable sizes** (#42), an item's size by its index in the order: a list's heights, a
+ * row's or grid's widths. An item a reorder moves to another index changes size with it.
+ */
+const VARIABLE_HEIGHTS = [36, 56, 36, 48, 56, 36]
+const VARIABLE_WIDTHS = [64, 112, 64, 88, 112, 64]
+
 /** What the list sits on (#136): the stage, a card dragged by Wardic, or a card a stylesheet rule moves. */
 type Card = "none" | "drag" | "css"
 
@@ -106,12 +121,17 @@ const groupStyle = (layout: Layout, carded: boolean): JSX.CSSProperties => ({
   ...(layout === "xy" ? { "flex-direction": "row", "flex-wrap": "wrap", width: "304px" } : {}),
 })
 
-/** An item: 180x36 in a list, 64x40 in a row, 96x40 in the grid. Whole pixels (see the recorder). */
-const itemStyle = (layout: Layout, touchAuto: boolean): JSX.CSSProperties => {
+/**
+ * An item: 180x36 in a list, 64x40 in a row, 96x40 in the grid. Whole pixels (see the recorder).
+ * With variable sizes (#42), its height in a list or its width otherwise is its index's.
+ */
+const itemStyle = (layout: Layout, touchAuto: boolean, variableAt: number | undefined): JSX.CSSProperties => {
   const column = layout === "y" || layout === "column-reverse"
+  const width = column ? 180 : layout === "xy" ? 96 : 64
+  const height = column ? 36 : 40
   return {
-    width: column ? "180px" : layout === "xy" ? "96px" : "64px",
-    height: column ? "36px" : "40px",
+    width: `${variableAt !== undefined && !column ? VARIABLE_WIDTHS[variableAt % VARIABLE_WIDTHS.length] : width}px`,
+    height: `${variableAt !== undefined && column ? VARIABLE_HEIGHTS[variableAt % VARIABLE_HEIGHTS.length] : height}px`,
     "flex-shrink": "0",
     cursor: "grab",
     "list-style": "none",
@@ -174,6 +194,9 @@ const View: ScenarioDef["View"] = (props) => {
   const [viaMap, setViaMap] = createSignal(false)
   const [touchAuto, setTouchAuto] = createSignal(false)
   const [layoutChild, setLayoutChild] = createSignal(false)
+  // #42: the items' Layout mode, and sizes that follow an item's index.
+  const [itemLayout, setItemLayout] = createSignal<ItemLayout>("true")
+  const [variable, setVariable] = createSignal(false)
   const [card, setCard] = createSignal<Card>("none")
   const [cardMoved, setCardMoved] = createSignal(false)
   const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES)
@@ -197,6 +220,9 @@ const View: ScenarioDef["View"] = (props) => {
     scrolledByHand: Point
     readonly layoutAtGrab: Layout
     readonly childAtGrab: boolean
+    /** The items' Layout mode and variable sizes at the grab (#42). */
+    readonly itemLayoutAtGrab: ItemLayout
+    readonly variableAtGrab: boolean
     /** The Lift toggle's scale at the grab, for the card's lift line (#47); undefined with Lift off. */
     readonly liftAtGrab: number | undefined
   }
@@ -287,6 +313,8 @@ const View: ScenarioDef["View"] = (props) => {
         scrolledByHand: { x: 0, y: 0 },
         layoutAtGrab: layout(),
         childAtGrab: layoutChild(),
+        itemLayoutAtGrab: itemLayout(),
+        variableAtGrab: variable(),
         liftAtGrab: lift() ? LIFT.scale : undefined,
       }
     }
@@ -300,7 +328,7 @@ const View: ScenarioDef["View"] = (props) => {
       reorderFrame,
       scroller: () => (inContainer() ? container : window),
       mode: () =>
-        `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}${card() === "none" ? "" : ` · ${card()} card`}`,
+        `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}${card() === "none" ? "" : ` · ${card()} card`}${itemLayout() === "position" ? " · position" : ""}${variable() ? " · variable" : ""}`,
       record: (input) => {
         const press = cutShort ?? current
         if (press === undefined) return
@@ -321,6 +349,8 @@ const View: ScenarioDef["View"] = (props) => {
             scrolledByHand: press.scrolledByHand,
             nodesPerItem: press.childAtGrab ? 2 : 1,
             ...(press.liftAtGrab !== undefined ? { lift: press.liftAtGrab } : {}),
+            ...(press.itemLayoutAtGrab === "position" ? { itemLayout: "position" as const } : {}),
+            ...(press.variableAtGrab ? { variableSizes: true } : {}),
           },
         })
       },
@@ -342,8 +372,9 @@ const View: ScenarioDef["View"] = (props) => {
       class="box"
       data-value={value}
       data-action="drag"
+      layout={itemLayout() === "position" ? "position" : true}
       whileDrag={lift() ? LIFT : NO_LIFT}
-      style={itemStyle(layout(), touchAuto())}
+      style={itemStyle(layout(), touchAuto(), variable() ? order().indexOf(value) : undefined)}
     >
       <Show when={layoutChild()} fallback={<>item {value}</>}>
         <wardic.p layout style={CHILD_STYLE}>
@@ -358,7 +389,7 @@ const View: ScenarioDef["View"] = (props) => {
   // an item size), so they are the list's layout dependency: a switch FLIPs the items to
   // their new places, as Motion's re-render would, and the next reorder reads fresh boxes.
   const list = (): JSX.Element => (
-    <LayoutGroup layoutDependency={[layout(), layoutChild()]}>
+    <LayoutGroup layoutDependency={[layout(), layoutChild(), variable()]}>
       <Reorder.Group
         // eslint-disable-next-line solid/reactivity
         ref={(el: HTMLElement) => (group = el)}
@@ -413,6 +444,8 @@ const View: ScenarioDef["View"] = (props) => {
         <Checkbox label="items via .map (breaks it)" name="reorder-map" checked={viaMap()} onChange={setViaMap} />
         <Checkbox label="touch-action: auto on items (breaks touch)" name="reorder-touch" checked={touchAuto()} onChange={setTouchAuto} />
         <Checkbox label="a layout child in each item (#28)" name="reorder-child" checked={layoutChild()} onChange={setLayoutChild} />
+        <Select label="item layout" name="reorder-item-layout" options={ITEM_LAYOUTS} value={itemLayout()} onChange={setItemLayout} />
+        <Checkbox label="variable sizes (#42)" name="reorder-variable" checked={variable()} onChange={setVariable} />
         <Select label="card" name="reorder-card" options={CARDS} value={card()} onChange={chooseCard} />
       </div>
       <p style={NOTE_STYLE}>
@@ -454,6 +487,7 @@ export const s14: ScenarioDef = {
     endsOnSlotMaxPx: 0.5,
     gestureEndsMaxPx: 1,
   },
-  reorderExpect: { oneStep: true, uninvolvedMaxPx: 1, raised: true },
+  // #42: with the items' layout `position`, each item paints at its slot's size on every frame.
+  reorderExpect: { oneStep: true, uninvolvedMaxPx: 1, raised: true, noStretchMaxPx: 0.5 },
   View,
 }

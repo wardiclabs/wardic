@@ -99,6 +99,7 @@ export {
   type ReorderGroupWard,
   type ReorderGroupWardProps,
   type ReorderItemConfig,
+  type ReorderItemLayout,
   type ReorderItemDirectiveValue,
   reorderItem,
 } from "./reorder.tsx"

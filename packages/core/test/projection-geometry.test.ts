@@ -143,3 +143,43 @@ it("applyTreeDeltas: snaps a near-1 treeScale to exactly 1", () => {
   const r = Projection.applyTreeDeltas(box(0, 0, 100, 100), [delta(0, 0, 1.00000005, 1.00000005)])
   expect(r.treeScale).toEqual({ x: 1, y: 1 })
 })
+
+// --- Layout modes (#42, ADR-0009 Amendment (#42)): Motion's snapshot shaping ---------
+
+// From (40, 40) 100x50 to (140, 60) 200x50.
+const FROM = box(40, 40, 140, 90)
+const TO = box(140, 60, 340, 110)
+
+it("LMC1: shapeOrigin true leaves the origin as it is", () => {
+  expect(Projection.shapeOrigin(true, FROM, TO)).toBe(FROM)
+})
+
+it("LMC2: shapeOrigin position keeps the origin's top-left and takes the target's size", () => {
+  expect(Projection.shapeOrigin("position", FROM, TO)).toEqual(box(40, 40, 240, 90))
+})
+
+it("LMC3: shapeOrigin size moves the origin to the target's top-left, its own size kept", () => {
+  expect(Projection.shapeOrigin("size", FROM, TO)).toEqual(box(140, 60, 240, 110))
+})
+
+it("LMC4: shapeOrigin x / y take the other axis from the target", () => {
+  expect(Projection.shapeOrigin("x", FROM, TO)).toEqual({ x: FROM.x, y: TO.y })
+  expect(Projection.shapeOrigin("y", FROM, TO)).toEqual({ x: TO.x, y: FROM.y })
+})
+
+it("LMC5: preserve-aspect animates position only past a 0.2 ratio difference (Motion's isNear)", () => {
+  // 100x50 (2.0) to 200x50 (4.0): position only.
+  expect(Projection.shapeOrigin("preserve-aspect", FROM, TO)).toEqual(box(40, 40, 240, 90))
+  // 100x50 (2.0) to 200x100 (2.0): both.
+  expect(Projection.shapeOrigin("preserve-aspect", FROM, box(140, 60, 340, 160))).toBe(FROM)
+  // 2.0 to 2.18 is near (within 0.2): both; to 2.25 isn't: position only.
+  expect(Projection.animatesPositionOnly("preserve-aspect", FROM, box(0, 0, 109, 50))).toBe(false)
+  expect(Projection.animatesPositionOnly("preserve-aspect", FROM, box(0, 0, 112.5, 50))).toBe(true)
+  expect(Projection.animatesPositionOnly("position", FROM, FROM)).toBe(true)
+  expect(Projection.animatesPositionOnly(true, FROM, TO)).toBe(false)
+  expect(Projection.animatesPositionOnly("size", FROM, TO)).toBe(false)
+})
+
+it("LMC6: withSizeOf keeps a box's top-left and takes another's size", () => {
+  expect(Projection.withSizeOf(TO, FROM)).toEqual(box(140, 60, 240, 110))
+})

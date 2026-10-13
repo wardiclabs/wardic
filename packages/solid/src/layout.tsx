@@ -18,6 +18,7 @@
  * observability convention — hot path stays quiet).
  */
 import type * as Point from "@wardic/core/Point"
+import type * as Projection from "@wardic/core/Projection"
 import type * as Machine from "@wardic/core/Machine"
 import type { ProjectionNodeHandle } from "@wardic/dom"
 import { constTrue } from "effect/Function"
@@ -64,6 +65,8 @@ export interface UseLayoutMemberOptions {
   readonly layoutAnchor?: Point.Point | false
   /** Raise the node while it's dragged (ADR-0016 *Amendment (Reorder)*; internal, a `<Reorder>` item's). */
   readonly raiseWhileDragged?: boolean
+  /** The element's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). Default `true`. */
+  readonly layoutMode?: () => Projection.LayoutMode
 }
 
 /**
@@ -87,7 +90,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
-  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutRoot, layoutScroll, raiseWhileDragged, transition } = opts
+  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 
   const handle = projection.register({
@@ -102,6 +105,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     ...(layoutRoot === true ? { layoutRoot: true } : {}),
     ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
     ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
+    ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))

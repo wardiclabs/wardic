@@ -401,6 +401,9 @@ body {
   grid-template-columns: max-content minmax(0, 1fr);
   align-content: start;
   gap: 2px 10px;
+  /* A drag card's lines vary by scenario (11 on scenario 14, 9 on 13): show them all, not the trigger cards' fixed height. */
+  height: auto;
+  min-height: 136px;
 }
 
 .card-result.drag .result-cell {

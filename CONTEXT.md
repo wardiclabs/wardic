@@ -171,6 +171,10 @@ _Avoid_: layout (too broad), reflow animation.
 Animating an element's *target Box* and **deriving** its transform each frame, tree-aware: a node's box is expressed relative to its parent node's *projected* box, and translations are corrected by the cumulative ancestor scale (**treeScale**) so nested layout animations compose correctly through CSS transform nesting. Box-based (animate the box, derive the transform), **not** invert-delta-based (see ADR). Plain **FLIP** is the un-nested special case (no parent node ⇒ project relative to the viewport). Core owns the pure box geometry (relative box, axis delta, tree-scale, applied around an `origin`/anchor); the projection engine (`@wardic/dom`) owns the node tree, the **Measure pass** and the per-frame projection pass; the binding reports the layout changes only it knows about (`layoutDependency`).
 _Avoid_: FLIP (reserve for the un-nested case), transform tree.
 
+**Layout mode** (`layout="position"` and the rest):
+Which parts of an element's layout change its **FLIP** animates. With `true`, it animates both position and size. With `"position"`, its size takes the new value at once and only its top-left corner slides. With `"size"`, its position takes the new value at once and only its size animates. With `"x"` or `"y"`, only that axis animates. With `"preserve-aspect"`, both animate while the width/height ratio stays close, and only position animates when the ratio changes. The mode is read at each layout animation's start. In a **Crossfade**, a **Follower** whose mode animates position only keeps its own size. `Reorder.Item` takes `true` or `"position"`. Motion's `animationType`.
+_Avoid_: layout type, animation type.
+
 **Projection node**:
 A layout-enabled element's entry in the **projection tree** — a parent link by DOM ancestry, its children, and its retained + target **Box** (`{ x: {min,max}, y: {min,max} }`, the projection-internal geometry that measured `Bounds` convert into). The tree is rooted at a synthetic viewport node the `WardicProvider` supplies, so Projection works with no `<LayoutGroup>`.
 _Avoid_: layout member (the prior flat name), FLIP node.

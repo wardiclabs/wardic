@@ -529,6 +529,13 @@ drag, a reorder and the release. A displaced item's pass seeds its child too, so
 `passes` line's bound doubles (the run's `nodesPerItem`); a retarget is where #28's
 glued-child jump would show. The mode reads `· child` while it's on.
 
+**Item layout** (#42) gives every item the `layout` mode `true` (the default) or `"position"`
+(ADR-0009, *Amendment (#42)*). **Variable sizes** sizes each item by its place in the order:
+heights 36–56 px in a list, widths 64–112 px in a row or the grid. A reorder then moves an
+item to a slot of another size. With `true`, it scales from its old size as it flies. With
+`"position"`, it takes the new size at once and only slides, as Motion's `Reorder.Item
+layout="position"` does. The mode reads `· position` and `· variable` while they're on.
+
 **card** (#136) puts the list, and its scroll container, on a card that a transform
 moves, which no box should carry (ADR-0012, *Amendment (#136)*).
 
@@ -558,7 +565,7 @@ Two toggles break it on purpose:
   it was, not at the viewport's corner.
 
 Each press is a drag run. The card keeps the drag lines (no `child glued`: it
-doesn't watch the items' children, even with the layout child on) and adds five reorder lines (`lab/reorder-run.ts`). The
+doesn't watch the items' children, even with the layout child on) and adds six reorder lines (`lab/reorder-run.ts`). The
 expected card, with a browser's own scheduler:
 
 | Check | Expected | At `4d2fa2b` (the probe evidence) |
@@ -574,6 +581,7 @@ expected card, with a browser's own scheduler:
 | raised | the dragged item on top every frame it's at the pointer | under a sibling on 16-23% of frames |
 | auto-scrolled | reported | (no Auto-scroll) |
 | lift | with Lift on: lowest ≥ 0.99 · held 1.05 · after 1 (lift off without it) | at 18b1e86: lowest 0.12, after 1.05 (#47) |
+| no stretch | with item layout `position`: every item's painted size within 0.5 px of its slot's, every frame; with `true`, the most any item scaled, not judged | at 48b6d4c: 19.5 px with `position` and variable sizes (the item ignored the mode, #42) |
 
 How the lines read a reorder:
 
@@ -624,6 +632,9 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R30 | `y`, draggable card | drag the card by its edge, then drag an item past one neighbour: nothing flies in from where the card was (#136); then drag an item diagonally, the card following on x | 2 each |
 | R31 | `y`, `x`, card C moves by CSS | press C, then drag an item past one neighbour; press C again and repeat (#136) | 2 each |
 | R37 | `y` | drag the third item up past the second and let go, then at once press near the first item's bottom edge and drag it 25 px down over the one flying back: the held item stays on top (**raised**, #88; main read 5/40) | 3 |
+| R45 | `y`, variable sizes, item layout `position` | drag an item past one neighbour, then past several: **no stretch** ✓ (#42) | 3 |
+| R46 | `y`, variable sizes, item layout `true` | as R45: **no stretch** shows how far items scaled, not judged | 2 |
+| R47 | `x` and `xy`, variable sizes, item layout `position` | as R45 | 2 each |
 
 ## Base values (#47)
 

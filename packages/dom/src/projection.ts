@@ -270,6 +270,11 @@ export interface RegisterNodeOptions {
    */
   readonly respectReducedMotion?: () => boolean
   /**
+   * The node's **Layout mode** (ADR-0009, *Amendment (#42)*), read at each layout animation's
+   * start: which parts of a layout change it animates. Default `true`, position and size.
+   */
+  readonly layoutMode?: () => Projection.LayoutMode
+  /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
    * same task seed its first measure (a Switch, *Amendment (#13)*). Omitted for a
@@ -403,6 +408,8 @@ interface NodeState {
   readonly springOptions: () => Machine.SpringOptions
   /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
   readonly respectReducedMotion: () => boolean
+  /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
+  readonly layoutMode: () => Projection.LayoutMode
   /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
   readonly layoutId: string | undefined
   /**
@@ -558,6 +565,9 @@ interface HeldSeed {
   readonly box: Box.Box
   consumed: boolean
 }
+
+/** A node with no Layout mode animates position and size (ADR-0009, *Amendment (#42)*). */
+const ALWAYS_BOTH = (): Projection.LayoutMode => true
 
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point.Point = { x: 0, y: 0 }
@@ -1083,7 +1093,11 @@ export const makeProjectionSystem = (
     if (box === undefined) return
     const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
     // Lock onto the lead's box, where it paints (#136): the two may sit under different transforms.
-    const target = between(lead, node, lead.lastTarget)
+    let target = between(lead, node, lead.lastTarget)
+    // A Follower whose mode animates position only keeps its own size, at its Lead's top-left
+    // (ADR-0009, *Amendment (#42)*; Motion's applyTransformsToTarget). Plain calls: per frame.
+    const leadBox = lead.layoutBox
+    if (leadBox !== undefined && Projection.animatesPositionOnly(node.layoutMode(), box, leadBox)) target = Projection.withSizeOf(target, box)
     const delta = Projection.calcBoxDelta(layoutCorrected, target)
     node.lastTarget = target
     node.lastDelta = delta
@@ -1758,7 +1772,8 @@ export const makeProjectionSystem = (
         const priorBox = UndefinedOr.map(priorLeadOf(node), (lead) =>
           UndefinedOr.map(UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }), (box) => between(lead, node, box)))
         if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
-          node.origin = priorBox
+          // Shaped by its Layout mode; a handover crossfades even when that leaves nothing to move.
+          node.origin = shapedOrigin(node, priorBox, newBox)
           node.layoutBox = newBox
           node.spring = startSpring(node)
           // A handover: the crossfade fades the new Lead in from 0 (ADR-0010).
@@ -1778,7 +1793,7 @@ export const makeProjectionSystem = (
           const containers = scrollOffset(node, ZERO_POINT)
           const origin = unpaintedOf(node, containers === ZERO_POINT ? seed : offsetBox(seed, containers))
           if (!boxesEqual(origin, newBox)) {
-            node.origin = origin
+            node.origin = shapedOrigin(node, origin, newBox)
             node.layoutBox = newBox
             node.spring = startSpring(node) // progress spring restarts at 0
             // A handover: a leaver re-introduced as a Follower (`handleLeave`) fades out with it.
@@ -1808,7 +1823,9 @@ export const makeProjectionSystem = (
       // Origin = where the element paints RIGHT NOW, mid-animation or at rest (smooth
       // interrupt, no jump), in the frame its placement now starts from (ADR-0013,
       // *Amendment (#146)*).
-      const origin = restartOriginOf(node, prev)
+      // Shaped by its Layout mode (ADR-0009, *Amendment (#42)*): `"size"` moves it to the new box,
+      // so a node at rest that only moved has nothing to animate.
+      const origin = shapedOrigin(node, restartOriginOf(node, prev), newBox)
       // A node at rest that only moved with its layoutRoot (or its frame) has nothing of its own to animate.
       if (Bool.and(Bool.not(node.animating), boxesEqual(origin, newBox))) {
         node.layoutBox = newBox
@@ -1938,6 +1955,17 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(rpFrom)) return own
     const anchor = relativeAnchorOf(node)
     return Projection.placeRelativeBox(Projection.calcRelativeBox(own, rpPainted, anchor), rpFrom, anchor)
+  }
+
+  /**
+   * Where a layout animation of `node` from `origin` to `to` starts, by its Layout mode
+   * (ADR-0009, *Amendment (#42)*, Motion's snapshot shaping): `origin` itself for `true`.
+   * Once per layout animation's start.
+   */
+  const shapedOrigin = (node: NodeState, origin: Box.Box, to: Box.Box): Box.Box => {
+    const mode = node.layoutMode()
+    if (mode === true) return origin
+    return Projection.shapeOrigin(mode, origin, to)
   }
 
   /** Where `node` painted as the pass began (`prev` with no record of it), its own Release offset left out. Statement `if`s: once per restarting node. */
@@ -2331,7 +2359,7 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(ownBox)) return
     const fromBox = between(from, node, fromStored)
     if (boxesEqual(fromBox, ownBox)) return
-    node.origin = fromBox
+    node.origin = shapedOrigin(node, fromBox, ownBox)
     node.layoutBox = ownBox
     node.spring = startSpring(node)
     // A handover: the promoted twin fades in from 0 as the one it takes over from fades out.
@@ -2369,6 +2397,7 @@ export const makeProjectionSystem = (
     element: el,
     springOptions: () => ({}),
     respectReducedMotion: () => true,
+    layoutMode: ALWAYS_BOTH,
     layoutId,
     seed: undefined,
     paintDelta: recent.paintDelta,
@@ -2473,6 +2502,7 @@ export const makeProjectionSystem = (
       element: opts.element,
       springOptions: opts.springOptions,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
+      layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       layoutId: opts.layoutId,
       seed: undefined,
       paintDelta: undefined,
