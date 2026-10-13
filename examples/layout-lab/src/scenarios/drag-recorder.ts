@@ -51,6 +51,15 @@
  *   the scroll of the ancestors between the item and the stage (offsets ignore it), so
  *   an item in a scrolled container (scenario 14) reads its slot where it paints.
  *
+ * - **At rest (#144).** `recordAtRest` records a layout change the scenario makes while the
+ *   item is at rest (scenario 12's X) as an at-rest run: the same frame loop and read, from
+ *   the change until the item and every element it checks have stood still for
+ *   {@link STILL_FRAMES} frames and the engine has no layout animation left running (a
+ *   child on a slower spring can still snap at the item's landing, a frame or two after
+ *   the item looks still: #144), or {@link REST_MS} ms have passed. A press, or the next
+ *   change, cuts it short; it is ignored during a press. The scenario names the elements:
+ *   glued ones, read for their painted box, and isolated ones (a `layoutRoot` and what's
+ *   inside it), read for their painted and layout box.
  * Layouts should keep whole-pixel positions and sizes: `offsetLeft` and friends are
  * rounded, so a fractional slot would read up to half a pixel off.
  *
@@ -58,6 +67,7 @@
  */
 import type { Box, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
 import type { ReorderFrame } from "../lab/reorder-run.ts"
+import type { RestFrame, RestRunEnd, RestRunInput } from "../lab/rest-run.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
 
 /** How many frames in a row the released item's box must stand still to count as settled. */
@@ -68,6 +78,9 @@ const SETTLE_MS = 1500
 
 /** How far a box may move and still count as standing still, in px. */
 const STILL_PX = 0.01
+
+/** The most an at-rest run may take to stand still before the recorder stops anyway, in ms (#38's slow spring takes about 2.5 s). */
+const REST_MS = 4000
 
 /** The drag recognizer's threshold (`packages/core/src/recognizers/drag.ts`), in px. */
 const DRAG_THRESHOLD_PX = 3
@@ -131,6 +144,19 @@ export interface DragRecorderOptions {
    * (`grabFlight`), and the card judges the drag from where that flight lands (#30).
    */
   readonly flyingAtPress?: () => boolean
+  /**
+   * At-rest runs (#144; optional): the elements one checks, by name, and where it goes (the
+   * scenario passes `ctx.recordRestRun`). Given, {@link DragRecorder.recordAtRest} records one.
+   */
+  readonly atRest?: {
+    /** Elements that should ride the item through its layout animation. */
+    readonly glued: () => Readonly<Record<string, HTMLElement | undefined>>
+    /** Elements that should sit at their new place from the first frame (a `layoutRoot` and what's inside it). */
+    readonly isolated: () => Readonly<Record<string, HTMLElement | undefined>>
+    /** Whether the engine has no layout animation running (the scenario follows `ctx.onLayoutAnimationComplete`). */
+    readonly engineIdle: () => boolean
+    readonly record: (input: RestRunInput) => void
+  }
 }
 
 /** `el`'s painted box relative to `stage`'s padding box. */
@@ -173,6 +199,12 @@ export interface DragRecorder {
   readonly pressing: () => boolean
   /** The recorder's frame counter now, to stamp a scenario's own events (scenario 14's reorders). */
   readonly currentFrame: () => number
+  /**
+   * Starts an at-rest run (#144) for a layout change the scenario makes at rest: call it just
+   * before the change, in the same task, with what makes it (`X`). Ignored during a press, or
+   * with no `atRest` option; it cuts short one still recording. Whether it started.
+   */
+  readonly recordAtRest: (trigger: string) => boolean
   /** Stop listening (for `onCleanup`). */
   readonly detach: () => void
 }
@@ -235,6 +267,23 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   let changes = 0
   let changesAtTick = 0
   const channel = new MessageChannel()
+  /** An at-rest run being recorded (#144). */
+  let rest:
+    | {
+        readonly input: {
+          scenarioId: string
+          trigger: string
+          startedAt: number
+          slotBefore: Box
+          gluedOffsets: Record<string, Point>
+          frames: Array<RestFrame>
+          endedAt: number
+          endedBy: RestRunEnd
+          scheduler: "default" | "microtask"
+        }
+        still: number
+      }
+    | undefined
 
   const boxesOf = (named: Readonly<Record<string, HTMLElement | undefined>>, stage: HTMLElement): Record<string, Box> => {
     const out: Record<string, Box> = {}
@@ -256,8 +305,75 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     opts.onPhase?.("end")
   }
 
+  /** Ends the at-rest run being recorded, if one is, and hands it to the scenario. */
+  const finishRest = (endedBy: RestRunEnd): void => {
+    const r = rest
+    rest = undefined
+    if (r === undefined) return
+    loop += 1
+    cancelAnimationFrame(rafId)
+    r.input.endedAt = performance.now()
+    r.input.endedBy = endedBy
+    opts.atRest?.record(r.input)
+  }
+
+  /** Whether every box stood still between two at-rest frames. */
+  const restStill = (a: RestFrame, b: RestFrame): boolean => {
+    const near = (p: Box, q: Box | undefined): boolean =>
+      q !== undefined && Math.abs(p.x - q.x) < STILL_PX && Math.abs(p.y - q.y) < STILL_PX
+    return (
+      near(b.d, a.d) &&
+      Object.entries(b.glued).every(([name, box]) => near(box, a.glued[name])) &&
+      Object.entries(b.isolated).every(([name, at]) => near(at.painted, a.isolated[name]?.painted))
+    )
+  }
+
+  /** One at-rest frame's read, after its paint. */
+  const readRest = (): void => {
+    const r = rest
+    const at = opts.atRest
+    const stage = opts.stage()
+    const item = opts.item()
+    if (r === undefined || at === undefined || stage === undefined || item === undefined) return
+    if (!item.isConnected) {
+      finishRest("removed")
+      return
+    }
+    if (changes !== changesAtTick) {
+      // A layout change landed between this frame's paint and this read: skip the read.
+      rafId = requestAnimationFrame(tick)
+      return
+    }
+    const isolated: Record<string, { painted: Box; layout: Box }> = {}
+    for (const [name, el] of Object.entries(at.isolated())) {
+      if (el !== undefined) isolated[name] = { painted: paintedBox(el, stage), layout: layoutBox(el, stage) }
+    }
+    const sample: RestFrame = {
+      frame,
+      frameAt,
+      t: performance.now(),
+      d: paintedBox(item, stage),
+      slot: layoutBox(item, stage),
+      glued: boxesOf(at.glued(), stage),
+      isolated,
+    }
+    const prev = r.input.frames[r.input.frames.length - 1]
+    r.input.frames.push(sample)
+    r.still = prev !== undefined && restStill(prev, sample) ? r.still + 1 : 0
+    const settled = r.still >= STILL_FRAMES && at.engineIdle()
+    if (settled || performance.now() - r.input.startedAt > REST_MS) {
+      finishRest(settled ? "settled" : "timeout")
+      return
+    }
+    rafId = requestAnimationFrame(tick)
+  }
+
   channel.port1.onmessage = (e: MessageEvent<number>) => {
     if (e.data !== loop) return
+    if (press === undefined && rest !== undefined) {
+      readRest()
+      return
+    }
     const p = press
     const stage = opts.stage()
     const item = opts.item()
@@ -409,8 +525,9 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
 
   const onDown = (e: PointerEvent): void => {
     // A new press while the last one's release is still settling ends that recording
-    // first (cut short), so each press is its own run. A second pointer during a press
-    // is ignored.
+    // first (cut short), so each press is its own run, and so does one while an at-rest
+    // run records. A second pointer during a press is ignored.
+    finishRest("next-press")
     if (press !== undefined && press.input.releaseAt !== null) finish("next-press")
     const stage = opts.stage()
     const item = opts.item()
@@ -466,6 +583,34 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     },
     pressing: () => press !== undefined && press.input.releaseAt === null,
     currentFrame: () => frame,
+    recordAtRest: (trigger) => {
+      const at = opts.atRest
+      const stage = opts.stage()
+      const item = opts.item()
+      if (at === undefined || press !== undefined || stage === undefined || item === undefined) return false
+      finishRest("next-change")
+      const d = paintedBox(item, stage)
+      const gluedOffsets: Record<string, Point> = {}
+      for (const [name, box] of Object.entries(boxesOf(at.glued(), stage))) gluedOffsets[name] = { x: box.x - d.x, y: box.y - d.y }
+      rest = {
+        input: {
+          scenarioId: "",
+          trigger,
+          startedAt: performance.now(),
+          slotBefore: layoutBox(item, stage),
+          gluedOffsets,
+          frames: [],
+          endedAt: 0,
+          endedBy: "settled",
+          scheduler: currentLabScheduler(),
+        },
+        still: 0,
+      }
+      // The change comes next, in this task: a read already on its way paints no frame of it.
+      changes += 1
+      rafId = requestAnimationFrame(tick)
+      return true
+    },
     detach: () => {
       item?.removeEventListener("pointerdown", onDown)
       item?.removeEventListener("contextmenu", onContextMenu)
@@ -478,6 +623,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       cancelAnimationFrame(rafId)
       channel.port1.close()
       press = undefined
+      rest = undefined
     },
   }
 }

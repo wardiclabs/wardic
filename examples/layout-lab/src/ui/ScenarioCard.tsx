@@ -11,17 +11,20 @@
  * not a sampling run, so the timeline panel has nothing to draw for it. A board
  * scenario's card (`kind: "board"`, #47) shows its last board run's cell and its
  * `start` / `end` lines (`boardChecksOf` in `lab/base-values-board.ts`), with no
- * Timeline button either.
+ * Timeline button either. A drag scenario with a `restExpect` (scenario 12, #144) shows its
+ * last at-rest run instead while that is newer than its last drag run: the `slot moved`,
+ * `ends on slot`, `child glued` and `isolated` lines (`restChecksOf` in `lab/rest-run.ts`).
  *
  * The result area has a fixed height and is always rendered, so a result arriving
  * never changes the card's height and never moves a `.stage` below it.
  *
  * @module
  */
-import { createMemo, For, type JSX } from "solid-js"
+import { createMemo, For, type JSX, Show } from "solid-js"
 import { BOARD_CHECK_NAMES, type BoardRunInput, boardChecksOf } from "../lab/base-values-board.ts"
 import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf } from "../lab/drag-run.ts"
 import { REORDER_CHECK_NAMES, type ReorderExpect, reorderChecksOf } from "../lab/reorder-run.ts"
+import { REST_CHECK_NAMES, type RestExpect, type RestRun, restChecksOf } from "../lab/rest-run.ts"
 import { heldCheckOf } from "../lab/held-frames.ts"
 import type { LabRun } from "../lab/lab.ts"
 import { formatPasses, measurePassesOf } from "../lab/measure-passes.ts"
@@ -37,6 +40,8 @@ export interface ScenarioCardProps {
   readonly lastDragRun: DragRun | undefined
   /** A board scenario's most recent board run, if any. */
   readonly lastBoardRun: BoardRunInput | undefined
+  /** A drag scenario's most recent at-rest run (#144), if any. */
+  readonly lastRestRun: RestRun | undefined
   /** Whether the timeline panel is showing this card's last run. */
   readonly selected: boolean
   /** Shows this card's last run in the timeline panel. */
@@ -77,7 +82,12 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
       {board ? (
         <BoardResult run={props.lastBoardRun} />
       ) : drag ? (
-        <DragResult run={props.lastDragRun} expect={def.dragExpect} reorderExpect={def.reorderExpect} />
+        <Show
+          when={restIsLatest(props.lastRestRun, props.lastDragRun)}
+          fallback={<DragResult run={props.lastDragRun} expect={def.dragExpect} reorderExpect={def.reorderExpect} />}
+        >
+          <RestResult run={props.lastRestRun} expect={def.restExpect} />
+        </Show>
       ) : (
         <TriggerResult def={def} lastRun={props.lastRun} />
       )}
@@ -159,6 +169,35 @@ const DragResult = (props: DragResultProps): JSX.Element => {
   return (
     <footer class="card-result drag" aria-live="polite">
       <For each={names}>
+        {(name) => {
+          const check = () => checks()?.find((c) => c.name === name)
+          return (
+            <div class="result-cell">
+              <span class="result-label">{name}</span>
+              <span class="result-value" classList={{ "check-miss": check()?.ok === false }} title={check()?.text}>
+                {check()?.text ?? "–"}
+              </span>
+            </div>
+          )
+        }}
+      </For>
+    </footer>
+  )
+}
+
+/** Whether the at-rest run is a drag scenario's latest run: newer than its last drag run. */
+const restIsLatest = (rest: RestRun | undefined, drag: DragRun | undefined): boolean =>
+  rest !== undefined && (drag === undefined || rest.startedAt > drag.grabAt)
+
+/**
+ * An at-rest run's result (#144): its four lines, each missed one coloured, as the drag
+ * lines are. Props are static values; `run` is a tracked prop getter.
+ */
+const RestResult = (props: { readonly run: RestRun | undefined; readonly expect: RestExpect | undefined }): JSX.Element => {
+  const checks = createMemo(() => (props.run === undefined ? undefined : restChecksOf(props.run, props.expect ?? {})))
+  return (
+    <footer class="card-result drag" aria-live="polite">
+      <For each={REST_CHECK_NAMES}>
         {(name) => {
           const check = () => checks()?.find((c) => c.name === name)
           return (
