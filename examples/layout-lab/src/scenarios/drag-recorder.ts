@@ -125,6 +125,12 @@ export interface DragRecorderOptions {
    * only for this item's press.
    */
   readonly loseNextRelease?: { readonly armed: () => boolean; readonly disarm: () => void }
+  /**
+   * Whether the item's own layout animation is running at a press (optional; scenario 13
+   * after Z or P at rest). Given and true, the run records the item's slot at the press
+   * (`grabFlight`), and the card judges the drag from where that flight lands (#30).
+   */
+  readonly flyingAtPress?: () => boolean
 }
 
 /** `el`'s painted box relative to `stage`'s padding box. */
@@ -428,6 +434,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         releaseAt: null,
         endedAt: 0,
         scheduler: currentLabScheduler(),
+        ...(opts.flyingAtPress?.() === true ? { grabFlight: { slot: layoutBox(item, stage) } } : {}),
       },
       // Motion's `isPrimaryPointer`, as Wardic's recognizers read it after #31 (ADR-0019).
       primary: e.pointerType === "mouse" ? e.button <= 0 : e.isPrimary,

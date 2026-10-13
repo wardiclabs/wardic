@@ -67,6 +67,21 @@ const DRAG_THRESHOLD_PX = 3
 const NEAR_PX = 1
 
 /**
+ * How near the pointer's hold a grab mid-flight's item must come to have landed there, in px
+ * (#30): well inside the under-pointer bound, so the flight's last sub-pixel steps don't read
+ * as the drag's error.
+ */
+const LANDED_PX = 0.25
+
+/**
+ * The most a grab mid-flight's first dragged frame may move beyond the pointer, as a share of
+ * the flight still to go then (or {@link JUMP_FLOOR_PX}, whichever is more): a frame's step of
+ * a flight that goes on, not the whole of it (main's #30 jump).
+ */
+const JUMP_SHARE = 0.5
+const JUMP_FLOOR_PX = 2
+
+/**
  * How far the painted box must change for a frame after the release to count as
  * moved, in px. Much finer than {@link NEAR_PX}: a release's first step is a few
  * percent of its travel (a click's 192px FLIP starts with 5.1px), so a short release
@@ -225,6 +240,14 @@ export interface DragRunInput {
    * an `x` row). Left out, both axes.
    */
   readonly lock?: "x" | "y"
+  /**
+   * The item's own layout animation was running at the press (the scenario says so,
+   * scenario 13 after Z or P at rest): its slot then. A grab leaves that flight running
+   * under the pointer, as Motion's does (#30, ADR-0016 *Amendment (velocity family)*),
+   * so the item slides the rest of the way to where the pointer holds it: its slot moved
+   * by the pointer. Left out otherwise.
+   */
+  readonly grabFlight?: { readonly slot: Box }
 }
 
 /** One Measure pass that started during a drag run. */
@@ -341,6 +364,20 @@ export interface DragRun extends DragRunInput {
    * reads 0. 0 with no held frame.
    */
   readonly underPointerMaxPx: number
+  /**
+   * A grab mid-flight ({@link DragRunInput.grabFlight}): how far the flight still had to
+   * go at the press (`slidePx`, centre to centre), how far the first dragged frame moved
+   * beyond the pointer from the frame before the drag started, its flight step included
+   * (`jumpPx`; main's #30 jumped the whole remaining flight), and whether the flight
+   * landed under the pointer before the release. {@link underPointerMaxPx} is then read
+   * against the slot at the press moved by the pointer, from the frame it landed in.
+   */
+  readonly flight?: {
+    readonly slidePx: number
+    readonly jumpPx: number | null
+    readonly remainingPx: number | null
+    readonly landed: boolean
+  }
   /**
    * The most painted frames any move took to show: for each move, the held frames
    * after it until one's painted centre is within 1px of where the move put it (or
@@ -661,6 +698,31 @@ const gestureEndOf = (
 }
 
 /**
+ * A grab mid-flight's numbers ({@link DragRun.flight}): the flight still to go at the
+ * press; the first dragged frame's move beyond the pointer from the last frame before the
+ * drag started, and the flight still to go in that frame; and whether it landed.
+ */
+const flightOf = (
+  input: DragRunInput,
+  grabSlot: Box,
+  held: ReadonlyArray<DragFrame>,
+  moves: ReadonlyArray<DragMove>,
+  landed: boolean,
+): { readonly slidePx: number; readonly jumpPx: number | null; readonly remainingPx: number | null; readonly landed: boolean } => {
+  const slot = centreOf(grabSlot)
+  const slidePx = pointDistance(centreOf(input.grabBox), slot)
+  const first = held[0]
+  // The last frame before the drag started, or the box at the press when none was painted.
+  const before = first === undefined ? undefined : input.frames.filter((f) => f.frame < first.frame).at(-1)
+  const shown = first === undefined ? undefined : moves.filter((m) => m.frame < first.frame).at(-1)
+  if (first === undefined || shown === undefined) return { slidePx, jumpPx: null, remainingPx: null, landed }
+  const from = centreOf(before?.d ?? input.grabBox)
+  const at = centreOf(first.d)
+  const jumpPx = pointDistance({ x: at.x - shown.dx, y: at.y - shown.dy }, from)
+  return { slidePx, jumpPx, remainingPx: pointDistance(from, slot), landed }
+}
+
+/**
  * Reads a {@link DragRun} from one press's `input` and the spans the lab joined for
  * it (the recorded spans that started in `[input.grabAt, input.endedAt]`; any
  * others are ignored for `passes` but kept in `spans`). `previous` is the same
@@ -672,7 +734,8 @@ const gestureEndOf = (
 export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>, previous?: DragRun): DragRun => {
   const { frames, releaseAt } = input
   const moves = dragMovesOf(input.moves)
-  const grabCentre = centreOf(input.grabBox)
+  // A grab mid-flight lands where the pointer holds the slot it was flying to (#30).
+  const grabCentre = centreOf(input.grabFlight?.slot ?? input.grabBox)
   const targetOf = (m: DragMove): Point => ({ x: grabCentre.x + m.dx, y: grabCentre.y + m.dy })
   const firstMove = moves[0]
   const held =
@@ -699,6 +762,10 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
   const newestShown: Array<number> = []
   let visible = 0
   let reachable = 0
+  // A grab mid-flight is judged from the frame its flight lands under the pointer: under
+  // pointer here, and frames behind for the moves from that frame on.
+  let landed = input.grabFlight === undefined
+  let landedFrame = Number.NEGATIVE_INFINITY
   for (const [k, f] of held.entries()) {
     while (visible < moves.length && moves[visible].frame < f.frame) visible++
     while (reachable < moves.length && moves[reachable].frame < f.frame - hop) reachable++
@@ -709,7 +776,13 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     if (reachable > 0 && !wake[k]!) {
       let nearest = Number.POSITIVE_INFINITY
       for (let j = reachable - 1; j < visible; j++) nearest = Math.min(nearest, distance(centre, targetOf(moves[j])))
-      underPointerMaxPx = Math.max(underPointerMaxPx, nearest)
+      // Landed: at the newest move's place, not just near an older one a slide in the
+      // pointer's direction passes on its way.
+      if (!landed && distance(centre, targetOf(moves[visible - 1])) <= LANDED_PX) {
+        landed = true
+        landedFrame = f.frame
+      }
+      if (landed) underPointerMaxPx = Math.max(underPointerMaxPx, nearest)
     }
     let shown = -1
     for (let j = visible - 1; j >= 0; j--) {
@@ -727,6 +800,8 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     const move = moves[i]
     // Replaced before any frame could show it.
     if (moves[i + 1]?.frame === move.frame) continue
+    // Made while a grab's flight was still sliding the item under the pointer (#30).
+    if (!landed || move.frame + 1 < landedFrame) continue
     let behind = 0
     let measured = false
     for (let k = 0; k < held.length; k++) {
@@ -763,6 +838,7 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     ...input,
     heldFrameCount: held.length,
     underPointerMaxPx,
+    ...(input.grabFlight === undefined ? {} : { flight: flightOf(input, input.grabFlight.slot, held, moves, landed) }),
     framesBehindMax,
     framesBehindMoves,
     childGlueMaxPx,
@@ -855,6 +931,27 @@ const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined):
  * never reached its end in the run, so both read `lost release, no unpressed move`,
  * not judged. The `gesture ends` line is judged for every press (see `gestureLineOf`).
  */
+/**
+ * The `under pointer` line of a grab mid-flight (#30): judged from the frame the flight
+ * landed under the pointer, and failed by a first dragged frame that jumps more than
+ * {@link JUMP_SHARE} of the flight still to go (or {@link JUMP_FLOOR_PX}).
+ */
+const flightLineOf = (flight: NonNullable<DragRun["flight"]>, under: number | undefined, underMax: number | undefined): DragCheck => {
+  const jumped =
+    flight.jumpPx !== null && flight.remainingPx !== null && flight.jumpPx > Math.max(JUMP_FLOOR_PX, flight.remainingPx * JUMP_SHARE)
+  const notes = [
+    `after a ${px(flight.slidePx)} slide`,
+    ...(jumped ? [`jumped ${px(flight.jumpPx!)} at the grab`] : []),
+    ...(flight.landed ? [] : ["never landed"]),
+  ]
+  return lineOf(
+    "under pointer",
+    `${under === undefined || !flight.landed ? "?" : px(under)} · ${notes.join(" · ")}`,
+    underMax === undefined ? undefined : `≤ ${underMax} px from its landing, no jump`,
+    under !== undefined && underMax !== undefined && flight.landed && !jumped && under <= underMax,
+  )
+}
+
 export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck> => {
   // The drag's start: its first move past the threshold. A press with none is a click.
   const startMove = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
@@ -879,12 +976,14 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   const lostOpen = run.releaseLost === true && run.gestureEnd.at === null
   const cut = run.endedBy === "next-press"
   return [
-    lineOf(
-      "under pointer",
-      `${under === undefined ? "?" : px(under)}${run.pointerLeft === true ? " · the pointer left the item" : ""}`,
-      underMax === undefined ? undefined : `≤ ${underMax} px`,
-      under !== undefined && underMax !== undefined && under <= underMax,
-    ),
+    run.flight === undefined
+      ? lineOf(
+          "under pointer",
+          `${under === undefined ? "?" : px(under)}${run.pointerLeft === true ? " · the pointer left the item" : ""}`,
+          underMax === undefined ? undefined : `≤ ${underMax} px`,
+          under !== undefined && underMax !== undefined && under <= underMax,
+        )
+      : flightLineOf(run.flight, under, underMax),
     lineOf(
       "frames behind",
       run.framesBehindMax === null
