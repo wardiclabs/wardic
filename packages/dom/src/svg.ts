@@ -10,11 +10,13 @@
  *
  * Model (Motion's `buildSVGAttrs`): for an svg-INNER element every key is an
  * ATTRIBUTE except `transform`/`transformOrigin`/`transformBox` + the CSS
- * motion-path props, which stay STYLE. For an HTML element or the `<svg>` ROOT
+ * motion-path props, which stay STYLE, and a custom property (`--…`), which is style
+ * under its own name on every element (#151). For an HTML element or the `<svg>` ROOT
  * everything is style (the root has a CSS box; only `viewBox` would be an attr —
  * deferred). So the HTML path is unchanged: its attribute map is always empty.
  */
 import type * as Renderer from "@wardic/core/Renderer"
+import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 
 /**
@@ -78,11 +80,24 @@ const ATTR_ALIASES: Record<string, string> = { attrX: "x", attrY: "y", attrScale
  */
 const DASHED = new Map<string, string>()
 
-/** camelCase → dash-case for a CSS/attribute name (`transformBox` → `transform-box`). */
+/**
+ * Whether `key` is a CSS custom property (`--brandColor`): it keeps its name, which is
+ * case-sensitive, and is always a style property, on SVG too (ADR-0014, *Amendment (#151)*;
+ * Motion's `isCSSVariableName`).
+ */
+const isCustomProperty = (key: string): boolean => key.startsWith("--")
+
+/**
+ * camelCase → dash-case for a CSS/attribute name (`transformBox` → `transform-box`); a
+ * custom property keeps its name (`--brandColor`).
+ */
 export const dashCase = (key: string): string => {
   const cached = DASHED.get(key)
   if (Predicate.isNotUndefined(cached)) return cached
-  const dashed = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+  const dashed = Bool.match(isCustomProperty(key), {
+    onTrue: () => key,
+    onFalse: () => key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`),
+  })
   DASHED.set(key, dashed)
   return dashed
 }
@@ -92,12 +107,12 @@ const attrName = (key: string): string => (CAMEL_CASE_ATTRS.has(key) ? key : das
 
 /**
  * The attribute an svg-inner element's `key` is written as (the routing below), or
- * `undefined` for a key that stays style ({@link SVG_STYLE_KEYS}) or collapses into the
+ * `undefined` for a key that stays style ({@link SVG_STYLE_KEYS}, a custom property) or collapses into the
  * stroke dash (`pathLength` / `pathSpacing` / `pathOffset`). Internal: the Own-value read
  * reads the attribute a key is written as (ADR-0022).
  */
 export const svgAttrNameOf = (key: string): string | undefined => {
-  if (key === "pathLength" || key === "pathSpacing" || key === "pathOffset") return undefined
+  if (key === "pathLength" || key === "pathSpacing" || key === "pathOffset" || isCustomProperty(key)) return undefined
   const alias = ATTR_ALIASES[key]
   if (alias !== undefined) return alias
   if (SVG_STYLE_KEYS.has(key)) return undefined
@@ -124,7 +139,7 @@ export interface SplitPatch {
  * Route a flat (agnostic) `Patch` into CSS `style` + SVG `attrs` for `el`.
  *
  * - HTML / `<svg>` root: `{ style: patch, attrs: {} }` — unchanged behavior.
- * - svg-inner: every key → attribute, except {@link SVG_STYLE_KEYS} → style;
+ * - svg-inner: every key → attribute, except {@link SVG_STYLE_KEYS} and a custom property → style;
  *   `attrX`/`attrY`/`attrScale` → the `x`/`y`/`scale` attribute; a `transform`
  *   also yields `transform-box: fill-box` + `transform-origin: 50% 50%` (unless
  *   the value-map already set them — user wins), so an SVG transform reads like
@@ -210,6 +225,11 @@ const routeSvgInner = (patch: Renderer.Patch): SplitPatch => {
     if (SVG_STYLE_KEYS.has(key)) {
       style[key] = value
       if (key === "transform") hasTransform = true
+      continue
+    }
+    // A custom property is a style property (ADR-0014, *Amendment (#151)*).
+    if (isCustomProperty(key)) {
+      style[key] = value
       continue
     }
     attrs[attrName(key)] = String(value)

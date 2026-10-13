@@ -19,9 +19,6 @@ import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
 /** An element's Own value for a key: the raw value read (a string), a transform key's identity, or `undefined`. */
 export type OwnValue = (key: string) => number | string | undefined
 
-/** The CSS name of a key: dash-cased, except a custom property, which keeps its name. */
-const cssName = (key: string): string => (key.startsWith("--") ? key : dashCase(key))
-
 /**
  * A reader of `element`'s Own values, each read once, at the key's first need, and kept
  * (a miss too): a later CSS change doesn't move it (Motion's C12). Per key:
@@ -47,7 +44,7 @@ export const ownValues = (element: Element): OwnValue => {
       if (attr !== null && attr !== "") return attr
     }
     computed ??= getComputedStyle(element)
-    const value = computed.getPropertyValue(cssName(key)).trim()
+    const value = computed.getPropertyValue(dashCase(key)).trim()
     return value === "" ? undefined : value
   }
   return (key) => {
