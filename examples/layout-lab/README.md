@@ -408,7 +408,10 @@ Method); the expected card, with a browser's own scheduler:
   **at-rest run**, which the card shows while it is the latest run: `slot moved` (by
   how much, over how many frames), `ends on slot` (≤ 0.5 px), `child glued` (C1, C2
   and M, ≤ 1 px) and `isolated` (R and G off their new place, ≤ 1 px, every frame).
-  A press cuts an at-rest run short. A grab during that FLIP is judged from where it
+  For 3 s after a grab that slides M across the item, an X run leaves M out of `child
+  glued` (its own slide moves it by design) and the line says so. A press cuts an
+  at-rest run short. An X while the item still slides from the last one throws M off
+  it (#146, not fixed yet: the line fails then). A grab during that FLIP is judged from where it
   lands, as Z and P at rest are in 13, and R and G's glue lines then read the
   isolation. A slot move during the flight
   back (#28) is scenario 13's (Z, P); here it would move R and G to their new place
@@ -447,7 +450,9 @@ Known and not fixed yet, so they don't surprise you:
   layout animation still runs leaves that animation running under the pointer, so
   the item slides the rest of the way to where the pointer holds it. Scenarios 13
   and 12 tell their card when that happens (Z or P at rest, X at rest), which then
-  judges from the landing; in 11 the **under pointer** line counts the slide (it
+  judges from the landing, where the item rests: a settled run's last frame says how
+  far that is off the whole-pixel slot (0.22–0.26 px at DPR 1.35, more than the landing
+  tolerance); in 11 the **under pointer** line counts the slide (it
   counted main's jump too). A grab while the item flies back from a release stops it where it is and
   drags it from there, a restart after a lost release (L) included.
 

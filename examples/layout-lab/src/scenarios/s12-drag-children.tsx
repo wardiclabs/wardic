@@ -20,8 +20,9 @@
  * Motion's is, and paints at its new place from the first frame, G with it (#33: R used to
  * ride D, and G was thrown the other way, about twice the move). Each X is recorded as an
  * at-rest run (the recorder's `recordAtRest`), which the card judges against `restExpect`
- * while it is the latest run: the item ends on its slot, C1, C2 and M stay glued, R and G
- * stay isolated. A grab during that FLIP is judged from where it lands (the recorder's
+ * while it is the latest run: the item ends on its slot, C1, C2 and M stay glued (M left
+ * out for {@link M_SLIDE_MS} ms after a grab that slides it: its own slide moves it by
+ * design), R and G stay isolated. A grab during that FLIP is judged from where it lands (the recorder's
  * `flyingAtPress`), and R and G's glue lines then read the isolation.
  *
  * @module
@@ -40,6 +41,9 @@ const SLOT_MOVE_MS = 900
 
 /** How long after X D's FLIP may still be running, in ms (the default spring settles in about 750). */
 const FLIGHT_MS = 1000
+
+/** How long after a grab M's own slide across D may still be running, in ms (its 30/12 spring takes about 2.5 s). */
+const M_SLIDE_MS = 3000
 
 const ROOT_STYLE: JSX.CSSProperties = { display: "flex", "flex-direction": "column", "align-items": "flex-start", gap: "8px" }
 const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "340px", "--stage-h": "260px" }
@@ -95,6 +99,8 @@ const View: ScenarioDef["View"] = (props) => {
   let restMoveAt = Number.NEGATIVE_INFINITY
   // Whether the engine has no layout animation running, for an at-rest run's end (#144).
   let engineIdle = true
+  // When a grab last started M's own slide across D: an X run leaves M's glue out until it has landed.
+  let mSlideAt = Number.NEGATIVE_INFINITY
   let noteLayoutChange = (): void => {}
   let pressing = (): boolean => false
   let recordAtRest = (_trigger: string): boolean => false
@@ -119,7 +125,9 @@ const View: ScenarioDef["View"] = (props) => {
     }
   }
   const onGrab = (): void => {
-    if (animateOnGrab()) setMRight((v) => !v) // M starts its FLIP as the press begins
+    if (!animateOnGrab()) return
+    mSlideAt = performance.now()
+    setMRight((v) => !v) // M starts its FLIP as the press begins
   }
 
   onMount(() => {
@@ -150,6 +158,9 @@ const View: ScenarioDef["View"] = (props) => {
         glued: () => ({ c1, c2, m }),
         isolated: () => ({ r, g }),
         engineIdle: () => engineIdle,
+        // M's own slide from a grab moves it across D by design: its glue isn't judged until it has landed.
+        leftOut: (): Record<string, string> =>
+          performance.now() - mSlideAt < M_SLIDE_MS ? { m: "its own slide from a grab" } : {},
         record: (input) => props.ctx.recordRestRun(input),
       },
     })

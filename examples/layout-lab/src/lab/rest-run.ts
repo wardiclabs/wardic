@@ -50,6 +50,11 @@ export interface RestRunInput {
   readonly slotBefore: Box
   /** Each glued element's offset from the item just before the change, by name. */
   readonly gluedOffsets: Readonly<Record<string, Point>>
+  /**
+   * Glued elements the scenario left out of this run, with why (scenario 12's M while its own
+   * slide from a grab may still run: its offset then changes by design).
+   */
+  readonly leftOut?: Readonly<Record<string, string>>
   /** The frames read after the change, oldest first. */
   readonly frames: ReadonlyArray<RestFrame>
   /** When the run ended (`performance.now()`). */
@@ -152,6 +157,12 @@ const lineOf = (name: RestCheckName, value: string, expected: string | undefined
 const perName = (values: ReadonlyArray<readonly [string, number]>): string =>
   values.length === 0 ? "?" : `${values.map(([name, v]) => `${name} ${v.toFixed(2)}`).join(" · ")} px`
 
+/** The glued elements left out, `· m left out (its own slide from a grab)`, or nothing. */
+const leftOutText = (leftOut: Readonly<Record<string, string>> | undefined): string =>
+  Object.entries(leftOut ?? {})
+    .map(([name, why]) => ` · ${name} left out (${why})`)
+    .join("")
+
 /** What cut a run short, for the `ends on slot` line. */
 const CUT_TEXT: Partial<Record<RestRunEnd, string>> = {
   "next-press": "cut short by a press",
@@ -183,7 +194,7 @@ export const restChecksOf = (run: RestRun, expect: RestExpect): Array<RestCheck>
       : lineOf("ends on slot", run.endsOnSlotPx === null ? cut : `${px(run.endsOnSlotPx)} · ${cut}`, undefined, true),
     lineOf(
       "child glued",
-      perName(glue),
+      `${perName(glue)}${leftOutText(run.leftOut)}`,
       glueMax === undefined ? undefined : `≤ ${glueMax} px`,
       glue.length > 0 && glueMax !== undefined && glue.every(([, v]) => v <= glueMax),
     ),

@@ -96,6 +96,10 @@ The layout lab's scenario 12 showed it in a hand run: X moves the item's slot, a
    - Verified before deciding: a first version without the taking-over frame's move failed a child landing under a parent still flying (`projection-slow-child.browser.test.ts` SC4); the rule above passes it.
 2. **The layout lab records an at-rest run (Q2).** An X at rest in scenario 12 is recorded by the drag recorder's frame sampler, from the press until everything has stood still, in its own list (`restRuns`) and the saved log, and judged on the card: the item lands on its slot, C1, C2 and M stay glued to it, and R and G sit at their final place from the first frame (*Amendment (#33)*). Rejected: folding X into the next drag run, and a trigger run (a paint sampler built for flashes).
 
+### Limits
+
+- A running node placed relative to its parent still jumps when the parent's layout animation is interrupted mid-flight (#146, found in a hand run of the at-rest runs): its restart starts from its own progress in page space, against a parent at another. Motion keeps it on the parent; 45 px in the probe's `slow-child-back`, on main too.
+
 ### Measured
 
 `.tmp/vel/`, Chromium 147 and Firefox 148, 3 runs each, framer-motion 13.4.0; M's offset from P, the biggest frame-to-frame step change:
@@ -114,6 +118,6 @@ The layout lab, scripted (`.tmp/vel-lab/drive.ts`), scenario 12's X both ways, r
   - SC3: a parent landing under a chain of running nodes leaves both on their lines; SC4: a child landing under its parent still flying leaves a slower grandchild on it (the taking-over frame's move); SC5: a child landing with its parent on the same frame does too;
   - SC6: a centre-anchored slow child of a parent that grows as it moves stays on the parent's centre (the anchor);
   - SC7: a node held in a drag while its parent FLIPs and lands stays under the pointer, with nothing failed (a guard: it has no layout animation to move).
-- `examples/layout-lab/test/rest-run.test.ts`, AR1–AR5: the at-rest lines, passing X with both fixes and failing #144's snap and #33's ride.
+- `examples/layout-lab/test/rest-run.test.ts`, AR1–AR6: the at-rest lines, passing X with both fixes and failing #144's snap and #33's ride; M left out while its own slide from a grab runs.
 - On the engine before this change SC1–SC6 fail; SC7 pins what it already did.
 - Mutation-checked: 8 single-point mutations of the new code, 7 failing the test meant for them; the eighth drops the early return when no landing node had a layout animation, which only saves work.

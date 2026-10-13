@@ -155,6 +155,8 @@ export interface DragRecorderOptions {
     readonly isolated: () => Readonly<Record<string, HTMLElement | undefined>>
     /** Whether the engine has no layout animation running (the scenario follows `ctx.onLayoutAnimationComplete`). */
     readonly engineIdle: () => boolean
+    /** Glued elements to leave out of a run starting now, with why (optional; read once, at the start). */
+    readonly leftOut?: () => Readonly<Record<string, string>>
     readonly record: (input: RestRunInput) => void
   }
 }
@@ -276,6 +278,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
           startedAt: number
           slotBefore: Box
           gluedOffsets: Record<string, Point>
+          leftOut?: Readonly<Record<string, string>>
           frames: Array<RestFrame>
           endedAt: number
           endedBy: RestRunEnd
@@ -590,8 +593,11 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       if (at === undefined || press !== undefined || stage === undefined || item === undefined) return false
       finishRest("next-change")
       const d = paintedBox(item, stage)
+      const leftOut = at.leftOut?.() ?? {}
       const gluedOffsets: Record<string, Point> = {}
-      for (const [name, box] of Object.entries(boxesOf(at.glued(), stage))) gluedOffsets[name] = { x: box.x - d.x, y: box.y - d.y }
+      for (const [name, box] of Object.entries(boxesOf(at.glued(), stage))) {
+        if (!(name in leftOut)) gluedOffsets[name] = { x: box.x - d.x, y: box.y - d.y }
+      }
       rest = {
         input: {
           scenarioId: "",
@@ -599,6 +605,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
           startedAt: performance.now(),
           slotBefore: layoutBox(item, stage),
           gluedOffsets,
+          ...(Object.keys(leftOut).length === 0 ? {} : { leftOut }),
           frames: [],
           endedAt: 0,
           endedBy: "settled",

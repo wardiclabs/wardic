@@ -381,6 +381,23 @@ describe("dragChecksOf", () => {
     expect(plain.framesBehindMax).toBeGreaterThan(0)
   })
 
+  it("lands a grab mid-flight where its item rests, a sub-pixel off its whole-pixel slot (a hand run at DPR 1.35)", () => {
+    // Every painted box sits 0.26 px up-left of where the whole-pixel slot puts it; the run
+    // settles after the release, at its slot, the same 0.26 px off.
+    const s = -0.26
+    const off = (f: DragFrame): DragFrame => ({ ...f, d: moved(f.d, s, s), children: glued(moved(f.d, s, s)) })
+    const released = frameOf(8, moved(at(MOVES[5]!), 0, 30), FLIGHT_SLOT)
+    const rest = frameOf(9, FLIGHT_SLOT, FLIGHT_SLOT)
+    const frames = [...flightFrames(SLIDE), released, rest].map(off)
+    const settled = input(frames, { grabBox: moved(GRAB, s, s), grabFlight: { slot: FLIGHT_SLOT }, endedBy: "settled" })
+    const run = dragRunOf(settled, cleanSpans)
+    expect(run.flight?.landed).toBe(true)
+    expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
+    // Cut short, the run can't say where the item rests: the 0.26 px reads against the slot.
+    const cut = dragRunOf({ ...settled, endedBy: "next-press" }, cleanSpans)
+    expect(cut.flight?.landed).toBe(false)
+  })
+
   it("doesn't take a slide that passes an older move's place for a landing (the default scheduler's hop)", () => {
     // The pointer moves 6px down a frame, the way the flight goes; at frame 3 the item, 6px
     // short of its landing, sits exactly where the move before the newest would put it.

@@ -76,4 +76,15 @@ describe("at-rest runs (#144, scenario 12's X)", () => {
     const frames = FLIGHT.map((top, k) => frameAt(k, k === FLIGHT.length - 1 ? 84 : top))
     expect(lines(run({ frames }))["ends on slot"]).toEqual({ name: "ends on slot", ok: false, text: "2.00 px ✗ expected ≤ 0.5 px" })
   })
+
+  it("AR6: an X during M's own slide from a grab leaves M out of child glued, and says so", () => {
+    // M still slides across the item from a grab (2.3 px over the run, by design): not glue.
+    const sliding = (k: number): number => 0.15 * k
+    const input = run({ gluedOffsets: { c1: { x: 10, y: 10 }, c2: { x: 50, y: 10 } }, leftOut: { m: "its own slide from a grab" } }, sliding)
+    expect(lines(input)["child glued"]).toEqual({
+      name: "child glued",
+      ok: true,
+      text: "c1 0.00 · c2 0.00 px · m left out (its own slide from a grab) ✓",
+    })
+  })
 })
