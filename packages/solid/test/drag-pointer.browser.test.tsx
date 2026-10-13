@@ -354,15 +354,9 @@ describe.each(["layout", "free"] as const)("%s drag", (mode) => {
       true,
     )
     expect.soft(lastOffsetX(s.samples, mark), "the new offsets are measured from the second down").toBeCloseTo(30, 0)
-    if (mode === "free") {
-      expect.soft(Math.abs(held.dx - (atPress.dx + 30)), "D moves 30 px from where it was, under the pointer").toBeLessThan(
-        1,
-      )
-    } else {
-      // #30: a layout node grabbed while it flies back starts from its slot, so until #30
-      // lands a restart paints D at its slot plus the new offset.
-      expect.soft(held.dx, "the new drag starts from D's slot (#30)").toBeCloseTo(30, 0)
-    }
+    // A layout node grabbed while it flies back starts where the grab stopped its Release
+    // offset, as a free drag's release does (ADR-0016, Amendment (velocity family), decision 4).
+    expect.soft(Math.abs(held.dx - (atPress.dx + 30)), "D moves 30 px from where it was, under the pointer").toBeLessThan(1)
     expect.soft(after.opacity, "the release ends the drag").toBeGreaterThan(0.95)
   })
 

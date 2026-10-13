@@ -230,8 +230,10 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     release, and records the pointer's moves (`releaseMoves`, with `buttons`),
     until the item settles; after a lost release the settle starts at that first
     unpressed move. The line fails, each with its reason, when:
-    `follows the unpressed pointer` (a frame after the gesture's end sat where the
-    unpressed pointer put the item, two in a row); `never ends, … off its slot`
+    `follows the unpressed pointer` (a frame after the gesture's end sat exactly
+    where the unpressed pointer put the item, within 0.25 px, three in a row: a
+    release's momentum carrying it on the pointer's way only comes near it, or
+    passes its place once or twice); `never ends, … off its slot`
     (nothing moved after its end although the item was off its slot); `inherited a
     stale gesture` (the scenario's previous run left its gesture on, and the item
     moved between that run's last frame and this grab); `the press doesn't end the
@@ -254,6 +256,9 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     distance) and `? · cut short by the next press` on a `release held` it
     couldn't read: a new press while the last release is still settling ends
     that run first. A run that timed out (1.5 s) is judged.
+  - `cut short: the item left the page` on the same lines: the item was removed
+    while its run was on (scenario 13's momentum and twin boxes remount it), so the
+    run ends at that frame.
   - `lost release, no unpressed move` on `release held` and `ends on slot`: the
     release was lost and the pointer didn't move before the recorder stopped, so
     the gesture's end never came in the run; the next press judges it.
@@ -292,8 +297,8 @@ and the card's `passes`.
 | 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no Measure pass. | safe | 0 cold, 1 warm | 0 |
 | 10 | Sibling resize mid-flight | The click moves box A; 150 ms later a timer grows box B's content, which only Wardic's shared ResizeObserver sees, while A is mid-flight. | safe | 0 | 2 (2 seeding), `passStepRatio` about 1 |
 | 11 | Drag while the slot moves | Hold the item; its slot moves every 600 ms or on R: the sibling resizes (the engine ResizeObserver's pass) or the two swap under a `LayoutGroup` (a task's pass). | safe | drag card | each pass seeds the sibling only; the dragged tree drag-blocked |
-| 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms or on S) and the release. | safe | drag card | as 11 |
-| 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent. | safe | drag card | a pass seeds the parent at most |
+| 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms, or on S, also while it flies back) and the release. | safe | drag card | as 11 |
+| 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent, while held, flying back or at rest (then grab it mid-animation). Momentum on or off; a `layoutId` twin. | safe | drag card | a pass seeds the parent at most |
 | 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container, optionally on a card a transform moves; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code, C moves the CSS card. | safe | drag card + reorder lines | each pass seeds the displaced items only |
 | 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets; each gesture is judged on where it starts and where it ends. | safe | board card | – |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
@@ -393,16 +398,35 @@ Method); the expected card, with a browser's own scheduler:
   style: it is raised while dragged (scenario 14).
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
   and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
-  900 ms, or press S. M (grey) starts a slow FLIP across the item when you grab it
-  (the toggle): it should keep animating on the item, with no jump. Its offset
-  changes by design, so the eye checks it, not the card; each frame of the saved
-  log records its box under `watched`, for #38 (M steps back as the released item
-  settles on its slot).
+  900 ms, or press S, which also works while the item flies back: every child
+  should stay on it (#28: before ADR-0016's *Amendment (velocity family)*, a slot
+  move then threw the `layout` child 70 px off). One doesn't yet: G, inside the
+  `layoutRoot`, is thrown 90–110 px by a slot move during the flight back, and its
+  glue line fails. That is #33 (a running node inside a `layoutRoot` inside a FLIPing
+  parent counts the parent's motion twice); on main, S only worked while held, so the
+  lab couldn't show it. M (grey) starts a slow FLIP across
+  the item when you grab it (the toggle): it should keep animating on the item,
+  with no jump. Its offset changes by design, so the eye checks it, not the card;
+  each frame of the saved log records its box under `watched`, for #38 (M stepped
+  back 1.6 px as the released item settled on its slot; now it doesn't).
 - **13, release and pointer lag.** The item sits in a `layout` parent. While you
   hold it, Z resizes its own slot (it should paint its new size under the pointer,
   about the same centre) and P FLIPs its parent 60px right (it should stay under the
   pointer). The release lines are the point: let go still, while moving, and back
-  where you grabbed while still moving (the release that used to stay stuck).
+  where you grabbed while still moving (the release that used to stay stuck). Z and
+  P also work while it flies back: the flight keeps its speed and lands on the new
+  slot (#28: the whole flight used to restart from rest). With **momentum** on (the
+  default, as `dragMomentum`), a flick carries into the release; off, it heads
+  straight back. Z and P also work at rest, giving the item a layout animation of its
+  own: grab it while that runs, and the flight goes on under the pointer, as Motion's
+  does, with no jump (#30: main jumped it to its slot plus the pointer's offset). The
+  card's **under pointer** and **frames behind** then read from where the flight lands
+  under the pointer (a press within a second of Z or P at rest counts; one whose flight
+  has landed by then reads as an ordinary drag), the line says how far it slid, and a
+  first dragged frame that jumps more than half the flight still to go fails it. With **twin**, the item shares a `layoutId` with a box parked in the
+  corner: it crossfades in from there as the boxes remount it (a handover), then keeps
+  its opacity through every release (#34: it used to drop to 0.03 with the twin
+  showing through).
 
 Known and not fixed yet, so they don't surprise you:
 
@@ -411,12 +435,13 @@ Known and not fixed yet, so they don't surprise you:
   longer depend on the item's hit box. In `resize` mode, from the slot move until
   the next frame's ResizeObserver pass, the hit box still sits off by the slot
   move, so a press in that window can miss the item.
-- **A restart after a lost release grabs from the slot (#30).** With L, pressing
-  the item again and dragging ends the old gesture and starts a new one; a
-  `layout` item is flying back to its slot by then, so it jumps to the slot plus
-  the pointer offset, as any grab mid-flight does.
-- A flick doesn't carry into the release (the release has no velocity), and
-  grabbing the item while it is still flying back jumps it (#30).
+- **A grab mid-FLIP slides (#30, as Motion's).** Grabbing an item while its own
+  layout animation still runs leaves that animation running under the pointer, so
+  the item slides the rest of the way to where the pointer holds it. Scenario 13
+  tells its card when that happens (Z or P at rest), which then judges from the
+  landing; in 11 and 12 the **under pointer** line counts the slide (it counted main's
+  jump too). A grab while the item flies back from a release stops it where it is and
+  drags it from there, a restart after a lost release (L) included.
 
 Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
@@ -433,6 +458,12 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R9 | any | hold, press L, release, then move over the item without pressing | 3 |
 | R10 | any | hold, press L, release, then press again where you are without moving, and release (a click) | 3 |
 | R11 | any | drag with the right button (after #31's fix: no drag) | 3 |
+| R32 | 12 | release, then press S while it flies back: c1, c2 and R stay on it (#28); G's line fails until #33 | 3 |
+| R33 | 13 | release, then Z (or P) while it flies back: it keeps its speed and lands on the new slot (#28) | 3 each |
+| R34 | 13, momentum on, then off | flick and let go while moving: on, it carries on, then comes back; off, it heads straight back | 3 each |
+| R35 | 13 | release, press the item while it flies back and hold still, then let go without moving: it holds while pressed, then goes on to its slot; again, dragging from where it stopped | 3 |
+| R36 | 13, twin | (it crossfades in from the corner), then drag and release, also with a flick: it keeps its opacity and the twin stays hidden (#34) | 3 |
+| R38 | 13 | at rest, press Z (or P), then at once grab the item and move a little: it slides on under the pointer with no jump, and the card's **under pointer** reads a slide and passes (#30) | 3 each |
 
 ## Reorder scenario (#44)
 
@@ -518,14 +549,17 @@ How the lines read a reorder:
   how many slots from it); a flick released while moving can let go past a
   neighbour's centre before its reorder, so it isn't judged.
 - **raised** reads the items at the pointer (`elementsFromPoint`): a frame with the
-  dragged item clipped by its container there shows nothing about the raise.
+  dragged item clipped by its container there shows nothing about the raise. Since
+  #88 the held item carries `z-index: 2` and one flying back `1`, so a quick re-grab
+  over the last item's flight passes too (it failed 4 of 33 of #75's runs).
 
 Known and not fixed yet:
 
-- **A grab mid-flight jumps (#30).** Grabbing an item while it still settles, or a
-  displaced sibling still flying, starts it at its slot plus the pointer offset;
-  Motion slides it from where it is.
-- The release has no velocity: a flick doesn't carry into the flight back.
+- **A grab mid-flight slides (#30, as Motion's).** Grabbing a displaced sibling
+  still flying leaves its flight running under the pointer, so it slides the rest
+  of the way to where the pointer holds it, and the **under pointer** line counts
+  the slide (main jumped there instead). An item grabbed while it flies back from
+  its own release stops where it is.
 - There is no keyboard reorder yet (#43).
 - **A card mid CSS transition (#136's limit).** A transition running on the card's
   transform when a pass reads stays in the boxes. The CSS card declares none, so it
@@ -550,6 +584,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R24 | `y`, with Lift on | drag an item past one neighbour, hold, release: it lifts from 1 and lands at 1 | 3 |
 | R30 | `y`, draggable card | drag the card by its edge, then drag an item past one neighbour: nothing flies in from where the card was (#136); then drag an item diagonally, the card following on x | 2 each |
 | R31 | `y`, `x`, card C moves by CSS | press C, then drag an item past one neighbour; press C again and repeat (#136) | 2 each |
+| R37 | `y` | drag the third item up past the second and let go, then at once press near the first item's bottom edge and drag it 25 px down over the one flying back: the held item stays on top (**raised**, #88; main read 5/40) | 3 |
 
 ## Base values (#47)
 

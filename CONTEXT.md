@@ -122,6 +122,10 @@ _Avoid_: drag event, pointer sample.
 A drag release continuing under physics — a fresh `decay` (or `spring`) **per axis** seeded from the Drag sample's `end` velocity, so motion continues with no visible kink. A press on the element (a grab) stops it where it is. The binding composes it from core's `drag` Sample recognizer and `decay` Primitive; core has no Fling of its own until a binding-less Environment needs one (ADR-0004, *Amendment (#32)*).
 _Avoid_: inertia, throw, momentum (name the mechanism — Fling).
 
+**Release offset**:
+A released **Projection node**'s distance from its slot, per axis, springing to zero on its own from the drag's release velocity (none with `dragMomentum={false}`), on top of the node's layout animation. A slot that moves during the release animates underneath it and leaves the offset's motion as it was, as Motion's `dragSnapToOrigin` release does (ADR-0016).
+_Avoid_: release FLIP, flight back.
+
 **Primary pointer**:
 The pointer `drag` and `press` listen to: a mouse event with the left button or no button change, or the first touch or pen contact on the page (`isPrimary`). A right-click doesn't drag, and a second finger neither presses nor moves a drag. Motion's `isPrimaryPointer` (ADR-0019).
 _Avoid_: main pointer, first pointer.
@@ -176,7 +180,7 @@ The projection engine's end-of-task unit. Every layout trigger in a task (a node
 _Avoid_: commit (the Renderer's write), layout update (Motion's name).
 
 **Drag block**:
-While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, and stays so after the release until it settles, so the subtree rides the drag and the flight back (ADR-0016, *Amendment (#26)*). A dragged node that opts in (a **Reorder group**'s items do) is also raised above its siblings, `z-index: 1`, until its release settles (ADR-0016, *Amendment (Reorder)*).
+While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, so the subtree rides the drag, and then its **Release offset** (ADR-0016, *Amendment (#26)*). A dragged node that opts in (a **Reorder group**'s items do) is also raised above its siblings until its release settles: `z-index: 2` while dragged and `1` while its **Release offset** runs, so the item under the pointer paints above one still flying back (ADR-0016, *Amendment (Reorder)*).
 _Avoid_: held (the layout lab's held frames), drag lock (that's a **Drag claim**).
 
 **Shared layout**:
@@ -184,7 +188,7 @@ A layout animation between two *distinct* elements that share a `layoutId` — o
 _Avoid_: magic motion, shared element (reserve as the informal gloss only).
 
 **Crossfade**:
-The **Shared layout** mode where both twins are mounted at once (one app-rendered alongside the other, or one retained mid-exit by `<AnimatePresence>`). They are kept perfectly overlapped — every non-lead twin (a **Follower**) projects onto the **Lead**'s current Box each frame — while opacity cross-fades (lead in, followers out) over the same progress that drives the move. Contrast **Switch**, where there is no overlap because the leaver is already gone.
+The **Shared layout** mode where both twins are mounted at once (one app-rendered alongside the other, or one retained mid-exit by `<AnimatePresence>`). They are kept perfectly overlapped — every non-lead twin (a **Follower**) projects onto the **Lead**'s current Box each frame — while opacity cross-fades (lead in, followers out) over the handover's move. Only a handover crossfades: a later layout animation of the Lead, or its **Release offset**, moves it without fading (Motion's). Contrast **Switch**, where there is no overlap because the leaver is already gone.
 _Avoid_: fade transition (opacity-only, no shared box), dissolve.
 
 **Lead / Follower**:

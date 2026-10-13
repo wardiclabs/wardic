@@ -7,7 +7,9 @@
  * its own `layout` child G. Before #26 each of the three `layout` kinds was left at
  * its slot while D moved (a counter-transform), and jumped onto D at a pass or the
  * release. A sibling above D can move D's slot while it is held: every 900 ms, or on
- * S. A fifth child, M, starts a slow FLIP across D when you grab it (the "animate a
+ * S. S also moves it while D flies back after the release, which used to throw a
+ * resting child 70px off D (#28; since ADR-0016's *Amendment (velocity family)* the
+ * release is an offset on top of D's layout, and the child rides both). A fifth child, M, starts a slow FLIP across D when you grab it (the "animate a
  * child on grab" toggle): it should keep animating on D, with no jump, which the eye
  * checks (its offset changes by design, so it is not in the glue check; each frame
  * records its box in `watched`, for #38's release stutter). The "lose
@@ -76,6 +78,8 @@ const View: ScenarioDef["View"] = (props) => {
   let m: HTMLElement | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   let dragging = false
+  // From the release until the recorder ends the run: D is flying back to its slot.
+  let flying = false
   let noteLayoutChange = (): void => {}
   let pressing = (): boolean => false
 
@@ -88,7 +92,7 @@ const View: ScenarioDef["View"] = (props) => {
     timer = undefined
   }
   const onKey = (e: KeyboardEvent): void => {
-    if (dragging && (e.key === "s" || e.key === "S")) moveSlot()
+    if ((dragging || flying) && (e.key === "s" || e.key === "S")) moveSlot()
     else if (pressing() && (e.key === "l" || e.key === "L")) setLoseNext((v) => !v)
   }
   const onGrab = (): void => {
@@ -106,11 +110,15 @@ const View: ScenarioDef["View"] = (props) => {
       onPhase: (phase) => {
         if (phase === "start") {
           dragging = true
+          flying = false
           stopTimer()
           timer = setInterval(moveSlot, SLOT_MOVE_MS)
         } else if (phase === "release") {
           dragging = false
+          flying = true
           stopTimer()
+        } else {
+          flying = false
         }
       },
       record: (input) => props.ctx.recordDragRun(input),
@@ -157,8 +165,8 @@ const View: ScenarioDef["View"] = (props) => {
         <Checkbox label="lose the next release (L while held)" name="lose-next-release" checked={loseNext()} onChange={setLoseNext} />
       </div>
       <p style={NOTE_STYLE}>
-        Grab the blue item near its centre and hold it. Its slot moves every 900 ms, or press S; L loses its release.
-        Every child should stay on it.
+        Grab the blue item near its centre and hold it. Its slot moves every 900 ms, or press S, also while it flies
+        back after you let go; L loses its release. Every child should stay on it.
       </p>
     </div>
   )
@@ -175,13 +183,15 @@ export const s12: ScenarioDef = {
   title: "Children ride the drag",
   kind: "drag",
   mechanism:
-    "Grab the blue item. It holds a layout child, a layoutAnchor:false child, and a layoutRoot with a child of its own; the orange sibling moves its slot every 900 ms (or on S). M (grey) FLIPs across it when you grab.",
+    "Grab the blue item. It holds a layout child, a layoutAnchor:false child, and a layoutRoot with a child of its own; the orange sibling moves its slot every 900 ms (or on S, also while it flies back). M (grey) FLIPs across it when you grab.",
   prediction: "safe",
   rationale:
     "Since #26 a dragged item is its subtree's relative parent (layoutAnchor:false included) and its resting " +
     "descendants aren't derived while it is dragged, so CSS carries them; a pass during the drag updates their " +
     "slots without animating them (the Drag block). Before, each layout child was held at its slot while the item " +
-    "moved and jumped onto it at a pass or the release. M, animating when you grab, keeps animating on the item.",
+    "moved and jumped onto it at a pass or the release. M, animating when you grab, keeps animating on the item. " +
+    "Since the velocity family's fix (ADR-0016) the release is an offset on top of the item's layout, so a slot " +
+    "move while it flies back (S) moves the item and its children together, and M doesn't step back as it lands.",
   dragExpect: {
     underPointerMaxPx: 1,
     framesBehindMax: 0,

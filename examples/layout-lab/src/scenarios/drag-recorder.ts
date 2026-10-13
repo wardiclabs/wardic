@@ -125,6 +125,12 @@ export interface DragRecorderOptions {
    * only for this item's press.
    */
   readonly loseNextRelease?: { readonly armed: () => boolean; readonly disarm: () => void }
+  /**
+   * Whether the item's own layout animation is running at a press (optional; scenario 13
+   * after Z or P at rest). Given and true, the run records the item's slot at the press
+   * (`grabFlight`), and the card judges the drag from where that flight lands (#30).
+   */
+  readonly flyingAtPress?: () => boolean
 }
 
 /** `el`'s painted box relative to `stage`'s padding box. */
@@ -256,6 +262,12 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     const stage = opts.stage()
     const item = opts.item()
     if (p === undefined || stage === undefined || item === undefined) return
+    // The item left the page (scenario 13's boxes remount it): its boxes would read 0x0 from
+    // here, so the run ends, cut short, as a next press would end it.
+    if (!item.isConnected) {
+      finish("removed")
+      return
+    }
     if (changes !== changesAtTick) {
       // A layout change landed between this frame's paint and this read: skip the read.
       rafId = requestAnimationFrame(tick)
@@ -428,6 +440,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         releaseAt: null,
         endedAt: 0,
         scheduler: currentLabScheduler(),
+        ...(opts.flyingAtPress?.() === true ? { grabFlight: { slot: layoutBox(item, stage) } } : {}),
       },
       // Motion's `isPrimaryPointer`, as Wardic's recognizers read it after #31 (ADR-0019).
       primary: e.pointerType === "mouse" ? e.button <= 0 : e.isPrimary,

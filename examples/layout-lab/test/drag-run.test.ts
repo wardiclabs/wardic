@@ -348,8 +348,77 @@ describe("formatDragPasses", () => {
   })
 })
 
+/**
+ * A grab mid-flight (#30): D paints at GRAB while a layout animation of its own flies it
+ * 30px down to FLIGHT_SLOT. Frame 0, before the drag starts, is 10% of the way; the drag's
+ * frames 1-6 carry the flight on under the pointer, landing at frame 5.
+ */
+const FLIGHT_SLOT: Box = moved(GRAB, 0, 30)
+const flightFrames = (shares: ReadonlyArray<number>): ReadonlyArray<DragFrame> => [
+  frameOf(0, toward(GRAB, FLIGHT_SLOT, 0.1), FLIGHT_SLOT),
+  ...shares.map((f, i) => frameOf(1 + i, moved(toward(GRAB, FLIGHT_SLOT, f), MOVES[i]!.dx, MOVES[i]!.dy), FLIGHT_SLOT)),
+]
+const SLIDE = [0.2, 0.4, 0.7, 0.9, 1, 1]
+
 describe("dragChecksOf", () => {
   const textsOf = (run: DragRun, want: DragExpect) => dragChecksOf(run, want).map((c) => [c.name, c.ok, c.text])
+  const underOf = (run: DragRun) => textsOf(run, S11_EXPECT)[0]
+
+  it("doesn't judge where a run ends when its item left the page (scenario 13's boxes remount it)", () => {
+    const run = dragRunOf(input(cleanFrames.slice(0, 8), { endedBy: "removed" }), cleanSpans)
+    expect(textsOf(run, S11_EXPECT)[5]).toEqual(["ends on slot", true, `${run.endsOnSlotPx?.toFixed(2)} px · cut short: the item left the page`])
+  })
+
+  it("judges a grab mid-flight from where its flight lands under the pointer, and says how far it slid (#30)", () => {
+    const run = dragRunOf(input(flightFrames(SLIDE), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(run.flight).toEqual({ slidePx: 30, jumpPx: 3, remainingPx: 27, landed: true })
+    expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
+    // Frames behind reads the moves from the landing on (frames 5 and 6 show moves 4 and 5).
+    expect(textsOf(run, S11_EXPECT)[1]).toEqual(["frames behind", true, "0 · 2 moves ✓"])
+    // Read as an ordinary grab, the slide counts as being off the pointer, and as late moves.
+    const plain = dragRunOf(input(flightFrames(SLIDE)), cleanSpans)
+    expect(plain.underPointerMaxPx).toBeCloseTo(30, 6)
+    expect(plain.framesBehindMax).toBeGreaterThan(0)
+  })
+
+  it("doesn't take a slide that passes an older move's place for a landing (the default scheduler's hop)", () => {
+    // The pointer moves 6px down a frame, the way the flight goes; at frame 3 the item, 6px
+    // short of its landing, sits exactly where the move before the newest would put it.
+    const down: ReadonlyArray<DragMove> = [0, 1, 2, 3, 4, 5].map((k) => ({ t: frameAtOf(k) + 8, frame: k, dx: 0, dy: 6 + 6 * k }))
+    const shares = [0.4, 0.6, 0.8, 0.95, 1, 1]
+    const frames = [
+      frameOf(0, toward(GRAB, FLIGHT_SLOT, 0.1), FLIGHT_SLOT),
+      ...shares.map((f, i) => frameOf(1 + i, moved(toward(GRAB, FLIGHT_SLOT, f), 0, down[i]!.dy), FLIGHT_SLOT)),
+    ]
+    const run = dragRunOf(input(frames, { moves: down, scheduler: "default", grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
+  })
+
+  it("reads a grab mid-flight's jump from its box at the press when no frame was painted before the drag started", () => {
+    const run = dragRunOf(input(flightFrames(SLIDE).slice(1), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    // From the press (0% of the way) to the first dragged frame (20%): one flight step, no jump.
+    expect(run.flight).toEqual({ slidePx: 30, jumpPx: 6, remainingPx: 30, landed: true })
+    expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
+  })
+
+  it("fails a grab mid-flight whose first dragged frame jumps to the slot (main's #30)", () => {
+    const run = dragRunOf(input(flightFrames([1, 1, 1, 1, 1, 1]), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(underOf(run)).toEqual([
+      "under pointer",
+      false,
+      "0.00 px · after a 30.00 px slide · jumped 27.00 px at the grab ✗ expected ≤ 1 px from its landing, no jump",
+    ])
+  })
+
+  it("fails a grab mid-flight whose flight never lands under the pointer", () => {
+    const run = dragRunOf(input(flightFrames([0.2, 0.3, 0.4, 0.5, 0.6, 0.7]), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(run.flight?.landed).toBe(false)
+    expect(underOf(run)).toEqual([
+      "under pointer",
+      false,
+      "? · after a 30.00 px slide · never landed ✗ expected ≤ 1 px from its landing, no jump",
+    ])
+  })
 
   it("passes every line of a drag since #26's fix against scenario 11's expectations", () => {
     const run = dragRunOf(input(cleanFrames), cleanSpans)
@@ -640,6 +709,26 @@ describe("the gesture ends line (#31)", () => {
       ok: false,
       text: "25.00 px · lost release · follows the unpressed pointer ✗ expected ≤ 1 px, and an end",
     })
+  })
+
+  it("passes a release whose momentum brings it near the unpressed pointer for a few frames, not onto it", () => {
+    // A flick's release carries on the way the pointer goes, within a pixel of it for three
+    // frames (a log's run, 2026-10-13), then flies back to its slot.
+    const near = [0, 1, 2].map((j) => frameOf(7 + j, moved(at(UNPRESSED[j]!), 0.5, 0.4), SLOT_B))
+    const back = [0.4, 0.8, 1, 1, 1].map((f, i) => frameOf(10 + i, toward(near[2]!.d, SLOT_B, f), SLOT_B))
+    const run = dragRunOf(input([...cleanHeld, ...near, ...back], { releaseMoves: UNPRESSED, endedAt: frameAtOf(14) + 10, endedBy: "settled" }), cleanSpans)
+    expect(run.gestureEnd).toMatchObject({ at: "release", followedPx: 0, openAtEnd: false })
+    expect(gestureOf(run)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px ✓" })
+  })
+
+  it("passes a release that passes the unpressed pointer's place exactly for two frames, then turns back", () => {
+    // A flick's release carries on the pointer's way and slows as the pointer does: two frames
+    // land on its place (a log's run, 2026-10-13), the third turns back toward the slot.
+    const on = [0, 1].map((j) => frameOf(7 + j, at(UNPRESSED[j]!), SLOT_B))
+    const back = [0.3, 0.6, 0.9, 1, 1, 1].map((f, i) => frameOf(9 + i, toward(on[1]!.d, SLOT_B, f), SLOT_B))
+    const run = dragRunOf(input([...cleanHeld, ...on, ...back], { releaseMoves: UNPRESSED, endedAt: frameAtOf(14) + 10, endedBy: "settled" }), cleanSpans)
+    expect(run.gestureEnd).toMatchObject({ at: "release", followedPx: 0, openAtEnd: false })
+    expect(gestureOf(run)).toEqual({ name: "gesture ends", ok: true, text: "0.00 px ✓" })
   })
 
   it("passes a gesture that ends at its release, however the pointer moves after it", () => {

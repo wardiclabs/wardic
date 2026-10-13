@@ -95,7 +95,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     e.dispose()
   })
 
-  it("PH5: with raiseWhileDragged, every write from the drag's start through the flight back carries the raise, and one write after the settle drops it", async () => {
+  it("PH5: with raiseWhileDragged, every write from the drag's start through the flight back carries the raise (2 while dragged, 1 once released), and one write after the settle drops it", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
@@ -106,15 +106,21 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     h.dragStart()
     h.dragMove({ x: 80, y: 0 })
     fireFrame()
+    const released = sk.of("a").length
     h.dragEnd()
     await endOfTask()
     fireFrames(240)
     const after = sk.of("a").slice(from)
     expect(after.length).toBeGreaterThan(3)
-    const raised = after.map((w) => w.value.raise)
-    // Raised on every write but the very last, which is the reset.
-    expect(raised.slice(0, -1).every((r) => r === 1)).toBe(true)
-    expect(raised.at(-1)).toBeUndefined()
+    // 2 while dragged (ADR-0016, Amendment (velocity family), decision 6).
+    const dragged = sk.of("a").slice(from, released).map((w) => w.value.raise)
+    expect(dragged.length).toBeGreaterThan(0)
+    expect(dragged.every((r) => r === 2)).toBe(true)
+    // 1 on every write of the flight back but the very last, which is the reset.
+    const back = sk.of("a").slice(released).map((w) => w.value.raise)
+    expect(back.length).toBeGreaterThan(2)
+    expect(back.slice(0, -1).every((r) => r === 1)).toBe(true)
+    expect(back.at(-1)).toBeUndefined()
     // Nothing is written after the reset.
     fireFrames(30)
     expect(sk.of("a").slice(from)).toHaveLength(after.length)
@@ -156,14 +162,14 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     fireFrame()
     h.dragStart()
     h.dragMove({ x: 20, y: 0 })
-    expect(sk.of("a").at(-1)?.value.raise).toBe(1)
+    expect(sk.of("a").at(-1)?.value.raise).toBe(2)
     h.dragMove({ x: 0, y: 0 })
     h.dragEnd()
     expect(sk.of("a").at(-1)?.value.raise).toBeUndefined()
     e.dispose()
   })
 
-  it("PH10: a released layoutRoot whose flight a Measure pass ends (its self-snap) drops the raise in that write", async () => {
+  it("PH10: a released layoutRoot's Release offset goes on through a Measure pass (its self-snap), raised, and its settle drops the raise", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
@@ -177,12 +183,21 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     await endOfTask()
     fireFrames(3)
     expect(sk.of("a").at(-1)?.value.raise).toBe(1)
-    // A pass mid-flight: a layoutRoot snaps to its slot, ending the release.
+    const before = sk.of("a").at(-1)?.tx ?? 0
+    expect(before).toBeGreaterThan(10)
+    // A pass mid-flight: a layoutRoot snaps its own layout, but its Release offset isn't a
+    // layout animation, so the flight back goes on (ADR-0016, Amendment (velocity family)).
     h.notify()
     await endOfTask()
-    expect(sk.of("a").at(-1)?.value.raise).toBeUndefined()
+    expect(sk.of("a").at(-1)?.value.raise).toBe(1)
+    expect(sk.of("a").at(-1)?.tx).toBeCloseTo(before, 1)
+    fireFrame()
+    const next = sk.of("a").at(-1)?.tx ?? 0
+    expect(next).toBeLessThan(before)
+    expect(next).toBeGreaterThan(0)
     fireFrames(240)
     expect(sk.of("a").at(-1)?.value.raise).toBeUndefined()
+    expect(sk.of("a").at(-1)?.tx).toBeCloseTo(0, 5)
     e.dispose()
   })
 
