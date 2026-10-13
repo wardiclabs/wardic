@@ -30,6 +30,7 @@
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
+import type * as Projection from "@wardic/core/Projection"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Stagger from "@wardic/core/Stagger"
@@ -307,10 +308,13 @@ export interface WardicConfig {
    * Enable layout FLIP (ADR-0005): on a reflow this element animates from its
    * prior box to its new one (First/Last/Invert/Play). Under a `<LayoutGroup>`
    * sibling reflow is animated too; standalone, only this element's own
-   * size/`layoutDependency` change is observed. Static field (reactivity-layering
-   * rule): a plain boolean read once.
+   * size/`layoutDependency` change is observed. Whether the element animates its layout is
+   * read once, at mount. A **Layout mode** (ADR-0009, *Amendment (#42)*, Motion's) animates
+   * part of it: `"position"` (its size changes at once), `"size"`, `"x"`, `"y"` or
+   * `"preserve-aspect"` (position only when the width/height ratio changes); it's read at
+   * each layout animation's start. `true` animates position and size.
    */
-  readonly layout?: boolean
+  readonly layout?: boolean | "position" | "size" | "preserve-aspect" | "x" | "y"
   /**
    * A value/signal whose change re-measures this element and plays a FLIP
    * (framer-motion's prop name + semantics). Only consulted when `layout` is on.
@@ -351,6 +355,16 @@ export interface WardicConfig {
    */
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
 }
+
+/**
+ * The Layout mode a `layout` prop names (ADR-0009, *Amendment (#42)*): a mode's name, else
+ * `true` (`layout`, or a node a `layoutId`, `layoutScroll` or `layoutRoot` gives).
+ */
+const layoutModeOf = (layout: WardicConfig["layout"]): Projection.LayoutMode =>
+  Option.getOrElse(Option.liftPredicate(layout, isModeName), (): Projection.LayoutMode => true)
+
+/** Whether a `layout` prop names a Layout mode (a string), not `true` / `false`. */
+const isModeName = (layout: WardicConfig["layout"]): layout is Exclude<WardicConfig["layout"], boolean | undefined> => Predicate.isString(layout)
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -723,12 +737,14 @@ export function runSpine(opts: RunSpineOptions): void {
       // layout / layoutId / layoutScroll / layoutRoot each warrant a node; layoutAnchor
       // alone does not (it only tunes a node that already projects), but is forwarded.
       let layoutHandle: ProjectionNodeHandle | undefined
-      if (c0.layout === true || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
+      if (c0.layout === true || Predicate.isString(c0.layout) || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
         layoutHandle = useLayoutMember({
           id,
           element,
           layoutDependency: () => cfg().layoutDependency,
           transition: () => cfg().transition ?? parent?.transition(),
+          // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
+          layoutMode: () => layoutModeOf(cfg().layout),
           ...(layoutId !== undefined ? { layoutId } : {}),
           ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
           ...(c0.layoutRoot === true ? { layoutRoot: true } : {}),

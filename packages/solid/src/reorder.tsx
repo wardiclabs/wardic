@@ -75,8 +75,21 @@ export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWa
   readonly controller: ReorderController<V>
 }
 
-/** A `<Reorder>` item's config: its `value`, plus any motion config but `layout`, `layoutId` and `drag`. */
-export type ReorderItemConfig<V> = { readonly value: V } & Omit<WardicConfig, "layout" | "layoutId" | "drag">
+/**
+ * A `<Reorder>` item's Layout mode (ADR-0009, *Amendment (#42)*): `true`, its position and size
+ * (the default), or `"position"`, its size changing at once, as Motion's `Reorder.Item` takes.
+ */
+export type ReorderItemLayout = true | "position"
+
+/**
+ * A `<Reorder>` item's config: its `value`, its `layout` mode ({@link ReorderItemLayout}), plus
+ * any motion config but `layoutId` and `drag`.
+ */
+export type ReorderItemConfig<V> = { readonly value: V; readonly layout?: ReorderItemLayout } & Omit<WardicConfig, "layout" | "layoutId" | "drag">
+
+/** An item's `layout` as its Layout mode: `"position"`, else `true` (ADR-0009, *Amendment (#42)*). */
+const itemLayoutOf = (layout: unknown): ReorderItemLayout =>
+  Bool.match(layout === "position", { onTrue: (): ReorderItemLayout => "position", onFalse: (): ReorderItemLayout => true })
 
 /**
  * Create a **Reorder group** (ADR-0020). Spread the result onto the list's element
@@ -181,7 +194,7 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
   const internals: SpineInternals = isServer
     ? { dragAxis: () => true, baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }) }
     : itemInternals(group, value, element)
-  const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: true }), internals)
+  const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
   // The item's element, for Auto-scroll's held scroll shift.
   // The user's style is passed on as a getter, so a live one stays live (WardUserProps).
   const item = (userProps?: WardUserProps) =>
@@ -221,10 +234,11 @@ const withoutValue = <V,>(config: ReorderItemConfig<V>): WardicConfig => {
  * `use:reorderItem`'s value: the item's group (of any value type, as an `ItemGroup<never>`)
  * and value, plus its motion config.
  */
-export type ReorderItemDirectiveValue = { readonly group: ItemGroup<never>; readonly value: unknown } & Omit<
-  WardicConfig,
-  "layout" | "layoutId" | "drag"
->
+export type ReorderItemDirectiveValue = {
+  readonly group: ItemGroup<never>
+  readonly value: unknown
+  readonly layout?: ReorderItemLayout
+} & Omit<WardicConfig, "layout" | "layoutId" | "drag">
 
 /**
  * `use:reorderItem` — make an element a `<Reorder>` item (like `use:ward`):
@@ -239,7 +253,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
   const first = untrack(value)
   const cfg = (): WardicConfig => {
     const { group: _group, value: _value, ...rest } = value()
-    return { ...rest, layout: true }
+    return { ...rest, layout: itemLayoutOf(rest.layout) }
   }
   // As `use:ward`: a Variant child joins the nearest variant context; it provides none (#50).
   const node = createVariantNode(cfg, useVariantContext())
@@ -288,11 +302,13 @@ export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
 
 /**
  * `Reorder.Item`'s props: its `value` (static), `as` (the tag, `"li"` by default,
- * static), and the tag's own and motion props, except `layout`, `layoutId` and `drag`.
+ * static), its `layout` mode ({@link ReorderItemLayout}), and the tag's own and motion props,
+ * except `layoutId` and `drag`.
  */
 export type ReorderItemProps<V, Tag extends ReorderElementTag = "li"> = {
   readonly value: V
   readonly as?: Tag
+  readonly layout?: ReorderItemLayout
 } & Omit<WardicProps<Tag>, "layout" | "layoutId" | "drag">
 
 /**
@@ -365,15 +381,15 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
 export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V, Tag>): JSX.Element {
   const group = useContext(GroupContext) as ReorderGroupWard<V> | undefined
   if (group === undefined) throw new Error("Reorder.Item must be a child of Reorder.Group")
-  // The item consumes every motion prop name (layout / layoutId / drag included, though
-  // its type omits them), so none reaches the DOM.
+  // The item consumes every motion prop name (layoutId / drag included, though its type
+  // omits them), so none reaches the DOM.
   const [local, motion, rest] = splitProps(
     props as unknown as ItemLocal<V> & WardicMotionProps & Record<string, unknown>,
     ["value", "as", "ref", "style", "children"],
     MOTION_PROPS,
   )
   const config = motionToConfig(motion as WardicMotionProps)
-  const item = createReorderItem<V>(group, () => ({ ...config(), value: local.value }))
+  const item = createReorderItem<V>(group, () => ({ ...config(), layout: itemLayoutOf(config().layout), value: local.value }))
   const tag = untrack(() => local.as) ?? "li"
   const userRef = local.ref
   const spread = item({

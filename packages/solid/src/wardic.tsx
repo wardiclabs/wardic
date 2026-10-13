@@ -153,9 +153,11 @@ export interface WardicMotionProps {
   /**
    * Enable layout FLIP (ADR-0005). Under a `<LayoutGroup>` sibling reflow is
    * animated too; standalone, only this element's own size/`layoutDependency`
-   * change is observed. Static field — a plain boolean.
+   * change is observed. Read once, at mount; a **Layout mode** (`"position"`, `"size"`,
+   * `"x"`, `"y"`, `"preserve-aspect"`; ADR-0009, *Amendment (#42)*) animates part of the
+   * change, read at each layout animation's start.
    */
-  readonly layout?: boolean
+  readonly layout?: boolean | "position" | "size" | "preserve-aspect" | "x" | "y"
   /**
    * A value/signal whose change re-measures this element and plays a FLIP
    * (framer-motion's prop name + semantics). Only consulted when `layout` is on.

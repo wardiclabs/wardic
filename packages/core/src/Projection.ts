@@ -19,6 +19,8 @@
  *   3. The snapping precisions + arithmetic are copied verbatim so results
  *      cross-check against Motion.
  */
+import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Box from "./Box.ts"
 import type * as Point from "./Point.ts"
@@ -239,3 +241,57 @@ export const placeRelativeBox = (relative: Box.Box, parent: Box.Box, anchor: Poi
   x: placeRelativeAxis(relative.x, parent.x, anchor.x),
   y: placeRelativeAxis(relative.y, parent.y, anchor.y),
 })
+
+/**
+ * A projection node's **Layout mode** (CONTEXT.md; ADR-0009, *Amendment (#42)*): which parts of
+ * a layout change its layout animation animates. `true` animates both position and size;
+ * `"position"` its position only, its size taking the new value at once; `"size"` its size only;
+ * `"x"` / `"y"` that axis only; `"preserve-aspect"` both while the width/height ratio stays
+ * within 0.2, else its position only. Motion's `animationType`.
+ */
+export type LayoutMode = true | "position" | "size" | "preserve-aspect" | "x" | "y"
+
+/** How far two width/height ratios may be apart for `"preserve-aspect"` to animate both (Motion's `isNear(…, 0.2)`). */
+const ASPECT_NEAR = 0.2
+
+/** A box's width/height ratio. */
+const aspectOf = (box: Box.Box): number => Box.length(box.x) / Box.length(box.y)
+
+/**
+ * Whether `mode` animates only the position of a layout change from `from` to `to`: `"position"`,
+ * or `"preserve-aspect"` when the two width/height ratios are more than 0.2 apart (Motion's
+ * `shouldAnimatePositionOnly`, create-projection-node.ts:2449-2459 at
+ * 16c61222c4166bbef5ff6ab0051192faa79fa8c8). Plain operators: a Follower reads it every frame.
+ */
+export const animatesPositionOnly = (mode: LayoutMode, from: Box.Box, to: Box.Box): boolean =>
+  mode === "position" || (mode === "preserve-aspect" && Math.abs(aspectOf(from) - aspectOf(to)) > ASPECT_NEAR)
+
+/** `box` with `like`'s size, at its own top-left (`min`). A Follower's per-frame target: no allocation beyond the box. */
+export const withSizeOf = (box: Box.Box, like: Box.Box): Box.Box => ({
+  x: { min: box.x.min, max: box.x.min + Box.length(like.x) },
+  y: { min: box.y.min, max: box.y.min + Box.length(like.y) },
+})
+
+/** `box` moved to `to`'s top-left, its own size kept. */
+const movedTo = (box: Box.Box, to: Box.Box): Box.Box => ({
+  x: { min: to.x.min, max: to.x.min + Box.length(box.x) },
+  y: { min: to.y.min, max: to.y.min + Box.length(box.y) },
+})
+
+/**
+ * Where a layout animation from `origin` to `target` starts under `mode` (Motion's
+ * `notifyLayoutUpdate`, create-projection-node.ts:2163-2205 at
+ * 16c61222c4166bbef5ff6ab0051192faa79fa8c8): `"size"` moves `origin` to `target`'s top-left, so
+ * only its size animates; `"x"` / `"y"` take the other axis from `target`; a position-only mode
+ * ({@link animatesPositionOnly}) gives `origin` `target`'s size at its own top-left, so only its
+ * position animates; `true` leaves it as it is. Once per layout animation's start.
+ */
+export const shapeOrigin = (mode: LayoutMode, origin: Box.Box, target: Box.Box): Box.Box =>
+  Match.value(mode).pipe(
+    Match.when("size", () => movedTo(origin, target)),
+    Match.when("x", (): Box.Box => ({ x: origin.x, y: target.y })),
+    Match.when("y", (): Box.Box => ({ x: target.x, y: origin.y })),
+    Match.orElse(() =>
+      Bool.match(animatesPositionOnly(mode, origin, target), { onTrue: () => withSizeOf(origin, target), onFalse: () => origin })),
+  )
+
