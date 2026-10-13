@@ -8,7 +8,9 @@
 //    again: is it the same node, did hydration change its attributes (other than style),
 //    what does the first paint after hydration show, and where does it settle.
 // 3. Verdicts: MISMATCH when hydration replaced the node or changed its attributes; FLASH
-//    when the first paint jumped away from the server's paint; else OK.
+//    when the first paint jumped away from the server's paint; MOVED when an element that
+//    should hold still (`initial={false}`, #134) wasn't painted where it holds, or moved
+//    in any frame after hydration; else OK.
 //
 // "Save log" posts the rows to /api/save-log (examples/solid-start-basic/logs/, gitignored).
 import { SSR_EXPECTED } from "./ssr-expected.ts"
@@ -27,7 +29,7 @@ interface Snapshot extends Seen {
 
 export interface ReportRow {
   readonly k: string
-  readonly verdict: "OK" | "FLASH" | "MISMATCH"
+  readonly verdict: "OK" | "FLASH" | "MOVED" | "MISMATCH"
   readonly sameNode: boolean
   readonly attrsChanged: ReadonlyArray<string>
   readonly server: Seen
@@ -78,7 +80,47 @@ const beforeNextPaint = <A>(read: () => A): Promise<A> =>
     observer.observe(probe)
   })
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+/** The least and most opacity and left edge an element showed. */
+interface Range {
+  readonly opacity: readonly [number, number]
+  readonly x: readonly [number, number]
+}
+
+/** The range each of `keys` shows, read every frame for `ms`. */
+const rangesOver = (keys: ReadonlyArray<string>, ms: number): Promise<ReadonlyMap<string, Range>> =>
+  new Promise((resolve) => {
+    const ranges = new Map<string, Range>()
+    const end = performance.now() + ms
+    const frame = (): void => {
+      for (const k of keys) {
+        const el = document.querySelector(`[data-ssr-k="${k}"]`)
+        if (el === null) continue
+        const s = seen(el)
+        const r = ranges.get(k) ?? { opacity: [s.opacity, s.opacity], x: [s.x, s.x] }
+        ranges.set(k, {
+          opacity: [Math.min(r.opacity[0], s.opacity), Math.max(r.opacity[1], s.opacity)],
+          x: [Math.min(r.x[0], s.x), Math.max(r.x[1], s.x)],
+        })
+      }
+      if (performance.now() < end) requestAnimationFrame(frame)
+      else resolve(ranges)
+    }
+    requestAnimationFrame(frame)
+  })
+
+/** Why an element that should hold at `holds` didn't: where the server painted it, or how far it moved. */
+const holdFailures = (holds: number, server: Seen, firstPaint: Seen | undefined, range: Range | undefined): ReadonlyArray<string> => {
+  const failures: Array<string> = []
+  if (Math.abs(server.opacity - holds) > 0.02) failures.push(`the server painted opacity ${server.opacity.toFixed(2)}, not ${holds}`)
+  const opacities = [firstPaint?.opacity ?? holds, ...(range?.opacity ?? [])]
+  const xs = [firstPaint?.x ?? server.x, ...(range?.x ?? [])]
+  const lo = Math.min(...opacities)
+  const hi = Math.max(...opacities)
+  if (Math.abs(lo - holds) > 0.02 || Math.abs(hi - holds) > 0.02) failures.push(`after hydration its opacity went ${lo.toFixed(2)}–${hi.toFixed(2)}`)
+  const moved = Math.max(...xs.map((x) => Math.abs(x - server.x)))
+  if (moved > 1) failures.push(`after hydration it moved ${moved.toFixed(0)} px from the server's paint`)
+  return failures
+}
 
 /** Judge every snapshotted element once the route has hydrated. */
 const judge = async (): Promise<ReadonlyArray<ReportRow>> => {
@@ -86,7 +128,8 @@ const judge = async (): Promise<ReadonlyArray<ReportRow>> => {
   // Right after hydration: identity and attributes.
   const afterHydrate = new Map([...snapshots.keys()].map((k) => [k, now(k)]))
   const firstPaint = await beforeNextPaint(() => new Map([...snapshots.keys()].map((k) => [k, now(k)] as const).map(([k, el]) => [k, el === null ? undefined : seen(el)])))
-  await sleep(2500)
+  const held = [...snapshots.keys()].filter((k) => SSR_EXPECTED[k]?.holds !== undefined)
+  const ranges = await rangesOver(held, 2500)
   const rows: Array<ReportRow> = []
   for (const [k, snap] of snapshots) {
     const expected = SSR_EXPECTED[k] ?? { starting: false }
@@ -110,6 +153,11 @@ const judge = async (): Promise<ReadonlyArray<ReportRow>> => {
         Math.abs(fp.x - snap.x) > 8 ||
         (fp.cx !== undefined && snap.cx !== undefined && Math.abs(fp.cx - snap.cx) > 12)
       if (jumped) verdict = "FLASH"
+    }
+    if (expected.holds !== undefined) {
+      const failures = holdFailures(expected.holds, snap, fp, ranges.get(k))
+      if (failures.length > 0 && verdict === "OK") verdict = "MOVED"
+      note = [note, ...failures].filter(Boolean).join("; ")
     }
     if (k === "reduced-motion") {
       const live = String(matchMedia("(prefers-reduced-motion: reduce)").matches)
