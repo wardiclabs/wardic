@@ -337,15 +337,17 @@ const View: ScenarioDef["View"] = (props) => {
     setFadeKey((k) => k + 1)
   }
 
-  // Each Animatable none cell's run, one per flip (#61): from its value now to the other end. A
-  // run back to `none` is also judged on what it rests at.
+  // Each Animatable none cell's run, one per flip (#61): from its value now, its base, to the other
+  // end. A flip mid-flight starts where the last one had got to, not at an end. A run back to
+  // `none` is also judged on what it rests at.
   const toggleNone = (): void => {
     const on = !noneOn()
     for (const cell of NONE_CELLS) {
       const el = document.querySelector<Element>(`[data-scenario="${ID}"] [data-cell="${cell.dataCell}"]`)
       if (el === null) continue
       const rest = on ? {} : { rest: () => ({ value: getComputedStyle(el).getPropertyValue(cell.css), expected: "none" }) }
-      recorder.start(cell.label, "toggle", () => cell.read(el), on ? 0 : cell.full, on ? cell.full : 0, cell.read(el), rest).end()
+      const now = cell.read(el)
+      recorder.start(cell.label, "toggle", () => cell.read(el), now, on ? cell.full : 0, now, rest).end()
     }
     setNoneOn(on)
   }
