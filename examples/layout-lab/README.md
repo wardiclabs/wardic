@@ -399,13 +399,21 @@ Method); the expected card, with a browser's own scheduler:
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
   and a `layoutRoot` with its own `layout` child; while you hold the item the sibling
   moves the slot every 900 ms, or press S: every child should stay on it. At rest, X
-  moves the slot and the item FLIPs there, an eye check of #33 (ADR-0013's *Amendment
-  (#33)*): the two left children ride the item, while the `layoutRoot` R, isolated
-  from its parent's layout animation as Motion's is, sits at its new place from the
-  first frame, its child G with it (before, R rode the item and G was thrown the
-  other way, about twice the move). The card has no line for it (X is no press); a
-  grab during that FLIP is judged from where it lands, as Z and P at rest are in 13,
-  and R and G's glue lines then read the isolation. A slot move during the flight
+  moves the slot and the item FLIPs there (ADR-0013's *Amendments (#33)* and
+  *(#144)*): the two left children and M ride the item, M on its slow spring past the
+  item's landing (#144: it used to snap about 5.6 px back as the item landed), while
+  the `layoutRoot` R, isolated from its parent's layout animation as Motion's is, sits
+  at its new place from the first frame, its child G with it (#33: R rode the item,
+  and G was thrown the other way, about twice the move). Each X is recorded as an
+  **at-rest run**, which the card shows while it is the latest run: `slot moved` (by
+  how much, over how many frames), `ends on slot` (≤ 0.5 px), `child glued` (C1, C2
+  and M, ≤ 1 px) and `isolated` (R and G off their new place, ≤ 1 px, every frame).
+  For 3 s after a grab that slides M across the item, an X run leaves M out of `child
+  glued` (its own slide moves it by design) and the line says so. A press cuts an
+  at-rest run short. An X while the item still slides from the last one throws M off
+  it (#146, not fixed yet: the line fails then). A grab during that FLIP is judged from where it
+  lands, as Z and P at rest are in 13, and R and G's glue lines then read the
+  isolation. A slot move during the flight
   back (#28) is scenario 13's (Z, P); here it would move R and G to their new place
   ahead of the item, by design, and fail their glue lines. M (grey) starts a slow FLIP across
   the item when you grab it (the toggle): it should keep animating on the item,
@@ -442,7 +450,9 @@ Known and not fixed yet, so they don't surprise you:
   layout animation still runs leaves that animation running under the pointer, so
   the item slides the rest of the way to where the pointer holds it. Scenarios 13
   and 12 tell their card when that happens (Z or P at rest, X at rest), which then
-  judges from the landing; in 11 the **under pointer** line counts the slide (it
+  judges from the landing, where the item rests: a settled run's last frame says how
+  far that is off the whole-pixel slot (0.22–0.26 px at DPR 1.35, more than the landing
+  tolerance); in 11 the **under pointer** line counts the slide (it
   counted main's jump too). A grab while the item flies back from a release stops it where it is and
   drags it from there, a restart after a lost release (L) included.
 
@@ -461,7 +471,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R9 | any | hold, press L, release, then move over the item without pressing | 3 |
 | R10 | any | hold, press L, release, then press again where you are without moving, and release (a click) | 3 |
 | R11 | any | drag with the right button (after #31's fix: no drag) | 3 |
-| R32 | 12 | at rest, press X: the item slides to its new slot with c1 and c2 on it, while R and G are at their new place at once and don't move (#33); X again, back | 3 |
+| R32 | 12 | at rest, press X and let it land: the item slides to its new slot with c1, c2 and M on it, while R and G are at their new place at once and don't move (#33, #144; the card's at-rest lines judge it); X again, back | 3 each way |
 | R33 | 13 | release, then Z (or P) while it flies back: it keeps its speed and lands on the new slot (#28) | 3 each |
 | R34 | 13, momentum on, then off | flick and let go while moving: on, it carries on, then comes back; off, it heads straight back | 3 each |
 | R35 | 13 | release, press the item while it flies back and hold still, then let go without moving: it holds while pressed, then goes on to its slot; again, dragging from where it stopped | 3 |

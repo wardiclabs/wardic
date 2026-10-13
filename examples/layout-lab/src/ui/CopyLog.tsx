@@ -25,11 +25,14 @@ export interface CopyLogProps {
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`
 
-/** What a log holds, e.g. `12 runs`, or `12 runs and 3 drag runs` once there are drag runs. */
-const contents = (log: LabLog): string =>
-  log.dragRuns.length === 0
-    ? plural(log.runs.length, "run")
-    : `${plural(log.runs.length, "run")} and ${plural(log.dragRuns.length, "drag run")}`
+/** What a log holds, e.g. `12 runs`, or `12 runs and 3 drag runs and 2 at-rest runs` once there are drag or at-rest runs. */
+const contents = (log: LabLog): string => {
+  const extra = [
+    ...(log.dragRuns.length === 0 ? [] : [plural(log.dragRuns.length, "drag run")]),
+    ...(log.restRuns.length === 0 ? [] : [plural(log.restRuns.length, "at-rest run")]),
+  ]
+  return extra.length === 0 ? plural(log.runs.length, "run") : `${plural(log.runs.length, "run")} and ${extra.join(" and ")}`
+}
 
 /** Renders the log panel. */
 export const CopyLog = (props: CopyLogProps): JSX.Element => {

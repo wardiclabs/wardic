@@ -14,12 +14,16 @@
  * the next release" toggle (L while D is held, or its checkbox) swallows the press's
  * pointerup, for the card's `gesture ends` line (#31, ADR-0019).
  *
- * **X**, at rest, moves D's slot the same way, and D FLIPs to it: an eye check of #33
- * (ADR-0013, *Amendment (#33)*). C1 and C2 ride D's FLIP; R, a `layoutRoot`, is isolated
- * from it, as Motion's is, and paints at its new place from the first frame, G with it.
- * Before, R rode D and G was thrown the other way, about twice the move. Nothing is
- * recorded (no press); a grab during that FLIP is judged from where it lands (the
- * recorder's `flyingAtPress`), and R and G's glue lines then read the isolation.
+ * **X**, at rest, moves D's slot the same way, and D FLIPs to it (ADR-0013's *Amendments
+ * (#33)* and *(#144)*). C1, C2 and M ride D's FLIP, M on its slow spring past D's landing
+ * (#144: it used to snap back as D landed); R, a `layoutRoot`, is isolated from it, as
+ * Motion's is, and paints at its new place from the first frame, G with it (#33: R used to
+ * ride D, and G was thrown the other way, about twice the move). Each X is recorded as an
+ * at-rest run (the recorder's `recordAtRest`), which the card judges against `restExpect`
+ * while it is the latest run: the item ends on its slot, C1, C2 and M stay glued (M left
+ * out for {@link M_SLIDE_MS} ms after a grab that slides it: its own slide moves it by
+ * design), R and G stay isolated. A grab during that FLIP is judged from where it lands (the recorder's
+ * `flyingAtPress`), and R and G's glue lines then read the isolation.
  *
  * @module
  */
@@ -37,6 +41,9 @@ const SLOT_MOVE_MS = 900
 
 /** How long after X D's FLIP may still be running, in ms (the default spring settles in about 750). */
 const FLIGHT_MS = 1000
+
+/** How long after a grab M's own slide across D may still be running, in ms (its 30/12 spring takes about 2.5 s). */
+const M_SLIDE_MS = 3000
 
 const ROOT_STYLE: JSX.CSSProperties = { display: "flex", "flex-direction": "column", "align-items": "flex-start", gap: "8px" }
 const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "340px", "--stage-h": "260px" }
@@ -90,8 +97,13 @@ const View: ScenarioDef["View"] = (props) => {
   let live = false
   // When X last moved D's slot at rest, starting D's FLIP (#33).
   let restMoveAt = Number.NEGATIVE_INFINITY
+  // Whether the engine has no layout animation running, for an at-rest run's end (#144).
+  let engineIdle = true
+  // When a grab last started M's own slide across D: an X run leaves M's glue out until it has landed.
+  let mSlideAt = Number.NEGATIVE_INFINITY
   let noteLayoutChange = (): void => {}
   let pressing = (): boolean => false
+  let recordAtRest = (_trigger: string): boolean => false
 
   const moveSlot = (): void => {
     noteLayoutChange()
@@ -106,11 +118,16 @@ const View: ScenarioDef["View"] = (props) => {
     else if (pressing() && (e.key === "l" || e.key === "L")) setLoseNext((v) => !v)
     else if (!live && !pressing() && (e.key === "x" || e.key === "X")) {
       restMoveAt = performance.now()
+      // Recorded as an at-rest run (#144): the item's FLIP, its children on it, R and G at their new place.
+      engineIdle = false
+      recordAtRest("X")
       setTall((t) => !t)
     }
   }
   const onGrab = (): void => {
-    if (animateOnGrab()) setMRight((v) => !v) // M starts its FLIP as the press begins
+    if (!animateOnGrab()) return
+    mSlideAt = performance.now()
+    setMRight((v) => !v) // M starts its FLIP as the press begins
   }
 
   onMount(() => {
@@ -136,12 +153,27 @@ const View: ScenarioDef["View"] = (props) => {
       flyingAtPress: () => performance.now() - restMoveAt < FLIGHT_MS,
       record: (input) => props.ctx.recordDragRun(input),
       loseNextRelease: { armed: loseNext, disarm: () => setLoseNext(false) },
+      // X at rest (#144): C1, C2 and M ride the item's FLIP; R, a layoutRoot, and G in it don't (#33).
+      atRest: {
+        glued: () => ({ c1, c2, m }),
+        isolated: () => ({ r, g }),
+        engineIdle: () => engineIdle,
+        // M's own slide from a grab moves it across D by design: its glue isn't judged until it has landed.
+        leftOut: (): Record<string, string> =>
+          performance.now() - mSlideAt < M_SLIDE_MS ? { m: "its own slide from a grab" } : {},
+        record: (input) => props.ctx.recordRestRun(input),
+      },
     })
     noteLayoutChange = recorder.noteLayoutChange
     pressing = recorder.pressing
+    recordAtRest = recorder.recordAtRest
     item?.addEventListener("pointerdown", onGrab)
     window.addEventListener("keydown", onKey)
+    const stopIdle = props.ctx.onLayoutAnimationComplete(() => {
+      engineIdle = true
+    })
     onCleanup(() => {
+      stopIdle()
       recorder.detach()
       stopTimer()
       item?.removeEventListener("pointerdown", onGrab)
@@ -179,8 +211,8 @@ const View: ScenarioDef["View"] = (props) => {
       </div>
       <p style={NOTE_STYLE}>
         Grab the blue item near its centre and hold it. Its slot moves every 900 ms, or press S; L loses its release.
-        Every child should stay on it. At rest, X moves its slot and it slides there: the two left children ride it,
-        and the layoutRoot (with its small child) is already at its new place (#33, as Motion's).
+        Every child should stay on it. At rest, X moves its slot and it slides there: the two left children and M ride
+        it, and the layoutRoot (with its small child) is already at its new place (#33, as Motion's). The card judges each X.
       </p>
     </div>
   )
@@ -197,7 +229,7 @@ export const s12: ScenarioDef = {
   title: "Children ride the drag",
   kind: "drag",
   mechanism:
-    "Grab the blue item. It holds a layout child, a layoutAnchor:false child, and a layoutRoot with a child of its own; the orange sibling moves its slot every 900 ms (or on S). M (grey) FLIPs across it when you grab. At rest, X moves its slot (an eye check of #33).",
+    "Grab the blue item. It holds a layout child, a layoutAnchor:false child, and a layoutRoot with a child of its own; the orange sibling moves its slot every 900 ms (or on S). M (grey) FLIPs across it when you grab. At rest, X moves its slot (judged on the card: #33, #144).",
   prediction: "safe",
   rationale:
     "Since #26 a dragged item is its subtree's relative parent (layoutAnchor:false included) and its resting " +
@@ -205,8 +237,9 @@ export const s12: ScenarioDef = {
     "slots without animating them (the Drag block). Before, each layout child was held at its slot while the item " +
     "moved and jumped onto it at a pass or the release. M, animating when you grab, keeps animating on the item, " +
     "and since the velocity family's fix (ADR-0016) doesn't step back as the item lands. X at rest FLIPs the item: " +
-    "a layoutRoot is isolated from an ancestor's layout animation (ADR-0013, Amendment (#33)), so R and G sit at " +
-    "their new place at once, by eye.",
+    "its children ride it, M on its slow spring past the item's landing (ADR-0013, Amendment (#144)), and a " +
+    "layoutRoot is isolated from an ancestor's layout animation (Amendment (#33)), so R and G sit at their new " +
+    "place at once. Each X is an at-rest run the card judges.",
   dragExpect: {
     underPointerMaxPx: 1,
     framesBehindMax: 0,
@@ -217,5 +250,7 @@ export const s12: ScenarioDef = {
     // #31: no gesture moves the item once it should have ended (ADR-0019).
     gestureEndsMaxPx: 1,
   },
+  // X at rest (#144, ADR-0013's Amendments (#33) and (#144)).
+  restExpect: { endsOnSlotMaxPx: 0.5, childGlueMaxPx: 1, isolatedMaxPx: 1 },
   View,
 }

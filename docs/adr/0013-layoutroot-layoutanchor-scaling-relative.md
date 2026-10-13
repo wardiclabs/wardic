@@ -14,7 +14,7 @@ These complete Motion's `layout*` surface, so a Solid app gets Motion-grade layo
 - **`relativeParentOf` drops `isUnscaled`.** The nearest **active-animating or `layoutRoot`** ancestor is the relativeParent, regardless of its scale. Relative-through-a-scaled-parent is made sound by the anchor (Motion's `getClosestProjectingParent` likewise doesn't require an unscaled parent).
 - **`layoutAnchor` is the child's anchor, threaded into the relative math** (`this.options.layoutAnchor || undefined` in Motion's `calcRelativePosition`/`calcRelativeBox`). Default `{0,0}` (top-left) keeps existing behavior. `layoutAnchor: false` ⇒ `relativeParentOf` returns `undefined` for that node (force absolute) — Motion's `layoutAnchor !== false` gate.
 - **`layoutRoot` = self-snap + boundary + persistent-relative** (Motion's `mixTargetDelta(layoutRoot ? 1000 : 0)` + the `relativeParent.options.layoutRoot` guards that keep the relative link sticky, lines 807/1062/1505-1518). A `layoutRoot` node's own box change starts no spring; `ancestorDeltas` and the relativeParent walk terminate at it; its descendants always project relative to it.
-- **Deliberate, documented deviation — animating-gated relative for *non*-`layoutRoot` parents.** Motion attempts relative projection against the closest projecting parent *even with no animation* (for scale correction). We keep our **animating-gated** model: a descendant projects relative to a non-`layoutRoot` parent only while that parent animates (else absolute/carried). It produces the same visible result for the anchor cases and is simpler; the explicit always-relative need is served by `layoutRoot` (which *is* persistent). Revisit if a non-`layoutRoot` always-relative case surfaces.
+- **Deliberate, documented deviation — animating-gated relative for *non*-`layoutRoot` parents.** Motion attempts relative projection against the closest projecting parent *even with no animation* (for scale correction). We keep our **animating-gated** model: a descendant projects relative to a non-`layoutRoot` parent only while that parent animates (else absolute/carried). It produces the same visible result for the anchor cases and is simpler; the explicit always-relative need is served by `layoutRoot` (which *is* persistent). Revisit if a non-`layoutRoot` always-relative case surfaces. (*Amendment (#144)*: the handoff when the parent lands first now keeps the descendant where it paints.)
 - **`layoutAnchor` type widens to `Point | false`** (was `Point`); `WardicConfig`/`WardicMotionProps` updated. `layoutRoot` stays `boolean`.
 
 ## Considered Options
@@ -78,3 +78,46 @@ The layout lab, scripted (`.tmp/vel-lab/drive.ts`): scenario 12's X moves the it
 - Updated: `drag-measure-pass.browser.test.tsx` T17 (a running descendant of a `layoutRoot` inside the dragged node) is now checked through the release. ADR-0016's RL16 passes without the stopgap.
 - On the velocity family's engine, LR1, LR3–LR5 and LR8–LR11 fail; LR2, LR6 and LR7 pin what it already did.
 - Mutation-checked: 16 single-point mutations of the new code, 14 failing the test meant for it. Two are equivalent: skipping a running node whose moved origin lands on its new box (within `BOX_EPSILON`, so its spring is all but done), and leaving a skipped node's stored box behind (all that is derived from it is a difference; kept, since a Follower locks onto its Lead's absolute target).
+
+## Amendment (#144, 2026-10-13): a running node goes on from where it paints when its relative parent lands
+
+The deviation above (relative placement against a non-`layoutRoot` parent only while that parent animates) showed: a node whose layout animation outlasts its parent's lost its relative parent the frame the parent's progress spring came to rest, took the absolute branch from where it started on the page, and snapped back by its remaining progress times the parent's move. Re-measured against framer-motion 13.4.0 (`.tmp/vel/`, Chromium 147 and Firefox 148, 3 runs each; comment on #144): P FLIPs 100 px down on the default spring, its child M on a 30/12 spring only moves with it (`slow-child`), or also moves 100 px right inside it (`slow-child-own`):
+
+| | M's offset from P, biggest frame-to-frame step change |
+|---|---|
+| Motion | 0.00 px (`slow-child`); 0.68–0.72 px, the slide's start (`slow-child-own`). M stays on P after P lands. |
+| main, and ADR-0013's *Amendment (#33)* | 11.8–11.9 px in both, at frame 47, P's rest threshold: M's row 40 → 28.8, then back over 40 frames. |
+
+The layout lab's scenario 12 showed it in a hand run: X moves the item's slot, and its grey child M, on #38's slow spring, snapped 5.6 px off the item as the item landed.
+
+### Decisions (grilled)
+
+1. **The animating gate stays; the handoff at the landing moves the start (Q1).** When a node's layout animation lands, each running node placed in its frame (through running nodes) has its origin moved by the landing node's move, from where its layout animation started to its box, less the move of the frame that takes over: the next relative parent above it that isn't landing (none, or one not flying: zero). The move is read at the anchor of the node placed directly in the landing one. From the next frame the running node paints, in the frame that takes over, what it painted in the landed one, and its own animation goes on. Motion keeps the relative parent instead (`relativeTargetOrigin` against its box once it lands), which paints the same. Rejected: Motion's sticky relative parent (a node keeps the parent its layout animation started with, and its fixed relative start, until it lands), which adds both per node and changes `relativeParentOf` on the per-frame path for every caller; this runs once per landing.
+   - Verified before deciding: a first version without the taking-over frame's move failed a child landing under a parent still flying (`projection-slow-child.browser.test.ts` SC4); the rule above passes it.
+2. **The layout lab records an at-rest run (Q2).** An X at rest in scenario 12 is recorded by the drag recorder's frame sampler, from the press until everything has stood still, in its own list (`restRuns`) and the saved log, and judged on the card: the item lands on its slot, C1, C2 and M stay glued to it, and R and G sit at their final place from the first frame (*Amendment (#33)*). Rejected: folding X into the next drag run, and a trigger run (a paint sampler built for flashes).
+
+### Limits
+
+- A running node placed relative to its parent still jumps when the parent's layout animation is interrupted mid-flight (#146, found in a hand run of the at-rest runs): its restart starts from its own progress in page space, against a parent at another. Motion keeps it on the parent; 45 px in the probe's `slow-child-back`, on main too.
+
+### Measured
+
+`.tmp/vel/`, Chromium 147 and Firefox 148, 3 runs each, framer-motion 13.4.0; M's offset from P, the biggest frame-to-frame step change:
+
+| Scene | Motion | main | ADR-0013's *Amendment (#33)* | this change |
+|---|---|---|---|---|
+| `slow-child`: M only moves with P | 0.00 px | 11.83–11.88 px, at frame 47 | 11.83–11.90 px | 0.00 px |
+| `slow-child-own`: M also moves 100 px right inside P | 0.67–0.73 px (the slide's start) | 11.85–11.92 px | 11.83–11.87 px | 0.66–0.68 px |
+
+The layout lab, scripted (`.tmp/vel-lab/drive.ts`), scenario 12's X both ways, read from the card's at-rest lines: `child glued` reads `m 0.00 px` (on the engine before this change: `m 5.62 px`, failed), `isolated` reads `r 0.00 · g 0.00 px` (on main's engine: `r 50.00 · g 150.00 px`, failed, #33), and each run settles once M's slow spring has landed, about 111 frames.
+
+### Pinned by
+
+- `packages/dom/test/projection-slow-child.browser.test.ts`, SC1–SC7, against a fake sink:
+  - SC1: #144's scene, a slow child that only moves with its FLIPping parent stays on it through the parent's landing; SC2: one moving inside the parent slides on with no snap;
+  - SC3: a parent landing under a chain of running nodes leaves both on their lines; SC4: a child landing under its parent still flying leaves a slower grandchild on it (the taking-over frame's move); SC5: a child landing with its parent on the same frame does too;
+  - SC6: a centre-anchored slow child of a parent that grows as it moves stays on the parent's centre (the anchor);
+  - SC7: a node held in a drag while its parent FLIPs and lands stays under the pointer, with nothing failed (a guard: it has no layout animation to move).
+- `examples/layout-lab/test/rest-run.test.ts`, AR1–AR6: the at-rest lines, passing X with both fixes and failing #144's snap and #33's ride; M left out while its own slide from a grab runs.
+- On the engine before this change SC1–SC6 fail; SC7 pins what it already did.
+- Mutation-checked: 8 single-point mutations of the new code, 7 failing the test meant for them; the eighth drops the early return when no landing node had a layout animation, which only saves work.

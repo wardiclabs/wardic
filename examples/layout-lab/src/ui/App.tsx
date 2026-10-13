@@ -22,6 +22,7 @@ import { makeLabEnv } from "../env.ts"
 import type { BoardRunInput } from "../lab/base-values-board.ts"
 import type { DragRun } from "../lab/drag-run.ts"
 import type { Lab } from "../lab/lab.ts"
+import type { RestRun } from "../lab/rest-run.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
 import { CopyLog } from "./CopyLog.tsx"
 import { FlashCounter } from "./FlashCounter.tsx"
@@ -46,6 +47,8 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
   const [lastDragRuns, setLastDragRuns] = createSignal<Readonly<Record<string, DragRun>>>({})
   // Each board scenario's last board run (#47).
   const [lastBoardRuns, setLastBoardRuns] = createSignal<Readonly<Record<string, BoardRunInput>>>({})
+  // Each drag scenario's last at-rest run (#144).
+  const [lastRestRuns, setLastRestRuns] = createSignal<Readonly<Record<string, RestRun>>>({})
   const [latestId, setLatestId] = createSignal<string | undefined>(undefined)
   // The card picked for the timeline; `undefined` follows the latest run.
   const [pickedId, setPickedId] = createSignal<string | undefined>(undefined)
@@ -67,6 +70,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
   )
   onCleanup(lab.subscribeDragRuns((run) => setLastDragRuns((prev) => ({ ...prev, [run.scenarioId]: run }))))
   onCleanup(lab.subscribeBoardRuns((run) => setLastBoardRuns((prev) => ({ ...prev, [run.scenarioId]: run }))))
+  onCleanup(lab.subscribeRestRuns((run) => setLastRestRuns((prev) => ({ ...prev, [run.scenarioId]: run }))))
 
   const shownId = (): string | undefined => pickedId() ?? latestId()
   const selection = (): TimelineSelection | undefined => {
@@ -92,6 +96,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
                 lastRun={lastRuns()[def.id]?.run}
                 lastDragRun={lastDragRuns()[def.id]}
                 lastBoardRun={lastBoardRuns()[def.id]}
+                lastRestRun={lastRestRuns()[def.id]}
                 selected={shownId() === def.id}
                 onSelect={() => setPickedId(def.id)}
               />

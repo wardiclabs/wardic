@@ -63,6 +63,21 @@ const MEASURE_SPAN = "wardic.projection.measure"
  */
 const DRAG_THRESHOLD_PX = 3
 
+/** `b` moved by `by`. */
+const offsetBy = (b: Box, by: Point): Box => ({ ...b, x: b.x + by.x, y: b.y + by.y })
+
+/**
+ * How far a settled run's item rests off its slot (its last frame), when that is sub-pixel
+ * ({@link SUBPIXEL_PX}); zero when the run didn't settle or ended further off (`ends on slot`
+ * judges that).
+ */
+const restOffsetOf = (input: DragRunInput): Point => {
+  const last = input.frames[input.frames.length - 1]
+  if (input.endedBy !== "settled" || last === undefined) return { x: 0, y: 0 }
+  const off = { x: last.d.x - last.slot.x, y: last.d.y - last.slot.y }
+  return Math.abs(off.x) < SUBPIXEL_PX && Math.abs(off.y) < SUBPIXEL_PX ? off : { x: 0, y: 0 }
+}
+
 /** The "same place" distance, in px: a painted centre within it of a target shows that target. */
 const NEAR_PX = 1
 
@@ -72,6 +87,13 @@ const NEAR_PX = 1
  * as the drag's error.
  */
 const LANDED_PX = 0.25
+
+/**
+ * The most a settled item's painted box may sit off its slot and still read as where it rests, in
+ * px: the slot is read from whole-pixel offsets, so an item can rest up to half a pixel off it (a
+ * hand run at DPR 1.35 read 0.22–0.26 px, more than {@link LANDED_PX}).
+ */
+const SUBPIXEL_PX = 0.5
 
 /**
  * The most a grab mid-flight's first dragged frame may move beyond the pointer, as a share of
@@ -749,8 +771,10 @@ const flightOf = (
 export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>, previous?: DragRun): DragRun => {
   const { frames, releaseAt } = input
   const moves = dragMovesOf(input.moves)
-  // A grab mid-flight lands where the pointer holds the slot it was flying to (#30).
-  const grabCentre = centreOf(input.grabFlight?.slot ?? input.grabBox)
+  // A grab mid-flight lands where the pointer holds the slot it was flying to (#30), where the
+  // item rests against that slot: a settled run's last frame says how far off, sub-pixel.
+  const flightSlot = input.grabFlight === undefined ? undefined : offsetBy(input.grabFlight.slot, restOffsetOf(input))
+  const grabCentre = centreOf(flightSlot ?? input.grabBox)
   const targetOf = (m: DragMove): Point => ({ x: grabCentre.x + m.dx, y: grabCentre.y + m.dy })
   const firstMove = moves[0]
   const held =
@@ -853,7 +877,7 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     ...input,
     heldFrameCount: held.length,
     underPointerMaxPx,
-    ...(input.grabFlight === undefined ? {} : { flight: flightOf(input, input.grabFlight.slot, held, moves, landed) }),
+    ...(flightSlot === undefined ? {} : { flight: flightOf(input, flightSlot, held, moves, landed) }),
     framesBehindMax,
     framesBehindMoves,
     childGlueMaxPx,
