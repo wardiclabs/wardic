@@ -627,7 +627,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
 ## Base values (#47)
 
-Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), and a row of three for `initial={false}` (#134):
+Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), a row of three for `initial={false}` (#134), and a row of two for a camelCase custom property (#151):
 
 | Cell | Config | Starts at | Ends at |
 | ---- | ------ | --------- | ------- |
@@ -640,6 +640,8 @@ Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), an
 | no mount: initial false | `initial={false} animate={{ opacity: 0.5 }}`; **Remount no-mount** | 0.5 | 0.5 (it never moves) |
 | no mount: variant child | a parent with `initial={false} animate="half"`, a Variant child whose `half` is `opacity: 0.5` | 0.5 | 0.5 |
 | no mount: presence | `<AnimatePresence initial={false}>`, a child with `initial={{ opacity: 0 }} animate={{ opacity: 0.5 }}`; **Leave** / **Enter presence** brings it back as a later entry | 0.5 (a later entry: 0) | 0.5 |
+| custom property: div | opacity `var(--brandLevel)`, its own `--brandLevel: 1` in `style`, `animate: { "--brandLevel": 0.5 }`; **Remount custom property** | its own 1 | 0.5 |
+| custom property: svg | the same on a `wardic.circle` in an `<svg>` | its own 1 | 0.5 |
 
 Each gesture is one board run (`lab/base-values-board.ts`). The card shows the last run's cell and two lines:
 
@@ -659,6 +661,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R29 | exit | press **Exit**, then **Enter** | 3 |
 | R39 | the three no-mount cells | press **Remount no-mount**: each starts at 0.5 and never moves (#134) | 3 |
 | R40 | no mount: presence | press **Leave presence**, then **Enter presence**: the later entry fades in from 0 (`presence: later entry`) | 3 |
+| R44 | the two custom property cells | press **Remount custom property**: each fades from 1 to 0.5 (#151: it used to stay at 1) | 3 |
 
 Every run should read `start ✓` and `end ✓`.
 
