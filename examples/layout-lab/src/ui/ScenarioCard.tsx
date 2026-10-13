@@ -22,7 +22,7 @@
  */
 import { createMemo, For, type JSX, Show } from "solid-js"
 import { BOARD_CHECK_NAMES, type BoardRunInput, boardChecksOf } from "../lab/base-values-board.ts"
-import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf } from "../lab/drag-run.ts"
+import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf, FLING_CHECK_NAMES, type FlingExpect, flingChecksOf } from "../lab/drag-run.ts"
 import { REORDER_CHECK_NAMES, type ReorderExpect, reorderChecksOf } from "../lab/reorder-run.ts"
 import { REST_CHECK_NAMES, type RestExpect, type RestRun, restChecksOf } from "../lab/rest-run.ts"
 import { heldCheckOf } from "../lab/held-frames.ts"
@@ -84,7 +84,7 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
       ) : drag ? (
         <Show
           when={restIsLatest(props.lastRestRun, props.lastDragRun)}
-          fallback={<DragResult run={props.lastDragRun} expect={def.dragExpect} reorderExpect={def.reorderExpect} />}
+          fallback={<DragResult run={props.lastDragRun} expect={def.dragExpect} reorderExpect={def.reorderExpect} flingExpect={def.flingExpect} />}
         >
           <RestResult run={props.lastRestRun} expect={def.restExpect} />
         </Show>
@@ -146,6 +146,8 @@ interface DragResultProps {
   readonly expect: DragExpect | undefined
   /** A `<Reorder>` scenario's `reorderExpect` (scenario 14): given, the reorder lines follow the drag lines. */
   readonly reorderExpect: ReorderExpect | undefined
+  /** A scenario with a free item's `flingExpect` (scenario 13, #139): given, its `fling` and `rests` lines follow. */
+  readonly flingExpect: FlingExpect | undefined
 }
 
 /**
@@ -153,19 +155,26 @@ interface DragResultProps {
  * missed check is coloured, and a line too long for the card ends in an ellipsis
  * with its whole text as the value's tooltip. The checks are recomputed once per
  * drag run. A scenario with no watched children (scenario 14's items) has no `child
- * glued` line, and a `<Reorder>` scenario's reorder lines follow the drag lines.
+ * glued` line, and a `<Reorder>` scenario's reorder lines follow the drag lines, as a
+ * free item's `fling` and `rests` lines do (scenario 13, #139: `–` for its other item's runs).
  */
 const DragResult = (props: DragResultProps): JSX.Element => {
   const checks = createMemo(() =>
     props.run === undefined
       ? undefined
-      : [...dragChecksOf(props.run, props.expect ?? {}), ...reorderChecksOf(props.run, props.reorderExpect ?? {})],
+      : [
+          ...dragChecksOf(props.run, props.expect ?? {}),
+          ...reorderChecksOf(props.run, props.reorderExpect ?? {}),
+          ...flingChecksOf(props.run, props.flingExpect),
+        ],
   )
   // `reorderExpect` is static: a reorder scenario's card always has its lines, and no child glue.
-  const names: ReadonlyArray<string> =
-    props.reorderExpect === undefined
+  const names: ReadonlyArray<string> = [
+    ...(props.reorderExpect === undefined
       ? DRAG_CHECK_NAMES
-      : [...DRAG_CHECK_NAMES.filter((name) => name !== "child glued"), ...REORDER_CHECK_NAMES]
+      : [...DRAG_CHECK_NAMES.filter((name) => name !== "child glued"), ...REORDER_CHECK_NAMES]),
+    ...(props.flingExpect === undefined ? [] : FLING_CHECK_NAMES),
+  ]
   return (
     <footer class="card-result drag" aria-live="polite">
       <For each={names}>

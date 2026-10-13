@@ -25,6 +25,15 @@
  * (#34: before, it dropped to 0.03 and the twin showed through). Both boxes remount D, so
  * a twin's mount crossfades D in from the corner, which is the one crossfade expected.
  *
+ * The **free box** F (#139), bottom left, is a plain `drag` with no `layout`: its release is
+ * a Fling from the pointer's velocity over its last 100 ms, the release point counted
+ * (ADR-0004, *Amendment (#139)*). Let go while moving, it carries on; let go still, or after
+ * a pause, it stays where it was let go; with the momentum box off it always stays. Its
+ * runs show the card's `fling` and `rests` lines, and its slot lines aren't judged: a free
+ * item rests where it lands. A flick can carry it out of the stage: **Put the free box back**
+ * remounts it. (Before #139 its 30 ms window read no velocity for moves more than 30 ms
+ * apart, so a flick often stopped dead.)
+ *
  * The card's release lines are the point of the plain runs: a release from a
  * pointerup moves on its first painted frame, and it always ends on the slot, even when
  * you let go back where you grabbed while still moving (the release that used to stay
@@ -65,6 +74,25 @@ const itemStyle = (tall: boolean): JSX.CSSProperties => ({
   "user-select": "none",
 })
 
+/** F, the free box (#139): 64px square, in the stage's bottom-left corner. */
+const FREE_STYLE: JSX.CSSProperties = {
+  position: "absolute",
+  left: "16px",
+  bottom: "16px",
+  width: "64px",
+  height: "64px",
+  cursor: "grab",
+  "touch-action": "none",
+  "user-select": "none",
+  "font-size": "11px",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+}
+
+/** How long F's release may take to settle, in ms: its Fling decays for a few seconds (#139). */
+const FREE_SETTLE_MS = 4000
+
 /** How long after Z or P at rest D's own layout animation may still be running, in ms (the default spring settles in about 750). */
 const FLIGHT_MS = 1000
 
@@ -98,8 +126,11 @@ const View: ScenarioDef["View"] = (props) => {
   const [loseNext, setLoseNext] = createSignal(false)
   const [momentum, setMomentum] = createSignal(true)
   const [twin, setTwin] = createSignal(false)
+  // Put the free box back: remounts F where it started (a flick can carry it out of the stage).
+  const [freeKey, setFreeKey] = createSignal(0)
   let stage: HTMLDivElement | undefined
   let item: HTMLElement | undefined
+  let free: HTMLElement | undefined
   let c1: HTMLElement | undefined
   // The item a press is on, picked before the recorder's own pointerdown: the boxes remount D,
   // so the recorder listens on the stage and reads the item at each press.
@@ -128,23 +159,34 @@ const View: ScenarioDef["View"] = (props) => {
       // A second pointer during a press is ignored, as the recorder ignores it.
       if (pressing()) return
       const target = e.target as Node | null
-      // A press off the item records nothing (the recorder finds no item).
-      pressed = item !== undefined && target !== null && item.contains(target) ? item : undefined
+      // A press off both items records nothing (the recorder finds no item).
+      pressed =
+        target === null
+          ? undefined
+          : item !== undefined && item.contains(target)
+            ? item
+            : free !== undefined && free.contains(target)
+              ? free
+              : undefined
     }
     stage?.addEventListener("pointerdown", pick, { capture: true, passive: true })
     const recorder = attachDragRecorder({
       stage: () => stage,
       item: () => pressed,
       pressArea: () => stage,
-      children: () => ({ c1 }),
-      mode: () => "release",
+      children: () => (pressed === free ? {} : { c1 }),
+      // F's runs are a free item's (#139): a Fling with momentum, none without.
+      mode: () => (pressed === free ? (momentum() ? "fling" : "fling-off") : "release"),
+      settleMs: () => (pressed === free ? FREE_SETTLE_MS : undefined),
       onPhase: (phase) => {
+        // Only D's own gesture and release change how Z and P act.
+        if (pressed === free && phase !== "end") return
         dragging = phase === "start"
         flying = phase === "release"
       },
       // D's own layout animation may still run: a Z or P at rest less than FLIGHT_MS ago. One that has
       // landed by the press reads as an ordinary drag (a 0 px slide, judged from the first frame).
-      flyingAtPress: () => performance.now() - restChangeAt < FLIGHT_MS,
+      flyingAtPress: () => pressed !== free && performance.now() - restChangeAt < FLIGHT_MS,
       record: (input) => props.ctx.recordDragRun(input),
       loseNextRelease: { armed: loseNext, disarm: () => setLoseNext(false) },
     })
@@ -188,17 +230,37 @@ const View: ScenarioDef["View"] = (props) => {
             </>
           )}
         </Show>
+        {/* F, the free box (#139): its momentum is read at mount, so the box remounts it too. */}
+        <Show when={`${momentum()}:${freeKey()}`} keyed>
+          {(_mount) => (
+            <wardic.div
+              class="box"
+              drag
+              dragMomentum={momentum()}
+              data-action="fling"
+              // eslint-disable-next-line solid/reactivity
+              ref={(el: HTMLElement) => (free = el)}
+              style={FREE_STYLE}
+            >
+              free
+            </wardic.div>
+          )}
+        </Show>
       </div>
       <div style={CONTROLS_STYLE}>
         <Checkbox label="momentum (dragMomentum)" name="momentum" checked={momentum()} onChange={setMomentum} />
         <Checkbox label="twin (a layoutId Follower)" name="twin" checked={twin()} onChange={setTwin} />
         <Checkbox label="lose the next release (L while held)" name="lose-next-release" checked={loseNext()} onChange={setLoseNext} />
+        <button type="button" class="btn secondary small" data-action="free-back" onClick={() => setFreeKey((k) => k + 1)}>
+          Put the free box back
+        </button>
       </div>
       <p style={NOTE_STYLE}>
         Grab the blue item near its centre. Z resizes its slot and P moves its parent, while you hold it, while it
         flies back, or at rest (then grab it while it animates: it slides on under the pointer, no jump). L (held)
         loses its release. Release still, release while moving (a flick carries it on, with momentum), and release
-        back where you grabbed while moving.
+        back where you grabbed while moving. Throw the free box: let go while moving and it carries on; let go still,
+        or after a pause, and it stays.
       </p>
     </div>
   )
@@ -217,7 +279,7 @@ export const s13: ScenarioDef = {
   title: "Release and pointer lag",
   kind: "drag",
   mechanism:
-    "Grab the blue item, move it, let go: still, while moving, or back where you grabbed while moving. Z resizes the item's own slot and P FLIPs its parent 60px right, held, flying back or at rest (then grab it mid-animation). The boxes turn off momentum, and give the item a layoutId twin.",
+    "Grab the blue item, move it, let go: still, while moving, or back where you grabbed while moving. Z resizes the item's own slot and P FLIPs its parent 60px right, held, flying back or at rest (then grab it mid-animation). The boxes turn off momentum, and give the item a layoutId twin. Throw the free box (bottom left): let go while moving, still, or after a pause.",
   prediction: "safe",
   rationale:
     "Since #26 a pointer move re-derives the dragged item, so it paints in the frame the move reaches it (with a " +
@@ -229,7 +291,9 @@ export const s13: ScenarioDef = {
     "top of the item's layout, from the pointer's velocity: a slot move under it (Z, P) keeps its speed, and a " +
     "twin's Lead keeps its opacity, since only a shared-element handover crossfades. A grab during the item's own " +
     "layout animation (Z or P at rest) leaves it running under the pointer, so the item slides the rest of the way " +
-    "there with no jump; the card judges the drag from where it lands.",
+    "there with no jump; the card judges the drag from where it lands. The free box's release is a Fling from the " +
+    "pointer's velocity over its last 100 ms, the release point counted (#139): a flick carries on, a pause before " +
+    "letting go doesn't.",
   dragExpect: {
     underPointerMaxPx: 1,
     framesBehindMax: 0,
@@ -240,5 +304,7 @@ export const s13: ScenarioDef = {
     // #31: no gesture moves the item once it should have ended (ADR-0019).
     gestureEndsMaxPx: 1,
   },
+  // #139: the free box carries on when let go while moving, and stays when let go still.
+  flingExpect: { movingSpeed: 100, stillSpeed: 1, carriesMinPx: 2, staysMaxPx: 0.5 },
   View,
 }

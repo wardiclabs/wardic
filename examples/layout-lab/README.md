@@ -298,7 +298,7 @@ and the card's `passes`.
 | 10 | Sibling resize mid-flight | The click moves box A; 150 ms later a timer grows box B's content, which only Wardic's shared ResizeObserver sees, while A is mid-flight. | safe | 0 | 2 (2 seeding), `passStepRatio` about 1 |
 | 11 | Drag while the slot moves | Hold the item; its slot moves every 600 ms or on R: the sibling resizes (the engine ResizeObserver's pass) or the two swap under a `LayoutGroup` (a task's pass). | safe | drag card | each pass seeds the sibling only; the dragged tree drag-blocked |
 | 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms, or on S, also while it flies back) and the release. | safe | drag card | as 11 |
-| 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent, while held, flying back or at rest (then grab it mid-animation). Momentum on or off; a `layoutId` twin. | safe | drag card | a pass seeds the parent at most |
+| 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent, while held, flying back or at rest (then grab it mid-animation). Momentum on or off; a `layoutId` twin. Throw the free box (#139). | safe | drag card | a pass seeds the parent at most |
 | 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container, optionally on a card a transform moves; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code, C moves the CSS card. | safe | drag card + reorder lines | each pass seeds the displaced items only |
 | 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets, and three `initial={false}` cells start at their `animate` (#134); each run is judged on where it starts and where it ends. | safe | board card | – |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
@@ -440,6 +440,28 @@ Method); the expected card, with a browser's own scheduler:
   its opacity through every release (#34: it used to drop to 0.03 with the twin
   showing through).
 
+  The **free box** (bottom left, #139) is a plain `drag` with no `layout`. Its release
+  is a Fling from the pointer's velocity over its last 100 ms, the release point
+  counted, as the item's release reads it (ADR-0004, *Amendment (#139)*):
+  - let go while moving, it carries on;
+  - let go still, or after a pause, it stays where it was let go;
+  - with **momentum** off, it always stays.
+
+  Before #139 it read a 30 ms window, so a flick with moves more than 30 ms apart
+  stopped dead. Its runs show two more card lines. **fling** reads the pointer's speed
+  at the release, as the lab reads it from the recorded moves:
+  - `carries on` when it was let go at 100 px/s or more, which needs at least 2 px along
+    the throw;
+  - `stays` when it was let go below 1 px/s, or with momentum off, which allows at most
+    0.5 px;
+  - a slow release between the two speeds is shown but not judged.
+
+  **rests** needs the run to settle; the recorder waits up to 4 s for its decay. The
+  slot lines don't judge it, since a free item rests where it lands: `child glued`
+  reads `no child`, and `ends on slot` reads how far off it is. How far it carries is
+  Motion-parity work (#140), not judged. A flick can carry it out of the stage; **Put
+  the free box back** remounts it.
+
 Known and not fixed yet, so they don't surprise you:
 
 - **A press still hit-tests.** Since #31 a drag keeps its pointer anywhere on the
@@ -478,6 +500,9 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R35 | 13 | release, press the item while it flies back and hold still, then let go without moving: it holds while pressed, then goes on to its slot; again, dragging from where it stopped | 3 |
 | R36 | 13, twin | (it crossfades in from the corner), then drag and release, also with a flick: it keeps its opacity and the twin stays hidden (#34) | 3 |
 | R38 | 13 | at rest, press Z (or P), then at once grab the item and move a little: it slides on under the pointer with no jump, and the card's **under pointer** reads a slide and passes (#30) | 3 each |
+| R41 | 13, free box | flick it and let go while moving: **fling** reads `carries on`, and **rests** `settled` (#139) | 3 |
+| R42 | 13, free box | flick it, hold still for about half a second, then let go: `stays` | 3 |
+| R43 | 13, free box, momentum off | flick it and let go while moving: `stays`, momentum off | 3 |
 
 ## Reorder scenario (#44)
 

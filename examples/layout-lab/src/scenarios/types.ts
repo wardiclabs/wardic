@@ -32,7 +32,7 @@
  */
 import type { Component } from "solid-js"
 import type { BoardRunInput } from "../lab/base-values-board.ts"
-import type { DragExpect, DragRunInput } from "../lab/drag-run.ts"
+import type { DragExpect, DragRunInput, FlingExpect } from "../lab/drag-run.ts"
 import type { ReorderExpect } from "../lab/reorder-run.ts"
 import type { RestExpect, RestRunInput } from "../lab/rest-run.ts"
 
@@ -182,6 +182,12 @@ export interface ScenarioDef {
    * the card shows those lines after the drag lines.
    */
   readonly reorderExpect?: ReorderExpect
+  /**
+   * What a drag scenario with a free item expects of its release (#139, scenario 13's free
+   * box), which the card's `fling` and `rests` lines check (see `flingChecksOf` in
+   * `lab/drag-run.ts`). Given, the card shows those lines after the drag lines.
+   */
+  readonly flingExpect?: FlingExpect
   /**
    * What a drag scenario expects of every at-rest run (#144, scenario 12's X), which the card
    * checks each one against (see `restChecksOf` in `lab/rest-run.ts`) when it is the scenario's

@@ -45,10 +45,17 @@
  * (`probe/timeline.ts`), so a span still in flight reads `{}`; that span, and one
  * from before #26's fix (no `dragBlocked`), count 0 for both.
  *
+ * A free item (#139, scenario 13's free box: modes `fling` and `fling-off`) has no slot to
+ * end on: it rests where its release leaves it. Its run reads the release instead
+ * ({@link FlingRead}): the pointer's speed as Wardic reads it, and how far the item went
+ * on past where it was let go. The card's `fling` and `rests` lines judge it
+ * ({@link flingChecksOf}), and the slot lines don't.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/drag-run.test.ts`).
  *
  * @module
  */
+import * as Velocity from "@wardic/core/Velocity"
 import type { SpanRecord } from "../probe/timeline.ts"
 import type { ReorderFrame, ReorderRunData } from "./reorder-run.ts"
 
@@ -365,6 +372,57 @@ export interface GestureEnd {
   readonly stalePx: number
 }
 
+/** Whether `mode` is a free item's (#139): its release is a Fling (`fling`), or stays put with momentum off (`fling-off`). */
+const isFlingMode = (mode: string): boolean => mode === "fling" || mode === "fling-off"
+
+/** The window the pointer's speed at a release is read over, in ms: Wardic's own (ADR-0004, *Amendment (#139)*). */
+const FLING_WINDOW_MS = 100
+
+/**
+ * A free item's release (#139): what the `fling` line reads. Every field is JSON-safe.
+ */
+export interface FlingRead {
+  /** Whether momentum was on (mode `fling`); off (`fling-off`), the item should stay where it was let go. */
+  readonly momentum: boolean
+  /**
+   * The pointer's speed at the release, in px/s: its last 100 ms of moves, the release
+   * point counted (`Velocity.trailing`), as Wardic reads it. The recorder stamps a move
+   * when it handles it, not with the event's time, so this is close to Wardic's, not exact.
+   */
+  readonly speed: number
+  /**
+   * How far the item went on past where it was let go (the grab box moved by the last
+   * move), in px, along the pointer's direction at the release; 0 with no speed.
+   */
+  readonly carriedPx: number
+  /** How far from where it was let go the item ended, in px (the larger of x and y). */
+  readonly movedPx: number
+}
+
+/** A free item's release (see {@link FlingRead}); `null` for any other run, or one with no release or a lost one. */
+const flingOf = (input: DragRunInput): FlingRead | null => {
+  const { releaseAt } = input
+  const last = input.moves[input.moves.length - 1]
+  const end = input.frames[input.frames.length - 1]
+  if (!isFlingMode(input.mode) || releaseAt === null || input.releaseLost === true || last === undefined || end === undefined) return null
+  const points: Array<Velocity.TimedPoint> = [
+    { x: 0, y: 0, timeStamp: input.grabAt },
+    ...input.moves.map((m) => ({ x: m.dx, y: m.dy, timeStamp: m.t })),
+    { x: last.dx, y: last.dy, timeStamp: releaseAt },
+  ]
+  const velocity = Velocity.trailing(points, FLING_WINDOW_MS)
+  const speed = Math.hypot(velocity.x, velocity.y)
+  const letGo = offsetBy(input.grabBox, { x: last.dx, y: last.dy })
+  const dx = end.d.x - letGo.x
+  const dy = end.d.y - letGo.y
+  return {
+    momentum: input.mode === "fling",
+    speed,
+    carriedPx: speed === 0 ? 0 : (dx * velocity.x + dy * velocity.y) / speed,
+    movedPx: Math.max(Math.abs(dx), Math.abs(dy)),
+  }
+}
+
 /**
  * One drag run: its {@link DragRunInput}, kept whole so a saved log carries the
  * evidence behind every number, plus what {@link dragRunOf} read from it. Every
@@ -447,6 +505,8 @@ export interface DragRun extends DragRunInput {
   readonly endsOnSlotPx: number | null
   /** What the `gesture ends` line reads (#31). */
   readonly gestureEnd: GestureEnd
+  /** A free item's release (#139, {@link FlingRead}); `null` for any other run. */
+  readonly fling: FlingRead | null
   /** The recorded `wardic.*` spans that started in `[grabAt, endedAt]`, as the lab joined them. */
   readonly spans: ReadonlyArray<SpanRecord>
 }
@@ -498,11 +558,14 @@ export const DRAG_CHECK_NAMES = [
   "gesture ends",
 ] as const
 
-/** One of {@link DRAG_CHECK_NAMES}. */
-export type DragCheckName = (typeof DRAG_CHECK_NAMES)[number]
+/** A free item's lines (#139, scenario 13's free box), after the drag lines. {@link flingChecksOf} returns them. */
+export const FLING_CHECK_NAMES = ["fling", "rests"] as const
+
+/** One of {@link DRAG_CHECK_NAMES} or {@link FLING_CHECK_NAMES}. */
+export type DragCheckName = (typeof DRAG_CHECK_NAMES)[number] | (typeof FLING_CHECK_NAMES)[number]
 
 /** The six lines of a drag (#26's), which a press that isn't a drag doesn't judge. */
-const DRAG_LINE_NAMES = DRAG_CHECK_NAMES.filter((name) => name !== "gesture ends")
+const DRAG_LINE_NAMES: ReadonlyArray<DragCheckName> = DRAG_CHECK_NAMES.filter((name) => name !== "gesture ends")
 
 /** Every drag line of a press that never moved past {@link DRAG_THRESHOLD_PX}: no drag started. */
 const CLICK_TEXT = "click, no drag"
@@ -679,7 +742,9 @@ const gestureEndOf = (
   }
   const lastSlot = frames[frames.length - 1]?.slot
   const offAtEnd = lastSlot === undefined ? 0 : boxDistance(endBox, lastSlot)
-  const stuckPx = framesAfter > 0 && !moved && !cutShort(input.endedBy) && offAtEnd > NEAR_PX ? offAtEnd : null
+  // A free item rests where its release leaves it, off its slot by design (#139).
+  const stuckPx =
+    framesAfter > 0 && !moved && !cutShort(input.endedBy) && offAtEnd > NEAR_PX && !isFlingMode(input.mode) ? offAtEnd : null
 
   let notPrimaryPx = 0
   if (!isPrimaryPress(input)) {
@@ -885,6 +950,7 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     releaseHeld: releaseHeldOf(frames, end),
     endsOnSlotPx,
     gestureEnd: gestureEndOf(input, end, previous, hop),
+    fling: flingOf(input),
     spans,
   }
 }
@@ -1014,6 +1080,9 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   // A lost release no unpressed move followed: its gesture's end never came in the run.
   const lostOpen = run.releaseLost === true && run.gestureEnd.at === null
   const cut = cutShort(run.endedBy)
+  // A free item (#139): no child, and no slot to end on; a release that stays has nothing to move.
+  const free = isFlingMode(run.mode)
+  const stays = free && run.fling !== null && run.fling.movedPx <= SUBPIXEL_PX
   return [
     run.flight === undefined
       ? lineOf(
@@ -1031,7 +1100,9 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
       behindMax === undefined ? undefined : `≤ ${behindMax}`,
       run.framesBehindMax !== null && behindMax !== undefined && run.framesBehindMax <= behindMax,
     ),
-    lineOf(
+    free && glue.length === 0
+      ? lineOf("child glued", "no child", undefined, true)
+      : lineOf(
       "child glued",
       glue.length === 0 ? "?" : `${glue.map(([name, drift]) => `${name} ${drift.toFixed(2)}`).join(" · ")} px`,
       glueMax === undefined ? undefined : `≤ ${glueMax} px`,
@@ -1047,6 +1118,8 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
     ),
     lostOpen
       ? lineOf("release held", LOST_OPEN_TEXT, undefined, true)
+      : stays
+        ? lineOf("release held", "nothing to move: it stays", undefined, true)
       : run.releaseHeld === null && cut
         ? // Cut before the release's first moving frame: too soon to read.
           lineOf("release held", `? · ${cutTextOf(run)}`, undefined, true)
@@ -1058,6 +1131,8 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
           ),
     lostOpen
       ? lineOf("ends on slot", LOST_OPEN_TEXT, undefined, true)
+      : free
+        ? lineOf("ends on slot", `${run.endsOnSlotPx === null ? "?" : px(run.endsOnSlotPx)} off it · a free item rests where it lands`, undefined, true)
       : cut
         ? // Still settling when the next press came: the last frame is not where the release ends.
           lineOf(
@@ -1075,3 +1150,55 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
     gesture,
   ]
 }
+
+/**
+ * What scenario 13 expects of its free item's release (#139), which the card's `fling`
+ * and `rests` lines check (see {@link flingChecksOf}).
+ */
+export interface FlingExpect {
+  /** At or above this pointer speed at the release (px/s), it was let go while moving: it should carry on. */
+  readonly movingSpeed: number
+  /** Below this pointer speed (px/s), it was let go still (or after a pause): it should stay. */
+  readonly stillSpeed: number
+  /** The least a release while moving must carry on along the pointer's direction, in px. */
+  readonly carriesMinPx: number
+  /** The most a release that should stay may move, in px. */
+  readonly staysMaxPx: number
+}
+
+/** A speed as the card prints it, e.g. `512 px/s`. */
+const pxPerSecond = (n: number): string => `${n.toFixed(0)} px/s`
+
+/**
+ * A free item's lines (#139), one per name in {@link FLING_CHECK_NAMES}; none for any other
+ * run (its card shows `–` there). `fling`: with momentum off, or let go below
+ * `stillSpeed`, it should stay (`stays`, within `staysMaxPx`); let go at `movingSpeed` or
+ * more with momentum, it should carry on (`carries on`, at least `carriesMinPx` along the
+ * pointer's direction); between the two speeds it is shown and not judged. `rests`: the run
+ * settled (a timeout fails it; a run cut short isn't judged). How far it carries is
+ * Motion-parity work (#140), not judged.
+ */
+export const flingChecksOf = (run: DragRun, expect: FlingExpect | undefined): Array<DragCheck> => {
+  if (!isFlingMode(run.mode)) return []
+  const f = run.fling
+  const rests = cutShort(run.endedBy)
+    ? lineOf("rests", cutTextOf(run), undefined, true)
+    : lineOf("rests", run.endedBy === "timeout" ? "still moving at the timeout" : "settled", expect === undefined ? undefined : "settled", run.endedBy !== "timeout")
+  if (f === null) return [lineOf("fling", run.releaseLost === true ? "lost release" : "?", undefined, run.releaseLost === true), rests]
+  const at = `let go at ${pxPerSecond(f.speed)}`
+  const stay = (why: string): DragCheck =>
+    lineOf("fling", `stays: ${px(f.movedPx)} · ${why}`, expect === undefined ? undefined : `≤ ${expect.staysMaxPx} px`, expect === undefined || f.movedPx <= expect.staysMaxPx)
+  if (!f.momentum) return [stay(`momentum off · ${at}`), rests]
+  if (expect !== undefined && f.speed < expect.stillSpeed) return [stay("let go still"), rests]
+  if (expect !== undefined && f.speed < expect.movingSpeed) return [lineOf("fling", `${px(f.carriedPx)} on · ${at}: a slow release, not judged`, undefined, true), rests]
+  return [
+    lineOf(
+      "fling",
+      `carries on ${px(f.carriedPx)} · ${at}`,
+      expect === undefined ? undefined : `≥ ${expect.carriesMinPx} px along the throw`,
+      expect === undefined || f.carriedPx >= expect.carriesMinPx,
+    ),
+    rests,
+  ]
+}
+
