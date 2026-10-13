@@ -24,13 +24,24 @@
  *   `initial={{ opacity: 0 }} animate={{ opacity: 0.5 }}`. Remounted, it starts at 0.5; Leave
  *   then Enter brings it back as a later entry, which fades in from 0 (Motion's rule).
  *
+ * And two cells for a camelCase custom property (#151), each with its opacity set to
+ * `var(--brandLevel)`, its own `--brandLevel` 1 in `style`, and `animate: { "--brandLevel": 0.5 }`;
+ * Remount custom property mounts both again:
+ *
+ * - **custom property: div**: on a `wardic.div`.
+ * - **custom property: svg**: on a `wardic.circle` in an `<svg>`.
+ *
+ * Each fades from its own 1 to 0.5. Before #151 the animation wrote `--brand-level` (an
+ * attribute on the circle) and removed the element's own `--brandLevel`, so its opacity
+ * stayed at 1.
+ *
  * Each gesture is one board run, judged by `lab/base-values-board.ts` (`start`, `end`) and
  * saved under `boardRuns`. Before #47's fix every scale grew from 0 and stayed, every
  * opacity started at 0, the fade rose from 0 and the exit vanished at once.
  *
  * @module
  */
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, wardic, type WardicValues } from "@wardic/solid"
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js"
 import type { BoardRunKind } from "../lab/base-values-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
@@ -47,14 +58,22 @@ document.head.append(sheet)
 const GRID: JSX.CSSProperties = {
   display: "grid",
   "grid-template-columns": "repeat(3, 1fr)",
-  "grid-template-rows": "repeat(3, 1fr)",
+  "grid-template-rows": "repeat(4, 1fr)",
   width: "100%",
   height: "100%",
 }
 const CELL: JSX.CSSProperties = { display: "flex", "flex-direction": "column", "align-items": "center", "justify-content": "center", gap: "4px" }
 const BOX: JSX.CSSProperties = { width: "44px", height: "32px", background: "var(--lab-accent, rgb(0, 102, 204))", "border-radius": "4px" }
 const LABEL: JSX.CSSProperties = { "font-size": "10px", opacity: 0.8 }
-const BUTTONS: JSX.CSSProperties = { display: "flex", gap: "6px", "margin-top": "6px" }
+/** A box whose opacity reads the custom property `--brandLevel`, its own value 1 (#151). */
+const LEVEL = { ...BOX, opacity: "var(--brandLevel)", "--brandLevel": "1" } as JSX.CSSProperties
+/** The circle's: the same, with the box's colour as its fill. */
+const LEVEL_SVG = { fill: "var(--lab-accent, rgb(0, 102, 204))", opacity: "var(--brandLevel)", "--brandLevel": "1" } as JSX.CSSProperties
+/** Where the custom property cells go. */
+const HALF_LEVEL = { "--brandLevel": 0.5 } as WardicValues
+const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
+/** Four rows of cells, three across, each wide enough for its label on one line. */
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "320px" }
 
 /** The painted uniform scale: the computed transform matrix's x-axis length, 1 for none. */
 const scaleOf = (el: Element): number => {
@@ -167,6 +186,8 @@ const View: ScenarioDef["View"] = (props) => {
   const [noMountKey, setNoMountKey] = createSignal(0)
   const [presenceShown, setPresenceShown] = createSignal(true)
   let laterEntry = false
+  // The two custom property cells (#151): remounted together.
+  const [customKey, setCustomKey] = createSignal(0)
 
   // A press ends at a release anywhere, as Wardic's press does (ADR-0019): a `pointerup`
   // outside the cell, or a `pointercancel`, ends its run too.
@@ -244,7 +265,7 @@ const View: ScenarioDef["View"] = (props) => {
 
   return (
     <div data-scenario={ID}>
-      <div class="stage">
+      <div class="stage" style={STAGE_STYLE}>
         <div style={GRID}>
           <div style={CELL}>
             <wardic.div
@@ -350,6 +371,35 @@ const View: ScenarioDef["View"] = (props) => {
               </>
             )}
           </For>
+          <For each={[customKey()]}>
+            {() => (
+              <>
+                <div style={CELL}>
+                  <wardic.div
+                    data-cell="custom-div"
+                    ref={(el: HTMLElement) => recorder.start("custom property: div", "mount", () => opacityOf(el), 1, 0.5, Number.NaN).end()}
+                    style={LEVEL}
+                    animate={HALF_LEVEL}
+                  />
+                  <span style={LABEL}>custom property: div</span>
+                </div>
+                <div style={CELL}>
+                  <svg width="44" height="32">
+                    <wardic.circle
+                      data-cell="custom-svg"
+                      ref={(el: SVGElement) => recorder.start("custom property: svg", "mount", () => opacityOf(el), 1, 0.5, Number.NaN).end()}
+                      r={14}
+                      cx={22}
+                      cy={16}
+                      style={LEVEL_SVG}
+                      animate={HALF_LEVEL}
+                    />
+                  </svg>
+                  <span style={LABEL}>custom property: svg</span>
+                </div>
+              </>
+            )}
+          </For>
         </div>
       </div>
       <div style={BUTTONS}>
@@ -368,14 +418,18 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="presence" onClick={togglePresence}>
           {presenceShown() ? "Leave" : "Enter"} presence
         </button>
+        <button type="button" class="btn secondary small" data-action="remount-custom" onClick={() => setCustomKey((k) => k + 1)}>
+          Remount custom property
+        </button>
       </div>
     </div>
   )
 }
 
 /**
- * Scenario 15, base values (#47): six cells whose key no `initial` or `animate` sets, and three
- * `initial={false}` cells (#134), each judged per run on where it starts and where it ends.
+ * Scenario 15, base values (#47): six cells whose key no `initial` or `animate` sets, three
+ * `initial={false}` cells (#134) and two custom property cells (#151), each judged per run on
+ * where it starts and where it ends.
  */
 export const s15: ScenarioDef = {
   id: ID,
@@ -383,13 +437,14 @@ export const s15: ScenarioDef = {
   kind: "board",
   title: "base values (a key no initial sets)",
   mechanism:
-    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the bottom row is initial={false} (Remount no-mount, Leave/Enter presence). Each run is judged on its start and its end.",
+    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property). Each run is judged on its start and its end.",
   prediction: "safe",
   rationale:
     "A key with no value starts from its style value, else its Own value (1 for a scale, the computed style " +
     "otherwise, read once at first need), and returns to its initial value, style value or Own value (ADR-0022). " +
     "Motion 13.5.0 does the same in Chromium and Firefox (docs/research/base-values.md). With initial={false} an element, " +
     "a Variant child and an AnimatePresence initial={false}'s first child start at their animate and don't move; a later " +
-    "entry animates in (#134, Motion's).",
+    "entry animates in (#134, Motion's). A custom property keeps its name and is a style property on SVG too, so " +
+    "var(--brandLevel) follows it from the element's own 1 (#151, Motion's).",
   View,
 }

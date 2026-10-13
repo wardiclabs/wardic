@@ -74,13 +74,24 @@ describe("splitPatch — SVG attribute/style routing (ADR-0014)", () => {
     expect(dashCase("x1")).toBe("x1")
     expect(dashCase("fill")).toBe("fill")
   })
+
+  it("CP-S1 (#151): dashCase keeps a custom property's name, which is case-sensitive", () => {
+    expect(dashCase("--brandColor")).toBe("--brandColor")
+    expect(dashCase("--brand-color")).toBe("--brand-color")
+  })
+
+  it("CP-S2 (#151): svg-inner: a custom property is style under its own name, never an attribute", () => {
+    const { style, attrs } = splitPatch(svg("circle"), { "--brandColor": "red", "--level": 0.5, cx: 5 })
+    expect(style).toEqual({ "--brandColor": "red", "--level": 0.5 })
+    expect(attrs).toEqual({ cx: "5" })
+  })
 })
 
 // A server has no element to test, so the Starting style routes by tag (ADR-0021); the
 // tag's routing must be the element's.
 describe("splitPatchForTag — the same routing by tag name (ADR-0021)", () => {
   it("SVG-T1: for each tag, splitPatchForTag equals splitPatch on a real element", () => {
-    const patch = { cx: 10, opacity: 0.5, transform: "translateX(5px)", transformOrigin: "0 0", pathLength: 0.5, attrX: 3 }
+    const patch = { cx: 10, opacity: 0.5, transform: "translateX(5px)", transformOrigin: "0 0", pathLength: 0.5, attrX: 3, "--brandColor": "red" }
     for (const tag of ["circle", "rect", "path", "g", "line", "ellipse", "polygon", "text", "svg"]) {
       expect(splitPatchForTag(tag, patch), tag).toEqual(splitPatch(svg(tag), patch))
     }

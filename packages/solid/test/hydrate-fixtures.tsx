@@ -24,6 +24,7 @@ import {
   type WardicEnv,
   WardicProvider,
   type WardicTransition,
+  type WardicValues,
 } from "@wardic/solid"
 import { TestLive } from "@wardic/test"
 import * as Effect from "effect/Effect"
@@ -368,7 +369,24 @@ export const F21 = live(() => (
   </AnimatePresence>
 ))
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21 } as const
+// #151: an SVG circle's custom property is a style property under its own name, on the server
+// and after hydration; its opacity reads it, so it shows from the server's paint on.
+export const F22 = live(() => (
+  <svg width="40" height="40">
+    <wardic.circle
+      data-k="f22"
+      r={10}
+      cx={20}
+      cy={20}
+      style={{ opacity: "var(--brandLevel)" }}
+      initial={{ "--brandLevel": 0.4 } as WardicValues}
+      animate={{ "--brandLevel": 0.8 } as WardicValues}
+      transition={TWEEN}
+    />
+  </svg>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -421,4 +439,5 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F19: { startK: "f19", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f19"), from: 0.5, to: 0.5 }] },
   F20: { startK: "f20", starting: projected({ opacity: 1 }), tracks: [{ label: "opacity", read: opacity("f20"), from: 1, to: 1 }] },
   F21: { startK: "f21", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f21"), from: 0.5, to: 0.5 }] },
+  F22: { startK: "f22", starting: { "--brandLevel": "0.4" }, tracks: [{ label: "opacity", read: opacity("f22"), from: 0.4, to: 0.8 }] },
 }
