@@ -44,3 +44,20 @@ A pair can blend differently because of the key it belongs to. `display` turning
 - **Tier 2 (ADR-0008):** the `InterpolatorRegistry` service gains `registerKeyRule` and `keyBlendOf`, and `make` a second parameter. A hand-written implementation of the service must add both. `KeyBlend`, `KeyRule` and `ResolveByValue` are new types.
 - **An Environment without the DOM's registry** blends `display: none`, a shadow from `none`, or a shadow list by value, as Discrete pairs where they don't decode together. `@wardic/test`'s `testLayer` is one.
 - **The per-frame path** (`docs/agents/effect-first.md`) includes a Key rule's `KeyBlend`: the DOM's in `key-rules.ts`.
+
+## Measured on this branch
+
+- **`bench:core`** (`--base main --head a5cfdea`, 11 paired reps, 1,000 elements). The bench runs core's default registry, which has no Key rules, so it measures core's side: `blendersFor` asking `keyBlendOf` and getting `None`.
+  - In Bun and Node, every workload without a complex value is within ±2.9%. Start times are at main's or lower, since core no longer runs #61's rules at stream build.
+  - Chromium's first run was too noisy to judge: its control was +3.8% while the lab's dev server served page loads. Its rerun is within −3.1% to +1.0% on the same workloads.
+  - `animateComplex` is the accepted cost of #61's colour tokens (ADR-0015, *Amendment (#61)*; #156): +7.7% (Bun), +2.5% (Node, bytes +5.5%) and +3.9% (Chromium) per frame, and +19.0%, +8.8% and +12.4% in its loop form.
+- **The DOM's rules at stream build** (`.tmp/61/decline.ts`, Node 22, the bench's four string keys, none of which a rule takes): `keyBlendOf` costs about 70 ns a key with the DOM's two rules, against 10 ns with none. That's about 0.3 ms per 1,000 elements of four keys, once per leg.
+- **The layout lab** (scenario 15's fifth row on `DomLive`'s registry): the scripted run (`.tmp/vel-lab/drive.ts`, `ONLY=s15n`) passes every line. A hand run in Chrome 155 passes every toggle and hover once the lab marks a run its cell's next run cuts short as superseded, and judges a toggle from the value it starts at. Both fixes are the lab's own.
+
+## Pinned by
+
+- **core, node** (`key-rules.test.ts`, KR1–KR4): a rule gives the blend of the key it takes; a key every rule declines has none; the first rule that takes a key wins, in `make`'s order and with `registerKeyRule` ahead; and core's default registry has no Key rules (`display`, `visibility`, `boxShadow`, `filter`).
+- **`@wardic/test`** (`key-rule-blend.test.ts`, KB1–KB2): a rule's blend runs for its key through `animateValues` while the other keys blend by value; and, as a guard, the Test Environment's `display` → `none` is a Discrete pair. `machines.test.ts`'s reference blend mirrors `keyBlendOf`.
+- **`@wardic/dom`, node** (`key-rules.node.test.ts`): DV1–DV8, the `visibility` rule, moved from `@wardic/test` with `spring-blend`'s SB5 as DV8; and AN1–AN14, the Animatable none (ADR-0015, *Amendment (#61)*).
+- **solid, Chromium, on `DomLive`:** `string-keys.browser.test.tsx` SK11–SK14 and `animatable-none.browser.test.tsx` AB1–AB4, unchanged.
+- **Mutation-checked** (`.tmp/61/mutate.py`): 20 single-point mutations, each failing the tests meant for it. Three are on the seam itself: the registry ignoring its rules, `blendersFor` not asking it, and the `visibility` rule taking every `display` pair.
