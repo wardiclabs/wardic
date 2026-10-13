@@ -136,7 +136,27 @@ Each comes from Q3b's fold of the drag offset into one FLIP on the node's progre
 
 - A layout drag always returns to its slot, as a `Reorder.Item` does. Motion's `drag layout` without `dragSnapToOrigin`, which rests where dropped, is out of scope.
 - A slot move during the release restarts the layout layer at rest, as Motion's layout animation does.
+- The raise orders only items `z-index` applies to: positioned ones, or flex or grid items, as Motion's docs require of its own. In a plain block list of static items neither library's raise works and DOM order decides (the probe's `reorder-regrab`: 26/25 frames covered, as on main; Motion 22/20).
+- #33 stays: a slot move during a release starts a FLIP under it, which throws a running node inside a `layoutRoot` inside the released node (the layout lab's scenario 12, G: 89–111 px). The release itself no longer triggers it, since it isn't a FLIP.
+- The velocity counts the time the pointer stood still before letting go, to the up itself; Motion samples its history once a frame and starts its inertia at about 1.07 times it. On the probe's synthetic flick (the up two moves late) that reads about 20% slower than Motion (496 px/s, Motion's fitted about 600), and the release carries on +2.2 px past the point it was let go, Motion +5.4.
 - *Amendment (#26)*'s deferred list: #28, #30 and #34 are fixed here, and "velocity across grab, release and retarget" is decided.
+
+### Measured
+
+`.tmp/vel/`, real Playwright mouse, Chromium 147 and Firefox 148, 3 runs each, framer-motion 13.4.0 (momentum off on both pages unless said):
+
+| Issue | Scene | Motion | main | this change |
+|---|---|---|---|---|
+| #30 | grab 9 frames into a FLIP: the offset from the pointer, frame by frame (Firefox) | `3.3 6.3 9.1 11.6 …` to 25 | jumps 24.3 at once | `3.2 6.2 8.9 11.1 …` to 25 |
+| #28 | the slot moves 80 ms into a release: steps | `8.5 \| 8.2 7.3 7.4 7.1` | `8.4 \| 2.1 4.3 5.6 6.3` | `8.2 \| 8.1 7.9 7.7 7.3` |
+| #28 | a resting child of that released node | 0.0 px | 70.1 px | 0.0 px |
+| #38 | a running child as its released parent settles: largest step change | 0.15–0.32 px | 1.58 px | 0.29 px (its own spring landing) |
+| #34 | a released `layoutId` Lead with a Follower | 1/0 | 0.03/0.97 | 1/0 |
+| Q2 | a flick with momentum on: carry past the release point | +5.4 px | none (a no-op) | +2.2 px |
+
+The layout lab, scripted on this change and on main's engine under this change's lab: scenario 13's grab mid-flight reads "after an 8–28 px slide" and 0.21–0.24 px from its landing (main: "jumped 8–28 px at the grab"); a slot move during the flight back keeps the child on (main: 43–59 px off); the twin keeps opacity 1 (main: 0.025); scenario 14's re-grab keeps the held item on top 40/40 frames (main: 5/40). The existing scenarios against main (k = 5, cold and warm): identical.
+
+Cost, `.tmp/vel-cost/` (a Frame loop tick timed by hand against a fake sink, 8 rounds, main against itself as the control): a FLIP of 1,000 / 3,000 nodes +3% / +4% in Chromium (control +1% / 0%) and +11% / +4% in Firefox (control +11% / 0%, its 1 ms clock); 1,000 nodes with a child each +5% (control +2%); 1,000 nodes released in one frame +15% to +33%, each stepping two springs where it stepped one. An early version paid +12% at 3,000 nodes for a `Bool.and` (a `dual`) per node per frame, now statement `if`s.
 
 ### Pinned by
 
