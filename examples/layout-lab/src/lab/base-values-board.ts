@@ -12,6 +12,8 @@
  *   before the node goes; a style change is still at it. A toggle (#61, a button flipping a
  *   key between `none` and a value) settles at its target. A gesture marked `blendsBack` (#61's
  *   stylesheet shadow) also has to pass through values in between on its way back.
+ * - A run its cell's next run cut short (a second press, a hover before the last one landed) is
+ *   **superseded**: only its start is judged (#61).
  * - **rests** (#61), for a run back to `none`: the key's computed value once still is `none`
  *   itself, not a zero like `blur(0px)`. Other runs have no such line.
  *
@@ -46,6 +48,11 @@ export interface BoardRunInput {
   readonly rest?: { readonly value: string; readonly expected: string }
   /** A gesture whose way back must blend, not switch (#61). */
   readonly blendsBack?: boolean
+  /**
+   * A run its cell's next run cut short (#61): what it sampled from then on was the next run's,
+   * so only its start is judged.
+   */
+  readonly superseded?: boolean
 }
 
 /** The card's lines, in display order. */
@@ -82,6 +89,7 @@ const startOf = (input: BoardRunInput): BoardCheck => {
 }
 
 const endOf = (input: BoardRunInput): BoardCheck => {
+  if (input.superseded === true) return { name: "end", ok: true, text: "superseded by the next run, not judged" }
   const all = [...input.during, ...input.after]
   const last = all[all.length - 1]
   switch (input.kind) {

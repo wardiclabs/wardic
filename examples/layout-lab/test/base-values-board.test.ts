@@ -102,4 +102,13 @@ describe("base-value board runs (#47, scenario 15)", () => {
     expect(lines(run({ ...hover, after: [23, 18, 10, 4, 2] })).end).toEqual({ name: "end", ok: true, text: "back at 2.000 through 3 frames ✓" })
     expect(lines(run({ ...hover, after: [2, 2, 2] })).end).toEqual({ name: "end", ok: false, text: "switched back to 2.000 ✗ expected a blend back" })
   })
+
+  it("BV13: a run its cell's next run cut short is judged on its start only, with no rests line (#61)", () => {
+    const l = lines(
+      run({ cell: "blur from none", kind: "toggle", base: 4, target: 0, before: 4, during: [4, 3.6, 2, 2.5, 3.9, 4], after: [], superseded: true }),
+    )
+    expect(l.start!.ok).toBe(true)
+    expect(l.end).toEqual({ name: "end", ok: true, text: "superseded by the next run, not judged" })
+    expect(l.rests).toBeUndefined()
+  })
 })

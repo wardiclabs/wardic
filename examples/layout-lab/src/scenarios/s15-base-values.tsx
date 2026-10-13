@@ -192,6 +192,9 @@ const landed = (rec: Recording, value: number): boolean => {
 const makeRecorder = (ctx: ScenarioContext) => {
   // The runs still sampling, closed unrecorded when the View goes.
   const sampling = new Set<MessageChannel>()
+  // Each cell's run still sampling: a new run on the cell records it as superseded (#61), since
+  // what it samples from then on is the new run's.
+  const current = new Map<string, () => void>()
   const start = (
     cell: string,
     kind: BoardRunKind,
@@ -201,14 +204,16 @@ const makeRecorder = (ctx: ScenarioContext) => {
     before: number,
     extra: RunExtra = {},
   ): { readonly end: () => void } => {
+    current.get(cell)?.()
     const rec: Recording = { cell, kind, base, target, before, startedAt: performance.now(), values: [], extra, split: undefined, endAt: undefined }
     const channel = new MessageChannel()
     sampling.add(channel)
     // A mount or a style change has no end event: every frame until it stands still is `during`.
     const open = kind === "mount" || kind === "style change" || kind === "toggle"
-    const finish = (): void => {
+    const finish = (superseded = false): void => {
       channel.port1.close()
       sampling.delete(channel)
+      if (current.get(cell) === supersede) current.delete(cell)
       const split = open ? rec.values.length : (rec.split ?? rec.values.length)
       ctx.recordBoardRun({
         cell,
@@ -220,10 +225,13 @@ const makeRecorder = (ctx: ScenarioContext) => {
         after: rec.values.slice(split),
         startedAt: rec.startedAt,
         endedAt: performance.now(),
-        ...(rec.extra.rest === undefined ? {} : { rest: rec.extra.rest() }),
+        ...(rec.extra.rest === undefined || superseded ? {} : { rest: rec.extra.rest() }),
         ...(rec.extra.blendsBack === true ? { blendsBack: true } : {}),
+        ...(superseded ? { superseded: true } : {}),
       })
     }
+    const supersede = (): void => finish(true)
+    current.set(cell, supersede)
     channel.port1.onmessage = () => {
       const value = read()
       // The node went (an exit): the run ends with it.
