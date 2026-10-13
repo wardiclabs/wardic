@@ -224,3 +224,47 @@ describe("the lift line (#47, scenario 14's Lift)", () => {
     expect(liftLine(click)).toEqual({ name: "lift", ok: true, text: "click, no drag" })
   })
 })
+
+// #42: the no stretch line. Item c's slot grows from 36 to 56 px tall at the reorder (variable
+// sizes); with the items' layout `true` it paints from 36 up, with `"position"` at 56 at once.
+describe("the no stretch line (#42, scenario 14's item layout)", () => {
+  const NO_STRETCH = { ...EXPECT, noStretchMaxPx: 0.5 }
+  /** A press of b with c growing in its new slot; c painted `cHeights[k]` tall in frame k after the reorder. */
+  const growRun = (itemLayout: "position" | undefined, cHeights: ReadonlyArray<number>, lift?: number): DragRunInput => {
+    const base = pressOf()
+    const frames = base.frames.map((f, k) => {
+      const r = f.reorder!
+      if (k < 8) return f
+      const height = cHeights[Math.min(k - 8, cHeights.length - 1)]!
+      const slots = { ...r.slots, c: { ...r.slots.c!, height: 56 } }
+      const items = { ...r.items, c: { ...r.items.c!, height } }
+      return { ...f, reorder: { ...r, slots, items } }
+    })
+    return {
+      ...base,
+      frames,
+      reorder: { ...base.reorder!, variableSizes: true, ...(itemLayout !== undefined ? { itemLayout } : {}), ...(lift !== undefined ? { lift } : {}) },
+    }
+  }
+  const line = (input: DragRunInput) => reorderChecksOf(input, NO_STRETCH).find((c) => c.name === "no stretch")
+
+  it("NS1: with position, items at their slot's size every frame pass", () => {
+    expect(line(growRun("position", [56, 56, 56, 56]))).toEqual({ name: "no stretch", ok: true, text: "0.00 px · layout position · variable sizes ✓" })
+  })
+
+  it("NS2: with position, an item that scales from its old size fails", () => {
+    const l = line(growRun("position", [36, 44, 52, 56]))
+    expect(l?.ok).toBe(false)
+    expect(l?.text).toBe("20.00 px · item c · layout position · variable sizes ✗ expected ≤ 0.5 px")
+  })
+
+  it("NS3: with true, the stretch is shown and not judged", () => {
+    expect(line(growRun(undefined, [36, 44, 52, 56]))).toEqual({ name: "no stretch", ok: true, text: "20.00 px · item c · layout true · variable sizes, not judged" })
+  })
+
+  it("NS4: the dragged item is left out while Lift scales it", () => {
+    const base = growRun("position", [56, 56, 56, 56], 1.05)
+    const lifted = { ...base, frames: base.frames.map((f) => ({ ...f, reorder: { ...f.reorder!, items: { ...f.reorder!.items, b: { ...f.reorder!.items.b!, width: 189 } } } })) }
+    expect(line(lifted)?.ok).toBe(true)
+  })
+})
