@@ -78,15 +78,6 @@ it.effect("SB4: a unit string overshoots like a numeric key", () =>
   }),
 )
 
-it.effect("SB5: display turns none only on the settle frame, with no flicker under a bouncy spring", () =>
-  Effect.gen(function* () {
-    const frames = yield* blend({ display: "block", opacity: 1 }, { display: "none", opacity: 0 }, { stiffness: 100, damping: 5 })
-    expect(frames.length).toBeGreaterThan(30)
-    frames.slice(0, -1).forEach((f, i) => expect(f.value.display, `frame ${i}`).toBe("block"))
-    expect(frames.at(-1)).toMatchObject({ value: { display: "none", opacity: 0 }, done: true })
-  }),
-)
-
 it.effect("SB6: a Discrete pair switches on the first frame past the delay", () =>
   Effect.gen(function* () {
     const now = yield* blend({ overflow: "visible" }, { overflow: "hidden" })

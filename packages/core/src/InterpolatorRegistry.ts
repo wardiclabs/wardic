@@ -1,7 +1,8 @@
 /**
  * The `InterpolatorRegistry` module: the service that resolves a pair of values to the blend a
- * frame calls (ADR-0026), `make` to build one over a list of `Interpolator.Entry`s, and `layer`,
- * one pre-loaded with `Interpolator.defaults`.
+ * frame calls (ADR-0026), and a key's pair to its Environment's Key rule (ADR-0035); `make` to
+ * build one over a list of `Interpolator.Entry`s and `KeyRule`s, and `layer`, one pre-loaded with
+ * `Interpolator.defaults` and no Key rules.
  *
  * Tier 2 (ADR-0008): Effect-typed, for binding and Environment authors.
  */
@@ -36,7 +37,45 @@ export class InterpolatorRegistry extends Context.Service<InterpolatorRegistry, 
   readonly register: <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) => Effect.Effect<void>
   readonly resolve: <From, To>(from: From, to: To) => Effect.Effect<(t: number) => From | To>
   readonly interpolate: <From, To>(from: From, to: To, t: number) => Effect.Effect<From | To>
+  /** Add a Key rule, ahead of those already registered (ADR-0035). */
+  readonly registerKeyRule: (rule: KeyRule) => Effect.Effect<void>
+  /**
+   * The blend of the first Key rule, latest registered first, that takes `key`'s pair: the Effect
+   * that builds it. `None` when every rule declines: the pair blends by value, through `resolve`.
+   * Synchronous: it's asked once per key each time a leg is built.
+   */
+  readonly keyBlendOf: (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
 }>()("@wardic/InterpolatorRegistry") {}
+
+/**
+ * A key's blend for a whole leg (ADR-0035): its value at progress `t`, given whether that progress
+ * Frame is the run's last. What a Key rule hands back, and on the per-frame path (ADR-0025): plain
+ * calls and statement `if`s, nothing allocated but the value.
+ */
+export type KeyBlend = (t: number, done: boolean) => number | string
+
+/** Resolve a pair by value: the registry's `resolve`, which a Key rule calls for the pairs it blends. */
+export type ResolveByValue = <From, To>(from: From, to: To) => Effect.Effect<(t: number) => From | To>
+
+/**
+ * An Environment's **Key rule** (CONTEXT.md, ADR-0035): how one key's pair blends, picked by the
+ * key's name. Core holds none; the DOM Environment's know CSS properties (`@wardic/dom`'s
+ * `keyRules`).
+ *
+ * `blend` declines with `None`, synchronously and allocating nothing: the registry asks every rule
+ * for every key of every leg it builds, so a key no rule wants costs what it did with none. Taking
+ * the key, it returns the Effect that builds the key's `KeyBlend`, which may resolve pairs by value
+ * through `resolve`.
+ */
+export interface KeyRule {
+  readonly name: string
+  readonly blend: (
+    key: string,
+    from: number | string,
+    to: number | string,
+    resolve: ResolveByValue,
+  ) => Option.Option<Effect.Effect<KeyBlend>>
+}
 
 /**
  * A Discrete pair at progress `t` (ADR-0024, decision 3): `from` at 0 and below, then `to` from
@@ -164,8 +203,9 @@ const stringPair: Predicate.Refinement<Pair, readonly [string, string]> = Predic
 ])
 
 /**
- * Builds the `InterpolatorRegistry` service shape over a mutable entry list.
- * `register` prepends, so later registrations take precedence over built-ins.
+ * Builds the `InterpolatorRegistry` service shape over a mutable entry list and a mutable Key
+ * rule list, each in precedence order (`keyRules` as given: the first that takes a key wins).
+ * `register` and `registerKeyRule` prepend, so later registrations take precedence.
  *
  * `resolve` is the hot-path entry: it picks the first entry that decodes both
  * endpoints, once, and returns the pure `(t) => From | To` its `blend` built,
@@ -174,9 +214,13 @@ const stringPair: Predicate.Refinement<Pair, readonly [string, string]> = Predic
  * registry and kept (decision 9). `interpolate` is sugar — the same `resolve`,
  * applied once.
  */
-export const make = (initial: ReadonlyArray<Interpolator.Entry<any, any>> = Interpolator.defaults) =>
+export const make = (
+  initial: ReadonlyArray<Interpolator.Entry<any, any>> = Interpolator.defaults,
+  keyRules: ReadonlyArray<KeyRule> = [],
+) =>
   Effect.sync(() => {
     const entries: Array<Registered> = Arr.map(initial, registered)
+    const rules: Array<KeyRule> = Arr.copy(keyRules)
     const cache = makeBlendCache(CACHE_CAPACITY)
 
     const resolveUncached = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> =>
@@ -213,8 +257,17 @@ export const make = (initial: ReadonlyArray<Interpolator.Entry<any, any>> = Inte
       resolve,
       interpolate: <From, To>(from: From, to: To, t: number): Effect.Effect<From | To> =>
         Effect.map(resolve(from, to), (blend) => blend(t)),
+      registerKeyRule: (rule: KeyRule) =>
+        Effect.gen(function* () {
+          rules.unshift(rule)
+          yield* Effect.logDebug("wardic.interpolator: register key rule").pipe(
+            Effect.annotateLogs({ keyRule: rule.name }),
+          )
+        }),
+      keyBlendOf: (key: string, from: number | string, to: number | string): Option.Option<Effect.Effect<KeyBlend>> =>
+        Arr.findFirst(rules, (rule) => rule.blend(key, from, to, resolve)),
     }
   })
 
-/** The `InterpolatorRegistry` pre-loaded with core's built-in interpolators (`Interpolator.defaults`). */
+/** The `InterpolatorRegistry` pre-loaded with core's built-in interpolators (`Interpolator.defaults`) and no Key rules. */
 export const layer: Layer.Layer<InterpolatorRegistry> = Layer.effect(InterpolatorRegistry)(make())

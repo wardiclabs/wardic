@@ -22,7 +22,8 @@ const lines = (input: BoardRunInput) => Object.fromEntries(boardChecksOf(input).
 describe("base-value board runs (#47, scenario 15)", () => {
   it("BV1: a gesture that starts at its base and returns to it passes both lines", () => {
     const l = lines(run({}))
-    expect(Object.keys(l)).toEqual([...BOARD_CHECK_NAMES])
+    // `rests` is only for a run back to `none` (#61).
+    expect(Object.keys(l)).toEqual(BOARD_CHECK_NAMES.filter((name) => name !== "rests"))
     expect(l.start).toEqual({ name: "start", ok: true, text: "from 1.010 (base 1) ✓" })
     expect(l.end).toEqual({ name: "end", ok: true, text: "back at 1.000 ✓" })
   })
@@ -75,5 +76,39 @@ describe("base-value board runs (#47, scenario 15)", () => {
     const l = lines(run({ during: [], after: [] }))
     expect(l.start!.ok).toBe(false)
     expect(l.end!.ok).toBe(false)
+  })
+
+  it("BV10: a toggle from none grows from 0 and settles at its target; one that switches at once fails start (#61)", () => {
+    const grows = lines(run({ cell: "shadow from none", kind: "toggle", base: 0, target: 10, before: 0, during: [0, 0.4, 1.5, 4, 7.5, 9.6, 10], after: [] }))
+    expect(grows.start).toEqual({ name: "start", ok: true, text: "from 0.400 (base 0) ✓" })
+    expect(grows.end).toEqual({ name: "end", ok: true, text: "settled at 10.000 ✓" })
+    expect(grows.rests).toBeUndefined()
+    const switches = lines(run({ cell: "shadow from none", kind: "toggle", base: 0, target: 10, before: 0, during: [0, 10, 10, 10], after: [] }))
+    expect(switches.start!.ok).toBe(false)
+  })
+
+  it("BV11: a toggle back to none rests at none itself; one resting at its zero fails rests (#61)", () => {
+    const back = { cell: "blur from none", kind: "toggle" as const, base: 4, target: 0, before: 4, during: [4, 3.6, 2, 0.5, 0], after: [] }
+    expect(lines(run({ ...back, rest: { value: "none", expected: "none" } })).rests).toEqual({ name: "rests", ok: true, text: "none ✓" })
+    expect(lines(run({ ...back, rest: { value: "blur(0px)", expected: "none" } })).rests).toEqual({
+      name: "rests",
+      ok: false,
+      text: "blur(0px) ✗ expected none",
+    })
+  })
+
+  it("BV12: a gesture marked blendsBack must blend on its way back; a switch back fails end (#61)", () => {
+    const hover = { cell: "hover shadow", base: 2, target: 24, before: 2, during: [2, 3, 8, 16, 22, 24], blendsBack: true }
+    expect(lines(run({ ...hover, after: [23, 18, 10, 4, 2] })).end).toEqual({ name: "end", ok: true, text: "back at 2.000 through 3 frames ✓" })
+    expect(lines(run({ ...hover, after: [2, 2, 2] })).end).toEqual({ name: "end", ok: false, text: "switched back to 2.000 ✗ expected a blend back" })
+  })
+
+  it("BV13: a run its cell's next run cut short is judged on its start only, with no rests line (#61)", () => {
+    const l = lines(
+      run({ cell: "blur from none", kind: "toggle", base: 4, target: 0, before: 4, during: [4, 3.6, 2, 2.5, 3.9, 4], after: [], superseded: true }),
+    )
+    expect(l.start!.ok).toBe(true)
+    expect(l.end).toEqual({ name: "end", ok: true, text: "superseded by the next run, not judged" })
+    expect(l.rests).toBeUndefined()
   })
 })

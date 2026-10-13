@@ -638,7 +638,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
 ## Base values (#47)
 
-Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), a row of three for `initial={false}` (#134), and a row of two for a camelCase custom property (#151):
+Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), a row of three for `initial={false}` (#134), two cells for a camelCase custom property (#151), and four for the Animatable none (#61):
 
 | Cell | Config | Starts at | Ends at |
 | ---- | ------ | --------- | ------- |
@@ -653,11 +653,19 @@ Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), a 
 | no mount: presence | `<AnimatePresence initial={false}>`, a child with `initial={{ opacity: 0 }} animate={{ opacity: 0.5 }}`; **Leave** / **Enter presence** brings it back as a later entry | 0.5 (a later entry: 0) | 0.5 |
 | custom property: div | opacity `var(--brandLevel)`, its own `--brandLevel: 1` in `style`, `animate: { "--brandLevel": 0.5 }`; **Remount custom property** | its own 1 | 0.5 |
 | custom property: svg | the same on a `wardic.circle` in an `<svg>` | its own 1 | 0.5 |
+| shadow from none | its own `box-shadow` is `none`; **Toggle none** animates it to `0px 0px 10px rgb(255, 0, 0)` and back | blur 0 (`none`) | 10, then `none` |
+| blur from none | its own `filter` is `none`; **Toggle none**: `blur(4px)` and back | 0 (`none`) | 4, then `none` |
+| fill from none | an SVG circle with `fill: none` in `style`; **Toggle none**: `rgb(255, 0, 0)` and back | alpha 0 (`none`) | 1, then `none` |
+| hover shadow | a stylesheet's `box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2)`, `whileHover` `0px 8px 24px rgba(0, 0, 0, 0.3)` | blur 2 | 2, blended back |
 
-Each gesture is one board run (`lab/base-values-board.ts`). The card shows the last run's cell and two lines:
+Each gesture is one board run (`lab/base-values-board.ts`). The card shows the last run's cell and these lines:
 
 - **start**: the first frame that moved lies within a quarter of the way from the base to the target. A style change shows within three frames.
-- **end**: a gesture is back at its base (within 0.005), a mount settles at its target, an exit fades through before it goes, a style change stays.
+- **end**: a gesture is back at its base (within 0.005), a mount settles at its target, an exit fades through before it goes, a style change stays. A toggle settles at its target. The hover shadow also has to pass through values in between on its way back (Motion switches it back at once).
+- A toggle's base is the value it starts from, so one pressed mid-flight is judged from where the last had got to. A run its cell's next run cuts short (a second press, a hover before the last one landed) reads **superseded**, judged on its start only.
+- **rests** (#61), only for a toggle back to `none`: the computed value once still is `none` itself, not a zero like `blur(0px)` (Motion's), which would leave a stacking context.
+
+The Animatable none cells read the painted blur radius, or the fill's alpha, with 0 for `none`. At `1243d8c` each switched at the first frame, so **start** failed both ways, and the hover shadow switched in and back.
 
 At `18b1e86`, every scale grew from 0 and stayed, every opacity started at 0, the fade rose from 0, and the exit vanished at once.
 
@@ -673,8 +681,11 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R39 | the three no-mount cells | press **Remount no-mount**: each starts at 0.5 and never moves (#134) | 3 |
 | R40 | no mount: presence | press **Leave presence**, then **Enter presence**: the later entry fades in from 0 (`presence: later entry`) | 3 |
 | R44 | the two custom property cells | press **Remount custom property**: each fades from 1 to 0.5 (#151: it used to stay at 1) | 3 |
+| R48 | shadow, blur and fill from none | press **Toggle none**, wait for them to settle, press it again: each grows from 0, and back reads **rests** `none ✓` (#61) | 3 |
+| R49 | the same | press **Toggle none** twice quickly: the first run reads `superseded`, and the second starts where the first had got to | 2 |
+| R50 | hover shadow | hover until it settles, then leave: **end** `back at 2.000 through n frames ✓` (#61) | 3 |
 
-Every run should read `start ✓` and `end ✓`.
+Every run should read `start ✓` and `end ✓`, and a run back to `none` `rests ✓`.
 
 ## Scheduler note
 

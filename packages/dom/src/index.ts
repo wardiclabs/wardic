@@ -24,6 +24,7 @@ import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
 import { InputDomLive } from "./input.ts"
+import { InterpolatorRegistryDomLive } from "./key-rules.ts"
 import { ProbeDomLive } from "./probe.ts"
 import { RendererDomLive } from "./renderer.ts"
 
@@ -31,6 +32,9 @@ export const VERSION = "0.1.0-alpha.0"
 
 export { ClockDomLive } from "./clock.ts"
 export { InputDomLive } from "./input.ts"
+// The DOM Environment's Key rules (ADR-0035): Tier 2. How a CSS property's pair blends by name
+// (display / visibility, the Animatable none, shadow lists), and the registry DomLive provides.
+export { animatableNone, InterpolatorRegistryDomLive, keyRules, visibility } from "./key-rules.ts"
 export { ProbeDomLive } from "./probe.ts"
 export { project, RendererDomLive } from "./renderer.ts"
 
@@ -111,7 +115,8 @@ export { type OwnValue, ownValues, styleValueOf, valueLike } from "./own-values.
 
 /**
  * The composed browser environment: the four DOM service Layers plus core's
- * real {@link InterpolatorRegistry} and its Frame loop over the DOM Clock
+ * {@link InterpolatorRegistry} with the DOM's Key rules (`InterpolatorRegistryDomLive`, ADR-0035)
+ * and its Frame loop over the DOM Clock
  * (`FrameLoop.layer`, ADR-0027), fully self-contained (R = never). `ClockDomLive` also
  * provides the `RefreshFrameSource` the flush gate requests its flushes from (ADR-0031).
  *
@@ -135,6 +140,6 @@ export const DomLive: Layer.Layer<
   | InterpolatorRegistry.InterpolatorRegistry
   | AtomRegistry.AtomRegistry
 > = FrameLoop.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistry.layer)),
+  Layer.provideMerge(Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryDomLive)),
   Layer.provideMerge(AtomRegistry.layer),
 )

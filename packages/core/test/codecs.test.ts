@@ -89,25 +89,28 @@ describe("ColorString", () => {
 })
 
 describe("ComplexString", () => {
-  it("decodes a string carrying two or more numbers into the parts around them and the numbers", () => {
-    expect(decodeComplex("M0,0 L10,10")).toEqual(
-      Option.some({ parts: ["M", ",", " L", ",", ""], numbers: [0, 0, 10, 10] }),
-    )
+  it("decodes a string carrying numbers or colours among other text into the parts around them and the tokens", () => {
+    expect(decodeComplex("M0,0 L10,10")).toEqual(Option.some({ parts: ["M", ",", " L", ",", ""], tokens: [0, 0, 10, 10] }))
+    // One number inside a function is enough since #61 (Motion's rule; two or more before).
+    expect(decodeComplex("blur(4px)")).toEqual(Option.some({ parts: ["blur(", "px)"], tokens: [4] }))
+    // A colour is one token, not its channels (#61).
     expect(decodeComplex("0px 0px 5px rgba(0,0,0,0.5)")).toEqual(
-      Option.some({ parts: ["", "px ", "px ", "px rgba(", ",", ",", ",", ")"], numbers: [0, 0, 5, 0, 0, 0, 0.5] }),
+      Option.some({ parts: ["", "px ", "px ", "px ", ""], tokens: [0, 0, 5, { mode: "rgb", r: 0, g: 0, b: 0, alpha: 0.5 }] }),
     )
   })
 
-  it("rejects a string with fewer than two numbers, and what isn't a string", () => {
-    rejectsAll(decodeComplex, ["10px", "none", "auto", "", 5, ["M0,0 L1,1"]])
+  it("rejects a unit string, a lone colour, a string with no numbers or colours, and what isn't a string", () => {
+    rejectsAll(decodeComplex, ["10px", "120", "#f00", " rgb(255, 0, 0) ", "none", "auto", "", 5, ["M0,0 L1,1"]])
   })
 
-  it("round-trips a string whose numbers are written in their shortest form", () => {
-    const inputs = ["M0,0 L10,10", "0,0 20,30", "M-1.5,0 C1,2 3,4 5,6 Z", "0px 0px 5px rgba(0,0,0,0.5)"]
+  it("round-trips a string whose numbers are written in their shortest form and that holds no colour", () => {
+    const inputs = ["M0,0 L10,10", "0,0 20,30", "M-1.5,0 C1,2 3,4 5,6 Z", "blur(4px) brightness(1.5)"]
     expect(Arr.map(inputs, roundTrip(Interpolator.ComplexString))).toEqual(inputs)
   })
 
-  it("encodes numbers in their shortest form", () => {
+  it("encodes numbers in their shortest form, and colours as rgb() / rgba()", () => {
     expect(roundTrip(Interpolator.ComplexString)("M0.50,1e3 L.5,-0")).toBe("M0.5,1000 L0.5,0")
+    expect(roundTrip(Interpolator.ComplexString)("0px 0px 5px rgba(0,0,0,0.5)")).toBe("0px 0px 5px rgba(0, 0, 0, 0.5)")
+    expect(roundTrip(Interpolator.ComplexString)("0px 0px 5px #f00")).toBe("0px 0px 5px rgb(255, 0, 0)")
   })
 })

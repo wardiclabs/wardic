@@ -9,7 +9,6 @@
 import { formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Equivalence from "effect/Equivalence"
 import { pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -18,6 +17,7 @@ import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Str from "effect/String"
+import { COLOR_START_RE, TOKEN_RE } from "./internal/complexTokens.ts"
 import * as Scalar from "./Scalar.ts"
 
 /**
@@ -248,108 +248,161 @@ export const unit: Entry<ParsedUnit, string | number> = {
     }),
 }
 
-/** A single number token: optional sign, int/decimal, optional exponent. */
-const NUMBER_RE = /-?\d*\.?\d+(?:e[-+]?\d+)?/gi
+/** A complex value's token, decoded: a number, or a colour as culori holds it (#61). */
+export type ComplexToken = number | Color
 
 /**
- * A complex value, decoded (CONTEXT.md): the pieces around its numbers, and the numbers, in
- * document order. `parts.length === numbers.length + 1`.
+ * A complex value, decoded (CONTEXT.md): the pieces around its tokens, and the tokens, numbers and
+ * colours, in document order. `parts.length === tokens.length + 1`.
  */
-type Complex = { readonly parts: ReadonlyArray<string>; readonly numbers: ReadonlyArray<number> }
-
-/** Two or more numeric tokens: what makes a string a complex value. */
-const twoOrMore: Predicate.Predicate<ReadonlyArray<string>> = (tokens) => tokens.length >= 2
-
-/** Parse a complex value: a string carrying two or more numbers, or `None`. */
-const parseComplex = (input: string): Option.Option<Complex> =>
-  pipe(
-    input,
-    Str.match(NUMBER_RE),
-    Option.filter(twoOrMore),
-    Option.map((tokens) => ({
-      parts: Str.split(input, NUMBER_RE),
-      numbers: Arr.map(tokens, (token) => Number.parseFloat(token)),
-    })),
-  )
-
-/**
- * A complex value's parts and numbers, interleaved: the complex codec's plain encode (ADR-0026).
- * On the per-frame path: a counted loop, and nothing allocated but the string.
- */
-const formatComplex = (parts: ReadonlyArray<string>, numbers: ReadonlyArray<number>): string => {
-  let out = parts[0]
-  for (let i = 0; i < numbers.length; i++) out += String(numbers[i]) + parts[i + 1]
-  return out
+export interface Complex {
+  readonly parts: ReadonlyArray<string>
+  readonly tokens: ReadonlyArray<ComplexToken>
 }
 
+/** A token's text as a number or a colour; `None` for a colour culori can't parse. */
+const parseToken = (token: string): Option.Option<ComplexToken> =>
+  Bool.match(COLOR_START_RE.test(token), {
+    onTrue: (): Option.Option<ComplexToken> => parseColor(token),
+    onFalse: () => Option.some(Number.parseFloat(token)),
+  })
+
+/** A colour token, decoded. */
+const isColorToken: Predicate.Refinement<ComplexToken, Color> = (token): token is Color => isColor(token)
+
+/** A decoded value that is one colour and nothing else around it: a colour, not a complex value. */
+const isLoneColor = (complex: Complex): boolean =>
+  complex.tokens.length === 1 && Arr.every(complex.tokens, isColorToken) && Arr.every(complex.parts, (part) => Str.isEmpty(Str.trim(part)))
+
+/** A string that is only a number with a unit (`"10px"`): a unit string, not a complex value. */
+const isUnitString = (input: string): boolean => Option.isSome(parseUnit(input))
+
 /**
- * A complex value (ADR-0015, ADR-0026; CONTEXT.md) ↔ its parts and numbers: a string carrying two
- * or more numbers, an SVG `d` or `points`, a `filter`, a multi-part `box-shadow`. It encodes with
- * `formatComplex`, the function the frame calls; numbers come back in JavaScript's shortest form,
- * so `"M0.50,1e3"` encodes back as `"M0.5,1000"`.
+ * Parse a complex value: a string carrying one or more numbers or colours among other text (#61,
+ * Motion's rule; two or more numbers before). `None` for a unit string, a lone colour, a string
+ * with no tokens, or one whose colour culori can't parse.
+ */
+const parseComplex = (input: string): Option.Option<Complex> =>
+  pipe(
+    Option.liftPredicate(input, Predicate.not(isUnitString)),
+    Option.flatMap(Str.match(TOKEN_RE)),
+    Option.flatMap((tokens) => Option.all(Arr.map(tokens, parseToken))),
+    Option.map((tokens): Complex => ({ parts: Str.split(input, TOKEN_RE), tokens })),
+    Option.filter(Predicate.not(isLoneColor)),
+  )
+
+/** A token as it's written back: a number in its shortest form, a colour as `rgb()` / `rgba()`. */
+const formatToken = (token: ComplexToken): string =>
+  Match.value(token).pipe(
+    Match.when(Predicate.isNumber, (value) => String(value)),
+    Match.orElse((color) => formatRgb(color)),
+  )
+
+/** A complex value's parts and tokens, interleaved: the complex codec's plain encode (ADR-0026). */
+const formatComplex = (complex: Complex): string =>
+  Arr.reduce(complex.tokens, complex.parts[0], (out, token, i) => out + formatToken(token) + complex.parts[i + 1])
+
+/**
+ * A complex value (ADR-0015, ADR-0026; CONTEXT.md) ↔ its parts and tokens: a string carrying one or
+ * more numbers or colours among other text, an SVG `d` or `points`, a `filter` such as `blur(4px)`,
+ * a `box-shadow`. It encodes with `formatComplex`: numbers come back in JavaScript's shortest form
+ * and colours as `rgb()` / `rgba()`, so `"M0.50,1e3"` encodes back as `"M0.5,1000"` and
+ * `"0px 0px 4px #f00"` as `"0px 0px 4px rgb(255, 0, 0)"`.
  */
 export const ComplexString: Schema.Codec<Complex, string> = Schema.String.pipe(
   Schema.decodeTo(
-    Schema.Struct({ parts: Schema.Array(Schema.String), numbers: Schema.Array(Schema.Number) }),
-    parseAndFormat(
-      parseComplex,
-      (complex: Complex): string => formatComplex(complex.parts, complex.numbers),
-    ),
+    Schema.Struct({ parts: Schema.Array(Schema.String), tokens: Schema.Array(Schema.Union([Schema.Number, Schema.declare(isColor)])) }),
+    parseAndFormat(parseComplex, formatComplex),
   ),
 )
 
-/** Two complex values of one structure: the same parts around their numbers, so as many numbers. */
-const sameStructure: Equivalence.Equivalence<Complex> = Equivalence.mapInput(
-  Arr.makeEquivalence(Equivalence.String),
-  (complex: Complex) => complex.parts,
-)
-
 /**
- * Two complex values' blend, number by number. The frame writes the lerped numbers into one array
- * allocated here, once, and interleaves them with the parts through `formatComplex`, the codec's
- * encode: a counted loop, and nothing allocated per frame but the string.
+ * One token of the target, with what it blends from: two numbers, or a colour's interpolator
+ * (`color` set). Built once, when a stream is built.
  */
-const blendNumbers = (from: Complex, to: Complex): ((t: number) => string) => {
-  const numbers = Arr.copy(from.numbers)
-  return (t) => {
-    for (let i = 0; i < numbers.length; i++) {
-      numbers[i] = Scalar.lerp(from.numbers[i], to.numbers[i], t)
-    }
-    return formatComplex(from.parts, numbers)
-  }
+interface Slot {
+  readonly from: number
+  readonly to: number
+  readonly color: ReturnType<typeof culoriInterpolate> | undefined
+}
+
+/** A slot's token at progress `t`. On the per-frame path (ADR-0025): an early return, no `Option`. */
+const slotAt = (slot: Slot, t: number): string => {
+  const color = slot.color
+  if (Predicate.isNotUndefined(color)) return formatRgb(color(t))
+  return String(Scalar.lerp(slot.from, slot.to, t))
 }
 
 /**
- * Generic "complex value" interpolator (Motion's complex value type): a string
- * carrying ≥2 embedded numbers — an SVG `d`/`points`, a `filter`, a multi-part
- * `box-shadow`, … — interpolated number-by-number WHEN both endpoints share the
- * same structure (the same parts around the same count of numbers). Two of
- * different structures can't blend: `None`, a Discrete pair, which `resolve`
+ * Two complex values' blend, token by token, in the target's parts. The frame writes each slot's
+ * token between the parts: a counted loop, and nothing allocated per frame but the string and each
+ * colour's culori object.
+ */
+const blendSlots = (parts: ReadonlyArray<string>, slots: ReadonlyArray<Slot>): ((t: number) => string) => (t) => {
+  let out = parts[0]
+  for (let i = 0; i < slots.length; i++) out += slotAt(slots[i], t) + parts[i + 1]
+  return out
+}
+
+/** A decoded value's numbers, and its colours, each in document order. */
+const numbersOf = (complex: Complex): ReadonlyArray<number> => Arr.filter(complex.tokens, Predicate.isNumber)
+const colorsOf = (complex: Complex): ReadonlyArray<Color> => Arr.filter(complex.tokens, isColorToken)
+
+/**
+ * Whether two complex values blend (#61, Motion's `mixComplex`): the same count of colours, and
+ * the start holding at least as many numbers as the target.
+ */
+const matches = (from: Complex, to: Complex): boolean =>
+  colorsOf(from).length === colorsOf(to).length && numbersOf(from).length >= numbersOf(to).length
+
+/**
+ * The target's slots, kind by kind, in order (Motion's `matchOrder`): its n-th number blends from
+ * the start's n-th number, its n-th colour from the start's n-th colour, through culori in sRGB as
+ * the colour tier blends by default. A start's numbers past the target's are dropped. In range by
+ * construction: `matches` held first. Built when a stream is built: one pass, counting each kind
+ * in a mutable pair as it goes.
+ */
+const slotsOf = (from: Complex, to: Complex): ReadonlyArray<Slot> => {
+  const fromNumbers = numbersOf(from)
+  const fromColors = colorsOf(from)
+  const read = { numbers: 0, colors: 0 }
+  return Arr.map(to.tokens, (token): Slot =>
+    Match.value(token).pipe(
+      Match.when(Predicate.isNumber, (value): Slot => ({ from: fromNumbers[read.numbers++], to: value, color: undefined })),
+      Match.orElse((color): Slot => ({ from: 0, to: 0, color: culoriInterpolate([fromColors[read.colors++], color], "rgb") })),
+    ))
+}
+
+/**
+ * Generic "complex value" interpolator (Motion's complex value type): a string carrying one or
+ * more numbers or colours among other text, an SVG `d`/`points`, a `filter`, a `box-shadow`, a
+ * gradient, blended token by token (#61). Two blend when they hold the same count of colours and
+ * the start holds at least as many numbers as the target: the n-th number blends with the n-th
+ * number and the n-th colour with the n-th colour, written in the target's parts (Motion's
+ * `mixComplex`), so a computed `rgba(0, 0, 0, 0.2) 0px 1px 2px 0px` blends into an authored
+ * `0px 8px 24px rgba(0, 0, 0, 0.3)`. Any other two can't: `None`, a Discrete pair, which `resolve`
  * switches to `to` at the first frame past 0 and warns about (ADR-0024, ADR-0026).
  *
- * This is the **same-structure tier of path morphing** (ADR-0015): two `d`/`points`
- * with the same command sequence morph for free. **Arbitrary-structure** morphing
- * (aligning paths with *different* command counts) is a separate, opt-in, heavier
- * interpolator (`@wardic/path-morph`, deferred) — registered at higher precedence
- * when wanted; it never enters the default bundle.
+ * This is the **same-structure tier of path morphing** (ADR-0015): two `d`/`points` with the same
+ * command sequence morph for free. **Arbitrary-structure** morphing (aligning paths with
+ * *different* command counts) is a separate, opt-in, heavier interpolator (`@wardic/path-morph`,
+ * deferred), registered at higher precedence when wanted; it never enters the default bundle.
  *
- * Registered LAST so the specific interpolators win: `"10px"` → unit (a single
- * number), `"#fff"`/`"rgb(…)"` → color (decoded earlier), and only genuinely
- * multi-number structural strings land here.
+ * Registered LAST so the specific interpolators win: `"10px"` → unit, `"#fff"`/`"rgb(…)"` → color,
+ * and only strings with tokens among other text land here.
  *
- * Known limit (as Motion, without a path normalizer): SVG arc flags in an `A`/`a`
- * command are treated as plain numbers, so an arc path can interpolate through
- * invalid flag values — same-structure `M/L/C/S/Q/T/Z` morphing is sound.
+ * Known limit (as Motion, without a path normalizer): SVG arc flags in an `A`/`a` command are
+ * treated as plain numbers, so an arc path can interpolate through invalid flag values.
  *
- * Both strings are decoded once, when a stream is built (`ComplexString`), and the closure
- * `blend` returns is on the per-frame path (ADR-0025): it only lerps and formats.
+ * Both strings are decoded once, when a stream is built (`ComplexString`), and the closure `blend`
+ * returns is on the per-frame path (ADR-0025): it only lerps, blends each colour and formats.
  */
 export const complex: Entry<Complex, string> = {
   name: "complex",
   codec: ComplexString,
   blend: (from, to) =>
-    Bool.match(sameStructure(from, to), {
-      onTrue: () => Option.some(blendNumbers(from, to)),
+    Bool.match(matches(from, to), {
+      onTrue: () => Option.some(blendSlots(to.parts, slotsOf(from, to))),
       onFalse: () => Option.none(),
     }),
 }
@@ -358,7 +411,7 @@ export const complex: Entry<Complex, string> = {
  * The interpolators core ships with, in resolution order. `number` and `array`
  * are checked first (cheap, unambiguous); `color` before `unit` so `"#fff"`
  * routes to color while `"10px"` routes to unit; `complex` LAST so it only
- * catches multi-number structural strings (SVG `d`/`points`, `filter`,
- * `box-shadow`) the specific entries didn't claim (ADR-0015).
+ * catches strings with numbers or colours among other text (SVG `d`/`points`,
+ * `filter`, `box-shadow`) the specific entries didn't claim (ADR-0015).
  */
 export const defaults: ReadonlyArray<Entry<any, any>> = [number, array, color("rgb"), unit, complex]

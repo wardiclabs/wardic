@@ -9,6 +9,7 @@ import { TestClock } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
@@ -167,9 +168,10 @@ const keyframesOracle = (stops: ReadonlyArray<number>, options: Machine.TweenOpt
 }
 
 /**
- * Each key's blend from `from` to `to`, resolved through the registry as `animateValues` and
- * `springBlend` resolve it (ADR-0024): a `display` or `visibility` key turning `none` or `hidden`
- * holds its `from` until the last Frame.
+ * Each key's blend from `from` to `to`, built through the registry as `animateValues` and
+ * `springBlend` build it: the Environment's Key rule for the key when one takes it (ADR-0035), else
+ * by value. The Test Environment's registry has no Key rules, so a `display` or `visibility` pair is
+ * a Discrete pair here; the DOM's rules are tested in `@wardic/dom`'s `key-rules.node.test.ts`.
  */
 const blenderOf = (from: Values.Values, to: Values.Values) =>
   Effect.gen(function* () {
@@ -177,15 +179,9 @@ const blenderOf = (from: Values.Values, to: Values.Values) =>
     const keys: Array<readonly [string, (t: number, done: boolean) => number | string]> = []
     for (const [key, b] of Object.entries(to)) {
       const a = from[key] ?? b
-      const invisible = (value: number | string) => ["none", "hidden"].includes(String(value).trim())
-      if (["display", "visibility"].includes(key) && invisible(b) && !invisible(a)) {
-        keys.push([
-          key,
-          (_t, done) => {
-            if (done) return b
-            return a
-          },
-        ])
+      const rule = registry.keyBlendOf(key, a, b)
+      if (Option.isSome(rule)) {
+        keys.push([key, yield* rule.value])
         continue
       }
       const blend = yield* registry.resolve(a, b)

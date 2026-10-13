@@ -158,17 +158,12 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
 
   it.effect("DP15: a CSS function holding a length isn't a colour: the pair resolves, where culori's parse threw (#154)", () =>
     Effect.gen(function* () {
-      // No tier takes a string with one number inside a function yet, so these switch, silently.
-      expect(yield* resolved("blur(4px)", "blur(8px)")).toEqual({ start: "blur(4px)", first: "blur(8px)", half: "blur(8px)", end: "blur(8px)" })
-      expect(yield* resolved("translateX(10px)", "translateX(20px)")).toEqual({
-        start: "translateX(10px)",
-        first: "translateX(20px)",
-        half: "translateX(20px)",
-        end: "translateX(20px)",
-      })
-      // `to` threw too, once `from` decoded as a colour.
+      // Since #61 one number inside a function is a complex value, so these blend.
+      expect(yield* resolved("blur(4px)", "blur(8px)")).toEqual({ start: "blur(4px)", first: "blur(4.04px)", half: "blur(6px)", end: "blur(8px)" })
+      expect((yield* resolved("translateX(10px)", "translateX(20px)")).half).toBe("translateX(15px)")
+      // A colour into a filter: the colour tier takes only `from`, and `complex` doesn't take a lone colour.
       expect(yield* resolved("#000", "blur(4px)")).toEqual({ start: "#000", first: "blur(4px)", half: "blur(4px)", end: "blur(4px)" })
-      expect(yield* warningsOf("blur(4px)", "blur(8px)")).toEqual([])
+      expect(yield* warningsOf("#000", "blur(4px)")).toEqual([])
     }),
   )
 })

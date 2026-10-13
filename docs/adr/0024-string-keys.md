@@ -38,7 +38,7 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
   - So `{ opacity: 0, display: "none" }` fades out and then removes the element, and the reverse shows it first.
   - **By key, not by value:** `animate={{ height: 0, overflow: "hidden" }}` must clip from the first frame, and `pointer-events: none` must take hold at once. Motion scopes it the same way (`can-animate.ts:36` exempts the two keys by name).
   - **The last frame, not progress 1:** under an underdamped spring Motion's progress crosses 1 and back, and `display` flickered `none` / `block` three times (SX). The settle frame can't flicker, whatever drives the progress.
-  - In core's multi-value blend, which already resolves each key by name; the registry stays keyed by value only.
+  - In core's multi-value blend, which already resolves each key by name; the registry stays keyed by value only. *Superseded by ADR-0035: the rule is the DOM Environment's `visibility` Key rule (`@wardic/dom`'s `key-rules.ts`), which the registry asks by the key's name; core names no CSS property.*
 - **Under a spring, a string key follows the spring (decision 5, amends ADR-0005).**
   - The spring's string leg runs one spring with the transition's options (stiffness, damping, mass, rest thresholds and `delay`) on a 0→100 progress from rest, and blends each key through the registry at progress / 100. One transition then drives the whole element: a colour arrives with the scale beside it, and a stagger delays both.
   - A `restDelta` or `restVelocity` applies to the progress as it would to a numeric key travelling 100. Motion's progress spans 0–100 too.
@@ -48,7 +48,7 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
   - **The element settles with its last leg.** The spine reports settle (`onFrame`, ADR-0007's orchestration) once every leg has settled, no longer when the numeric leg alone has: a colour's leg can now outlast an opacity's.
   - The presence exit's string leg follows its spring the same way.
 - **The server is unchanged (decision 6).** A string `initial` was already in the Starting style; nothing reads on a server (ADR-0021). Server markup and hydration don't change.
-- **Animatable `none` is out (decision 7).** Motion grows `boxShadow: "none"` → a shadow from a zero shadow, and `filter: "none"` → `blur(4px)` from `blur(0px)` (`getAnimatableNone`, S7). Under decision 3 these switch at the first frame, as they already snapped before. It's a new capability of the complex tier (ADR-0015): #61.
+- **Animatable `none` is out (decision 7).** Motion grows `boxShadow: "none"` → a shadow from a zero shadow, and `filter: "none"` → `blur(4px)` from `blur(0px)` (`getAnimatableNone`, S7). Under decision 3 these switch at the first frame, as they already snapped before. It's a new capability of the complex tier (ADR-0015): #61. *Superseded by ADR-0015's Amendment (#61): an empty end now grows from its Animatable none, and the leg's last frame writes `none` back.*
 
 ## Considered Options
 
