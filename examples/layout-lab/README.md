@@ -397,14 +397,17 @@ Method); the expected card, with a browser's own scheduler:
   also took a held drag's moves and release). A `<Reorder>` item doesn't need the
   style: it is raised while dragged (scenario 14).
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
-  and a `layoutRoot` with its own `layout` child; the sibling moves the slot every
-  900 ms, or press S, which also works while the item flies back: every child
-  should stay on it (#28: before ADR-0016's *Amendment (velocity family)*, a slot
-  move then threw the `layout` child 70 px off). One doesn't yet: G, inside the
-  `layoutRoot`, is thrown 90–110 px by a slot move during the flight back, and its
-  glue line fails. That is #33 (a running node inside a `layoutRoot` inside a FLIPing
-  parent counts the parent's motion twice); on main, S only worked while held, so the
-  lab couldn't show it. M (grey) starts a slow FLIP across
+  and a `layoutRoot` with its own `layout` child; while you hold the item the sibling
+  moves the slot every 900 ms, or press S: every child should stay on it. At rest, X
+  moves the slot and the item FLIPs there, an eye check of #33 (ADR-0013's *Amendment
+  (#33)*): the two left children ride the item, while the `layoutRoot` R, isolated
+  from its parent's layout animation as Motion's is, sits at its new place from the
+  first frame, its child G with it (before, R rode the item and G was thrown the
+  other way, about twice the move). The card has no line for it (X is no press); a
+  grab during that FLIP is judged from where it lands, as Z and P at rest are in 13,
+  and R and G's glue lines then read the isolation. A slot move during the flight
+  back (#28) is scenario 13's (Z, P); here it would move R and G to their new place
+  ahead of the item, by design, and fail their glue lines. M (grey) starts a slow FLIP across
   the item when you grab it (the toggle): it should keep animating on the item,
   with no jump. Its offset changes by design, so the eye checks it, not the card;
   each frame of the saved log records its box under `watched`, for #38 (M stepped
@@ -421,7 +424,7 @@ Method); the expected card, with a browser's own scheduler:
   own: grab it while that runs, and the flight goes on under the pointer, as Motion's
   does, with no jump (#30: main jumped it to its slot plus the pointer's offset). The
   card's **under pointer** and **frames behind** then read from where the flight lands
-  under the pointer (a press within a second of Z or P at rest counts; one whose flight
+  under the pointer (a press within a second of Z or P at rest counts, or of X in 12; one whose flight
   has landed by then reads as an ordinary drag), the line says how far it slid, and a
   first dragged frame that jumps more than half the flight still to go fails it. With **twin**, the item shares a `layoutId` with a box parked in the
   corner: it crossfades in from there as the boxes remount it (a handover), then keeps
@@ -437,10 +440,10 @@ Known and not fixed yet, so they don't surprise you:
   move, so a press in that window can miss the item.
 - **A grab mid-FLIP slides (#30, as Motion's).** Grabbing an item while its own
   layout animation still runs leaves that animation running under the pointer, so
-  the item slides the rest of the way to where the pointer holds it. Scenario 13
-  tells its card when that happens (Z or P at rest), which then judges from the
-  landing; in 11 and 12 the **under pointer** line counts the slide (it counted main's
-  jump too). A grab while the item flies back from a release stops it where it is and
+  the item slides the rest of the way to where the pointer holds it. Scenarios 13
+  and 12 tell their card when that happens (Z or P at rest, X at rest), which then
+  judges from the landing; in 11 the **under pointer** line counts the slide (it
+  counted main's jump too). A grab while the item flies back from a release stops it where it is and
   drags it from there, a restart after a lost release (L) included.
 
 Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
@@ -458,7 +461,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R9 | any | hold, press L, release, then move over the item without pressing | 3 |
 | R10 | any | hold, press L, release, then press again where you are without moving, and release (a click) | 3 |
 | R11 | any | drag with the right button (after #31's fix: no drag) | 3 |
-| R32 | 12 | release, then press S while it flies back: c1, c2 and R stay on it (#28); G's line fails until #33 | 3 |
+| R32 | 12 | at rest, press X: the item slides to its new slot with c1 and c2 on it, while R and G are at their new place at once and don't move (#33); X again, back | 3 |
 | R33 | 13 | release, then Z (or P) while it flies back: it keeps its speed and lands on the new slot (#28) | 3 each |
 | R34 | 13, momentum on, then off | flick and let go while moving: on, it carries on, then comes back; off, it heads straight back | 3 each |
 | R35 | 13 | release, press the item while it flies back and hold still, then let go without moving: it holds while pressed, then goes on to its slot; again, dragging from where it stopped | 3 |

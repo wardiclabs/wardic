@@ -200,7 +200,7 @@ A **Projection**'s scale counter-scales an element's *geometry* via the transfor
 _Avoid_: counter-scale (reserve for the geometric transform), inverse scale.
 
 **Layout sub-root** (`layoutRoot`):
-A **Projection node** marked a stable reference frame for its subtree: it never FLIPs its own layout (self-snaps to its new box), bounds delta accumulation (descendants project within it, not the page), and is a **persistent relative anchor** (its descendants always project relative to it). Used to isolate a layout subtree from an ancestor's projection.
+A **Projection node** marked a stable reference frame for its subtree: it never FLIPs its own layout (self-snaps to its new box), bounds the search for a relative parent (its descendants find none above it), and is a **persistent relative anchor** (its descendants always project relative to it). Every ancestor's projection still counts in its descendants' boxes, as CSS composes them. Used to isolate a layout subtree from an ancestor's projection: under an ancestor's layout animation it paints at its new box from the first frame, while an ancestor's transforms (a drag, a **Release offset**) still carry it, as Motion's `layoutRoot` does.
 _Avoid_: layout boundary (reserve "sub-root"), projection root (the synthetic viewport node is *the* root).
 
 **Relative anchor** (`layoutAnchor`):
