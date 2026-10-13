@@ -38,6 +38,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 - `ReducedMotion.snap`'s step (ADR-0029);
 - the easings (`Easing.ts`: the Penner set, and the functions its generators return);
 - the closures each Interpolator's `blend` returns (`Interpolator.ts`), which the registry's `resolve` hands out (ADR-0026);
+- a Key rule's `KeyBlend` (ADR-0035): the DOM's in `@wardic/dom`'s `key-rules.ts`;
 - `Scalar.ts` and `Point.ts`;
 - `Box.ts` and `Projection.ts` (dom's projection pass calls them per node, per frame);
 - `Velocity.between`, and the samplers `Wave.ts` returns;

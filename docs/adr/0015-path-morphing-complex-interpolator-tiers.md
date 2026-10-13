@@ -78,7 +78,7 @@ Grilled on 2026-10-13 (#154 split out first and fixed in PR #155):
    - Rejected: a missing number counting as 0 for every key. A shorthand copies an omitted value rather than zeroing it, so `padding: "4px 8px"` → `"4px 8px 12px"` would drop the bottom to 0 on the first frame. Also rejected: keeping the same-structure rule with colour tokens, which switches the stylesheet shadow both ways.
 7. **No clamp**, as Motion: a spring that crosses an empty end can give a negative blur, shadow or padding for a few frames. The browser ignores an invalid value and keeps painting the last valid one, and a colour holds transparent (culori clamps), so it doesn't show.
 
-**Where it lives.** The complex tier's codec and blend are in `Interpolator.ts` (`ComplexString` decodes to `{ parts, tokens }`, a breaking change to Tier 2's decoded shape, ADR-0026 decision 8). The key-aware rules, the empty end, the per-key zero and the shadow split, are in core's `internal/animatableNone.ts`, which `Machine.ts`' `blendersFor` applies before the registry resolves each pair, as it applies the visibility rule. The registry stays keyed by value only.
+**Where it lives.** The complex tier's codec and blend are in `Interpolator.ts` (`ComplexString` decodes to `{ parts, tokens }`, a breaking change to Tier 2's decoded shape, ADR-0026 decision 8). The key-aware rules (the empty ends, each key's zero, the shadow split) are the DOM Environment's **Key rules** (ADR-0035): `@wardic/dom`'s `key-rules.ts`, which its `InterpolatorRegistry` carries and core's `blendersFor` asks before blending a pair by value. They were first written in core, as the visibility rule was, and moved there before merging: core names no CSS property.
 
 **Measured on this branch**:
 - **Through `animateValues`** (AN1–AN14 below): each pair in the table grows as Motion's does. A shadow, filter or fill going back rests at `none`, the `backdropFilter` starts from `brightness(1)`, the `maskImage` stays visible, `maxHeight` still switches, and the stylesheet shadow blends both ways.
@@ -103,7 +103,7 @@ Grilled on 2026-10-13 (#154 split out first and fixed in PR #155):
   - `codecs.test.ts`: `ComplexString` decodes one number (`blur(4px)`) and colour tokens, rejects a unit string and a lone colour, and canonicalises a colour inside it.
   - `complex-interpolate.test.ts`: a shadow's colour blends as a colour, a hex matches an `rgb()`, kind-by-kind matching (a computed shadow into an authored one), a start short of numbers and a different count of colours don't blend, and a named colour stays text.
   - `discrete-pair.test.ts` DP15: `blur(4px)` → `blur(8px)` blends.
-- **`@wardic/test`, node** (`animatable-none.test.ts`, AN1–AN14, through `animateValues` and `springBlend`):
+- **`@wardic/dom`, node** (`key-rules.node.test.ts`, AN1–AN14, through `animateValues` and `springBlend` over `testLayer` with the DOM's registry; first written in `@wardic/test`, ADR-0035):
   - a shadow, a blur and a fill, both ways, resting at `none`;
   - the filter identities and a growing `drop-shadow()`;
   - `backdrop-filter` and `-webkit-filter`, as CSS names and camelCase;

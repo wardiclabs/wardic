@@ -242,7 +242,7 @@ _Avoid_: resize freeze, blocked update (Motion's name).
 ### Environment
 
 **Environment**:
-A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, InputSource, Probe, InterpolatorRegistry), with core's **Frame loop** over its Clock — e.g. DOM, Test.
+A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, InputSource, Probe, InterpolatorRegistry with the Environment's **Key rules**), with core's **Frame loop** over its Clock — e.g. DOM, Test.
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:

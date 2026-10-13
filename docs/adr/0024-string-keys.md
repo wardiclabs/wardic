@@ -38,7 +38,7 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
   - So `{ opacity: 0, display: "none" }` fades out and then removes the element, and the reverse shows it first.
   - **By key, not by value:** `animate={{ height: 0, overflow: "hidden" }}` must clip from the first frame, and `pointer-events: none` must take hold at once. Motion scopes it the same way (`can-animate.ts:36` exempts the two keys by name).
   - **The last frame, not progress 1:** under an underdamped spring Motion's progress crosses 1 and back, and `display` flickered `none` / `block` three times (SX). The settle frame can't flicker, whatever drives the progress.
-  - In core's multi-value blend, which already resolves each key by name; the registry stays keyed by value only.
+  - In core's multi-value blend, which already resolves each key by name; the registry stays keyed by value only. *Superseded by ADR-0035: the rule is the DOM Environment's `visibility` Key rule (`@wardic/dom`'s `key-rules.ts`), which the registry asks by the key's name; core names no CSS property.*
 - **Under a spring, a string key follows the spring (decision 5, amends ADR-0005).**
   - The spring's string leg runs one spring with the transition's options (stiffness, damping, mass, rest thresholds and `delay`) on a 0→100 progress from rest, and blends each key through the registry at progress / 100. One transition then drives the whole element: a colour arrives with the scale beside it, and a stagger delays both.
   - A `restDelta` or `restVelocity` applies to the progress as it would to a numeric key travelling 100. Motion's progress spans 0–100 too.
