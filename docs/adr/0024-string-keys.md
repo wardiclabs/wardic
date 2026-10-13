@@ -48,7 +48,7 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
   - **The element settles with its last leg.** The spine reports settle (`onFrame`, ADR-0007's orchestration) once every leg has settled, no longer when the numeric leg alone has: a colour's leg can now outlast an opacity's.
   - The presence exit's string leg follows its spring the same way.
 - **The server is unchanged (decision 6).** A string `initial` was already in the Starting style; nothing reads on a server (ADR-0021). Server markup and hydration don't change.
-- **Animatable `none` is out (decision 7).** Motion grows `boxShadow: "none"` → a shadow from a zero shadow, and `filter: "none"` → `blur(4px)` from `blur(0px)` (`getAnimatableNone`, S7). Under decision 3 these switch at the first frame, as they already snapped before. It's a new capability of the complex tier (ADR-0015): #61.
+- **Animatable `none` is out (decision 7).** Motion grows `boxShadow: "none"` → a shadow from a zero shadow, and `filter: "none"` → `blur(4px)` from `blur(0px)` (`getAnimatableNone`, S7). Under decision 3 these switch at the first frame, as they already snapped before. It's a new capability of the complex tier (ADR-0015): #61. *Superseded by ADR-0015's Amendment (#61): an empty end now grows from its Animatable none, and the leg's last frame writes `none` back.*
 
 ## Considered Options
 
