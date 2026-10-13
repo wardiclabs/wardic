@@ -61,3 +61,66 @@ Issue #2 measured the frame-batched pass painting a flash for every layout chang
 - **Execution.** The projection coordinator is one run on the Environment's Frame loop (ADR-0027, decision 9), no longer a fiber with a `Clock.ticks` subscription of its own. It's still Clock-driven: the loop steps it once per tick with the Clock's `dt`, so the rejection of *Gate owns projection timing* stands.
 - **Idle stays zero-cost:** with no node animating, the coordinator's run is off the loop, and the loop drops its Clock subscription once nothing else runs. ADR-0010's line on idle (*Consequences*) reads the same way.
 - `makeProjectionSystem`'s runtime provides the `FrameLoop` instead of the `Clock` (`ProjectionRuntime`).
+
+## Amendment (#42, 2026-10-13): a layout mode shapes where a layout animation starts
+
+`layout` takes Motion's modes as well as `true`: `"position"`, `"size"`, `"preserve-aspect"`, `"x"` and `"y"` (CONTEXT.md's **Layout mode**).
+
+**Before**, measured on main `48b6d4c`:
+- A box at (40, 40), 100×50, moved 100 px right and 20 px down and resized (`.tmp/vel/`, scenes `mode-*`, framer-motion 13.4.0, Chromium 147).
+- Motion animated each mode as its docs say.
+- Wardic animated `true` like Motion's, but animated no string mode at all: the binding registered a projection node only for `layout === true`.
+
+**Motion's mechanism.** Before the layout delta, `notifyLayoutUpdate` shapes the snapshot it animates from, by the node's `animationType` ([create-projection-node.ts:2163-2205, `shouldAnimatePositionOnly` at :2449-2459](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L2163-L2205)).
+
+Grilled on 2026-10-13:
+1. **Motion's rule, exactly** (Q1). The node's `origin`, the box its layout animation starts from, is shaped by the mode before the animation starts:
+   - `"size"`: it moves to the new box's top-left and keeps its own size;
+   - `"x"` / `"y"`: it takes the other axis from the new box;
+   - `"position"`: it keeps its top-left and takes the new box's size;
+   - `"preserve-aspect"`: as `"position"` when the width/height ratios differ by more than 0.2, otherwise as `true`.
+
+   So an element that grows about its centre under `"position"` slides its top-left corner by half the growth, as Motion's does.
+   - Rejected: anchoring `"position"` at the node's `layoutAnchor`. That's Wardic-only, and Motion uses its anchor only for relative placement.
+2. **Every place a layout animation starts** (Q2): the restart from where the node paints, a **Crossfade**'s first measure (and a Follower promoted when its Lead leaves), and a **Switch** seed. Motion's shared-layout start goes through the same code.
+   - A `layoutRoot`'s self-snap and a drag's Release offset aren't layout animations, so they are left alone. A slot move under a released node is a restart, and is shaped.
+   - A handover still crossfades when the shaped origin equals the new box.
+   - Rejected: shaping the restart only.
+3. **A Follower keeps its own size when its mode animates position only** (Q3): `"position"`, or `"preserve-aspect"` with its box's ratio far from its Lead's. It sits at the Lead's current top-left as it fades out (Motion's `applyTransformsToTarget`). Any other Follower takes the Lead's whole box, as before.
+   - Rejected: leaving Followers as they were, which stretches a `"position"` Follower to its Lead's size.
+4. **The mode is read at each layout animation's start** (Q4), as the transition is.
+   - A node is registered at mount for `true` or any mode.
+   - With `layoutId` and no mode, or `layout={false}`, the mode is `true`, as Motion's `animationType` defaults.
+   - Turning `layout` on or off after mount stays unsupported.
+   - Rejected: reading the mode once, at mount.
+5. **`Reorder.Item`** (Q5) takes `layout?: true | "position"`, default `true`, as Motion's does. So do `createReorderItem` and `use:reorderItem`. Rejected: every mode.
+6. **The layout lab** (Q6): scenario 14 gains an **item layout** select, a **variable sizes** box, and a reorder line, **no stretch**. With `"position"`, every item's painted size must equal its slot's on every frame. With `true`, the line shows the largest stretch, not judged.
+   - Rejected: a separate board of the seven modes, which the browser tests and the probe already pin.
+
+**Measured on this branch**:
+- **The probe** (`.tmp/vel/`, scenes `mode-*`, label `f42`), Chromium 147 and Firefox 148. Every mode paints Motion's shape, a frame further along as `true` already was (ADR-0033). For example, under `"position"` the box is 200 wide from the first frame and its top-left slides from (40, 40). Under `"size"` it is at (140, 60) from the first frame and its width grows.
+- **The layout lab** (`.tmp/vel-lab/drive.ts`, `ONLY=s14m`, variable sizes, Chromium). With item layout `position`, **no stretch** reads `0.00 px ✓`. With `true` it reads 19.5 px, not judged. On main's engine `position` reads 19.5 px ✗, since the item ignored the mode.
+- **The lab's result footer.** A drag card's footer had a fixed 136 px height, which hid lines past the seventh: scenario 14's last five, and scenario 13's `fling` and `rests` (#139). It now grows with its lines.
+
+**Pinned by**:
+- `packages/core/test/projection-geometry.test.ts` LMC1–LMC6: the shaping per mode, the 0.2 threshold, and `withSizeOf`.
+- `packages/dom/test/projection-modes.browser.test.ts` LM1–LM14, each mode against a fake sink:
+  - a `"size"` node that only moved starts nothing;
+  - the mode is read at each start;
+  - an interrupted `"position"` node;
+  - a Crossfade's Lead and its `"position"` Follower;
+  - a handover with nothing to move still crossfades;
+  - a Switch seed;
+  - a promoted Follower.
+- `packages/solid/test/layout-modes.browser.test.tsx` LS1–LS5, with real paint:
+  - `"position"` and `"size"` on a `wardic.div`;
+  - a mode changed at runtime;
+  - a `Reorder.Item` with `"position"` in a grid of two column widths.
+- `examples/layout-lab/test/reorder-run.test.ts` NS1–NS4: the **no stretch** line.
+- On main, LM2–LM10, LM12–LM14, LS1–LS3 and LS5 fail. LM1, LM11 and LS4 pin what main already did.
+- Mutation-checked: 13 single-point mutations, each failing the tests meant for it:
+  - in core: each mode's shaping, and the threshold;
+  - in the engine: each of the four starts, and the Follower;
+  - in the binding: the mode's read, the node's registration, and `Reorder.Item`'s mode;
+  - in the lab: the line's judgement.
+
