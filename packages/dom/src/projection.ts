@@ -2035,6 +2035,8 @@ export const makeProjectionSystem = (
 
   /** Finalise settled nodes (at rest, projection-owned at identity), finish their leavers, and stop at idle. */
   const finishSettled = (settled: ReadonlyArray<NodeState>): void => {
+    // The running nodes placed in these landing nodes' frames go on from where they paint (#144).
+    landFrames(settled)
     for (const node of settled) {
       node.releasing = false
       node.release = undefined
@@ -2059,6 +2061,73 @@ export const makeProjectionSystem = (
       }
     }
     if (active.size === 0) stopTicking()
+  }
+
+  /**
+   * The running nodes whose relative parent's layout animation lands keep painting where they were
+   * (ADR-0013, *Amendment (#144)*). One placed (through running nodes) in the nearest node of
+   * `landing` is placed, from the next frame, in the frame that takes over: the next relative parent
+   * above it that isn't landing (or none: its own frame). Its origin moves by the landing node's move
+   * less the taking-over frame's, at the anchor of the node placed directly in the landing one, so
+   * its start is where it was in the landed frame. Motion keeps the relative parent instead
+   * (`relativeTargetOrigin` against its box once it lands), which paints the same. Run before the
+   * landing nodes are cleared; once per landing, nothing when no landing node had a layout animation.
+   */
+  const landFrames = (landing: ReadonlyArray<NodeState>): void => {
+    if (Arr.every(landing, (n) => Bool.not(flying(n)))) return
+    const ends = new Set(landing)
+    const moves = Arr.flatMap(Arr.fromIterable(active), (n) => {
+      if (ends.has(n)) return []
+      if (Bool.not(flying(n))) return []
+      return UndefinedOr.match(landingMoveOf(n, ends), { onUndefined: () => [], onDefined: (move) => [[n, move] as const] })
+    })
+    Arr.forEach(moves, ([n, move]) => {
+      n.origin = offsetBox(UndefinedOr.getOrThrow(n.origin), move)
+    })
+  }
+
+  /** How far the nearest landing node in `n`'s chain of running relative parents moves `n`'s start, if one does. */
+  const landingMoveOf = (n: NodeState, ends: ReadonlySet<NodeState>): Point.Point | undefined => {
+    const rp = relativeParentOf(n)
+    if (Predicate.isUndefined(rp)) return undefined
+    if (ends.has(rp)) {
+      const anchor = relativeAnchorOf(n)
+      const landed = flightMoveOrZero(rp, anchor)
+      const taker = takerMoveOf(rp, ends, anchor)
+      return { x: landed.x - taker.x, y: landed.y - taker.y }
+    }
+    if (Bool.not(flying(rp))) return undefined
+    return landingMoveOf(rp, ends)
+  }
+
+  /** How far the frame that takes the landing `node`'s over moves, at `anchor` (none, or one at rest: zero). */
+  const takerMoveOf = (node: NodeState, ends: ReadonlySet<NodeState>, anchor: Point.Point): Point.Point => {
+    const taker = takerOf(node, ends)
+    if (Predicate.isUndefined(taker)) return ZERO_POINT
+    return flightMoveOrZero(taker, anchor)
+  }
+
+  /** {@link flightMoveOf}, zero when `node` has no layout animation. */
+  const flightMoveOrZero = (node: NodeState, anchor: Point.Point): Point.Point =>
+    UndefinedOr.match(flightMoveOf(node, anchor), { onUndefined: () => ZERO_POINT, onDefined: identity })
+
+  /** The relative parent that takes the landing `node`'s frame over: the next one above it that isn't landing. */
+  const takerOf = (node: NodeState, ends: ReadonlySet<NodeState>): NodeState | undefined => {
+    const rp = relativeParentOf(node)
+    if (Predicate.isUndefined(rp)) return undefined
+    if (ends.has(rp)) return takerOf(rp, ends)
+    return rp
+  }
+
+  /** How far `node`'s layout animation moves its frame, at `anchor`: from its origin to its box. */
+  const flightMoveOf = (node: NodeState, anchor: Point.Point): Point.Point | undefined => {
+    const from = node.origin
+    const to = node.layoutBox
+    if (Predicate.isUndefined(from)) return undefined
+    if (Predicate.isUndefined(to)) return undefined
+    const a = anchorPointOf(from, anchor)
+    const b = anchorPointOf(to, anchor)
+    return { x: b.x - a.x, y: b.y - a.y }
   }
 
   /**
