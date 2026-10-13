@@ -114,6 +114,7 @@ Each comes from Q3b's fold of the drag offset into one FLIP on the node's progre
    - The drag is a layer on top of the layout animation, as the release is: a node grabbed mid-FLIP keeps flying under the pointer, and the drag target is that flight moved by the pointer's offset. The slot moves that come during the drag still start nothing (**Drag block**).
    - A grab during a release stops its offset where it is, at the press (Motion's `stopAnimation` at the pan session's start), and the drag continues from there. A press that ends with no drag starts the offset again from rest (Motion's `resumeAnimation` for `dragSnapToOrigin`): at its up, its cancel, or, when its release was lost, the pointer's first move with no button pressed (ADR-0019).
    - The handle gains `stopRelease()` and `resumeRelease()`, which the drag track calls at those events, and `dragEnd(velocity)`.
+   - A drag that starts off the slot (a grab during a release) writes a resting node inside a `layoutRoot` inside the dragged node at identity, since CSS carries it. Derived, it took the dragged node's offset into its own transform as well (#33's mechanism: its anchor carries the offset, its correction stops at the `layoutRoot`): found in a hand run's log on this branch, the layout lab's scenario 12's G thrown 2–42 px by quick re-grabs; on main the re-grab jumped the whole item to its slot (#30) and hid it.
    - Rejected: stopping the flight at the grab (no drift, but unlike Motion, and a flight that also resizes would need its size frozen); keeping the jump.
 5. **Only a shared-element handover crossfades (Q5, #34).**
    - A node's animation is a crossfade only when a handover starts it: the first-measure crossfade, a Switch from a seed, or a promotion (`promoteFrom`). A Lead's opacity factor and its Followers' come from that crossfade alone; any other layout animation of a Lead with Followers, or its Release offset, leaves them at 1 and 0.
@@ -160,7 +161,7 @@ Cost, `.tmp/vel-cost/` (a Frame loop tick timed by hand against a fake sink, 8 r
 
 ### Pinned by
 
-- `packages/dom/test/projection-release.browser.test.ts`, RL1–RL15, against a fake sink:
+- `packages/dom/test/projection-release.browser.test.ts`, RL1–RL16, against a fake sink:
   - RL1: a release with no velocity paints a FLIP's curve and settles on the same frame (a guard);
   - RL2 and RL3: a slot move mid-release keeps the release's speed, and a resting child stays on its parent through it (#28);
   - RL4: a running child keeps its line as its released parent comes to rest (#38);
@@ -168,8 +169,9 @@ Cost, `.tmp/vel-cost/` (a Frame loop tick timed by hand against a fake sink, 8 r
   - RL7: a press stops a release, and a press with no drag lets it go on, from rest;
   - RL8: the release's velocity, per axis;
   - RL9–RL13: only a handover crossfades (#34): a released Lead and one moved by a layout change keep 1/0, an interrupted crossfade continues, and a promotion and a Switch crossfade;
-  - RL15: a settled release leaves nothing behind.
+  - RL15: a settled release leaves nothing behind;
+  - RL16: a re-grab mid-release leaves a resting node inside a `layoutRoot` inside the item at identity.
 - `packages/solid/test/drag-release.browser.test.tsx`, DR1–DR4, with the real mouse: a flick's velocity over 100 ms carries the release past its slot and `dragMomentum={false}` doesn't; a press mid-release holds it and one with no drag, or whose release is lost, lets it go on; a `<Reorder>` item re-grabbed over the last one's flight paints above it on every frame (#88).
 - Updated: `projection-handle.browser.test.ts` PH5 and PH8 (the raise is 2 while dragged), PH10 (a pass no longer ends a released `layoutRoot`'s flight), and `drag-pointer.browser.test.tsx` P6 (a restart after a lost release starts where the release was stopped, as a free drag's does).
-- On main, RL2–RL11, RL14, RL15 and DR1–DR4 fail; RL1, RL12 and RL13 pin what main already did (a release's curve, and the crossfades that stay).
-- Mutation-checked: 31 single-point mutations of the new code, each failing the test meant for it.
+- On main, RL2–RL11, RL14, RL15 and DR1–DR4 fail; RL1, RL12 and RL13 pin what main already did (a release's curve, and the crossfades that stay); RL16 pins a bug this change found in itself (main has no `stopRelease`).
+- Mutation-checked: 32 single-point mutations of the new code, each failing the test meant for it.
