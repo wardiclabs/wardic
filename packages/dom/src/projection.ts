@@ -204,6 +204,12 @@ const releaseFrom = (offset: Point.Point, velocity: Point.Point): Release => {
 /** The centre of a box. */
 const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
 
+/** The point of `box` at the 0–1 `anchor` (ADR-0013's relative anchor). */
+const anchorPointOf = (box: Box.Box, anchor: Point.Point): Point.Point => ({
+  x: box.x.min + (box.x.max - box.x.min) * anchor.x,
+  y: box.y.min + (box.y.max - box.y.min) * anchor.y,
+})
+
 /**
  * `box`, in `node`'s frame, as `node`'s ancestors that aren't nodes paint it (ADR-0012,
  * *Amendment (#136)*). Unchanged when none of them moves it. Per frame for a Follower.
@@ -436,8 +442,13 @@ interface NodeState {
    * starts it at 0; a layout animation that interrupts it continues it from where it was.
    */
   crossfadeFrom: number | undefined
-  /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the subtree, persistent relativeParent. */
+  /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the relative-parent search, persistent relativeParent. */
   readonly layoutRoot: boolean
+  /**
+   * A layoutRoot's box before its latest Measure pass moved it: what a FLIP (re)starting in its
+   * frame in that pass moves its origin from (ADR-0013, *Amendment (#33)*).
+   */
+  boxBefore: Box.Box | undefined
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
   readonly layoutAnchor: Point.Point | false | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
@@ -829,16 +840,16 @@ export const makeProjectionSystem = (
 
   /**
    * This node's ancestor projection deltas, ROOT-FIRST. Every projection-node
-   * ancestor is included; a resting (or settled) ancestor holds an identity delta,
-   * which is a no-op in applyTreeDeltas — so this is the cumulative ancestor
-   * transform that CSS nesting applies to the node.
+   * ancestor is included, past a layoutRoot too, as CSS composes them all and Motion's
+   * `applyTreeDeltas` walks its whole path (ADR-0013, *Amendment (#33)*); a resting (or
+   * settled) ancestor holds an identity delta, which is a no-op in applyTreeDeltas — so
+   * this is the cumulative ancestor transform that CSS nesting applies to the node.
    */
   const ancestorDeltas = (node: NodeState): Array<Projection.Delta> => {
     const chain: Array<Projection.Delta> = []
     let p = node.parent
     while (p !== undefined) {
       chain.push(p.lastDelta)
-      if (p.layoutRoot) break // accumulation boundary (ADR-0013): a layoutRoot is the sub-root
       p = p.parent
     }
     chain.reverse()
@@ -852,12 +863,14 @@ export const makeProjectionSystem = (
    * and CSS carries it with the drag (ADR-0016 *Amendment (#26)*; Motion projects no
    * resting node, create-projection-node.ts:1262, :1484-1498 at 16c6122). One whose grab
    * left its layout animation running counts until the drag ends (*Amendment (velocity
-   * family)*): that flight may scale it.
+   * family)*): that flight may scale it. And a dragged ancestor always counts for a layoutRoot,
+   * whose target carries the drag (ADR-0013, *Amendment (#33)*): its descendants are placed
+   * against it, so it is re-derived with each move.
    */
   const hasActiveAncestor = (node: NodeState): boolean => {
     let p = node.parent
     while (p !== undefined) {
-      if (active.has(p) && (!p.dragging || p.animating)) return true
+      if (active.has(p) && (!p.dragging || p.animating || node.layoutRoot)) return true
       if (p.layoutRoot) return false // boundary (ADR-0013): ancestors above a layoutRoot don't carry this node
       p = p.parent
     }
@@ -933,6 +946,27 @@ export const makeProjectionSystem = (
     return offsetBox(Box.mix(origin, anchorOf(node, slot), spring.position), dragOffsetOf(node))
   }
 
+  /**
+   * How far `node`'s ancestors' transforms carry it (ADR-0013, *Amendment (#33)*): every released
+   * one's Release offset, up to the nearest dragged one, whose drag target minus its slot ends it
+   * (a drag target is where that node paints, so nothing above it adds); their layout animations
+   * left out, so a layoutRoot isolates its subtree from those. Per frame.
+   */
+  const carryOf = (node: NodeState): Point.Point => carryFrom(node.parent, 0, 0)
+
+  const carryFrom = (p: NodeState | undefined, x: number, y: number): Point.Point => {
+    if (Predicate.isUndefined(p)) return { x, y }
+    const grab = p.grabBox
+    if (p.dragging && Predicate.isNotUndefined(grab)) {
+      const slot = UndefinedOr.match(p.layoutBox, { onUndefined: () => grab, onDefined: identity })
+      const drag = distanceBetween(slot, dragTargetOf(p, slot))
+      return { x: x + drag.x, y: y + drag.y }
+    }
+    if (Predicate.isUndefined(p.release)) return carryFrom(p.parent, x, y)
+    const offset = releaseOffsetOf(p)
+    return carryFrom(p.parent, x + offset.x, y + offset.y)
+  }
+
   /** `box` moved by `node`'s Release offset, while one runs. Per frame. */
   const releasedOf = (node: NodeState, box: Box.Box): Box.Box => {
     const release = node.release
@@ -993,6 +1027,9 @@ export const makeProjectionSystem = (
    *   - CARRIED or at rest: its real box (applyTreeDeltas supplies the counter-transform).
    */
   const layoutTargetOf = (node: NodeState, box: Box.Box): Box.Box => {
+    // ISOLATED (ADR-0013, *Amendment (#33)*): a layoutRoot sits at its new box, its projection
+    // counter-acting its ancestors' layout animations; only their transforms carry it.
+    if (node.layoutRoot) return offsetBox(box, carryOf(node))
     const rp = relativeParentOf(node)
     let targetBox: Box.Box
     if (rp !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
@@ -1638,14 +1675,19 @@ export const makeProjectionSystem = (
       node.seed = undefined
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
-      // stable box (layoutBox + lastTarget) so descendants project relative to it,
-      // and write identity — no spring, never `active`. A dragged layoutRoot follows the
-      // pointer instead: it takes the drag-blocked update below, like any dragged node.
+      // stable box (layoutBox + lastTarget) so descendants project relative to it, and the
+      // box it had, which a FLIP restarting in its frame moves its origin from (*Amendment
+      // (#33)*); write identity — no spring, never `active`. Under an active ancestor it is
+      // also re-derived with the pass's group, which places it (counter-acting the ancestor's
+      // layout animation, carried by its drag or Release offset). A dragged layoutRoot follows
+      // the pointer instead: it takes the drag-blocked update below, like any dragged node.
       if (node.layoutRoot && !node.dragging) {
         if (prev !== undefined && !boxesEqual(prev, newBox)) {
           changed.add(node)
           if (inDraggedTree(node)) dragBlocked.add(node)
         }
+        if (hasActiveAncestor(node)) changed.add(node)
+        node.boxBefore = UndefinedOr.match(prev, { onUndefined: () => newBox, onDefined: identity })
         node.layoutBox = newBox
         node.lastTarget = newBox
         node.origin = undefined
@@ -1747,10 +1789,17 @@ export const makeProjectionSystem = (
 
       // Origin = where the element appears RIGHT NOW: mid-animation, the current
       // mixed target box (smooth interrupt, no jump — Q3); at rest, the prior box.
-      const origin =
+      const appears =
         node.animating && node.origin !== undefined && node.layoutBox !== undefined && node.spring !== undefined
           ? Box.mix(node.origin, node.layoutBox, node.spring.position)
           : prev
+      // Moved with a layoutRoot this pass moved, as that root paints its new box at once.
+      const origin = offsetBox(appears, rootMoveOf(node))
+      // A node at rest that only moved with its layoutRoot has nothing of its own to animate.
+      if (Bool.and(Bool.not(node.animating), boxesEqual(origin, newBox))) {
+        node.layoutBox = newBox
+        continue
+      }
 
       // A crossfade this interrupts goes on from the factor it had (ADR-0010, *Note (velocity
       // family)*); any other restart is no handover, and leaves the factors alone.
@@ -1855,6 +1904,37 @@ export const makeProjectionSystem = (
     )
   }
 
+  /**
+   * How far this pass moved the layoutRoot `node`'s FLIP is placed in, at the anchor of the
+   * node placed directly in it (ADR-0013, *Amendment (#33)*). The root sits at its new box at
+   * once, so a FLIP (re)starting in its frame starts where it appears there: its origin moves
+   * with the root, as Motion fixes `relativeTargetOrigin` against the root's snapshot. A node
+   * placed in another running node's frame takes that node's move, so their origins stay in one
+   * frame. Zero when no layoutRoot places it, or the root didn't move. Run in the pass, after
+   * the relative parents' own updates.
+   */
+  const rootMoveOf = (node: NodeState): Point.Point => {
+    const rp = relativeParentOf(node)
+    if (Predicate.isUndefined(rp)) return ZERO_POINT
+    if (Bool.not(rp.layoutRoot)) return rootMoveOf(rp)
+    const before = rp.boxBefore
+    const now = rp.layoutBox
+    if (Predicate.isUndefined(before)) return ZERO_POINT
+    if (Predicate.isUndefined(now)) return ZERO_POINT
+    const anchor = relativeAnchorOf(node)
+    const from = anchorPointOf(before, anchor)
+    const to = anchorPointOf(now, anchor)
+    return { x: to.x - from.x, y: to.y - from.y }
+  }
+
+  /** A node's relative-projection anchor (ADR-0013): its `layoutAnchor`, top-left when it sets none. */
+  const relativeAnchorOf = (node: NodeState): Point.Point => {
+    const anchor = node.layoutAnchor
+    if (Predicate.isUndefined(anchor)) return ZERO_ANCHOR
+    if (anchor === false) return ZERO_ANCHOR
+    return anchor
+  }
+
   /** How far `node`'s Release offset has it from where its layout puts it now (zero with none). */
   const releaseOffsetOf = (node: NodeState): Point.Point =>
     UndefinedOr.match(node.release, {
@@ -1895,40 +1975,7 @@ export const makeProjectionSystem = (
     const subtree: Array<NodeState> = [root]
     for (const n of nodes) if (!isFollower(n) && isDescendantOf(n, root)) subtree.push(n)
     subtree.sort((a, b) => a.depth - b.depth)
-    Arr.forEach(subtree, (n) => {
-      if (restsInsideRootOf(n, root)) {
-        restInPlace(n)
-        return
-      }
-      derive(n)
-    })
-  }
-
-  /**
-   * Whether `n` rests inside a `layoutRoot` that is itself inside `root`. CSS carries it with
-   * `root` through that layoutRoot, so its projection is the identity. Derived, it would count
-   * `root`'s offset from its slot twice (#33: its anchor, the layoutRoot's target, carries the
-   * offset, and its own correction stops at the layoutRoot), which a grab during a release,
-   * starting off the slot, would leave on it (ADR-0016, *Amendment (velocity family)*).
-   */
-  const restsInsideRootOf = (n: NodeState, root: NodeState): boolean => {
-    if (n === root) return false
-    if (n.animating) return false
-    return Predicate.isNotUndefined(layoutRootBetween(n.parent, root))
-  }
-
-  /** The nearest `layoutRoot` from `p` up to `root` (`root` left out), or `undefined`. */
-  const layoutRootBetween = (p: NodeState | undefined, root: NodeState): NodeState | undefined => {
-    if (Predicate.isUndefined(p)) return undefined
-    if (p === root) return undefined
-    if (p.layoutRoot) return p
-    return layoutRootBetween(p.parent, root)
-  }
-
-  /** Write `n`'s resting projection: the identity, its scale corrections put back (ADR-0011). */
-  const restInPlace = (n: NodeState): void => {
-    n.lastDelta = IDENTITY_DELTA
-    writeProjection(n, IDENTITY_DELTA, TREE_SCALE_IDENTITY, leadOpacity(n), correctionsFor(n, 1, 1))
+    for (const n of subtree) derive(n)
   }
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
@@ -2228,6 +2275,7 @@ export const makeProjectionSystem = (
     raised: false,
     crossfadeFrom: undefined,
     layoutRoot: false,
+    boxBefore: undefined,
     layoutAnchor: undefined,
     dragging: false,
     grabBox: undefined,
@@ -2329,6 +2377,7 @@ export const makeProjectionSystem = (
       raised: false,
       crossfadeFrom: undefined,
       layoutRoot: opts.layoutRoot === true,
+      boxBefore: undefined,
       layoutAnchor: opts.layoutAnchor,
       dragging: false,
       grabBox: undefined,
