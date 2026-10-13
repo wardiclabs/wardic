@@ -1,32 +1,137 @@
+// The DOM Environment's Key rules (ADR-0035; `@wardic/dom`'s `key-rules.ts`), through core's
+// `animateValues` and `springBlend` over the headless Test Environment with the DOM's registry
+// (`InterpolatorRegistryDomLive`) in place of core's default, which has no Key rules.
+//
+// - DV1–DV8, `visibility` (ADR-0024, decision 4): a `display` or `visibility` pair turning to `none`
+//   or `hidden` switches on the leg's last frame, the one with `done: true`; every other pair of
+//   theirs is a Discrete pair and switches at the leg's first frame (decision 3). By key, not by
+//   value: `overflow: hidden` and `pointer-events: none` switch at the first frame. Motion's
+//   `mixVisibility` (motion-dom utils/mix/visibility.ts:1-14 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
+// - AN1–AN14, `animatableNone` (#61, ADR-0015 *Amendment (#61)*; CONTEXT.md): an empty end (`"none"`,
+//   `0`, `"0"`, `"0px"`) facing a complex value or a colour stands for that value at zero, and the
+//   leg's last frame writes the target as given; a shadow list blends shadow by shadow. Before #61
+//   each was a Discrete pair: all but the guards (AN8, AN14) fail on main. Motion's runtime for the
+//   same pairs: `.tmp/vel/none-drive.ts` (framer-motion 13.4.0).
+//
+// Moved from `@wardic/test` (DV1–DV7, `spring-blend` SB5 as DV8, AN1–AN14) when the rules moved out of
+// core: the Test Environment stays CSS-free.
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
-import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import type * as Values from "@wardic/core/Values"
+import { InterpolatorRegistryDomLive } from "@wardic/dom"
 import { TestClock, testLayer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 
-// The Animatable none and the shadow rule (#61, ADR-0015 *Amendment (#61)*; CONTEXT.md), through
-// `animateValues` and `springBlend`, which prepare each key's pair before the registry resolves it.
-// An empty end (`"none"`, `0`, `"0"`, `"0px"`) facing a complex value or a colour stands for that
-// value at zero, and the leg's last frame writes the target as given. Before #61 each of these
-// pairs was a Discrete pair and switched at the first frame: all but the guards (AN8, AN14) fail on main.
-// Motion's runtime for the same pairs: `.tmp/vel/none-drive.ts` (framer-motion 13.4.0).
-
 const quarter = [0.25, 0.25, 0.25, 0.25]
 
-/** The values one key takes over a 1 s linear tween, at 0.25, 0.5, 0.75 and its last frame. */
-const run = (from: Values.Values, to: Values.Values) =>
-  Stream.runCollect(
-    Machine.animateValues(from, to, { duration: 1, easing: Easing.linear }).pipe(Effect.map(Machine.toStream), Stream.unwrap),
-  ).pipe(
-    Effect.provide(testLayer(quarter)),
-    Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame.Frame<Values.Values>>),
+/** A machine's frames over `ticks`, with the DOM's Key rules. */
+const framesOf = <F extends Frame.Frame<Values.Values>>(
+  machine: Effect.Effect<Machine.Machine<F>, never, any>,
+  ticks: ReadonlyArray<number>,
+) =>
+  Stream.runCollect(machine.pipe(Effect.map(Machine.toStream), Stream.unwrap)).pipe(
+    Effect.provide(InterpolatorRegistryDomLive),
+    Effect.provide(testLayer(ticks)),
+    Effect.map((frames) => Array.from(frames) as ReadonlyArray<F>),
   )
+
+/** The values one key takes over a 1 s linear tween, frame by frame. */
+const run = (from: Values.Values, to: Values.Values, ticks: ReadonlyArray<number> = quarter, delay?: number) =>
+  framesOf(Machine.animateValues(from, to, { duration: 1, easing: Easing.linear, ...(delay !== undefined ? { delay } : {}) }), ticks)
+const of = (frames: ReadonlyArray<Frame.Frame<Values.Values>>, key: string) => frames.map((f) => f.value[key])
 const keyOf = (to: Values.Values): string => Object.keys(to)[0]!
-const frames = (from: Values.Values, to: Values.Values) =>
-  Effect.map(run(from, to), (fs) => fs.map((f) => f.value[keyOf(to)]))
+/** One key's values over the tween: at 0.25, 0.5, 0.75 and its last frame. */
+const frames = (from: Values.Values, to: Values.Values) => Effect.map(run(from, to), (fs) => fs.map((f) => f.value[keyOf(to)]))
+
+it.effect("DV1: display block → none switches on the last frame only", () =>
+  Effect.gen(function* () {
+    const frames = yield* run({ display: "block" }, { display: "none" })
+    expect(of(frames, "display")).toEqual(["block", "block", "block", "none"])
+    expect(frames.at(-1)?.done).toBe(true)
+  }),
+)
+
+it.effect("DV2: display none → block switches on the first frame", () =>
+  Effect.gen(function* () {
+    expect(of(yield* run({ display: "none" }, { display: "block" }), "display")).toEqual(["block", "block", "block", "block"])
+  }),
+)
+
+it.effect("DV3: visibility visible → hidden switches on the last frame, hidden → visible on the first", () =>
+  Effect.gen(function* () {
+    expect(of(yield* run({ visibility: "visible" }, { visibility: "hidden" }), "visibility")).toEqual([
+      "visible",
+      "visible",
+      "visible",
+      "hidden",
+    ])
+    expect(of(yield* run({ visibility: "hidden" }, { visibility: "visible" }), "visibility")).toEqual([
+      "visible",
+      "visible",
+      "visible",
+      "visible",
+    ])
+  }),
+)
+
+it.effect("DV4: the rule is by key: overflow → hidden and pointer-events → none switch on the first frame", () =>
+  Effect.gen(function* () {
+    const frames = yield* run({ overflow: "visible", "pointer-events": "auto" }, { overflow: "hidden", "pointer-events": "none" })
+    expect(of(frames, "overflow")).toEqual(["hidden", "hidden", "hidden", "hidden"])
+    expect(of(frames, "pointer-events")).toEqual(["none", "none", "none", "none"])
+  }),
+)
+
+it.effect("DV5: display between two visible values (block → flex) switches on the first frame", () =>
+  Effect.gen(function* () {
+    expect(of(yield* run({ display: "block" }, { display: "flex" }), "display")).toEqual(["flex", "flex", "flex", "flex"])
+  }),
+)
+
+it.effect("DV6: a delay holds both: none → block after it, block → none at the leg's end", () =>
+  Effect.gen(function* () {
+    const ticks = [0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
+    expect(of(yield* run({ display: "none" }, { display: "block" }, ticks, 0.5), "display")).toEqual([
+      "none",
+      "none",
+      "block",
+      "block",
+      "block",
+      "block",
+    ])
+    expect(of(yield* run({ display: "block" }, { display: "none" }, ticks, 0.5), "display")).toEqual([
+      "block",
+      "block",
+      "block",
+      "block",
+      "block",
+      "none",
+    ])
+  }),
+)
+
+it.effect("DV7: beside a fading opacity, display turns none on the frame opacity reaches 0", () =>
+  Effect.gen(function* () {
+    const frames = yield* run({ display: "block", opacity: 1 }, { display: "none", opacity: 0 })
+    expect(of(frames, "opacity")).toEqual([0.75, 0.5, 0.25, 0])
+    expect(of(frames, "display")).toEqual(["block", "block", "block", "none"])
+  }),
+)
+
+it.effect("DV8: under a bouncy spring, display turns none only on the settle frame, with no flicker", () =>
+  Effect.gen(function* () {
+    const fs = yield* framesOf(
+      Machine.springBlend({ display: "block", opacity: 1 }, { display: "none", opacity: 0 }, { stiffness: 100, damping: 5 }),
+      TestClock.frames(400, 1 / 60),
+    )
+    expect(fs.length).toBeGreaterThan(30)
+    fs.slice(0, -1).forEach((f, i) => expect(f.value.display, `frame ${i}`).toBe("block"))
+    expect(fs.at(-1)).toMatchObject({ value: { display: "none", opacity: 0 }, done: true })
+  }),
+)
 
 it.effect("AN1: a box-shadow grows from none, from a transparent zero shadow, and goes back to none", () =>
   Effect.gen(function* () {
@@ -190,14 +295,9 @@ it.effect("AN12: textShadow takes the shadow rule, and a transform grows from no
 
 it.effect("AN13: under a bouncy spring, a shadow going to none writes none once, on the settle frame", () =>
   Effect.gen(function* () {
-    const fs = yield* Stream.runCollect(
-      Machine.springBlend({ boxShadow: "0px 0px 10px rgb(255, 0, 0)" }, { boxShadow: "none" }, { stiffness: 100, damping: 5 }).pipe(
-        Effect.map(Machine.toStream),
-        Stream.unwrap,
-      ),
-    ).pipe(
-      Effect.provide(testLayer(TestClock.frames(600, 1 / 60))),
-      Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame.Frame<Values.Values>>),
+    const fs = yield* framesOf(
+      Machine.springBlend({ boxShadow: "0px 0px 10px rgb(255, 0, 0)" }, { boxShadow: "none" }, { stiffness: 100, damping: 5 }),
+      TestClock.frames(600, 1 / 60),
     )
     const nones = fs.flatMap((f, i) => (f.value.boxShadow === "none" ? [i] : []))
     expect(nones, "none on the settle frame only").toEqual([fs.length - 1])

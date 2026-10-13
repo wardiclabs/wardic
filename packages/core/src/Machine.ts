@@ -39,7 +39,6 @@ import * as Clock from "./Clock.ts"
 import type * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
-import * as AnimatableNone from "./internal/animatableNone.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import {
   DEFAULT_DURATION,
@@ -802,82 +801,18 @@ export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): 
 }
 
 /** One key's blend at a progress `t`, given whether that progress Frame is the run's last. */
-type Blender = (t: number, done: boolean) => number | string
-
-/** The keys whose turn to `none` or `hidden` waits for the run's last Frame (ADR-0024, decision 4). */
-const VISIBILITY_KEYS: ReadonlySet<string> = new Set(["display", "visibility"])
-const INVISIBLE: ReadonlySet<string> = new Set(["none", "hidden"])
-
-/** A `none` or `hidden` value: what a `display` or `visibility` key turns to when it hides. */
-const isInvisible: Predicate.Refinement<unknown, string> = Predicate.compose(
-  Predicate.isString,
-  (value: string) => INVISIBLE.has(value.trim()),
-)
-
-/** One key with the values it blends from and to. */
-type KeyedPair = readonly [key: string, from: number | string, to: number | string]
-
-/** A `display` or `visibility` key. */
-const isVisibilityKey: Predicate.Predicate<string> = (key) => VISIBILITY_KEYS.has(key)
-
-/** A pair that hides: a `display` or `visibility` key, from a visible value to `none` or `hidden`. */
-const hides: Predicate.Predicate<KeyedPair> = Predicate.Tuple([isVisibilityKey, Predicate.not(isInvisible), isInvisible])
-
-/** A hiding pair's blender: it shows `from` until the run's last Frame, then `to`. Per frame: a statement `if`. */
-const holdUntilDone =
-  (from: number | string, to: number | string): Blender =>
-  (_t, done) => {
-    if (done) return to
-    return from
-  }
-
-/** One resolved blend: the registry's closure for a pair. */
-type Blend = (t: number) => number | string
+type Blender = InterpolatorRegistry.KeyBlend
 
 /**
- * A prepared pair's blender (#61): it writes its target as given on the run's last Frame, so a
- * pair from or to its Animatable none rests at `"none"` itself, not its zero. Per frame: a
- * statement `if`.
- */
-const landOn =
-  (blend: Blend, to: number | string): Blender =>
-  (t, done) => {
-    if (done) return to
-    return blend(t)
-  }
-
-/**
- * A shadow list's blender (#61): each shadow's blend, joined with `", "`, and its target as given
- * on the run's last Frame. Per frame: a counted loop building the string.
- */
-const joinShadows =
-  (blends: ReadonlyArray<Blend>, to: number | string): Blender =>
-  (t, done) => {
-    if (done) return to
-    let out = String(blends[0](t))
-    for (let i = 1; i < blends.length; i++) out += ", " + String(blends[i](t))
-    return out
-  }
-
-/** A prepared pair's blender: one blend, or a shadow list's blends joined. */
-const blenderOf = (to: number | string, blends: ReadonlyArray<Blend>): Blender =>
-  Bool.match(blends.length > 1, {
-    onTrue: () => joinShadows(blends, to),
-    onFalse: () => landOn(blends[0], to),
-  })
-
-/**
- * Each key's blender from `from[key]` (its target when absent) to `to[key]`, resolved through
- * the `InterpolatorRegistry` once. A pair the registry can't blend is a Discrete pair and
- * switches at the first Frame past 0 (ADR-0024, decision 3). `display` and `visibility`, by
- * name, turning from any other value to `none` or `hidden`, switch on the run's last Frame
- * instead (decision 4): Motion's `mixVisibility` (motion-dom utils/mix/visibility.ts:1-14 at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8), keyed on the Frame's `done` rather than on progress
- * 1, so a spring's progress crossing 1 and back can't flicker it.
+ * Each key's blender from `from[key]` (its target when absent) to `to[key]`, built once through the
+ * `InterpolatorRegistry`.
  *
- * Every other pair is prepared first (#61, ADR-0015 *Amendment (#61)*): an empty end facing a
- * complex value or a colour stands for its Animatable none and the run's last Frame writes the
- * target as given, and a shadow list is blended shadow by shadow.
+ * - **A Key rule first** (ADR-0035): the Environment's rule for the key by name, when one takes the
+ *   pair, gives the key's whole blend. Core holds none. The DOM's turn `display` / `visibility` to
+ *   `none` / `hidden` on the run's last Frame (ADR-0024, decision 4), grow a shadow, filter or fill
+ *   from its Animatable none (ADR-0015, *Amendment (#61)*), and blend shadow lists shadow by shadow.
+ * - **Else by value**: the registry's blend. A pair it can't blend is a Discrete pair and switches
+ *   at the first Frame past 0 (ADR-0024, decision 3).
  */
 const blendersFor = (
   from: Values.Values,
@@ -888,19 +823,11 @@ const blendersFor = (
     const blenders = yield* Effect.all(
       Rec.map(to, (b, key): Effect.Effect<Blender> => {
         const a = Option.getOrElse(Rec.get(from, key), () => b)
-        return Option.liftPredicate([key, a, b] as const, hides).pipe(
-          Option.map(([, shown, hidden]): Effect.Effect<Blender> => Effect.succeed(holdUntilDone(shown, hidden))),
-          Option.orElse(() =>
-            Option.map(AnimatableNone.prepare(key, a, b), (prepared) =>
-              Effect.map(
-                Effect.forEach(prepared.pairs, ([x, y]) => registry.resolve(x, y)),
-                (blends) => blenderOf(b, blends),
-              ))),
-          // No rule applies: the registry's blend, through a blender made here, as before #61. A
-          // blender made by one shared factory for every key made its call site megamorphic, and
-          // Node's string workloads 7–9% slower per frame (#61's bench).
-          Option.getOrElse(() => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t))),
-        )
+        // No rule takes it: the registry's blend, through a blender made here, as before #61. A
+        // blender made by one shared factory for every key made its call site megamorphic, and
+        // Node's string workloads 7–9% slower per frame (#61's bench).
+        return Option.getOrElse(registry.keyBlendOf(key, a, b), () =>
+          Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)))
       }),
     )
     return Rec.toEntries(blenders)

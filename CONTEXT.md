@@ -96,6 +96,10 @@ _Avoid_: curve, interpolator.
 A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two complex values with different counts of colours, a path into a longer one, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
 _Avoid_: instant animation (Motion's), snap.
 
+**Key rule**:
+An Environment's rule for how one key's pair blends, picked by the key's name: it gives the key's blend for the whole leg, or declines, and the pair blends by value through the **Interpolators**. Core holds none: they are the Environment's, and the DOM's know CSS properties.
+_Avoid_: key interpolator (an Interpolator is picked by value), property hook.
+
 **Animatable none**:
 What a pair's empty end stands for, so the pair blends instead of being a **Discrete pair**. An empty end is `"none"`, `0`, `"0"`, or a zero with a unit like `"0px"`. When the other end carries a number or a colour (a **Complex value** or a lone colour), the empty end becomes that value with every number at zero and every colour transparent. Two kinds of key differ:
 - **A filter** (`filter`, `backdropFilter`) puts each function at its identity: 1 for `brightness`, `contrast`, `saturate` and `opacity`, and 0 for the rest. A `drop-shadow()` grows from a transparent zero, like a shadow.

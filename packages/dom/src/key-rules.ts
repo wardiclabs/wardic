@@ -1,47 +1,49 @@
 /**
- * The Animatable none and the shadow rule (#61, ADR-0015 *Amendment (#61)*; CONTEXT.md), which
- * `Machine.ts`' `blendersFor` applies to each key's pair before the `InterpolatorRegistry`
- * resolves it. Keyed by name, as the `display` / `visibility` rule is: the registry resolves a
- * pair by value only. Not importable from outside core (`package.json`'s `"./internal/*": null`).
+ * The DOM Environment's **Key rules** (CONTEXT.md; ADR-0035): how a CSS property's pair blends,
+ * by the property's name, which core's `InterpolatorRegistry` asks before blending a pair by value.
+ * Core holds none. Both rules take a key by its CSS name or in camelCase (`box-shadow`, `boxShadow`):
+ * `WardicValues` types keys as CSS names, and camelCase works as well.
  *
- * - **An empty end** (`"none"`, `0`, `"0"`, a zero with a unit like `"0px"`; Motion's `isNone`)
- *   facing a complex value or a lone colour stands for that value at zero: every number 0 and every
- *   colour transparent (Motion's `getAnimatableNone`). A filter puts each function at its identity
- *   and a mask keeps its colours opaque. A plain length (`"100px"`) isn't a template: `none` isn't
- *   0 for `max-height`.
- * - **A shadow** (`boxShadow`, `textShadow`) is a list, matched shadow by shadow: a length missing
- *   from the start's shadow counts as 0, CSS's default, and a shadow missing from one end grows from
- *   its Animatable none.
+ * - **`visibility`** (ADR-0024, decision 4): `display` and `visibility` turning to `none` or
+ *   `hidden` show their start until the run's last Frame (Motion's `mixVisibility`), keyed on the
+ *   Frame's `done`, so a spring crossing its target can't flicker them.
+ * - **`animatableNone`** (ADR-0015, *Amendment (#61)*): an empty end (`"none"`, `0`, `"0"`, a zero
+ *   with a unit) facing a complex value or a lone colour stands for that value at zero, numbers 0
+ *   and colours transparent (Motion's `getAnimatableNone`). A filter puts each function at its
+ *   identity and a mask keeps its colours opaque. A plain length isn't a template: `none` isn't 0
+ *   for `max-height`. A shadow list (`box-shadow`, `text-shadow`) blends shadow by shadow: a length
+ *   missing from the start's shadow counts as 0, and a missing shadow grows from its zero. Either
+ *   way the run's last Frame writes the target as given, so a shadow, filter or fill animated to
+ *   `none` rests at `none`, with no stacking context, containing block or painted fill left.
  *
- * Either way the leg's last frame writes its target as given, so a shadow, filter or fill
- * that animates to `"none"` rests at `"none"`, with no stacking context, containing block or
- * painted fill left behind.
+ * Each rule declines synchronously, allocating nothing, for a key it can't take: the registry asks
+ * every rule for every key of every leg it builds. The blends they hand back are on the per-frame
+ * path (ADR-0025): statement `if`s, and a counted loop for a shadow list.
  *
- * Runs when a stream is built, never per frame.
+ * @module
  */
+import * as Interpolator from "@wardic/core/Interpolator"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { identity, pipe } from "effect/Function"
+import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
+import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
-import * as UndefinedOr from "effect/UndefinedOr"
-import * as Interpolator from "../Interpolator.ts"
-import { numberCountOf } from "./complexTokens.ts"
+import { dashCase } from "./svg.ts"
 
 /** A value a key blends: a number or a string. */
 type Value = number | string
 
-/** A pair, ready for the registry. */
+/** A pair the registry blends by value. */
 type Pair = readonly [from: Value, to: Value]
 
-/**
- * A key's pair as the registry resolves it: one pair, or, for a shadow list, one per shadow,
- * joined with `", "` each frame. Either way the leg's last frame writes the target as given.
- */
-export interface Prepared {
+/** A key's pairs, from the Animatable none rule: one, or, for a shadow list, one per shadow. */
+interface Prepared {
   readonly pairs: ReadonlyArray<Pair>
 }
 
@@ -49,23 +51,6 @@ const decodeComplex = Schema.decodeUnknownOption(Interpolator.ComplexString)
 const encodeComplex = Schema.encodeSync(Interpolator.ComplexString)
 const decodeColor = Schema.decodeUnknownOption(Interpolator.ColorString)
 const encodeColor = Schema.encodeSync(Interpolator.ColorString)
-
-/**
- * A key as its CSS property name: `boxShadow` → `box-shadow`, `WebkitFilter` → `-webkit-filter`.
- * Keys come both ways: `WardicValues` types them as CSS names, and camelCase works as well.
- */
-const cssNameOf = (key: string): string =>
-  UndefinedOr.match(CSS_NAMES.get(key), {
-    onDefined: identity,
-    onUndefined: () => {
-      const name = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
-      CSS_NAMES.set(key, name)
-      return name
-    },
-  })
-
-/** Each key's CSS name, once: keys repeat across elements and legs. */
-const CSS_NAMES = new Map<string, string>()
 
 /** The keys whose empty end takes each filter function's identity (Motion's `filter` type, and the backdrop it leaves out). */
 const FILTER_KEYS: ReadonlySet<string> = new Set(["filter", "-webkit-filter", "backdrop-filter", "-webkit-backdrop-filter"])
@@ -78,7 +63,7 @@ const SHADOW_KEYS: ReadonlySet<string> = new Set(["box-shadow", "text-shadow"])
 const isOneOf =
   (keys: ReadonlySet<string>): Predicate.Predicate<string> =>
   (key) =>
-    keys.has(cssNameOf(key))
+    keys.has(dashCase(key))
 
 /** The filter functions whose identity is 1 (or 100%); every other is at its identity at 0 (Motion's `maxDefaults`). */
 const IDENTITY_ONE: ReadonlySet<string> = new Set(["brightness", "contrast", "saturate", "opacity"])
@@ -131,6 +116,13 @@ const zeroOf = (value: string, turn: ColorTurn): Option.Option<string> =>
     () => Option.map(decodeColor(value), (color) => encodeColor(turn(color) as typeof color)),
   )
 
+/** How many numbers a complex value holds outside its colours: what complex matching counts. 0 for one that isn't. */
+const numberCountOf = (value: string): number =>
+  Option.match(decodeComplex(value), {
+    onNone: () => 0,
+    onSome: (complex) => Arr.filter(complex.tokens, Predicate.isNumber).length,
+  })
+
 /** A top-level comma: one not inside a bracket (a shadow's colour, `rgba(…)`, holds commas). One level deep, as shadows are. */
 const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 
@@ -172,7 +164,7 @@ const filterAtIdentity = (value: string): Option.Option<string> =>
   Option.map(decodeComplex(value), () => Arr.join(Arr.map(filterFunctionsOf(value), filterFunctionAtIdentity), " "))
 
 /** What `key`'s empty end stands for, facing `template` (CONTEXT.md's Animatable none); `None` when `template` can't be one. */
-const animatableNone = (key: string, template: string): Option.Option<string> =>
+const noneOf = (key: string, template: string): Option.Option<string> =>
   Bool.match(isOneOf(FILTER_KEYS)(key), {
     onTrue: () => filterAtIdentity(template),
     onFalse: () => zeroOf(template, Bool.match(isOneOf(MASK_KEYS)(key), { onTrue: () => opaque, onFalse: () => transparent })),
@@ -190,7 +182,7 @@ const fromNone = (key: string, from: Value, to: Value): Option.Option<Prepared> 
   pipe(
     Option.liftPredicate(from, isEmptyEnd),
     Option.flatMap(() => templateOf(to)),
-    Option.flatMap((template) => animatableNone(key, template)),
+    Option.flatMap((template) => noneOf(key, template)),
     Option.map((none): Prepared => ({ pairs: [[none, to]] })),
   )
 
@@ -199,7 +191,7 @@ const toNone = (key: string, from: Value, to: Value): Option.Option<Prepared> =>
   pipe(
     Option.liftPredicate(to, isEmptyEnd),
     Option.flatMap(() => templateOf(from)),
-    Option.flatMap((template) => animatableNone(key, template)),
+    Option.flatMap((template) => noneOf(key, template)),
     Option.map((none): Prepared => ({ pairs: [[from, none]] })),
   )
 
@@ -260,10 +252,10 @@ const mayApply = (key: string, from: Value, to: Value): boolean =>
   )
 
 /**
- * `key`'s pair, ready for the registry (#61): from or to its Animatable none when one end is empty,
- * or shadow by shadow for a shadow list. `None` when no rule applies: the pair is resolved as it is.
+ * `key`'s pairs (#61): from or to its Animatable none when one end is empty, or shadow by shadow
+ * for a shadow list. `None` when neither applies: the rule declines.
  */
-export const prepare = (key: string, from: Value, to: Value): Option.Option<Prepared> => {
+const prepare = (key: string, from: Value, to: Value): Option.Option<Prepared> => {
   if (!mayApply(key, from, to)) return Option.none()
   return pipe(
     fromNone(key, from, to),
@@ -271,3 +263,91 @@ export const prepare = (key: string, from: Value, to: Value): Option.Option<Prep
     Option.orElse(() => shadows(key, from, to)),
   )
 }
+
+// --- The blends the rules hand back: on the per-frame path ---------------------------------------
+
+/** One pair's blend, by value. */
+type Blend = (t: number) => number | string
+
+/** A hiding pair's blend: its start until the run's last Frame, then its target. Per frame: a statement `if`. */
+const holdUntilDone =
+  (from: Value, to: Value): InterpolatorRegistry.KeyBlend =>
+  (_t, done) => {
+    if (done) return to
+    return from
+  }
+
+/**
+ * One pair's blend that writes its target as given on the run's last Frame (#61): a pair from or to
+ * its Animatable none rests at `"none"` itself, not its zero. Per frame: a statement `if`.
+ */
+const landOn =
+  (blend: Blend, to: Value): InterpolatorRegistry.KeyBlend =>
+  (t, done) => {
+    if (done) return to
+    return blend(t)
+  }
+
+/**
+ * A shadow list's blend (#61): each shadow's blend, joined with `", "`, and its target as given on
+ * the run's last Frame. Per frame: a counted loop building the string.
+ */
+const joinShadows =
+  (blends: ReadonlyArray<Blend>, to: Value): InterpolatorRegistry.KeyBlend =>
+  (t, done) => {
+    if (done) return to
+    let out = String(blends[0](t))
+    for (let i = 1; i < blends.length; i++) out += ", " + String(blends[i](t))
+    return out
+  }
+
+// --- The rules ------------------------------------------------------------------------------------
+
+/** The keys whose turn to `none` or `hidden` waits for the run's last Frame (ADR-0024, decision 4). */
+const VISIBILITY_KEYS: ReadonlySet<string> = new Set(["display", "visibility"])
+const INVISIBLE: ReadonlySet<string> = new Set(["none", "hidden"])
+
+/** A `none` or `hidden` value: what a `display` or `visibility` key turns to when it hides. */
+const isInvisible: Predicate.Predicate<Value> = (value) => Predicate.isString(value) && INVISIBLE.has(Str.trim(value))
+
+/** A pair that hides: from a visible value to `none` or `hidden`. */
+const hides = (from: Value, to: Value): boolean => Bool.and(isInvisible(to), !isInvisible(from))
+
+/** `display` and `visibility`, turning to `none` or `hidden`, show their start until the run's last Frame. */
+export const visibility: InterpolatorRegistry.KeyRule = {
+  name: "visibility",
+  blend: (key, from, to) => {
+    if (!VISIBILITY_KEYS.has(key)) return Option.none()
+    if (!hides(from, to)) return Option.none()
+    return Option.some(Effect.succeed(holdUntilDone(from, to)))
+  },
+}
+
+/**
+ * An empty end facing a complex value or a colour grows from, or goes back to, its Animatable none,
+ * and a shadow list blends shadow by shadow; the run's last Frame writes the target as given.
+ */
+export const animatableNone: InterpolatorRegistry.KeyRule = {
+  name: "animatable none",
+  blend: (key, from, to, resolve) =>
+    Option.map(prepare(key, from, to), (prepared) =>
+      Effect.map(
+        Effect.forEach(prepared.pairs, ([a, b]) => resolve(a, b)),
+        (blends): InterpolatorRegistry.KeyBlend =>
+          Bool.match(blends.length > 1, {
+            onTrue: () => joinShadows(blends, to),
+            onFalse: () => landOn(blends[0], to),
+          }),
+      )),
+}
+
+/** The DOM Environment's Key rules, in precedence order. */
+export const keyRules: ReadonlyArray<InterpolatorRegistry.KeyRule> = [visibility, animatableNone]
+
+/**
+ * The DOM Environment's `InterpolatorRegistry` (ADR-0035): core's Interpolators
+ * (`Interpolator.defaults`) and the DOM's Key rules. `DomLive` provides it.
+ */
+export const InterpolatorRegistryDomLive: Layer.Layer<InterpolatorRegistry.InterpolatorRegistry> = Layer.effect(
+  InterpolatorRegistry.InterpolatorRegistry,
+)(InterpolatorRegistry.make(Interpolator.defaults, keyRules))
