@@ -43,6 +43,8 @@ The Base value side is ADR-0022's *Amendment (#134)*; the hand-down and `<Animat
 
 The layout lab, scripted (`.tmp/vel-lab/drive.ts`, `ONLY=s15n`): the three no-mount cells read `start from 0.500 (base 0.5) ✓` and `end settled at 0.500 ✓` on each Remount, the presence's later entry `start from 0.013 (base 0) ✓`. On main's engine the cells start at 0.987 or 0.013 and fail their `start` line.
 
+The SolidStart sandbox's `/ssr` (ADR-0021's hand check) has the same three, as the `held` rows. Its hydration report reads them **MOVED** unless the server paints them at their `animate` and they stand still in every frame after hydration. Driven headless (`.tmp/vel/ssr-report.ts`), 3 runs each in Chromium and Firefox: 14/14 OK, each held row at 0.500 from the server's paint to settled. A hand run in Chrome is the same. With JavaScript off, the server's markup carries `opacity:0.5` and `translateX(24px)`. Toggled out and back in, the presence's child fades in from its `initial`. On main's packages the three read MOVED: the server painted 1.00 (or 0.25 for the presence's child), then they moved. The old FLASH rule passed them, since their first paint was within 0.15 of the server's.
+
 ### Pinned by
 
 - `packages/solid/test/initial-false.ssr.test.tsx`, IS1–IS9: the server renders `animate` (a map, a name, through `useWardic` and a component wrap), a Variant child's inherited `false`, a child's own `initial` kept, an element naming no variants keeping its `false` to itself, `inherit={false}`, and `<AnimatePresence initial={false}>` (IS9 its guard).
