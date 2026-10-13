@@ -410,8 +410,9 @@ Method); the expected card, with a browser's own scheduler:
   and M, ≤ 1 px) and `isolated` (R and G off their new place, ≤ 1 px, every frame).
   For 3 s after a grab that slides M across the item, an X run leaves M out of `child
   glued` (its own slide moves it by design) and the line says so. A press cuts an
-  at-rest run short. An X while the item still slides from the last one throws M off
-  it (#146, not fixed yet: the line fails then). A grab during that FLIP is judged from where it
+  at-rest run short. An X while the item still slides from the last one restarts the
+  slide from where everything paints, so M stays on it (#146: it used to be thrown up to
+  23 px off). A grab during that FLIP is judged from where it
   lands, as Z and P at rest are in 13, and R and G's glue lines then read the
   isolation. A slot move during the flight
   back (#28) is scenario 13's (Z, P); here it would move R and G to their new place

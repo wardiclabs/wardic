@@ -204,6 +204,13 @@ const releaseFrom = (offset: Point.Point, velocity: Point.Point): Release => {
 /** The centre of a box. */
 const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
 
+/** Whether `d` moves nothing: no translate, unit scale on both axes. */
+const isIdentityDelta = (d: Projection.Delta): boolean =>
+  d === IDENTITY_DELTA || (d.x.translate === 0 && d.y.translate === 0 && d.x.scale === 1 && d.y.scale === 1)
+
+/** `p` reversed. */
+const negate = (p: Point.Point): Point.Point => ({ x: -p.x, y: -p.y })
+
 /** The point of `box` at the 0–1 `anchor` (ADR-0013's relative anchor). */
 const anchorPointOf = (box: Box.Box, anchor: Point.Point): Point.Point => ({
   x: box.x.min + (box.x.max - box.x.min) * anchor.x,
@@ -442,13 +449,16 @@ interface NodeState {
    * starts it at 0; a layout animation that interrupts it continues it from where it was.
    */
   crossfadeFrom: number | undefined
+  /**
+   * Its box and projection delta as the current Measure pass began (#146): where it painted, which a
+   * restart in that pass starts from, read after the pass has changed both.
+   */
+  passBox: Box.Box | undefined
+  passDelta: Projection.Delta
+  /** Where it painted as the pass began, when it was active (derived every frame): its last target. */
+  passPainted: Box.Box | undefined
   /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the relative-parent search, persistent relativeParent. */
   readonly layoutRoot: boolean
-  /**
-   * A layoutRoot's box before its latest Measure pass moved it: what a FLIP (re)starting in its
-   * frame in that pass moves its origin from (ADR-0013, *Amendment (#33)*).
-   */
-  boxBefore: Box.Box | undefined
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
   readonly layoutAnchor: Point.Point | false | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
@@ -1657,6 +1667,15 @@ export const makeProjectionSystem = (
       })
     }
 
+    // Each node's box and delta as the pass begins (#146): a restart starts from where its node,
+    // and its relative parent, paint then, and the loop below changes both.
+    for (const n of ordered) {
+      n.passBox = n.retained
+      n.passDelta = n.lastDelta
+      n.passPainted = undefined
+      if (active.has(n)) n.passPainted = n.lastTarget
+    }
+
     // --- WRITE: FLIP detection + seeding, on the already-measured boxes. ------
     for (let i = 0; i < ordered.length; i++) {
       const node = ordered[i]
@@ -1675,9 +1694,9 @@ export const makeProjectionSystem = (
       node.seed = undefined
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
-      // stable box (layoutBox + lastTarget) so descendants project relative to it, and the
-      // box it had, which a FLIP restarting in its frame moves its origin from (*Amendment
-      // (#33)*); write identity — no spring, never `active`. Under an active ancestor it is
+      // stable box (layoutBox + lastTarget) so descendants project relative to it; a FLIP
+      // restarting in its frame starts from where it paints there (*Amendments (#33)* and
+      // *(#146)*); write identity — no spring, never `active`. Under an active ancestor it is
       // also re-derived with the pass's group, which places it (counter-acting the ancestor's
       // layout animation, carried by its drag or Release offset). A dragged layoutRoot follows
       // the pointer instead: it takes the drag-blocked update below, like any dragged node.
@@ -1687,7 +1706,6 @@ export const makeProjectionSystem = (
           if (inDraggedTree(node)) dragBlocked.add(node)
         }
         if (hasActiveAncestor(node)) changed.add(node)
-        node.boxBefore = UndefinedOr.match(prev, { onUndefined: () => newBox, onDefined: identity })
         node.layoutBox = newBox
         node.lastTarget = newBox
         node.origin = undefined
@@ -1787,15 +1805,11 @@ export const makeProjectionSystem = (
       // create-projection-node.ts:546-552 at 16c6122).
       if (boxesEqual(prev, newBox) && (!node.animating || !hasChangedAncestor(node, changed))) continue
 
-      // Origin = where the element appears RIGHT NOW: mid-animation, the current
-      // mixed target box (smooth interrupt, no jump — Q3); at rest, the prior box.
-      const appears =
-        node.animating && node.origin !== undefined && node.layoutBox !== undefined && node.spring !== undefined
-          ? Box.mix(node.origin, node.layoutBox, node.spring.position)
-          : prev
-      // Moved with a layoutRoot this pass moved, as that root paints its new box at once.
-      const origin = offsetBox(appears, rootMoveOf(node))
-      // A node at rest that only moved with its layoutRoot has nothing of its own to animate.
+      // Origin = where the element paints RIGHT NOW, mid-animation or at rest (smooth
+      // interrupt, no jump), in the frame its placement now starts from (ADR-0013,
+      // *Amendment (#146)*).
+      const origin = restartOriginOf(node, prev)
+      // A node at rest that only moved with its layoutRoot (or its frame) has nothing of its own to animate.
       if (Bool.and(Bool.not(node.animating), boxesEqual(origin, newBox))) {
         node.layoutBox = newBox
         continue
@@ -1905,26 +1919,65 @@ export const makeProjectionSystem = (
   }
 
   /**
-   * How far this pass moved the layoutRoot `node`'s FLIP is placed in, at the anchor of the
-   * node placed directly in it (ADR-0013, *Amendment (#33)*). The root sits at its new box at
-   * once, so a FLIP (re)starting in its frame starts where it appears there: its origin moves
-   * with the root, as Motion fixes `relativeTargetOrigin` against the root's snapshot. A node
-   * placed in another running node's frame takes that node's move, so their origins stay in one
-   * frame. Zero when no layoutRoot places it, or the root didn't move. Run in the pass, after
-   * the relative parents' own updates.
+   * Where a node (re)starting its layout animation in a Measure pass starts (ADR-0013, *Amendment
+   * (#146)*): where it paints as the pass begins ({@link paintedAtPass}), its own Release offset
+   * left out (that runs on top), in the frame its placement now starts from. Placed relative to a
+   * parent, it keeps the offset it paints at from where that parent paints, in the parent's start
+   * box (its origin, or its box): so a child at another progress than its parent, or at rest under
+   * it, goes on from where it is, and a layoutRoot that moved carries it (*Amendment (#33)*). With
+   * no relative parent, it starts where it paints, as Motion's snapshot of a node mid-animation is
+   * its painted box. Run in the pass, after the relative parents' own updates.
    */
-  const rootMoveOf = (node: NodeState): Point.Point => {
+  const restartOriginOf = (node: NodeState, prev: Box.Box): Box.Box => {
+    const own = ownStartOf(node, prev)
     const rp = relativeParentOf(node)
-    if (Predicate.isUndefined(rp)) return ZERO_POINT
-    if (Bool.not(rp.layoutRoot)) return rootMoveOf(rp)
-    const before = rp.boxBefore
-    const now = rp.layoutBox
-    if (Predicate.isUndefined(before)) return ZERO_POINT
-    if (Predicate.isUndefined(now)) return ZERO_POINT
+    if (Predicate.isUndefined(rp)) return own
+    const rpPainted = paintedAtPass(rp)
+    if (Predicate.isUndefined(rpPainted)) return own
+    const rpFrom = startBoxOf(rp)
+    if (Predicate.isUndefined(rpFrom)) return own
     const anchor = relativeAnchorOf(node)
-    const from = anchorPointOf(before, anchor)
-    const to = anchorPointOf(now, anchor)
-    return { x: to.x - from.x, y: to.y - from.y }
+    return Projection.placeRelativeBox(Projection.calcRelativeBox(own, rpPainted, anchor), rpFrom, anchor)
+  }
+
+  /** Where `node` painted as the pass began (`prev` with no record of it), its own Release offset left out. Statement `if`s: once per restarting node. */
+  const ownStartOf = (node: NodeState, prev: Box.Box): Box.Box => {
+    const painted = paintedAtPass(node)
+    if (Predicate.isUndefined(painted)) return prev
+    if (Predicate.isUndefined(node.release)) return painted
+    return offsetBox(painted, negate(releaseOffsetOf(node)))
+  }
+
+  /** The box a node's layout animation starts from: its origin while one runs, else its box. */
+  const startBoxOf = (node: NodeState): Box.Box | undefined => {
+    const origin = node.origin
+    if (Predicate.isNotUndefined(origin)) return origin
+    return node.layoutBox
+  }
+
+  /**
+   * Where `node` painted as the current Measure pass began: its last target when it was active
+   * (it is derived every frame, so that is where it paints); else its {@link NodeState.passBox}
+   * through its ancestors' projections and its own ({@link NodeState.passDelta}), root-first, as
+   * CSS composes them, or the box itself when every one of them is the identity (any pass from
+   * rest); `undefined` with no box.
+   */
+  const paintedAtPass = (node: NodeState): Box.Box | undefined => {
+    const target = node.passPainted
+    if (Predicate.isNotUndefined(target)) return target
+    const box = node.passBox
+    if (Predicate.isUndefined(box)) return undefined
+    if (restsAtPass(node)) return box
+    const chain: Array<Projection.Delta> = []
+    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) chain.push(p.passDelta)
+    chain.reverse()
+    return Projection.applyTreeDeltas(box, chain).box
+  }
+
+  /** Whether `node`'s pass delta and every ancestor's are the identity: nothing moved where it paints. */
+  const restsAtPass = (node: NodeState): boolean => {
+    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) if (Bool.not(isIdentityDelta(p.passDelta))) return false
+    return true
   }
 
   /** A node's relative-projection anchor (ADR-0013): its `layoutAnchor`, top-left when it sets none. */
@@ -2343,8 +2396,10 @@ export const makeProjectionSystem = (
     raiseWhileDragged: false,
     raised: false,
     crossfadeFrom: undefined,
+    passBox: undefined,
+    passDelta: IDENTITY_DELTA,
+    passPainted: undefined,
     layoutRoot: false,
-    boxBefore: undefined,
     layoutAnchor: undefined,
     dragging: false,
     grabBox: undefined,
@@ -2445,8 +2500,10 @@ export const makeProjectionSystem = (
       raiseWhileDragged: opts.raiseWhileDragged === true,
       raised: false,
       crossfadeFrom: undefined,
+      passBox: undefined,
+      passDelta: IDENTITY_DELTA,
+      passPainted: undefined,
       layoutRoot: opts.layoutRoot === true,
-      boxBefore: undefined,
       layoutAnchor: opts.layoutAnchor,
       dragging: false,
       grabBox: undefined,
