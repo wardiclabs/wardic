@@ -122,6 +122,12 @@ describe("ownValues: an element's own value for a key (ADR-0022)", () => {
     expect(ownValues(el)("--brandColor")).toBe("3")
   })
 
+  it("OV14 (#151): an svg-inner custom property reads the computed style by its own name, never an attribute", () => {
+    // Attributes the old routing could write, under either name: neither is the custom property.
+    const circle = svgInner("circle", { style: "--brandColor: 3", "--brand-color": "9", "--brandColor": "8", r: "10" })
+    expect(ownValues(circle)("--brandColor")).toBe("3")
+  })
+
   it("OV12: a miss is remembered as a miss", () => {
     const el = div()
     const own = ownValues(el)

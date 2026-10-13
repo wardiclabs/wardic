@@ -172,4 +172,14 @@ describe("The fallback style (ADR-0034)", () => {
     expect(heldTouches(["opacity"], ["opacity", "transform"], style)).toBe(false)
     expect(heldTouches([], ["backgroundColor"], style)).toBe(true)
   })
+
+  it("FS7 (#151): a held custom property matches only its own name: a separate `--brand-color` stays", () => {
+    expect(fallbackStyle({ "--brand-color": "red", "--brandColor": "blue" }, ["--brandColor"])).toEqual({ "--brand-color": "red" })
+    expect(heldTouches([], ["--brandColor"], { "--brand-color": "red" })).toBe(false)
+    expect(heldTouches([], ["--brandColor"], { "--brandColor": "blue" })).toBe(true)
+  })
+
+  it("FS8 (#151): a server routes an svg-inner tag's custom property to style", () => {
+    expect(splitPatchForTag("circle", { "--brandLevel": 0.4, r: 10 })).toEqual({ style: { "--brandLevel": 0.4 }, attrs: { r: "10" } })
+  })
 })
