@@ -1,6 +1,7 @@
 import type * as Drag from "@wardic/core/Drag"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
+import * as Velocity from "@wardic/core/Velocity"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -45,8 +46,7 @@ it.effect("activation: down + moves past threshold emit start then moves with co
 
 it.effect("velocity: constant-speed moves yield expected px/s from the time window", () =>
   Effect.gen(function* () {
-    // Move 10px every 10ms => 1000 px/s along x. Window is 30ms, so the estimate
-    // uses the oldest in-window sample up to the newest.
+    // Move 10px every 10ms => 1000 px/s along x, over the last 100 ms (from the press here).
     const events = [
       ev("down", 0, 0, 0),
       ev("move", 10, 0, 10), // start (dist 10 > 3)
@@ -160,4 +160,89 @@ it.effect("axis 'y' zeroes x; 'xy' (the default) passes both", () =>
     expect(free!.offset).toEqual({ x: 20, y: 15 })
     const [, byDefault] = (yield* collect(events)) as ReadonlyArray<Drag.Sample>
     expect(byDefault!.offset).toEqual({ x: 20, y: 15 })
+  }))
+
+// #139 (ADR-0004, *Amendment (#139)*): every sample's velocity is the pointer's over the gesture's
+// last 100 ms (`Velocity.trailing`, Motion's `getVelocity`), the release point counted at the end.
+
+/** The last sample of `events`' gesture. */
+const lastOf = (events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
+  Effect.map(collect(events), (samples) => samples[samples.length - 1] as Drag.Sample)
+
+/** A press at x 0, then `n` moves of 20 px right, `gap` ms apart. */
+const moves = (n: number, gap: number, from = 0): Array<InputSource.PointerLikeEvent> => [
+  ev("down", 0, 0, 0),
+  ...Array.from({ length: n }, (_, k) => ev("move", 20 * (k + 1), 0, from + gap * (k + 1))),
+]
+
+it.effect("DV1: moves 40 ms apart each have the pointer's speed (a 30 ms window held only the newest, and read 0)", () =>
+  Effect.gen(function* () {
+    const samples = (yield* collect(moves(4, 40))) as ReadonlyArray<Drag.Sample>
+    expect(samples.map((s) => s.phase)).toEqual(["start", "move", "move", "move"])
+    for (const s of samples) expect(s.velocity.x).toBeCloseTo(500, 6)
+  }))
+
+it.effect("DV2: a flick with moves 33 ms apart, let go 17 ms after the last at the same point, flings at the last 100 ms's speed", () =>
+  Effect.gen(function* () {
+    // The up at 281 reads from the newest point more than 100 ms older, the move at 165 (x 100).
+    const end = yield* lastOf([...moves(8, 33), ev("up", 160, 0, 281)])
+    expect(end.phase).toBe("end")
+    expect(end.velocity.x).toBeCloseTo(60 / 0.116, 6)
+  }))
+
+it.effect("DV3: a pause before letting go weakens the throw: 50 ms reads less than the moves' speed, 150 ms reads none", () =>
+  Effect.gen(function* () {
+    const flick = moves(8, 16) // 1250 px/s; the last move at 128 ms, x 160
+    const moving = yield* lastOf(flick)
+    expect(moving.velocity.x).toBeCloseTo(1250, 6)
+    const late = yield* lastOf([...flick, ev("up", 160, 0, 178)])
+    expect(late.velocity.x).toBeCloseTo(80 / 0.114, 6)
+    const still = yield* lastOf([...flick, ev("up", 160, 0, 278)])
+    expect(still.velocity.x).toBe(0)
+  }))
+
+it.effect("DV4: a press held before a flick doesn't dilute it: the stale press point is skipped (Motion's rule)", () =>
+  Effect.gen(function* () {
+    const last = yield* lastOf(moves(4, 16, 484)) // pressed at 0, moves at 500–548
+    expect(last.velocity.x).toBeCloseTo(1250, 6)
+  }))
+
+/** A small deterministic generator (a linear congruential one), so DV5's gestures are the same each run. */
+const lcg = (seed: number) => {
+  let state = seed
+  return (): number => {
+    state = (state * 1664525 + 1013904223) % 4294967296
+    return state / 4294967296
+  }
+}
+
+it.effect("DV5: every sample reads what the whole gesture's history would, the release point counted at the end", () =>
+  Effect.gen(function* () {
+    const random = lcg(139)
+    for (let gesture = 0; gesture < 60; gesture++) {
+      // Gaps of 1–60 ms, now and then a hold of 150–400 ms; steps of up to 30 px each way.
+      let t = 0
+      let x = 0
+      let y = 0
+      const points: Array<Velocity.TimedPoint> = [{ x, y, timeStamp: t }]
+      const events = [ev("down", x, y, t)]
+      const count = 2 + Math.floor(random() * 40)
+      for (let k = 0; k < count; k++) {
+        t += random() < 0.1 ? 150 + random() * 250 : 1 + random() * 59
+        x += Math.round((random() - 0.3) * 30)
+        y += Math.round((random() - 0.5) * 30)
+        points.push({ x, y, timeStamp: t })
+        events.push(ev("move", x, y, t))
+      }
+      t += random() * 200
+      points.push({ x, y, timeStamp: t })
+      events.push(ev("up", x, y, t))
+      const samples = (yield* collect(events)) as ReadonlyArray<Drag.Sample>
+      for (const s of samples) {
+        const upTo = points.filter((p) => p.timeStamp <= s.timeStamp)
+        const whole = Velocity.trailing(upTo, 100)
+        expect(s.velocity.x, `gesture ${gesture}, ${s.phase} at ${s.timeStamp}`).toBeCloseTo(whole.x, 6)
+        expect(s.velocity.y, `gesture ${gesture}, ${s.phase} at ${s.timeStamp}`).toBeCloseTo(whole.y, 6)
+      }
+    }
   }))

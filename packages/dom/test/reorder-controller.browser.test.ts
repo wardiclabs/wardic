@@ -99,24 +99,34 @@ const centre = (element: HTMLElement) => {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
 }
 
-const sample = (phase: Drag.Sample["phase"], at: { x: number; y: number }, offset: { x: number; y: number }, timeStamp: number): Drag.Sample => ({
+const sample = (
+  phase: Drag.Sample["phase"],
+  at: { x: number; y: number },
+  offset: { x: number; y: number },
+  timeStamp: number,
+  velocity: { x: number; y: number } = { x: 0, y: 0 },
+): Drag.Sample => ({
   phase,
   point: { x: at.x + offset.x, y: at.y + offset.y },
   offset,
   delta: { x: 0, y: 0 },
-  velocity: { x: 0, y: 0 },
+  velocity,
   timeStamp,
 })
 
-/** Start a drag of `item` (its handle and its driver) and move it by `dy` in `steps` moves 16 ms apart. */
+/**
+ * Start a drag of `item` (its handle and its driver) and move it by `dy` in `steps` moves 16 ms
+ * apart, each sample carrying that steady speed, as `drag`'s would.
+ */
 const dragY = (item: Item, dy: number, steps: number): { readonly end: () => void } => {
   const at = centre(item.element)
+  const speed = { x: 0, y: dy / steps / 0.016 }
   item.handle.dragStart()
   item.driver.onSample(sample("start", at, { x: 0, y: 0 }, 0))
   for (let k = 1; k <= steps; k++) {
     const offset = { x: 0, y: (dy * k) / steps }
     item.handle.dragMove(offset)
-    item.driver.onSample(sample("move", at, offset, 16 * k))
+    item.driver.onSample(sample("move", at, offset, 16 * k, speed))
   }
   return {
     end: () => {
@@ -182,7 +192,7 @@ describe("the Reorder controller (ADR-0020)", () => {
     expect(list.reorders).toEqual([["a", "c", "b"]])
     drag.end()
     // The gesture is over: the group ignores a move for b now.
-    expect(Reorder.dragMove(list.c.group, "b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
+    expect(Reorder.dragMove(list.c.group, "b", { x: 0, y: 500 })).toEqual({ x: 0, y: 0 })
     list.c.dispose()
     e.dispose()
   })
@@ -198,15 +208,16 @@ describe("the Reorder controller (ADR-0020)", () => {
     b.handle.dragStart()
     b.driver.onSample(sample("start", at, { x: 0, y: 0 }, 0))
     const steps = 10
+    const speed = { x: 0, y: (bottom - 15 - at.y) / steps / 0.016 }
     for (let k = 1; k <= steps; k++) {
       const offset = { x: 0, y: ((bottom - 15 - at.y) * k) / steps }
       b.handle.dragMove(offset)
-      b.driver.onSample(sample("move", at, offset, 16 * k))
+      b.driver.onSample(sample("move", at, offset, 16 * k, speed))
     }
     expect(list.logs().some((l) => l.event === "auto-scroll start")).toBe(true)
     b.driver.dispose()
     expect(list.logs().at(-1)?.event).toBe("auto-scroll stop")
-    expect(Reorder.dragMove(list.c.group, "b", { x: 0, y: 500 }, 400)).toEqual({ x: 0, y: 0 })
+    expect(Reorder.dragMove(list.c.group, "b", { x: 0, y: 500 })).toEqual({ x: 0, y: 0 })
     list.c.dispose()
     e.dispose()
   })
