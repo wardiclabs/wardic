@@ -7,8 +7,9 @@
  * the scenario's prediction, and keeps the bounded run log the UI and the copy-log
  * read. A drag scenario's presses (issue #26) come in whole through
  * `ctx.recordDragRun` instead: the lab joins the timeline's spans onto each one
- * into a {@link DragRun} and keeps those in a log of their own. All of that runs
- * once per completed run or press, never per frame.
+ * into a {@link DragRun} and keeps those in a log of their own, and its at-rest runs
+ * (#144, `ctx.recordRestRun`) in another, each read into a {@link RestRun}. All of that
+ * runs once per completed run, press or change, never per frame.
  *
  * Framework-free on purpose (no Solid import): the UI subscribes through
  * {@link Lab.subscribe} and {@link Lab.subscribeDragRuns}, which fire once per
@@ -30,6 +31,7 @@ import { currentLabScheduler, type LabScheduler, type Mark, type SpanRecord, typ
 import type { Prediction, ScenarioContext, ScenarioDef, TriggerMeta } from "../scenarios/types.ts"
 import type { BoardRunInput } from "./base-values-board.ts"
 import { type DragRun, dragRunOf } from "./drag-run.ts"
+import { type RestRun, restRunOf } from "./rest-run.ts"
 import { groupFrames, type InputJoin, joinInputs, type RefreshFrame } from "./frame-order.ts"
 import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
 import { measurePassesOf } from "./measure-passes.ts"
@@ -213,6 +215,8 @@ export interface LabLog {
   readonly dragRuns: ReadonlyArray<DragRun>
   /** The kept board runs (#47), oldest first: one per gesture on a board scenario's cell. */
   readonly boardRuns: ReadonlyArray<BoardRunInput>
+  /** The kept at-rest runs (#144), oldest first: one per layout change a drag scenario records at rest. */
+  readonly restRuns: ReadonlyArray<RestRun>
 }
 
 /** Everything the lab is built from. Each piece is created once, at module scope. */
@@ -247,6 +251,10 @@ export interface Lab {
   readonly boardRuns: () => ReadonlyArray<BoardRunInput>
   /** Calls `cb` once per recorded board run. Returns an unsubscribe function. */
   readonly subscribeBoardRuns: (cb: (run: BoardRunInput) => void) => () => void
+  /** The kept at-rest runs (#144), oldest first (a copy). */
+  readonly restRuns: () => ReadonlyArray<RestRun>
+  /** Calls `cb` once per recorded at-rest run. Returns an unsubscribe function. */
+  readonly subscribeRestRuns: (cb: (run: RestRun) => void) => () => void
   /** Flash totals since the last reset. */
   readonly flashCounts: () => FlashCounts
   /** Zeroes the flash counts and removes every ghost outline (flash and wrong-origin). */
@@ -362,7 +370,9 @@ export const makeLab = (options: LabOptions): Lab => {
   const listeners = new Set<(run: LabRun) => void>()
   const dragRuns: Array<DragRun> = []
   const boardRuns: Array<BoardRunInput> = []
+  const restRuns: Array<RestRun> = []
   const boardListeners = new Set<(run: BoardRunInput) => void>()
+  const restListeners = new Set<(run: RestRun) => void>()
   const dragListeners = new Set<(run: DragRun) => void>()
   let flashTotal = 0
   let flashPerScenario: Record<string, number> = {}
@@ -500,6 +510,19 @@ export const makeLab = (options: LabOptions): Lab => {
         }
       }
     },
+    recordRestRun: (input) => {
+      // Attributed to this context's scenario, like every mark and run it starts.
+      const run = restRunOf({ ...input, scenarioId: id })
+      restRuns.push(run)
+      if (restRuns.length > MAX_RUNS) restRuns.splice(0, restRuns.length - MAX_RUNS)
+      for (const cb of restListeners) {
+        try {
+          cb(run)
+        } catch (error) {
+          console.error("layout-lab: an at-rest run listener threw", error)
+        }
+      }
+    },
   })
 
   const context: Lab["context"] = (def) => {
@@ -537,6 +560,13 @@ export const makeLab = (options: LabOptions): Lab => {
         boardListeners.delete(cb)
       }
     },
+    restRuns: () => restRuns.slice(),
+    subscribeRestRuns: (cb) => {
+      restListeners.add(cb)
+      return () => {
+        restListeners.delete(cb)
+      }
+    },
     flashCounts: () => ({ total: flashTotal, perScenario: flashPerScenario }),
     resetCounts: () => {
       flashTotal = 0
@@ -557,6 +587,7 @@ export const makeLab = (options: LabOptions): Lab => {
       runs: runs.slice(),
       dragRuns: dragRuns.slice(),
       boardRuns: boardRuns.slice(),
+      restRuns: restRuns.slice(),
     }),
   }
 }

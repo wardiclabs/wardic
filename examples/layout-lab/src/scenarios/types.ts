@@ -34,6 +34,7 @@ import type { Component } from "solid-js"
 import type { BoardRunInput } from "../lab/base-values-board.ts"
 import type { DragExpect, DragRunInput } from "../lab/drag-run.ts"
 import type { ReorderExpect } from "../lab/reorder-run.ts"
+import type { RestExpect, RestRunInput } from "../lab/rest-run.ts"
 
 /**
  * What the scenario author expects before running it.
@@ -112,6 +113,14 @@ export interface ScenarioContext {
    * `Lab.subscribeBoardRuns`. It starts no sampling run and drops no mark.
    */
   readonly recordBoardRun: (input: Omit<BoardRunInput, "scenarioId">) => void
+  /**
+   * Records one at-rest run (#144, scenario 12's X): call it once the change's layout
+   * animations have stood still, with what the drag recorder sampled (`recordAtRest`). The lab
+   * reads a `RestRun` from it (`restRunOf` in `lab/rest-run.ts`), keeps it (the same cap as
+   * runs), attributes it to this context's scenario id and notifies `Lab.subscribeRestRuns`. It
+   * starts no sampling run and drops no mark.
+   */
+  readonly recordRestRun: (input: RestRunInput) => void
 }
 
 /** A scenario's expected hold (see {@link ScenarioDef.expectedHeld}). */
@@ -173,6 +182,12 @@ export interface ScenarioDef {
    * the card shows those lines after the drag lines.
    */
   readonly reorderExpect?: ReorderExpect
+  /**
+   * What a drag scenario expects of every at-rest run (#144, scenario 12's X), which the card
+   * checks each one against (see `restChecksOf` in `lab/rest-run.ts`) when it is the scenario's
+   * latest run.
+   */
+  readonly restExpect?: RestExpect
   /**
    * The scenario's UI: a `.stage` holding the watched element, and a Run button (a
    * drag scenario: its drag handle). It receives its context as a static prop (see
