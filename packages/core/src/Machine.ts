@@ -889,22 +889,17 @@ const blendersFor = (
       Rec.map(to, (b, key): Effect.Effect<Blender> => {
         const a = Option.getOrElse(Rec.get(from, key), () => b)
         return Option.liftPredicate([key, a, b] as const, hides).pipe(
-          Option.map(([, shown, hidden]) => holdUntilDone(shown, hidden)),
-          Option.match({
-            onNone: () =>
-              Option.match(AnimatableNone.prepare(key, a, b), {
-                // No rule applies: the registry's blend, through a blender made here, as before #61. A
-                // blender made by one shared factory for every key made its call site megamorphic,
-                // and Node's string workloads 7–9% slower per frame (#61's bench).
-                onNone: () => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)),
-                onSome: (prepared) =>
-                  Effect.map(
-                    Effect.forEach(prepared.pairs, ([x, y]) => registry.resolve(x, y)),
-                    (blends) => blenderOf(b, blends),
-                  ),
-              }),
-            onSome: Effect.succeed,
-          }),
+          Option.map(([, shown, hidden]): Effect.Effect<Blender> => Effect.succeed(holdUntilDone(shown, hidden))),
+          Option.orElse(() =>
+            Option.map(AnimatableNone.prepare(key, a, b), (prepared) =>
+              Effect.map(
+                Effect.forEach(prepared.pairs, ([x, y]) => registry.resolve(x, y)),
+                (blends) => blenderOf(b, blends),
+              ))),
+          // No rule applies: the registry's blend, through a blender made here, as before #61. A
+          // blender made by one shared factory for every key made its call site megamorphic, and
+          // Node's string workloads 7–9% slower per frame (#61's bench).
+          Option.getOrElse(() => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t))),
         )
       }),
     )

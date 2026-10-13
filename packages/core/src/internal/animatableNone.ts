@@ -21,12 +21,13 @@
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { pipe } from "effect/Function"
+import { identity, pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Interpolator from "../Interpolator.ts"
 import { numberCountOf } from "./complexTokens.ts"
 
@@ -54,10 +55,13 @@ const encodeColor = Schema.encodeSync(Interpolator.ColorString)
  * Keys come both ways: `WardicValues` types them as CSS names, and camelCase works as well.
  */
 const cssNameOf = (key: string): string =>
-  Option.getOrElse(Option.fromUndefinedOr(CSS_NAMES.get(key)), () => {
-    const name = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
-    CSS_NAMES.set(key, name)
-    return name
+  UndefinedOr.match(CSS_NAMES.get(key), {
+    onDefined: identity,
+    onUndefined: () => {
+      const name = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
+      CSS_NAMES.set(key, name)
+      return name
+    },
   })
 
 /** Each key's CSS name, once: keys repeat across elements and legs. */
@@ -247,13 +251,11 @@ const mayApply = (key: string, from: Value, to: Value): boolean =>
  * `key`'s pair, ready for the registry (#61): from or to its Animatable none when one end is empty,
  * or shadow by shadow for a shadow list. `None` when no rule applies: the pair is resolved as it is.
  */
-export const prepare = (key: string, from: Value, to: Value): Option.Option<Prepared> =>
-  Bool.match(mayApply(key, from, to), {
-    onFalse: () => Option.none(),
-    onTrue: () =>
-      pipe(
-        fromNone(key, from, to),
-        Option.orElse(() => toNone(key, from, to)),
-        Option.orElse(() => shadows(key, from, to)),
-      ),
-  })
+export const prepare = (key: string, from: Value, to: Value): Option.Option<Prepared> => {
+  if (!mayApply(key, from, to)) return Option.none()
+  return pipe(
+    fromNone(key, from, to),
+    Option.orElse(() => toNone(key, from, to)),
+    Option.orElse(() => shadows(key, from, to)),
+  )
+}
