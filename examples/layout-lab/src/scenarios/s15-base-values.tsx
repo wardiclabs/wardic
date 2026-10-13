@@ -13,6 +13,17 @@
  * - **exit**: a stylesheet's `opacity: 0.5` and `exit: { opacity: 0 }` under
  *   `<AnimatePresence>`; the button removes it (or brings it back). It fades out from 0.5.
  *
+ * And three cells for `initial={false}` (#134), each starting at its `animate` with no mount
+ * animation; Remount no-mount mounts the three again:
+ *
+ * - **no mount: initial false**: `initial={false} animate={{ opacity: 0.5 }}`. Starts at 0.5
+ *   and never moves (the fade cell beside it fades from its own 1).
+ * - **no mount: variant child**: a parent with `initial={false} animate="half"` and a Variant
+ *   child whose `half` is `opacity: 0.5`. The child takes `false` from it and starts at 0.5.
+ * - **no mount: presence**: `<AnimatePresence initial={false}>` around a child with
+ *   `initial={{ opacity: 0 }} animate={{ opacity: 0.5 }}`. Remounted, it starts at 0.5; Leave
+ *   then Enter brings it back as a later entry, which fades in from 0 (Motion's rule).
+ *
  * Each gesture is one board run, judged by `lab/base-values-board.ts` (`start`, `end`) and
  * saved under `boardRuns`. Before #47's fix every scale grew from 0 and stayed, every
  * opacity started at 0, the fade rose from 0 and the exit vanished at once.
@@ -36,7 +47,7 @@ document.head.append(sheet)
 const GRID: JSX.CSSProperties = {
   display: "grid",
   "grid-template-columns": "repeat(3, 1fr)",
-  "grid-template-rows": "repeat(2, 1fr)",
+  "grid-template-rows": "repeat(3, 1fr)",
   width: "100%",
   height: "100%",
 }
@@ -152,6 +163,10 @@ const View: ScenarioDef["View"] = (props) => {
   const [styleOpacity, setStyleOpacity] = createSignal(0.5)
   const [fadeKey, setFadeKey] = createSignal(0)
   const [shown, setShown] = createSignal(true)
+  // The three `initial={false}` cells (#134): remounted together; the presence child's later entry.
+  const [noMountKey, setNoMountKey] = createSignal(0)
+  const [presenceShown, setPresenceShown] = createSignal(true)
+  let laterEntry = false
 
   // A press ends at a release anywhere, as Wardic's press does (ADR-0019): a `pointerup`
   // outside the cell, or a `pointercancel`, ends its run too.
@@ -204,6 +219,18 @@ const View: ScenarioDef["View"] = (props) => {
 
   const remount = (): void => {
     setFadeKey((k) => k + 1)
+  }
+
+  const remountNoMount = (): void => {
+    laterEntry = false
+    setPresenceShown(true)
+    setNoMountKey((k) => k + 1)
+  }
+
+  // The presence child leaves (its exit), then comes back after the presence's first render.
+  const togglePresence = (): void => {
+    laterEntry = true
+    setPresenceShown((s) => !s)
   }
 
   let exitEl: HTMLElement | undefined
@@ -277,6 +304,52 @@ const View: ScenarioDef["View"] = (props) => {
             </AnimatePresence>
             <span style={LABEL}>exit</span>
           </div>
+          <For each={[noMountKey()]}>
+            {() => (
+              <>
+                <div style={CELL}>
+                  <wardic.div
+                    data-cell="no-mount"
+                    ref={(el: HTMLElement) => recorder.start("no mount: initial false", "mount", () => opacityOf(el), 0.5, 0.5, Number.NaN).end()}
+                    style={BOX}
+                    initial={false}
+                    animate={{ opacity: 0.5 }}
+                  />
+                  <span style={LABEL}>no mount: initial false</span>
+                </div>
+                <div style={CELL}>
+                  <wardic.div initial={false} animate="half" variants={{ half: {} }}>
+                    <wardic.div
+                      data-cell="no-mount-child"
+                      ref={(el: HTMLElement) => recorder.start("no mount: variant child", "mount", () => opacityOf(el), 0.5, 0.5, Number.NaN).end()}
+                      style={BOX}
+                      variants={{ half: { opacity: 0.5 } }}
+                    />
+                  </wardic.div>
+                  <span style={LABEL}>no mount: variant child</span>
+                </div>
+                <div style={CELL}>
+                  <AnimatePresence initial={false}>
+                    <Show when={presenceShown()}>
+                      <wardic.div
+                        data-cell="no-mount-presence"
+                        ref={(el: HTMLElement) =>
+                          laterEntry
+                            ? recorder.start("presence: later entry", "mount", () => opacityOf(el), 0, 0.5, Number.NaN).end()
+                            : recorder.start("no mount: presence", "mount", () => opacityOf(el), 0.5, 0.5, Number.NaN).end()
+                        }
+                        style={BOX}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 0.5 }}
+                        exit={{ opacity: 0 }}
+                      />
+                    </Show>
+                  </AnimatePresence>
+                  <span style={LABEL}>no mount: presence</span>
+                </div>
+              </>
+            )}
+          </For>
         </div>
       </div>
       <div style={BUTTONS}>
@@ -289,14 +362,20 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="exit" onClick={toggleExit}>
           {shown() ? "Exit" : "Enter"}
         </button>
+        <button type="button" class="btn secondary small" data-action="remount-no-mount" onClick={remountNoMount}>
+          Remount no-mount
+        </button>
+        <button type="button" class="btn secondary small" data-action="presence" onClick={togglePresence}>
+          {presenceShown() ? "Leave" : "Enter"} presence
+        </button>
       </div>
     </div>
   )
 }
 
 /**
- * Scenario 15, base values (#47): six cells whose key no `initial` or `animate` sets, each
- * judged per gesture on where it starts and where it ends.
+ * Scenario 15, base values (#47): six cells whose key no `initial` or `animate` sets, and three
+ * `initial={false}` cells (#134), each judged per run on where it starts and where it ends.
  */
 export const s15: ScenarioDef = {
   id: ID,
@@ -304,11 +383,13 @@ export const s15: ScenarioDef = {
   kind: "board",
   title: "base values (a key no initial sets)",
   mechanism:
-    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; each run is judged on its start and its end.",
+    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the bottom row is initial={false} (Remount no-mount, Leave/Enter presence). Each run is judged on its start and its end.",
   prediction: "safe",
   rationale:
     "A key with no value starts from its style value, else its Own value (1 for a scale, the computed style " +
     "otherwise, read once at first need), and returns to its initial value, style value or Own value (ADR-0022). " +
-    "Motion 13.5.0 does the same in Chromium and Firefox (docs/research/base-values.md).",
+    "Motion 13.5.0 does the same in Chromium and Firefox (docs/research/base-values.md). With initial={false} an element, " +
+    "a Variant child and an AnimatePresence initial={false}'s first child start at their animate and don't move; a later " +
+    "entry animates in (#134, Motion's).",
   View,
 }

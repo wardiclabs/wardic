@@ -1,8 +1,9 @@
 // /ssr: every Wardic element kind rendered on the server, then hydrated (ADR-0021's hand
 // check, #41). Each element starts at a VISIBLE Starting style (faded, offset), so a load
 // with JavaScript disabled shows the server's paint; after hydration each animates to
-// rest. The hydration report (src/hydration-report.ts, client-only) judges each element
-// marked `data-ssr-k` against SSR_EXPECTED (src/ssr-expected.ts).
+// rest. The `initial={false}` elements (#134) start at their animate instead and never move.
+// The hydration report (src/hydration-report.ts, client-only) judges each element marked
+// `data-ssr-k` against SSR_EXPECTED (src/ssr-expected.ts).
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
@@ -20,6 +21,8 @@ import { createSignal, For, type JSX, onMount, Show } from "solid-js"
 const EASE: WardicTransition = { type: "tween", duration: 0.8 }
 const FADED = { opacity: 0.25, x: -40 }
 const REST = { opacity: 1, x: 0 }
+/** Where the `initial={false}` elements (#134) start and stay: half faded and to the right. */
+const HALF = { opacity: 0.5, x: 24 }
 
 interface CardProps {
   readonly ref?: (el: HTMLElement) => void
@@ -75,6 +78,7 @@ const VALUES = ["one", "two", "three"]
 
 export default function SsrCheck(): JSX.Element {
   const [shown, setShown] = createSignal(true)
+  const [heldShown, setHeldShown] = createSignal(true)
   const [wide, setWide] = createSignal(false)
   const [items, setItems] = createSignal(VALUES)
   // Tell the hydration report this route has hydrated (client only: onMount never runs
@@ -153,6 +157,35 @@ export default function SsrCheck(): JSX.Element {
             a layout element
           </wardic.div>
         </LayoutGroup>
+
+        <h2>initial={"{false}"} (#134)</h2>
+        <p>
+          These three start at their animate, half faded and to the right, in the server's paint, and never move. Toggled
+          out and back in, the AnimatePresence child is a later entry: it fades in.
+        </p>
+
+        <wardic.div data-ssr-k="held" style={cardStyle} initial={false} animate={HALF} transition={EASE}>
+          {"wardic.div initial={false}"}
+        </wardic.div>
+
+        <wardic.div initial={false} animate="half" variants={{ half: {} }}>
+          <wardic.div data-ssr-k="held-variant" style={cardStyle} variants={{ half: HALF }} transition={EASE}>
+            {"a Variant child of an initial={false} parent"}
+          </wardic.div>
+        </wardic.div>
+
+        <p>
+          <button type="button" onClick={() => setHeldShown((s) => !s)}>
+            {"toggle the AnimatePresence initial={false} child"}
+          </button>
+        </p>
+        <AnimatePresence initial={false}>
+          <Show when={heldShown()}>
+            <wardic.div data-ssr-k="held-presence" style={cardStyle} initial={FADED} animate={HALF} exit={{ opacity: 0, x: -40 }} transition={EASE}>
+              {"an AnimatePresence initial={false} child"}
+            </wardic.div>
+          </Show>
+        </AnimatePresence>
 
         <ReducedMotion />
       </main>

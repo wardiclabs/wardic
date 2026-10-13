@@ -42,7 +42,9 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { reportFailure } from "@wardic/dom"
-import { children, createContext, createEffect, type JSX, onCleanup, useContext } from "solid-js"
+import { constFalse } from "effect/Function"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
 import { useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
@@ -75,7 +77,20 @@ export interface PresenceContextValue {
    * removes the registration after the exit completes.
    */
   readonly register: (rec: PresenceRecord) => () => void
+  /**
+   * Whether an element setting up now starts at its `animate`, with nothing animating at mount:
+   * `<AnimatePresence initial={false}>`, during its first render (#134, Motion's
+   * `presenceContext.initial`). A child that enters later animates in. Optional: left out, never.
+   */
+  readonly blocksInitial?: () => boolean
 }
+
+/** Whether `presence` holds an element setting up now at its `animate` ({@link PresenceContextValue.blocksInitial}). */
+export const presenceBlocksInitial = (presence: PresenceContextValue | undefined): boolean =>
+  UndefinedOr.match(presence, {
+    onUndefined: constFalse,
+    onDefined: (p) => UndefinedOr.match(p.blocksInitial, { onUndefined: constFalse, onDefined: (blocks) => blocks() }),
+  })
 
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
@@ -92,6 +107,17 @@ const isEmpty = (values: Values.Values): boolean => {
   return true
 }
 
+/** {@link AnimatePresence}'s props. */
+export interface AnimatePresenceProps {
+  readonly children: JSX.Element
+  /**
+   * `false`: the child present at this presence's first render starts at its `animate`, with no
+   * enter animation (it and every Wardic element under it, as Motion's); a child that enters later
+   * animates in from its `initial`. Exits are unchanged (#134). On a server, the rendered child.
+   */
+  readonly initial?: boolean
+}
+
 /**
  * `<AnimatePresence>` — wraps a single (optionally conditional) child and
  * animates its exit before unmount. Must be used inside a `<WardicProvider>`
@@ -99,7 +125,7 @@ const isEmpty = (values: Values.Values): boolean => {
  * (e.g. `<Show>`); the leaving child must be a `wardic.*` element / `useWardic`
  * spine under this presence so it registers an exit record.
  */
-export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.Element {
+export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const runtime = useWardicRuntime()
   const reducedMotion = useWardicReducedMotion()
   // A server render has no exit to drive and no runtime to log on: the same component
@@ -131,6 +157,13 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
   // component's own teardown) can interrupt them.
   const exiting = new Map<HTMLElement, Fiber.Fiber<void, never>>()
 
+  // `initial={false}` (#134): the children set up with this first render start at their
+  // `animate`; one that enters after it animates in.
+  let firstRender = true
+  onMount(() => {
+    firstRender = false
+  })
+
   const ctx: PresenceContextValue = {
     register: (rec) => {
       registry.set(rec.element, rec)
@@ -138,6 +171,7 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
         registry.delete(rec.element)
       }
     },
+    blocksInitial: () => props.initial === false && firstRender,
   }
 
   // Commit a projected value-map onto a retained node via the Renderer.
@@ -314,8 +348,9 @@ export function AnimatePresence(props: { readonly children: JSX.Element }): JSX.
 }
 
 /** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
-const serverPresence = (props: { readonly children: JSX.Element }): JSX.Element => {
-  const ctx: PresenceContextValue = { register: () => () => {} }
+const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
+  // A server renders once: every child is set up with the first render (#134).
+  const ctx: PresenceContextValue = { register: () => () => {}, blocksInitial: () => props.initial === false }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
   return (
     <PresenceContext.Provider value={ctx}>

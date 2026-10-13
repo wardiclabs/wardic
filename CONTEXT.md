@@ -97,7 +97,7 @@ An ordered set of partial, optionally-active value-maps that resolve to a single
 _Avoid_: **layer** (collides with Effect/Environment Layer — never reuse it here), variant stack, state stack.
 
 **Variant child**:
-A Wardic element with `variants` that names neither its own `initial` nor `animate`, and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a named `initial` or `animate`): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
+A Wardic element with `variants` that names neither its own `initial` nor `animate`, and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a named `initial` or `animate`): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
 _Avoid_: registered child, orchestrated child.
 
 ### Interaction
@@ -265,7 +265,7 @@ How a Frame stream renders outside a binding (canvas, native, tests): pushed thr
 _Avoid_: manual path; reactive path (gone with #79: no Frame reaches an element through JSX).
 
 **Starting style**:
-An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). A **Variant child** with no `initial` of its own resolves its ancestor's `initial` name (#50). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A binding's element receives it through `style` until its first frame is committed (ADR-0021, #79).
+An element's style before its first Frame: `project(resolveInitial(config))`, computed purely with no runtime (ADR-0003). A **Variant child** with no `initial` of its own resolves its ancestor's `initial` name (#50). With `initial={false}` it is the element's `animate`, resolved once (a **Variant child** with no `animate` of its own: its ancestor's `animate` name), so the element starts at its target and nothing animates at mount (#134, Motion's). It is the server's markup, the style the hydration render keeps, and the animation's `from`. A binding's element receives it through `style` until its first frame is committed (ADR-0021, #79).
 _Avoid_: initial style (`initial` is its input, not its projected result), SSR seed.
 
 **Hydration hold**:
@@ -273,7 +273,7 @@ From a server render until the element mounts, a client hydrating that markup re
 _Avoid_: deferred hydration, two-pass render.
 
 **Base value**:
-The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
+The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). With `initial={false}`, a key the element started at from `animate`: its `style` value, then the value it started at (#134, Motion's `baseTarget`). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
 _Avoid_: default (a transform key's Identity, which is one kind of Own value), fallback.
 
 **Own value**:

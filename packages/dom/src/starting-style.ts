@@ -40,21 +40,34 @@ export const toValues = (v: object | undefined): Values.Values => {
  * typed `object` so a binding's own value types (interfaces) fit as they are.
  */
 export interface InitialConfig {
-  /** A values map used as is, or the name of a `variants` entry. */
-  readonly initial?: object | string | undefined
+  /**
+   * A values map used as is, the name of a `variants` entry, or `false`: start at
+   * {@link animate} (#134, Motion's `initial={false}`).
+   */
+  readonly initial?: object | string | false | undefined
+  /** What `initial: false` starts at: a values map, or the name of a `variants` entry. */
+  readonly animate?: object | string | undefined
   readonly variants?: Readonly<Record<string, object | undefined>> | undefined
+}
+
+/** A values map, or the `variants` entry a name names (an unknown name is empty), or nothing. */
+const entryOf = (entry: object | string | undefined, variants: InitialConfig["variants"]): Values.Values => {
+  if (entry === undefined) return {}
+  if (typeof entry === "string") return toValues(variants?.[entry])
+  return toValues(entry)
 }
 
 /**
  * The values an element starts from: its `initial` map, or the `variants` entry its
- * `initial` names (an unknown name is empty), or nothing. Read once, at setup: the
- * Starting style is a seed, never a live target.
+ * `initial` names (an unknown name is empty), or nothing. With `initial: false`, its
+ * `animate`, resolved the same way, so it starts at its target and nothing animates at
+ * mount (#134, Motion's). Read once, at setup: the Starting style is a seed, never a
+ * live target.
  */
 export const resolveInitial = (config: InitialConfig): Values.Values => {
   const initial = config.initial
-  if (initial === undefined) return {}
-  if (typeof initial === "string") return toValues(config.variants?.[initial])
-  return toValues(initial)
+  if (initial === false) return entryOf(config.animate, config.variants)
+  return entryOf(initial, config.variants)
 }
 
 /**

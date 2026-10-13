@@ -61,7 +61,7 @@ export interface WardicStaggerConfig {
  *   `undefined` when the parent's resolved `animate` is a `Values` map rather
  *   than a name (propagation is by name only — a values map has no name to
  *   inherit).
- * - `initial` — the parent's `initial` NAME, read once (#50).
+ * - `initial` — the parent's `initial` NAME, or `false`, read once (#50, #134).
  *
  * Every Wardic element provides one (#50): its own if it has variants of its own, else its
  * parent's, passed through (`variant-node.ts`).
@@ -75,10 +75,11 @@ export interface WardicVariantContextValue {
   /** The parent's current variant NAME, reactive (undefined if it's a values map). */
   readonly variant: Accessor<string | undefined>
   /**
-   * The parent's `initial` variant NAME, read once (undefined if it's a values map or absent):
-   * a Variant child with no `initial` of its own starts from it (#50).
+   * The parent's `initial` variant NAME, or `false`, read once (undefined if it's a values map or
+   * absent): a Variant child with no `initial` of its own starts from it (#50), or, for `false`,
+   * at its `animate` (#134, Motion's `getCurrentTreeVariants`).
    */
-  readonly initial: string | undefined
+  readonly initial: string | false | undefined
   /** The parent's transition, inherited as the default for children. */
   readonly transition: Accessor<WardicTransition | undefined>
   /**

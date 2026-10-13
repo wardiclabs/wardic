@@ -146,3 +146,11 @@ ADR-0034 decides it.
 - **While any entry of the Override stack sets a key, the element shows Wardic's value, whatever its `style` says.** `style` is the key's fallback (its Base value's `style` link), never an override. That was `wardic.div`'s behaviour, through `mergeStyle`, and Motion's (`motion-values.ts:42`). Since the gate commits every element, the binding's `style` leaves out the keys the gate holds, so the rule holds on component wraps too.
 - **The hand-back is unchanged:** a key back at its `style` value is released, the gate writes the user's current value, and the key returns to the element's `style`, so a later `style` change shows at rest. Every sink now commits, so decision 5's "a commit sink" means every element.
 - **The directives** (`use:ward`, `use:reorderItem`) don't own `style`. There, a key both set goes to whichever wrote last.
+
+## Amendment (#134, 2026-10-13): with `initial={false}`, `style`, then where the key started
+
+With `initial={false}` an element starts at its `animate` (ADR-0003, *Amendment (#134)*), and has no `initial` value. A key it started at, which no layer sets any more, returns to its `style` value, else to the value it started at; a key it didn't start at keeps the chain as it was (`style`, then its Own value). That is Motion's `getBaseTarget`: no `initial` variant, then `getBaseTargetFromProps` (the `style` prop), then `baseTarget`, seeded from the values the element started at (`VisualElement.ts:398` and `:911-951` at `16c6122`). So `initial={false} animate={open() ? { x: 100 } : {}}`, mounted open, keeps `x` at 100 when `open` turns false, as Motion's does.
+
+- Core's chain gains a `started` link between `style` and `own` (`BaseValue.of`: `base`, `initial`, `style`, `started`, `own`); such an element passes an empty `initial` and its starting values as `started`.
+- The Override stack's base layer falls back to nothing, not to the starting values, when no `animate` or inherited name sets it (ADR-0007's step 3), so those values come after `style` there too.
+- Rejected (grilled, Q2): the started values before `style`, as if `animate` were written as `initial`, which ignores a `style` value Motion follows; and forgetting them (`style`, then the Own value), a visible move Motion doesn't make.

@@ -46,7 +46,6 @@ import {
   project as domProject,
   type ProjectionNodeHandle,
   reportFailure,
-  resolveInitial,
   splitPatchForTag,
   startingStyle,
   styleValueOf,
@@ -78,9 +77,9 @@ import {
 } from "solid-js"
 import { type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
-import { createVariantNode, initialOf, serverVariantNode } from "./variant-node.ts"
+import { createVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
-import { type PresenceRecord, usePresenceContext } from "./presence.tsx"
+import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
 import { useWardicGate, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
@@ -223,8 +222,12 @@ export interface WardicConfig {
    * FORMS:
    *   - a `WardicValues` map — used verbatim; SSR-serializable.
    *   - a string — names a `variants` entry; SSR-serializable.
+   *   - `false` — start at `animate` (resolved once: its map, its `variants` entry, or, for a
+   *     Variant child with none, the name its ancestor hands down), so nothing animates at
+   *     mount (#134, Motion's). An element that names its own variants hands it down. A key it
+   *     started at returns to its `style` value, else to where it started (ADR-0022).
    */
-  readonly initial?: WardicValues | string
+  readonly initial?: WardicValues | string | false
   /** The resting target. A string names a `variants` entry. Read reactively through the whole-config accessor `cfg()`. */
   readonly animate?: WardicValues | string
   /** Named value maps `initial` / `animate` strings resolve against. */
@@ -559,7 +562,15 @@ export function runSpine(opts: RunSpineOptions): void {
   // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
   // frame 1 flows continuously out of it (no snap).
   const initialConfig = untrack(cfg)
-  const initialValues = resolveInitial({ initial: initialOf(initialConfig, parent), variants: initialConfig.variants })
+  // With `initial={false}` (its own, inherited, or an `<AnimatePresence initial={false}>`'s first
+  // render) the seed is its `animate`, and nothing animates at mount (#134).
+  const presenceBlocks = presenceBlocksInitial(presence)
+  const startedAtAnimate = startsAtAnimate(initialConfig, parent, presenceBlocks)
+  const initialValues = startingValuesOf(initialConfig, parent, presenceBlocks)
+  // Its `initial` link in the Base-value chain and its fallback base layer, or, having started at
+  // `animate`, none: those values come after `style`, as Motion's `baseTarget` (ADR-0022, #134).
+  const initialLink: Values.Values = Bool.match(startedAtAnimate, { onTrue: () => ({}), onFalse: () => initialValues })
+  const startedLink: Values.Values = Bool.match(startedAtAnimate, { onTrue: () => initialValues, onFalse: () => ({}) })
 
   // Plain (non-reactive) Snapshot ref: each key's last emitted value, a number or a
   // string, + the numeric velocities, seeded from the SSR initial (velocities 0). Used
@@ -811,7 +822,7 @@ export function runSpine(opts: RunSpineOptions): void {
             ? resolveValues(animate, variants)
             : inheritedName !== undefined
               ? resolveValues(inheritedName, variants)
-              : initialValues
+              : initialLink
         const resolved = Override.resolve([
           { active: true, values: base },
           { active: hovered(), values: toValues(c.whileHover) },
@@ -872,7 +883,7 @@ export function runSpine(opts: RunSpineOptions): void {
             for (const [key, like] of driven) {
               // A translate key the strip below holds back returns once the drag lets go.
               if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) continue
-              const r = Option.getOrUndefined(BaseValue.of(key, { base, initial: initialValues, ...linksFor(like) }))
+              const r = Option.getOrUndefined(BaseValue.of(key, { base, initial: initialLink, started: startedLink, ...linksFor(like) }))
               if (r === undefined) driven.delete(key)
               else {
                 t[key] = r.value
@@ -1142,7 +1153,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // name for a Variant child that has none (#50). It's the `style` until the first
   // commit, so pre-mount render carries the initial style (no flash).
   const initialConfig = untrack(cfg)
-  const initialValues = resolveInitial({ initial: initialOf(initialConfig, node.inherited), variants: initialConfig.variants })
+  const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(usePresenceContext()))
 
   // The Starting style: the projected SSR initial, carried by `style` until the gate's
   // first commit (ADR-0021 decision 6, ADR-0034). An svg-inner tag's attribute keys are
@@ -1268,7 +1279,7 @@ const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: Spi
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())
-  const seed = startingStyle(internal?.tag, resolveInitial({ initial: initialOf(c, node.inherited), variants: c.variants }))
+  const seed = startingStyle(internal?.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
   const dragAxis = dragAxisOf(c, internal)
   const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
