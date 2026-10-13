@@ -300,7 +300,7 @@ and the card's `passes`.
 | 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms, or on S, also while it flies back) and the release. | safe | drag card | as 11 |
 | 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent, while held, flying back or at rest (then grab it mid-animation). Momentum on or off; a `layoutId` twin. | safe | drag card | a pass seeds the parent at most |
 | 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container, optionally on a card a transform moves; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code, C moves the CSS card. | safe | drag card + reorder lines | each pass seeds the displaced items only |
-| 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets; each gesture is judged on where it starts and where it ends. | safe | board card | – |
+| 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets, and three `initial={false}` cells start at their `animate` (#134); each run is judged on where it starts and where it ends. | safe | board card | – |
 | 0 | Free play | Pick the trigger timing, the mutation and the notify path yourself. | unknown | – | depends |
 
 Why each path holds what it does. The browser runs a frame's rAF callbacks, then
@@ -602,7 +602,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
 ## Base values (#47)
 
-Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022):
+Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), and a row of three for `initial={false}` (#134):
 
 | Cell | Config | Starts at | Ends at |
 | ---- | ------ | --------- | ------- |
@@ -612,6 +612,9 @@ Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022):
 | tap scale | `whileTap: { scale: 0.8 }` | 1 | 1 |
 | fade, no initial | `animate: { opacity: 0.5 }`, no `initial`; **Remount fade** mounts it again | its own 1 | 0.5 |
 | exit | a stylesheet's `opacity: 0.5`, `exit: { opacity: 0 }`; **Exit** / **Enter** | 0.5 | gone, after a fade |
+| no mount: initial false | `initial={false} animate={{ opacity: 0.5 }}`; **Remount no-mount** | 0.5 | 0.5 (it never moves) |
+| no mount: variant child | a parent with `initial={false} animate="half"`, a Variant child whose `half` is `opacity: 0.5` | 0.5 | 0.5 |
+| no mount: presence | `<AnimatePresence initial={false}>`, a child with `initial={{ opacity: 0 }} animate={{ opacity: 0.5 }}`; **Leave** / **Enter presence** brings it back as a later entry | 0.5 (a later entry: 0) | 0.5 |
 
 Each gesture is one board run (`lab/base-values-board.ts`). The card shows the last run's cell and two lines:
 
@@ -629,6 +632,8 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R27 | style opacity | press **Style 0.5 ↔ 0.8**, then hover and leave | 2 |
 | R28 | fade, no initial | press **Remount fade** | 3 |
 | R29 | exit | press **Exit**, then **Enter** | 3 |
+| R39 | the three no-mount cells | press **Remount no-mount**: each starts at 0.5 and never moves (#134) | 3 |
+| R40 | no mount: presence | press **Leave presence**, then **Enter presence**: the later entry fades in from 0 (`presence: later entry`) | 3 |
 
 Every run should read `start ✓` and `end ✓`.
 
