@@ -112,6 +112,11 @@ describe("ComplexString", () => {
     expect(decodeComplex("0px 4px @shade-1")).toEqual(Option.some({ parts: ["", "px ", "px @shade", ""], tokens: [0, 4, -1] }))
   })
 
+  it("matches a text span before a number, so one that starts with a digit stays text (#158)", () => {
+    const decodeWith = Schema.decodeUnknownOption(Interpolator.complexStringWith({ text: [/\d+x\d+/] }))
+    expect(decodeWith("ratio 16x9 at 4px")).toEqual(Option.some({ parts: ["ratio 16x9 at ", "px"], tokens: [4] }))
+  })
+
   it("round-trips a string whose numbers are written in their shortest form and that holds no colour", () => {
     const inputs = ["M0,0 L10,10", "0,0 20,30", "M-1.5,0 C1,2 3,4 5,6 Z", "blur(4px) brightness(1.5)"]
     expect(Arr.map(inputs, roundTrip(Interpolator.ComplexString))).toEqual(inputs)
