@@ -46,7 +46,7 @@ const deltaOf = (sk: Sink, id: string): Projection.Delta =>
   (sk.of(id).at(-1)?.value.delta as Projection.Delta | undefined) ?? { x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }, y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 } }
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const frames = <A>(n: number, read: () => A): Array<A> =>
   Array.from({ length: n }, () => {

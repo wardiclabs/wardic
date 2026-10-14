@@ -75,7 +75,7 @@ const centredColumn = (n: number): Array<HTMLElement> => {
 
 const mount = async (e: Engine, els: ReadonlyArray<HTMLElement>, extra: { raiseWhileDragged?: boolean } = {}) => {
   const handles: Array<ProjectionNodeHandle> = els.map((element, i) =>
-    e.system.register({ id: `n${i}`, element, springOptions: () => ({}), ...extra }),
+    e.system.register({ id: `n${i}`, element, transition: () => ({ type: "spring" }), ...extra }),
   )
   await endOfTask()
   fireFrame()

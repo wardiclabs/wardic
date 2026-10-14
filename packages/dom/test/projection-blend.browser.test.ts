@@ -30,7 +30,7 @@ type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const makeBox = (parent: HTMLElement, left: number, width: number, extra = ""): HTMLElement =>
   el(parent, `position:absolute;left:${left}px;top:40px;width:${width}px;height:${width / 2}px;${extra}`)

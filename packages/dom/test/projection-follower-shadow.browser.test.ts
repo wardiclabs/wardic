@@ -22,7 +22,7 @@ afterEach(() => {
 type Engine = ReturnType<typeof makeEngine>
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 describe("a Follower keeps its own shadow (#6)", () => {
   it("FS1: twins of different sizes and shadows: each writes its own shadow, corrected for its own scale", async () => {

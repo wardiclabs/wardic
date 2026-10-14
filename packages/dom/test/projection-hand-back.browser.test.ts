@@ -59,7 +59,7 @@ const factor = (sk: Sink, id: string): number => {
 const apart = (a: Rect, b: Rect): number => Math.max(Math.abs(a.x.min - b.x.min), Math.abs(a.x.max - b.x.max), Math.abs(a.y.min - b.y.min), Math.abs(a.y.max - b.y.max))
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const frames = <A>(n: number, read: (i: number) => A): Array<A> =>
   Array.from({ length: n }, (_, i) => {

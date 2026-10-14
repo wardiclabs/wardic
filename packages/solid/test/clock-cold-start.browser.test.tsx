@@ -41,7 +41,8 @@ const FlipStage = (props: { env: WardicEnv; moved: () => boolean; drive?: () => 
   <WardicProvider env={props.env}>
     <style>{CSS}</style>
     <div class="cs-stage">
-      <wardic.div data-box class="cs-box" classList={{ moved: props.moved() }} layout layoutDependency={props.moved()} />
+      {/* The default spring, pinned (ADR-0009 *Amendment (#171)*): its step sizes tell one first step from a doubled one. */}
+      <wardic.div data-box class="cs-box" classList={{ moved: props.moved() }} layout transition={{ type: "spring" }} layoutDependency={props.moved()} />
       {props.drive !== undefined && (
         // A soft spring toward a far target keeps the Clock ticking for seconds.
         <wardic.div class="cs-dot" animate={{ x: props.drive() }} transition={{ stiffness: 4, damping: 1 }} />

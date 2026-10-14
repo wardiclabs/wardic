@@ -36,6 +36,7 @@ import { afterEach, beforeEach, vi } from "vitest"
 import {
   ClockDomLive,
   InputDomLive,
+  type LayoutTransition,
   makeProjectionSystem,
   type ProjectionNodeHandle,
   ProbeDomLive,
@@ -215,9 +216,9 @@ const register = async (
   e: Engine,
   id: string,
   element: HTMLElement,
-  springOptions: () => Machine.SpringOptions = () => ({}),
+  transition: () => LayoutTransition | undefined = () => ({ type: "spring" }),
 ): Promise<ProjectionNodeHandle> => {
-  const handle = e.system.register({ id, element, springOptions })
+  const handle = e.system.register({ id, element, transition })
   await endOfTask()
   return handle
 }
@@ -577,10 +578,15 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     hold(e, () => void held++)
     let failing = false
     const element = box(0)
-    const a = await register(e, "a", element, () => {
-      if (failing) throw new Error("springOptions failed")
-      return {}
-    })
+    // A tween's easing, called each step (ADR-0009 *Amendment (#171)*): it throws once failing.
+    const a = await register(e, "a", element, () => ({
+      type: "tween",
+      duration: 1,
+      easing: (t) => {
+        if (failing) throw new Error("easing failed")
+        return t
+      },
+    }))
     fireFrame()
     element.style.left = "200px"
     a.notify()
@@ -591,8 +597,8 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     const heldBefore = held
     fireFrame()
     expect(e.errors().map((l) => l.message)).toEqual(["wardic.projection: coordinator failed"])
-    expect(e.errors()[0]!.cause).toContain("springOptions failed")
-    expect(e.reports(), "reported once, with the defect").toEqual(["springOptions failed"])
+    expect(e.errors()[0]!.cause).toContain("easing failed")
+    expect(e.reports(), "reported once, with the defect").toEqual(["easing failed"])
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure"])
     const writes = sk.of("a").length
     fireFrames(3)

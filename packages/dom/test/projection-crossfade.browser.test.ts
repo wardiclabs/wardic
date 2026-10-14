@@ -65,7 +65,7 @@ const frames = <A>(n: number, read: () => A): Array<A> =>
   })
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /** Motion's `circOut`: `reverseEasing(circIn)`. */
 const circOut = (p: number): number => Math.sin(Math.acos(1 - p))

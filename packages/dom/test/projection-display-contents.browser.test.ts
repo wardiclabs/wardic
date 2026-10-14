@@ -28,7 +28,7 @@ type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const layoutOf = (e: Element): Box.Box => {
   const r = e.getBoundingClientRect()

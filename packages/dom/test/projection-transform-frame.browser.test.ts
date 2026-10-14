@@ -130,7 +130,7 @@ const sheet = (parent: HTMLElement, css: string): void => {
 
 /** Register, let the first Measure pass run, and settle into a frame. */
 const mount = async (e: ReturnType<typeof makeEngine>, element: HTMLElement, id = "n", layoutId?: string): Promise<ProjectionNodeHandle> => {
-  const handle = e.system.register({ id, element, springOptions: () => ({}), ...(layoutId !== undefined ? { layoutId } : {}) })
+  const handle = e.system.register({ id, element, transition: () => ({ type: "spring" }), ...(layoutId !== undefined ? { layoutId } : {}) })
   await endOfTask()
   fireFrame()
   return handle
@@ -282,8 +282,8 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     const outer = div(root, "position:absolute;left:40px;top:40px;width:300px;height:200px")
     outer.className = "tf10"
     const inner = div(outer, "width:60px;height:60px")
-    const outerHandle = e.system.register({ id: "outer", element: outer, springOptions: () => ({}) })
-    e.system.register({ id: "inner", element: inner, springOptions: () => ({}) })
+    const outerHandle = e.system.register({ id: "outer", element: outer, transition: () => ({ type: "spring" }) })
+    e.system.register({ id: "inner", element: inner, transition: () => ({ type: "spring" }) })
     await endOfTask()
     fireFrame()
     const set = vi.spyOn(outer.style, "setProperty")
@@ -306,7 +306,7 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     leaver.dispose()
     const modal = div(root, "position:absolute;left:300px;top:40px;width:400px;height:300px;transform:scale(0.5);transform-origin:0 0")
     const enterEl = div(modal, "position:absolute;left:20px;top:20px;width:200px;height:160px")
-    e.system.register({ id: "enter", element: enterEl, springOptions: () => ({}), layoutId: "t" })
+    e.system.register({ id: "enter", element: enterEl, transition: () => ({ type: "spring" }), layoutId: "t" })
     await endOfTask()
     const first = sk.writes.find((w) => w.id === "enter")!
     // Its first frame in the modal's px: its 200 px box scaled about its centre (the
@@ -329,7 +329,7 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     leaver.dispose()
     const enterEl = div(root, "position:absolute;left:40px;top:400px;width:150px;height:120px")
     const box = enterEl.getBoundingClientRect()
-    e.system.register({ id: "enter", element: enterEl, springOptions: () => ({}), layoutId: "t" })
+    e.system.register({ id: "enter", element: enterEl, transition: () => ({ type: "spring" }), layoutId: "t" })
     await endOfTask()
     const first = sk.writes.find((w) => w.id === "enter")!
     return { left: box.left + 75 - 75 * first.sx + first.tx, width: 150 * first.sx }

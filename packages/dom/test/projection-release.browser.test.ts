@@ -57,7 +57,7 @@ const frames = <A>(n: number, read: () => A): Array<A> =>
 const steps = (xs: ReadonlyArray<number>): Array<number> => xs.slice(1).map((x, k) => x - xs[k]!)
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 describe("a layout node's release is a Release offset on its layout animation (ADR-0016, Amendment (velocity family))", () => {
   it("RL1: a release with no velocity paints a FLIP's curve and settles on the same frame (guard)", async () => {
@@ -163,7 +163,7 @@ describe("a layout node's release is a Release offset on its layout animation (A
     const pEl = makeBox(root, 60, 60, 160, 120)
     const mEl = makeBox(pEl, 10, 40, 30, 30)
     const p = register(e, "p", pEl)
-    const m = register(e, "m", mEl, { springOptions: () => ({ stiffness: 40, damping: 15 }) })
+    const m = register(e, "m", mEl, { transition: () => ({ type: "spring", stiffness: 40, damping: 15 }) })
     await endOfTask()
     fireFrame()
     // M starts a slow FLIP across P on x, then P is dragged on y while it runs.
