@@ -1267,6 +1267,8 @@ export const makeProjectionSystem = (
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
+    // Top-down too: a twin inside a Follower reads its container's fresh lock (#5).
+    followers.sort((a, b) => a.depth - b.depth)
     for (const node of followers) deriveFollower(node)
   }
 
@@ -1340,6 +1342,8 @@ export const makeProjectionSystem = (
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
+    // Top-down too: a twin inside a Follower reads its container's fresh lock (#5).
+    followers.sort((a, b) => a.depth - b.depth)
     for (const node of followers) deriveFollower(node)
   }
 
@@ -2639,10 +2643,33 @@ export const makeProjectionSystem = (
     nodes.add(follower)
     elementToNode.set(el, follower)
     stack.splice(stack.length - 1, 0, follower) // insert below the Lead
+    reintroduceWithin(el)
     computeTree()
     if (active.has(lead)) deriveAll()
     else finishLeaver(follower)
     return true
+  }
+
+  /**
+   * The twins inside a leaver presence re-introduced, disposed with it, come back too (#5): each
+   * a leaving Follower of its own Lead, so a twin inside a closing container stays locked onto its
+   * Lead, corrected for the container's scale, until the container goes. Motion keeps an exiting
+   * subtree mounted, so its twins go on projecting; Solid disposes them before presence asks.
+   * Only one whose Lead is in a handover, which removes it as it settles; a twin presence leaves
+   * itself, or already re-introduced, is left alone.
+   */
+  const reintroduceWithin = (container: HTMLElement): void => {
+    for (const [inner, recent] of recentLeavers) {
+      if (inner === container || recent.reintroduced || !container.contains(inner)) continue
+      const lead = leadOf(recent.layoutId)
+      const stack = stacks.get(recent.layoutId)
+      if (lead === undefined || stack === undefined || lead.element === inner || !active.has(lead)) continue
+      const twin = makeFollowerNode(inner, recent.layoutId, recent, () => undefined)
+      recent.reintroduced = true
+      nodes.add(twin)
+      elementToNode.set(inner, twin)
+      stack.splice(stack.length - 1, 0, twin)
+    }
   }
 
   /**
