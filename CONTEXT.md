@@ -96,8 +96,12 @@ _Avoid_: curve, interpolator.
 A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two complex values with different counts of colours, a path into a longer one, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
 _Avoid_: instant animation (Motion's), snap.
 
+**Variable value**:
+A value that is wholly a reference to a custom property, `var(--name)`, with or without a fallback. It stands for that property's value on the element: its Environment resolves it against the element, once, when a leg starts, and the leg blends what it resolved to. The leg's last frame writes the reference itself, so at rest the element follows the property again. A `var()` inside a larger value (a shadow, a `calc()`) isn't one: it stays part of that value's text.
+_Avoid_: CSS variable (the custom property itself), token (a complex value's token).
+
 **Key rule**:
-An Environment's rule for how one key's pair blends, picked by the key's name: it gives the key's blend for the whole leg, or declines, and the pair blends by value through the **Interpolators**. Core holds none: they are the Environment's, and the DOM's know CSS properties.
+An Environment's rule for how one key's pair blends, picked by the key or by its pair: it gives the key's blend for the whole leg, or declines, and the pair blends by value through the **Interpolators**. Most hold for the whole Environment; one can be bound to an element for a leg, when it needs to read that element (a **Variable value**'s). Core holds none: they are the Environment's, and the DOM's know CSS properties.
 _Avoid_: key interpolator (an Interpolator is picked by value), property hook.
 
 **Animatable none**:
