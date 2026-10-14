@@ -556,8 +556,6 @@ interface NodeState {
   isScrollRoot: boolean
   /** The scroll folded out of this node's box at its last pass (ADR-0012): see {@link Fold}. */
   fold: Fold
-  /** Whether this (plain) node's element is `position: fixed`, read once; `undefined` until then. */
-  ownFixed: boolean | undefined
   /** How many Measure pass rounds have measured this node (the handle's `layoutVersion`). */
   layoutVersion: number
   /** Whether the node is raised while dragged (its `raiseWhileDragged` option). */
@@ -1736,6 +1734,12 @@ export const makeProjectionSystem = (
       },
     })
 
+  /**
+   * Whether `el` is `position: fixed` now (ADR-0012, *Amendment (#7)*): read from its live
+   * declaration each pass, a property read, so an element switching it is seen. Read phase only.
+   */
+  const isFixedNow = (el: Element): boolean => computedOf(el).position === "fixed"
+
   /** The twins that carry paint deltas (ADR-0012, *Amendment (#136)*): a pass that moves one sets them again. */
   const painted = new Set<NodeState>()
 
@@ -1759,9 +1763,9 @@ export const makeProjectionSystem = (
       scroll = node.scroll
       stop = node.isScrollRoot
     } else {
-      const style = scrollStyleOf(el)
-      scroll = style.scrollable ? measureScroll(el) : undefined
-      stop = style.fixed
+      scroll = undefined
+      if (scrollStyleOf(el).scrollable) scroll = measureScroll(el)
+      stop = isFixedNow(el)
     }
     const above = stop ? NO_FOLD : foldFrom(el.parentElement, memo)
     const fold: Fold = scroll === undefined
@@ -1813,6 +1817,60 @@ export const makeProjectionSystem = (
     return equalShifted(seen, box, shift)
   }
 
+  /** Whether two folds fold the same scroll: the same containers, and the page's scroll or not. */
+  const sameFrame = (a: Fold, b: Fold): boolean => {
+    if (a.root !== b.root) return false
+    if (a.containers.length !== b.containers.length) return false
+    return Arr.every(Arr.zip(a.containers, b.containers), ([p, q]) => p.element === q.element)
+  }
+
+  /** A container's scroll this pass: as `current` sampled it, else read now, else as last sampled. Read phase only. */
+  const scrollNowOf = (container: FoldedContainer, current: Fold): Point.Point => {
+    for (const c of current.containers) if (c.element === container.element) return c.scroll
+    if (container.element.isConnected) return measureScroll(container.element)
+    return container.scroll
+  }
+
+  /** The scroll `old`'s containers, and the page if it folded, add at this pass's samples. Read phase only. */
+  const shiftUnder = (old: Fold, current: Fold, documentScroll: Point.Point): Point.Point => {
+    let x = 0
+    let y = 0
+    for (const c of old.containers) {
+      const scroll = scrollNowOf(c, current)
+      x += scroll.x
+      y += scroll.y
+    }
+    if (old.root) {
+      x += documentScroll.x
+      y += documentScroll.y
+    }
+    return { x, y }
+  }
+
+  /**
+   * Carry `node`'s stored boxes into the frame its fold now gives it (ADR-0012, *Amendment (#7)*,
+   * Motion's `wasRoot`): when the scroll folded into its box changed, not by scrolling but by which
+   * scroll folds (a `position: fixed` ancestor switched, a scrolled container gained or lost), its
+   * boxes are moved by what the new frame adds over the old one at this pass's scroll. A switch
+   * then reads as no move, and only a real one animates. Read phase only.
+   */
+  const carryAcrossFrames = (node: NodeState, old: Fold, documentScroll: Point.Point): void => {
+    if (Predicate.isUndefined(node.retained)) return
+    if (sameFrame(old, node.fold)) return
+    const was = shiftUnder(old, node.fold, documentScroll)
+    const now = scrollOffset(node, documentScroll)
+    const by = { x: now.x - was.x, y: now.y - was.y }
+    if (by.x === 0 && by.y === 0) return
+    const carry = (box: Box.Box): Box.Box => offsetBox(box, by)
+    node.retained = carry(node.retained)
+    node.layoutBox = UndefinedOr.map(node.layoutBox, carry)
+    node.origin = UndefinedOr.map(node.origin, carry)
+    node.lastTarget = UndefinedOr.map(node.lastTarget, carry)
+    node.seenBox = UndefinedOr.map(node.seenBox, carry)
+    node.grabBox = UndefinedOr.map(node.grabBox, carry)
+    debug("frame carried", { id: node.id, x: by.x, y: by.y })
+  }
+
   /** `node`'s box this pass: its stored one when nothing moved it, else the box just read, folded. */
   const boxThisPass = (node: NodeState, moved: boolean, read: Box.Box, documentScroll: Point.Point): Box.Box => {
     if (Bool.not(moved)) return UndefinedOr.getOrThrow(node.retained)
@@ -1821,9 +1879,14 @@ export const makeProjectionSystem = (
 
   /** `node`'s fold this pass: nothing when it is itself a scroll root, else its ancestors'. */
   const foldOf = (node: NodeState, memo: Map<Element, Fold>): Fold => {
-    // A plain node's own `position: fixed`, read once (the cache's answer, kept on the node).
-    const ownRoot = node.isScroll ? node.isScrollRoot : (node.ownFixed ??= scrollStyleOf(node.element).fixed)
-    return ownRoot ? NO_FOLD : foldFrom(node.element.parentElement, memo)
+    if (isOwnRoot(node)) return NO_FOLD
+    return foldFrom(node.element.parentElement, memo)
+  }
+
+  /** Whether `node` is itself a scroll root: a fixed `layoutScroll` node, or a plain one `position: fixed`, read live (ADR-0012, *Amendment (#7)*). */
+  const isOwnRoot = (node: NodeState): boolean => {
+    if (node.isScroll) return node.isScrollRoot
+    return isFixedNow(node.element)
   }
 
   /**
@@ -1868,8 +1931,10 @@ export const makeProjectionSystem = (
    * the last pass's parent links and samples may be stale — so call it inside a read
    * window.
    */
-  const isRootAt = (el: HTMLElement): boolean =>
-    elementToNode.get(el)?.isScroll === true ? isScrollRoot(el) : scrollStyleOf(el).fixed
+  const isRootAt = (el: HTMLElement): boolean => {
+    if (elementToNode.get(el)?.isScroll === true) return isScrollRoot(el)
+    return isFixedNow(el)
+  }
   const rootScrollApplies = (node: NodeState): boolean => {
     if (isRootAt(node.element)) return false
     const doc = node.element.ownerDocument
@@ -2131,8 +2196,12 @@ export const makeProjectionSystem = (
       }
       // Each node's fold (ADR-0012, *Amendment (Reorder)*), now every `layoutScroll`
       // sample is in: every container that can scroll, read once this pass.
+      const before = Arr.map(ordered, (node) => node.fold)
       const folds = new Map<Element, Fold>()
       for (const node of ordered) node.fold = foldOf(node, folds)
+      // A scroll root that switched, or a scrolled container gained or lost (ADR-0012, *Amendment
+      // (#7)*): each node's stored boxes are carried into its new frame, so the switch moves nothing.
+      for (const [node, old] of Arr.zip(ordered, before)) carryAcrossFrames(node, old, documentScroll)
 
       // --- READ: what moved each node, besides the projection (ADR-0012, *Amendment (#136)*).
       // A box carries no transform, its node's own or an ancestor's, whoever set it, so a
@@ -3039,7 +3108,6 @@ export const makeProjectionSystem = (
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
     fold: ROOT_FOLD,
-    ownFixed: undefined,
     layoutVersion: 0,
     raiseWhileDragged: false,
     raised: false,
@@ -3188,8 +3256,7 @@ export const makeProjectionSystem = (
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,
       fold: ROOT_FOLD,
-      ownFixed: undefined,
-      layoutVersion: 0,
+        layoutVersion: 0,
       raiseWhileDragged: opts.raiseWhileDragged === true,
       raised: false,
       crossfadeFrom: undefined,
