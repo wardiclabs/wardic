@@ -105,6 +105,32 @@ describe("crossfadeChecksOf", () => {
     expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("follows")
   })
 
+  it("judges the blend: the twin's look eased into the Lead's, the Follower drawn with it (#166)", () => {
+    const lead = ps.map(motionIn)
+    const follower = ps.map((p) => 1 - motionOut(p))
+    const lookFrom = { radius: 14, rotate: 12, opacity: 0.6 }
+    const eased = ps.map((p) => ({ radius: 14 * (1 - p), rotate: 12 * (1 - p), opacity: 1 }))
+    const blended = run(lead, { follower, lookFrom, looks: eased.map((l) => ({ lead: l, follower: l })) })
+    expect(boardChecksOf(blended).find((c) => c.name === "blends")).toMatchObject({ ok: true })
+    // Square and straight from its first frame, as before #166.
+    const popped = run(lead, { follower, lookFrom, looks: ps.map(() => ({ lead: { radius: 0, rotate: 0, opacity: 1 }, follower: lookFrom })) })
+    expect(failed(popped)).toEqual(["blends"])
+    expect(boardChecksOf(popped).find((c) => c.name === "blends")?.text).toContain("jumps its twin's radius, tilt; Follower off its look")
+    // A run that watched no looks has no blends line.
+    expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("blends")
+  })
+
+  it("judges a translucent twin on its crossfade factor, its opacity over its own (#166)", () => {
+    // The shaped A at its own 0.6 follows B: read raw, the overlap is see-through and A never hides.
+    const lead = ps.map(motionIn)
+    const follower = ps.map((p) => 0.6 * (1 - motionOut(p)))
+    expect(failed(run(lead, { follower }))).toContain("covers")
+    expect(failed(run(lead, { follower, ownOpacity: { lead: 1, follower: 0.6 } }))).toEqual([])
+    // Back to A, its own 0.6: at rest at its own opacity, not 1.
+    const back = run(ps.map(() => 0.6), { follower: ps.map(() => null), back: true, ownOpacity: { lead: 0.6, follower: 1 } })
+    expect(failed(back)).toEqual([])
+  })
+
   it("judges a toggle back, with no twin left to fade, on starts and end only", () => {
     const back = run(ps.map(() => 1), { follower: ps.map(() => null), back: true, startsFrom: { x: 0, y: 0 }, leadPath: [{ x: 1, y: 0 }, { x: 3, y: 0 }] })
     expect(boardChecksOf(back).map((c) => c.name)).toEqual(["starts", "end"])

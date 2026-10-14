@@ -19,13 +19,20 @@
  *   by the furthest edge (#8), so a twin's own scale counts: a start from its box without it jumps.
  * - **follows** (#8): while the Follower shows, it's drawn on its Lead, within 0.5px every frame,
  *   whatever either twin's own scale.
+ * - **blends** (#166), for a run that watched its twins' looks: the Lead's radius and rotation (and
+ *   on a toggle back, its opacity) go on from the outgoing twin's as drawn, the first frame no
+ *   further from them than the next step, and while the Follower shows it's drawn with the Lead's,
+ *   within 0.75px and 0.75°.
  *
  * - **aspect** (#169), for the nested cell's containers: the `layout` badge in each keeps its own
  *   shape, within 3% of its own width-to-height ratio on every frame it's on the page. The
  *   Follower's badge counts too: a Follower's layout nodes stay corrected for its lock.
  *
  * A toggle back with no twin left to fade (`back`: the overlap and in place cells closed) is judged
- * on starts and end only.
+ * on starts and end only, and blends when it watched its twins' looks.
+ *
+ * A twin translucent on purpose (#166's shaped overlap, `ownOpacity`) is judged on its crossfade
+ * factor: its opacity read over its own.
  *
  * A handover that only moves, inside a crossfading container (#5), is judged on **own fade**
  * instead: its Lead at 1 on every frame, and its **end**, its Follower hidden once it's over.
@@ -56,6 +63,14 @@ export interface CrossfadeSeries {
   readonly leadPath?: ReadonlyArray<Drawn>
   /** While the Follower shows, its furthest edge from its Lead's each frame (#8). */
   readonly follows?: ReadonlyArray<number>
+  /** The outgoing twin's look as drawn at the toggle, and the twins' each frame (#166). */
+  readonly lookFrom?: Look
+  readonly looks?: ReadonlyArray<{ readonly lead: Look; readonly follower: Look | null }>
+  /**
+   * Each twin's own opacity, when one is translucent on purpose (#166's shaped twins): the lines on
+   * opacity judge its crossfade factor, the opacity read over its own.
+   */
+  readonly ownOpacity?: { readonly lead: number; readonly follower: number }
   /** A toggle back with no twin left to fade (#170): judged on starts and end only. */
   readonly back?: boolean
   /**
@@ -74,8 +89,15 @@ export interface Drawn {
   readonly h?: number
 }
 
+/** How an element is drawn (#166): its top-left radius in px as painted, its rotation in degrees, its opacity. */
+export interface Look {
+  readonly radius: number
+  readonly rotate: number
+  readonly opacity: number
+}
+
 /** A crossfade card's lines, in display order. */
-export const CROSSFADE_CHECK_NAMES = ["starts", "follows", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
+export const CROSSFADE_CHECK_NAMES = ["starts", "follows", "blends", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
 
 /** One crossfade card line. */
 export interface CrossfadeCheck {
@@ -114,6 +136,39 @@ const apart = (a: Drawn, b: Drawn): number => {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.x + a.w - b.x - b.w), Math.abs(a.y + a.h - b.y - b.h))
 }
 
+/** How far a channel's first frame jumps from where its twin had it, past its next step. */
+const jumpPast = (from: number, first: number, second: number): number => Math.abs(first - from) - Math.abs(second - first)
+
+/** The blends line (#166), when the run recorded its twins' looks; `back` judges the opacity too. */
+const blendsOf = (series: CrossfadeSeries | undefined, back: boolean): Array<CrossfadeCheck> => {
+  const from = series?.lookFrom
+  const looks = series?.looks
+  if (from === undefined || looks === undefined || looks.length < 2) return []
+  const [first, second] = [looks[0]!.lead, looks[1]!.lead]
+  const jumps: Array<[string, number, number]> = [
+    ["radius", jumpPast(from.radius, first.radius, second.radius), 0.75],
+    ["tilt", jumpPast(from.rotate, first.rotate, second.rotate), 0.75],
+  ]
+  if (back) jumps.push(["opacity", jumpPast(from.opacity, first.opacity, second.opacity), 0.03])
+  const jumped = jumps.filter(([, past, tol]) => past > tol).map(([name]) => name)
+  let off = 0
+  let worst = 0
+  let shown = 0
+  for (const { lead, follower } of looks) {
+    if (follower === null || follower.opacity <= 0.01) continue
+    shown++
+    const apart = Math.max(Math.abs(lead.radius - follower.radius), Math.abs(lead.rotate - follower.rotate))
+    worst = Math.max(worst, apart)
+    if (apart > 0.75) off++
+  }
+  const ok = jumped.length === 0 && off === 0
+  const followerText = shown === 0 ? "" : `; Follower within ${worst.toFixed(2)}`
+  const text = ok
+    ? `from its twin's look${back ? ", opacity too" : ""}${followerText}`
+    : [jumped.length > 0 ? `jumps its twin's ${jumped.join(", ")}` : "", off > 0 ? `Follower off its look on ${off} frames` : ""].filter(Boolean).join("; ")
+  return [line("blends", ok, text, "the twin's look eased into the Lead's, the Follower drawn with it")]
+}
+
 /** The follows line (#8), when the run recorded where its Follower was drawn. */
 const followsOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> => {
   const frames = series?.follows
@@ -143,9 +198,11 @@ const aspectOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> =>
 
 /** A crossfade run's lines (see the module doc). */
 export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> => {
-  const lead = input.during
   const series = input.crossfade
-  const follower = series?.follower ?? []
+  // A translucent twin is judged on its crossfade factor: its opacity over its own (#166).
+  const own = series?.ownOpacity ?? { lead: 1, follower: 1 }
+  const lead = input.during.map((l) => l / own.lead)
+  const follower = (series?.follower ?? []).map((f) => (f === null ? null : f / own.follower))
   const leadEnd = lead[lead.length - 1]
   const followerEnd = lastOf(follower)
   const followerHidden = followerEnd === null || followerEnd === undefined || followerEnd <= 0.01
@@ -155,6 +212,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   if (series?.back === true) {
     return [
       ...starts,
+      ...blendsOf(series, true),
       superseded ? notJudged("end") : line("end", leadEnd !== undefined && leadEnd >= 0.99, `Lead ${v3(leadEnd)}`, "Lead 1"),
     ]
   }
@@ -181,6 +239,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const checks = [
     ...starts,
     ...followsOf(series),
+    ...blendsOf(series, false),
     ...aspectOf(series),
     line("covers", lowest >= 0.98, `at least ${v3(lowest)}`, "0.98: never see-through"),
     line("order", ordered, out === -1 ? "the Follower never faded" : `Lead at ${v3(leadAtOut)} as the Follower fades`, "the Lead in first"),
