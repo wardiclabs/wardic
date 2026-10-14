@@ -22,8 +22,8 @@ const lines = (input: BoardRunInput) => Object.fromEntries(boardChecksOf(input).
 describe("base-value board runs (#47, scenario 15)", () => {
   it("BV1: a gesture that starts at its base and returns to it passes both lines", () => {
     const l = lines(run({}))
-    // `rests` is only for a run back to `none` (#61).
-    expect(Object.keys(l)).toEqual(BOARD_CHECK_NAMES.filter((name) => name !== "rests"))
+    // `rests` is only for a run back to `none` (#61), `paints` only for a run that watches for the fallback (#158).
+    expect(Object.keys(l)).toEqual(BOARD_CHECK_NAMES.filter((name) => name !== "rests" && name !== "paints"))
     expect(l.start).toEqual({ name: "start", ok: true, text: "from 1.010 (base 1) ✓" })
     expect(l.end).toEqual({ name: "end", ok: true, text: "back at 1.000 ✓" })
   })
@@ -110,5 +110,16 @@ describe("base-value board runs (#47, scenario 15)", () => {
     expect(l.start!.ok).toBe(true)
     expect(l.end).toEqual({ name: "end", ok: true, text: "superseded by the next run, not judged" })
     expect(l.rests).toBeUndefined()
+  })
+
+  it("BV14: a run that watches for the fallback passes paints when no frame painted it, and fails when one did (#158)", () => {
+    const token = { cell: "token scale", kind: "style change" as const, base: 75, target: 75, before: 107, after: [], watchesFallback: true }
+    const clean = lines(run({ ...token, during: [75, 75, 75, 75] }))
+    expect(clean.start!.ok).toBe(true)
+    expect(clean.paints).toEqual({ name: "paints", ok: true, text: "no fallback frame ✓" })
+    const flash = lines(run({ ...token, during: [-1, -1, -1, 75] }))
+    expect(flash.paints).toEqual({ name: "paints", ok: false, text: "the fallback on 3 frames ✗ expected none" })
+    expect(flash.start!.ok).toBe(false)
+    expect(lines(run({})).paints).toBeUndefined()
   })
 })

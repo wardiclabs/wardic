@@ -14,6 +14,8 @@
  *   stylesheet shadow) also has to pass through values in between on its way back.
  * - A run its cell's next run cut short (a second press, a hover before the last one landed) is
  *   **superseded**: only its start is judged (#61).
+ * - **paints** (#158), for the token scale cell: no frame painted the property's fallback (an
+ *   undefined `var()` mid-leg made the background transparent).
  * - **rests** (#61), for a run back to `none`: the key's computed value once still is `none`
  *   itself, not a zero like `blur(0px)`. Other runs have no such line.
  *
@@ -53,10 +55,15 @@ export interface BoardRunInput {
    * so only its start is judged.
    */
   readonly superseded?: boolean
+  /**
+   * A run whose read is -1 on a frame that painted the property's fallback (#158): the token scale
+   * cell's background, transparent when an undefined `var()` made it invalid.
+   */
+  readonly watchesFallback?: boolean
 }
 
 /** The card's lines, in display order. */
-export const BOARD_CHECK_NAMES = ["start", "end", "rests"] as const
+export const BOARD_CHECK_NAMES = ["start", "end", "rests", "paints"] as const
 
 /** One card line. */
 export interface BoardCheck {
@@ -131,5 +138,12 @@ const restsOf = (input: BoardRunInput): Array<BoardCheck> =>
     ? []
     : [line("rests", input.rest.value === input.rest.expected, input.rest.value, input.rest.expected)]
 
-/** A run's lines (see the module doc): start and end, and rests for a run back to `none`. */
-export const boardChecksOf = (input: BoardRunInput): Array<BoardCheck> => [startOf(input), endOf(input), ...restsOf(input)]
+/** The paints line (#158): only for a run that watches for the fallback. */
+const paintsOf = (input: BoardRunInput): Array<BoardCheck> => {
+  if (input.watchesFallback !== true) return []
+  const fallback = [...input.during, ...input.after].filter((v) => v < 0).length
+  return [line("paints", fallback === 0, fallback === 0 ? "no fallback frame" : `the fallback on ${fallback} frames`, "none")]
+}
+
+/** A run's lines (see the module doc): start and end, rests for a run back to `none`, paints for a run that watches for the fallback. */
+export const boardChecksOf = (input: BoardRunInput): Array<BoardCheck> => [startOf(input), endOf(input), ...restsOf(input), ...paintsOf(input)]

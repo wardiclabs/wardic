@@ -81,7 +81,7 @@ A value kind and how two values of it blend: it decodes an endpoint of its kind 
 _Avoid_: easing (distinct — see ambiguities), tween, mixer (Motion's).
 
 **Complex value**:
-A string carrying one or more numbers among other text: an SVG `d` or `points`, a `filter` such as `blur(4px)`, a `box-shadow`. A string that is only a number with a unit is a unit string, not a complex value. A colour written inside one (`#hex`, `rgb()`, `hsl()`) is part of it as a colour, not as plain numbers.
+A string carrying one or more numbers among other text: an SVG `d` or `points`, a `filter` such as `blur(4px)`, a `box-shadow`. A string that is only a number with a unit is a unit string, not a complex value. A colour written inside one (`#hex`, `rgb()`, `hsl()`) is part of it as a colour, not as plain numbers. Its Environment can name spans that are only text (the DOM's: a CSS `var()`), so the digits in them are never numbers.
 
 Two complex values blend when they hold the same count of colours and the start holds at least as many numbers as the target. The first colour blends with the first colour and the first number with the first number, and so on, written in the target's structure, so `rgba(0, 0, 0, 0.2) 0px 1px 2px 0px` blends with `0px 8px 24px rgba(0, 0, 0, 0.3)`. Any other two are a **Discrete pair**.
 

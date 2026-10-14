@@ -46,7 +46,15 @@
  *   `whileHover` a larger one. The computed shadow reads colour first with a spread; it blends
  *   in and back out (the shadow rule; Motion switches back).
  *
- * Each read is the painted blur radius (the fill's alpha), 0 for `none`. Before #61 each switched
+ * And one cell for a design token's `var()` (#158):
+ *
+ * - **token scale**: a box defining `--gray-500` and `--gray-600`; Toggle token flips its
+ *   `background-color` between `var(--gray-500)` and `var(--gray-600)`. Its read is the painted
+ *   red channel, -1 on a frame that painted the fallback. It switches at once (a style change run),
+ *   and **paints** checks no frame was transparent: before #158 it blended the variable's name,
+ *   through an undefined `var(--gray-550)`.
+ *
+ * Each Animatable none read is the painted blur radius (the fill's alpha), 0 for `none`. Before #61 each switched
  * at the first frame. A toggle back to `none` is also judged on what it rests at: `none` itself,
  * not a zero like `blur(0px)`.
  *
@@ -73,7 +81,7 @@ document.head.append(sheet)
 const GRID: JSX.CSSProperties = {
   display: "grid",
   "grid-template-columns": "repeat(3, 1fr)",
-  "grid-template-rows": "repeat(5, 1fr)",
+  "grid-template-rows": "repeat(6, 1fr)",
   width: "100%",
   height: "100%",
 }
@@ -87,8 +95,21 @@ const LEVEL_SVG = { fill: "var(--lab-accent, rgb(0, 102, 204))", opacity: "var(-
 /** Where the custom property cells go. */
 const HALF_LEVEL = { "--brandLevel": 0.5 } as WardicValues
 const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
-/** Five rows of cells, three across, each wide enough for its label on one line. */
-const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "400px" }
+/** Six rows of cells, three across, each wide enough for its label on one line. */
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "480px" }
+
+/** The token scale cell (#158): a box defining two greys of a design-token scale. */
+const TOKEN_BOX = { ...BOX, "--gray-500": "#6b7280", "--gray-600": "#4b5563" } as JSX.CSSProperties
+/** The two greys' red channels, painted. */
+const GRAY_500 = 107
+const GRAY_600 = 75
+
+/** A computed background's red channel, or -1 when it isn't opaque: the fallback an invalid `var()` paints. */
+const backgroundRedOf = (el: Element): number => {
+  const channels = /rgba?\(([^)]+)\)/.exec(getComputedStyle(el).backgroundColor)?.[1]?.split(",").map(Number)
+  if (channels === undefined || (channels[3] ?? 1) < 1) return -1
+  return channels[0]!
+}
 
 /** The Animatable none cells' values (#61): each key's own value is `none`. */
 const NONE_SHADOW = "0px 0px 10px rgb(255, 0, 0)"
@@ -155,6 +176,8 @@ interface RunExtra {
   /** A run back to `none`: the key's computed value once still, and `none`. */
   readonly rest?: () => { readonly value: string; readonly expected: string }
   readonly blendsBack?: boolean
+  /** A run whose read is -1 on a frame that painted the fallback (#158). */
+  readonly watchesFallback?: boolean
 }
 
 /** The run the board's recorder is building for one cell. */
@@ -227,6 +250,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
         endedAt: performance.now(),
         ...(rec.extra.rest === undefined || superseded ? {} : { rest: rec.extra.rest() }),
         ...(rec.extra.blendsBack === true ? { blendsBack: true } : {}),
+        ...(rec.extra.watchesFallback === true ? { watchesFallback: true } : {}),
         ...(superseded ? { superseded: true } : {}),
       })
     }
@@ -282,6 +306,8 @@ const View: ScenarioDef["View"] = (props) => {
   const [customKey, setCustomKey] = createSignal(0)
   // The Animatable none cells (#61): flipped together between `none` and their value.
   const [noneOn, setNoneOn] = createSignal(false)
+  // The token scale cell (#158): gray-500 or gray-600.
+  const [token600, setToken600] = createSignal(false)
 
   // A press ends at a release anywhere, as Wardic's press does (ADR-0019): a `pointerup`
   // outside the cell, or a `pointercancel`, ends its run too.
@@ -350,6 +376,18 @@ const View: ScenarioDef["View"] = (props) => {
       recorder.start(cell.label, "toggle", () => cell.read(el), now, on ? cell.full : 0, now, rest).end()
     }
     setNoneOn(on)
+  }
+
+  // The token scale cell's run (#158): a switch between the two greys, judged as a style change
+  // (the new grey within three frames), and on whether any frame painted the fallback.
+  const toggleToken = (): void => {
+    const el = document.querySelector<Element>(`[data-scenario="${ID}"] [data-cell="token-scale"]`)
+    const next = !token600()
+    if (el !== null) {
+      const grey = next ? GRAY_600 : GRAY_500
+      recorder.start("token scale", "style change", () => backgroundRedOf(el), grey, grey, backgroundRedOf(el), { watchesFallback: true }).end()
+    }
+    setToken600(next)
   }
 
   const remountNoMount = (): void => {
@@ -541,6 +579,15 @@ const View: ScenarioDef["View"] = (props) => {
             />
             <span style={LABEL}>hover shadow</span>
           </div>
+          <div style={CELL}>
+            <wardic.div
+              data-cell="token-scale"
+              style={TOKEN_BOX}
+              initial={{ "background-color": "var(--gray-500)" }}
+              animate={{ "background-color": token600() ? "var(--gray-600)" : "var(--gray-500)" }}
+            />
+            <span style={LABEL}>token scale</span>
+          </div>
         </div>
       </div>
       <div style={BUTTONS}>
@@ -565,6 +612,9 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="toggle-none" onClick={toggleNone}>
           Toggle none
         </button>
+        <button type="button" class="btn secondary small" data-action="toggle-token" onClick={toggleToken}>
+          Toggle token
+        </button>
       </div>
     </div>
   )
@@ -581,7 +631,7 @@ export const s15: ScenarioDef = {
   kind: "board",
   title: "base values (a key no initial sets)",
   mechanism:
-    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property); the fifth row grows a shadow, a blur and a fill from none and back (Toggle none) and hovers a stylesheet shadow. Each run is judged on its start and its end, and a run back to none on what it rests at.",
+    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property); the fifth row grows a shadow, a blur and a fill from none and back (Toggle none) and hovers a stylesheet shadow; the sixth flips a background between two design-token var()s (Toggle token). Each run is judged on its start and its end, a run back to none on what it rests at, and the token flip on painting no fallback frame.",
   prediction: "safe",
   rationale:
     "A key with no value starts from its style value, else its Own value (1 for a scale, the computed style " +
@@ -590,6 +640,7 @@ export const s15: ScenarioDef = {
     "a Variant child and an AnimatePresence initial={false}'s first child start at their animate and don't move; a later " +
     "entry animates in (#134, Motion's). A custom property keeps its name and is a style property on SVG too, so " +
     "var(--brandLevel) follows it from the element's own 1 (#151, Motion's). A shadow, filter or fill grows from " +
-    "its Animatable none and rests at none on the way back, and a stylesheet shadow blends both ways (#61).",
+    "its Animatable none and rests at none on the way back, and a stylesheet shadow blends both ways (#61). A var() is text, so " +
+    "var(--gray-500) → var(--gray-600) switches at once rather than through an undefined var(--gray-550) (#158).",
   View,
 }

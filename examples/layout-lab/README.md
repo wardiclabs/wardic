@@ -657,12 +657,14 @@ Scenario 15 is a board of six cells, each a key no `initial` sets (ADR-0022), a 
 | blur from none | its own `filter` is `none`; **Toggle none**: `blur(4px)` and back | 0 (`none`) | 4, then `none` |
 | fill from none | an SVG circle with `fill: none` in `style`; **Toggle none**: `rgb(255, 0, 0)` and back | alpha 0 (`none`) | 1, then `none` |
 | hover shadow | a stylesheet's `box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2)`, `whileHover` `0px 8px 24px rgba(0, 0, 0, 0.3)` | blur 2 | 2, blended back |
+| token scale | its own `--gray-500` and `--gray-600`; **Toggle token** flips `background-color` between `var(--gray-500)` and `var(--gray-600)` (#158) | the grey before | the other grey, at once |
 
 Each gesture is one board run (`lab/base-values-board.ts`). The card shows the last run's cell and these lines:
 
 - **start**: the first frame that moved lies within a quarter of the way from the base to the target. A style change shows within three frames.
 - **end**: a gesture is back at its base (within 0.005), a mount settles at its target, an exit fades through before it goes, a style change stays. A toggle settles at its target. The hover shadow also has to pass through values in between on its way back (Motion switches it back at once).
 - A toggle's base is the value it starts from, so one pressed mid-flight is judged from where the last had got to. A run its cell's next run cuts short (a second press, a hover before the last one landed) reads **superseded**, judged on its start only.
+- **paints** (#158), only for the token scale cell: no frame painted the fallback. Its read is the background's red channel, -1 on a transparent frame. Before #158 the flip blended the variable's name through an undefined `var(--gray-550)`, and the background painted transparent mid-leg.
 - **rests** (#61), only for a toggle back to `none`: the computed value once still is `none` itself, not a zero like `blur(0px)` (Motion's), which would leave a stacking context.
 
 The Animatable none cells read the painted blur radius, or the fill's alpha, with 0 for `none`. At `1243d8c` each switched at the first frame, so **start** failed both ways, and the hover shadow switched in and back.
@@ -684,8 +686,9 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R48 | shadow, blur and fill from none | press **Toggle none**, wait for them to settle, press it again: each grows from 0, and back reads **rests** `none ✓` (#61) | 3 |
 | R49 | the same | press **Toggle none** twice quickly: the first run reads `superseded`, and the second starts where the first had got to | 2 |
 | R50 | hover shadow | hover until it settles, then leave: **end** `back at 2.000 through n frames ✓` (#61) | 3 |
+| R51 | token scale | press **Toggle token** a few times: **start** shows the new grey within three frames, and **paints** `no fallback frame ✓` (#158) | 4 |
 
-Every run should read `start ✓` and `end ✓`, and a run back to `none` `rests ✓`.
+Every run should read `start ✓` and `end ✓`, a run back to `none` `rests ✓`, and the token scale `paints ✓`.
 
 ## Scheduler note
 
