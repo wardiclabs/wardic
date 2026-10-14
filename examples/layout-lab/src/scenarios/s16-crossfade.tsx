@@ -229,13 +229,13 @@ const View: ScenarioDef["View"] = (props) => {
             <span style={LABEL}>in place</span>
           </div>
           <div style={CELL} data-cell="nested">
-            <wardic.div ref={keep("card")} layoutId="lab-s16-card" style={box(12, 36, 72, 56, ACCENT, 1)}>
-              <wardic.div ref={keep("cardAvatar")} layoutId="lab-s16-avatar" style={avatar(6, 6, 20)} />
+            <wardic.div data-twin="card" ref={keep("card")} layoutId="lab-s16-card" style={box(12, 36, 72, 56, ACCENT, 1)}>
+              <wardic.div data-twin="card-avatar" ref={keep("cardAvatar")} layoutId="lab-s16-avatar" style={avatar(6, 6, 20)} />
             </wardic.div>
             <AnimatePresence>
               <Show when={nested()}>
-                <wardic.div ref={keep("modal")} layoutId="lab-s16-card" style={box(100, 12, 100, 112, ALT, 2)} exit={{ opacity: 0 }}>
-                  <wardic.div ref={keep("modalAvatar")} layoutId="lab-s16-avatar" style={avatar(10, 10, 34)} />
+                <wardic.div data-twin="modal" ref={keep("modal")} layoutId="lab-s16-card" style={box(100, 12, 100, 112, ALT, 2)} exit={{ opacity: 0 }}>
+                  <wardic.div data-twin="modal-avatar" ref={keep("modalAvatar")} layoutId="lab-s16-avatar" style={avatar(10, 10, 34)} />
                 </wardic.div>
               </Show>
             </AnimatePresence>
