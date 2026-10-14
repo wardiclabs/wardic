@@ -208,10 +208,11 @@ const COLOR_TOKEN = /#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+){2}-?[\d.]
 /**
  * The registry the workloads blend through (#160, ADR-0036). A core before #160 has colours of its
  * own, `Interpolator.color` (culori in sRGB), in its default registry. Since #160 core has none,
- * and the harness brings the same colours, as a tier and as a kind of token in the complex tier,
- * as the DOM Environment registers its own (`@wardic/dom`'s `colors.ts`, which the bundle can't
+ * and the harness brings culori's sRGB blend, as a tier and as a kind of token in the complex tier,
+ * as the DOM Environment registers its colours (`@wardic/dom`'s `colors.ts`, which the bundle can't
  * import: it would bring another core). Both sides blend the same colours the same way, so a
- * ratio still compares the two cores.
+ * ratio still compares the two cores. The DOM's own sRGB blend (#156) writes the same strings at
+ * a lower cost, so the workloads' colours cost more here than in the DOM.
  */
 const registryOf = (core: Core): Layer.Layer<CoreModule.InterpolatorRegistry.InterpolatorRegistry> => {
   if ("color" in core.Interpolator) return core.InterpolatorRegistry.layer

@@ -166,3 +166,63 @@ Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` de
 
 - **ADR-0015:** the complex tier is a codec, `ComplexString`, that decodes a string carrying two or more numbers into its parts and numbers. Two complex values of different structures are still a Discrete pair, and `resolve` now logs a warning for them (decision 4).
 - **ADR-0024:** a Discrete pair is decided in one place, `resolve`: when no entry decodes both endpoints, or an entry decodes both and its `blend` returns `None`. It's no longer a fallback in the registry, the `unit` interpolator and the `complex` interpolator each. Two lengths in different units are a Discrete pair (decision 4).
+
+## Amendment (#156, 2026-10-14): the DOM's sRGB blend is Wardic's own, writing culori's strings
+
+Decision 5 accepted culori per frame: a new colour object from `interpolate`, then `formatRgb`, for every colour that blends. #61 put culori in more places per frame (a colour inside a shadow or a gradient, ADR-0015 *Amendment (#61)*), and asked for #156. Since ADR-0036 the colour Interpolator is `@wardic/dom`'s, and one entry, `cssColor`, is both its colour tier and its complex tier's colour token kind, so one change covers both.
+
+Decision 5's reason against a blend of Wardic's own was "a lerp per mode of Wardic's own, matching culori's rounding, clamping and alpha fixups". For `"rgb"` that's about twenty lines (culori 4.0.2), and a differential test against culori holds them to its output.
+
+Grilled 2026-10-14:
+1. **Wardic's own blend for `"rgb"` only** (Q1). culori still parses each colour (`ColorString`) and converts it to sRGB once, when a stream is built (its `converter("rgb")`), as its `interpolate` does. The frame clamps `t`, lerps four channels and formats them, allocating nothing but the string. Other modes (`color("oklch")`, …) keep culori per frame. Rejected: only the same-colour shortcut, which leaves a background fade at full cost; and closing #156, keeping decision 5.
+2. **culori's strings exactly, quirks included** (Q2), as culori's rgb path does:
+   - `t` clamped to [0, 1], so past 1 a colour holds at its target (ADR-0024, decision 5);
+   - the start as converted at `t` ≤ 0, so a `none` channel is written 0 there;
+   - a channel one end lacks takes the other end's;
+   - an alpha one end lacks is 1 when the other has one (`fixupAlpha`);
+   - the lerp is `a + t * (b - a)`. `Scalar.lerp`'s `a + (b - a) * t` gives the same bits, since multiplication commutes;
+   - each channel is written `round(clamp(v || 0) * 255)`;
+   - `rgb()` is written when alpha is absent or exactly 1, and otherwise `rgba()` with alpha clamped and rounded to two places, so 0.999 writes `rgba(…, 1)`.
+
+   Rejected: tidying the last two quirks, which would make the differential test need carve-outs.
+3. **Two ends of one colour write one string** (Q3) on every frame past 0, since `a + t * (a - a)` is `a`; at `t` ≤ 0 the start as written. A shadow that grows at one colour pays almost nothing for it.
+4. **Measured on the DOM's colours, reported and not gated** (Q4). `bench:core` can't see them: its harness blends colours through its own culori copy (ADR-0036), which stays, so its comment now says it writes the same strings at a higher cost. Gating the DOM's colours in `bench:core` would be its own issue.
+5. **Inside `color(mode)`** (Q5), so `cssColor` and any app's own `color("rgb")` blend the same way. The entry's name and codec don't change.
+6. **This Amendment** (Q6), with pointers from ADR-0015 *Amendment (#61)* and ADR-0036. No term changes, and no lab cells: no string changes.
+
+**Measured** (the bench box, Node 22 and Bun 1.3.13):
+- **Per call** (`.tmp/156/percall-dom.ts`, culori against `cssColor`'s blend, three runs each):
+
+  | Pair | Node | Bun |
+  |---|---|---|
+  | the bench's shadow colour, `rgba(0,0,0,0)` → `rgba(0,0,0,0.25)` | 112–114 → 45 ns | 61–67 → 29–31 ns |
+  | `#000000` → `#ffffff` | 94–98 → 35 ns | 58 → 24–25 ns |
+  | one colour, `rgba(0,0,0,0.2)` both ends | 112–113 → 4 ns | 61–62 → 3–4 ns |
+
+- **Per frame** (`.tmp/156/steps`, #94's steps-only probe over `InterpolatorRegistryDomLive`, main's core and dom against this branch's, 1,000 machines stepped by hand over 2,000 frames, the bench's heap hook, 11 reps):
+
+  | Workload | ms per frame | bytes per frame |
+  |---|---|---|
+  | `animateValues` (the bench's background, width, opacity and pointer-events) | 0.300 → 0.162 (−46%) | 640k → 360k |
+  | `animateComplex` (the bench's path and shadow) | 0.911 → 0.685 (−25%) | 2.60M → 2.24M |
+
+**Pinned by** `@wardic/dom`'s `colors.node.test.ts`:
+- **CL19:** 4,000 seeded random pairs. 1,000 of them hold one colour at both ends, written the same or once as culori's `formatRgb` writes it. The notations are hex, hex8, `rgb()`/`rgba()`, `hsl()`, named, `display-p3`, out-of-gamut `oklch`, and `none` channels, up to all four. Each pair is checked at 14 values of `t` from −0.3 to 1.4, and its strings match culori's. Another mode still matches culori.
+- **CL20:** the quirks by example, a hand-built NaN channel included.
+- **CL21:** one colour held, alone and in a shadow.
+
+**Mutation-checked** in a separate worktree: eleven single-point mutations, each failing the tests meant for it:
+- alpha checked for 1 after rounding;
+- `t` ≤ 0 blended instead of the start as written;
+- `t` not clamped;
+- a channel one end lacks read as 0;
+- an alpha one end lacks read as 0;
+- NaN not read as 0, first missed: no colour string converts to a NaN channel, so CL20 builds one by hand;
+- every pair taking the one-colour shortcut;
+- the shortcut writing the start;
+- alpha written to three places;
+- channels not clamped;
+- a lerp of another form, `a * (1 - t) + b * t`.
+
+Which path a pair takes, Wardic's or culori's, writes the same strings by design, so no test sees it; the probes do.
+
