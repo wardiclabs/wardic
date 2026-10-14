@@ -1269,6 +1269,31 @@ describe("a free item's release (#139, scenario 13's free box)", () => {
     expect(coasts.text).toContain("✗ expected ≤ 0.5 px outside")
   })
 
+  it("FR13: a recorded translate is the item's x and y, where its painted box less its slot reads 0.73 px off (a 1.35 pixel ratio)", () => {
+    // Its slot read 0.73 px left of and above where it lays out: offsets round, borders snap to device pixels.
+    // Its first frame read after the first move, as a real press's often is: the grab's x and y are the press's own.
+    const skewed = (input: DragRunInput, translate: boolean): DragRunInput => ({
+      ...input,
+      grid: 50,
+      ...(translate ? { grabTranslate: { x: 0, y: 0 } } : {}),
+      frames: input.frames.slice(1).map((f) => ({
+        ...f,
+        slot: { ...f.slot, x: f.slot.x - 0.73, y: f.slot.y - 0.73 },
+        ...(translate ? { translate: { x: f.d.x - F.x, y: f.d.y - F.y } } : {}),
+      })),
+    })
+    const run = dragRunOf(skewed(boundedInput(SPRINGS_BACK), true), [])
+    expect(run.underPointerMaxPx, "held where the constraints hold it, from the grab's own x and y").toBeCloseTo(0, 6)
+    const read = flingChecksOf(run, EXPECT)
+    expect(line(read, "stays in bounds")).toMatchObject({ ok: true })
+    expect(line(read, "stays in bounds").text).toContain("rests at x 100.00 px, y 0.00 px · 0.00 px outside")
+    expect(line(read, "rests")).toEqual({ name: "rests", ok: true, text: "settled · 0.00 px off the 50 px grid ✓" })
+    // Without it, the skew reads as 0.73 px outside and off the grid.
+    const skew = flingChecksOf(dragRunOf(skewed(boundedInput(SPRINGS_BACK), false), []), EXPECT)
+    expect(line(skew, "stays in bounds").ok).toBe(false)
+    expect(line(skew, "rests").ok).toBe(false)
+  })
+
   it("FR12: with no constraints the line isn't judged; with a grid, rests judges that it rests on it", () => {
     expect(line(lines(flingInput({ carried: decaying(150) })).fling, "stays in bounds")).toEqual({ name: "stays in bounds", ok: true, text: "no constraints" })
     const { bounds: _bounds, ...free } = boundedInput([125, 140, 148, 150, 150, 150, 150])

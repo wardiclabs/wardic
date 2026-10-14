@@ -183,6 +183,13 @@ export interface DragFrame {
   /** A `<Reorder>` scenario's reads of the frame (scenario 14, `lab/reorder-run.ts`); left out otherwise. */
   readonly reorder?: ReorderFrame
   /**
+   * The item's own translation, its x and y as its computed transform has them: recorded for a
+   * free item with constraints or a grid (#140), whose checks read its x and y to a fraction of a
+   * pixel. Its painted box less its slot reads up to about 0.7 px off that where the device pixel
+   * ratio isn't whole. Left out otherwise.
+   */
+  readonly translate?: Point
+  /**
    * Whether the scenario's scroller moved since the previous read (scenario 14). Such a
    * frame isn't judged under pointer or frames behind: Auto-scroll's step lands in the
    * frame before the drag's compensation for it, so the item trails by the step there,
@@ -286,6 +293,8 @@ export interface DragRunInput {
   readonly bounds?: DragBounds
   /** A free item's grid, in px (scenario 13's grid box, #140): its `modifyTarget` rests a release on multiples of it. Left out with none. */
   readonly grid?: number
+  /** With {@link bounds} or {@link grid}, the item's own translation at the grab, as each frame's `translate` (#140). */
+  readonly grabTranslate?: Point
   /**
    * The item's own layout animation was running at the press (the scenario says so,
    * scenario 13 after Z or P at rest): its slot then. A grab leaves that flight running
@@ -426,8 +435,12 @@ export interface FlingRead {
   readonly movedPx: number
 }
 
-/** The item's x and y at the grab: its grab box less its slot (the first frame's). */
+/** The item's x and y in `f`: its own translation, recorded (#140), else its painted box less its slot. */
+const xyOf = (f: DragFrame): Point => f.translate ?? { x: f.d.x - f.slot.x, y: f.d.y - f.slot.y }
+
+/** The item's x and y at the grab: its translation then, or its grab box less the first frame's slot (an older log's). */
 const xyAtGrabOf = (input: DragRunInput): Point => {
+  if (input.grabTranslate !== undefined) return input.grabTranslate
   const slot = input.frames[0]?.slot ?? input.grabBox
   return { x: input.grabBox.x - slot.x, y: input.grabBox.y - slot.y }
 }
@@ -480,7 +493,6 @@ const boundsOf = (input: DragRunInput): BoundsRead | null => {
   const last = input.moves[input.moves.length - 1]
   const end = input.frames[input.frames.length - 1]
   if (b === undefined || !isFlingMode(input.mode) || releaseAt === null || input.releaseLost === true || last === undefined || end === undefined) return null
-  const xyOf = (f: DragFrame): Point => ({ x: f.d.x - f.slot.x, y: f.d.y - f.slot.y })
   const rest = xyOf(end)
   const after = input.frames.filter((f) => f.frameAt >= releaseAt)
   const at = xyAtGrabOf(input)
@@ -501,7 +513,8 @@ const offGridOf = (v: number, grid: number): number => Math.abs(v - Math.round(v
 const offGridPxOf = (input: DragRunInput): number | null => {
   const end = input.frames[input.frames.length - 1]
   if (input.grid === undefined || !isFlingMode(input.mode) || end === undefined) return null
-  return Math.max(offGridOf(end.d.x - end.slot.x, input.grid), offGridOf(end.d.y - end.slot.y, input.grid))
+  const at = xyOf(end)
+  return Math.max(offGridOf(at.x, input.grid), offGridOf(at.y, input.grid))
 }
 
 /** A free item's release (see {@link FlingRead}); `null` for any other run, or one with no release or a lost one. */
