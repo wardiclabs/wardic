@@ -67,6 +67,8 @@ export interface UseLayoutMemberOptions {
   readonly raiseWhileDragged?: boolean
   /** The element's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). Default `true`. */
   readonly layoutMode?: () => Projection.LayoutMode
+  /** The element's own scale, read at each handover and each frame it follows (ADR-0010 *Amendment (#8)*). */
+  readonly ownScale?: () => Point.Point
 }
 
 /**
@@ -90,7 +92,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
-  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, raiseWhileDragged, transition } = opts
+  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, ownScale, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 
   const handle = projection.register({
@@ -106,6 +108,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
     ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
+    ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))

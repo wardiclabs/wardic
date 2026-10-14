@@ -249,6 +249,44 @@ const releaseFrom = (offset: Point.Point, velocity: Point.Point): Release => {
 /** The centre of a box. */
 const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
 
+/** Below this an own scale has nothing to divide out (ADR-0010 *Amendment (#8)*): a pop-in from nothing. */
+const OWN_SCALE_EPSILON = 1e-6
+
+/** `1 / v`, or 1 where `v` is 0: an axis drawn at no size has nothing to divide out. Per frame. */
+const invertScale = (v: number): number => {
+  if (Math.abs(v) < OWN_SCALE_EPSILON) return 1
+  return 1 / v
+}
+
+/** `box` scaled about its centre by `sx` and `sy` (ADR-0010 *Amendment (#8)*). Plain calls: per frame. */
+const scaleAboutCentre = (box: Box.Box, sx: number, sy: number): Box.Box => {
+  if (sx === 1 && sy === 1) return box
+  const cx = (box.x.min + box.x.max) / 2
+  const cy = (box.y.min + box.y.max) / 2
+  const hw = ((box.x.max - box.x.min) / 2) * sx
+  const hh = ((box.y.max - box.y.min) / 2) * sy
+  return { x: { min: cx - hw, max: cx + hw }, y: { min: cy - hh, max: cy + hh } }
+}
+
+/**
+ * Where `node` is drawn when its projection puts it at `box` (ADR-0010 *Amendment (#8)*): its own
+ * scale on top, about the box's centre, as the renderer draws it.
+ */
+const drawnOf = (node: NodeState, box: Box.Box): Box.Box => {
+  const own = node.ownScale()
+  return scaleAboutCentre(box, own.x, own.y)
+}
+
+/**
+ * Where `node`'s projection has to put it to be drawn at `box` (ADR-0010 *Amendment (#8)*): the
+ * inverse of {@link drawnOf}, its own scale divided out about the box's centre. An axis at no own
+ * scale keeps `box` as it is.
+ */
+const undrawnFor = (node: NodeState, box: Box.Box): Box.Box => {
+  const own = node.ownScale()
+  return scaleAboutCentre(box, invertScale(own.x), invertScale(own.y))
+}
+
 /** Whether `d` moves nothing: no translate, unit scale on both axes. */
 const isIdentityDelta = (d: Projection.Delta): boolean =>
   d === IDENTITY_DELTA || (d.x.translate === 0 && d.y.translate === 0 && d.x.scale === 1 && d.y.scale === 1)
@@ -319,6 +357,12 @@ export interface RegisterNodeOptions {
    * start: which parts of a layout change it animates. Default `true`, position and size.
    */
   readonly layoutMode?: () => Projection.LayoutMode
+  /**
+   * The element's own scale per axis (ADR-0010 *Amendment (#8)*): its `scale` times its `scaleX` or
+   * `scaleY`, which the renderer draws on top of its projection (`ownScaleOf`). Read at each
+   * handover, and each frame a Follower is derived. Default `{ x: 1, y: 1 }`.
+   */
+  readonly ownScale?: () => Point.Point
   /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
@@ -455,6 +499,8 @@ interface NodeState {
   readonly respectReducedMotion: () => boolean
   /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
   readonly layoutMode: () => Projection.LayoutMode
+  /** The element's own scale per axis, drawn on top of its projection (ADR-0010 *Amendment (#8)*). */
+  readonly ownScale: () => Point.Point
   /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
   readonly layoutId: string | undefined
   /**
@@ -642,6 +688,10 @@ interface HeldSeed {
 
 /** A node with no Layout mode animates position and size (ADR-0009, *Amendment (#42)*). */
 const ALWAYS_BOTH = (): Projection.LayoutMode => true
+
+/** No own scale: a node the binding gives none, or a leaving one, which the renderer draws without its own values. */
+const UNIT_SCALE: Point.Point = { x: 1, y: 1 }
+const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
 
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point.Point = { x: 0, y: 0 }
@@ -1297,6 +1347,11 @@ export const makeProjectionSystem = (
     // (ADR-0009, *Amendment (#42)*; Motion's applyTransformsToTarget). Plain calls: per frame.
     const leadBox = lead.layoutBox
     if (leadBox !== undefined && Projection.animatesPositionOnly(node.layoutMode(), box, leadBox)) target = Projection.withSizeOf(target, box)
+    // Drawn where its Lead is drawn (ADR-0010 *Amendment (#8)*, Motion's `lead.latestValues`): at
+    // the Lead's own scale, its own divided out, so the two overlap exactly.
+    const leadOwn = lead.ownScale()
+    const own = node.ownScale()
+    target = scaleAboutCentre(target, leadOwn.x * invertScale(own.x), leadOwn.y * invertScale(own.y))
     const delta = Projection.calcBoxDelta(layoutCorrected, target)
     node.lastTarget = target
     node.lastDelta = delta
@@ -1643,7 +1698,8 @@ export const makeProjectionSystem = (
       const viewport = Box.fromBounds(readLayoutBox(el))
       return rootScrollApplies(node) ? offsetBox(viewport, measureDocumentScroll()) : viewport
     }
-    const stored = paintedNowOf(node)
+    // As drawn, its own scale included (ADR-0010 *Amendment (#8)*).
+    const stored = UndefinedOr.map(paintedNowOf(node), (box) => drawnOf(node, box))
     if (Predicate.isUndefined(stored)) return undefined
     // Where it painted: the stored box leaves its ancestors' transforms out (#136).
     const stable = paintedOf(node, stored)
@@ -2013,13 +2069,15 @@ export const makeProjectionSystem = (
         //     switch seed — the live twin's box is authoritative.
         // Where the prior Lead painted as the pass began (#170: mid-flight, released or dragged,
         // as seen), in this node's frame, through where it paints (#136).
+        // As drawn, its own scale on top, and this node's own scale divided out, so it is drawn
+        // there on its first frame (ADR-0010 *Amendment (#8)*).
         const priorBox = UndefinedOr.map(priorLeadOf(node), (lead) =>
           UndefinedOr.map(
             UndefinedOr.match(paintedAtPass(lead), {
               onDefined: identity,
               onUndefined: () => UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }),
             }),
-            (box) => between(lead, node, box),
+            (box) => undrawnFor(node, between(lead, node, drawnOf(lead, box))),
           ))
         if (priorBox !== undefined) {
           // Shaped by its Layout mode; a handover crossfades even when that leaves nothing to
@@ -2042,7 +2100,8 @@ export const makeProjectionSystem = (
         //     gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
         if (seed !== undefined) {
           const containers = scrollOffset(node, ZERO_POINT)
-          const origin = unpaintedOf(node, containers === ZERO_POINT ? seed : offsetBox(seed, containers))
+          // Drawn there on its first frame, its own scale divided out (ADR-0010 *Amendment (#8)*).
+          const origin = undrawnFor(node, unpaintedOf(node, containers === ZERO_POINT ? seed : offsetBox(seed, containers)))
           if (!boxesEqual(origin, newBox)) {
             node.origin = shapedOrigin(node, origin, newBox)
             node.layoutBox = newBox
@@ -2635,10 +2694,12 @@ export const makeProjectionSystem = (
     const ownBox = node.retained
     // From where the twin paints, not where it would rest (#170): a handover that interrupts
     // another goes on from where the twin was seen.
+    // As drawn, its own scale included, and this twin's own scale divided out, so it is drawn
+    // there on its first frame (ADR-0010 *Amendment (#8)*).
     const fromStored = paintedNowOf(from)
     if (Predicate.isUndefined(fromStored)) return
     if (Predicate.isUndefined(ownBox)) return
-    const fromBox = between(from, node, fromStored)
+    const fromBox = undrawnFor(node, between(from, node, drawnOf(from, fromStored)))
     // A handover, even with nothing to move (#5, Motion's): a leaver `handleLeave` re-introduces
     // rides it, fading out as this twin fades in. With none, each frame writes this twin as the Lead
     // it is: shown, and taking its own pointer input (#165).
@@ -2694,6 +2755,7 @@ export const makeProjectionSystem = (
     springOptions: () => ({}),
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
+    ownScale: NO_OWN_SCALE,
     layoutId,
     seed: undefined,
     paintDelta: recent.paintDelta,
@@ -2835,6 +2897,7 @@ export const makeProjectionSystem = (
       springOptions: opts.springOptions,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
+      ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
       layoutId: opts.layoutId,
       seed: undefined,
       paintDelta: undefined,

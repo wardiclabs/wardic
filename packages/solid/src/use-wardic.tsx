@@ -44,6 +44,7 @@ import {
   type FlushGate,
   type FlushSink,
   mergeStyle,
+  ownScaleOf,
   ownValues,
   project as domProject,
   type ProjectionNodeHandle,
@@ -751,6 +752,8 @@ export function runSpine(opts: RunSpineOptions): void {
           transition: () => cfg().transition ?? parent?.transition(),
           // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
           layoutMode: () => layoutModeOf(cfg().layout),
+          // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
+          ownScale: () => ownScaleOf(snapshot.values),
           ...(layoutId !== undefined ? { layoutId } : {}),
           ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
           ...(c0.layoutRoot === true ? { layoutRoot: true } : {}),
