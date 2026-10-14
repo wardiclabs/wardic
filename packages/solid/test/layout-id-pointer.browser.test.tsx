@@ -180,7 +180,10 @@ it("PE4: a Follower promoted in place, its Lead gone from its own box, shows and
   })
   setBLeft(true) // B moves onto A's own box; A, hidden, follows
   const b = container.querySelector("[data-b]") as HTMLElement
-  await until(() => Math.abs(leftOf(b) - leftOf(root) - 20) < 1)
+  // Until B rests there: its layout moves at once, and its FLIP from where it was paints a frame
+  // later, so its left edge alone reads 20 before it has flown at all. Since #170 A is promoted
+  // from where B paints, so B mid-flight would send A flying too.
+  await until(() => Math.abs(leftOf(b) - leftOf(root) - 20) < 0.5 && (b.style.transform === "none" || b.style.transform === ""))
   await raf()
   await raf()
   expect(op(a), "still a hidden Follower").toBeLessThan(0.01)
