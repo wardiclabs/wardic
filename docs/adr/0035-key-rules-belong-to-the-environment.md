@@ -91,3 +91,52 @@ A pair can blend differently because of the key it belongs to. `display` turning
   - matching ignoring the span count;
   - a lone span taken as a complex value;
   - spans matched after numbers. This one is caught only by a span that starts with a digit, which is why the test has one.
+
+## Amendment (#55, 2026-10-14): Variable values, a Key rule bound to an element
+
+A value that is wholly a `var(--name)`, with or without a fallback, is a **Variable value** (CONTEXT.md). It stands for that custom property's value on the element, so it can only be resolved against the element. The DOM resolves it with a Key rule bound to the element for each leg. Core gains what that needs, and no CSS.
+
+**Before**, on main `9e695e2`: each pair with a Variable value was a Discrete pair and switched at the first frame. #158 had kept a `var()` in a complex value as text.
+
+**Motion** (framer-motion 13.4.0, `.tmp/vel/motion/vars.tsx`, Chromium):
+- `#ff0000` → `var(--brand)`, `var(--a)` → `var(--b)` and `var(--missing, var(--brand))` resolve against the element, blend, and land on the `var()` as written. A later change to the variable is followed at rest.
+- A `var()` inside a shadow stays text, and its lengths blend.
+
+Grilled 2026-10-13 (Q1 split #158 out, fixed first in PR #159):
+1. **Only a value that is wholly a `var()`** (Q2, Motion's rule). Its fallback is followed, and a fallback that is itself a Variable value, up to 4 deep (Motion's `maxDepth`). A `var()` inside a larger value stays text (#158).
+   - Implementing found Motion's single-pattern check stops at one bracket level inside a fallback. Past that it returns the fallback's text as a value. `@wardic/dom` reads a Variable value by its structure instead, `var(--name, fallback)` with the fallback's brackets balanced, at any depth. So `var(--a, 1px) var(--b)` isn't one.
+2. **Resolved once, when the leg starts or is retargeted, landing on the `var()` as written** (Q3, Motion's). The leg blends the resolved values, and its last frame writes the target as written, so at rest the element follows the custom property again. A change mid-leg is followed from the last frame. A numeric result is a number (Motion's `isNumericalString`).
+   - Rejected: resolving every frame, a computed-style read per key per frame inside the gate's write-only flush (ADR-0031, ADR-0034). Also rejected: resting at the resolved value, which stops following a theme switch.
+3. **An element-bound Key rule** (Q4): `@wardic/dom`'s `variableValues(element)`. The glossary's **Key rule** widens to "picked by the key or by its pair; one can be bound to an element for a leg". Rejected: core taking a "rests at" option, and a DOM helper rewriting a leg's ends, each of which leaves the landing to every binding's three leg builders.
+4. **An unresolvable Variable value** (Q5, Motion's): the rule declines, and the pair, as written, switches as a Discrete pair.
+5. **`InterpolatorRegistry.withKeyRules(rules)`** (Q6). It runs an Effect with `rules` asked first, for that run only, through `Effect.updateService`, keeping the layered registry per rule list and registry. The Environment's registry never changes, so one element's rule can't reach another's legs. Rejected: a `keyRules` option threaded through every Machine constructor that blends a bag of values, and registering per element on the shared registry.
+6. **`next`** (found implementing). A rule's `blend` also gets `next`: the pair as the rules after it, then the Interpolators, blend it.
+   - `variableValues` resolves, then hands the resolved pair to `next`. So `"none"` → `var(--shadow)` grows from its Animatable none, as Motion's does (its `var()` resolution runs before its `none` handling).
+   - The registry builds its rules as one chain, once, with a statement `if` per rule.
+   - Rules that don't need `next` ignore it.
+7. **The lab** (Q7): scenario 15's sixth row is three cells, colour to var, var to var and token scale, with **Toggle variables** and **Switch theme**.
+   - The `var()`s are custom properties the row's container defines, in one of two themes.
+   - A flip is a toggle run, with **rests** (a flip to a `var()` writes the `var()`) and **paints** (no fallback frame). A theme switch at rest is a style change run.
+
+**Where it lives:**
+- **Core:** `KeyRule`'s `next` (`NextKeyBlend`), `KeyBlendOf` and `withKeyRules`.
+- **`@wardic/dom`'s `variables.ts`:** `isVariableValue`, `resolveVariable` and `variableValues`.
+- **`@wardic/solid`:** each element's rule is built once, beside its Own value read. It wraps the tween leg, the spring's string leg and the presence exit.
+
+**Measured on this branch:**
+- **The lab** (`.tmp/vel-lab/drive.ts`, `ONLY=s15v`, Chromium), four flips and two theme switches: every line passes. Every flip blends from where it is and rests as its `var()` with no fallback frame, and every cell resting on a `var()` shows the new theme's colour at once.
+- **The cost,** when a leg starts (`.tmp/55/legbuild.ts`, Node 22, an `animateValues` leg of the bench's four string keys, none a `var()`): about 4.4–4.9 µs plain against 4.9–5.9 µs wrapped with an element's rule, warm. Per frame, a key no rule takes is unchanged. A Variable value's key blends through one more closure, the landing.
+
+**Pinned by:**
+- core KR5–KR8 (`key-rules.test.ts`): a run's rules first, the registry's after, `next` through the rules then by value, and the registry unchanged outside the run.
+- `@wardic/dom` RV1–RV7 (`variables.browser.test.ts`, Chromium): what a Variable value is, at any depth; resolving on the element and through fallbacks up to 4 deep; numbers; the rule's blend and landing; composing with the Animatable none; declining.
+- solid VB1–VB9 (`css-variables.browser.test.tsx`, Chromium, with real paint): VB5 is a guard; on main the other eight fail. SK18 now blends through greys.
+- **Mutation-checked**, in a separate worktree: 10 single-point mutations, each caught:
+  - `next` skipping the later rules;
+  - a run's rules after the registry's;
+  - no landing;
+  - no fallback;
+  - no numbers;
+  - no depth limit;
+  - no bracket balance;
+  - each of the three leg builders unwrapped.
