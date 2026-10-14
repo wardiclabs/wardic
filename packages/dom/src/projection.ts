@@ -465,6 +465,19 @@ const finiteOrZero = (n: number): number => Bool.match(Number.isFinite(n), { onT
 const originPxOf = (value: string | undefined): number =>
   UndefinedOr.match(value, { onUndefined: () => 0, onDefined: (s) => finiteOrZero(Number.parseFloat(s)) })
 
+/** A computed `transform` as a matrix: `none` is the identity. Read phase only. */
+const matrixOf = (transform: string): DOMMatrix =>
+  Bool.match(transform === "none", { onTrue: () => new DOMMatrix(), onFalse: () => new DOMMatrix(transform) })
+
+/** The element a link stands for: its own, or its node's. Read phase only. */
+const linkElementOf = (link: PaintLink): Element =>
+  Match.value(link).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      node: (l) => l.node.element,
+      element: (l) => l.element,
+    }),
+  )
+
 /**
  * `box`, in `node`'s frame, as `node`'s ancestors paint it (ADR-0012, *Amendment (#136)*):
  * unchanged when none of them moves it. A twin whose chain the pass could map follows them as they
@@ -670,6 +683,13 @@ export interface ProjectionSystem {
    */
   readonly handleLeave: (el: HTMLElement, onDone: () => void) => boolean
   /**
+   * Hand back the twins inside a leaving element that isn't a twin (ADR-0010 *Amendment (#181)*), for
+   * a presence child {@link handleLeave} declined: each crossfades onto its other twin, following the
+   * leaver's own exit. `onDone` once every handover has ended; the returned call drops them at once.
+   * `undefined` when it held none, so presence runs its exit alone.
+   */
+  readonly handBackWithin: (el: HTMLElement, onDone: () => void) => (() => void) | undefined
+  /**
    * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
    * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
    * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
@@ -732,6 +752,8 @@ interface NodeState {
    * pass could map them all, so it stands in for {@link paintDelta}; `undefined` otherwise.
    */
   paintMapNow: (() => PaintMap) | undefined
+  /** The chain {@link paintMapNow} composes, kept for the leaver record (ADR-0010 *Amendment (#181)*). */
+  paintChain: ReadonlyArray<PaintLink> | undefined
   /**
    * This node's box as its last pass read it, with its ancestors' transforms still on
    * (ADR-0012, *Amendment (#136)*). A pass that reads the same knows nothing moved the
@@ -871,6 +893,12 @@ interface RecentLeaver {
   /** The leaver's paint deltas at its last pass, for the leaving Follower it may become (#136). */
   readonly paintDelta: Projection.Delta | undefined
   readonly unpaintDelta: Projection.Delta | undefined
+  /**
+   * Its chain at its last pass (ADR-0012 *Amendment (#137)*), and its frame's offset from the page's
+   * as it went: a twin a leaving wrapper hands back keeps following it (ADR-0010 *Amendment (#181)*).
+   */
+  readonly chain: ReadonlyArray<PaintLink> | undefined
+  readonly shift: Point.Point
   reintroduced: boolean
 }
 
@@ -2340,6 +2368,8 @@ export const makeProjectionSystem = (
       box: stored,
       paintDelta: node.paintDelta,
       unpaintDelta: node.unpaintDelta,
+      chain: node.paintChain,
+      shift: scrollOffset(node, measureDocumentScroll()),
       reintroduced: false,
     }))
     if (recent !== undefined) recentLeavers.set(node.element, recent)
@@ -2528,6 +2558,7 @@ export const makeProjectionSystem = (
         moved.push(true)
         node.seenBox = offsetBox(viewportBoxes[i], shift)
         node.paintMapNow = undefined
+        node.paintChain = undefined
         // Its paint deltas are this pass's to set again, below.
         if (painted.delete(node)) {
           node.paintDelta = undefined
@@ -2596,7 +2627,9 @@ export const makeProjectionSystem = (
     Arr.forEach(ordered, (node, i) => {
       if (Predicate.isUndefined(node.layoutId)) return
       if (Bool.not(moved[i])) return
-      node.paintMapNow = UndefinedOr.map(paintChainOf(node, ancestorReads, documentScroll), (links) => () => composeLinks(links))
+      const chain = paintChainOf(node, ancestorReads, documentScroll)
+      node.paintChain = chain
+      node.paintMapNow = UndefinedOr.map(chain, (links) => () => composeLinks(links))
     })
 
     // Each node's box and delta as the pass begins (#146): a restart starts from where its node,
@@ -3392,7 +3425,9 @@ export const makeProjectionSystem = (
 
   /**
    * Build a transient leaving node for a re-introduced (already-disposed) one: a leaving Follower
-   * with its `layoutId`, or with none a layout node its leaving container carries (#169).
+   * with its `layoutId`, or with none a layout node its leaving container carries (#169). With a
+   * `chain`, its conversions follow those ancestors live (ADR-0010 *Amendment (#181)*); without, as of
+   * its last pass.
    */
   const makeLeavingNode = (
     el: HTMLElement,
@@ -3400,6 +3435,7 @@ export const makeProjectionSystem = (
     recent: { readonly box: Box.Box; readonly paintDelta: Projection.Delta | undefined; readonly unpaintDelta: Projection.Delta | undefined },
     onDone: (() => void) | undefined,
     layoutAnchor: Point.Point | false | undefined,
+    chain: ReadonlyArray<PaintLink> | undefined,
   ): NodeState => ({
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
@@ -3418,7 +3454,8 @@ export const makeProjectionSystem = (
     seed: undefined,
     paintDelta: recent.paintDelta,
     unpaintDelta: recent.unpaintDelta,
-    paintMapNow: undefined,
+    paintMapNow: UndefinedOr.map(chain, (links) => () => composeLinks(links)),
+    paintChain: chain,
     seenBox: undefined,
     retained: recent.box,
     origin: undefined,
@@ -3493,7 +3530,7 @@ export const makeProjectionSystem = (
     if (lead === undefined || lead.element === el || recent === undefined) return false
     const stack = stacks.get(layoutId)
     if (stack === undefined) return false
-    const follower = makeLeavingNode(el, layoutId, recent, onDone, undefined)
+    const follower = makeLeavingNode(el, layoutId, recent, onDone, undefined, undefined)
     recent.reintroduced = true
     nodes.add(follower)
     elementToNode.set(el, follower)
@@ -3515,26 +3552,117 @@ export const makeProjectionSystem = (
    * as nodes it carries, corrected for its lock, and go with it (#169).
    */
   const reintroduceWithin = (container: HTMLElement): void => {
-    for (const [inner, recent] of recentLeavers) {
-      if (inner === container || recent.reintroduced || !container.contains(inner)) continue
+    reintroduceTwinsWithin(container, () => undefined)
+    reintroduceNodesWithin(container)
+  }
+
+  /**
+   * The twins inside `container` re-introduced (#5): each a leaving Follower of its Lead in a
+   * handover, spliced below it, with the chain `chainOf` gives it. The ones that came back.
+   */
+  const reintroduceTwinsWithin = (container: HTMLElement, chainOf: (recent: RecentLeaver) => ReadonlyArray<PaintLink> | undefined): Array<NodeState> => {
+    const twins: Array<NodeState> = []
+    Arr.forEach(Array.from(recentLeavers), ([inner, recent]) => {
+      if (inner === container) return
+      if (recent.reintroduced) return
+      if (Bool.not(container.contains(inner))) return
       const lead = leadOf(recent.layoutId)
       const stack = stacks.get(recent.layoutId)
-      if (lead === undefined || stack === undefined || lead.element === inner || !active.has(lead)) continue
-      const twin = makeLeavingNode(inner, recent.layoutId, recent, () => undefined, undefined)
+      if (Predicate.isUndefined(lead)) return
+      if (Predicate.isUndefined(stack)) return
+      if (lead.element === inner) return
+      if (Bool.not(active.has(lead))) return
+      const twin = makeLeavingNode(inner, recent.layoutId, recent, () => undefined, undefined, chainOf(recent))
       recent.reintroduced = true
       nodes.add(twin)
       elementToNode.set(inner, twin)
       stack.splice(stack.length - 1, 0, twin)
-    }
-    // Its layout nodes with no `layoutId` come back as nodes it carries (#169), derived under it
-    // each frame and finished with it.
-    for (const [inner, recent] of recentNodes) {
-      if (recent.reintroduced || !container.contains(inner)) continue
+      twins.push(twin)
+    })
+    return twins
+  }
+
+  /**
+   * The layout nodes with no `layoutId` inside `container` re-introduced as nodes it carries (#169),
+   * derived under it each frame and finished with it.
+   */
+  const reintroduceNodesWithin = (container: HTMLElement): void =>
+    Arr.forEach(Array.from(recentNodes), ([inner, recent]) => {
+      if (recent.reintroduced) return
+      if (Bool.not(container.contains(inner))) return
       recent.reintroduced = true
-      const carried = makeLeavingNode(inner, undefined, recent, undefined, recent.layoutAnchor)
+      const carried = makeLeavingNode(inner, undefined, recent, undefined, recent.layoutAnchor, undefined)
       nodes.add(carried)
       elementToNode.set(inner, carried)
-    }
+    })
+
+  /**
+   * A leaving wrapper as a link of the twins it hands back (ADR-0010 *Amendment (#181)*): its origin
+   * and its transform as they are now, in a frame `shift` from the page's. Read with the transform on,
+   * its untransformed box solved from the drawn one (`drawn = O + t + s·(b − O)`, `O = b + origin`).
+   * `undefined` when the transform isn't a translate and a positive scale. Read once, at the hand-back.
+   */
+  const wrapperLinkOf = (wrapper: HTMLElement, shift: Point.Point): PaintLink | undefined => {
+    const style = getComputedStyle(wrapper)
+    if (Arr.some(transformStyleFrom(style).moved, (property) => property !== "transform")) return undefined
+    const m = matrixOf(style.transform)
+    if (Bool.not(m.is2D)) return undefined
+    if (m.b !== 0) return undefined
+    if (m.c !== 0) return undefined
+    if (m.a < 0) return undefined
+    if (m.d < 0) return undefined
+    const box = wrapper.getBoundingClientRect()
+    const [ox, oy] = style.transformOrigin.split(" ")
+    const o = { x: originPxOf(ox), y: originPxOf(oy) }
+    const origin = { x: box.left - m.e + m.a * o.x, y: box.top - m.f + m.d * o.y }
+    return { kind: "element", element: wrapper, origin: { x: origin.x + shift.x, y: origin.y + shift.y }, pass: inFrame(mapAbout(origin, m.e, m.f, m.a, m.d), shift) }
+  }
+
+  /**
+   * `chain` with `link` for `element` in it by depth, after every link whose element holds it. It
+   * replaces one the chain had for `element`: as of an older pass, or for its node, now disposed.
+   */
+  const withLink = (chain: ReadonlyArray<PaintLink>, link: PaintLink, element: Element): ReadonlyArray<PaintLink> => {
+    const others = Arr.filter(chain, (l) => linkElementOf(l) !== element)
+    const outer = Arr.filter(others, (l) => linkElementOf(l).contains(element))
+    const inner = Arr.filter(others, (l) => Bool.not(linkElementOf(l).contains(element)))
+    return Arr.appendAll(Arr.append(outer, link), inner)
+  }
+
+  /**
+   * The twins inside a leaving element that isn't a twin handed back (ADR-0010 *Amendment (#181)*), as
+   * {@link reintroduceWithin} does for a twin's: each a leaving Follower of its Lead, with the layout
+   * nodes it carries (#169), and following the leaver's own transform as its exit draws it. `onDone`
+   * once every one's handover has ended; the call returned drops them at once (an interrupted exit).
+   * `undefined` when it held none.
+   */
+  const doHandBackWithin = (el: HTMLElement, onDone: () => void): (() => void) | undefined => {
+    if (elementToNode.has(el)) return undefined
+    if (recentLeavers.has(el)) return undefined
+    const twins = reintroduceTwinsWithin(el, (recent) =>
+      UndefinedOr.map(recent.chain, (chain) =>
+        UndefinedOr.match(wrapperLinkOf(el, recent.shift), { onUndefined: () => chain, onDefined: (link) => withLink(chain, link, el) }),
+      ),
+    )
+    if (Arr.isArrayEmpty(twins)) return undefined
+    debug("handBackWithin", { twins: twins.length })
+    // The handovers still running: `onDone` with the last.
+    const running = new Set(twins)
+    Arr.forEach(twins, (twin) => {
+      twin.onLeaveDone = () => {
+        running.delete(twin)
+        if (running.size === 0) onDone()
+      }
+      reintroduceNodesWithin(twin.element)
+    })
+    computeTree()
+    deriveAll()
+    return () =>
+      Arr.forEach(twins, (twin) => {
+        if (Bool.not(twin.leaving)) return
+        twin.onLeaveDone = undefined
+        finishLeaver(twin)
+      })
   }
 
   /**
@@ -3546,6 +3674,11 @@ export const makeProjectionSystem = (
   const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) =>
     runtime.runSync(
       Effect.sync(() => doHandleLeave(el, onDone)).pipe(Effect.withSpan("wardic.projection.handleLeave")),
+    )
+
+  const handBackWithin: ProjectionSystem["handBackWithin"] = (el, onDone) =>
+    runtime.runSync(
+      Effect.sync(() => doHandBackWithin(el, onDone)).pipe(Effect.withSpan("wardic.projection.handBackWithin")),
     )
 
   const register: ProjectionSystem["register"] = (opts) => {
@@ -3567,6 +3700,7 @@ export const makeProjectionSystem = (
       seed: undefined,
       paintDelta: undefined,
       paintMapNow: undefined,
+      paintChain: undefined,
       unpaintDelta: undefined,
       seenBox: undefined,
       retained: undefined,
@@ -3820,7 +3954,7 @@ export const makeProjectionSystem = (
     }
   }
 
-  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, dispose, registerValues }
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, handBackWithin, dispose, registerValues }
   passEnds.set(system, passEndListeners)
   return system
 }
