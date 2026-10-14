@@ -28,7 +28,10 @@ export { CheckFrames, NonFiniteFrame } from "./internal/frameLoop.ts"
  */
 export type Sink<F> = (frame: F) => undefined
 
-/** The Frame loop: `run(machine, sink)`, which `Machine.run(sink)` reaches. */
+/**
+ * The Frame loop: `run(machine, sink)`, which `Machine.run(sink)` reaches, and `runLast`, stepped after
+ * every `run` in each tick, for the projection's coordinator (ADR-0027, *Amendment (#137)*).
+ */
 export class FrameLoop extends Context.Service<FrameLoop, internal.Shape>()("@wardic/FrameLoop", {
   make: internal.make,
 }) {}

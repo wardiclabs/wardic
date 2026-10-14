@@ -14,7 +14,8 @@
  *   a Retarget (a removal, then an add, in one call) keeps it, and the Clock goes idle at its
  *   next Refresh frame. The Layer's `Scope` closing interrupts it.
  * - **A tick** steps the entries the tick began with: an entry added during it (from a sink)
- *   waits for the next tick, and one removed during it gets no Frame. A step or sink that
+ *   waits for the next tick, and one removed during it gets no Frame. It steps them in add
+ *   order, those added with `runLast` after all the others (ADR-0027, *Amendment (#137)*). A step or sink that
  *   throws ends only its own run (`Exit.die`); a failure of the loop itself fails every run
  *   still on it, and the next run starts a fresh burst. That includes a run a continuation
  *   starts while the ending burst resumes its runs (#81).
@@ -67,6 +68,12 @@ export interface Shape {
    * it removes it at once. One span per run, named after its Primitive.
    */
   readonly run: <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>) => Effect.Effect<F>
+  /**
+   * `run`, but stepped after every run `run` added, in each tick (ADR-0027, *Amendment (#137)*):
+   * for a machine that reads what the others' sinks wrote in the same tick. The projection's
+   * coordinator is the one caller. Among themselves, these runs step in add order too.
+   */
+  readonly runLast: <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>) => Effect.Effect<F>
   /**
    * Call `hook` at the end of every tick, after every run's step and sink and the continuations
    * of the runs that settled in it, until the `Scope` closes (ADR-0033). Hooks run in the order
@@ -192,6 +199,8 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
   const buildContext = yield* Effect.context<Clock.Clock | Scope.Scope>()
   const burst = yield* FiberHandle.make<void>()
   const entries: Array<Entry> = []
+  // The runs `runLast` added, stepped after `entries` in each tick.
+  const lastEntries: Array<Entry> = []
   // The `afterTick` hooks, replaced (never changed in place) by an add or a removal, so the end
   // of a tick calls the hooks there were when it began calling them, whatever a hook adds or
   // removes.
@@ -209,9 +218,45 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
 
   // Per frame (ADR-0025): plain calls only, in the one `Stream.map` call per tick (ADR-0027,
   // decision 8); counted loops, statement `if`s, a `try` per entry (it costs nothing measurable).
+
+  /**
+   * Step the last lane's first `count` entries, in add order, as `tick` steps the others. Per frame,
+   * and only while it holds a run.
+   */
+  const stepLast = (count: number, dt: number): void => {
+    for (let i = 0; i < count; i++) {
+      const entry = lastEntries[i]
+      if (entry.removed) continue
+      try {
+        const frame = entry.step(dt)
+        entry.sink(frame)
+        if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
+      } catch (defect) {
+        end(entry, Exit.die(defect))
+      }
+    }
+  }
+
+  /** Drop the last lane's removed entries in place, keeping order; how many are left. Per frame. */
+  const compactLast = (): number => {
+    let kept = 0
+    for (let i = 0; i < lastEntries.length; i++) {
+      const entry = lastEntries[i]
+      if (entry.removed) continue
+      lastEntries[kept] = entry
+      kept++
+    }
+    lastEntries.length = kept
+    return kept
+  }
+
+  // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
+  // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
   const tick = (dt: number): boolean => {
     const t0 = performance.now()
+    // Both counts before any step: a run added during the tick, to either lane, waits for the next.
     const count = entries.length
+    const lastCount = lastEntries.length
     for (let i = 0; i < count; i++) {
       const entry = entries[i]
       if (entry.removed) continue
@@ -223,6 +268,8 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
         end(entry, Exit.die(defect))
       }
     }
+    // The last lane, after every other run (ADR-0027, *Amendment (#137)*).
+    if (lastCount > 0) stepLast(lastCount, dt)
     // Drop the removed entries in place, keeping order (and those added during the pass).
     let kept = 0
     for (let i = 0; i < entries.length; i++) {
@@ -232,6 +279,7 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
       kept++
     }
     entries.length = kept
+    if (lastEntries.length > 0) kept += compactLast()
     animations.updateUnsafe(kept, buildContext)
     tickMs.updateUnsafe(performance.now() - t0, buildContext)
     // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
@@ -263,7 +311,7 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
   const endAll = (exit: Exit.Exit<void>): void => {
     const ending = endingOf(exit)
     bursting = false
-    Arr.forEach(entries.splice(0), (entry) => {
+    Arr.forEach(Arr.appendAll(entries.splice(0), lastEntries.splice(0)), (entry) => {
       if (!entry.removed) end(entry, ending)
     })
     animations.updateUnsafe(0, buildContext)
@@ -292,7 +340,10 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
     }),
   )
 
-  const run = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F> =>
+  /** A run added to `lane`: `run`'s and `runLast`'s one body. */
+  const runIn =
+    (lane: Array<Entry>) =>
+    <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F> =>
     Effect.logDebug(`${machine.span.name}: start`).pipe(
       Effect.andThen(
         Effect.acquireUseRelease(
@@ -309,7 +360,7 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
                   settled: Deferred.makeUnsafe<Frame.Frame<unknown>>(),
                   removed: false,
                 }
-                entries.push(entry)
+                lane.push(entry)
                 return Effect.as(startBurst, entry)
               }),
               Match.exhaustive,
@@ -326,5 +377,5 @@ export const make = Effect.fn("wardic.frameloop.make")(function* () {
       Effect.withSpan(machine.span.name, { attributes: machine.span.attributes }),
     )
 
-  return { run, afterTick } satisfies Shape
+  return { run: runIn(entries), runLast: runIn(lastEntries), afterTick } satisfies Shape
 })

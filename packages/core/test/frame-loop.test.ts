@@ -92,11 +92,11 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
   /** Run `effect` in a fresh fiber, inline, on the counting scheduler and the recording tracer. */
   const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> =>
     Effect.runFork(effect.pipe(Effect.provideService(Tracer.Tracer, tracer)), { scheduler })
-  /** Start `machine` on the loop in a fresh fiber, inline; its Frames land in `frames`. */
-  const start = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void) => {
+  /** Start `machine` on the loop in a fresh fiber, inline, with `run` (or `via`); its Frames land in `frames`. */
+  const start = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void, via: "run" | "runLast" = "run") => {
     const received: Array<F> = []
     const fiber = fork(
-      loop.run(machine, (frame) => {
+      loop[via](machine, (frame) => {
         received.push(frame)
         onFrame?.(frame)
         return undefined
@@ -104,12 +104,14 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
     )
     return { received, fiber }
   }
+  /** `start`, in the last lane (ADR-0027, *Amendment (#137)*). */
+  const startLast = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void) => start(machine, onFrame, "runLast")
   const interrupt = (fiber: Fiber.Fiber<unknown, unknown>): void => {
     Effect.runFork(Fiber.interrupt(fiber), { scheduler })
   }
   /** Close the Environment's Scope (the Clock's and the loop's), starting inline. */
   const close = (): Promise<void> => Effect.runPromise(Scope.close(scope, Exit.void), { scheduler })
-  return { frames, loop, fork, start, interrupt, close, spans, dispatches: () => dispatches }
+  return { frames, loop, fork, start, startLast, interrupt, close, spans, dispatches: () => dispatches }
 }
 
 /** A sink that drops each Frame. */
@@ -295,6 +297,82 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     expect(h.frames.pending.size).toBe(1)
     h.frames.fire(1032) // the Clock finds no subscriber and stops
     expect(h.frames.pending.size).toBe(0)
+  })
+})
+
+describe("the Frame loop: the last lane (ADR-0027, *Amendment (#137)*)", () => {
+  it("a run added with runLast steps after every run `run` added, whichever was added first", async () => {
+    const h = await makeHarness()
+    const order: Array<string> = []
+    h.startLast(counting(Infinity), () => order.push("last 1"))
+    for (const name of ["a", "b"]) h.start(counting(Infinity), () => order.push(name))
+    h.startLast(counting(Infinity), () => order.push("last 2"))
+    h.start(counting(Infinity), () => order.push("c"))
+    await endOfTask()
+    h.frames.fire(1000)
+    h.frames.fire(1016)
+    expect(order).toEqual(["a", "b", "c", "last 1", "last 2", "a", "b", "c", "last 1", "last 2"])
+  })
+
+  it("a sink in the last lane sees what the other sinks wrote in the same tick", async () => {
+    const h = await makeHarness()
+    let written = 0
+    const read: Array<number> = []
+    h.startLast(counting(Infinity), () => {
+      read.push(written)
+    })
+    h.start(counting(Infinity), (frame) => {
+      written = frame.value.length
+    })
+    await endOfTask()
+    for (const t of [1000, 1016, 1032]) h.frames.fire(t)
+    expect(read).toEqual([1, 2, 3])
+  })
+
+  it("an add to either lane during a tick waits for the next tick", async () => {
+    const h = await makeHarness()
+    let toLast: CountingRun | undefined
+    let toFirst: CountingRun | undefined
+    h.start(counting(Infinity), (frame) => {
+      if (frame.value.length === 1) toLast = h.startLast(counting(Infinity))
+    })
+    h.startLast(counting(Infinity), (frame) => {
+      if (frame.value.length === 1) toFirst = h.start(counting(Infinity))
+    })
+    await endOfTask()
+    h.frames.fire(1000)
+    expect([toLast?.received.length, toFirst?.received.length]).toEqual([0, 0])
+    h.frames.fire(1016)
+    expect([toLast?.received.length, toFirst?.received.length]).toEqual([1, 1])
+  })
+
+  it("a burst goes on while a last-lane run is left, and ends with it", async () => {
+    const h = await makeHarness()
+    const first = h.start(counting(1))
+    const last = h.startLast(counting(3))
+    await endOfTask()
+    h.frames.fire(1000) // the first settles
+    expect(h.frames.pending.size).toBe(1)
+    h.frames.fire(1016)
+    h.frames.fire(1032) // the last settles; the burst ends with it
+    expect([first.received.length, last.received.length]).toEqual([1, 3])
+    expect(h.frames.pending.size).toBe(1)
+    h.frames.fire(1048) // the Clock finds no subscriber and stops
+    expect(h.frames.pending.size).toBe(0)
+  })
+
+  it("a Clock whose ticks end interrupts the last lane's runs too", async () => {
+    const clock = heldClock([0.016])
+    const h = await makeHarness({ clock: clock.shape })
+    const first = h.start(counting(Infinity))
+    const last = h.startLast(counting(Infinity))
+    await nextTimeout()
+    clock.end()
+    await nextTimeout()
+    for (const run of [first, last]) {
+      const exit = run.fiber.pollUnsafe()
+      expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(true)
+    }
   })
 })
 
