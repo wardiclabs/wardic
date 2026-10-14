@@ -5,6 +5,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -21,25 +22,49 @@ const apart = (a: Rect, b: Rect): number => Math.max(Math.abs(a.l - b.l), Math.a
 const atRest = async (): Promise<void> => {
   for (let i = 0; i < 60; i++) await raf()
 }
-/** `read` just after each of the next `n` painted frames. */
-const afterEachPaint = <A,>(read: () => A, n: number): Promise<Array<A>> =>
+/**
+ * `act` just after a painted frame, then `read` just after each of the next `n`: the first read is the
+ * first frame painted after `act`, however busy the page is.
+ */
+const paintsAfter = <A,>(act: () => void, read: () => A, n: number): Promise<Array<A>> =>
   new Promise((resolve) => {
     const out: Array<A> = []
+    let acted = false
     const ch = new MessageChannel()
     ch.port1.onmessage = () => {
-      out.push(read())
+      if (acted) out.push(read())
+      else act()
+      acted = true
       if (out.length >= n) return resolve(out)
       requestAnimationFrame(() => ch.port2.postMessage(undefined))
     }
     requestAnimationFrame(() => ch.port2.postMessage(undefined))
   })
 
-for (const layout of [false, true]) {
-  it(`MS${layout ? 2 : 1}: a twin crossfades into a ${layout ? "layout " : ""}modal scaling in from 0.8: it starts on its twin, the Follower on it every frame (#137)`, async () => {
+// MS3–MS4: the projection is already running (another layout node moving) when the modal's scale
+// starts, so its run was on the Frame loop first. It steps in the loop's last lane, after the modal's,
+// and reads the scale that frame paints (ADR-0027 *Amendment (#137)*). In the loop's add order, it
+// read the frame before's: the Follower up to 2.5px off in the lab.
+for (const [layout, busy] of [
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+] as const) {
+  const n = 1 + Number(layout) + 2 * Number(busy)
+  const busyText = Bool.match(busy, { onTrue: () => ", the projection already running", onFalse: () => "" })
+  it(`MS${n}: a twin crossfades into a ${layout ? "layout " : ""}modal scaling in from 0.8${busyText}: it starts on its twin, the Follower on it every frame (#137)`, async () => {
     const [open, setOpen] = createSignal(false)
+    const [moved, setMoved] = createSignal(false)
     const { container } = render(() => (
       <WardicProvider env={DomLive}>
         <div style={{ position: "relative", height: "500px" }}>
+          <wardic.div
+            layout
+            layoutDependency={moved()}
+            transition={{ type: "spring", stiffness: 40, damping: 20 }}
+            style={{ position: "absolute", left: moved() ? "400px" : "0px", top: "460px", width: "20px", height: "20px", background: "gray" }}
+          />
           <wardic.div data-thumb layoutId="ms" style={{ position: "absolute", left: "20px", top: "300px", width: "60px", height: "40px", background: "teal" }} />
           <Show when={open()}>
             <wardic.div
@@ -58,8 +83,12 @@ for (const layout of [false, true]) {
     await atRest()
     const thumb = container.querySelector("[data-thumb]") as HTMLElement
     const seen = rectOf(thumb)
-    setOpen(true)
-    const flight = await afterEachPaint(
+    if (busy) {
+      setMoved(true)
+      for (let i = 0; i < 4; i++) await raf()
+    }
+    const flight = await paintsAfter(
+      () => setOpen(true),
       () => ({ lead: rectOf(container.querySelector("[data-big]")!), follower: rectOf(thumb), shows: Number(getComputedStyle(thumb).opacity) > 0.01 }),
       40,
     )
