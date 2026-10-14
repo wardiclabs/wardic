@@ -11,7 +11,7 @@ import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Values from "@wardic/core/Values"
-import { ClockDomLive, InputDomLive, ProbeDomLive, RendererDomLive } from "@wardic/dom"
+import { ClockDomLive, InputDomLive, PositionalKeysDomLive, ProbeDomLive, RendererDomLive } from "@wardic/dom"
 import { AnimatePresence, useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -62,6 +62,7 @@ const envWith = (options: {
     RendererDomLive,
     InputDomLive,
     ProbeDomLive,
+    PositionalKeysDomLive,
   )
   const frameLoop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync(loop)).pipe(Layer.provide(FrameLoop.layer))
   return Layer.merge(

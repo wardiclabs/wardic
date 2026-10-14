@@ -7,8 +7,9 @@
 // `paintedFrames` method), so a snap shows as a jump between two painted frames, with nothing
 // between.
 import { cleanup, render } from "@solidjs/testing-library"
-import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import { DomLive } from "@wardic/dom"
+import * as Layer from "effect/Layer"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import { createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -84,6 +85,39 @@ const mountMover = async (config: ReducedMotion.Config | undefined, transition: 
   }
 }
 
+/** Width and opacity painted on each of `n` frames from now. */
+const widthAndOpacity = (box: HTMLElement, n: number): Promise<ReadonlyArray<{ readonly width: number; readonly opacity: number }>> =>
+  new Promise((resolve) => {
+    const out: Array<{ width: number; opacity: number }> = []
+    const step = (): void => {
+      out.push({ width: box.getBoundingClientRect().width, opacity: Number(getComputedStyle(box).opacity) })
+      if (out.length < n) requestAnimationFrame(step)
+      else resolve(out)
+    }
+    requestAnimationFrame(step)
+  })
+
+/** A box that grows `width` 50 → 250 px and fades in under reduced motion "always", on `env`. */
+const mountGrower = async (env: typeof DomLive) => {
+  const [on, setOn] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={env} reducedMotion="always">
+      <wardic.div
+        data-box
+        style={{ position: "absolute", left: "0px", top: "0px", height: "50px" }}
+        initial={{ width: "50px", opacity: 0 }}
+        animate={on() ? { width: "250px", opacity: 1 } : { width: "50px", opacity: 0 }}
+        transition={{ type: "tween", duration: 0.4 }}
+      />
+    </WardicProvider>
+  ))
+  const box = container.querySelector("[data-box]") as HTMLElement
+  await raf()
+  await raf()
+  setOn(true)
+  return widthAndOpacity(box, 12)
+}
+
 describe("the spine's legs", () => {
   it("RM-S1: under the user's preference, x snaps to its target while opacity animates", async () => {
     await commands.emulateReducedMotion(true)
@@ -152,6 +186,45 @@ describe("the spine's legs", () => {
     const after = await paintedSamples(box, 8)
     expect(onlyAt(after, base, base + 200), "snaps after it").toBe(true)
     expect(after.at(-1)!.left).toBeCloseTo(base, 0)
+  })
+
+  it("RM-S8 (guard): in the DOM, width is a Positional key: it snaps while opacity fades", async () => {
+    const frames = await mountGrower(DomLive)
+    frames.forEach((f, i) => expect(f.width, `frame ${i}`).toBeCloseTo(250, 0))
+    expect(frames.filter((f) => f.opacity > 0.05 && f.opacity < 0.95).length, "opacity fades").toBeGreaterThan(3)
+  })
+
+  it("RM-S9: the binding snaps the Environment's Positional keys (ADR-0036): naming only opacity, opacity snaps and width grows", async () => {
+    const opacityOnly = Layer.merge(DomLive, Layer.succeed(ReducedMotion.PositionalKeys, { isPositional: (key: string) => key === "opacity" }))
+    const frames = await mountGrower(opacityOnly)
+    frames.forEach((f, i) => expect(f.opacity, `frame ${i}`).toBeCloseTo(1, 2))
+    expect(frames.filter((f) => f.width > 55 && f.width < 245).length, "width grows").toBeGreaterThan(3)
+  })
+
+  it("RM-S10: a presence exit snaps the Environment's Positional keys too: naming only opacity, it vanishes at once and width grows", async () => {
+    const opacityOnly = Layer.merge(DomLive, Layer.succeed(ReducedMotion.PositionalKeys, { isPositional: (key: string) => key === "opacity" }))
+    const [shown, setShown] = createSignal(true)
+    const { container } = render(() => (
+      <WardicProvider env={opacityOnly} reducedMotion="always">
+        <AnimatePresence>
+          <Show when={shown()}>
+            <wardic.div
+              data-box
+              style={{ position: "absolute", left: "0px", top: "0px", width: "50px", height: "50px" }}
+              exit={{ opacity: 0, width: "250px" }}
+              transition={{ type: "tween", duration: 0.4 }}
+            />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    const box = container.querySelector("[data-box]") as HTMLElement
+    await raf()
+    await raf()
+    setShown(false)
+    const frames = await widthAndOpacity(box, 10)
+    frames.forEach((f, i) => expect(f.opacity, `frame ${i}`).toBeCloseTo(0, 2))
+    expect(frames.filter((f) => f.width > 55 && f.width < 245).length, "width grows").toBeGreaterThan(3)
   })
 })
 
