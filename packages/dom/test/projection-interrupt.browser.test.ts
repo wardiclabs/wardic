@@ -36,7 +36,7 @@ const makeBox = (parent: HTMLElement, left: number, top: number, width: number, 
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
 const register = (e: Engine, id: string, element: HTMLElement, spring: object = {}, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => spring, ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring", ...spring }), ...opts })
 
 /** Where `chain`'s last node paints: its layout position (the stage's frame) plus every translate down the chain. */
 const painted = (sk: Sink, chain: Chain): { x: number; y: number } => {

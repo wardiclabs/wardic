@@ -19,22 +19,52 @@
  */
 import type * as Point from "@wardic/core/Point"
 import type * as Projection from "@wardic/core/Projection"
-import type * as Machine from "@wardic/core/Machine"
-import type { ProjectionNodeHandle } from "@wardic/dom"
-import { constTrue } from "effect/Function"
+import { DEFAULT_LAYOUT_TRANSITION, type LayoutTransition, type ProjectionNodeHandle } from "@wardic/dom"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import { constTrue, identity } from "effect/Function"
+import * as Match from "effect/Match"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import type { WardicTransition } from "./use-wardic.tsx"
 
+/** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */
+const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restVelocity"] as const
+
+/** A transition that isn't a tween: `type: "spring"`, or no `type`. */
+type SpringTransition = Exclude<WardicTransition, { readonly type: "tween" }>
+
+/** Whether a transition with no `type` sets a spring field. */
+const hasSpringField = (t: SpringTransition): boolean => Arr.some(SPRING_FIELDS, (key) => Predicate.isNotUndefined(t[key]))
+
 /**
- * Resolve a layout transition to the progress spring's options: a tween-typed
- * transition (or none) falls back to spring defaults `{}` — layout animation is
- * spring-shaped (framer-motion parity), so the box-mix progress is always sprung.
+ * A transition that isn't a tween, as a layout animation's: a spring when it says so or sets a spring
+ * field; anything else, a `delay` alone say, is Motion's default tween with its delay, so it never
+ * turns a layout animation into a spring (ADR-0009 *Amendment (#171)*).
  */
-const toSpringOptions = (t: WardicTransition | undefined): Machine.SpringOptions =>
-  t !== undefined && t.type !== "tween" ? t : {}
+const springOrDefault = (t: SpringTransition): LayoutTransition =>
+  Bool.match(Bool.or(t.type === "spring", hasSpringField(t)), {
+    onTrue: (): LayoutTransition => ({ ...t, type: "spring" }),
+    onFalse: () =>
+      UndefinedOr.match(t.delay, { onUndefined: () => DEFAULT_LAYOUT_TRANSITION, onDefined: (delay): LayoutTransition => ({ ...DEFAULT_LAYOUT_TRANSITION, delay }) }),
+  })
+
+/** One transition as a layout animation's (ADR-0009 *Amendment (#171)*): a tween keeps its timing. */
+const asLayoutTransition = (t: WardicTransition): LayoutTransition =>
+  Match.value(t).pipe(
+    Match.when({ type: "tween" }, (tween): LayoutTransition => ({ ...tween, type: "tween" })),
+    Match.orElse(springOrDefault),
+  )
+
+/**
+ * The element's layout transition (ADR-0009 *Amendment (#171)*): Motion's `layout` key, else its
+ * whole `transition`; `undefined`, with neither, for the engine's default, Motion's 0.45 s tween.
+ */
+const toLayoutTransition = (t: WardicTransition | undefined): LayoutTransition | undefined =>
+  UndefinedOr.map(t, (element) => asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: identity })))
 
 /** Options for {@link useLayoutMember}. */
 export interface UseLayoutMemberOptions {
@@ -44,7 +74,7 @@ export interface UseLayoutMemberOptions {
   readonly element: HTMLElement
   /** The element's `layoutDependency` accessor (a re-measure trigger). */
   readonly layoutDependency: () => unknown
-  /** The element's effective transition (drives the projection progress spring). */
+  /** The element's effective transition: its `layout` key, else itself, drives its layout animations (ADR-0009 *Amendment (#171)*). */
   readonly transition: () => WardicTransition | undefined
   /**
    * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
@@ -101,7 +131,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
   const handle = projection.register({
     id,
     element,
-    springOptions: () => toSpringOptions(transition()),
+    transition: () => toLayoutTransition(transition()),
     // The transition's reduced-motion opt-out (ADR-0029), read at each layout animation's start.
     respectReducedMotion: () =>
       UndefinedOr.match(transition(), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),

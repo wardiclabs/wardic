@@ -31,7 +31,7 @@ const makeBox = (parent: HTMLElement, left: number, top: number, width: number, 
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /** Where `chain`'s last node paints: its layout position (the stage's frame) plus every translate down the chain. */
 const painted = (sk: Sink, chain: ReadonlyArray<readonly [string, HTMLElement]>): { x: number; y: number } => {
@@ -155,7 +155,7 @@ describe("a layoutRoot isolates its subtree from an ancestor's layout animation 
     const gEl = makeBox(rEl, 10, 10, 20, 20)
     const d = register(e, "d", dEl)
     register(e, "r", rEl, { layoutRoot: true })
-    const g = register(e, "g", gEl, { springOptions: () => ({ stiffness: 30, damping: 12 }) })
+    const g = register(e, "g", gEl, { transition: () => ({ type: "spring", stiffness: 30, damping: 12 }) })
     await endOfTask()
     fireFrame()
     // G starts a slow FLIP across R on x; D is then dragged on y and released.
@@ -281,7 +281,7 @@ describe("a layoutRoot isolates its subtree from an ancestor's layout animation 
     const cEl = makeBox(rEl, 10, 10, 20, 20)
     const p = register(e, "p", pEl)
     register(e, "r", rEl, { layoutRoot: true })
-    const c = register(e, "c", cEl, { springOptions: () => ({ stiffness: 30, damping: 12 }) })
+    const c = register(e, "c", cEl, { transition: () => ({ type: "spring", stiffness: 30, damping: 12 }) })
     await endOfTask()
     fireFrame()
     pEl.style.top = "140px"

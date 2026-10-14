@@ -31,7 +31,7 @@ type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /**
  * An element's box as laid out, on the page (the engine's deltas scale about points in the page's

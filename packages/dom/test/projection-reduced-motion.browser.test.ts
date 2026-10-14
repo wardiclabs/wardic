@@ -33,7 +33,7 @@ const isIdentity = (w: Write): boolean =>
 /** A 100×50 box at `left`, registered and measured once. */
 const mount = async (e: Engine, id: string, left: number, extra: Partial<RegisterNodeOptions> = {}) => {
   const element = el(stage(), `position:absolute;left:${left}px;top:0;width:100px;height:50px`)
-  const handle = e.system.register({ id, element, springOptions: () => ({}), ...extra })
+  const handle = e.system.register({ id, element, transition: () => ({ type: "spring" }), ...extra })
   await endOfTask()
   fireFrame()
   return { element, handle }
@@ -108,7 +108,7 @@ describe("layout animations under reduced motion (ADR-0029)", () => {
       await mount(e, "a", 0, { layoutId: "card" })
       // A twin mounts 300 px right while the first is still live: it becomes the Lead.
       const twin = el(stage(), "position:absolute;left:300px;top:0;width:100px;height:50px")
-      e.system.register({ id: "b", element: twin, springOptions: () => ({}), layoutId: "card" })
+      e.system.register({ id: "b", element: twin, transition: () => ({ type: "spring" }), layoutId: "card" })
       await endOfTask()
       fireFrames(2)
       const first = sk.of("b")[0]!

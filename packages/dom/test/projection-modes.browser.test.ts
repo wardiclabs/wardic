@@ -30,7 +30,7 @@ const makeBox = (parent: HTMLElement, left: number, top: number, width: number, 
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
-  e.system.register({ id, element, springOptions: () => ({}), ...opts })
+  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /** Where `id`'s element paints, in its stage's frame: its layout box through its last write. */
 const painted = (sk: Sink, id: string, element: HTMLElement): Painted => {

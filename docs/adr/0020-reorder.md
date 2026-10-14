@@ -116,3 +116,7 @@ The same work fixes four engine problems that broke a reorder outright. Each has
   - `packages/solid/test/reorder.browser.test.tsx` (RO1–RO21), `reorder-headless.browser.test.tsx` (RH1–RH10) and `reorder-engine.browser.test.tsx` (RE1–RE10: through a resize, a scroll, Auto-scroll, touch and text selection), with Playwright's real mouse and Chromium's DevTools touch;
   - the server-render test `packages/solid/test/reorder.ssr.test.tsx` (SS0–SS6);
   - the layout lab's scenario 14, with its checks in `lab/reorder-run.ts` (`test/reorder-run.test.ts`): headless, every layout on the page and in a scroll container, 48/48 clean in Chromium and in Firefox.
+
+## Note (#171, 2026-10-14): the siblings land on Motion's 0.45 s tween
+
+A layout animation now defaults to Motion's 0.45 s tween (ADR-0009 *Amendment (#171)*). Re-measured with a real mouse (`.tmp/171/reorder-timing.ts`, scenario 14): a displaced sibling lands exactly on its slot in 451 ms, against 751 ms on the old spring by the same measure (the 546 ms above settled by a looser one), and Motion's 433 ms plus its held frame. A release's Release offset stays a spring (ADR-0016, *Note (#171)*).

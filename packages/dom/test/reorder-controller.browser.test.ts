@@ -85,7 +85,7 @@ const mountList = async (
   const items = new Map<string, Item>()
   for (const v of values) {
     const element = el(container, ITEM[kind])
-    const handle = e.system.register({ id: v, element, springOptions: () => ({}) })
+    const handle = e.system.register({ id: v, element, transition: () => ({ type: "spring" }) })
     const driver = c.item(v, () => element)
     items.set(v, { element, handle, driver, unregister: driver.register(handle) })
   }
@@ -229,13 +229,13 @@ describe("the Reorder controller (ADR-0020)", () => {
     const reRegister = (value: string): void => {
       const item = list.items.get(value)!
       item.unregister()
-      const handle = e.system.register({ id: `${value}2`, element: item.element, springOptions: () => ({}) })
+      const handle = e.system.register({ id: `${value}2`, element: item.element, transition: () => ({ type: "spring" }) })
       list.items.set(value, { ...item, handle, unregister: list.c.item(value, () => item.element).register(handle) })
     }
     list.items.get("a")!.unregister()
     await endOfTask()
     const a = list.items.get("a")!
-    list.c.item("a", () => a.element).register(e.system.register({ id: "a2", element: a.element, springOptions: () => ({}) }))
+    list.c.item("a", () => a.element).register(e.system.register({ id: "a2", element: a.element, transition: () => ({ type: "spring" }) }))
     expect(remounts()).toEqual([])
     reRegister("b")
     expect(remounts().map((l) => l.annotations.value)).toEqual(["b"])

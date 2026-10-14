@@ -33,7 +33,7 @@ import type { BoardRunInput } from "./base-values-board.ts"
 import { type DragRun, dragRunOf } from "./drag-run.ts"
 import { type RestRun, restRunOf } from "./rest-run.ts"
 import { groupFrames, type InputJoin, joinInputs, type RefreshFrame } from "./frame-order.ts"
-import { type ClockStart, type HeldFrom, heldFramesOf } from "./held-frames.ts"
+import { type ClockStart, type HeldFrom, heldFramesOf, MOVED_PX } from "./held-frames.ts"
 import { measurePassesOf } from "./measure-passes.ts"
 import { firstStepsOf, passStepRatioOf } from "./steps.ts"
 
@@ -394,7 +394,7 @@ export const makeLab = (options: LabOptions): Lab => {
     const held =
       anchorAt === undefined
         ? undefined
-        : heldFramesOf(result.samples, result.origin, { from: heldFrom, at: anchorAt }, NEAR_PX)
+        : heldFramesOf(result.samples, result.origin, result.destination, { from: heldFrom, at: anchorAt }, MOVED_PX)
     // The frame trace around the run: inputs from INPUT_LEAD_MS before the trigger,
     // and every frame whose first callback starts after the earlier of the first of
     // them and the span lead (read FRAME_SLACK_MS early, so that frame is whole).

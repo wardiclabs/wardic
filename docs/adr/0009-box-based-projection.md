@@ -151,3 +151,58 @@ Grilled on 2026-10-13:
   - a `display: contents` node keeping its box (DC1, DC2, SC1);
   - the node measured after its box is dropped (DC2);
   - `treeScale` snapping at 1e-4 again, or never (the core tests).
+
+## Amendment (#171, 2026-10-14): a layout animation defaults to Motion's 0.45 s tween
+
+A layout animation's progress was always a spring: the binding mapped a tween-typed `transition`, or none, to the spring defaults (170/26), and its comment called that "framer-motion parity". It isn't. Motion's default layout transition is a tween (motion-dom 13.3.0, `create-projection-node.ts`: `defaultLayoutTransition = { duration: 0.45, ease: [0.4, 0, 0.1, 1] }`), read through `getValueTransition(transition, "layout")`, so a layout transition can be a tween or a spring. Every layout animation starts at progress 0 with `velocity: 0`; reduced motion makes it instant.
+
+The difference showed:
+- **The settle.** A spring's tail creeps the last fraction of a pixel for frames, and a small element nudged as it settled (#5's nested avatar). Motion nudged the same way when run on Wardic's 170/26 spring.
+- **The timing.** A Reorder sibling's flight landed exactly on its slot in 751 ms on the spring, measured here (ADR-0020 had about 546 ms by a looser settle), against Motion's 0.45 s.
+
+Grilled 2026-10-14:
+1. **The default is Motion's tween** (Q1): 0.45 s, eased `cubic-bezier(0.4, 0, 0.1, 1)` (`DEFAULT_LAYOUT_TRANSITION`). A spring is one prop away.
+   - Rejected: keeping the 170/26 spring as a divergence, and a spring tuned to settle near 0.45 s, which still has a tail and matches neither library.
+2. **A tween's `duration`, `easing` and `delay` drive it, and a spring's fields and its `delay`** (Q2). A repeat modifier is ignored: a flight lands once. Reduced motion takes no delay. A tween with no `duration` or `easing` takes the tween's own defaults, 0.3 s and linear.
+3. **Motion's `layout` key is honored** (Q3): `transition.layout`, else the whole `transition`, else the default. `WardicTransition` gains `layout?: WardicTransition`; no other per-key transitions, so no `default` key.
+4. **The Release offset stays a spring** (Q4, ADR-0016): the layout transition's when it's a spring, else the spring defaults, so a release keeps its velocity. The slot FLIP under it takes the tween. #140's `dragTransition` would give it its own.
+5. **A restart is a fresh full tween from where the node is drawn** (Q5, ADR-0013 *Amendment (#146)*), at velocity 0 and with its delay again, as Motion's.
+   - Rejected: keeping the first schedule, which rushes a late retarget; and switching to a velocity-seeded spring mid-flight.
+6. **The engine owns the default** (Q6). `register` takes `transition: () => LayoutTransition | undefined` in place of `springOptions`; `undefined` is the default, so every binding gets Motion's without repeating it. The flight is a spring's state or a tween's time, resolved at its (re)start, as Motion's options are; a spring's `delay` is `Spring.step`'s own.
+7. **A layout transition with no `type` and no spring field is the default tween with the fields given** (Q10): `transition={{ delay: 0.2 }}` delays the 0.45 s tween. A spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restVelocity`) or `type: "spring"` makes it a spring. Value animations keep "no `type` is a spring".
+   - Rejected: "no `type` is a spring" for layout too, which would turn a delay into a spring; and Motion's literal result, its generic 0.3 s tween.
+
+The crossfade (ADR-0010 *Amendment (#5)*) and the blend (*Amendment (#166)*) read the flight's progress, which for a tween is its eased value, as Motion's `mixValues` reads it.
+
+**Tests keep their meaning** (Q7):
+- The dom engine tests register an explicit `{ type: "spring" }`, which is 170/26, so each still tests what it did. The coordinator's failing-step test throws from a tween's easing, called each step, where it threw from `springOptions`, which the flight now reads once at its start.
+- `measure-pass-timing` and `clock-cold-start` pin the spring too: its first step, about 2.5% of the move, is their measuring stick, and the tween's is under a pixel.
+- Every other solid test passes on the default.
+
+**The lab:** scenario 16's crossfade board gets **`lands`** (Q8): the Lead lands on its duration, within two frames, exactly on its box, and never steps back by more than 0.05 px. Two frames because a flight's first step counts a whole dt from the frame before, the nominal 1/60 s from an idle Clock. So on a display faster than 60 Hz it lands up to a frame early by the page's clock: a phone at 72 Hz landed 20 ms early, past a frame and a half. A flight under 2 px isn't timed: the transform as written can't resolve its last frames. Not judged where a container scaling in moves the Lead too (the entrance and wrapper toggles), on a still run, or on one cut short.
+- **This branch:** all 54 scripted runs pass; the 29 timed land at 448–451 ms.
+- **With the spring default:** all 29 land at 751 ms and fail `lands`.
+- **Reorder, scripted** (`.tmp/171/reorder-timing.ts`, a real mouse): a displaced sibling lands in 451 ms, against 751 ms on the spring.
+- **The held-frames line** (scenarios 1–10, #14's metric) counted a frame held while it sat within the sampler's 1 px "same box" of the origin. That threshold was sized for the spring's first step, a few pixels. The tween's eased first step is a fraction of a pixel, so the first hand run read 19 of its 20 runs 1–2 frames over their `expectedHeld`.
+  - A frame now counts as moved once one of its edges (left, top, width, height) is more than 0.01 px nearer that edge's destination than the origin's is (`MOVED_PX`, as drag-run's is for a release).
+  - "Nearer the destination", not "off the origin": scenario 5 reads its origin as the first FLIP's span ends, before that FLIP's last frame paints, 0.017 px short of where the box rests. Its true first frame is still held.
+  - Per edge, not the box's largest edge distance: in a later hand run, the page scrolled during two runs, which put their destinations 200–300 px off on y. The largest distance didn't shrink until the scroll, so their x motion read as 28 and 30 held frames.
+  - Re-judged, both hand logs' runs all hold what they should, and 30 scripted runs do too. The node tier keeps the spring-era fixtures, with the same holds, and adds three from those logs.
+
+**Pinned by:**
+- **`@wardic/dom`, LT1–LT6** (`projection-layout-transition.browser.test.ts`, frames fired by hand):
+  - LT1: the default lands at 0.45 s on Motion's curve, never back;
+  - LT2: a tween's duration, easing and delay;
+  - LT3: a restart is a fresh full tween from where the node is drawn;
+  - LT4: reduced motion lands at once and stays, its delay dropped;
+  - LT5: a release's Release offset is the default spring's under the default tween and under a tween of its own, and its own under a spring of its own;
+  - LT6: a spring's delay.
+- **solid's LTS1–LTS3** (`layout-transition.browser.test.tsx`, real paint): the default; the `layout` key over the element's transition; a `delay` alone keeping the default, and a spring field making a spring.
+- **The lab's node tier:** `crossfade-board.test.ts`, the `lands` line: on time, late, a nudge back, still, cut short.
+- **Mutation-checked** in a separate worktree: eleven single-point mutations, each failing the tests meant for it:
+  - the default a spring; a tween's easing, delay or duration ignored;
+  - reduced motion keeping the delay;
+  - a restart keeping the first schedule;
+  - the release on another spring under a tween;
+  - the `layout` key ignored; a delay alone making a spring; a spring field ignored;
+  - `lands` never late.

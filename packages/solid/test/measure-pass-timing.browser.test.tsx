@@ -85,6 +85,12 @@ const stepsFrom = (origin: number, lefts: ReadonlyArray<number>): Array<number> 
 /** The index of the first sample read after `t`. */
 const firstAfter = (samples: ReadonlyArray<PaintedSample>, t: number): number => samples.findIndex((s) => s.t > t)
 
+/**
+ * The default spring, pinned (ADR-0009 *Amendment (#171)*): its first step, about 2.5% of the move,
+ * is this file's measuring stick for "origin, then moved". The default tween's is under a pixel.
+ */
+const SPRING = { type: "spring" } as const
+
 /** A layout box whose `left` and `layoutDependency` follow `atB`. */
 const LayoutBox = (props: {
   readonly atB: Accessor<boolean>
@@ -96,6 +102,7 @@ const LayoutBox = (props: {
     ref={props.ref}
     class="mp-box"
     layout
+    transition={SPRING}
     layoutDependency={props.atB()}
     style={{ top: `${props.top ?? 0}px`, left: props.atB() ? `${props.to}px` : "0px" }}
   />
@@ -111,7 +118,7 @@ it("content growth seen only by the engine's ResizeObserver paints its origin fi
   let box!: HTMLElement
   render(() => (
     <Stage>
-      <wardic.div ref={(el) => (box = el)} layout style={{ position: "absolute", top: "0px", left: "0px", display: "flex" }}>
+      <wardic.div ref={(el) => (box = el)} layout transition={SPRING} style={{ position: "absolute", top: "0px", left: "0px", display: "flex" }}>
         <span style={{ width: "60px", height: "60px", flex: "none" }} />
         <Show when={grown()}>
           <span style={{ width: "120px", height: "60px", flex: "none" }} />

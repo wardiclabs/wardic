@@ -12,7 +12,7 @@
  * binding (Solid today; React/vanilla later) wires it with its own gate + runtime.
  *
  * Pipeline (the locked design):
- *   - REGISTER a node (its gate `id`, `element`, and a `springOptions` accessor).
+ *   - REGISTER a node (its gate `id`, `element`, and a `transition` accessor, ADR-0009 *Amendment (#171)*).
  *   - TRIGGER (registration / a shared `ResizeObserver` size change /
  *     `layoutDependency` via `notify`) -> ONE **Measure pass** per task, run by the
  *     engine in a microtask at the end of that task (ADR-0018).
@@ -52,6 +52,7 @@
  * glued even when parent and child run DIFFERENT transitions ("not left behind").
  */
 import * as Box from "@wardic/core/Box"
+import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Microtask from "@wardic/core/Microtask"
@@ -296,6 +297,69 @@ const anchorPointOf = (box: Box.Box, anchor: Point.Point): Point.Point => ({
 })
 
 /**
+ * A layout animation's transition (ADR-0009 *Amendment (#171)*): a spring, its fields and its
+ * `delay`; or a tween, its `duration`, `easing` and `delay`. A repeat means nothing for a flight that
+ * lands once. A tween with no `duration` or `easing` takes the tween's own defaults, 0.3 s and linear.
+ */
+export type LayoutTransition = ({ readonly type: "spring" } & Machine.SpringOptions) | ({ readonly type: "tween" } & Machine.TweenOptions)
+
+/**
+ * Motion's default layout transition (ADR-0009 *Amendment (#171)*; motion-dom 13.3.0,
+ * `defaultLayoutTransition`): a 0.45 s tween, eased `cubic-bezier(0.4, 0, 0.1, 1)`, so a layout
+ * animation lands on time.
+ */
+export const DEFAULT_LAYOUT_TRANSITION: LayoutTransition = { type: "tween", duration: 0.45, easing: Easing.cubicBezier(0.4, 0, 0.1, 1) }
+
+/** A tween's duration and easing when its transition gives none: the tween's own defaults (#107). */
+const TWEEN_DURATION = 0.3
+
+/** A flight's transition, resolved at its start: a spring's options (its delay among them), or a tween's timing. */
+type FlightTiming =
+  | { readonly kind: "spring"; readonly options: Spring.Resolved }
+  | { readonly kind: "tween"; readonly duration: number; readonly easing: Easing.Easing; readonly delay: number }
+
+/**
+ * A layout animation's progress, 0 → 1 (ADR-0009 *Amendment (#171)*), on the transition resolved at its
+ * start, Motion's: `position` is where it is (a spring's, past 1 on an overshoot; a tween's, eased),
+ * `elapsed` its time so far, its delay included. Held at 0 through the delay. Stepped per frame, in place.
+ */
+interface Flight {
+  position: number
+  elapsed: number
+  /** A spring's state, stepped toward 1; `undefined` for a tween. */
+  spring: Spring.State | undefined
+  readonly timing: FlightTiming
+}
+
+/** A transition's timing for a flight. Once per (re)start. */
+const timingOf = (transition: LayoutTransition): FlightTiming =>
+  Match.value(transition).pipe(
+    Match.discriminatorsExhaustive("type")({
+      spring: (spring): FlightTiming => ({ kind: "spring", options: Spring.resolve(spring) }),
+      tween: (tween): FlightTiming => ({
+        kind: "tween",
+        duration: Math.max(Number.EPSILON, UndefinedOr.match(tween.duration, { onUndefined: () => TWEEN_DURATION, onDefined: identity })),
+        easing: UndefinedOr.match(tween.easing, { onUndefined: () => Easing.linear, onDefined: identity }),
+        delay: UndefinedOr.match(tween.delay, { onUndefined: () => 0, onDefined: identity }),
+      }),
+    }),
+  )
+
+/** A flight already landed: what reduced motion starts (ADR-0029), at 1 with no delay, settling on its first step. */
+const LANDED: FlightTiming = { kind: "spring", options: Spring.resolve({}) }
+
+/**
+ * The spring a node's Release offset steps on (ADR-0016): its layout transition's, when that's a
+ * spring, else the spring defaults (ADR-0009 *Amendment (#171)*). Per frame.
+ */
+const releaseSpringOf = (transition: LayoutTransition | undefined): Machine.SpringOptions => {
+  if (Predicate.isUndefined(transition)) return NO_SPRING_OPTIONS
+  if (transition.type === "spring") return transition
+  return NO_SPRING_OPTIONS
+}
+const NO_SPRING_OPTIONS: Machine.SpringOptions = {}
+
+/**
  * What a Measure pass read of an ancestor whose transform moves a twin (ADR-0012, *Amendment
  * (#137)*): its transform origin on the page, with its transform held, and its transform then, as
  * a map. `undefined` map: the pass couldn't express it as a translate and a scale (a rotation or
@@ -525,11 +589,12 @@ export interface RegisterNodeOptions {
   /** The live DOM element to measure + project. */
   readonly element: HTMLElement
   /**
-   * The spring config for the node's progress (0→1) animation, read at each
-   * (re)start. A tween-typed transition resolves to `{}` (spring defaults) — layout
-   * is spring-shaped (framer-motion parity); the caller does that resolution.
+   * The node's layout transition, read at each layout animation's (re)start (ADR-0009 *Amendment
+   * (#171)*): a spring or a tween, or `undefined` for Motion's default,
+   * {@link DEFAULT_LAYOUT_TRANSITION}. Its Release offset springs on it when it's a spring, else on
+   * the spring defaults (ADR-0016).
    */
-  readonly springOptions: () => Machine.SpringOptions
+  readonly transition: () => LayoutTransition | undefined
   /**
    * Whether the node's layout animations honour reduced motion (ADR-0029), read at each
    * (re)start: `false` animates them whatever the system's `reducedMotion` says (a binding's
@@ -704,7 +769,7 @@ export interface ProjectionSystem {
 interface NodeState {
   readonly id: string
   readonly element: HTMLElement
-  readonly springOptions: () => Machine.SpringOptions
+  readonly transition: () => LayoutTransition | undefined
   /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
   readonly respectReducedMotion: () => boolean
   /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
@@ -814,8 +879,8 @@ interface NodeState {
   origin: Box.Box | undefined
   /** The element's real (current measured) box — the delta source + progress-1 target. */
   layoutBox: Box.Box | undefined
-  /** Progress (0→1) spring state; `undefined` at rest. */
-  spring: Spring.State | undefined
+  /** Its layout animation's progress (0→1), a spring's or a tween's (ADR-0009 *Amendment (#171)*); `undefined` at rest. */
+  flight: Flight | undefined
   animating: boolean
   // --- tree (recomputed each measure pass via DOM-ancestry walk) ---
   /** Nearest ancestor projection node, or `undefined` at the root. */
@@ -1023,13 +1088,18 @@ export const makeProjectionSystem = (
 ): ProjectionSystem => {
   const reducedMotion = UndefinedOr.match(options.reducedMotion, { onUndefined: () => constFalse, onDefined: identity })
   /**
-   * A layout animation's progress spring, at its (re)start: at 0, or, when reduced motion
-   * applies to `node` (ADR-0029), at 1 and at rest, so the node lands on its new box at once
-   * and the spring settles on its first step.
+   * A layout animation's progress at its (re)start (ADR-0009 *Amendment (#171)*): at 0, on its
+   * transition read now, Motion's default with none, its delay held first, and with no velocity
+   * (Motion's). When reduced motion applies to `node` (ADR-0029), at 1 with no delay, so the node
+   * lands on its new box at once and the flight ends on its first step.
    */
-  const startSpring = (node: NodeState): Spring.State =>
-    Spring.init({
-      from: Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), { onTrue: () => 1, onFalse: () => 0 }),
+  const startFlight = (node: NodeState): Flight =>
+    Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), {
+      onTrue: (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED }),
+      onFalse: (): Flight => {
+        const timing = timingOf(UndefinedOr.match(node.transition(), { onUndefined: () => DEFAULT_LAYOUT_TRANSITION, onDefined: identity }))
+        return { position: 0, elapsed: 0, spring: Spring.init({}), timing }
+      },
     })
   // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
   const passEndListeners = new Set<() => void>()
@@ -1289,10 +1359,10 @@ export const makeProjectionSystem = (
   const fadeOf = (node: NodeState): number => {
     const from = node.crossfadeFrom
     if (Predicate.isUndefined(from)) return 1
-    const spring = node.spring
-    if (Predicate.isUndefined(spring)) return 1
+    const flight = node.flight
+    if (Predicate.isUndefined(flight)) return 1
     if (node.handoverMoves === true) return 1
-    return from + (1 - from) * fadeInAt(spring.position)
+    return from + (1 - from) * fadeInAt(flight.position)
   }
 
   /** The crossfade factor for a LEAD ({@link fadeOf}) — only when it has Followers; else undefined. Per frame. */
@@ -1318,11 +1388,11 @@ export const makeProjectionSystem = (
    */
   const exitOf = (node: NodeState, lead: NodeState): number => {
     if (Predicate.isUndefined(lead.crossfadeFrom)) return 0
-    const spring = lead.spring
-    if (Predicate.isUndefined(spring)) return 0
+    const flight = lead.flight
+    if (Predicate.isUndefined(flight)) return 0
     crossfading(lead) // decides, on its first frame, whether its handover only moves
     if (lead.handoverMoves === true) return exitFromOf(node)
-    return exitFromOf(node) * (1 - fadeOutAt(spring.position))
+    return exitFromOf(node) * (1 - fadeOutAt(flight.position))
   }
 
   /** Each Follower of `lead` fades out from where it is now (#5): set as a handover begins or a crossfade is interrupted. */
@@ -1362,9 +1432,9 @@ export const makeProjectionSystem = (
 
   /** How far `node`'s handover has run: its layout animation's progress, past 1 on a spring's overshoot; 1 at rest. Per frame. */
   const blendProgressOf = (node: NodeState): number => {
-    const spring = node.spring
-    if (Predicate.isUndefined(spring)) return 1
-    return spring.position
+    const flight = node.flight
+    if (Predicate.isUndefined(flight)) return 1
+    return flight.position
   }
 
   /** `node`'s own radius as drawn: under its own scale (#8), px corners scaled. */
@@ -1615,9 +1685,17 @@ export const makeProjectionSystem = (
     y: node.grabOffset.y + node.dragDelta.y,
   })
 
-  /** Whether the node has a layout animation running: its origin, target and spring. */
+  /** Whether the node has a layout animation running: its origin, target and flight. */
   const flying = (node: NodeState): boolean =>
-    Bool.and(node.animating, Bool.and(Predicate.isNotUndefined(node.origin), Predicate.isNotUndefined(node.spring)))
+    Bool.and(node.animating, Bool.and(Predicate.isNotUndefined(node.origin), Predicate.isNotUndefined(node.flight)))
+
+  /** How far `node`'s layout animation has run: its flight's progress while it animates, else 1. Per frame. */
+  const progressOf = (node: NodeState): number => {
+    if (Bool.not(node.animating)) return 1
+    const flight = node.flight
+    if (Predicate.isUndefined(flight)) return 1
+    return flight.position
+  }
 
   /**
    * Where a dragged node paints (ADR-0016, *Amendment (velocity family)*, decision 4): its
@@ -1626,10 +1704,10 @@ export const makeProjectionSystem = (
    */
   const dragPaintedOf = (node: NodeState, slot: Box.Box): Box.Box => {
     const origin = node.origin
-    const spring = node.spring
+    const flight = node.flight
     if (Predicate.isUndefined(origin)) return dragTargetOf(node, slot)
-    if (Predicate.isUndefined(spring)) return dragTargetOf(node, slot)
-    return offsetBox(Box.mix(origin, anchorOf(node, slot), spring.position), dragOffsetOf(node))
+    if (Predicate.isUndefined(flight)) return dragTargetOf(node, slot)
+    return offsetBox(Box.mix(origin, anchorOf(node, slot), flight.position), dragOffsetOf(node))
   }
 
   /**
@@ -1729,15 +1807,15 @@ export const makeProjectionSystem = (
       const anchor = node.layoutAnchor !== false && node.layoutAnchor !== undefined ? node.layoutAnchor : ZERO_ANCHOR
       let rpFromBox = rpBox
       if (rp.origin !== undefined) rpFromBox = rp.origin
-      const progress = node.animating && node.spring !== undefined ? node.spring.position : 1
+      const progress = progressOf(node)
       const relTo = Projection.calcRelativeBox(box, rpBox, anchor)
       let relFrom = relTo
       if (node.origin !== undefined) relFrom = Projection.calcRelativeBox(node.origin, rpFromBox, anchor)
       const relTarget = Box.mix(relFrom, relTo, progress)
       targetBox = Projection.placeRelativeBox(relTarget, rp.lastTarget, anchor)
-    } else if (node.animating && node.origin !== undefined && node.spring !== undefined) {
+    } else if (flying(node)) {
       // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
-      targetBox = Box.mix(node.origin, box, node.spring.position)
+      targetBox = Box.mix(UndefinedOr.getOrThrow(node.origin), box, progressOf(node))
     } else {
       // CARRIED under a SCALED ancestor / at rest: target the real box — applyTreeDeltas
       // supplies the counter-transform.
@@ -2425,7 +2503,7 @@ export const makeProjectionSystem = (
     node.layoutBox = undefined
     node.seed = undefined
     node.origin = undefined
-    node.spring = undefined
+    node.flight = undefined
     node.release = undefined
     node.animating = false
     node.lastDelta = IDENTITY_DELTA
@@ -2683,7 +2761,7 @@ export const makeProjectionSystem = (
         node.layoutBox = newBox
         node.lastTarget = newBox
         node.origin = undefined
-        node.spring = undefined
+        node.flight = undefined
         node.animating = false
         node.crossfadeFrom = undefined
         node.handoverMoves = undefined
@@ -2752,7 +2830,7 @@ export const makeProjectionSystem = (
           // move, the twins' boxes equal (#5, Motion's: any `resumeFrom` animates).
           node.origin = shapedOrigin(node, priorBox, newBox)
           node.layoutBox = newBox
-          node.spring = startSpring(node)
+          node.flight = startFlight(node)
           // A handover: the crossfade fades the new Lead in from 0 (ADR-0010).
           beginHandover(node)
           node.animating = true
@@ -2777,7 +2855,7 @@ export const makeProjectionSystem = (
             node.blend = seedBlend
             node.origin = shapedOrigin(node, origin, newBox)
             node.layoutBox = newBox
-            node.spring = startSpring(node) // progress spring restarts at 0
+            node.flight = startFlight(node) // progress restarts at 0
             // A handover: a leaver re-introduced as a Follower (`handleLeave`) fades out with it.
             beginHandover(node)
             node.animating = true
@@ -2825,7 +2903,7 @@ export const makeProjectionSystem = (
       node.blend = UndefinedOr.map(node.blend, (blend) => lookAsLeadOf(node, UndefinedOr.map(blend.opacity, () => drawnOpacityOf(node))))
       node.origin = origin
       node.layoutBox = newBox
-      node.spring = startSpring(node) // progress spring restarts at 0 (velocity 0)
+      node.flight = startFlight(node) // progress restarts at 0 (velocity 0)
       node.animating = true
       active.add(node)
       start(node)
@@ -3091,13 +3169,27 @@ export const makeProjectionSystem = (
     finishSettled(settled)
   }
 
-  /** Step `node`'s layout animation, if one runs; whether it is at rest. Per frame. */
+  /**
+   * Step `node`'s layout animation, if one runs; whether it is at rest (ADR-0009 *Amendment (#171)*):
+   * a spring stepped toward 1 (`Spring.step` holds its delay), or a tween's eased progress by its
+   * time, held at 0 through its delay. Per frame: statement `if`s, written in place.
+   */
   const stepFlight = (node: NodeState, dt: number): boolean => {
-    const spring = node.spring
-    if (Predicate.isUndefined(spring)) return true
-    const r = Spring.step(spring, dt, 1, Spring.resolve(node.springOptions()))
-    node.spring = r.state
-    return r.done
+    const flight = node.flight
+    if (Predicate.isUndefined(flight)) return true
+    flight.elapsed += dt
+    const timing = flight.timing
+    if (timing.kind === "spring") {
+      const r = Spring.step(UndefinedOr.getOrThrow(flight.spring), dt, 1, timing.options)
+      flight.spring = r.state
+      flight.position = r.state.position
+      return r.done
+    }
+    const active = flight.elapsed - timing.delay
+    if (active < 0) return false
+    const t = Math.min(1, active / timing.duration)
+    flight.position = timing.easing(t)
+    return t >= 1
   }
 
   /**
@@ -3109,7 +3201,7 @@ export const makeProjectionSystem = (
     const release = node.release
     if (Predicate.isUndefined(release)) return true
     if (release.stopped) return false
-    const options = Spring.resolve(node.springOptions())
+    const options = Spring.resolve(releaseSpringOf(node.transition()))
     const x = Spring.step(release.x, dt, 0, options)
     const y = Spring.step(release.y, dt, 0, options)
     release.x = x.state
@@ -3126,7 +3218,7 @@ export const makeProjectionSystem = (
       node.releasing = false
       node.release = undefined
       node.animating = false
-      node.spring = undefined
+      node.flight = undefined
       node.origin = undefined
       node.crossfadeFrom = undefined
       node.handoverMoves = undefined
@@ -3249,7 +3341,7 @@ export const makeProjectionSystem = (
       // before it settles), so each writes its resting projection; then settled.
       for (const node of finished) {
         node.origin = undefined
-        node.spring = undefined
+        node.flight = undefined
         node.animating = false
         node.release = undefined
       }
@@ -3389,7 +3481,7 @@ export const makeProjectionSystem = (
     node.blend = UndefinedOr.match(from.leftLook, { onUndefined: () => lookAsLeadOf(from, leavingOpacityOf(from)), onDefined: identity })
     node.origin = shapedOrigin(node, fromBox, ownBox)
     node.layoutBox = ownBox
-    node.spring = startSpring(node)
+    node.flight = startFlight(node)
     // A handover: the promoted twin fades in from 0 as the one it takes over from fades out.
     beginHandover(node)
     node.animating = true
@@ -3439,7 +3531,7 @@ export const makeProjectionSystem = (
   ): NodeState => ({
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
-    springOptions: () => ({}),
+    transition: () => undefined,
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
@@ -3460,7 +3552,7 @@ export const makeProjectionSystem = (
     retained: recent.box,
     origin: undefined,
     layoutBox: recent.box,
-    spring: undefined,
+    flight: undefined,
     animating: false,
     parent: undefined,
     depth: 0,
@@ -3685,7 +3777,7 @@ export const makeProjectionSystem = (
     const node: NodeState = {
       id: opts.id,
       element: opts.element,
-      springOptions: opts.springOptions,
+      transition: opts.transition,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
@@ -3706,7 +3798,7 @@ export const makeProjectionSystem = (
       retained: undefined,
       origin: undefined,
       layoutBox: undefined,
-      spring: undefined,
+      flight: undefined,
       animating: false,
       parent: undefined,
       depth: 0,
@@ -3809,7 +3901,7 @@ export const makeProjectionSystem = (
         // A layout animation running at the grab runs on under the drag, toward the grab's
         // slot (decision 4; Motion's drag blocks new layout animations, not a running one).
         if (Bool.not(flying(node))) {
-          node.spring = undefined
+          node.flight = undefined
           node.origin = undefined
           node.animating = false
         }
@@ -3854,7 +3946,7 @@ export const makeProjectionSystem = (
           // frame keeps an offset an earlier write left (a safety net: every pointer move writes
           // its offset, so the last write is normally the slot already).
           node.animating = false
-          node.spring = undefined
+          node.flight = undefined
           node.origin = undefined
           node.releasing = false
           node.raised = false

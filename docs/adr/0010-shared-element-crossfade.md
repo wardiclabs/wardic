@@ -167,6 +167,8 @@ The cells are overlap, in place, nested (card and avatar) and exit (open and clo
   - a closing container's inner twins not re-introduced (S5);
   - Followers derived in insertion order (XF3b).
 
+**Note (#171):** with a tween layout transition, Motion's default from ADR-0009 *Amendment (#171)*, the crossfade's curves and #166's blend read the tween's eased progress, as Motion's `mixValues` reads its layout animation's.
+
 ## Amendment (#170, 2026-10-14): a handover starts from where its twin paints
 
 Every handover started the new Lead from its twin's **layout box**, where the twin rests once its own animation completes, not from where it was painted. An interrupted handover therefore jumped ahead to the twin's resting box and flew back from there. Toggling scenario 16's twins mid-flight (#5) showed it. The overlap cell's promoted twin jumped 43 px ahead of where its Lead was painted, and spamming toggles felt much rougher than Motion. `main` did the same at every origin.

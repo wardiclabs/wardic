@@ -80,6 +80,32 @@ describe("crossfadeChecksOf", () => {
     expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("starts")
   })
 
+  it("judges where the Lead lands: on its duration, never stepping back (#171)", () => {
+    const lead = ps.map(motionIn)
+    const follower = ps.map((p) => 1 - motionOut(p))
+    const ease = (t: number): number => 1 - (1 - t) ** 3
+    /** A 100px flight drawn each 1/60 s for 40 frames: at `x(t)` px on, first sampled a step in. */
+    const track = (x: (t: number) => number) =>
+      Array.from({ length: 40 }, (_, k) => ({ t: (k * 1000) / 60, at: { x: x((k + 1) / 60), y: 0, w: 50, h: 50 } }))
+    const lands = (x: (t: number) => number, superseded = false) => ({
+      ...run(lead, { follower, landing: { duration: 0.45, track: track(x) } }),
+      ...(superseded ? { superseded: true } : {}),
+    })
+    // A 0.45 s tween: lands on time, never back.
+    expect(boardChecksOf(lands((t) => 100 * ease(Math.min(1, t / 0.45))))[0]).toMatchObject({ name: "lands", ok: true })
+    // Landing at 0.6 s, a spring's tail creeping past it.
+    expect(failed(lands((t) => 100 * ease(Math.min(1, t / 0.6))))).toEqual(["lands"])
+    // On time, but past its box by 1px at 0.3 s and back to it by 0.45 s: the nudge.
+    const nudge = boardChecksOf(lands((t) => 101 * ease(Math.min(1, t / 0.3)) - Math.max(0, Math.min(1, (t - 0.3) / 0.15))))[0]!
+    expect(nudge).toMatchObject({ name: "lands", ok: false })
+    expect(nudge.text).toMatch(/back on \d+ frames/)
+    // Nothing moves, and a run cut short: not judged.
+    expect(boardChecksOf(lands(() => 0))[0]).toMatchObject({ name: "lands", ok: true, text: "nothing moves" })
+    expect(boardChecksOf(lands((t) => 100 * ease(Math.min(1, t / 0.6)), true))[0]).toMatchObject({ name: "lands", ok: true })
+    // A run with no track (something else moves its Lead) has no lands line.
+    expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("lands")
+  })
+
   it("judges starts by the furthest edge when the run recorded sizes, so a twin's own scale counts (#8)", () => {
     const lead = ps.map(motionIn)
     const follower = ps.map((p) => 1 - motionOut(p))

@@ -17,6 +17,16 @@
  *   frame is no further from there than its next step (plus 1.5px): a start from rest accelerates,
  *   while one from where the twin would have rested jumps the rest of the twin's flight. Measured
  *   by the furthest edge (#8), so a twin's own scale counts: a start from its box without it jumps.
+ * - **lands** (#171): the Lead lands on time, on its layout transition's duration (0.45 s, Motion's
+ *   default tween), within two frames of it, landed exactly on its box, and never steps back on its
+ *   way: each frame no further from where it lands than the frame before, within 0.05px. A flight
+ *   under 2px isn't timed: the transform as written can't resolve its last frames. Two frames, not
+ *   one: a flight's first step counts a whole dt from the frame before, the nominal 1/60 s from an
+ *   idle Clock, so on a display faster than 60 Hz it lands up to a frame early by the page's clock
+ *   (a phone at 72 Hz: 20ms). A spring's tail crept for
+ *   frames past that and could nudge back as it settled. Measured by the furthest edge, from the
+ *   frame before its first sample. Not judged on a run something else moves the Lead in (a
+ *   container scaling in), on one nothing moves, or on one the next run cut short.
  * - **follows** (#8): while the Follower shows, it's drawn on its Lead, within 0.5px every frame,
  *   whatever either twin's own scale.
  * - **blends** (#166), for a run that watched its twins' looks: the Lead's radius and rotation (and
@@ -61,6 +71,11 @@ export interface CrossfadeSeries {
    */
   readonly startsFrom?: Drawn
   readonly leadPath?: ReadonlyArray<Drawn>
+  /**
+   * Where the Lead was drawn each frame, and when, and its layout transition's duration (#171):
+   * left out when something else moves it.
+   */
+  readonly landing?: { readonly duration: number; readonly track: ReadonlyArray<{ readonly t: number; readonly at: Drawn }> }
   /** While the Follower shows, its furthest edge from its Lead's each frame (#8). */
   readonly follows?: ReadonlyArray<number>
   /** The outgoing twin's look as drawn at the toggle, and the twins' each frame (#166). */
@@ -97,7 +112,7 @@ export interface Look {
 }
 
 /** A crossfade card's lines, in display order. */
-export const CROSSFADE_CHECK_NAMES = ["starts", "follows", "blends", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
+export const CROSSFADE_CHECK_NAMES = ["starts", "lands", "follows", "blends", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
 
 /** One crossfade card line. */
 export interface CrossfadeCheck {
@@ -169,6 +184,41 @@ const blendsOf = (series: CrossfadeSeries | undefined, back: boolean): Array<Cro
   return [line("blends", ok, text, "the twin's look eased into the Lead's, the Follower drawn with it")]
 }
 
+/** How far a drawn box steps back toward where it came from, past this, still counts as on its way (px). */
+const BACK_TOLERANCE = 0.05
+/**
+ * How near where it lands a drawn box has landed (px): exactly there, past rounding. A tween is on its
+ * box only at its end, and a spring once it settles; a short flight's last frames ease in under 0.01px.
+ */
+const LANDED_WITHIN = 1e-4
+/**
+ * The shortest flight timed (px): the renderer writes a transform to a few decimals, so a flight
+ * under a pixel or two reads as landed frames early, and a landing that small can't be seen anyway.
+ */
+const TIMED_FROM = 2
+/** How many frames off its duration a landing may be: its first step's dt counts from the frame before. */
+const ON_TIME_FRAMES = 2
+
+/** The lands line (#171), when the run recorded where its Lead was drawn each frame. */
+const landsOf = (series: CrossfadeSeries | undefined, superseded: boolean): Array<CrossfadeCheck> => {
+  const landing = series?.landing
+  if (landing === undefined || landing.track.length < 3) return []
+  if (superseded) return [{ name: "lands", ok: true, text: "superseded by the next run, not judged" }]
+  const track = landing.track
+  const end = track[track.length - 1]!.at
+  const left = track.map((s) => apart(s.at, end))
+  if (left[0]! < LANDED_WITHIN) return [{ name: "lands", ok: true, text: "nothing moves" }]
+  if (left[0]! < TIMED_FROM) return [{ name: "lands", ok: true, text: `moves under ${TIMED_FROM}px, not timed` }]
+  const frame = (track[track.length - 1]!.t - track[0]!.t) / (track.length - 1)
+  const landed = left.findIndex((_, i) => left.slice(i).every((d) => d < LANDED_WITHIN))
+  const took = track[landed]!.t - track[0]!.t + frame
+  const ms = landing.duration * 1000
+  const back = left.filter((d, i) => i > 0 && d > left[i - 1]! + BACK_TOLERANCE).length
+  const onTime = Math.abs(took - ms) <= ON_TIME_FRAMES * frame
+  const text = [`at ${took.toFixed(0)}ms (its ${ms.toFixed(0)}ms)`, back === 0 ? "never back" : `back on ${back} frames`].join(", ")
+  return [line("lands", onTime && back === 0, text, `at ${ms.toFixed(0)}ms within ${(ON_TIME_FRAMES * frame).toFixed(0)}ms, never back`)]
+}
+
 /** The follows line (#8), when the run recorded where its Follower was drawn. */
 const followsOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> => {
   const frames = series?.follows
@@ -208,7 +258,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const followerHidden = followerEnd === null || followerEnd === undefined || followerEnd <= 0.01
   const superseded = input.superseded === true
   const notJudged = (name: CrossfadeCheck["name"]): CrossfadeCheck => ({ name, ok: true, text: "superseded by the next run, not judged" })
-  const starts = startsOf(series)
+  const starts = [...startsOf(series), ...landsOf(series, superseded)]
   if (series?.back === true) {
     return [
       ...starts,
