@@ -14,7 +14,10 @@
  *   blends the twin's look into the Lead's own, the Follower drawn with it, and the toggle back,
  *   with nothing left on screen, blends opacity too.
  * - **in place**: ▶ and ⏸ at one box; Toggle in place mounts ⏸ on ▶. Nothing moves, and they
- *   still crossfade (Motion's: any handover animates). Before #5 the swap was instant.
+ *   still crossfade (Motion's: any handover animates). Before #5 the swap was instant. Toggle
+ *   entrance has ⏸ mount inside a container scaling in from 0.8 about the cell's corner (#137): the
+ *   twins' conversions follow that scale each frame, so ⏸ flies from ▶ into it with ▶ drawn on it,
+ *   and the toggle back starts from where ⏸ is drawn.
  * - **nested**: a card holding an avatar, and a modal holding its twin avatar, under
  *   `<AnimatePresence>`; Toggle nested opens and closes the modal. The card and modal crossfade;
  *   the avatars only move, with no fade of their own (Motion's `path.some(hasOpacityCrossfade)`),
@@ -60,6 +63,8 @@ const CELL: JSX.CSSProperties = { position: "relative" }
 const GREY_CELL: JSX.CSSProperties = { position: "relative", background: "#8a8f99", "border-radius": "6px", color: "white" }
 const LABEL: JSX.CSSProperties = { position: "absolute", left: "0", right: "0", bottom: "4px", "text-align": "center", "font-size": "10px", opacity: 0.8 }
 const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
+/** The in-place cell's entrance (#137): the whole cell, scaling about its top-left corner, so ⏸ moves as it grows. */
+const ENTRANCE: JSX.CSSProperties = { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%", "transform-origin": "0px 0px" }
 /** Two rows of two cells, each wide enough for its twins apart. */
 const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "320px" }
 
@@ -293,6 +298,9 @@ const View: ScenarioDef["View"] = (props) => {
   // The overlap twins' looks (#166): A rounded, tilted and at 0.6 opacity, B square. A radius is read
   // at a twin's first measure, so a toggle mounts the pair afresh, under their own layoutId.
   const [shaped, setShaped] = createSignal(false)
+  // The in-place cell's ⏸ mounts in a container scaling in from 0.8 (#137): the twin flies into a
+  // container Wardic is scaling, which the twins' conversions follow each frame.
+  const [entrance, setEntrance] = createSignal(false)
   const OverlapTwins = (p: { readonly shape: boolean }) => {
     const id = p.shape ? "lab-s16-shape" : "lab-s16-overlap"
     return (
@@ -397,7 +405,11 @@ const View: ScenarioDef["View"] = (props) => {
           <div style={CELL} data-cell="in-place">
             <wardic.div ref={keep("play")} layoutId="lab-s16-in-place" style={box(76, 40, 56, 40, ACCENT, 1)}>▶</wardic.div>
             <Show when={inPlace()}>
-              <wardic.div ref={keep("pause")} layoutId="lab-s16-in-place" style={box(76, 40, 56, 40, ALT, 1)}>⏸</wardic.div>
+              <Show when={entrance()} fallback={<wardic.div ref={keep("pause")} layoutId="lab-s16-in-place" style={box(76, 40, 56, 40, ALT, 1)}>⏸</wardic.div>}>
+                <wardic.div data-entrance initial={{ scale: 0.8 }} animate={{ scale: 1 }} style={ENTRANCE}>
+                  <wardic.div ref={keep("pause")} layoutId="lab-s16-in-place" style={box(76, 40, 56, 40, ALT, 1)}>⏸</wardic.div>
+                </wardic.div>
+              </Show>
             </Show>
             <span style={LABEL}>in place</span>
           </div>
@@ -440,6 +452,9 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="toggle-in-place" onClick={toggleInPlace}>
           Toggle in place
         </button>
+        <button type="button" class="btn secondary small" data-action="toggle-entrance" onClick={() => setEntrance(!entrance())}>
+          Toggle entrance
+        </button>
         <button type="button" class="btn secondary small" data-action="toggle-nested" onClick={toggleNested}>
           Toggle nested
         </button>
@@ -462,7 +477,7 @@ export const s16: ScenarioDef = {
   boardLines: CROSSFADE_CHECK_NAMES,
   title: "crossfade (layoutId twins)",
   mechanism:
-    "Toggle overlap mounts a twin beside a live one, Toggle scale gives the two their own scales, and Toggle shape a rounded, tilted, translucent A and a square B; Toggle in place mounts one on the other at its box; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on where it starts, the Follower drawn on its Lead, the twin's look blended into the Lead's, and its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
+    "Toggle overlap mounts a twin beside a live one, Toggle scale gives the two their own scales, and Toggle shape a rounded, tilted, translucent A and a square B; Toggle in place mounts one on the other at its box, and Toggle entrance inside a container scaling in; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on where it starts, the Follower drawn on its Lead, the twin's look blended into the Lead's, and its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
   prediction: "safe",
   rationale:
     "Motion's crossfade (motion-dom 13.3.0, mix-values.ts): the Lead fades in over the first half of the handover " +
@@ -472,6 +487,7 @@ export const s16: ScenarioDef = {
     "for its lock and ride it (#169; Motion leaves them where they sit on the page). A handover starts where its twin " +
     "is drawn, own scale and all, and a Follower is drawn where its Lead is (#8, Motion's lead.latestValues); a Lead " +
     "with its own scale starts drawn on its twin, where Motion jumps. The twin's border radius and rotation, and in a " +
-    "Switch its opacity, ease into the Lead's own (#166, Motion's mixValues). ADR-0010, Amendment (#5).",
+    "Switch its opacity, ease into the Lead's own (#166, Motion's mixValues). The twins' conversions follow the translate and " +
+    "scale Wardic animates on their ancestors each frame (#137), where Motion starts 80px off. ADR-0010, Amendment (#5).",
   View,
 }

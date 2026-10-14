@@ -53,7 +53,7 @@ Under reduced motion, a run's Positional keys landing where the run would end, i
 _Avoid_: jump, skip, instant animation (Motion's `type: false`).
 
 **Frame loop**:
-The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74, and dom's projection coordinator is one of its runs from #75 (ADR-0027).
+The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74, and dom's projection coordinator is one of its runs from #75. Within a tick, runs step in the order they were added, and the projection coordinator after all of them, so it reads what they wrote that tick (ADR-0027).
 _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is one of its runs), ticker, driver, scheduler (Effect's).
 
 ### Lifecycle
@@ -236,7 +236,7 @@ The coordinate frame a **Projection node**'s box is stored in so neither scroll 
 _Avoid_: scroll compensation, document frame (reserve "stable" for this specific fold).
 
 **Root frame**:
-The coordinate frame **Shared layout** twins are compared in: a box as painted (its ancestors' transforms applied, and a twin's own motion when it's where a handover starts) plus the scroll of the projection tree's root (the page, in a browser), with nested `layoutScroll` container scroll left as rendered — Motion's `measuredBox`. Unlike the **Scroll-stable frame**, it doesn't depend on which containers or transformed ancestors a node sits in, so two twins' boxes are directly comparable. A box in it is converted into a twin's scroll-stable frame through that twin's containers' scroll and its ancestors' transforms as of its last pass. That covers a crossfade's origin, a Switch seed at first measure, and a Follower locked onto its Lead (#136). A **scroll root** cuts its subtree off from the root's scroll, so no root scroll is added there (ADR-0012, *Amendment (#13)*).
+The coordinate frame **Shared layout** twins are compared in: a box as painted (its ancestors' transforms applied, and a twin's own motion when it's where a handover starts) plus the scroll of the projection tree's root (the page, in a browser), with nested `layoutScroll` container scroll left as rendered — Motion's `measuredBox`. Unlike the **Scroll-stable frame**, it doesn't depend on which containers or transformed ancestors a node sits in, so two twins' boxes are directly comparable. A box in it is converted into a twin's scroll-stable frame through that twin's containers' scroll and its ancestors' transforms: the translate and scale Wardic animates on them followed each frame, any other as of its last pass. That covers a crossfade's origin, a Switch seed at first measure, a Lead's flight, and a Follower locked onto its Lead (#136, #137). A **scroll root** cuts its subtree off from the root's scroll, so no root scroll is added there (ADR-0012, *Amendment (#13)*).
 _Avoid_: page frame, document frame (browser words for the same thing).
 
 **Resize block**:

@@ -173,7 +173,7 @@ describe("a scroll root switching is a change of frame, not a move (#7)", () => 
     const box = el(root, `${AT_300};overflow:auto`)
     const b = register(e, "box", box, { layoutScroll: true })
     const child = el(box, "position:absolute;top:20px;left:20px;width:60px;height:40px")
-    const c = register(e, "c", child)
+    register(e, "c", child)
     await endOfTask()
     fireFrame()
     window.scrollTo(0, 300)

@@ -53,7 +53,7 @@
  */
 import * as Box from "@wardic/core/Box"
 import type * as Frame from "@wardic/core/Frame"
-import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Microtask from "@wardic/core/Microtask"
 import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
@@ -72,6 +72,7 @@ import * as Match from "effect/Match"
 import { constFalse, constTrue, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
+import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import {
   type Holdable,
@@ -295,16 +296,192 @@ const anchorPointOf = (box: Box.Box, anchor: Point.Point): Point.Point => ({
 })
 
 /**
- * `box`, in `node`'s frame, as `node`'s ancestors that aren't nodes paint it (ADR-0012,
- * *Amendment (#136)*). Unchanged when none of them moves it. Per frame for a Follower.
+ * What a Measure pass read of an ancestor whose transform moves a twin (ADR-0012, *Amendment
+ * (#137)*): its transform origin on the page, with its transform held, and its transform then, as
+ * a map. `undefined` map: the pass couldn't express it as a translate and a scale (a rotation or
+ * skew, an individual `translate`/`scale`/`rotate` property, or a transform held by a running
+ * transition), so a twin under it is converted as of the pass.
+ */
+interface AncestorRead {
+  readonly origin: Point.Point
+  readonly pass: PaintMap | undefined
+}
+
+/**
+ * One ancestor of a twin whose transform moves it (ADR-0012, *Amendment (#137)*), in the twin's
+ * frame: an element, by its origin and its transform at the pass, or a projection node, whose own
+ * scale (#8) is drawn about its box's centre (`offset`: from the node's frame to the twin's).
+ */
+type PaintLink =
+  | { readonly kind: "element"; readonly element: Element; readonly origin: Point.Point; readonly pass: PaintMap }
+  | { readonly kind: "node"; readonly node: NodeState; readonly offset: Point.Point }
+
+/** No links: an ancestor that doesn't move the twin, or the top of the chain. */
+const NO_LINKS: ReadonlyArray<PaintLink> = []
+
+/**
+ * An axis-aligned map, `p → s·p + t` on each axis: a translate and a scale (ADR-0012, *Amendment
+ * (#137)*). What a twin's ancestors' transforms do to its box, composed.
+ */
+interface PaintMap {
+  readonly sx: number
+  readonly sy: number
+  readonly tx: number
+  readonly ty: number
+}
+
+/**
+ * A {@link PaintMap} being composed, outermost link first, written in place: a conversion allocates
+ * this one map, not one per link (ADR-0025's per-frame forms).
+ */
+interface PaintAcc {
+  sx: number
+  sy: number
+  tx: number
+  ty: number
+}
+
+/** A translate `(tx, ty)` and a scale `(sx, sy)` about `origin`, as CSS composes them: `p → origin + t + s·(p − origin)`. Read phase. */
+const mapAbout = (origin: Point.Point, tx: number, ty: number, sx: number, sy: number): PaintMap => ({
+  sx,
+  sy,
+  tx: origin.x + tx - sx * origin.x,
+  ty: origin.y + ty - sy * origin.y,
+})
+
+/** `acc`, then {@link mapAbout}'s map about `(ox, oy)`, written in place. Per frame: positional. */
+const composeAbout = (acc: PaintAcc, ox: number, oy: number, tx: number, ty: number, sx: number, sy: number): void => {
+  acc.tx += acc.sx * (ox + tx - sx * ox)
+  acc.ty += acc.sy * (oy + ty - sy * oy)
+  acc.sx *= sx
+  acc.sy *= sy
+}
+
+/** `acc`, then `map`, written in place. Per frame. */
+const composeMap = (acc: PaintAcc, map: PaintMap): void => {
+  acc.tx += acc.sx * map.tx
+  acc.ty += acc.sy * map.ty
+  acc.sx *= map.sx
+  acc.sy *= map.sy
+}
+
+/** One axis of `box` through `s·v + t`, min and max kept in order. */
+const mapAxis = (axis: Box.Axis, s: number, t: number): Box.Axis => {
+  const a = s * axis.min + t
+  const b = s * axis.max + t
+  return { min: Math.min(a, b), max: Math.max(a, b) }
+}
+
+/** `box` through `map`. Per frame. */
+const mapBox = (map: PaintMap, box: Box.Box): Box.Box => ({ x: mapAxis(box.x, map.sx, map.tx), y: mapAxis(box.y, map.sy, map.ty) })
+
+/** `box` back through `map`: its inverse, or `box` as it is when `map` collapses an axis. Per frame. */
+const unmapBox = (map: PaintMap, box: Box.Box): Box.Box => {
+  if (Math.abs(map.sx) < 1e-9) return box
+  if (Math.abs(map.sy) < 1e-9) return box
+  return { x: mapAxis(box.x, 1 / map.sx, -map.tx / map.sx), y: mapAxis(box.y, 1 / map.sy, -map.ty / map.sy) }
+}
+
+/** Whether a string ends in `px`: built once, since `Str.endsWith` builds its check per call. */
+const endsWithPx = Str.endsWith("px")
+
+/** A `px` string's number; `undefined` for any other unit. Per frame. */
+const pxStringOf = (value: string): number | undefined => {
+  if (endsWithPx(value)) return Number.parseFloat(value)
+  return undefined
+}
+
+/** A translate value in px: absent (0), a number, or a `px` string; `undefined` for any other unit. Per frame. */
+const pxOf = (value: unknown): number | undefined => {
+  if (Predicate.isUndefined(value)) return 0
+  if (Predicate.isNumber(value)) return value
+  if (Predicate.isString(value)) return pxStringOf(value)
+  return undefined
+}
+
+/** A scale value: absent (1), or a number; `undefined` for anything else. Per frame. */
+const scaleOf = (value: unknown): number | undefined => {
+  if (Predicate.isUndefined(value)) return 1
+  if (Predicate.isNumber(value)) return value
+  return undefined
+}
+
+/** The keys that would take a box out of axis alignment. */
+const UNMAPPABLE_KEYS = ["rotate", "rotateX", "rotateY", "rotateZ", "skew", "skewX", "skewY"] as const
+/** The keys a translate and a scale draw from (the renderer's order: translate, then scale). */
+const MAPPABLE_KEYS = ["x", "y", "translateX", "translateY", "scale", "scaleX", "scaleY"] as const
+
+/** Whether a value draws nothing: absent, or 0 in any unit. Per frame. */
+const isZeroValue = (value: unknown): boolean => {
+  if (Predicate.isUndefined(value)) return true
+  if (Predicate.isNumber(value)) return value === 0
+  if (Predicate.isString(value)) return Number.parseFloat(value) === 0
+  return false
+}
+
+/** Whether `values` draw a rotation or a skew. Per frame. */
+const drawsUnmappable = (values: Readonly<Record<string, unknown>>): boolean => {
+  for (let i = 0; i < UNMAPPABLE_KEYS.length; i++) if (Bool.not(isZeroValue(values[UNMAPPABLE_KEYS[i]]))) return true
+  return false
+}
+
+/** Whether `values` draw a translate or a scale: a transform of Wardic's. Per frame. */
+const drawsTranslateOrScale = (values: Readonly<Record<string, unknown>>): boolean => {
+  for (let i = 0; i < MAPPABLE_KEYS.length; i++) if (Predicate.isNotUndefined(values[MAPPABLE_KEYS[i]])) return true
+  return false
+}
+
+/**
+ * `acc`, then the translate and scale Wardic draws on an element from its `values`, about `origin`
+ * (ADR-0012, *Amendment (#137)*). `false`, `acc` untouched, when its values draw none (no transform
+ * key: not Wardic's) or one this can't map (a rotation or skew, a translate in another unit). Per
+ * frame: each value checked in an early return.
+ */
+const composeValues = (acc: PaintAcc, values: Readonly<Record<string, unknown>>, origin: Point.Point): boolean => {
+  if (drawsUnmappable(values)) return false
+  if (Bool.not(drawsTranslateOrScale(values))) return false
+  const x = pxOf(values.x)
+  if (Predicate.isUndefined(x)) return false
+  const y = pxOf(values.y)
+  if (Predicate.isUndefined(y)) return false
+  const translateX = pxOf(values.translateX)
+  if (Predicate.isUndefined(translateX)) return false
+  const translateY = pxOf(values.translateY)
+  if (Predicate.isUndefined(translateY)) return false
+  const scale = scaleOf(values.scale)
+  if (Predicate.isUndefined(scale)) return false
+  const scaleX = scaleOf(values.scaleX)
+  if (Predicate.isUndefined(scaleX)) return false
+  const scaleY = scaleOf(values.scaleY)
+  if (Predicate.isUndefined(scaleY)) return false
+  composeAbout(acc, origin.x, origin.y, x + translateX, y + translateY, scale * scaleX, scale * scaleY)
+  return true
+}
+
+/** A number, or 0 when it isn't finite. */
+const finiteOrZero = (n: number): number => Bool.match(Number.isFinite(n), { onTrue: () => n, onFalse: () => 0 })
+
+/** One computed `transform-origin` component in px: 0 when it's missing. Read phase only. */
+const originPxOf = (value: string | undefined): number =>
+  UndefinedOr.match(value, { onUndefined: () => 0, onDefined: (s) => finiteOrZero(Number.parseFloat(s)) })
+
+/**
+ * `box`, in `node`'s frame, as `node`'s ancestors paint it (ADR-0012, *Amendment (#136)*):
+ * unchanged when none of them moves it. A twin whose chain the pass could map follows them as they
+ * are now, its node ancestors' own scale included (*Amendment (#137)*); any other node, as the pass
+ * found them. Per frame for a Follower.
  */
 const paintedOf = (node: NodeState, box: Box.Box): Box.Box => {
+  const live = node.paintMapNow
+  if (Predicate.isNotUndefined(live)) return mapBox(live(), box)
   if (Predicate.isUndefined(node.paintDelta)) return box
   return Projection.applyBoxDelta(box, node.paintDelta)
 }
 
 /** A box as painted, in `node`'s frame: the inverse of {@link paintedOf}. */
 const unpaintedOf = (node: NodeState, box: Box.Box): Box.Box => {
+  const live = node.paintMapNow
+  if (Predicate.isNotUndefined(live)) return unmapBox(live(), box)
   if (Predicate.isUndefined(node.unpaintDelta)) return box
   return Projection.applyBoxDelta(box, node.unpaintDelta)
 }
@@ -492,6 +669,13 @@ export interface ProjectionSystem {
    * callback back. Presence keeps ADR-0007 ownership of retention + DOM removal.
    */
   readonly handleLeave: (el: HTMLElement, onDone: () => void) => boolean
+  /**
+   * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
+   * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
+   * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
+   * Returns the unregistration, for the element's dispose.
+   */
+  readonly registerValues: (el: Element, read: () => Readonly<Record<string, unknown>>) => () => void
   /** Stop the coordinator's run + tear down the observer (wired into the provider's onCleanup). */
   readonly dispose: () => void
 }
@@ -542,6 +726,12 @@ interface NodeState {
    */
   paintDelta: Projection.Delta | undefined
   unpaintDelta: Projection.Delta | undefined
+  /**
+   * A twin's ancestors' transforms as they are now (ADR-0012, *Amendment (#137)*): the translate
+   * and scale Wardic animates on them read each call, any other as of the last pass. Set when the
+   * pass could map them all, so it stands in for {@link paintDelta}; `undefined` otherwise.
+   */
+  paintMapNow: (() => PaintMap) | undefined
   /**
    * This node's box as its last pass read it, with its ancestors' transforms still on
    * (ADR-0012, *Amendment (#136)*). A pass that reads the same knows nothing moved the
@@ -1724,6 +1914,116 @@ export const makeProjectionSystem = (
    * (#136)*) reads current values from it: a property read per pass, not a call.
    */
   const computedStyles = new WeakMap<Element, CSSStyleDeclaration>()
+
+  /** Every element's values, as its binding last wrote them (ADR-0012, *Amendment (#137)*). */
+  const elementValues = new WeakMap<Element, () => Readonly<Record<string, unknown>>>()
+  /** The elements this pass found moving nodes with a transform a running transition holds: not mapped. */
+  const passUnheld = new Set<Element>()
+
+  /**
+   * `el`'s transform as the pass found it, as a matrix's scale and translate (ADR-0012, *Amendment
+   * (#137)*), or `undefined` when it isn't a translate and a scale: a rotation or skew, a 3D one, or
+   * an individual `translate`/`scale`/`rotate` property. Read before the hold. Read phase only.
+   */
+  const passTransformOf = (el: Element, style: TransformStyle): { readonly a: number; readonly d: number; readonly e: number; readonly f: number } | undefined => {
+    if (style.moved.length !== 1) return undefined
+    if (style.moved[0] !== "transform") return undefined
+    const m = new DOMMatrix(computedOf(el).transform)
+    if (Bool.not(m.is2D)) return undefined
+    if (m.b !== 0) return undefined
+    if (m.c !== 0) return undefined
+    return { a: m.a, d: m.d, e: m.e, f: m.f }
+  }
+
+  /** `el`'s computed `transform-origin`, in px from its border box's top-left. Read phase only. */
+  const transformOriginOf = (el: Element): Point.Point => {
+    const [x, y] = computedOf(el).transformOrigin.split(" ")
+    return { x: originPxOf(x), y: originPxOf(y) }
+  }
+
+  /** `map` in a frame `shift` away: conjugated by the translation, so it maps that frame's boxes. */
+  const inFrame = (map: PaintMap, shift: Point.Point): PaintMap => ({
+    sx: map.sx,
+    sy: map.sy,
+    tx: map.tx + shift.x - map.sx * shift.x,
+    ty: map.ty + shift.y - map.sy * shift.y,
+  })
+
+  /** Whether `el` is where a twin's chain stops: the document's `<body>` or root. */
+  const isDocumentTop = (el: Element): boolean => Bool.or(el === el.ownerDocument.body, el === el.ownerDocument.documentElement)
+
+  /**
+   * What ancestor `el` adds to a twin's chain (ADR-0012, *Amendment (#137)*), in the twin's frame
+   * (`shift` from the page's): a node link, an element link the pass read, none when it doesn't move
+   * the twin, or `undefined` when it moves it in a way that can't be mapped. Read phase only.
+   */
+  const linksAt = (el: HTMLElement, reads: ReadonlyMap<Element, AncestorRead>, shift: Point.Point, documentScroll: Point.Point): ReadonlyArray<PaintLink> | undefined => {
+    const ancestor = elementToNode.get(el)
+    if (Predicate.isNotUndefined(ancestor)) {
+      const at = scrollOffset(ancestor, documentScroll)
+      return [{ kind: "node", node: ancestor, offset: { x: shift.x - at.x, y: shift.y - at.y } }]
+    }
+    if (passUnheld.has(el)) return undefined
+    const read = reads.get(el)
+    if (Predicate.isUndefined(read)) return NO_LINKS
+    return UndefinedOr.map(
+      read.pass,
+      (pass): ReadonlyArray<PaintLink> => [{ kind: "element", element: el, origin: { x: read.origin.x + shift.x, y: read.origin.y + shift.y }, pass: inFrame(pass, shift) }],
+    )
+  }
+
+  /** The chain from `el` up to `<body>`, outermost first; `undefined` when a link in it can't be mapped. Read phase only. */
+  const chainFrom = (el: HTMLElement | null, reads: ReadonlyMap<Element, AncestorRead>, shift: Point.Point, documentScroll: Point.Point): ReadonlyArray<PaintLink> | undefined => {
+    if (Predicate.isNull(el)) return NO_LINKS
+    if (isDocumentTop(el)) return NO_LINKS
+    const above = chainFrom(el.parentElement, reads, shift, documentScroll)
+    if (Predicate.isUndefined(above)) return undefined
+    return UndefinedOr.map(linksAt(el, reads, shift, documentScroll), (own) => Arr.appendAll(above, own))
+  }
+
+  /**
+   * The ancestors of twin `node` whose transforms move it, outermost first, in its frame (ADR-0012,
+   * *Amendment (#137)*): each element this pass found moving it, and each projection node above it,
+   * for its own scale (#8). `undefined` when one can't be mapped, so it's converted as of the pass
+   * ({@link NodeState.paintDelta}). Read phase only.
+   */
+  const paintChainOf = (node: NodeState, reads: ReadonlyMap<Element, AncestorRead>, documentScroll: Point.Point): ReadonlyArray<PaintLink> | undefined =>
+    chainFrom(node.element.parentElement, reads, scrollOffset(node, documentScroll), documentScroll)
+
+  /** `acc`, then a projection node's own scale (#8), drawn about its box's centre, in the twin's frame. Per frame. */
+  const composeOwnScale = (acc: PaintAcc, node: NodeState, offset: Point.Point): void => {
+    const box = boxOf(node)
+    if (Predicate.isUndefined(box)) return
+    const own = node.ownScale()
+    composeAbout(acc, (box.x.min + box.x.max) / 2 + offset.x, (box.y.min + box.y.max) / 2 + offset.y, 0, 0, own.x, own.y)
+  }
+
+  /**
+   * `acc`, then what one link does now (ADR-0012, *Amendment (#137)*): an element's translate and
+   * scale from the values Wardic last wrote, when they draw it and can be mapped, else its transform
+   * at the pass; a node's own scale. Per frame.
+   */
+  const composeLink = (acc: PaintAcc, link: PaintLink): void => {
+    if (link.kind === "node") {
+      composeOwnScale(acc, link.node, link.offset)
+      return
+    }
+    const read = elementValues.get(link.element)
+    if (Predicate.isUndefined(read)) {
+      composeMap(acc, link.pass)
+      return
+    }
+    if (composeValues(acc, read(), link.origin)) return
+    composeMap(acc, link.pass)
+  }
+
+  /** A twin's chain composed now, outermost first, into one map. Per frame. */
+  const composeLinks = (links: ReadonlyArray<PaintLink>): PaintMap => {
+    const acc: PaintAcc = { sx: 1, sy: 1, tx: 0, ty: 0 }
+    for (let i = 0; i < links.length; i++) composeLink(acc, links[i])
+    return acc
+  }
+
   const computedOf = (el: Element): CSSStyleDeclaration =>
     UndefinedOr.match(computedStyles.get(el), {
       onDefined: identity,
@@ -1804,6 +2104,7 @@ export const makeProjectionSystem = (
     const style = transformStyleFrom(computedOf(el))
     if (Arr.isReadonlyArrayEmpty(style.moved)) return false
     if (Bool.not(transitionRunning(el))) holds.push([el, style])
+    else passUnheld.add(el)
     return true
   }
 
@@ -2177,6 +2478,9 @@ export const makeProjectionSystem = (
     // The nodes a transform that isn't the projection's moves (their indices), and each one's box as painted.
     const under: Array<number> = []
     const paintedBoxes: Array<Box.Box> = []
+    // Each ancestor that moves a node with a transform: its origin, and its transform as a map (#137).
+    const ancestorReads = new Map<Element, AncestorRead>()
+    passUnheld.clear()
     let holds: ReadonlyArray<TransformHold> = []
     let documentScroll: Point.Point
     try {
@@ -2223,6 +2527,7 @@ export const makeProjectionSystem = (
         }
         moved.push(true)
         node.seenBox = offsetBox(viewportBoxes[i], shift)
+        node.paintMapNow = undefined
         // Its paint deltas are this pass's to set again, below.
         if (painted.delete(node)) {
           node.paintDelta = undefined
@@ -2231,7 +2536,18 @@ export const makeProjectionSystem = (
         if (transformedFrom(node.element.parentElement, transformMemo, wanted)) under.push(i)
       }
       // --- WRITE: hold the ancestors that carry a transform at their identity. -----
+      // Their transforms as they are, before the hold sets them to identity (ADR-0012, *Amendment (#137)*).
+      const passTransforms = Arr.map(wanted, ([el, style]) => passTransformOf(el, style))
       holds = Arr.map(wanted, ([el, style]) => holdTransform(el, style))
+      // --- READ: each one's box, held, and so its transform origin on the page. ------
+      Arr.forEach(wanted, ([el], k) => {
+        const box = el.getBoundingClientRect()
+        const origin = transformOriginOf(el)
+        ancestorReads.set(el, {
+          origin: { x: box.left + origin.x, y: box.top + origin.y },
+          pass: UndefinedOr.map(passTransforms[k], (m) => mapAbout({ x: box.left + origin.x, y: box.top + origin.y }, m.e, m.f, m.a, m.d)),
+        })
+      })
       // --- READ: those nodes' boxes again, with nothing transformed. ----------
       if (Arr.isArrayNonEmpty(wanted)) {
         for (const i of under) {
@@ -2273,6 +2589,15 @@ export const makeProjectionSystem = (
         painted.add(node)
       })
     }
+
+    // Each moved twin's chain of ancestors whose transforms move it (ADR-0012, *Amendment (#137)*): its
+    // conversions follow the translate and scale Wardic animates on them, and its node ancestors' own
+    // scale, each time they're made. One it can't map keeps the paint deltas above, as of this pass.
+    Arr.forEach(ordered, (node, i) => {
+      if (Predicate.isUndefined(node.layoutId)) return
+      if (Bool.not(moved[i])) return
+      node.paintMapNow = UndefinedOr.map(paintChainOf(node, ancestorReads, documentScroll), (links) => () => composeLinks(links))
+    })
 
     // Each node's box and delta as the pass begins (#146): a restart starts from where its node,
     // and its relative parent, paint then, and the loop below changes both.
@@ -2977,14 +3302,17 @@ export const makeProjectionSystem = (
    * burst's `Clock.ticks` subscription is made in this call, and the nodes take their first
    * step at the next Refresh frame's tick, cold or warm (ADR-0033). Added during a tick (from
    * another run's continuation), it's stepped from the next one (ADR-0027, decision 5).
+   *
+   * It runs in the loop's last lane (`runLast`, ADR-0027 *Amendment (#137)*): each tick it steps
+   * after every spine leg, so what it reads of their values (an ancestor's translate and scale, a
+   * twin's own scale, rotation and opacity) is what that tick paints, whichever was added first.
    */
   const ensureRunning = (): void => {
     if (coordinating() || active.size === 0) return
     FiberHandle.setUnsafe(
       coordinator,
       runtime.runFork(
-        coordinatorMachine().pipe(
-          Machine.run(ignoreFrame),
+        FrameLoop.FrameLoop.use((loop) => loop.runLast(coordinatorMachine(), ignoreFrame)).pipe(
           Effect.onExit(coordinatorEnded),
           Effect.asVoid,
         ),
@@ -3090,6 +3418,7 @@ export const makeProjectionSystem = (
     seed: undefined,
     paintDelta: recent.paintDelta,
     unpaintDelta: recent.unpaintDelta,
+    paintMapNow: undefined,
     seenBox: undefined,
     retained: recent.box,
     origin: undefined,
@@ -3237,6 +3566,7 @@ export const makeProjectionSystem = (
       layoutId: opts.layoutId,
       seed: undefined,
       paintDelta: undefined,
+      paintMapNow: undefined,
       unpaintDelta: undefined,
       seenBox: undefined,
       retained: undefined,
@@ -3483,7 +3813,14 @@ export const makeProjectionSystem = (
     passEndListeners.clear()
   }
 
-  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, dispose }
+  const registerValues: ProjectionSystem["registerValues"] = (el, read) => {
+    elementValues.set(el, read)
+    return () => {
+      if (elementValues.get(el) === read) elementValues.delete(el)
+    }
+  }
+
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, dispose, registerValues }
   passEnds.set(system, passEndListeners)
   return system
 }

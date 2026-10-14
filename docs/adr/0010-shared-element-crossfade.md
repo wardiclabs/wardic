@@ -63,7 +63,7 @@ ADR-0009 established box projection as the only model where scale-correction, sc
 ADR-0012's *Amendment (#136)* takes every ancestor transform out of a node's box. Twins are still compared where they paint, so that a twin inside a modal centred or scaled by a transform starts and follows from where the other twin is on screen.
 - A twin read with its ancestors held also keeps its box as painted, and the two give it a paint delta and its inverse.
 - A box crossing from one twin to the other goes through both: painted out of the first twin's frame, unpainted into the second's. That covers the crossfade's origin (from the prior Lead's box), the Switch seed at the enterer's first measure (and the seed of a leaver already detached at dispose, taken from its stored box), a Follower locked onto its Lead, and a leaving Follower made from a recent leaver. Promotion converts its origin the same way.
-- The conversion is exact for translate and scale, and axis-aligned under a rotation. It uses each twin's deltas as of its last pass, so an ancestor transform that changes mid-flight drifts until the animation ends (#137).
+- The conversion is exact for translate and scale, and axis-aligned under a rotation. It uses each twin's deltas as of its last pass, so an ancestor transform that changes mid-flight drifts until the animation ends (#137). ADR-0012 *Amendment (#137)* follows the translate and scale Wardic animates on them each frame.
 - The cross-container follow-up above is now about scroll only: the crossfade's origin goes through the twins' transforms, but not yet through the difference of their containers' scrolls.
 
 ## Note (velocity family, 2026-10-12): only a handover crossfades
@@ -289,7 +289,7 @@ Grilled 2026-10-14:
    - Rejected: reading the drawn box from the DOM at each handover. It can't read a twin off the page, can't separate a new Lead's own scale (3) or a Follower's (2), forces a layout read at dispose, and takes a rotated twin's bounding box.
    - A leaving node is committed with its projection alone, so it's drawn with no own scale, and its node has none.
 
-**Out of scope:** `rotate` and `skew` (how twins share them belongs with #166's rotation blend, *Amendment (#166)* below), and an own scale on a *node ancestor* of a twin (a `layout` container held at a scale), which scales the twin through CSS and still isn't counted, as before.
+**Out of scope:** `rotate` and `skew` (how twins share them belongs with #166's rotation blend, *Amendment (#166)* below), and an own scale on a *node ancestor* of a twin (a `layout` container held at a scale), which scales the twin through CSS and still isn't counted, as before. ADR-0012 *Amendment (#137)* counts it in the twins' conversions.
 
 **The lab:** scenario 16's overlap cell gets **Toggle scale**: A held at its own `scale: 1.4`, and B mounting at 0.8. Every run gains a **`follows`** line: while the Follower shows, it's drawn on its Lead within 0.5 px every frame. **`starts`** now measures the furthest edge, so a size jump counts. The scripted driver (`.tmp/5/drive16.ts`) toggles the scaled overlap mid-flight both ways, then at rest:
 - **This branch:** all 34 runs pass, 0 page errors, every Follower within 0.01 px of its Lead.
