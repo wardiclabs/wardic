@@ -15,9 +15,14 @@
  * `run.ts` builds one bundle of this file per core (a base ref and the working tree) and runs
  * them in Bun, Node and Chromium. It reads core's modules (ADR-0028), so a base ref is #95 or later.
  */
+/// <reference path="./culori.d.ts" />
+import { formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import * as Scheduler from "effect/Scheduler"
 import * as Stream from "effect/Stream"
 import { AtomRegistry } from "effect/reactivity"
@@ -92,8 +97,9 @@ const STRING_TO = { "background-color": "#ffffff", width: "200px", "pointer-even
 
 /**
  * Two complex values of one structure each (ADR-0015): an icon-sized SVG `d` (20 numbers) and a
- * `box-shadow`, whose `rgba()` blends as a colour since #61 (as plain numbers before). Through
- * `complex`, the only tier the string workloads above don't reach (#65).
+ * `box-shadow`, whose `rgba()` blends as a colour since #61 (as plain numbers before), through the
+ * harness's colours since #160 (`registryOf`). Through `complex`, the only tier the string
+ * workloads above don't reach (#65).
  */
 const COMPLEX_FROM = (i: number) => ({
   d: `M${spread(i, 10, 4).toFixed(2)} 2 C6.48 2 2 6.48 2 12 S6.48 22 12 22 S22 17.52 22 12 S17.52 2 12 2 Z`,
@@ -187,6 +193,43 @@ const WORKLOADS: ReadonlyArray<Workload> = [
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
 
+/** A colour as culori holds it. */
+type Color = { readonly mode: string; readonly [channel: string]: number | string | undefined }
+
+const isColor = (value: unknown): value is Color => Predicate.hasProperty(value, "mode")
+
+/** culori's `parse`, trimmed, with a throw or a rejection read as no colour. */
+const parseColor = (input: string): Option.Option<Color> =>
+  Option.filter(Option.flatMap(Option.liftThrowable(culoriParse)(input.trim()), Option.fromUndefinedOr), isColor)
+
+/** A colour inside a complex value (`@wardic/dom`'s `COLOR_TOKEN`). */
+const COLOR_TOKEN = /#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+){2}-?[\d.]+%?\s*(?:[,/]\s*)?(?:\b\d+(?:\.\d+)?|\.\d+)?%?\)/
+
+/**
+ * The registry the workloads blend through (#160, ADR-0036). A core before #160 has colours of its
+ * own, `Interpolator.color` (culori in sRGB), in its default registry. Since #160 core has none,
+ * and the harness brings the same colours, as a tier and as a kind of token in the complex tier,
+ * as the DOM Environment registers its own (`@wardic/dom`'s `colors.ts`, which the bundle can't
+ * import: it would bring another core). Both sides blend the same colours the same way, so a
+ * ratio still compares the two cores.
+ */
+const registryOf = (core: Core): Layer.Layer<CoreModule.InterpolatorRegistry.InterpolatorRegistry> => {
+  if ("color" in core.Interpolator) return core.InterpolatorRegistry.layer
+  const color: CoreModule.Interpolator.Entry<Color, string> = {
+    name: "color(rgb)",
+    codec: Schema.String.pipe(
+      Schema.decodeTo(Schema.declare(isColor), core.Interpolator.parseAndFormat(parseColor, (value: Color) => formatRgb(value))),
+    ),
+    blend: (from, to) => {
+      const at = culoriInterpolate([from, to], "rgb")
+      return Option.some((t: number) => formatRgb(at(t)))
+    },
+  }
+  const complex = core.Interpolator.complexWith({ tokens: [{ pattern: COLOR_TOKEN, entry: color }] })
+  const entries = [core.Interpolator.number, core.Interpolator.array, color, core.Interpolator.unit, complex]
+  return Layer.effect(core.InterpolatorRegistry.InterpolatorRegistry)(core.InterpolatorRegistry.make(entries))
+}
+
 const quantile = (xs: ReadonlyArray<number>, p: number): number =>
   [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) * p)]!
 
@@ -214,11 +257,16 @@ const manualFrames = () => {
   }
 }
 
-const runRound = async (core: Core, workload: Workload, options: Options) => {
+const runRound = async (
+  core: Core,
+  registry: Layer.Layer<CoreModule.InterpolatorRegistry.InterpolatorRegistry>,
+  workload: Workload,
+  options: Options,
+) => {
   const frames = manualFrames()
   const services = Layer.mergeAll(
     Layer.effect(core.Clock.Clock)(core.Clock.fromRefreshFrames(frames.source)),
-    core.InterpolatorRegistry.layer,
+    registry,
   )
   // Only the loop workloads build a Frame loop, so the Stream workloads' Environment is the same in both cores.
   let environment: Layer.Layer<any, never, AtomRegistry.AtomRegistry> = services
@@ -309,6 +357,7 @@ const runRound = async (core: Core, workload: Workload, options: Options) => {
 
 /** Run every workload against `core`; registered on `globalThis.__wardicBench` for the runners. */
 export const register = (core: Core): void => {
+  const registry = registryOf(core)
   ;(globalThis as Record<string, unknown>).__wardicBench = async (
     options: Options,
   ): Promise<Record<string, WorkloadResult>> => {
@@ -318,7 +367,7 @@ export const register = (core: Core): void => {
       const starts: Array<number> = []
       const bytes: Array<number> = []
       for (let r = 0; r < options.rounds; r++) {
-        const round = await runRound(core, workload, options)
+        const round = await runRound(core, registry, workload, options)
         if (r === 0) continue
         times.push(...round.times)
         starts.push(round.startMs)

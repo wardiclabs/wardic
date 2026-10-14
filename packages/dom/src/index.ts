@@ -39,9 +39,12 @@ export { isPositional, PositionalKeysDomLive } from "./positional-keys.ts"
 // The DOM Environment's Key rules (ADR-0035): Tier 2. How a CSS property's pair blends by name
 // (display / visibility, the Animatable none, shadow lists), and the registry DomLive provides.
 export { animatableNone, keyRules, visibility } from "./key-rules.ts"
-// The DOM Environment's Interpolators (ADR-0035, *Amendment (#158)*): core's, with CSS's var() as
-// text in the complex tier, and the registry DomLive provides.
-export { cssComplex, interpolators, InterpolatorRegistryDomLive, VARIABLE_REFERENCE } from "./interpolators.ts"
+// The DOM Environment's Interpolators (ADR-0035, ADR-0036): core's, with CSS's colours (culori) as
+// a tier and as a kind of token in the complex tier, CSS's var() as text there, and the registry
+// DomLive provides.
+export { type Color, color, COLOR_TOKEN, ColorString, cssColor } from "./colors.ts"
+export { cssComplex, VARIABLE_REFERENCE } from "./complex.ts"
+export { interpolators, InterpolatorRegistryDomLive } from "./interpolators.ts"
 // Variable values (#55, ADR-0035 *Amendment (#55)*): Tier 2, for binding authors. The Key rule a
 // binding binds to an element for each leg, with core's `InterpolatorRegistry.withKeyRules`.
 export { isVariableValue, resolveVariable, variableValues } from "./variables.ts"

@@ -55,6 +55,8 @@
       "version": "0.1.0-alpha.0",
       "dependencies": {
         "bezier-easing": "^3.0.0",
+      },
+      "devDependencies": {
         "culori": "^4.0.2",
       },
       "peerDependencies": {
@@ -66,6 +68,7 @@
       "version": "0.1.0-alpha.0",
       "dependencies": {
         "@wardic/core": "workspace:*",
+        "culori": "^4.0.2",
       },
       "devDependencies": {
         "@wardic/test": "workspace:*",

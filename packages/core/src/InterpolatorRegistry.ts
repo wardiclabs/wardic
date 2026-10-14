@@ -195,7 +195,7 @@ const CACHE_CAPACITY = 1024
 
 /**
  * Resolved blends of string pairs, by `from`, then `to` (ADR-0026, decision 9). Elements often
- * animate the same pair (a hover colour, `display`), so each pair is decoded
+ * animate the same pair (a hover state's value, `display`), so each pair is decoded
  * and built once per registry, and every stream that resolves it shares the closure. That's safe:
  * the closures are pure, and `complex`'s, which reuses one numbers array, rewrites every number and
  * formats them within each call.
