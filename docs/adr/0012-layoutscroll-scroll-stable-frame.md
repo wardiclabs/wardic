@@ -227,3 +227,57 @@ A box stored while the page's scroll folded into it was compared with one stored
   - a running animation's boxes not carried (SR6).
 
   The sixth leaves the last-seen box uncarried. That only makes the node read as moved, and re-read and folded in its new frame, so it draws the same: the carry saves a read.
+
+## Amendment (#137, 2026-10-14): a twin's conversions follow Wardic's own ancestor transforms each frame
+
+*Amendment (#136)*'s decision 3 converts a `layoutId` twin's boxes through its ancestors' transforms as of its last pass. An ancestor transform that changes while the twin flies was therefore not followed. #137 asked to follow it, as Motion's `applyTreeDeltas` was thought to.
+
+**Probed** (`.tmp/137/probe-137.browser.test.tsx` beside Motion's `.tmp/vel/motion/modal-scale.tsx`): a thumbnail's twin crossfades into a modal that scales in from 0.8, both libraries on a 170/26 spring.
+
+| The modal | Motion 13.3.0 | `main` |
+|---|---|---|
+| An element that isn't a projection node | the Lead starts 80 px off the thumbnail; the twins start 80 px apart and converge as the modal grows | the Lead starts on the thumbnail and ends exactly; the Follower drifts up to 31.6 px off it mid-crossfade, and sits 20 px off at rest, hidden |
+| A `layout` node | the same 80 px start | the Lead starts 82 px off (its own scale wasn't counted for a twin inside it, ADR-0010 *Amendment (#8)*'s limit) |
+
+**Motion doesn't follow them either**, so #137's premise was wrong. In both rows it starts as if the modal were already at full size.
+
+Grilled 2026-10-14:
+
+1. **Wardic goes beyond Motion** (Q1). A twin's conversions follow the translate and scale Wardic animates on its ancestors, every time they're made. That covers the Follower's lock each frame, and where a handover starts (#170, #8). It holds whether or not the ancestor is a projection node: a node ancestor's own scale (#8) counts too.
+   - On the probe, both rows now draw the Follower on the Lead every frame (0.0 px apart), and the Lead starts on its twin.
+   - The Lead's own flight is still interpolated in its frame, under the live ancestors, so it starts and ends exactly. Its middle isn't Motion's page-space path.
+   - Rejected: only ancestors that aren't nodes, which leaves the `layout` modal's jump that Motion shares; recording it as a limit.
+2. **The binding registers every element's values** (Q2): `ProjectionSystem.registerValues(el, read)`, for every Wardic element, from what the binding last wrote (Solid's spine: `snapshot.values`). It costs one map entry per element, and is dropped at dispose.
+   - At the pass, for each ancestor #136's read finds moving a twin, the engine also reads its transform origin and its transform as a matrix. The transform is read before the hold, which sets it to identity; the box is read while held.
+   - Each moved twin keeps a chain of those ancestors, and of the projection nodes above it, outermost first, in its frame.
+   - A conversion composes the chain: an element from its current values when they draw it and can be mapped, else its transform at the pass; a node's own scale about its box's centre.
+   - Rejected: reading the computed transform each frame, which forces a style recalculation in the tick; reading the gate's entries, which needs the binding's element-to-id map anyway.
+3. **Translate and scale only** (Q3), as Motion's `transformBox`: `x`, `y`, `translateX`, `translateY` in px, `scale`, `scaleX`, `scaleY`, composed in the renderer's order (translate, then scale) about the ancestor's transform origin.
+   - Anything else makes the twin's whole chain fall back to *Amendment (#136)*'s deltas as of the pass: an ancestor whose transform at the pass has a rotation or skew, or is 3D, or uses an individual `translate`/`scale`/`rotate` property, or is held by a running transition.
+   - An ancestor whose values draw a rotation, a skew or a translate in another unit, or that isn't Wardic's, keeps its transform as of the pass inside a chain that maps.
+   - An ancestor that carried no transform at the pass, and starts one after, isn't followed.
+
+**The lab:** scenario 16's in-place cell gets **Toggle entrance**: ⏸ mounts inside a container scaling in from 0.8 about the cell's corner, so the twin flies from ▶ into it.
+- The grill placed this on the exit cell. There, the container would be presence's direct child and not a twin, so closing drops the twin inside it at once, with no crossfade. That's a gap of its own in how presence hands back a twin inside a non-twin container, on `main` too, and not this Amendment's. So the toggle went where no presence is involved.
+- The scripted driver toggles it at rest and mid-flight:
+  - **This branch:** all 42 runs pass, 0 page errors.
+  - **`main`'s engine:** the entrance runs fail `follows` (up to 24.5 px off), and their toggles back fail `starts` (19–25 px jumps against a 1 px step).
+
+**Pinned by:**
+- **`@wardic/dom`, AT1–AT5b** (`projection-ancestor-transforms.browser.test.ts`, frames fired by hand):
+  - AT1: an ancestor that isn't a node, its registered scale changing each frame, the page unscrolled and scrolled;
+  - AT2: a `layout` ancestor's own scale, the Lead starting on its twin (84 px off on `main`);
+  - AT3: nested ancestors, a translate inside a scale;
+  - AT4, AT4b: a rotated ancestor keeps #136's conversion, through the Lead's bounding box as drawn, and its later changes write nothing new;
+  - AT5, AT5b: a transform Wardic doesn't own, as of the pass, and exact when it stands still on a scrolled page.
+
+  AT1–AT3 fail on `main`. The rest are guards.
+- **solid's MS1–MS2** (`layout-id-ancestor-transform.browser.test.tsx`, real paint): the probe's two modals. On `main` the Follower is off on the first frame, and the `layout` modal's Lead starts 90.7 px off.
+- **Mutation-checked** in a separate worktree: eight single-point mutations, each failing the tests meant for it:
+  - no chain built (AT1–AT3, MS1–MS2);
+  - values never read (AT1, AT3, MS1);
+  - a node ancestor's own scale left out (AT2, MS2);
+  - links composed inner first (AT3);
+  - a pass map, or an element's origin, left in the page's frame (AT5b; AT1 scrolled);
+  - a rotated ancestor mapped anyway (AT4b);
+  - the binding registering no values (MS1).
