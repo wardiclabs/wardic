@@ -118,7 +118,7 @@ Motion gives every non-Lead with a `layoutId` `pointer-events: none` (motion-dom
    - **A closing container brings its twins back with it** (found testing the lab by hand). Presence hands back only the container it keeps (`handleLeave`). Solid had already disposed the twins inside it, so a twin there was carried by the container's lock onto its Lead, stretched and uncorrected. In the lab, the modal's avatar ended 4.5 px wider than the card's and 1 px off: a ghost that dissolved into the card's circle as the modal faded, read as a jump at the end. `main` paints the same mismatch; Motion's curves only held it at full strength for longer. Motion keeps an exiting subtree mounted, so its twins go on projecting.
      - `handleLeave` now re-introduces each disposed `layoutId` twin inside the leaver too (`reintroduceWithin`, from the engine's end-of-task records), as a leaving Follower of its own Lead while that Lead is in a handover. It stays locked onto its Lead, corrected for the container's scale, until its Lead settles.
      - Followers are now derived top-down, as Leads already were, so a twin inside a Follower reads its container's fresh lock, whichever was handed back first.
-     - A plain `layout` child inside a closing container has no such record and still stretches: #169.
+     - A plain `layout` child inside a closing container had no such record and still stretched. *Amendment (#169)* below brings it back too.
 4. **A handover crossfades even when the twins' boxes are equal** (Q5). Motion animates any `resumeFrom`.
    - A first measure beside a live twin always crossfades, which replaces *Amendment (#13)*'s "no move to animate" for twins.
    - A promotion always begins a handover, so a leaver re-introduced by `handleLeave` fades out over its twin in place. With none, the promoted twin has no Follower and shows at once (Motion's `isOnlyMember`). This replaces #165's single write at rest.
@@ -207,3 +207,48 @@ Motion starts a shared layout animation from the snapshot's `measuredBox`, its p
   - a disconnected seed from the stored box (XO3);
   - where a node paints leaving its own projection out.
 
+## Amendment (#169, 2026-10-14): a Follower's layout nodes stay corrected for its lock
+
+A Follower is locked onto its Lead: its transform maps its own box onto where the Lead paints, which scales everything inside it. The `layout` nodes inside a Follower went uncorrected in two cases. A probe with a `layout` badge 30x10 (ratio 3.00) in each container measured both:
+- **A live Follower** (the card, while the modal it opened into leads). A Follower isn't in the engine's active set, and the engine only derives a node with an active ancestor, so nothing inside the card was derived while it was locked on. The card's badge grew from 30x10 to 39.5x18.1 (ratio 2.18) as the card grew with the modal.
+- **A leaving container** (the modal presence keeps while it closes). Solid disposes the nodes inside it before presence hands it back, and only `layoutId` twins came back (*Amendment (#5)*). The modal's badge shrank to 23x6, ratio up to 3.90.
+
+The Lead's badge stayed at ratio 3.00 throughout.
+
+Motion keeps an exiting subtree mounted (`AnimatePresence`), so every projection node in it goes on projecting, and a `layout` node goes on counter-scaling for its ancestors' scale (`treeScale`) through the close.
+
+Grilled 2026-10-14:
+
+1. **Both cases by one rule** (Q1). A node a Follower carries is corrected for the Follower's lock, as under any moving ancestor. It keeps its own shape and rides the Follower at its own offset, relative at its `layoutAnchor` (ADR-0013).
+   - A child without `layout` still stretches with the Follower, as under any scaled ancestor, and as Motion's does.
+   - **A moving Follower is a relative parent** (`relativeParentOf`): a Follower whose Lead is active, at its box. That box is its layout box or, for one that has never animated, the box it was last measured at (`boxOf`): a card that mounted at rest has no layout box.
+   - **Derived after the Follower, top-down** (`deriveCarried`), each frame and in a Measure pass's seed frame (`deriveGroup`). They rest with the Follower's last write. So a window resize, which finishes a handover at once, leaves them corrected for the Follower's final lock (XC3).
+2. **Engine records for every disposed layout node** (Q2). A disposed layout node with no `layoutId` is held to the end of its task (`holdNode`), as a twin already was (`holdLeaver`).
+   - One end-of-task step (`wardic.projection.nodesHold`) clears every node held in the task, so unmounting a long layout list costs one map entry per node.
+   - `handleLeave` brings back everything inside the leaver: twins as leaving Followers (*Amendment (#5)*), plain nodes as leaving nodes it carries, each with its own `layoutAnchor`.
+   - When the leaver finishes, what it carried finishes with it and leaves the engine.
+   - Rejected: the binding keeping a leaving subtree's nodes registered until presence removes it. The engine already brings twins back from its records, so both kinds now come back by one path.
+3. **The "one-frame hand-back lag"** #169 noted is measured as none since #170: presence's `handleLeave` runs within the dispose's task, so the first frame after a close is already locked.
+
+**The lab:** scenario 16's nested cell holds a `layout` badge in the card and one in the modal, 32x8 and 48x10, and its `nested: card` runs gain an `aspect` line: each badge within 3% of its own ratio on every frame it's on the page. The scripted driver (`.tmp/5/drive16.ts`):
+- **This branch:** all 30 runs pass, 0 page errors, every badge within 0.0%.
+- **`main`'s engine:** every `nested: card` run fails `aspect` on the Follower's badge: off by 25–31% opening, 34–44% closing.
+
+**Pinned by:**
+- **`@wardic/dom`, XC1–XC4** (`projection-follower-carried.browser.test.ts`, frames fired by hand). All four fail on `main`.
+  - XC1: a live Follower's child, each frame.
+  - XC2: a leaving container's child, each frame, finished with it and gone from the engine.
+  - XC3: a resize mid-handover. On `main` the child rests 41.7 px wide for its 30.
+  - XC4: a carried child anchored bottom-right, riding the leaving container's corner.
+- **solid's S8** (`layout-id.browser.test.tsx`, real paint): a badge in the card and in the modal keeps its ratio within 2% and its offset within 1 px every frame, opening and closing. It fails on `main`.
+- **The lab's node tier:** `crossfade-board.test.ts`, the aspect line.
+- **Mutation-checked** in a separate worktree: nine single-point mutations, each failing the tests meant for it:
+  - a disposed plain node not held (XC2, XC4, S8);
+  - a leaver bringing back only its twins (XC2, XC4, S8);
+  - a moving Follower never a relative parent (XC1–XC4, S8);
+  - each frame not deriving what a Follower carries (XC1, XC2, XC4, S8);
+  - a Follower's box read from its layout box alone (XC1, XC3);
+  - a finished leaver leaving what it carried in the engine (XC2);
+  - carried nodes derived in insertion order (XF3b);
+  - a Measure pass's seed not deriving them (XC3);
+  - a carried node losing its `layoutAnchor` (XC4).
