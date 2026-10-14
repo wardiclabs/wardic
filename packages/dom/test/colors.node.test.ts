@@ -7,11 +7,14 @@
 //   DP5, DP13 and DP15) and `interpolate.test.ts`.
 // - CL11–CL15, colour tokens: core's `codecs.test.ts` and `complex-interpolate.test.ts`.
 // - CL16–CL18, a spring's colour: `@wardic/test`'s `spring-blend.test.ts` (SB1–SB3).
+// - CL19–CL21, Wardic's own sRGB blend (#156, ADR-0026 *Amendment (#156)*): culori's strings, exactly,
+//   against culori itself over seeded random pairs, its quirks, and two ends of one colour.
 import type * as Frame from "@wardic/core/Frame"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
-import { ColorString, cssColor, cssComplex, InterpolatorRegistryDomLive } from "@wardic/dom"
+import { color, ColorString, cssColor, cssComplex, InterpolatorRegistryDomLive } from "@wardic/dom"
+import { formatRgb, interpolate, parse } from "culori"
 import { TestClock, testLayer } from "@wardic/test"
 import { describe, expect, it, layer } from "@effect/vitest"
 import * as Arr from "effect/Array"
@@ -244,3 +247,72 @@ describe("a spring's colour (ADR-0024, decision 5)", () => {
     }),
   )
 })
+
+describe("Wardic's own sRGB blend (#156): culori's strings, without a colour object per frame", () => {
+  const decode = Schema.decodeUnknownSync(ColorString)
+  /** `entry`'s blend of two colour strings. */
+  const blendWith = (entry: typeof cssColor, from: string, to: string) => Option.getOrThrow(entry.blend(decode(from), decode(to)))
+  /** culori's own: `formatRgb(interpolate([from, to], mode)(t))`. */
+  const culoriAt = (from: string, to: string, mode = "rgb") => {
+    const at = interpolate([parse(from)!, parse(to)!], mode)
+    return (t: number): string => formatRgb(at(t))
+  }
+
+  // Seeded, so a failure reproduces: a linear congruential generator.
+  const random = (seed: number) => () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+  const next = random(156)
+  const byte = () => Math.floor(next() * 256)
+  const NOTATIONS: ReadonlyArray<() => string> = [
+    () => `rgb(${byte()}, ${byte()}, ${byte()})`,
+    () => `rgba(${byte()}, ${byte()}, ${byte()}, ${next().toFixed(3)})`,
+    () => `#${Math.floor(next() * 0xffffff).toString(16).padStart(6, "0")}`,
+    () => `#${Math.floor(next() * 0xffffffff).toString(16).padStart(8, "0")}`,
+    () => `hsl(${Math.floor(next() * 360)} ${Math.floor(next() * 100)}% ${Math.floor(next() * 100)}%)`,
+    () => `hsl(${Math.floor(next() * 360)} ${Math.floor(next() * 100)}% ${Math.floor(next() * 100)}% / ${next().toFixed(2)})`,
+    () => ["red", "transparent", "rebeccapurple", "white", "black"][Math.floor(next() * 5)]!,
+    () => `color(display-p3 ${next().toFixed(3)} ${next().toFixed(3)} ${next().toFixed(3)})`,
+    () => `oklch(${next().toFixed(3)} ${(next() * 0.4).toFixed(3)} ${Math.floor(next() * 360)})`,
+    () => `rgb(none ${byte()} ${byte()})`,
+    () => `rgb(${byte()} ${byte()} ${byte()} / none)`,
+  ]
+  const notation = () => NOTATIONS[Math.floor(next() * NOTATIONS.length)]!()
+  /** Below 0, through the leg, its ends, and past 1 (a spring's overshoot). */
+  const TS = [-0.3, 0, 1e-9, 0.01, 0.125, 0.25, 0.3333, 0.5, 0.75, 0.999, 1, 1.2, 1.4]
+
+  it("CL19: writes culori's string for every pair and t: seeded random pairs in every notation, and pairs of one colour", () => {
+    const pairs: Array<readonly [string, string]> = Arr.makeBy(3000, () => [notation(), notation()] as const)
+    // Two ends of one colour, written the same or differently, take the shortcut (Q3).
+    Arr.makeBy(500, () => notation()).forEach((c) => pairs.push([c, c], [c, formatRgb(parse(c)!)]))
+    const differ: Array<string> = []
+    for (const [from, to] of pairs) {
+      const ours = blendWith(cssColor, from, to)
+      const theirs = culoriAt(from, to)
+      for (const t of [...TS, next()]) if (ours(t) !== theirs(t)) differ.push(`${from} → ${to} at ${t}: ${ours(t)}, culori ${theirs(t)}`)
+    }
+    expect(differ.slice(0, 5)).toEqual([])
+    // Another mode still blends through culori, as it did.
+    const lab = blendWith(color("oklch"), "#ff0000", "#0000ff")
+    expect(Arr.map(TS, lab)).toEqual(Arr.map(TS, culoriAt("#ff0000", "#0000ff", "oklch")))
+  })
+
+  it("CL20: keeps culori's quirks: rgba(…, 1) just under 1, the start as written at t ≤ 0, and t clamped", () => {
+    // Alpha 0.999 isn't exactly 1, so it's an rgba(), with its alpha rounded to 1.
+    expect(blendWith(cssColor, "rgba(0, 0, 0, 0.999)", "rgba(255, 0, 0, 0.999)")(0.5)).toBe("rgba(128, 0, 0, 1)")
+    // A `none` channel is 0 in the start as written, and the other end's once the leg moves.
+    const none = blendWith(cssColor, "rgb(none 10 20)", "rgb(40 30 20)")
+    expect([none(-0.5), none(0), none(0.5), none(1)]).toEqual(["rgb(0, 10, 20)", "rgb(0, 10, 20)", "rgb(40, 20, 20)", "rgb(40, 30, 20)"])
+    // Past 1 a colour holds at its target (ADR-0024, decision 5).
+    const fade = blendWith(cssColor, "#000", "#fff")
+    expect([fade(1), fade(1.3)]).toEqual(["rgb(255, 255, 255)", "rgb(255, 255, 255)"])
+  })
+
+  it("CL21: two ends of one colour write it on every frame past 0, the start as written at 0", () => {
+    const same = blendWith(cssColor, "rgb(none 10 20)", "rgb(30 10 20)")
+    expect([same(0), same(0.01), same(0.5), same(1.2)]).toEqual(["rgb(0, 10, 20)", "rgb(30, 10, 20)", "rgb(30, 10, 20)", "rgb(30, 10, 20)"])
+    // A shadow that grows at one colour: the colour token holds while the lengths blend.
+    const decodeComplex = Schema.decodeUnknownSync(cssComplex.codec)
+    const shadow = Option.getOrThrow(cssComplex.blend(decodeComplex("0px 2px 4px rgba(0,0,0,0.2)"), decodeComplex("0px 8px 24px rgba(0,0,0,0.2)")))
+    expect([shadow(0.5), shadow(1)]).toEqual(["0px 5px 14px rgba(0, 0, 0, 0.2)", "0px 8px 24px rgba(0, 0, 0, 0.2)"])
+  })
+})
+
