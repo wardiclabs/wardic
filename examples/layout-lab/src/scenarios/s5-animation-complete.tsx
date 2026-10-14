@@ -32,10 +32,9 @@ const LEFT_B = 224
 
 /**
  * How far (px) the box's painted left edge may sit from its layout slot and still
- * count as settled. The default layout spring only settles once its progress
- * velocity is below 0.01/s, so a settled box sits well under 1px from its slot. A
- * box whose 192px FLIP started less than about a third of a second ago is further
- * away than this.
+ * count as settled. The default layout transition, Motion's 0.45 s tween (#171), lands
+ * exactly on the slot. A box whose 192px FLIP started less than about a third of a
+ * second ago is further away than this.
  */
 const SETTLED_TOLERANCE = 8
 

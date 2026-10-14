@@ -183,6 +183,10 @@ The crossfade (ADR-0010 *Amendment (#5)*) and the blend (*Amendment (#166)*) rea
 - **This branch:** all 54 scripted runs pass; the 29 timed land at 448–451 ms.
 - **With the spring default:** all 29 land at 751 ms and fail `lands`.
 - **Reorder, scripted** (`.tmp/171/reorder-timing.ts`, a real mouse): a displaced sibling lands in 451 ms, against 751 ms on the spring.
+- **The held-frames line** (scenarios 1–10, #14's metric) counted a frame held while it sat within the sampler's 1 px "same box" of the origin. That threshold was sized for the spring's first step, a few pixels. The tween's eased first step is a fraction of a pixel, so the first hand run read 19 of its 20 runs 1–2 frames over their `expectedHeld`.
+  - A frame now counts as moved once it's more than 0.01 px nearer its destination than the origin is (`MOVED_PX`, as drag-run's is for a release).
+  - "Nearer the destination", not "off the origin": scenario 5 reads its origin as the first FLIP's span ends, before that FLIP's last frame paints, 0.017 px short of where the box rests. Its true first frame is still held.
+  - Re-judged, that log's 20 runs all hold what they should, and 30 scripted runs do too. The node tier keeps the spring-era fixtures, with the same holds, and adds two from that log.
 
 **Pinned by:**
 - **`@wardic/dom`, LT1–LT6** (`projection-layout-transition.browser.test.ts`, frames fired by hand):

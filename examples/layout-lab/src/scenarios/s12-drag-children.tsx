@@ -39,7 +39,7 @@ const ID = "drag-children"
 /** How often the slot moves while D is held, in ms. */
 const SLOT_MOVE_MS = 900
 
-/** How long after X D's FLIP may still be running, in ms (the default spring settles in about 750). */
+/** How long after X D's FLIP may still be running, in ms (the default transition, Motion's tween, lands at 450, #171). */
 const FLIGHT_MS = 1000
 
 /** How long after a grab M's own slide across D may still be running, in ms (its 30/12 spring takes about 2.5 s). */

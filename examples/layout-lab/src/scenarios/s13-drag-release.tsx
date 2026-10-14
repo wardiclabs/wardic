@@ -93,7 +93,7 @@ const FREE_STYLE: JSX.CSSProperties = {
 /** How long F's release may take to settle, in ms: its Fling decays for a few seconds (#139). */
 const FREE_SETTLE_MS = 4000
 
-/** How long after Z or P at rest D's own layout animation may still be running, in ms (the default spring settles in about 750). */
+/** How long after Z or P at rest D's own layout animation may still be running, in ms (the default transition, Motion's tween, lands at 450, #171). */
 const FLIGHT_MS = 1000
 
 /** The twin's shared `layoutId` (the twin box). */

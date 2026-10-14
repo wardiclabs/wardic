@@ -6,15 +6,16 @@
 // numbers live here. Each fixture keeps the run's origin, its first measure span's
 // start and its first samples.
 import { describe, expect, it } from "vitest"
-import { heldCheckOf, heldFramesOf } from "../src/lab/held-frames.ts"
-import { DEFAULT_PAINT_SAMPLER_OPTIONS, type PaintSample, type VisualBox } from "../src/probe/paint-sampler.ts"
+import { heldCheckOf, heldFramesOf, MOVED_PX } from "../src/lab/held-frames.ts"
+import type { PaintSample, VisualBox } from "../src/probe/paint-sampler.ts"
 
-const NEAR_PX = DEFAULT_PAINT_SAMPLER_OPTIONS.nearPx
 const W = 63.996910095214844
 
 interface Fixture {
   readonly measureStart: number
   readonly origin: VisualBox
+  /** Where the run goes: each fixture's from its scenario (a 192px move, or a 64px to 128px growth). */
+  readonly destination: VisualBox
   readonly samples: ReadonlyArray<PaintSample>
 }
 
@@ -28,6 +29,7 @@ const s1At = sampleAt(329.72991943359375)
 const coldS1: Fixture = {
   measureStart: 18243.200000047684,
   origin: { left: 67.97067260742188, top: 329.72991943359375, width: W, height: W },
+  destination: { left: 259.97067260742188, top: 329.72991943359375, width: W, height: W },
   samples: [
     s1At(18245.200000047684, 1, 67.97067260742188),
     s1At(18256.100000023842, 2, 67.97067260742188),
@@ -47,6 +49,7 @@ const s8At = sampleAt(346.9984436035156)
 const warmS8: Fixture = {
   measureStart: 85189.30000007153,
   origin: { left: 560.1619873046875, top: 346.9984436035156, width: W, height: W },
+  destination: { left: 752.1604614257812, top: 346.9984436035156, width: W, height: W },
   samples: [
     s8At(85175, 1, 752.1604614257812),
     s8At(85191.30000007153, 2, 560.1619873046875),
@@ -62,6 +65,7 @@ const s2At = sampleAt(348.5802307128906)
 const coldFlashS2: Fixture = {
   measureStart: 6588.600000023842,
   origin: { left: 560.1619873046875, top: 348.5802307128906, width: W, height: W },
+  destination: { left: 560.1619873046875, top: 348.5802307128906, width: 127.99382019042969, height: W },
   samples: [
     s2At(6573.200000047684, 1, 560.1619873046875, 127.99382019042969),
     s2At(6590.5, 2, 560.1619873046875),
@@ -80,6 +84,7 @@ const s1FixedAt = sampleAt(329.72991943359375)
 const warmFixedS1: Fixture = {
   measureStart: 3755.2999999523163,
   origin: { left: 259.5757751464844, top: 329.72991943359375, width: W, height: W },
+  destination: { left: 67.5757751464844, top: 329.72991943359375, width: W, height: W },
   samples: [
     s1FixedAt(3766.2000000476837, 157, 254.58627319335938),
     s1FixedAt(3782.7000000476837, 158, 244.0561065673828),
@@ -96,6 +101,7 @@ const s2FixedAt = sampleAt(348.5802307128906)
 const coldFixedS2: Fixture = {
   measureStart: 6297.600000023842,
   origin: { left: 560.1619873046875, top: 348.5802307128906, width: W, height: W },
+  destination: { left: 560.1619873046875, top: 348.5802307128906, width: 127.99382019042969, height: W },
   samples: [
     s2FixedAt(6299.600000023842, 309, 560.1619873046875),
     s2FixedAt(6315.799999952316, 310, 560.1619873046875, 65.68431091308594),
@@ -103,8 +109,33 @@ const coldFixedS2: Fixture = {
   ],
 }
 
+/**
+ * Scenario 1 on Motion's default tween (#171, log of 2026-10-14T21-40): the first painted frame is a
+ * step along, 0.6px of 192px. The sampler's 1px "same box" counted it held.
+ */
+const sOne = (t: number, frame: number, left: number): PaintSample => ({ t, frame, box: { left, top: 335.625, width: 63.9930534362793, height: 63.9930534362793 } })
+const tweenS1: Fixture = {
+  measureStart: 117726.39999997616,
+  origin: { left: 67.46527862548828, top: 335.625, width: 63.9930534362793, height: 63.9930534362793 },
+  destination: { left: 259.46759033203125, top: 335.625, width: 63.9930534362793, height: 63.9930534362793 },
+  samples: [sOne(117731.10000002384, 8493, 68.06694793701172), sOne(117742.20000004768, 8494, 69.60584259033203), sOne(117756, 8495, 72.29901123046875)],
+}
+
+/**
+ * Scenario 5 on the tween (same log): its origin is read as the first FLIP's span ends, before that
+ * FLIP's last frame paints, so it sits 0.017px short of where the box rests. The first frame paints
+ * the box at rest, its true origin, 0.017px further from the destination: held.
+ */
+const sFive = (t: number, frame: number, left: number): PaintSample => ({ t, frame, box: { left, top: 534.6064453125, width: 63.9930534362793, height: 63.9930534362793 } })
+const tweenS5: Fixture = {
+  measureStart: 108075.30000007153,
+  origin: { left: 745.5150146484375, top: 534.6064453125, width: 63.9930534362793, height: 63.9930534362793 },
+  destination: { left: 553.5300903320312, top: 534.6064453125, width: 63.9930534362793, height: 63.9930534362793 },
+  samples: [sFive(108079.10000002384, 7769, 745.5324096679688), sFive(108088.20000004768, 7770, 745.1566162109375), sFive(108101.70000004768, 7771, 743.891845703125)],
+}
+
 const fromMeasure = (f: Fixture) =>
-  heldFramesOf(f.samples, f.origin, { from: "measure", at: f.measureStart }, NEAR_PX)
+  heldFramesOf(f.samples, f.origin, f.destination, { from: "measure", at: f.measureStart }, MOVED_PX)
 
 describe("heldFramesOf", () => {
   it("a Cold start before the fix holds 3 frames after the measure pass", () => {
@@ -125,11 +156,11 @@ describe("heldFramesOf", () => {
 
   it("a trigger anchor counts every sample (scenario 9: there is no measure pass)", () => {
     // Anchored at the trigger, coldS1's samples hold 3 and move at the 4th.
-    const held = heldFramesOf(coldS1.samples, coldS1.origin, { from: "trigger", at: 18242.300000071526 }, NEAR_PX)
+    const held = heldFramesOf(coldS1.samples, coldS1.origin, coldS1.destination, { from: "trigger", at: 18242.300000071526 }, MOVED_PX)
     expect(held?.heldFrames).toBe(3)
     expect(held?.msToFirstMotion).toBeCloseTo(18291 - 18242.300000071526, 6)
     // A run whose first sample already moved holds 0.
-    const moved = heldFramesOf(coldS1.samples.slice(3), coldS1.origin, { from: "trigger", at: 0 }, NEAR_PX)
+    const moved = heldFramesOf(coldS1.samples.slice(3), coldS1.origin, coldS1.destination, { from: "trigger", at: 0 }, MOVED_PX)
     expect(moved?.heldFrames).toBe(0)
   })
 
@@ -140,7 +171,7 @@ describe("heldFramesOf", () => {
       { t: 5100, frame: 1, box: origin },
       { t: 5117, frame: 2, box: { ...origin, left: 5 } },
     ]
-    expect(heldFramesOf(samples, origin, { from: "measure", at: 5100 }, NEAR_PX)?.heldFrames).toBe(1)
+    expect(heldFramesOf(samples, origin, { ...origin, left: 192 }, { from: "measure", at: 5100 }, MOVED_PX)?.heldFrames).toBe(1)
   })
 
   it("after #2's fix a task-triggered layout run holds 0, and one measured after the gate flush holds 1", () => {
@@ -148,10 +179,15 @@ describe("heldFramesOf", () => {
     expect(fromMeasure(coldFixedS2)?.heldFrames).toBe(1)
   })
 
+  it("counts a tween's eased first step, under a pixel, as motion, and a hair off the origin away from the destination as held (#171)", () => {
+    expect(fromMeasure(tweenS1)?.heldFrames, "scenario 1 holds 0, as expected").toBe(0)
+    expect(fromMeasure(tweenS5)?.heldFrames, "scenario 5 holds 1, as expected").toBe(1)
+  })
+
   it("is undefined when nothing moved after the anchor", () => {
     const still = coldS1.samples.slice(0, 3)
-    expect(heldFramesOf(still, coldS1.origin, { from: "measure", at: coldS1.measureStart }, NEAR_PX)).toBeUndefined()
-    expect(heldFramesOf([], coldS1.origin, { from: "trigger", at: 0 }, NEAR_PX)).toBeUndefined()
+    expect(heldFramesOf(still, coldS1.origin, coldS1.destination, { from: "measure", at: coldS1.measureStart }, MOVED_PX)).toBeUndefined()
+    expect(heldFramesOf([], coldS1.origin, coldS1.destination, { from: "trigger", at: 0 }, MOVED_PX)).toBeUndefined()
   })
 })
 

@@ -17,6 +17,13 @@
  * callback and painted the origin there. From #14's fix to #73 a cold spring held 0
  * (the Priming tick) and a warm one 1; since #73 both hold 0.
  *
+ * A frame has moved once it's nearer its destination than the origin is by more than
+ * {@link MOVED_PX} (#171). A held frame paints the same transform as the origin, so a
+ * layout animation's eased first step, a fraction of a pixel on Motion's default tween,
+ * is motion; the sampler's 1px "same box" distance counted it held. A frame an origin
+ * read off by a hair (scenario 5's, read before its last frame painted) isn't nearer
+ * the destination, so it's held as it should be.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/held-frames.test.ts`).
  *
  * @module
@@ -30,6 +37,12 @@ export type HeldFrom = "measure" | "trigger"
 /** Whether the Clock was already ticking when the run was triggered. */
 export type ClockStart = "cold" | "warm"
 
+/**
+ * How much nearer its destination than the origin a frame must be to count as moved (px).
+ * Much finer than the sampler's `nearPx`, as drag-run's `MOVED_PX` is for a release (#171).
+ */
+export const MOVED_PX = 0.01
+
 /** A run's hold before its first motion. */
 export interface Held {
   /** Painted samples within `nearPx` of the origin, from the anchor until the first one that moved. */
@@ -42,21 +55,24 @@ export interface Held {
  * The run's hold before its first motion, or `undefined` when no sample after the
  * anchor moved. For a `measure` anchor at time `at`, only samples delivered at or
  * after `at` count; for a `trigger` anchor, every sample does (the sampler's samples are
- * exactly the frames painted after the trigger).
+ * exactly the frames painted after the trigger). A sample has moved once it's nearer
+ * `destination` than `origin` is by more than `movedPx`.
  */
 export const heldFramesOf = (
   samples: ReadonlyArray<PaintSample>,
   origin: VisualBox,
+  destination: VisualBox,
   anchor: { readonly from: HeldFrom; readonly at: number },
-  nearPx: number,
+  movedPx: number,
 ): Held | undefined => {
+  const away = boxDistance(origin, destination)
   let held = 0
   for (const sample of samples) {
     // `<`, not `<=`: Firefox coarsens `performance.now()` to whole ms, so the measure
     // frame's own delivery can share the pass's millisecond. A frame painted before
     // the pass was delivered a whole frame earlier, so a tie is always the measure frame.
     if (anchor.from === "measure" && sample.t < anchor.at) continue
-    if (boxDistance(sample.box, origin) <= nearPx) {
+    if (away - boxDistance(sample.box, destination) <= movedPx) {
       held++
       continue
     }
