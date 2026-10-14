@@ -193,3 +193,13 @@ A first version read every node into a map and called `UndefinedOr.match` (a `du
 - `projection-layout-root.browser.test.ts` LR1–LR11 pass with *Amendment (#33)*'s own rule gone.
 - On *Amendment (#144)*'s engine IR1, IR2, IR4 and IR5 fail; IR3, IR6 and IR7 pin what it already did.
 - Mutation-checked: 12 single-point mutations of the new code, 11 failing the test meant for them; the twelfth drops the last-target shortcut, which only saves work (an active node's last target is the composed box).
+
+## Note (#7, 2026-10-14): checked against Motion
+
+#7 (from `docs/research/motion-layout-orchestration.md` §8.6) asked two things of this ADR. Both were already in place:
+- **A `layoutRoot` starts settled**, as Motion's `mixTargetDelta(1000)` does: *Decisions*' self-snap. It never starts a spring for its own box change, it publishes its new box as its target at once, and its descendants resolve relative to it. LR1–LR11 pin it.
+- **`layoutAnchor: false` opts out of relative projection on every path.** Motion checks it in two places (`resolveTargetDelta`, and its attempt to resolve a relative target). Wardic's one gate in `relativeParentOf` covers every relative path, since all of them go through it. Its one exception, riding a dragged ancestor (ADR-0016 *Amendment (#26)*), draws as Motion does, where CSS carries the child with the drag.
+
+**Worth knowing before committing to API parity:** Motion's `layoutRoot` isn't settled upstream. Its author introduced it as *"a quick fix"* (*"A more universal fix for this class of animations would be preferable"*, [motion#1781](https://github.com/motiondivision/motion/pull/1781)), and later wrote *"I don't like the API as it stands"* ([motion#1535](https://github.com/motiondivision/motion/issues/1535)). The alternative he rejected, walking ancestors with `getComputedStyle`, was rejected on cost.
+
+The third item, scroll sampling, is ADR-0012 *Amendment (#7)*.
