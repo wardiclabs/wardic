@@ -358,3 +358,26 @@ describe("a filter holding a length (#154)", () => {
     expect(s.stop().filter((f) => f.v > 4.1 && f.v < 7.9).length, "radii on the way").toBeGreaterThanOrEqual(10)
   })
 })
+
+describe("a var() value's name (#158)", () => {
+  it("SK18: var(--gray-500) → var(--gray-600) paints only the two greys, never an undefined var(--gray-550)", async () => {
+    let el!: HTMLElement
+    const greys = { ...BOX, "--gray-500": "#6b7280", "--gray-600": "#4b5563" } as JSX.CSSProperties
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div
+          ref={(n: HTMLElement) => (el = n)}
+          style={greys}
+          initial={{ "background-color": "var(--gray-500)" }}
+          animate={{ "background-color": "var(--gray-600)" }}
+          transition={{ type: "tween", duration: 0.4 }}
+        />
+      </WardicProvider>
+    ))
+    const s = sampleFrames(() => getComputedStyle(el).backgroundColor)
+    await until(() => getComputedStyle(el).backgroundColor === "rgb(75, 85, 99)", 3000)
+    await settle()
+    const painted = new Set(s.stop().map((f) => f.v))
+    for (const c of painted) expect(["rgb(107, 114, 128)", "rgb(75, 85, 99)"], `painted ${c}`).toContain(c)
+  })
+})

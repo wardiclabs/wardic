@@ -103,6 +103,12 @@ describe("ComplexString", () => {
     rejectsAll(decodeComplex, ["10px", "120", "#f00", " rgb(255, 0, 0) ", "none", "auto", "", 5, ["M0,0 L1,1"]])
   })
 
+  it("reads a var() as text: the digits in a variable's name aren't numbers (#158)", () => {
+    rejectsAll(decodeComplex, ["var(--gray-500)", "var(--space-2)", "var(--brand, var(--gray-500))"])
+    expect(decodeComplex("0px 4px var(--shadow-1)")).toEqual(Option.some({ parts: ["", "px ", "px var(--shadow-1)"], tokens: [0, 4] }))
+    expect(decodeComplex("calc(var(--gap-1) * 2)")).toEqual(Option.some({ parts: ["calc(var(--gap-1) * ", ")"], tokens: [2] }))
+  })
+
   it("round-trips a string whose numbers are written in their shortest form and that holds no colour", () => {
     const inputs = ["M0,0 L10,10", "0,0 20,30", "M-1.5,0 C1,2 3,4 5,6 Z", "blur(4px) brightness(1.5)"]
     expect(Arr.map(inputs, roundTrip(Interpolator.ComplexString))).toEqual(inputs)
