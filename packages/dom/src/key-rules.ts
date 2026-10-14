@@ -28,7 +28,6 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
-import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -343,11 +342,3 @@ export const animatableNone: InterpolatorRegistry.KeyRule = {
 
 /** The DOM Environment's Key rules, in precedence order. */
 export const keyRules: ReadonlyArray<InterpolatorRegistry.KeyRule> = [visibility, animatableNone]
-
-/**
- * The DOM Environment's `InterpolatorRegistry` (ADR-0035): core's Interpolators
- * (`Interpolator.defaults`) and the DOM's Key rules. `DomLive` provides it.
- */
-export const InterpolatorRegistryDomLive: Layer.Layer<InterpolatorRegistry.InterpolatorRegistry> = Layer.effect(
-  InterpolatorRegistry.InterpolatorRegistry,
-)(InterpolatorRegistry.make(Interpolator.defaults, keyRules))

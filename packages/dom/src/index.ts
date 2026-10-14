@@ -24,7 +24,7 @@ import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
 import { InputDomLive } from "./input.ts"
-import { InterpolatorRegistryDomLive } from "./key-rules.ts"
+import { InterpolatorRegistryDomLive } from "./interpolators.ts"
 import { ProbeDomLive } from "./probe.ts"
 import { RendererDomLive } from "./renderer.ts"
 
@@ -34,7 +34,10 @@ export { ClockDomLive } from "./clock.ts"
 export { InputDomLive } from "./input.ts"
 // The DOM Environment's Key rules (ADR-0035): Tier 2. How a CSS property's pair blends by name
 // (display / visibility, the Animatable none, shadow lists), and the registry DomLive provides.
-export { animatableNone, InterpolatorRegistryDomLive, keyRules, visibility } from "./key-rules.ts"
+export { animatableNone, keyRules, visibility } from "./key-rules.ts"
+// The DOM Environment's Interpolators (ADR-0035, *Amendment (#158)*): core's, with CSS's var() as
+// text in the complex tier, and the registry DomLive provides.
+export { cssComplex, interpolators, InterpolatorRegistryDomLive, VARIABLE_REFERENCE } from "./interpolators.ts"
 export { ProbeDomLive } from "./probe.ts"
 export { project, RendererDomLive } from "./renderer.ts"
 

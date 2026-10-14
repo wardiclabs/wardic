@@ -17,7 +17,7 @@ import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Str from "effect/String"
-import { COLOR_START_RE, TOKEN_RE, VAR_START_RE, varCountOf } from "./internal/complexTokens.ts"
+import { COLOR_START_RE, type Tokenizer, tokenizerOf } from "./internal/complexTokens.ts"
 import * as Scalar from "./Scalar.ts"
 
 /**
@@ -277,26 +277,23 @@ const isLoneColor = (complex: Complex): boolean =>
 /** A string that is only a number with a unit (`"10px"`): a unit string, not a complex value. */
 const isUnitString = (input: string): boolean => Option.isSome(parseUnit(input))
 
-/** A matched token that is a `var()`: text, not a number or a colour (#158). */
-const isVarToken: Predicate.Predicate<string> = (token) => VAR_START_RE.test(token)
-
-/** A string's text around its tokens, and the tokens' text, with every `var()` kept as text. */
+/** A string's text around its tokens, and the tokens' text, with every text span kept as text. */
 interface Folded {
   readonly parts: ReadonlyArray<string>
   readonly tokens: ReadonlyArray<string>
 }
 
 /**
- * `input` split around the tokens `TOKEN_RE` matched, each `var()` folded back into the text on
- * either side of it (#158): its name's digits are never numbers, and it's written as it stands.
- * Built when a stream is built, in one pass.
+ * `input` split around the tokens a tokenizer matched, each text span its Environment names folded
+ * back into the text on either side of it (#158): the digits in it are never numbers, and it's
+ * written as it stands. Built when a stream is built, in one pass.
  */
-const foldVars = (input: string, matched: ReadonlyArray<string>): Folded => {
-  const split = Str.split(input, TOKEN_RE)
+const foldText = (tokenizer: Tokenizer, input: string, matched: ReadonlyArray<string>): Folded => {
+  const split = Str.split(input, tokenizer.tokenRe)
   const parts: Array<string> = [split[0]]
   const tokens: Array<string> = []
   Arr.reduce(matched, undefined, (_, token, i): undefined => {
-    if (isVarToken(token)) {
+    if (tokenizer.isText(token)) {
       parts[parts.length - 1] += token + split[i + 1]
       return undefined
     }
@@ -307,25 +304,27 @@ const foldVars = (input: string, matched: ReadonlyArray<string>): Folded => {
   return { parts, tokens }
 }
 
-/** Something to blend: at least one number or colour outside the `var()`s. */
+/** Something to blend: at least one number or colour outside the text spans. */
 const hasTokens: Predicate.Predicate<Folded> = (folded) => folded.tokens.length > 0
 
 /**
- * Parse a complex value: a string carrying one or more numbers or colours among other text (#61,
- * Motion's rule; two or more numbers before), any `var()` in it kept as text (#158). `None` for a
- * unit string, a lone colour, a string with no tokens (a lone `var()`), or one whose colour culori
- * can't parse.
+ * A complex value's parser for a tokenizer: a string carrying one or more numbers or colours among
+ * other text (#61, Motion's rule; two or more numbers before), any text span kept as text (#158).
+ * `None` for a unit string, a lone colour, a string with no tokens (a lone text span), or one whose
+ * colour culori can't parse.
  */
-const parseComplex = (input: string): Option.Option<Complex> =>
-  pipe(
-    Option.liftPredicate(input, Predicate.not(isUnitString)),
-    Option.flatMap(Str.match(TOKEN_RE)),
-    Option.map((matched) => foldVars(input, matched)),
-    Option.filter(hasTokens),
-    Option.flatMap((folded) =>
-      Option.map(Option.all(Arr.map(folded.tokens, parseToken)), (tokens): Complex => ({ parts: folded.parts, tokens }))),
-    Option.filter(Predicate.not(isLoneColor)),
-  )
+const parseComplexWith =
+  (tokenizer: Tokenizer) =>
+  (input: string): Option.Option<Complex> =>
+    pipe(
+      Option.liftPredicate(input, Predicate.not(isUnitString)),
+      Option.flatMap(Str.match(tokenizer.tokenRe)),
+      Option.map((matched) => foldText(tokenizer, input, matched)),
+      Option.filter(hasTokens),
+      Option.flatMap((folded) =>
+        Option.map(Option.all(Arr.map(folded.tokens, parseToken)), (tokens): Complex => ({ parts: folded.parts, tokens }))),
+      Option.filter(Predicate.not(isLoneColor)),
+    )
 
 /** A token as it's written back: a number in its shortest form, a colour as `rgb()` / `rgba()`. */
 const formatToken = (token: ComplexToken): string =>
@@ -338,19 +337,33 @@ const formatToken = (token: ComplexToken): string =>
 const formatComplex = (complex: Complex): string =>
   Arr.reduce(complex.tokens, complex.parts[0], (out, token, i) => out + formatToken(token) + complex.parts[i + 1])
 
+/** The spans an Environment names as only text in its complex values (#158, ADR-0035 *Amendment (#158)*). */
+export interface ComplexOptions {
+  /**
+   * Patterns for spans that are only text: matched whole, before colours and numbers, so the digits
+   * in them are never numbers; kept as text; and counted when two values match. None by default:
+   * core names no Environment's syntax (the DOM's are in `@wardic/dom`, ADR-0035 *Amendment (#158)*).
+   */
+  readonly text?: ReadonlyArray<RegExp>
+}
+
 /**
- * A complex value (ADR-0015, ADR-0026; CONTEXT.md) ↔ its parts and tokens: a string carrying one or
- * more numbers or colours among other text, an SVG `d` or `points`, a `filter` such as `blur(4px)`,
- * a `box-shadow`. It encodes with `formatComplex`: numbers come back in JavaScript's shortest form
- * and colours as `rgb()` / `rgba()`, so `"M0.50,1e3"` encodes back as `"M0.5,1000"` and
- * `"0px 0px 4px #f00"` as `"0px 0px 4px rgb(255, 0, 0)"`.
+ * A complex value codec (ADR-0015, ADR-0026; CONTEXT.md) for an Environment's text spans: a string
+ * carrying one or more numbers or colours among other text ↔ its parts and tokens. It encodes with
+ * `formatComplex`: numbers come back in JavaScript's shortest form and colours as `rgb()` /
+ * `rgba()`, so `"M0.50,1e3"` encodes back as `"M0.5,1000"` and `"0px 0px 4px #f00"` as
+ * `"0px 0px 4px rgb(255, 0, 0)"`.
  */
-export const ComplexString: Schema.Codec<Complex, string> = Schema.String.pipe(
-  Schema.decodeTo(
-    Schema.Struct({ parts: Schema.Array(Schema.String), tokens: Schema.Array(Schema.Union([Schema.Number, Schema.declare(isColor)])) }),
-    parseAndFormat(parseComplex, formatComplex),
-  ),
-)
+export const complexStringWith = (options: ComplexOptions): Schema.Codec<Complex, string> =>
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Struct({ parts: Schema.Array(Schema.String), tokens: Schema.Array(Schema.Union([Schema.Number, Schema.declare(isColor)])) }),
+      parseAndFormat(parseComplexWith(tokenizerOf(Option.getOrElse(Option.fromUndefinedOr(options.text), () => []))), formatComplex),
+    ),
+  )
+
+/** The complex value codec with no text spans: core's default. */
+export const ComplexString: Schema.Codec<Complex, string> = complexStringWith({})
 
 /**
  * One token of the target, with what it blends from: two numbers, or a colour's interpolator
@@ -384,17 +397,18 @@ const blendSlots = (parts: ReadonlyArray<string>, slots: ReadonlyArray<Slot>): (
 const numbersOf = (complex: Complex): ReadonlyArray<number> => Arr.filter(complex.tokens, Predicate.isNumber)
 const colorsOf = (complex: Complex): ReadonlyArray<Color> => Arr.filter(complex.tokens, isColorToken)
 
-/** How many `var()`s a complex value's text holds (#158). */
-const varsOf = (complex: Complex): number => varCountOf(Arr.join(complex.parts, ""))
-
 /**
  * Whether two complex values blend (#61, Motion's `mixComplex`): the same count of colours and of
- * `var()`s (#158), and the start holding at least as many numbers as the target. The target's text
- * is written, its `var()`s with it, so a `var()` takes the target's at the first frame, as Motion's
- * `mixImmediate` does.
+ * text spans (#158), and the start holding at least as many numbers as the target. The target's
+ * text is written, its text spans with it, so a text span takes the target's at the first frame,
+ * as Motion's `mixImmediate` does.
  */
-const matches = (from: Complex, to: Complex): boolean =>
-  colorsOf(from).length === colorsOf(to).length && varsOf(from) === varsOf(to) && numbersOf(from).length >= numbersOf(to).length
+const matchesWith =
+  (textCountOf: (input: string) => number) =>
+  (from: Complex, to: Complex): boolean =>
+    colorsOf(from).length === colorsOf(to).length &&
+    textCountOf(Arr.join(from.parts, "")) === textCountOf(Arr.join(to.parts, "")) &&
+    numbersOf(from).length >= numbersOf(to).length
 
 /**
  * The target's slots, kind by kind, in order (Motion's `matchOrder`): its n-th number blends from
@@ -438,15 +452,21 @@ const slotsOf = (from: Complex, to: Complex): ReadonlyArray<Slot> => {
  * Both strings are decoded once, when a stream is built (`ComplexString`), and the closure `blend`
  * returns is on the per-frame path (ADR-0025): it only lerps, blends each colour and formats.
  */
-export const complex: Entry<Complex, string> = {
-  name: "complex",
-  codec: ComplexString,
-  blend: (from, to) =>
-    Bool.match(matches(from, to), {
-      onTrue: () => Option.some(blendSlots(to.parts, slotsOf(from, to))),
-      onFalse: () => Option.none(),
-    }),
+export const complexWith = (options: ComplexOptions): Entry<Complex, string> => {
+  const matches = matchesWith(tokenizerOf(Option.getOrElse(Option.fromUndefinedOr(options.text), () => [])).textCountOf)
+  return {
+    name: "complex",
+    codec: complexStringWith(options),
+    blend: (from, to) =>
+      Bool.match(matches(from, to), {
+        onTrue: () => Option.some(blendSlots(to.parts, slotsOf(from, to))),
+        onFalse: () => Option.none(),
+      }),
+  }
 }
+
+/** The complex value Interpolator with no text spans: core's default (see {@link complexWith}). */
+export const complex: Entry<Complex, string> = complexWith({})
 
 /**
  * The interpolators core ships with, in resolution order. `number` and `array`
