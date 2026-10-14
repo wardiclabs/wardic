@@ -17,6 +17,10 @@
  *   frame is no further from there than its next step (plus 1.5px): a start from rest accelerates,
  *   while one from where the twin would have rested jumps the rest of the twin's flight.
  *
+ * - **aspect** (#169), for the nested cell's containers: the `layout` badge in each keeps its own
+ *   shape, within 3% of its own width-to-height ratio on every frame it's on the page. The
+ *   Follower's badge counts too: a Follower's layout nodes stay corrected for its lock.
+ *
  * A toggle back with no twin left to fade (`back`: the overlap and in place cells closed) is judged
  * on starts and end only.
  *
@@ -46,10 +50,16 @@ export interface CrossfadeSeries {
   readonly leadPath?: ReadonlyArray<{ readonly x: number; readonly y: number }>
   /** A toggle back with no twin left to fade (#170): judged on starts and end only. */
   readonly back?: boolean
+  /**
+   * The `layout` badges' painted width-to-height ratio each frame, in the Lead's container and the
+   * Follower's (`null` once gone), and each badge's own (#169).
+   */
+  readonly aspects?: ReadonlyArray<{ readonly lead: number | null; readonly follower: number | null }>
+  readonly ownAspects?: { readonly lead: number; readonly follower: number }
 }
 
 /** A crossfade card's lines, in display order. */
-export const CROSSFADE_CHECK_NAMES = ["starts", "covers", "order", "fades", "own fade", "end", "passes"] as const
+export const CROSSFADE_CHECK_NAMES = ["starts", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
 
 /** One crossfade card line. */
 export interface CrossfadeCheck {
@@ -77,6 +87,24 @@ const startsOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> =>
   const jump = Math.hypot(first.x - from.x, first.y - from.y)
   const step = Math.hypot(second.x - first.x, second.y - first.y)
   return [line("starts", jump <= step + 1.5, `${jump.toFixed(1)}px from its twin (next step ${step.toFixed(1)}px)`, "where its twin was painted")]
+}
+
+/** The aspect line (#169), when the run recorded its containers' badges. */
+const aspectOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> => {
+  const frames = series?.aspects
+  const own = series?.ownAspects
+  if (frames === undefined || own === undefined || frames.length === 0) return []
+  let worst = 0
+  let which = "neither"
+  for (const f of frames) {
+    for (const [side, ratio, base] of [["Lead's", f.lead, own.lead], ["Follower's", f.follower, own.follower]] as const) {
+      if (ratio === null) continue
+      const off = Math.abs(ratio / base - 1)
+      if (off > worst) [worst, which] = [off, side]
+    }
+  }
+  const pct = (worst * 100).toFixed(1)
+  return [line("aspect", worst < 0.03, worst < 0.03 ? `within ${pct}%` : `the ${which} badge off its shape by ${pct}%`, "each badge within 3% of its own ratio")]
 }
 
 /** A crossfade run's lines (see the module doc). */
@@ -117,6 +145,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const ended = leadEnd !== undefined && leadEnd >= 0.99 && followerHidden
   const checks = [
     ...starts,
+    ...aspectOf(series),
     line("covers", lowest >= 0.98, `at least ${v3(lowest)}`, "0.98: never see-through"),
     line("order", ordered, out === -1 ? "the Follower never faded" : `Lead at ${v3(leadAtOut)} as the Follower fades`, "the Lead in first"),
     superseded ? notJudged("fades") : line("fades", between > 0, `${between} frames between`, "a fade, not a swap"),

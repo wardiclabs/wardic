@@ -14,6 +14,10 @@
  *   `<AnimatePresence>`; Toggle nested opens and closes the modal. The card and modal crossfade;
  *   the avatars only move, with no fade of their own (Motion's `path.some(hasOpacityCrossfade)`),
  *   so the containers' fade decides which shows. Two runs a toggle: `nested: card` and `nested: avatar`.
+ *   Each container also holds a plain `layout` badge, which keeps its own shape on every frame,
+ *   the Follower's included (#169: a Follower's layout nodes stay corrected for its lock), judged
+ *   on the `nested: card` runs' aspect line. The cell's stage is grey, so a bar outside its
+ *   container shows: Motion leaves a Follower's bar where it sits on the page, Wardic's rides it.
  * - **exit**: a thumbnail, and a modal above it under `<AnimatePresence>`; Toggle exit opens it,
  *   then closes it back onto the thumbnail, a leaving Follower that fades out over it. Also
  *   watched: the point at the thumbnail's centre never hits the leaving modal (#165).
@@ -44,6 +48,11 @@ const GRID: JSX.CSSProperties = {
   height: "100%",
 }
 const CELL: JSX.CSSProperties = { position: "relative" }
+/**
+ * The nested cell's grey stage (#169): a white `layout` bar outside its container shows against it,
+ * where a white stage hides it. A Lead's bar near its bottom edge sits below it while it's small.
+ */
+const GREY_CELL: JSX.CSSProperties = { position: "relative", background: "#8a8f99", "border-radius": "6px", color: "white" }
 const LABEL: JSX.CSSProperties = { position: "absolute", left: "0", right: "0", bottom: "4px", "text-align": "center", "font-size": "10px", opacity: 0.8 }
 const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
 /** Two rows of two cells, each wide enough for its twins apart. */
@@ -67,6 +76,20 @@ const box = (left: number, top: number, width: number, height: number, backgroun
   color: "white",
   "font-size": "16px",
 })
+/** A plain `layout` badge in its container (#169): a bar whose shape a stretch would show. */
+const badge = (left: number, top: number, width: number, height: number): JSX.CSSProperties => ({
+  position: "absolute",
+  left: `${left}px`,
+  top: `${top}px`,
+  width: `${width}px`,
+  height: `${height}px`,
+  background: "rgba(255, 255, 255, 0.85)",
+  "border-radius": "2px",
+})
+/** The card's badge and the modal's: their own width-to-height ratios. */
+const CARD_BADGE = { left: 6, top: 38, width: 32, height: 8 } as const
+const MODAL_BADGE = { left: 10, top: 92, width: 48, height: 10 } as const
+
 /** An avatar in its container, at `(left, top)`. */
 const avatar = (left: number, top: number, size: number): JSX.CSSProperties => ({
   position: "absolute",
@@ -106,6 +129,19 @@ interface Watch {
   readonly back?: boolean
   /** The pair of twins it hands over between, which a later run on the pair supersedes; its cell by default. */
   readonly pair?: string
+  /** The `layout` badges in the Lead's and the Follower's containers, and their own ratios (#169). */
+  readonly badges?: {
+    readonly lead: () => Element | undefined
+    readonly follower: () => Element | undefined
+    readonly own: { readonly lead: number; readonly follower: number }
+  }
+}
+
+/** An element's painted width-to-height ratio, or `null` when it isn't on the page. */
+const aspectOf = (el: Element | undefined): number | null => {
+  if (el === undefined || !el.isConnected) return null
+  const r = el.getBoundingClientRect()
+  return r.width / r.height
 }
 
 /** Where an element is painted: its top-left, or `undefined` when it isn't on the page. */
@@ -137,6 +173,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
     // The Lead's painted top-left, each frame: a handover that only moves is still only once it stops.
     const where: Array<number> = []
     const path: Array<{ readonly x: number; readonly y: number }> = []
+    const aspects: Array<{ readonly lead: number | null; readonly follower: number | null }> = []
     const channel = new MessageChannel()
     sampling.add(channel)
     const finish = (superseded = false): void => {
@@ -159,6 +196,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
           ...(watch.onlyMoves === true ? { onlyMoves: true } : {}),
           ...(watch.startsFrom === undefined ? {} : { startsFrom: watch.startsFrom, leadPath: path }),
           ...(watch.back === true ? { back: true } : {}),
+          ...(watch.badges === undefined ? {} : { aspects, ownAspects: watch.badges.own }),
         },
         ...(superseded ? { superseded: true } : {}),
       })
@@ -179,6 +217,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
       const r = lead!.getBoundingClientRect()
       where.push(r.left * 10_000 + r.top)
       if (path.length < 2) path.push({ x: r.left, y: r.top })
+      if (watch.badges !== undefined) aspects.push({ lead: aspectOf(watch.badges.lead()), follower: aspectOf(watch.badges.follower()) })
       if (watch.hits === true && lead !== undefined && follower !== undefined) hit.push(hits(lead, follower))
       const tail = (xs: ReadonlyArray<number | null>) => xs.slice(-STILL_FRAMES)
       const still = (xs: ReadonlyArray<number | null>) =>
@@ -235,10 +274,22 @@ const View: ScenarioDef["View"] = (props) => {
     const face = paintedAt(el[opening ? "cardAvatar" : "modalAvatar"])
     setNested(opening)
     if (opening) {
-      recorder.start({ cell: "nested: card", lead: at("modal"), follower: at("card"), startsFrom: card })
+      recorder.start({
+        cell: "nested: card",
+        lead: at("modal"),
+        follower: at("card"),
+        startsFrom: card,
+        badges: { lead: at("modalBadge"), follower: at("cardBadge"), own: { lead: MODAL_BADGE.width / MODAL_BADGE.height, follower: CARD_BADGE.width / CARD_BADGE.height } },
+      })
       recorder.start({ cell: "nested: avatar", lead: at("modalAvatar"), follower: at("cardAvatar"), onlyMoves: true, startsFrom: face })
     } else {
-      recorder.start({ cell: "nested: card", lead: at("card"), follower: at("modal"), startsFrom: card })
+      recorder.start({
+        cell: "nested: card",
+        lead: at("card"),
+        follower: at("modal"),
+        startsFrom: card,
+        badges: { lead: at("cardBadge"), follower: at("modalBadge"), own: { lead: CARD_BADGE.width / CARD_BADGE.height, follower: MODAL_BADGE.width / MODAL_BADGE.height } },
+      })
       recorder.start({ cell: "nested: avatar", lead: at("cardAvatar"), follower: at("modalAvatar"), onlyMoves: true, startsFrom: face })
     }
   }
@@ -268,14 +319,16 @@ const View: ScenarioDef["View"] = (props) => {
             </Show>
             <span style={LABEL}>in place</span>
           </div>
-          <div style={CELL} data-cell="nested">
+          <div style={GREY_CELL} data-cell="nested">
             <wardic.div data-twin="card" ref={keep("card")} layoutId="lab-s16-card" style={box(12, 36, 72, 56, ACCENT, 1)}>
               <wardic.div data-twin="card-avatar" ref={keep("cardAvatar")} layoutId="lab-s16-avatar" style={avatar(6, 6, 20)} />
+              <wardic.div data-twin="card-badge" ref={keep("cardBadge")} layout style={badge(CARD_BADGE.left, CARD_BADGE.top, CARD_BADGE.width, CARD_BADGE.height)} />
             </wardic.div>
             <AnimatePresence>
               <Show when={nested()}>
                 <wardic.div data-twin="modal" ref={keep("modal")} layoutId="lab-s16-card" style={box(100, 12, 100, 112, ALT, 2)} exit={{ opacity: 0 }}>
                   <wardic.div data-twin="modal-avatar" ref={keep("modalAvatar")} layoutId="lab-s16-avatar" style={avatar(10, 10, 34)} />
+                  <wardic.div data-twin="modal-badge" ref={keep("modalBadge")} layout style={badge(MODAL_BADGE.left, MODAL_BADGE.top, MODAL_BADGE.width, MODAL_BADGE.height)} />
                 </wardic.div>
               </Show>
             </AnimatePresence>
@@ -321,12 +374,13 @@ export const s16: ScenarioDef = {
   boardLines: CROSSFADE_CHECK_NAMES,
   title: "crossfade (layoutId twins)",
   mechanism:
-    "Toggle overlap mounts a twin beside a live one; Toggle in place mounts one on the other at its box; Toggle nested opens and closes a modal holding an avatar twin, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
+    "Toggle overlap mounts a twin beside a live one; Toggle in place mounts one on the other at its box; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
   prediction: "safe",
   rationale:
     "Motion's crossfade (motion-dom 13.3.0, mix-values.ts): the Lead fades in over the first half of the handover " +
     "(circOut) and its Followers out over 0.5–0.95, linearly, so the overlap is never see-through. Any handover " +
     "animates, so twins at one box crossfade. A node under a crossfading ancestor moves without a fade of its own " +
-    "(path.some(hasOpacityCrossfade)). A Follower takes no pointer input (#165). ADR-0010, Amendment (#5).",
+    "(path.some(hasOpacityCrossfade)). A Follower takes no pointer input (#165), and its layout nodes stay corrected " +
+    "for its lock and ride it (#169; Motion leaves them where they sit on the page). ADR-0010, Amendment (#5).",
   View,
 }
