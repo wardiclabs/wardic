@@ -269,7 +269,7 @@ describe("Wardic's own sRGB blend (#156): culori's strings, without a colour obj
     () => `#${Math.floor(next() * 0xffffffff).toString(16).padStart(8, "0")}`,
     () => `hsl(${Math.floor(next() * 360)} ${Math.floor(next() * 100)}% ${Math.floor(next() * 100)}%)`,
     () => `hsl(${Math.floor(next() * 360)} ${Math.floor(next() * 100)}% ${Math.floor(next() * 100)}% / ${next().toFixed(2)})`,
-    () => ["red", "transparent", "rebeccapurple", "white", "black"][Math.floor(next() * 5)]!,
+    () => ["red", "transparent", "rebeccapurple", "white", "black", "rgb(none none none / none)"][Math.floor(next() * 6)]!,
     () => `color(display-p3 ${next().toFixed(3)} ${next().toFixed(3)} ${next().toFixed(3)})`,
     () => `oklch(${next().toFixed(3)} ${(next() * 0.4).toFixed(3)} ${Math.floor(next() * 360)})`,
     () => `rgb(none ${byte()} ${byte()})`,
@@ -304,6 +304,13 @@ describe("Wardic's own sRGB blend (#156): culori's strings, without a colour obj
     // Past 1 a colour holds at its target (ADR-0024, decision 5).
     const fade = blendWith(cssColor, "#000", "#fff")
     expect([fade(1), fade(1.3)]).toEqual(["rgb(255, 255, 255)", "rgb(255, 255, 255)"])
+    // A NaN channel is written 0, as culori writes it. No colour string converts to one; only a
+    // colour built by hand does, as the Key rules build theirs (`{ ...color, alpha: 0 }`).
+    const built = { mode: "rgb", r: Number.NaN, g: 0.5, b: 0, alpha: Number.NaN }
+    const nan = Option.getOrThrow(cssColor.blend(built, { mode: "rgb", r: 1, g: 0.5, b: 0 }))
+    const culoriNan = interpolate([built, { mode: "rgb", r: 1, g: 0.5, b: 0 }], "rgb")
+    expect([nan(0.5), nan(1)]).toEqual([formatRgb(culoriNan(0.5)), formatRgb(culoriNan(1))])
+    expect(nan(0.5)).toBe("rgba(0, 128, 0, 0)")
   })
 
   it("CL21: two ends of one colour write it on every frame past 0, the start as written at 0", () => {
