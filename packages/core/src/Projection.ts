@@ -78,6 +78,18 @@ export interface Value {
    */
   readonly opacity?: number
   /**
+   * A Switch's blended opacity (ADR-0010, *Amendment (#166)*), 0–1: drawn as the element's opacity
+   * as it is, in place of its own and of any crossfade factor, from the leaver's opacity to the
+   * element's own over the handover. Absent otherwise.
+   */
+  readonly blendOpacity?: number
+  /**
+   * A handover's blended rotation in degrees (ADR-0010, *Amendment (#166)*): woven in place of the
+   * element's own `rotate`, from the twin's to its own over the handover; a Follower is drawn with
+   * its Lead's. Absent otherwise, so the element's own `rotate` shows.
+   */
+  readonly rotate?: number
+  /**
    * Optional stacking raise (ADR-0016, *Amendment (Reorder)*): while present the
    * renderer emits it as `z-index`, so a dragged node paints above its siblings (Motion's
    * Reorder item, `zIndex: 1` while it's off its slot). Absent at rest, so the element's

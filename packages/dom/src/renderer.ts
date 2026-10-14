@@ -205,6 +205,29 @@ export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
 })
 
 /**
+ * An element's own `rotate` in degrees, from its value-map: what the renderer weaves into its
+ * projection, 0 for an absent or non-numeric value. A binding hands it to its projection node
+ * (`ownRotate`), so a handover blends from a twin's rotation into its own (ADR-0010 *Amendment
+ * (#166)*). Tier 2, for binding authors.
+ */
+export const ownRotateOf = (values: Record<string, unknown>): number => {
+  const rotate = values.rotate
+  if (typeof rotate === "number") return rotate
+  return 0
+}
+
+/**
+ * An element's own opacity, from its value-map: what the renderer draws, 1 for an absent or
+ * non-numeric value. A binding hands it to its projection node (`ownOpacity`), so a Switch blends
+ * from the leaver's opacity into it (ADR-0010 *Amendment (#166)*). Tier 2, for binding authors.
+ */
+export const ownOpacityOf = (values: Record<string, unknown>): number => {
+  const opacity = values.opacity
+  if (typeof opacity === "number") return opacity
+  return 1
+}
+
+/**
  * Assemble a projection transform string (ADR-0009), ported from Motion's
  * `buildProjectionTransform`: `translate3d` (translation divided by `treeScale`)
  * → inverse tree-scale `scale(1/treeScale)` → woven user `rotate`/`skew` (from
@@ -212,7 +235,12 @@ export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
  * Each term is emitted only when it is non-identity; with nothing to emit the
  * result is `"none"` (an identity projection carrying no woven transform).
  */
-const buildProjectionTransform = (delta: Projection.Delta, treeScale: Point.Point, latest: Record<string, unknown>): string => {
+const buildProjectionTransform = (
+  delta: Projection.Delta,
+  treeScale: Point.Point,
+  latest: Record<string, unknown>,
+  rotate: number | undefined,
+): string => {
   const funcs: Array<string> = []
 
   const tx = delta.x.translate / treeScale.x
@@ -228,6 +256,11 @@ const buildProjectionTransform = (delta: Projection.Delta, treeScale: Point.Poin
   }
 
   for (const { key, fn } of PROJECTION_WOVEN) {
+    // A handover's blended rotation stands in for the element's own (ADR-0010, *Amendment (#166)*).
+    if (key === "rotate" && rotate !== undefined) {
+      if (rotate !== 0) funcs.push(`rotate(${formatTransformValue(key, rotate)})`)
+      continue
+    }
     if (Object.hasOwn(latest, key) && !isIdentity(latest[key], 0)) funcs.push(`${fn}(${formatTransformValue(key, latest[key])})`)
   }
 
@@ -265,7 +298,7 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
   const projection = values[Projection.KEY] as Projection.Value | undefined
   if (projection !== undefined) {
     // Projection owns the transform; weave this element's rotate/skew from `values`.
-    patch.transform = buildProjectionTransform(projection.delta, projection.treeScale, values)
+    patch.transform = buildProjectionTransform(projection.delta, projection.treeScale, values, projection.rotate)
     // Copy non-transform style keys (transform keys are consumed by the weave /
     // owned by the projection; the projection key itself never renders).
     for (const key in values) {
@@ -275,7 +308,10 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
     // Shared-element crossfade (ADR-0010): compose the crossfade factor with the
     // user's opacity — `finalOpacity = (userOpacity ?? 1) × factor`. Pure: both
     // values are already in the value-map (like buildProjectionTransform above).
-    if (projection.opacity !== undefined) {
+    // A Switch's blended opacity is drawn as it is (ADR-0010, *Amendment (#166)*).
+    if (projection.blendOpacity !== undefined) {
+      patch.opacity = projection.blendOpacity
+    } else if (projection.opacity !== undefined) {
       const user = typeof values.opacity === "number" ? values.opacity : 1
       patch.opacity = user * projection.opacity
     }

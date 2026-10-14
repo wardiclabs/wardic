@@ -93,6 +93,64 @@ export const borderRadiusCorrector: ScaleCorrector = {
   },
 }
 
+/** No corner rounded: what a twin with no radius blends from or to (ADR-0010 *Amendment (#166)*). */
+const ZERO_CORNER: CornerRadius = { h: "0px", v: "0px" }
+export const ZERO_RADIUS: unknown = [ZERO_CORNER, ZERO_CORNER, ZERO_CORNER, ZERO_CORNER] as RadiusBase
+
+/** A radius, or {@link ZERO_RADIUS} for none. */
+const orZero = (radius: unknown): RadiusBase => {
+  if (radius === undefined) return ZERO_RADIUS as RadiusBase
+  return radius as RadiusBase
+}
+
+/**
+ * One radius component between `from` and `to` at `progress` (ADR-0010 *Amendment (#166)*, Motion's
+ * `mixValues`): mixed when both are the same unit or either is 0, as a `%` when either is one, and
+ * never below 0; otherwise `to` as it is. Per frame.
+ */
+const blendComponent = (from: string, to: string, progress: number): string => {
+  const f = Number.parseFloat(from) || 0
+  const t = Number.parseFloat(to) || 0
+  const fromPercent = from.endsWith("%")
+  const toPercent = to.endsWith("%")
+  if (f !== 0 && t !== 0 && fromPercent !== toPercent) return to
+  const mixed = Math.max(f + (t - f) * progress, 0)
+  if (fromPercent || toPercent) return `${mixed}%`
+  return `${mixed}px`
+}
+
+/**
+ * A border radius between a twin's and a Lead's at `progress` (ADR-0010 *Amendment (#166)*): corner by
+ * corner and axis by axis, `undefined` standing for no radius. What {@link borderRadiusCorrector}
+ * corrects while a handover blends. Per frame.
+ */
+export const blendRadius = (from: unknown, to: unknown, progress: number): unknown => {
+  const b = orZero(to)
+  return orZero(from).map((corner, i) => blendCorner(corner, b[i], progress))
+}
+
+/** One corner between `from` and `to` at `progress`, axis by axis. Per frame. */
+const blendCorner = (from: CornerRadius, to: CornerRadius | undefined, progress: number): CornerRadius => {
+  if (to === undefined) return from
+  return { h: blendComponent(from.h, to.h, progress), v: blendComponent(from.v, to.v, progress) }
+}
+
+/**
+ * `radius` as drawn under an own scale `(sx, sy)` (ADR-0010 *Amendment (#166)*): its px components
+ * scaled, its `%` ones as they are (a fraction of the scaled box already). Per frame.
+ */
+export const scaleRadius = (radius: unknown, sx: number, sy: number): unknown => {
+  if (radius === undefined) return undefined
+  if (sx === 1 && sy === 1) return radius
+  return (radius as RadiusBase).map((corner) => ({ h: scaleComponent(corner.h, sx), v: scaleComponent(corner.v, sy) }))
+}
+
+/** One radius component under an own scale: px scaled, `%` as it is. */
+const scaleComponent = (value: string, scale: number): string => {
+  if (value.endsWith("%")) return value
+  return `${(Number.parseFloat(value) || 0) * scale}px`
+}
+
 // --- box-shadow --------------------------------------------------------------
 
 /** One parsed shadow layer: the verbatim color, the px lengths, and inset flag. */
