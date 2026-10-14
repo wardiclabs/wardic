@@ -1551,29 +1551,26 @@ export const makeProjectionSystem = (
   /**
    * `node`'s box in the **Root frame** (CONTEXT.md; ADR-0012 *Amendment (#13)*): the
    * viewport box plus the root's scroll, containers' scroll left as rendered —
-   * Motion's `measuredBox`. While the element is connected it is read fresh: own
-   * transform cleared and every read inside one write → read → restore window, so it
-   * costs the one forced layout the binding's seed read used to. Once disconnected it
-   * is derived from the last measured (Scroll-stable) box, put back where it painted
-   * through its paint delta (ADR-0012 *Amendment (#136)*), by taking the containers'
-   * share of the fold back out — at each container's LIVE scroll while it is still
-   * connected (its last-pass sample otherwise), so a container scrolled since the
-   * last pass doesn't shift the seed. The root's scroll needs no such care: the Root
-   * frame carries it, so it cancels. `undefined` when there is neither.
+   * Motion's `measuredBox`: where the twin paints, its own projection included (ADR-0010
+   * *Amendment (#170)*), so a twin disposed mid-flight seeds from where it was seen. While the
+   * element is connected it is read fresh, as painted, which costs the one forced layout the
+   * binding's seed read used to. Once disconnected it is derived from where it last painted
+   * (its box through every projection, {@link paintedNowOf}), put back where it painted through
+   * its paint delta (ADR-0012 *Amendment (#136)*), by taking the containers' share of the fold
+   * back out — at each container's LIVE scroll while it is still connected (its last-pass sample
+   * otherwise), so a container scrolled since the last pass doesn't shift the seed. The root's
+   * scroll needs no such care: the Root frame carries it, so it cancels. `undefined` when there
+   * is neither.
    */
   const rootFrameBox = (node: NodeState): Box.Box | undefined => {
     const el = node.element
     if (el.isConnected) {
-      const saved = el.style.transform
-      el.style.transform = ""
-      try {
-        const viewport = Box.fromBounds(readLayoutBox(el))
-        return rootScrollApplies(node) ? offsetBox(viewport, measureDocumentScroll()) : viewport
-      } finally {
-        el.style.transform = saved
-      }
+      // As painted, its own projection included (#170): a twin disposed mid-flight seeds from
+      // where it was seen, as Motion's `measuredBox` does.
+      const viewport = Box.fromBounds(readLayoutBox(el))
+      return rootScrollApplies(node) ? offsetBox(viewport, measureDocumentScroll()) : viewport
     }
-    const stored = node.layoutBox ?? node.retained
+    const stored = paintedNowOf(node)
     if (Predicate.isUndefined(stored)) return undefined
     // Where it painted: the stored box leaves its ancestors' transforms out (#136).
     const stable = paintedOf(node, stored)
@@ -1914,9 +1911,16 @@ export const makeProjectionSystem = (
         //     FROM the prior lead's box (the prior twins become Followers locked
         //     onto us, fading out via the stack derive). Takes priority over the
         //     switch seed — the live twin's box is authoritative.
-        // The prior Lead's box in this node's frame, through where it paints (#136).
+        // Where the prior Lead painted as the pass began (#170: mid-flight, released or dragged,
+        // as seen), in this node's frame, through where it paints (#136).
         const priorBox = UndefinedOr.map(priorLeadOf(node), (lead) =>
-          UndefinedOr.map(UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }), (box) => between(lead, node, box)))
+          UndefinedOr.map(
+            UndefinedOr.match(paintedAtPass(lead), {
+              onDefined: identity,
+              onUndefined: () => UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }),
+            }),
+            (box) => between(lead, node, box),
+          ))
         if (priorBox !== undefined) {
           // Shaped by its Layout mode; a handover crossfades even when that leaves nothing to
           // move, the twins' boxes equal (#5, Motion's: any `resumeFrom` animates).
@@ -2149,6 +2153,22 @@ export const makeProjectionSystem = (
     if (restsAtPass(node)) return box
     const chain: Array<Projection.Delta> = []
     for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) chain.push(p.passDelta)
+    chain.reverse()
+    return Projection.applyTreeDeltas(box, chain).box
+  }
+
+  /**
+   * Where `node` paints now (#170, ADR-0010 *Amendment (#170)*): its box through its ancestors'
+   * projections and its own as last written, root-first, as CSS composes them. That is everything
+   * moving it on screen: its layout animation mid-flight, its Release offset, a drag, its carriers;
+   * at rest, its box. What a handover outside a Measure pass starts from (a promotion, a Switch
+   * seed); one inside a pass reads {@link paintedAtPass}. `undefined` with no box.
+   */
+  const paintedNowOf = (node: NodeState): Box.Box | undefined => {
+    const box = node.layoutBox ?? node.retained
+    if (Predicate.isUndefined(box)) return undefined
+    const chain: Array<Projection.Delta> = []
+    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) chain.push(p.lastDelta)
     chain.reverse()
     return Projection.applyTreeDeltas(box, chain).box
   }
@@ -2513,7 +2533,9 @@ export const makeProjectionSystem = (
   /** Promote `node` to an animating Lead from `fromBox` → its own box (un-hide + move home). */
   const promoteFrom = (node: NodeState, from: NodeState): void => {
     const ownBox = node.retained
-    const fromStored = from.layoutBox ?? from.retained
+    // From where the twin paints, not where it would rest (#170): a handover that interrupts
+    // another goes on from where the twin was seen.
+    const fromStored = paintedNowOf(from)
     if (Predicate.isUndefined(fromStored)) return
     if (Predicate.isUndefined(ownBox)) return
     const fromBox = between(from, node, fromStored)
