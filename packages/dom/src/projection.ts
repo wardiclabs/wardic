@@ -166,13 +166,37 @@ const offsetBox = (box: Box.Box, delta: Point.Point): Box.Box => ({
   y: { min: box.y.min + delta.y, max: box.y.max + delta.y },
 })
 
-/** A node's `@projection` value, with the crossfade factor (ADR-0010) and the raise (ADR-0016) only when it carries them. Per frame. */
-const projectionValue = (
+/**
+ * A Follower's `@projection` value (ADR-0010, *Amendment (#165)*): pointer input passes
+ * through it, with the crossfade factor and the raise only when it carries them. Per frame.
+ */
+const followerValue = (
   delta: Projection.Delta,
   treeScale: Point.Point,
   opacity: number | undefined,
   raise: number | undefined,
 ): Projection.Value => {
+  if (Predicate.isUndefined(raise)) {
+    if (Predicate.isUndefined(opacity)) return { delta, treeScale, passesPointer: true }
+    return { delta, treeScale, opacity, passesPointer: true }
+  }
+  if (Predicate.isUndefined(opacity)) return { delta, treeScale, raise, passesPointer: true }
+  return { delta, treeScale, opacity, raise, passesPointer: true }
+}
+
+/**
+ * A node's `@projection` value, with the crossfade factor (ADR-0010) and the raise (ADR-0016)
+ * only when it carries them; a Follower's passes pointer input through ({@link followerValue}).
+ * Per frame.
+ */
+const projectionValue = (
+  delta: Projection.Delta,
+  treeScale: Point.Point,
+  opacity: number | undefined,
+  raise: number | undefined,
+  follower: boolean,
+): Projection.Value => {
+  if (follower) return followerValue(delta, treeScale, opacity, raise)
   if (Predicate.isUndefined(raise)) {
     if (Predicate.isUndefined(opacity)) return { delta, treeScale }
     return { delta, treeScale, opacity }
@@ -769,6 +793,11 @@ export const makeProjectionSystem = (
    *
    * A LEAVING Follower is gate-unregistered (its owner was disposed), so it is
    * driven directly via the Renderer onto the retained element instead of the gate.
+   *
+   * Every write to a Follower passes pointer input through it, and every write to a Lead
+   * drops that, so the gate restores the element's own `pointer-events` (#165). Asked here,
+   * not by the callers, so no path that writes a Follower (a twin's first measure in the
+   * same task as its Lead's, a crossfade's frames, a rest) leaves it taking input.
    */
   const writeProjection = (
     node: NodeState,
@@ -777,7 +806,7 @@ export const makeProjectionSystem = (
     opacity?: number,
     corrected?: Record<string, string>,
   ): void => {
-    const value = projectionValue(delta, treeScale, opacity, raiseOf(node))
+    const value = projectionValue(delta, treeScale, opacity, raiseOf(node), isFollower(node))
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
       renderer.commit(node.element, renderer.project(patch))
@@ -2358,7 +2387,14 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(fromStored)) return
     if (Predicate.isUndefined(ownBox)) return
     const fromBox = between(from, node, fromStored)
-    if (boxesEqual(fromBox, ownBox)) return
+    // Nothing to move: one write at rest, as the Lead it now is, un-hides it and gives it its
+    // pointer input back (#165). Without it the twin kept its last Follower write: hidden, and
+    // passing its input through.
+    if (boxesEqual(fromBox, ownBox)) {
+      node.lastDelta = IDENTITY_DELTA
+      writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
+      return
+    }
     node.origin = shapedOrigin(node, fromBox, ownBox)
     node.layoutBox = ownBox
     node.spring = startSpring(node)

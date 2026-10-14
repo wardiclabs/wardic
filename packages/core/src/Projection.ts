@@ -84,6 +84,13 @@ export interface Value {
    * own z-index shows.
    */
   readonly raise?: number
+  /**
+   * Present on a Follower (ADR-0010, *Amendment (#165)*): pointer input passes through it to
+   * what's beneath, so a Follower locked onto its Lead's box never takes the Lead's input,
+   * fading out or hidden at rest (Motion's). The DOM's renderer writes `pointer-events: none`.
+   * Absent on a Lead, so the element's own value shows.
+   */
+  readonly passesPointer?: true
 }
 
 /** Below this distance from 1, a computed scale snaps to exactly 1 (Motion's `SCALE_PRECISION`). */
