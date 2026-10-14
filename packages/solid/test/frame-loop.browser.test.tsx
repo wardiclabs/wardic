@@ -111,14 +111,15 @@ const countingLoop = () => {
   let most = 0
   const ends: Array<Exit.Exit<unknown>> = []
   const names: Array<string> = []
-  const wrap = (loop: LoopShape): LoopShape => ({
-    afterTick: loop.afterTick,
-    run: (machine, sink) =>
+  // Both lanes counted: the projection's coordinator runs in the last (ADR-0027, *Amendment (#137)*).
+  const counted =
+    (go: LoopShape["run"]): LoopShape["run"] =>
+    (machine, sink) =>
       Effect.suspend(() => {
         names.push(machine.span.name)
         live++
         most = Math.max(most, live)
-        return loop.run(machine, sink)
+        return go(machine, sink)
       }).pipe(
         Effect.onExit((exit) =>
           Effect.sync(() => {
@@ -126,7 +127,11 @@ const countingLoop = () => {
             ends.push(exit)
           }),
         ),
-      ),
+      )
+  const wrap = (loop: LoopShape): LoopShape => ({
+    afterTick: loop.afterTick,
+    run: counted(loop.run),
+    runLast: counted(loop.runLast),
   })
   return {
     wrap,

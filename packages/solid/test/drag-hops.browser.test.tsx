@@ -181,6 +181,11 @@ it("H3: a move and its release in one task: the release is on the Frame loop by 
           added.push(machine.span.name)
           return loop.run(machine, sink)
         }),
+      runLast: (machine, sink) =>
+        Effect.suspend(() => {
+          added.push(machine.span.name)
+          return loop.runLast(machine, sink)
+        }),
     })),
   )
   const { el, writes } = await mount("free", { momentum: true, env: recording.pipe(Layer.provideMerge(onBrowserScheduler(DomLive))) })

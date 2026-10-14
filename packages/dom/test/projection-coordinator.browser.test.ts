@@ -58,6 +58,8 @@ interface SpanRecord {
 interface RunRecord {
   readonly name: string
   readonly attributes: Readonly<Record<string, unknown>>
+  /** Which lane it was added to: `runLast` steps after every `run` (ADR-0027, *Amendment (#137)*). */
+  readonly lane: "run" | "runLast"
   exit: SpanRecord["exit"]
 }
 
@@ -105,15 +107,16 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   const runs: Array<RunRecord> = []
   let coordinators = 0
   let mostCoordinators = 0
-  const recordRuns = (loop: LoopShape): LoopShape => ({
-    afterTick: loop.afterTick,
-    run: (machine, sink) =>
+  // Both lanes recorded: the coordinator runs in the last (ADR-0027, *Amendment (#137)*).
+  const recorded =
+    (go: LoopShape["run"], lane: RunRecord["lane"]): LoopShape["run"] =>
+    (machine, sink) =>
       Effect.suspend(() => {
-        const record: RunRecord = { name: machine.span.name, attributes: machine.span.attributes, exit: "open" }
+        const record: RunRecord = { name: machine.span.name, attributes: machine.span.attributes, lane, exit: "open" }
         runs.push(record)
         const coordinator = record.name === COORDINATOR
         if (coordinator) mostCoordinators = Math.max(mostCoordinators, ++coordinators)
-        return loop.run(machine, sink).pipe(
+        return go(machine, sink).pipe(
           Effect.onExit((exit) =>
             Effect.sync(() => {
               record.exit = exitTag(exit)
@@ -121,7 +124,11 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
             }),
           ),
         )
-      }),
+      })
+  const recordRuns = (loop: LoopShape): LoopShape => ({
+    afterTick: loop.afterTick,
+    run: recorded(loop.run, "run"),
+    runLast: recorded(loop.runLast, "runLast"),
   })
   const spans: Array<SpanRecord> = []
   const spanEnds: Array<(record: SpanRecord) => void> = []
@@ -228,21 +235,22 @@ const settle = (sink: ReturnType<typeof makeSink>, id: string): void => {
   }
 }
 
-/** A run of the test's own on the Frame loop that never settles, handing each Frame to `onFrame`. */
-const hold = (e: Engine, onFrame: () => void = () => {}) => {
+/**
+ * A run of the test's own on the Frame loop that never settles, handing each Frame to `onFrame`. In
+ * the last lane, added after the coordinator, it steps after the coordinator in each tick (ADR-0027,
+ * *Amendment (#137)*).
+ */
+const hold = (e: Engine, onFrame: () => void = () => {}, lane: "run" | "runLast" = "run") => {
   const machine = Machine.make<Frame.Frame<number>>({
     settles: false,
     span: { name: "test.hold", attributes: {} },
     start: () => () => ({ value: 0, done: false }),
   })
-  return e.runtime.runFork(
-    machine.pipe(
-      Machine.run(() => {
-        onFrame()
-        return undefined
-      }),
-    ),
-  )
+  const sink = (): undefined => {
+    onFrame()
+    return undefined
+  }
+  return e.runtime.runFork(FrameLoop.FrameLoop.use((loop) => loop[lane](machine, sink)))
 }
 
 describe("a coordinator that settled is started afresh by the next trigger", () => {
@@ -294,8 +302,8 @@ describe("a coordinator started inside a tick, after it settled earlier in that 
     a.notify()
     await endOfTask()
 
-    // A run of the test's own, started after the coordinator, so the loop steps it after the
-    // coordinator in each tick. Its first Frame after the coordinator's span ends grabs b.
+    // A run of the test's own in the last lane, started after the coordinator, so the loop steps it
+    // after the coordinator in each tick. Its first Frame after the coordinator's span ends grabs b.
     let frame = 0
     let settledAt = -1
     let grabbedAt = -1
@@ -303,12 +311,16 @@ describe("a coordinator started inside a tick, after it settled earlier in that 
     e.onSpanEnd((s) => {
       if (s.name === COORDINATOR && settledAt < 0) settledAt = frame
     })
-    hold(e, () => {
-      if (settledAt < 0 || grabbedAt >= 0) return
-      grabbedAt = frame
-      b.dragStart()
-      bWritesAtGrab = sk.of("b").length
-    })
+    hold(
+      e,
+      () => {
+        if (settledAt < 0 || grabbedAt >= 0) return
+        grabbedAt = frame
+        b.dragStart()
+        bWritesAtGrab = sk.of("b").length
+      },
+      "runLast",
+    )
     for (let i = 0; i < 600 && grabbedAt < 0; i++) {
       frame++
       fireFrame()
@@ -432,7 +444,7 @@ describe("the layout lab's reading of a lone FLIP", () => {
 })
 
 describe("the coordinator is one run on the Frame loop (#75)", () => {
-  it("a FLIP is one run, named wardic.projection.coordinator with `active`; it settles inside its step, so the run and its span succeed", async () => {
+  it("a FLIP is one run, named wardic.projection.coordinator with `active`, in the loop's last lane; it settles inside its step, so the run and its span succeed", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const element = box(0)
@@ -444,7 +456,8 @@ describe("the coordinator is one run on the Frame loop (#75)", () => {
     a.notify()
     await endOfTask()
     fireFrames(3)
-    expect(e.coordinatorRuns()).toEqual([{ name: COORDINATOR, attributes: { active: 1 }, exit: "open" }])
+    // The last lane (ADR-0027, *Amendment (#137)*): it reads what the spine legs wrote in the same tick.
+    expect(e.coordinatorRuns()).toEqual([{ name: COORDINATOR, attributes: { active: 1 }, lane: "runLast", exit: "open" }])
     settle(sk, "a")
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Success"])
     expect(e.spans.filter((s) => s.name === COORDINATOR).map((s) => s.exit)).toEqual(["Success"])
@@ -534,11 +547,16 @@ describe("the coordinator is one run on the Frame loop (#75)", () => {
     e.onSpanEnd((s) => {
       if (s.name === COORDINATOR) settled = true
     })
-    hold(e, () => {
-      if (!settled || grabbed) return
-      grabbed = true
-      b.dragStart()
-    })
+    // In the last lane, after the coordinator: a later run's sink in the tick it settles in.
+    hold(
+      e,
+      () => {
+        if (!settled || grabbed) return
+        grabbed = true
+        b.dragStart()
+      },
+      "runLast",
+    )
     for (let i = 0; i < 600 && !grabbed; i++) fireFrame()
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Success", "open"])
     fireFrame()

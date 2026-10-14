@@ -53,7 +53,7 @@
  */
 import * as Box from "@wardic/core/Box"
 import type * as Frame from "@wardic/core/Frame"
-import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Microtask from "@wardic/core/Microtask"
 import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
@@ -3222,14 +3222,17 @@ export const makeProjectionSystem = (
    * burst's `Clock.ticks` subscription is made in this call, and the nodes take their first
    * step at the next Refresh frame's tick, cold or warm (ADR-0033). Added during a tick (from
    * another run's continuation), it's stepped from the next one (ADR-0027, decision 5).
+   *
+   * It runs in the loop's last lane (`runLast`, ADR-0027 *Amendment (#137)*): each tick it steps
+   * after every spine leg, so what it reads of their values (an ancestor's translate and scale, a
+   * twin's own scale, rotation and opacity) is what that tick paints, whichever was added first.
    */
   const ensureRunning = (): void => {
     if (coordinating() || active.size === 0) return
     FiberHandle.setUnsafe(
       coordinator,
       runtime.runFork(
-        coordinatorMachine().pipe(
-          Machine.run(ignoreFrame),
+        FrameLoop.FrameLoop.use((loop) => loop.runLast(coordinatorMachine(), ignoreFrame)).pipe(
           Effect.onExit(coordinatorEnded),
           Effect.asVoid,
         ),

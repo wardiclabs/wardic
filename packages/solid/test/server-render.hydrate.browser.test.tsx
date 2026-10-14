@@ -298,6 +298,11 @@ describe("the spine's legs start at mount, never in the hydration render (#76)",
             starts.push(sharedConfig.context != null)
             return loop.run(machine, sink)
           }),
+        runLast: (machine, sink) =>
+          Effect.suspend(() => {
+            starts.push(sharedConfig.context != null)
+            return loop.runLast(machine, sink)
+          }),
       })),
     ).pipe(Layer.provide(DomLive))
     setLogEnv(Layer.merge(DomLive, recording))
