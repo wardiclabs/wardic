@@ -97,6 +97,13 @@ export interface Value {
 const SCALE_PRECISION = 0.0001
 /** Below this distance from 0, a computed translate snaps to exactly 0 (Motion's `TRANSLATE_PRECISION`). */
 const TRANSLATE_PRECISION = 0.01
+/**
+ * Strictly inside this range a `treeScale` snaps to exactly 1 (Motion's `TREE_SCALE_SNAP_MIN` and
+ * `TREE_SCALE_SNAP_MAX`, delta-apply.ts; ADR-0009 *Amendment (#9)*): only float noise. Ancestors'
+ * scales that nearly cancel (1.5 × 0.6667) keep their product, as Motion's do.
+ */
+const TREE_SCALE_SNAP_MIN = 0.999999999999
+const TREE_SCALE_SNAP_MAX = 1.0000000000001
 
 /** `true` when `value` is within `maxDistance` of `target` (Motion's `isNear`). */
 const isNear = (value: number, target: number, maxDistance: number): boolean =>
@@ -182,8 +189,8 @@ export const applyBoxDelta = (box: Box.Box, delta: Delta): Box.Box => ({
  *
  * `ancestorDeltas` is the node's ancestor projection deltas in ROOT-FIRST order
  * (outermost ancestor first, the node's parent last); each is applied in turn and
- * its scale multiplied into `treeScale`. `treeScale` snaps to 1 within the scale
- * precision. Returns a fresh corrected box + the `treeScale` point (the binding
+ * its scale multiplied into `treeScale`. `treeScale` snaps to 1 strictly inside Motion's
+ * `TREE_SCALE_SNAP_MIN`–`TREE_SCALE_SNAP_MAX`. Returns a fresh corrected box + the `treeScale` point (the binding
  * feeds `treeScale` to `buildProjectionTransform`).
  *
  * Pure: the `display:contents` skip, scroll compensation (P3), and shared-element
@@ -202,8 +209,8 @@ export const applyTreeDeltas = (
     treeScaleY *= delta.y.scale
     box = applyBoxDelta(box, delta)
   }
-  if (isNear(treeScaleX, 1, SCALE_PRECISION)) treeScaleX = 1
-  if (isNear(treeScaleY, 1, SCALE_PRECISION)) treeScaleY = 1
+  if (treeScaleX > TREE_SCALE_SNAP_MIN && treeScaleX < TREE_SCALE_SNAP_MAX) treeScaleX = 1
+  if (treeScaleY > TREE_SCALE_SNAP_MIN && treeScaleY < TREE_SCALE_SNAP_MAX) treeScaleY = 1
   return { box, treeScale: { x: treeScaleX, y: treeScaleY } }
 }
 
