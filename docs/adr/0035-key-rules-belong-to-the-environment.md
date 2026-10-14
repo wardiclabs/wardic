@@ -27,7 +27,7 @@ A pair can blend differently because of the key it belongs to. `display` turning
 - **`visibility`:** `display` and `visibility` turning to `none` or `hidden` show their start until the run's last Frame (ADR-0024, decision 4).
 - **`animatableNone`:** the Animatable none and the shadow list (ADR-0015, *Amendment (#61)*).
 - Both take a key by its CSS name or in camelCase, through `dashCase`: `WardicValues` types keys as CSS names, and camelCase works as well.
-- `keyRules` lists them, `InterpolatorRegistryDomLive` is core's registry with them, and `DomLive` provides it. All three are Tier 2 exports.
+- `keyRules` lists them, `InterpolatorRegistryDomLive` is core's registry with them, and `DomLive` provides it. All three are Tier 2 exports. (The registry moved to `interpolators.ts` in *Amendment (#158)*.)
 
 ## Considered Options
 
@@ -61,3 +61,27 @@ A pair can blend differently because of the key it belongs to. `display` turning
 - **`@wardic/dom`, node** (`key-rules.node.test.ts`): DV1–DV8, the `visibility` rule, moved from `@wardic/test` with `spring-blend`'s SB5 as DV8; and AN1–AN14, the Animatable none (ADR-0015, *Amendment (#61)*).
 - **solid, Chromium, on `DomLive`:** `string-keys.browser.test.tsx` SK11–SK14 and `animatable-none.browser.test.tsx` AB1–AB4, unchanged.
 - **Mutation-checked** (`.tmp/61/mutate.py`): 20 single-point mutations, each failing the tests meant for it. Three are on the seam itself: the registry ignoring its rules, `blendersFor` not asking it, and the `visibility` rule taking every `display` pair.
+
+## Amendment (#158, 2026-10-14): a complex value's text spans come from the Environment
+
+#61 made the complex tier take a string with one or more numbers, and it read the digits in a CSS variable's name as numbers: `var(--gray-500)` → `var(--gray-600)` blended through `var(--gray-550)`, an undefined variable, so a background painted transparent mid-leg (#158). The fix keeps a `var()` as text. `var()` is CSS's syntax, so by this ADR it isn't core's: core gets a neutral seam, and the DOM supplies the syntax.
+
+- **Core:** `Interpolator.complexWith({ text })` and its codec, `complexStringWith({ text })`, take patterns for spans that are only text.
+  - A text span is matched whole, before colours and numbers, so the digits in it are never numbers. It's kept in the text around the tokens.
+  - A string with no number or colour outside its spans isn't a complex value.
+  - Two values blend only with the same count of spans, besides #61's colour and number counts (Motion's `mixComplex`, for its `var()`). The target's text is written, its spans with it, so a span takes the target's at the first frame, as Motion's `mixImmediate` does.
+  - `Interpolator.complex` and `ComplexString` are the same with no spans: core names no Environment's syntax.
+- **`@wardic/dom`** (`interpolators.ts`):
+  - `VARIABLE_REFERENCE` is CSS's `var(--name)`, with a fallback one bracket level deep (Motion's var token).
+  - `cssComplex` is core's complex tier with it.
+  - `interpolators` is core's defaults with `cssComplex` in the complex tier's place.
+  - `InterpolatorRegistryDomLive` moved here from `key-rules.ts`: the registry of the DOM's Interpolators and Key rules.
+- **Without the DOM's registry,** a `var()` is just text with numbers in it again. The Test Environment and core's own tests have no CSS variables to keep.
+- **Considered:**
+  - The var token in core, as #159 first had it. Rejected on review: core names no Environment's syntax, for a future terminal or headless Environment.
+  - An Environment-neutral heuristic, "digits stuck to a name aren't numbers". Rejected: an SVG path's `M-5,10` and `L10-5` are numbers stuck to letters and digits.
+- **#55** resolves a whole `var()` against the element before it blends (an element-bound Key rule). This amendment only keeps the names out of the numbers.
+- **Pinned by:**
+  - core's `codecs.test.ts` and `complex-interpolate.test.ts`, with a made-up `@name` span;
+  - `@wardic/dom`'s `interpolators.node.test.ts` CV1–CV4: the `var()` pairs switch, lengths blend around a `var()`, the other tiers are core's, and the codec keeps a `var()` as text;
+  - solid's SK18, with real paint: only the two greys.
