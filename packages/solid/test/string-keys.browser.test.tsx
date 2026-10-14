@@ -359,8 +359,8 @@ describe("a filter holding a length (#154)", () => {
   })
 })
 
-describe("a var() value's name (#158)", () => {
-  it("SK18: var(--gray-500) → var(--gray-600) paints only the two greys, never an undefined var(--gray-550)", async () => {
+describe("a var() value's name (#158) and what it resolves to (#55)", () => {
+  it("SK18: var(--gray-500) → var(--gray-600) blends through greys (#55), never an undefined var(--gray-550) (#158)", async () => {
     let el!: HTMLElement
     const greys = { ...BOX, "--gray-500": "#6b7280", "--gray-600": "#4b5563" } as JSX.CSSProperties
     render(() => (
@@ -377,7 +377,12 @@ describe("a var() value's name (#158)", () => {
     const s = sampleFrames(() => getComputedStyle(el).backgroundColor)
     await until(() => getComputedStyle(el).backgroundColor === "rgb(75, 85, 99)", 3000)
     await settle()
-    const painted = new Set(s.stop().map((f) => f.v))
-    for (const c of painted) expect(["rgb(107, 114, 128)", "rgb(75, 85, 99)"], `painted ${c}`).toContain(c)
+    const painted = s.stop().map((f) => f.v)
+    // Every frame an opaque grey between the two: #158 painted transparent, before #55 it switched.
+    for (const c of painted) expect(c, `painted ${c}`).toMatch(/^rgb\((\d+), (\d+), (\d+)\)$/)
+    const reds = painted.map((c) => Number(/^rgb\((\d+)/.exec(c)![1]))
+    reds.forEach((r, i) => expect(r >= 75 && r <= 107, `frame ${i}: red ${r}`).toBe(true))
+    expect(reds.filter((r) => r > 76 && r < 106).length, "greys in between (#55)").toBeGreaterThan(5)
+    expect(el.style.backgroundColor, "rests as the var() itself").toBe("var(--gray-600)")
   })
 })

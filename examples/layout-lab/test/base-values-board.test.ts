@@ -122,4 +122,12 @@ describe("base-value board runs (#47, scenario 15)", () => {
     expect(flash.start!.ok).toBe(false)
     expect(lines(run({})).paints).toBeUndefined()
   })
+
+  it("BV15: a toggle retargeted mid-flight is judged on its start against where it was headed, and on landing where it was moved to (#55)", () => {
+    const flip = { cell: "token scale", kind: "toggle" as const, base: 107, target: 75, before: 107, after: [], watchesFallback: true }
+    const l = lines(run({ ...flip, landsOn: 107, during: [107, 106, 100, 90, 80, 76, 107] }))
+    expect(l.start!.ok).toBe(true)
+    expect(l.end).toEqual({ name: "end", ok: true, text: "settled at 107.000 (retargeted) ✓" })
+    expect(lines(run({ ...flip, landsOn: 107, during: [107, 106, 100, 90, 80, 76, 75] })).end!.ok).toBe(false)
+  })
 })

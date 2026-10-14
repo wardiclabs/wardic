@@ -9,11 +9,13 @@
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import { dual, identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Interpolator from "./Interpolator.ts"
 
 // The registry is heterogeneous by design: its entries are `Interpolator.Entry<any, any>`.
@@ -58,6 +60,17 @@ export type KeyBlend = (t: number, done: boolean) => number | string
 export type ResolveByValue = <From, To>(from: From, to: To) => Effect.Effect<(t: number) => From | To>
 
 /**
+ * A key's pair as the rules after one rule, then the Interpolators, blend it (ADR-0035, *Amendment
+ * (#55)*): what a rule that rewrites a pair hands it on to, so the rules after it still apply. The
+ * DOM's element-bound rule resolves a Variable value, then blends what it resolved to through
+ * `next`, so `"none"` → `var(--shadow)` still grows from its Animatable none.
+ */
+export type NextKeyBlend = (key: string, from: number | string, to: number | string) => Effect.Effect<KeyBlend>
+
+/** The first Key rule's blend for a key's pair, or `None`: `keyBlendOf`'s shape. */
+export type KeyBlendOf = (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
+
+/**
  * An Environment's **Key rule** (CONTEXT.md, ADR-0035): how one key's pair blends, picked by the
  * key's name. Core holds none; the DOM Environment's know CSS properties (`@wardic/dom`'s
  * `keyRules`).
@@ -65,7 +78,11 @@ export type ResolveByValue = <From, To>(from: From, to: To) => Effect.Effect<(t:
  * `blend` declines with `None`, synchronously and allocating nothing: the registry asks every rule
  * for every key of every leg it builds, so a key no rule wants costs what it did with none. Taking
  * the key, it returns the Effect that builds the key's `KeyBlend`, which may resolve pairs by value
- * through `resolve`.
+ * through `resolve`, or hand a pair on through `next` to the rules after it (ADR-0035, *Amendment
+ * (#55)*).
+ *
+ * Most rules hold for the whole Environment (`make`, `registerKeyRule`). A rule that reads an element
+ * is bound to it for a run instead, with {@link withKeyRules}.
  */
 export interface KeyRule {
   readonly name: string
@@ -74,8 +91,32 @@ export interface KeyRule {
     from: number | string,
     to: number | string,
     resolve: ResolveByValue,
+    next: NextKeyBlend,
   ) => Option.Option<Effect.Effect<KeyBlend>>
 }
+
+/** A pair's blend by value, as a `KeyBlend`: what `next` gives when no rule after takes the pair. */
+const byValue = (resolve: ResolveByValue, from: number | string, to: number | string): Effect.Effect<KeyBlend> =>
+  Effect.map(resolve(from, to), (blend): KeyBlend => (t) => blend(t))
+
+/**
+ * `rules` as one `KeyBlendOf`, ahead of `after`: the first rule that takes a key gives its blend,
+ * and each rule's `next` is the rules after it, then `after`, then by value. Built once, when the
+ * rules are; asking it allocates nothing but what a rule that takes the key does. A statement `if`,
+ * not `Option` combinators: it runs for every key of every leg (#61's bench).
+ */
+const chainOf = (rules: ReadonlyArray<KeyRule>, resolve: ResolveByValue, after: KeyBlendOf): KeyBlendOf =>
+  Arr.reduceRight(rules, after, (rest: KeyBlendOf, rule): KeyBlendOf => {
+    const next: NextKeyBlend = (key, from, to) => Option.getOrElse(rest(key, from, to), () => byValue(resolve, from, to))
+    return (key, from, to) => {
+      const taken = rule.blend(key, from, to, resolve, next)
+      if (Option.isSome(taken)) return taken
+      return rest(key, from, to)
+    }
+  })
+
+/** No rule: what a chain ends with. */
+const noRule: KeyBlendOf = () => Option.none()
 
 /**
  * A Discrete pair at progress `t` (ADR-0024, decision 3): `from` at 0 and below, then `to` from
@@ -222,6 +263,8 @@ export const make = (
     const entries: Array<Registered> = Arr.map(initial, registered)
     const rules: Array<KeyRule> = Arr.copy(keyRules)
     const cache = makeBlendCache(CACHE_CAPACITY)
+    // The rules as one chain, built again when one is registered.
+    const chain = MutableRef.make<KeyBlendOf>(noRule)
 
     const resolveUncached = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> =>
       Option.match(select(entries, from, to), {
@@ -245,6 +288,8 @@ export const make = (
         })
       })
 
+    MutableRef.set(chain, chainOf(rules, resolve, noRule))
+
     return {
       register: <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) =>
         Effect.gen(function* () {
@@ -260,14 +305,61 @@ export const make = (
       registerKeyRule: (rule: KeyRule) =>
         Effect.gen(function* () {
           rules.unshift(rule)
+          MutableRef.set(chain, chainOf(rules, resolve, noRule))
           yield* Effect.logDebug("wardic.interpolator: register key rule").pipe(
             Effect.annotateLogs({ keyRule: rule.name }),
           )
         }),
       keyBlendOf: (key: string, from: number | string, to: number | string): Option.Option<Effect.Effect<KeyBlend>> =>
-        Arr.findFirst(rules, (rule) => rule.blend(key, from, to, resolve)),
+        MutableRef.get(chain)(key, from, to),
     }
   })
+
+/**
+ * Run `self` with `rules` asked first, ahead of the registry's own Key rules, for that run only
+ * (ADR-0035, *Amendment (#55)*): how a binding adds a rule bound to one element, the DOM's
+ * `variableValues(element)`, to each leg it builds. Each rule's `next` is the rules after it, then
+ * the registry's rules, then by value. The registry itself isn't changed, so one element's rule never
+ * reaches another's legs.
+ */
+export const withKeyRules: {
+  (rules: ReadonlyArray<KeyRule>): <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | InterpolatorRegistry>
+  <A, E, R>(self: Effect.Effect<A, E, R>, rules: ReadonlyArray<KeyRule>): Effect.Effect<A, E, R | InterpolatorRegistry>
+} = dual(
+  2,
+  <A, E, R>(self: Effect.Effect<A, E, R>, rules: ReadonlyArray<KeyRule>): Effect.Effect<A, E, R | InterpolatorRegistry> =>
+    Effect.updateService(self, InterpolatorRegistry, (registry) => layeredOf(rules, registry)),
+)
+
+/** A registry service, as `withKeyRules` reads and provides it. */
+type Service = InterpolatorRegistry["Service"]
+
+/**
+ * Each rule list's layered registries, by the registry under them: a binding binds one list to an
+ * element and wraps each leg it starts with it, so the chain is built once per element and
+ * Environment, not per leg. Weak, so an element's list goes with it.
+ */
+const layered = new WeakMap<ReadonlyArray<KeyRule>, WeakMap<Service, Service>>()
+
+/** `registry` with `rules` asked first: kept per rule list and registry. */
+const layeredOf = (rules: ReadonlyArray<KeyRule>, registry: Service): Service => {
+  const byRegistry = UndefinedOr.match(layered.get(rules), {
+    onDefined: identity,
+    onUndefined: () => {
+      const made = new WeakMap<Service, Service>()
+      layered.set(rules, made)
+      return made
+    },
+  })
+  return UndefinedOr.match(byRegistry.get(registry), {
+    onDefined: identity,
+    onUndefined: () => {
+      const made: Service = { ...registry, keyBlendOf: chainOf(rules, registry.resolve, registry.keyBlendOf) }
+      byRegistry.set(registry, made)
+      return made
+    },
+  })
+}
 
 /** The `InterpolatorRegistry` pre-loaded with core's built-in interpolators (`Interpolator.defaults`) and no Key rules. */
 export const layer: Layer.Layer<InterpolatorRegistry> = Layer.effect(InterpolatorRegistry)(make())

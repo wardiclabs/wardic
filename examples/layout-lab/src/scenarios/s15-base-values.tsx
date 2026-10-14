@@ -46,13 +46,22 @@
  *   `whileHover` a larger one. The computed shadow reads colour first with a spread; it blends
  *   in and back out (the shadow rule; Motion switches back).
  *
- * And one cell for a design token's `var()` (#158):
+ * And three cells for Variable values (#55, and #158's token scale), each a `background-color`
+ * whose ends are `var()`s of custom properties the row's container defines, in one of two themes.
+ * Toggle variables flips the three; Switch theme changes the variables at rest:
  *
- * - **token scale**: a box defining `--gray-500` and `--gray-600`; Toggle token flips its
- *   `background-color` between `var(--gray-500)` and `var(--gray-600)`. Its read is the painted
- *   red channel, -1 on a frame that painted the fallback. It switches at once (a style change run),
- *   and **paints** checks no frame was transparent: before #158 it blended the variable's name,
- *   through an undefined `var(--gray-550)`.
+ * - **colour to var**: `#ff0000` ↔ `var(--lab-brand)`.
+ * - **var to var**: `var(--lab-a)` ↔ `var(--lab-b)`.
+ * - **token scale**: `var(--gray-500)` ↔ `var(--gray-600)`.
+ *
+ * Each read is the painted red channel, -1 on a frame that painted the fallback. A flip blends what
+ * the `var()`s resolve to (a toggle run), **rests** checks a flip to a `var()` writes the `var()`
+ * itself, and **paints** checks no frame was transparent (before #158 the token scale blended the
+ * variable's name, through an undefined `var(--gray-550)`; before #55 every flip switched at once).
+ * A theme switch at rest is a style change run: each cell resting on a `var()` shows the theme's
+ * colour within three frames, since it rests as the `var()`. One while a flip runs moves that flip's
+ * target instead: the flip keeps the colour it resolved when it started, and lands on the new
+ * theme's when its last frame writes the `var()` (#55).
  *
  * Each Animatable none read is the painted blur radius (the fill's alpha), 0 for `none`. Before #61 each switched
  * at the first frame. A toggle back to `none` is also judged on what it rests at: `none` itself,
@@ -98,11 +107,35 @@ const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: 
 /** Six rows of cells, three across, each wide enough for its label on one line. */
 const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "480px" }
 
-/** The token scale cell (#158): a box defining two greys of a design-token scale. */
-const TOKEN_BOX = { ...BOX, "--gray-500": "#6b7280", "--gray-600": "#4b5563" } as JSX.CSSProperties
-/** The two greys' red channels, painted. */
-const GRAY_500 = 107
-const GRAY_600 = 75
+/** The Variable value cells' two themes (#55): the custom properties the row's container defines. */
+const THEMES = [
+  { "--lab-brand": "#0000ff", "--lab-a": "#ff0000", "--lab-b": "#00ff00", "--gray-500": "#6b7280", "--gray-600": "#4b5563" },
+  { "--lab-brand": "#8800ff", "--lab-a": "#cc6600", "--lab-b": "#3366cc", "--gray-500": "#9ca3af", "--gray-600": "#6b7280" },
+] as const
+type Theme = (typeof THEMES)[number]
+
+/** A colour's red channel, `#rrggbb`. */
+const redOfHex = (hex: string): number => Number.parseInt(hex.slice(1, 3), 16)
+
+/** One Variable value cell: its `data-cell`, label, and its two ends (a colour or a `var()`). */
+interface VariableCell {
+  readonly dataCell: string
+  readonly label: string
+  readonly off: string
+  readonly on: string
+}
+const VARIABLE_CELLS: ReadonlyArray<VariableCell> = [
+  { dataCell: "var-colour", label: "colour to var", off: "#ff0000", on: "var(--lab-brand)" },
+  { dataCell: "var-var", label: "var to var", off: "var(--lab-a)", on: "var(--lab-b)" },
+  { dataCell: "token-scale", label: "token scale", off: "var(--gray-500)", on: "var(--gray-600)" },
+]
+
+/** The red channel an end paints in `theme`: a `var()` read from the theme, a colour as it is. */
+const redIn = (theme: Theme, end: string): number => {
+  const name = /^var\((--[\w-]+)\)$/.exec(end)?.[1]
+  if (name === undefined) return redOfHex(end)
+  return redOfHex(theme[name as keyof Theme])
+}
 
 /** A computed background's red channel, or -1 when it isn't opaque: the fallback an invalid `var()` paints. */
 const backgroundRedOf = (el: Element): number => {
@@ -186,6 +219,8 @@ interface Recording {
   readonly kind: BoardRunKind
   readonly base: number
   readonly target: number
+  /** Where a toggle run should land instead of `target`: a Switch theme while it runs (#55). */
+  landsOn: number | undefined
   readonly before: number
   readonly startedAt: number
   readonly values: Array<number>
@@ -202,7 +237,7 @@ interface Recording {
  */
 const landed = (rec: Recording, value: number): boolean => {
   if (rec.kind !== "toggle") return true
-  if (Math.abs(value - rec.target) > 0.005) return false
+  if (Math.abs(value - (rec.landsOn ?? rec.target)) > 0.005) return false
   const rest = rec.extra.rest?.()
   return rest === undefined || rest.value === rest.expected
 }
@@ -218,6 +253,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
   // Each cell's run still sampling: a new run on the cell records it as superseded (#61), since
   // what it samples from then on is the new run's.
   const current = new Map<string, () => void>()
+  // Each cell's run still sampling, by cell, for a retarget (#55).
+  const running = new Map<string, Recording>()
   const start = (
     cell: string,
     kind: BoardRunKind,
@@ -228,7 +265,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
     extra: RunExtra = {},
   ): { readonly end: () => void } => {
     current.get(cell)?.()
-    const rec: Recording = { cell, kind, base, target, before, startedAt: performance.now(), values: [], extra, split: undefined, endAt: undefined }
+    const rec: Recording = { cell, kind, base, target, landsOn: undefined, before, startedAt: performance.now(), values: [], extra, split: undefined, endAt: undefined }
     const channel = new MessageChannel()
     sampling.add(channel)
     // A mount or a style change has no end event: every frame until it stands still is `during`.
@@ -237,12 +274,14 @@ const makeRecorder = (ctx: ScenarioContext) => {
       channel.port1.close()
       sampling.delete(channel)
       if (current.get(cell) === supersede) current.delete(cell)
+      if (running.get(cell) === rec) running.delete(cell)
       const split = open ? rec.values.length : (rec.split ?? rec.values.length)
       ctx.recordBoardRun({
         cell,
         kind,
         base,
         target,
+        ...(rec.landsOn === undefined ? {} : { landsOn: rec.landsOn }),
         before,
         during: rec.values.slice(0, split),
         after: rec.values.slice(split),
@@ -256,6 +295,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
     }
     const supersede = (): void => finish(true)
     current.set(cell, supersede)
+    running.set(cell, rec)
     channel.port1.onmessage = () => {
       const value = read()
       // The node went (an exit): the run ends with it.
@@ -289,7 +329,17 @@ const makeRecorder = (ctx: ScenarioContext) => {
     for (const channel of sampling) channel.port1.close()
     sampling.clear()
   }
-  return { start, dispose }
+  /**
+   * Move the target of `cell`'s toggle run, if one is still sampling (#55): a Switch theme while a
+   * flip runs, which follows the new theme from its last frame. Whether there was one.
+   */
+  const retarget = (cell: string, target: number): boolean => {
+    const rec = running.get(cell)
+    if (rec === undefined || rec.kind !== "toggle") return false
+    rec.landsOn = target
+    return true
+  }
+  return { start, dispose, retarget }
 }
 
 /** The scenario View. */
@@ -306,8 +356,9 @@ const View: ScenarioDef["View"] = (props) => {
   const [customKey, setCustomKey] = createSignal(0)
   // The Animatable none cells (#61): flipped together between `none` and their value.
   const [noneOn, setNoneOn] = createSignal(false)
-  // The token scale cell (#158): gray-500 or gray-600.
-  const [token600, setToken600] = createSignal(false)
+  // The Variable value cells (#55): flipped together, and the theme their container defines.
+  const [variablesOn, setVariablesOn] = createSignal(false)
+  const [themeIndex, setThemeIndex] = createSignal(0)
 
   // A press ends at a release anywhere, as Wardic's press does (ADR-0019): a `pointerup`
   // outside the cell, or a `pointercancel`, ends its run too.
@@ -378,16 +429,38 @@ const View: ScenarioDef["View"] = (props) => {
     setNoneOn(on)
   }
 
-  // The token scale cell's run (#158): a switch between the two greys, judged as a style change
-  // (the new grey within three frames), and on whether any frame painted the fallback.
-  const toggleToken = (): void => {
-    const el = document.querySelector<Element>(`[data-scenario="${ID}"] [data-cell="token-scale"]`)
-    const next = !token600()
-    if (el !== null) {
-      const grey = next ? GRAY_600 : GRAY_500
-      recorder.start("token scale", "style change", () => backgroundRedOf(el), grey, grey, backgroundRedOf(el), { watchesFallback: true }).end()
+  // Each Variable value cell's run, one per flip (#55): from its painted red channel to what its
+  // other end resolves to in the theme; a flip to a `var()` rests as the `var()` itself.
+  const toggleVariables = (): void => {
+    const on = !variablesOn()
+    const theme = THEMES[themeIndex()]!
+    for (const cell of VARIABLE_CELLS) {
+      const el = document.querySelector<HTMLElement>(`[data-scenario="${ID}"] [data-cell="${cell.dataCell}"]`)
+      if (el === null) continue
+      const end = on ? cell.on : cell.off
+      const rest = end.startsWith("var(") ? { rest: () => ({ value: el.style.backgroundColor, expected: end }) } : {}
+      const now = backgroundRedOf(el)
+      recorder.start(cell.label, "toggle", () => backgroundRedOf(el), now, redIn(theme, end), now, { ...rest, watchesFallback: true }).end()
     }
-    setToken600(next)
+    setVariablesOn(on)
+  }
+
+  // A theme switch at rest (#55): each cell resting on a `var()` shows the new theme's colour within
+  // three frames, since it rests as the `var()` itself.
+  const switchTheme = (): void => {
+    const next = (themeIndex() + 1) % THEMES.length
+    for (const cell of VARIABLE_CELLS) {
+      const end = variablesOn() ? cell.on : cell.off
+      if (!end.startsWith("var(")) continue
+      const el = document.querySelector<HTMLElement>(`[data-scenario="${ID}"] [data-cell="${cell.dataCell}"]`)
+      if (el === null) continue
+      const red = redIn(THEMES[next]!, end)
+      // Mid-flight, the flip follows the new theme from its last frame (it resolved its colour when
+      // it started): its own run lands there. At rest, the cell shows it at once.
+      if (recorder.retarget(cell.label, red)) continue
+      recorder.start(cell.label, "style change", () => backgroundRedOf(el), red, red, backgroundRedOf(el), { watchesFallback: true }).end()
+    }
+    setThemeIndex(next)
   }
 
   const remountNoMount = (): void => {
@@ -414,7 +487,7 @@ const View: ScenarioDef["View"] = (props) => {
   return (
     <div data-scenario={ID}>
       <div class="stage" style={STAGE_STYLE}>
-        <div style={GRID}>
+        <div style={{ ...GRID, ...(THEMES[themeIndex()] as JSX.CSSProperties) }}>
           <div style={CELL}>
             <wardic.div
               data-cell="hover"
@@ -579,15 +652,19 @@ const View: ScenarioDef["View"] = (props) => {
             />
             <span style={LABEL}>hover shadow</span>
           </div>
-          <div style={CELL}>
-            <wardic.div
-              data-cell="token-scale"
-              style={TOKEN_BOX}
-              initial={{ "background-color": "var(--gray-500)" }}
-              animate={{ "background-color": token600() ? "var(--gray-600)" : "var(--gray-500)" }}
-            />
-            <span style={LABEL}>token scale</span>
-          </div>
+          <For each={VARIABLE_CELLS}>
+            {(cell) => (
+              <div style={CELL}>
+                <wardic.div
+                  data-cell={cell.dataCell}
+                  style={BOX}
+                  initial={{ "background-color": cell.off }}
+                  animate={{ "background-color": variablesOn() ? cell.on : cell.off }}
+                />
+                <span style={LABEL}>{cell.label}</span>
+              </div>
+            )}
+          </For>
         </div>
       </div>
       <div style={BUTTONS}>
@@ -612,8 +689,11 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="toggle-none" onClick={toggleNone}>
           Toggle none
         </button>
-        <button type="button" class="btn secondary small" data-action="toggle-token" onClick={toggleToken}>
-          Toggle token
+        <button type="button" class="btn secondary small" data-action="toggle-variables" onClick={toggleVariables}>
+          Toggle variables
+        </button>
+        <button type="button" class="btn secondary small" data-action="switch-theme" onClick={switchTheme}>
+          Switch theme
         </button>
       </div>
     </div>
@@ -631,7 +711,7 @@ export const s15: ScenarioDef = {
   kind: "board",
   title: "base values (a key no initial sets)",
   mechanism:
-    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property); the fifth row grows a shadow, a blur and a fill from none and back (Toggle none) and hovers a stylesheet shadow; the sixth flips a background between two design-token var()s (Toggle token). Each run is judged on its start and its end, a run back to none on what it rests at, and the token flip on painting no fallback frame.",
+    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property); the fifth row grows a shadow, a blur and a fill from none and back (Toggle none) and hovers a stylesheet shadow; the sixth blends backgrounds between var()s the row's container defines (Toggle variables) and switches their theme at rest (Switch theme). Each run is judged on its start and its end, a run back to none or to a var() on what it rests at, and a var() flip on painting no fallback frame.",
   prediction: "safe",
   rationale:
     "A key with no value starts from its style value, else its Own value (1 for a scale, the computed style " +
@@ -641,6 +721,7 @@ export const s15: ScenarioDef = {
     "entry animates in (#134, Motion's). A custom property keeps its name and is a style property on SVG too, so " +
     "var(--brandLevel) follows it from the element's own 1 (#151, Motion's). A shadow, filter or fill grows from " +
     "its Animatable none and rests at none on the way back, and a stylesheet shadow blends both ways (#61). A var() is text, so " +
-    "var(--gray-500) → var(--gray-600) switches at once rather than through an undefined var(--gray-550) (#158).",
+    "var(--gray-500) → var(--gray-600) never passes through an undefined var(--gray-550) (#158). A var() end blends what it " +
+    "resolves to on the element, once, and rests as the var(), so a theme switch at rest shows at once (#55, Motion's).",
   View,
 }

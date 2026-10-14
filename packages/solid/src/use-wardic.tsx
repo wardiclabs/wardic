@@ -28,6 +28,7 @@
  * writing into the same gate id) — see core's `Values.split`.
  */
 import * as BaseValue from "@wardic/core/BaseValue"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
 import type * as Projection from "@wardic/core/Projection"
@@ -52,6 +53,7 @@ import {
   styleValueOf,
   toValues,
   valueLike,
+  variableValues,
 } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
@@ -640,6 +642,9 @@ export function runSpine(opts: RunSpineOptions): void {
       // mount, so never on a server (ADR-0021). Each link is coerced to the shape of the
       // key's target (`like`).
       const ownValue = ownValues(element)
+      // Its Variable values (#55, ADR-0035 *Amendment (#55)*): the Key rule bound to this element,
+      // added to each leg it starts, so a `var()` end blends what it resolves to here.
+      const elementRules = [variableValues(element)]
       const linksFor = (like: number | string) => ({
         style: (key: string) =>
           Option.flatMap(Option.fromUndefinedOr(styleOf), (of) =>
@@ -1046,6 +1051,7 @@ export function runSpine(opts: RunSpineOptions): void {
               if (tweening) {
                 runLeg(
                   Machine.animateValues(Values.pick(from, rest), rest, options).pipe(
+                    InterpolatorRegistry.withKeyRules(elementRules),
                     Effect.flatMap(
                       Machine.run((frame) => {
                         // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
@@ -1101,6 +1107,7 @@ export function runSpine(opts: RunSpineOptions): void {
                 for (const key in strings) fromStrings[key] = from[key]!
                 runLeg(
                   Machine.springBlend(fromStrings, strings, springOpts).pipe(
+                    InterpolatorRegistry.withKeyRules(elementRules),
                     Effect.flatMap(
                       Machine.run((frame) => {
                         snapshot.values = { ...snapshot.values, ...frame.value }

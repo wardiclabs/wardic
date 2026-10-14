@@ -34,6 +34,7 @@
  */
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
@@ -41,7 +42,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { reportFailure } from "@wardic/dom"
+import { reportFailure, variableValues } from "@wardic/dom"
 import { constFalse } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
@@ -248,7 +249,15 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
     if (snapped > 0) runs.push(ReducedMotion.snap(Values.pick(from, positional), positional).pipe(Machine.run(commitFrame)))
     if (hasNumeric) runs.push(Machine.springValues(numericTo, {}, fromNumeric, {}).pipe(Machine.run(commitFrame)))
-    if (hasStrings) runs.push(Machine.springBlend(Values.pick(from, stringTo), stringTo).pipe(Effect.flatMap(Machine.run(commitFrame))))
+    // The leaving element's Variable values (#55): a `var()` end blends what it resolves to on it.
+    if (hasStrings) {
+      runs.push(
+        Machine.springBlend(Values.pick(from, stringTo), stringTo).pipe(
+          InterpolatorRegistry.withKeyRules([variableValues(el)]),
+          Effect.flatMap(Machine.run(commitFrame)),
+        ),
+      )
+    }
 
     // One `wardic.presence.exit` span spans the whole exit animation (from the last
     // snapshot to the exit target), so a devtool/timeline shows each parent-driven
