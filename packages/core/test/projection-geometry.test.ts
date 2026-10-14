@@ -139,9 +139,18 @@ it("applyTreeDeltas: composes ancestors ROOT-FIRST and multiplies treeScale", ()
   })
 })
 
-it("applyTreeDeltas: snaps a near-1 treeScale to exactly 1", () => {
-  const r = Projection.applyTreeDeltas(box(0, 0, 100, 100), [delta(0, 0, 1.00000005, 1.00000005)])
+it("applyTreeDeltas: snaps float noise in treeScale to exactly 1, inside Motion's TREE_SCALE_SNAP range (#9)", () => {
+  const r = Projection.applyTreeDeltas(box(0, 0, 100, 100), [delta(0, 0, 1 + 5e-14, 1 - 5e-14)])
   expect(r.treeScale).toEqual({ x: 1, y: 1 })
+})
+
+it("applyTreeDeltas: keeps ancestors' scales that nearly cancel, as Motion does (#9)", () => {
+  // 1.5 then 0.6667: their product, 1.00005, is a real scale, not noise (it snapped before #9).
+  const r = Projection.applyTreeDeltas(box(0, 0, 100, 100), [delta(0, 0, 1.5, 1.5), delta(0, 0, 0.6667, 0.6667)])
+  expect(r.treeScale.x).toBeCloseTo(1.00005, 8)
+  expect(r.treeScale.y).toBeCloseTo(1.00005, 8)
+  // Just outside Motion's range, as just inside it snaps.
+  expect(Projection.applyTreeDeltas(box(0, 0, 100, 100), [delta(0, 0, 1 + 2e-12, 1)]).treeScale.x).not.toBe(1)
 })
 
 // --- Layout modes (#42, ADR-0009 Amendment (#42)): Motion's snapshot shaping ---------

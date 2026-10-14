@@ -31,7 +31,7 @@ Delta-key FLIP springs each element's inverse delta *independently* and leans on
 - Supersedes ADR-0005's delta-key FLIP *mechanism* for layout; the spine's role (binding owns *when* to measure; core owns pure geometry, ADR-0004) is unchanged and reinforced. The value spine (spring + Retarget for `animate`/`whileHover`) is untouched — projection is its own animation driver.
 - Core gains the `Axis`/`Box`/`Delta` geometry cluster; the binding gains the Projection node tree + Clock-driven coordinator; the gate gains a pre-flush measure read-queue (removed by *Amendment (#2)*: the gate gains `flushPass` instead). The Renderer stays pure (corrected values are computed upstream).
 - The existing flat `useLayoutMember`/`useLayoutIdMember`/`<LayoutGroup>` path is migrated onto the one tree incrementally (gate green each step); no two coexisting layout models.
-- Idle stays zero-cost: no node animating ⇒ the coordinator is unsubscribed from the Clock; measure passes run only on triggers.
+- Idle stays zero-cost: no node animating ⇒ the coordinator is unsubscribed from the Clock; measure passes run only on triggers. *Amendment (#9)* measures what idle nodes cost while another one animates.
 - Phased: **P1** full geometric engine (incl. nested scale) · **P2** visual scale-correction registry · **P3** `layoutScroll` · **P4** `layoutRoot`+`layoutAnchor` · shared-element crossfade is a later presence-coupled phase. `<Reorder>` builds on this engine afterwards.
 
 ## Amendment (#2, 2026-09-28): the engine runs each Measure pass at the end of its task
@@ -124,3 +124,30 @@ Grilled on 2026-10-13:
   - in the binding: the mode's read, the node's registration, and `Reorder.Item`'s mode;
   - in the lab: the line's judgement.
 
+## Amendment (#9, 2026-10-14): Motion's parity backlog, checked item by item
+
+#9 listed six details of Motion's projection source (`docs/research/motion-layout-orchestration.md` §8.8, motion-dom at `16c61222c4166bbef5ff6ab0051192faa79fa8c8`) to check against this ADR. Grilled 2026-10-14:
+
+1. **A `display: contents` node has no box** (Q1), as Motion skips one in `applyTreeDeltas`. Its rect is 0x0 at the viewport's origin, so a scroll between Measure passes read as a move the scroll's length. CSS applies no transform to such an element, but the nodes inside it were corrected for that move anyway.
+   - **Before:** with the page scrolled 300 px, the child of a `display: contents` layout node jumped 292 px down on its first frame and flew back.
+   - **Now:** the Measure pass gives it no box. It never animates or carries a delta, it's never a relative parent, and the nodes inside it project as if it weren't there. Switched back to a block, it's measured afresh, with nothing to animate from.
+   - **Detected from the inline `style.display`,** as Motion's `props.style.display` is: no style computed. Rejected: reading the computed `display`, which also catches a class, at about 0.2 ms more per pass at 1,000 nodes (0.01 ms at 50).
+2. **Safari box rounding is split out to #175** (Q2). Motion rounds measured boxes in WebKit but not Chrome. The probe was to come first, but Playwright's WebKit can't run on the dev host: its WPE backend needs a GPU render node, and the server has none. In Chromium, a fractional-position child is drawn about 0.5 px off its box while it animates and lands on it at rest, so a sub-pixel settle and no reason to round there.
+3. **`treeScale` snaps within Motion's range** (Q3): `TREE_SCALE_SNAP_MIN`–`_MAX`, 1e-12 either side of 1, where it was the per-delta 1e-4. Only float noise snaps now; ancestors' scales that nearly cancel (1.5 × 0.6667 = 1.00005) keep their product, as Motion's do. `Projection.ts` promised verbatim precisions, and this was the one that wasn't.
+4. **Render gating** (Q4). Idle nodes are never derived or written: only an active node, one under it, and the Followers and carried nodes of a moving Lead are. While anything animates, each frame still scans every node. Measured with one node moving:
+   - about 8 µs a frame on its own;
+   - another 12 µs per 1,000 idle nodes (17 µs at four deep, 38 µs at 5,000);
+   - nothing at rest.
+
+   Skipping a write that doesn't change a node's value, Motion's `axisDeltaEquals` early-out, is #27.
+5. **Resize blocking is done**, by #39 (ADR-0018 *Amendment (#39)*).
+6. **Motion's forced re-resolve of a relative parent doesn't apply**: Wardic derives each node once per frame, parents first, so a relative parent is always fresh when its child reads it.
+
+**Pinned by:**
+- **`@wardic/dom`, DC1–DC2** (`projection-display-contents.browser.test.ts`, frames fired by hand), both failing on `main`. DC1 scrolls the page between passes and composes the child as CSS does, the boxless node's transform left out: on `main` it jumps 292 px. DC2 switches the node back to a block.
+- **solid's SC1** (`layout-display-contents.browser.test.tsx`, real paint): the 300 px scroll. It fails on `main` with the 292 px jump.
+- **core:** the `treeScale` snap at Motion's range, with near-cancelling scales kept. The old test pinned the 1e-4 tolerance.
+- **Mutation-checked** in a separate worktree: four single-point mutations, each failing the tests meant for it:
+  - a `display: contents` node keeping its box (DC1, DC2, SC1);
+  - the node measured after its box is dropped (DC2);
+  - `treeScale` snapping at 1e-4 again, or never (the core tests).

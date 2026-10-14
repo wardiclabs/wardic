@@ -246,6 +246,13 @@ const releaseFrom = (offset: Point.Point, velocity: Point.Point): Release => {
   }
 }
 
+/**
+ * Whether `node`'s element is `display: contents`, set inline (ADR-0009 *Amendment (#9)*, Motion's
+ * `props.style.display === "contents"`): it lays out no box of its own, so it has none here. An
+ * inline read, no style computed: once per node per Measure pass.
+ */
+const isBoxless = (node: NodeState): boolean => node.element.style.display === "contents"
+
 /** The centre of a box. */
 const centreOf = (box: Box.Box): Point.Point => ({ x: (box.x.min + box.x.max) / 2, y: (box.y.min + box.y.max) / 2 })
 
@@ -1813,6 +1820,25 @@ export const makeProjectionSystem = (
   // Every node it (re)starts is added to `seeded`, counted on the pass's span; every node
   // of a dragged subtree whose box changed is added to `dragBlocked` instead.
   /**
+   * A node with no box this pass (ADR-0009 *Amendment (#9)*: `display: contents`): nothing to
+   * animate from or to, so any animation it ran stops, and its delta is the identity, so the nodes
+   * inside it project as if it weren't there. It still counts as measured (`layoutVersion`).
+   */
+  const dropBox = (node: NodeState): void => {
+    node.retained = undefined
+    node.layoutBox = undefined
+    node.seed = undefined
+    node.origin = undefined
+    node.spring = undefined
+    node.release = undefined
+    node.animating = false
+    node.lastDelta = IDENTITY_DELTA
+    node.lastTarget = undefined
+    node.layoutVersion++
+    active.delete(node)
+  }
+
+  /**
    * The slot-only update a blocked node takes (a dragged subtree's, or every node's
    * after a resize): its box becomes its slot, no animation starts or restarts, and a
    * running one keeps its delta (its origin moves with its box). A first measure writes
@@ -1991,6 +2017,13 @@ export const makeProjectionSystem = (
     // --- WRITE: FLIP detection + seeding, on the already-measured boxes. ------
     for (let i = 0; i < ordered.length; i++) {
       const node = ordered[i]
+      // A `display: contents` element has no box (ADR-0009 *Amendment (#9)*): its rect is 0x0 at
+      // the viewport's origin, which a scroll would read as a move. It never animates or carries a
+      // delta, and what it holds projects as if it weren't there.
+      if (isBoxless(node)) {
+        dropBox(node)
+        continue
+      }
       // Store the box in the SCROLL-STABLE frame (ADR-0012), so a scroll change
       // between triggers doesn't leak into the delta. Every scroll offset was
       // sampled in the read phase, so the whole ancestor chain is available.
