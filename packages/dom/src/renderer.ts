@@ -194,6 +194,17 @@ const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY")
 }
 
 /**
+ * An element's own scale per axis, from its value-map: what the renderer draws on top of its
+ * projection ({@link ownScale}). A binding hands it to its projection node (`ownScale`), so a
+ * handover starts from where a twin is drawn and a Follower is drawn where its Lead is (ADR-0010
+ * *Amendment (#8)*). Tier 2, for binding authors.
+ */
+export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
+  x: ownScale(values, "scaleX"),
+  y: ownScale(values, "scaleY"),
+})
+
+/**
  * Assemble a projection transform string (ADR-0009), ported from Motion's
  * `buildProjectionTransform`: `translate3d` (translation divided by `treeScale`)
  * → inverse tree-scale `scale(1/treeScale)` → woven user `rotate`/`skew` (from

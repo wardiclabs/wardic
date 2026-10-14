@@ -15,7 +15,10 @@
  *   Follower.
  * - **starts** (#170): the Lead goes on from where its twin was painted at the toggle. Its first
  *   frame is no further from there than its next step (plus 1.5px): a start from rest accelerates,
- *   while one from where the twin would have rested jumps the rest of the twin's flight.
+ *   while one from where the twin would have rested jumps the rest of the twin's flight. Measured
+ *   by the furthest edge (#8), so a twin's own scale counts: a start from its box without it jumps.
+ * - **follows** (#8): while the Follower shows, it's drawn on its Lead, within 0.5px every frame,
+ *   whatever either twin's own scale.
  *
  * - **aspect** (#169), for the nested cell's containers: the `layout` badge in each keeps its own
  *   shape, within 3% of its own width-to-height ratio on every frame it's on the page. The
@@ -45,9 +48,14 @@ export interface CrossfadeSeries {
   readonly hitsFollower?: ReadonlyArray<boolean>
   /** A handover that only moves, inside a crossfading container (#5). */
   readonly onlyMoves?: boolean
-  /** Where the outgoing twin was painted at the toggle, and the Lead's first painted frames (#170). */
-  readonly startsFrom?: { readonly x: number; readonly y: number }
-  readonly leadPath?: ReadonlyArray<{ readonly x: number; readonly y: number }>
+  /**
+   * Where the outgoing twin was painted at the toggle, and the Lead's first painted frames (#170):
+   * top-left, and size where recorded (#8).
+   */
+  readonly startsFrom?: Drawn
+  readonly leadPath?: ReadonlyArray<Drawn>
+  /** While the Follower shows, its furthest edge from its Lead's each frame (#8). */
+  readonly follows?: ReadonlyArray<number>
   /** A toggle back with no twin left to fade (#170): judged on starts and end only. */
   readonly back?: boolean
   /**
@@ -58,8 +66,16 @@ export interface CrossfadeSeries {
   readonly ownAspects?: { readonly lead: number; readonly follower: number }
 }
 
+/** Where an element is drawn: its top-left, and its size where recorded (#8). */
+export interface Drawn {
+  readonly x: number
+  readonly y: number
+  readonly w?: number
+  readonly h?: number
+}
+
 /** A crossfade card's lines, in display order. */
-export const CROSSFADE_CHECK_NAMES = ["starts", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
+export const CROSSFADE_CHECK_NAMES = ["starts", "follows", "covers", "order", "fades", "own fade", "aspect", "end", "passes"] as const
 
 /** One crossfade card line. */
 export interface CrossfadeCheck {
@@ -84,9 +100,27 @@ const startsOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> =>
   const path = series?.leadPath
   if (from === undefined || path === undefined || path.length < 2) return []
   const [first, second] = [path[0]!, path[1]!]
-  const jump = Math.hypot(first.x - from.x, first.y - from.y)
-  const step = Math.hypot(second.x - first.x, second.y - first.y)
+  const jump = apart(first, from)
+  const step = apart(second, first)
   return [line("starts", jump <= step + 1.5, `${jump.toFixed(1)}px from its twin (next step ${step.toFixed(1)}px)`, "where its twin was painted")]
+}
+
+/**
+ * How far apart two drawn boxes are: their furthest edge (#8), or their top-lefts' distance when
+ * either has no size (a run recorded before #8).
+ */
+const apart = (a: Drawn, b: Drawn): number => {
+  if (a.w === undefined || a.h === undefined || b.w === undefined || b.h === undefined) return Math.hypot(a.x - b.x, a.y - b.y)
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.x + a.w - b.x - b.w), Math.abs(a.y + a.h - b.y - b.h))
+}
+
+/** The follows line (#8), when the run recorded where its Follower was drawn. */
+const followsOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> => {
+  const frames = series?.follows
+  if (frames === undefined || frames.length === 0) return []
+  const worst = Math.max(...frames)
+  const off = frames.filter((d) => d >= 0.5).length
+  return [line("follows", off === 0, off === 0 ? `within ${worst.toFixed(2)}px` : `off its Lead on ${off} frames, up to ${worst.toFixed(1)}px`, "the Follower on its Lead, within 0.5px")]
 }
 
 /** The aspect line (#169), when the run recorded its containers' badges. */
@@ -128,6 +162,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
     const lowest = Math.min(...lead)
     return [
       ...starts,
+      ...followsOf(series),
       line("own fade", lowest >= 0.99, lowest >= 0.99 ? "none" : `down to ${v3(lowest)}`, "none: the Lead at 1 every frame"),
       superseded ? notJudged("end") : line("end", followerHidden, `Follower ${followerEnd === null ? "gone" : v3(followerEnd)}`, "the Follower hidden"),
     ]
@@ -145,6 +180,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const ended = leadEnd !== undefined && leadEnd >= 0.99 && followerHidden
   const checks = [
     ...starts,
+    ...followsOf(series),
     ...aspectOf(series),
     line("covers", lowest >= 0.98, `at least ${v3(lowest)}`, "0.98: never see-through"),
     line("order", ordered, out === -1 ? "the Follower never faded" : `Lead at ${v3(leadAtOut)} as the Follower fades`, "the Lead in first"),

@@ -1,7 +1,8 @@
 // Scenario 16's crossfade lines (#5, `crossfadeChecksOf` in `lab/crossfade-board.ts`): a run shaped
 // like Motion's crossfade passes, and each line fails the run it's for: a symmetric dissolve, a
 // swap, a Follower taking the Lead's point, a nested twin with a fade of its own, a container's
-// layout badge stretched off its shape.
+// layout badge stretched off its shape, a start from a twin's box without its own scale, a Follower
+// drawn off its Lead.
 import { describe, expect, it } from "vitest"
 import type { BoardRunInput } from "../src/lab/base-values-board.ts"
 import { boardChecksOf } from "../src/lab/base-values-board.ts"
@@ -77,6 +78,31 @@ describe("crossfadeChecksOf", () => {
     expect(failed(jumped)).toEqual(["starts"])
     // A run with no record of its start has no starts line.
     expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("starts")
+  })
+
+  it("judges starts by the furthest edge when the run recorded sizes, so a twin's own scale counts (#8)", () => {
+    const lead = ps.map(motionIn)
+    const follower = ps.map((p) => 1 - motionOut(p))
+    // The twin drawn at 1.4x (78.4x56 about its centre); the Lead starts at its unscaled 56x40: its
+    // top-left 11px in, its far edges 11px short, against a 3px step.
+    const from = { x: 5, y: 32, w: 78.4, h: 56 }
+    const unscaled = run(lead, { follower, startsFrom: from, leadPath: [{ x: 16.2, y: 40, w: 56, h: 40 }, { x: 19.2, y: 40, w: 56, h: 40 }] })
+    expect(failed(unscaled)).toEqual(["starts"])
+    // Drawn on its twin, then shrinking toward its own.
+    const drawn = run(lead, { follower, startsFrom: from, leadPath: [{ x: 6, y: 32.5, w: 77.6, h: 55.4 }, { x: 9, y: 33.5, w: 75.2, h: 53.6 }] })
+    expect(boardChecksOf(drawn)[0]).toMatchObject({ name: "starts", ok: true })
+  })
+
+  it("judges the Follower drawn on its Lead every frame it shows (#8)", () => {
+    const lead = ps.map(motionIn)
+    const follower = ps.map((p) => 1 - motionOut(p))
+    const on = boardChecksOf(run(lead, { follower, follows: ps.map(() => 0.1) })).find((c) => c.name === "follows")
+    expect(on).toMatchObject({ ok: true, text: "within 0.10px ✓" })
+    // At its own 1.4x around its Lead, as before #8: 11px off.
+    const around = run(lead, { follower, follows: ps.map(() => 11.2) })
+    expect(failed(around)).toEqual(["follows"])
+    // A run that recorded nothing for it has no follows line.
+    expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("follows")
   })
 
   it("judges a toggle back, with no twin left to fade, on starts and end only", () => {

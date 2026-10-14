@@ -8,7 +8,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
-import { createSignal, Show } from "solid-js"
+import { createSignal, type JSX, Show } from "solid-js"
 import { leftOf, raf, until, widthOf } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -534,4 +534,134 @@ it("lone layoutId leave (no twin) under <AnimatePresence> degrades to the normal
   })
   expect(sawFade).toBe(true) // ran the normal exit (faded), not a crossfade
   expect(el.isConnected).toBe(false)
+})
+
+// --- A twin's own scale (#8, ADR-0010 *Amendment (#8)*) ------------------------------------------
+// A twin held at `scale: 1.5` is drawn 1.5x about its centre, on top of its projection. A handover
+// starts from where it is drawn, a Follower is drawn where its Lead is, and a new Lead carrying its
+// own scale starts drawn on its twin. Before #8, S9 to S11 started from the unscaled box.
+
+const OWN = { initial: { scale: 1.5 }, animate: { scale: 1.5 } } as const
+const placed = (left: number): JSX.CSSProperties => ({ position: "absolute", left: `${left}px`, top: "40px", width: "80px", height: "40px", background: "teal" })
+type Rect = { readonly l: number; readonly t: number; readonly r: number; readonly b: number }
+const rectOf = (e: Element): Rect => {
+  const r = e.getBoundingClientRect()
+  return { l: r.left, t: r.top, r: r.right, b: r.bottom }
+}
+/** How far apart two boxes are: their furthest edge. */
+const apart = (a: Rect, b: Rect): number => Math.max(Math.abs(a.l - b.l), Math.abs(a.t - b.t), Math.abs(a.r - b.r), Math.abs(a.b - b.b))
+/** The boxes of `read`'s elements just after each of the next `n` painted frames. */
+const rectsAfterPaint = <A,>(read: () => A, n: number): Promise<Array<A>> =>
+  new Promise((resolve) => {
+    const out: Array<A> = []
+    const ch = new MessageChannel()
+    ch.port1.onmessage = () => {
+      out.push(read())
+      if (out.length >= n) return resolve(out)
+      requestAnimationFrame(() => ch.port2.postMessage(undefined))
+    }
+    requestAnimationFrame(() => ch.port2.postMessage(undefined))
+  })
+const atRest = async (): Promise<void> => {
+  for (let i = 0; i < 90; i++) await raf()
+}
+/** A start that goes on from `before`: its first frame no further from it than its next step. */
+const expectDrawnOn = (before: Rect, [first, second]: ReadonlyArray<Rect>, what: string) => {
+  const step = apart(first!, second!)
+  expect(apart(first!, before), `${what}: jump at the start (next step ${step.toFixed(2)}px)`).toBeLessThanOrEqual(step + 1)
+}
+const opacityOf = (e: Element): number => Number(getComputedStyle(e).opacity)
+
+it("own scale (S9): a crossfade beside a twin held at scale 1.5 starts where it's drawn, and the Follower is drawn on its Lead (#8)", async () => {
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "relative", height: "120px" }}>
+        <wardic.div data-a layoutId="s9" {...OWN} style={placed(20)} />
+        <Show when={open()}>
+          <wardic.div data-b layoutId="s9" style={placed(300)} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const a = container.querySelector("[data-a]") as HTMLElement
+  await atRest()
+  const seen = rectOf(a)
+  expect(seen.r - seen.l, "A drawn at its own scale").toBeCloseTo(120, 0)
+  setOpen(true)
+  const b = () => container.querySelector("[data-b]") as HTMLElement
+  const flight = await rectsAfterPaint(() => ({ a: rectOf(a), b: rectOf(b()), aShows: opacityOf(a) > 0.01 }), 30)
+  expectDrawnOn(
+    seen,
+    flight.map((f) => f.b),
+    "B",
+  )
+  for (const [i, f] of flight.entries()) if (f.aShows) expect(apart(f.a, f.b), `frame ${i}: the Follower on its Lead`).toBeLessThan(1)
+})
+
+it("own scale (S10): a promotion starts from where the unmounted Lead, held at scale 1.5, was drawn (#8)", async () => {
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "relative", height: "120px" }}>
+        <wardic.div data-a layoutId="s10" style={placed(20)} />
+        <Show when={open()}>
+          <wardic.div data-b layoutId="s10" {...OWN} style={placed(300)} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const a = container.querySelector("[data-a]") as HTMLElement
+  await atRest()
+  setOpen(true)
+  await atRest()
+  const seen = rectOf(container.querySelector("[data-b]") as HTMLElement)
+  expect(seen.r - seen.l, "B drawn at its own scale").toBeCloseTo(120, 0)
+  setOpen(false)
+  expectDrawnOn(seen, await rectsAfterPaint(() => rectOf(a), 2), "A")
+})
+
+it("own scale (S11): a new Lead held at scale 1.5 starts drawn on its twin and grows into its scale, the Follower on it (#8)", async () => {
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "relative", height: "120px" }}>
+        <wardic.div data-a layoutId="s11" style={placed(20)} />
+        <Show when={open()}>
+          <wardic.div data-b layoutId="s11" {...OWN} style={placed(300)} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const a = container.querySelector("[data-a]") as HTMLElement
+  await atRest()
+  const seen = rectOf(a)
+  setOpen(true)
+  const b = () => container.querySelector("[data-b]") as HTMLElement
+  const flight = await rectsAfterPaint(() => ({ a: rectOf(a), b: rectOf(b()), aShows: opacityOf(a) > 0.01 }), 90)
+  expectDrawnOn(
+    seen,
+    flight.map((f) => f.b),
+    "B",
+  )
+  for (const [i, f] of flight.entries()) if (f.aShows) expect(apart(f.a, f.b), `frame ${i}: the Follower on its Lead`).toBeLessThan(1)
+  const rest = flight.at(-1)!.b
+  expect(rest.r - rest.l, "B at rest, drawn at its own scale").toBeCloseTo(120, 0)
+})
+
+it("own scale (S12): a Switch from a twin held at scale 1.5 starts where it was drawn (#8; a guard, #170 reads it as painted)", async () => {
+  const [which, setWhich] = createSignal("a")
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "relative", height: "120px" }}>
+        <Show when={which() === "a"} fallback={<wardic.div data-b layoutId="s12" style={placed(300)} />}>
+          <wardic.div data-a layoutId="s12" {...OWN} style={placed(20)} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  await atRest()
+  const seen = rectOf(container.querySelector("[data-a]") as HTMLElement)
+  setWhich("b")
+  expectDrawnOn(seen, await rectsAfterPaint(() => rectOf(container.querySelector("[data-b]") as HTMLElement), 2), "B")
 })
