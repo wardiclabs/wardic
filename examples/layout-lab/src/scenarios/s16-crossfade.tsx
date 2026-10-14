@@ -28,7 +28,10 @@
  *   container shows: Motion leaves a Follower's bar where it sits on the page, Wardic's rides it.
  * - **exit**: a thumbnail, and a modal above it under `<AnimatePresence>`; Toggle exit opens it,
  *   then closes it back onto the thumbnail, a leaving Follower that fades out over it. Also
- *   watched: the point at the thumbnail's centre never hits the leaving modal (#165).
+ *   watched: the point at the thumbnail's centre never hits the leaving modal (#165). Toggle
+ *   wrapper puts the modal in an overlay card that isn't a twin (#181): the card scales in from 0.8
+ *   and exits fading and shrinking to 0.9, and closing hands its modal back all the same, a Follower
+ *   on the thumbnail while the card shrinks around it; the card goes once the handover has ended.
  *
  * Closing the overlap and in place cells unmounts the Lead with no presence: its twin is promoted
  * and shows at once (Motion's: nothing left to crossfade with), a `back` run judged on where it
@@ -65,6 +68,11 @@ const LABEL: JSX.CSSProperties = { position: "absolute", left: "0", right: "0", 
 const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
 /** The in-place cell's entrance (#137): the whole cell, scaling about its top-left corner, so ⏸ moves as it grows. */
 const ENTRANCE: JSX.CSSProperties = { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%", "transform-origin": "0px 0px" }
+/**
+ * The exit cell's overlay card (#181): presence's child, not a twin, around the modal and clear of
+ * the thumbnail, so the thumbnail's point stays the modal's to miss.
+ */
+const WRAPPER: JSX.CSSProperties = { position: "absolute", left: "88px", top: "8px", width: "116px", height: "112px", background: "rgba(0, 0, 0, 0.14)", "border-radius": "8px", "z-index": "2" }
 /** Two rows of two cells, each wide enough for its twins apart. */
 const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "320px" }
 
@@ -301,6 +309,8 @@ const View: ScenarioDef["View"] = (props) => {
   // The in-place cell's ⏸ mounts in a container scaling in from 0.8 (#137): the twin flies into a
   // container Wardic is scaling, which the twins' conversions follow each frame.
   const [entrance, setEntrance] = createSignal(false)
+  // The exit cell's modal inside an overlay card that isn't a twin (#181): closing hands it back.
+  const [wrapped, setWrapped] = createSignal(false)
   const OverlapTwins = (p: { readonly shape: boolean }) => {
     const id = p.shape ? "lab-s16-shape" : "lab-s16-overlap"
     return (
@@ -432,7 +442,11 @@ const View: ScenarioDef["View"] = (props) => {
             <wardic.div ref={keep("thumb")} layoutId="lab-s16-exit" style={box(16, 44, 48, 36, ACCENT, 1)} />
             <AnimatePresence>
               <Show when={exit()}>
-                <wardic.div ref={keep("exitModal")} layoutId="lab-s16-exit" style={box(96, 16, 100, 96, ALT, 2)} exit={{ opacity: 0 }} />
+                <Show when={wrapped()} fallback={<wardic.div ref={keep("exitModal")} layoutId="lab-s16-exit" style={box(96, 16, 100, 96, ALT, 2)} exit={{ opacity: 0 }} />}>
+                  <wardic.div data-wrapper initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} style={WRAPPER}>
+                    <wardic.div ref={keep("exitModal")} layoutId="lab-s16-exit" style={box(8, 8, 100, 96, ALT, 2)} />
+                  </wardic.div>
+                </Show>
               </Show>
             </AnimatePresence>
             <span style={LABEL}>exit</span>
@@ -461,6 +475,9 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="toggle-exit" onClick={toggleExit}>
           Toggle exit
         </button>
+        <button type="button" class="btn secondary small" data-action="toggle-wrapper" onClick={() => setWrapped(!wrapped())}>
+          Toggle wrapper
+        </button>
       </div>
     </div>
   )
@@ -477,7 +494,7 @@ export const s16: ScenarioDef = {
   boardLines: CROSSFADE_CHECK_NAMES,
   title: "crossfade (layoutId twins)",
   mechanism:
-    "Toggle overlap mounts a twin beside a live one, Toggle scale gives the two their own scales, and Toggle shape a rounded, tilted, translucent A and a square B; Toggle in place mounts one on the other at its box, and Toggle entrance inside a container scaling in; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on where it starts, the Follower drawn on its Lead, the twin's look blended into the Lead's, and its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
+    "Toggle overlap mounts a twin beside a live one, Toggle scale gives the two their own scales, and Toggle shape a rounded, tilted, translucent A and a square B; Toggle in place mounts one on the other at its box, and Toggle entrance inside a container scaling in; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail, and Toggle wrapper puts that modal in an overlay card that isn't a twin. Each handover is judged on where it starts, the Follower drawn on its Lead, the twin's look blended into the Lead's, and its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
   prediction: "safe",
   rationale:
     "Motion's crossfade (motion-dom 13.3.0, mix-values.ts): the Lead fades in over the first half of the handover " +
@@ -488,6 +505,8 @@ export const s16: ScenarioDef = {
     "is drawn, own scale and all, and a Follower is drawn where its Lead is (#8, Motion's lead.latestValues); a Lead " +
     "with its own scale starts drawn on its twin, where Motion jumps. The twin's border radius and rotation, and in a " +
     "Switch its opacity, ease into the Lead's own (#166, Motion's mixValues). The twins' conversions follow the translate and " +
-    "scale Wardic animates on their ancestors each frame (#137), where Motion starts 80px off. ADR-0010, Amendment (#5).",
+    "scale Wardic animates on their ancestors each frame (#137), where Motion starts 80px off. A presence child that isn't a " +
+    "twin hands back the twins inside it and stays until their handovers end (#181, Motion's MeasureLayout), its exit's " +
+    "transform followed as it goes. ADR-0010, Amendment (#5).",
   View,
 }
