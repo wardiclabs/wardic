@@ -16,7 +16,8 @@
  *   so the containers' fade decides which shows. Two runs a toggle: `nested: card` and `nested: avatar`.
  *   Each container also holds a plain `layout` badge, which keeps its own shape on every frame,
  *   the Follower's included (#169: a Follower's layout nodes stay corrected for its lock), judged
- *   on the `nested: card` runs' aspect line.
+ *   on the `nested: card` runs' aspect line. The cell's stage is grey, so a bar outside its
+ *   container shows: Motion leaves a Follower's bar where it sits on the page, Wardic's rides it.
  * - **exit**: a thumbnail, and a modal above it under `<AnimatePresence>`; Toggle exit opens it,
  *   then closes it back onto the thumbnail, a leaving Follower that fades out over it. Also
  *   watched: the point at the thumbnail's centre never hits the leaving modal (#165).
@@ -47,6 +48,11 @@ const GRID: JSX.CSSProperties = {
   height: "100%",
 }
 const CELL: JSX.CSSProperties = { position: "relative" }
+/**
+ * The nested cell's grey stage (#169): a white `layout` bar outside its container shows against it,
+ * where a white stage hides it. A Lead's bar near its bottom edge sits below it while it's small.
+ */
+const GREY_CELL: JSX.CSSProperties = { position: "relative", background: "#8a8f99", "border-radius": "6px", color: "white" }
 const LABEL: JSX.CSSProperties = { position: "absolute", left: "0", right: "0", bottom: "4px", "text-align": "center", "font-size": "10px", opacity: 0.8 }
 const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
 /** Two rows of two cells, each wide enough for its twins apart. */
@@ -313,7 +319,7 @@ const View: ScenarioDef["View"] = (props) => {
             </Show>
             <span style={LABEL}>in place</span>
           </div>
-          <div style={CELL} data-cell="nested">
+          <div style={GREY_CELL} data-cell="nested">
             <wardic.div data-twin="card" ref={keep("card")} layoutId="lab-s16-card" style={box(12, 36, 72, 56, ACCENT, 1)}>
               <wardic.div data-twin="card-avatar" ref={keep("cardAvatar")} layoutId="lab-s16-avatar" style={avatar(6, 6, 20)} />
               <wardic.div data-twin="card-badge" ref={keep("cardBadge")} layout style={badge(CARD_BADGE.left, CARD_BADGE.top, CARD_BADGE.width, CARD_BADGE.height)} />
@@ -375,6 +381,6 @@ export const s16: ScenarioDef = {
     "(circOut) and its Followers out over 0.5–0.95, linearly, so the overlap is never see-through. Any handover " +
     "animates, so twins at one box crossfade. A node under a crossfading ancestor moves without a fade of its own " +
     "(path.some(hasOpacityCrossfade)). A Follower takes no pointer input (#165), and its layout nodes stay corrected " +
-    "for its lock (#169). ADR-0010, Amendment (#5).",
+    "for its lock and ride it (#169; Motion leaves them where they sit on the page). ADR-0010, Amendment (#5).",
   View,
 }
