@@ -230,7 +230,7 @@ Architectural support exists in v0.1 for everything below; these are additive fu
 - **dt over absolute time.** Animations are insensitive to clock magnitude.
 - **Resource management is structural.** Effect's Scope guarantees cleanup.
 - **Tracing is first-class.** Production observability of animation behavior without custom instrumentation.
-- **Color quality.** Depend on `culori` for proper color-space interpolation rather than naive sRGB.
+- **Color quality.** The DOM Environment (`@wardic/dom`) parses CSS colors with `culori` and can blend them in any of its color spaces; core names no color syntax (ADR-0036).
 
 ---
 
