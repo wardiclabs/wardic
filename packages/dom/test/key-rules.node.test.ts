@@ -7,11 +7,12 @@
 //   theirs is a Discrete pair and switches at the leg's first frame (decision 3). By key, not by
 //   value: `overflow: hidden` and `pointer-events: none` switch at the first frame. Motion's
 //   `mixVisibility` (motion-dom utils/mix/visibility.ts:1-14 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
-// - AN1–AN14, `animatableNone` (#61, ADR-0015 *Amendment (#61)*; CONTEXT.md): an empty end (`"none"`,
+// - AN1–AN15, `animatableNone` (#61, ADR-0015 *Amendment (#61)*; CONTEXT.md): an empty end (`"none"`,
 //   `0`, `"0"`, `"0px"`) facing a complex value or a colour stands for that value at zero, and the
 //   leg's last frame writes the target as given; a shadow list blends shadow by shadow. Before #61
-//   each was a Discrete pair: all but the guards (AN8, AN14) fail on main. Motion's runtime for the
-//   same pairs: `.tmp/vel/none-drive.ts` (framer-motion 13.4.0).
+//   each was a Discrete pair: all of AN1–AN14 but the guards (AN8, AN14) failed before it. AN15 (a
+//   `var()` in the template) failed before #160. Motion's runtime for the same pairs:
+//   `.tmp/vel/none-drive.ts` (framer-motion 13.4.0).
 //
 // Moved from `@wardic/test` (DV1–DV7, `spring-blend` SB5 as DV8, AN1–AN14) when the rules moved out of
 // core: the Test Environment stays CSS-free.
@@ -303,6 +304,25 @@ it.effect("AN13: under a bouncy spring, a shadow going to none writes none once,
     expect(nones, "none on the settle frame only").toEqual([fs.length - 1])
     expect(fs.at(-1)?.done).toBe(true)
     expect(fs.filter((f) => String(f.value.boxShadow).includes("rgba")).length, "frames on the way").toBeGreaterThan(10)
+  }),
+)
+
+it.effect("AN15: a shadow holding a var() keeps the variable as written on its way to none, or to a shadow fewer (#160)", () =>
+  Effect.gen(function* () {
+    // Before #160 the rule built each zero with core's complex codec, which read the digits in the
+    // name as a number: the leg wrote `var(--gray0)`, an undefined variable, until its last frame.
+    expect(yield* frames({ "box-shadow": "0px 0px 4px var(--gray-500)" }, { "box-shadow": "none" })).toEqual([
+      "0px 0px 3px var(--gray-500)",
+      "0px 0px 2px var(--gray-500)",
+      "0px 0px 1px var(--gray-500)",
+      "none",
+    ])
+    expect(yield* frames({ "box-shadow": "0px 0px 2px red, 0px 0px 4px var(--gray-500)" }, { "box-shadow": "0px 0px 8px red" })).toEqual([
+      "0px 0px 3.5px red, 0px 0px 3px var(--gray-500)",
+      "0px 0px 5px red, 0px 0px 2px var(--gray-500)",
+      "0px 0px 6.5px red, 0px 0px 1px var(--gray-500)",
+      "0px 0px 8px red",
+    ])
   }),
 )
 

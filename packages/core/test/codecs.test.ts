@@ -9,7 +9,6 @@ import { describe, expect, it } from "@effect/vitest"
 // and encode against those plain parses and formats.
 
 const decodeUnit = Schema.decodeUnknownOption(Interpolator.UnitString)
-const decodeColor = Schema.decodeUnknownOption(Interpolator.ColorString)
 const decodeComplex = Schema.decodeUnknownOption(Interpolator.ComplexString)
 
 /** Schema's decode, then Schema's encode. */
@@ -49,58 +48,22 @@ describe("UnitString", () => {
   })
 })
 
-describe("ColorString", () => {
-  it("decodes what culori parses, trimmed, in the space it's written in", () => {
-    expect(Option.map(decodeColor("#000"), (color) => color.mode)).toEqual(Option.some("rgb"))
-    expect(Option.map(decodeColor(" #000 "), (color) => color.mode)).toEqual(Option.some("rgb"))
-    expect(Option.map(decodeColor("hsl(0 100% 50%)"), (color) => color.mode)).toEqual(Option.some("hsl"))
-    expect(Option.isSome(decodeColor("rebeccapurple"))).toBe(true)
-    expect(Option.isSome(decodeColor("transparent"))).toBe(true)
-  })
-
-  it("rejects keywords and strings culori can't parse, prefixed like a colour or not", () => {
-    rejectsAll(decodeColor, ["auto", "none", "inherit", "10px", "#zzz", "rgb(var(--x))", 0])
-  })
-
-  it("rejects a CSS function holding a length, which culori's parse throws on (#154)", () => {
-    rejectsAll(decodeColor, [
-      "blur(4px)",
-      "blur(0px)",
-      "drop-shadow(0px 0px 4px red)",
-      "translateX(10px)",
-      "inset(10px)",
-      "circle(10px)",
-      "rgb(1px 2px 3px)",
-    ])
-  })
-
-  it("encodes as rgb() / rgba(), so a round trip canonicalises", () => {
-    expect(roundTrip(Interpolator.ColorString)("#000")).toBe("rgb(0, 0, 0)")
-    expect(roundTrip(Interpolator.ColorString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
-    expect(roundTrip(Interpolator.ColorString)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
-    expect(roundTrip(Interpolator.ColorString)("rebeccapurple")).toBe("rgb(102, 51, 153)")
-  })
-
-  it("is idempotent once canonical", () => {
-    const inputs = ["#000", " #fff ", "rgba(10, 20, 30, 0.25)", "hsl(120 50% 50%)", "transparent", "rebeccapurple"]
-    const once = Arr.map(inputs, roundTrip(Interpolator.ColorString))
-    expect(Arr.map(once, roundTrip(Interpolator.ColorString))).toEqual(once)
-  })
-})
-
 describe("ComplexString", () => {
-  it("decodes a string carrying numbers or colours among other text into the parts around them and the tokens", () => {
+  it("decodes a string carrying numbers among other text into the parts around them and the tokens", () => {
     expect(decodeComplex("M0,0 L10,10")).toEqual(Option.some({ parts: ["M", ",", " L", ",", ""], tokens: [0, 0, 10, 10] }))
     // One number inside a function is enough since #61 (Motion's rule; two or more before).
     expect(decodeComplex("blur(4px)")).toEqual(Option.some({ parts: ["blur(", "px)"], tokens: [4] }))
-    // A colour is one token, not its channels (#61).
+  })
+
+  it("names no colour: the default's tokens are numbers, so a colour's channels are numbers among its text (#160, ADR-0036)", () => {
+    // The DOM's complex tier reads a colour as one token (`@wardic/dom`'s `cssComplex`).
     expect(decodeComplex("0px 0px 5px rgba(0,0,0,0.5)")).toEqual(
-      Option.some({ parts: ["", "px ", "px ", "px ", ""], tokens: [0, 0, 5, { mode: "rgb", r: 0, g: 0, b: 0, alpha: 0.5 }] }),
+      Option.some({ parts: ["", "px ", "px ", "px rgba(", ",", ",", ",", ")"], tokens: [0, 0, 5, 0, 0, 0, 0.5] }),
     )
   })
 
-  it("rejects a unit string, a lone colour, a string with no numbers or colours, and what isn't a string", () => {
-    rejectsAll(decodeComplex, ["10px", "120", "#f00", " rgb(255, 0, 0) ", "none", "auto", "", 5, ["M0,0 L1,1"]])
+  it("rejects a unit string, a string with no numbers, and what isn't a string", () => {
+    rejectsAll(decodeComplex, ["10px", "120", "none", "auto", "", 5, ["M0,0 L1,1"]])
   })
 
   it("keeps an Environment's text spans as text: the digits in them aren't numbers (#158, ADR-0035)", () => {
@@ -117,14 +80,12 @@ describe("ComplexString", () => {
     expect(decodeWith("ratio 16x9 at 4px")).toEqual(Option.some({ parts: ["ratio 16x9 at ", "px"], tokens: [4] }))
   })
 
-  it("round-trips a string whose numbers are written in their shortest form and that holds no colour", () => {
+  it("round-trips a string whose numbers are written in their shortest form", () => {
     const inputs = ["M0,0 L10,10", "0,0 20,30", "M-1.5,0 C1,2 3,4 5,6 Z", "blur(4px) brightness(1.5)"]
     expect(Arr.map(inputs, roundTrip(Interpolator.ComplexString))).toEqual(inputs)
   })
 
-  it("encodes numbers in their shortest form, and colours as rgb() / rgba()", () => {
+  it("encodes numbers in their shortest form", () => {
     expect(roundTrip(Interpolator.ComplexString)("M0.50,1e3 L.5,-0")).toBe("M0.5,1000 L0.5,0")
-    expect(roundTrip(Interpolator.ComplexString)("0px 0px 5px rgba(0,0,0,0.5)")).toBe("0px 0px 5px rgba(0, 0, 0, 0.5)")
-    expect(roundTrip(Interpolator.ComplexString)("0px 0px 5px #f00")).toBe("0px 0px 5px rgb(255, 0, 0)")
   })
 })

@@ -69,14 +69,10 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
     }),
   )
 
-  it.effect("DP5: a colour and a keyword ('rgb(255, 0, 0)' → 'none') switch at the first frame", () =>
+  it.effect("DP5: a complex value and a keyword ('blur(4px)' → 'none') switch at the first frame: core has no Key rules", () =>
     Effect.gen(function* () {
-      expect(yield* resolved("rgb(255, 0, 0)", "none")).toEqual({
-        start: "rgb(255, 0, 0)",
-        first: "none",
-        half: "none",
-        end: "none",
-      })
+      // The DOM's Animatable none blends this pair (`@wardic/dom`'s key-rules, ADR-0035); core's registry doesn't.
+      expect(yield* resolved("blur(4px)", "none")).toEqual({ start: "blur(4px)", first: "none", half: "none", end: "none" })
     }),
   )
 
@@ -105,8 +101,8 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
   it.effect("DP9 (guard): a pair that blends still blends", () =>
     Effect.gen(function* () {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-      expect((yield* registry.resolve("#000", "#fff"))(0.5)).toBe("rgb(128, 128, 128)")
       expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("15px")
+      expect((yield* registry.resolve("M0,0 L10,10", "M0,0 L20,20"))(0.5)).toBe("M0,0 L15,15")
     }),
   )
 
@@ -117,24 +113,7 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
     }),
   )
 
-  it.effect("DP11: a string culori can't parse, prefixed like a colour or not, isn't a colour: a Discrete pair", () =>
-    Effect.gen(function* () {
-      expect(yield* resolved("#zzz", "#fff")).toEqual({ start: "#zzz", first: "#fff", half: "#fff", end: "#fff" })
-      expect(yield* resolved("rgb(var(--x))", "#fff")).toEqual({
-        start: "rgb(var(--x))",
-        first: "#fff",
-        half: "#fff",
-        end: "#fff",
-      })
-    }),
-  )
-
-  it.effect("DP12 (guard): a colour with spaces around it blends, where it died on the first frame before #65", () =>
-    Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-      expect((yield* registry.resolve(" #000 ", "#fff"))(0.5)).toBe("rgb(128, 128, 128)")
-    }),
-  )
+  // DP11 and DP12, on colours, are the DOM's since #160 (ADR-0036): `@wardic/dom`'s `colors.node.test.ts`.
 
   it.effect("DP13: resolve warns once for a pair an entry decodes but can't blend, and not for a keyword switch", () =>
     Effect.gen(function* () {
@@ -143,8 +122,8 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
         { interpolator: "complex", from: "M0,0 L10,10", to: "M0,0 L10,10 L20,20" },
       ])
       expect(yield* warningsOf("auto", "none")).toEqual([])
-      expect(yield* warningsOf("rgb(255, 0, 0)", "none")).toEqual([])
-      expect(yield* warningsOf("#000", "#fff")).toEqual([])
+      expect(yield* warningsOf("blur(4px)", "none")).toEqual([])
+      expect(yield* warningsOf("M0,0 L10,10", "M0,0 L20,20")).toEqual([])
     }),
   )
 
@@ -156,14 +135,11 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
     }),
   )
 
-  it.effect("DP15: a CSS function holding a length isn't a colour: the pair resolves, where culori's parse threw (#154)", () =>
+  it.effect("DP15: one number inside a function is a complex value, so the pair blends (#61, #154)", () =>
     Effect.gen(function* () {
-      // Since #61 one number inside a function is a complex value, so these blend.
       expect(yield* resolved("blur(4px)", "blur(8px)")).toEqual({ start: "blur(4px)", first: "blur(4.04px)", half: "blur(6px)", end: "blur(8px)" })
       expect((yield* resolved("translateX(10px)", "translateX(20px)")).half).toBe("translateX(15px)")
-      // A colour into a filter: the colour tier takes only `from`, and `complex` doesn't take a lone colour.
-      expect(yield* resolved("#000", "blur(4px)")).toEqual({ start: "#000", first: "blur(4px)", half: "blur(4px)", end: "blur(4px)" })
-      expect(yield* warningsOf("#000", "blur(4px)")).toEqual([])
+      // A colour into a filter, where culori's parse threw (#154), is the DOM's: `colors.node.test.ts`.
     }),
   )
 })

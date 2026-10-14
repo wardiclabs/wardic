@@ -87,44 +87,6 @@ it("unitOf reads the unit the unit entry parses: '' for a bare number, None for 
   expect(Interpolator.unitOf("rgb(0, 0, 0)")).toEqual(Option.none())
 })
 
-it("color interpolator does not decode the CSS keyword 'auto'", () => {
-  // Arrange
-  const color = Interpolator.color()
-
-  // Act
-  const decoded = decodes(color, "auto")
-
-  // Assert
-  expect(decoded).toBe(false)
-})
-
-it("color interpolator decodes the named color 'rebeccapurple'", () => {
-  // Arrange
-  const color = Interpolator.color()
-
-  // Act
-  const decoded = decodes(color, "rebeccapurple")
-
-  // Assert
-  expect(decoded).toBe(true)
-})
-
-it("color interpolator decodes '#fff' and 'rgb(0,0,0)' through culori's parse, without throwing", () => {
-  // Arrange — decoding is matching (ADR-0026): there is no prefix fast path, so `#fff` and
-  // `rgb(0,0,0)` are colours because culori parses them.
-  const color = Interpolator.color()
-
-  // Act
-  const hashMatch = (): boolean => decodes(color, "#fff")
-  const rgbMatch = (): boolean => decodes(color, "rgb(0,0,0)")
-
-  // Assert
-  expect(hashMatch).not.toThrow()
-  expect(rgbMatch).not.toThrow()
-  expect(hashMatch()).toBe(true)
-  expect(rgbMatch()).toBe(true)
-})
-
 // Registry-backed tests — all share InterpolatorRegistry.layer via layer().
 
 layer(InterpolatorRegistry.layer)("interpolator registry", (it) => {
@@ -133,7 +95,7 @@ layer(InterpolatorRegistry.layer)("interpolator registry", (it) => {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       expect(yield* registry.interpolate(0, 10, 0.5)).toBe(5)
       expect(yield* registry.interpolate("0px", "10px", 0.5)).toBe("5px")
-      expect(yield* registry.interpolate("#000000", "#ffffff", 0.5)).toContain("rgb")
+      expect(yield* registry.interpolate("M0,0 L10,10", "M0,0 L20,20", 0.5)).toBe("M0,0 L15,15")
     }),
   )
 
@@ -205,24 +167,6 @@ layer(InterpolatorRegistry.layer)("interpolator registry", (it) => {
       expect(atEnd).toBe("left")
     }),
   )
-
-  it.effect("resolve('rebeccapurple', '#fff') yields a valid rgb(...) string", () =>
-    Effect.gen(function* () {
-      // Arrange
-      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-      const fn = yield* registry.resolve("rebeccapurple", "#fff")
-
-      // Act
-      const start = fn(0)
-      const mid = fn(0.5)
-      const end = fn(1)
-
-      // Assert
-      expect(start).toMatch(/^rgb\(/)
-      expect(mid).toMatch(/^rgb\(/)
-      expect(end).toMatch(/^rgb\(/)
-    }),
-  )
 })
 
 // Isolated block — `register` mutates the shared registry, so this test gets
@@ -248,10 +192,10 @@ layer(InterpolatorRegistry.layer)("interpolator registry (the cache of string pa
   it.effect("a pair of strings resolves once: the same closure comes back", () =>
     Effect.gen(function* () {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-      const first = yield* registry.resolve("#000", "#fff")
-      const again = yield* registry.resolve("#000", "#fff")
+      const first = yield* registry.resolve("10px", "20px")
+      const again = yield* registry.resolve("10px", "20px")
       expect(again).toBe(first)
-      expect(again(0.5)).toBe("rgb(128, 128, 128)")
+      expect(again(0.5)).toBe("15px")
     }),
   )
 
