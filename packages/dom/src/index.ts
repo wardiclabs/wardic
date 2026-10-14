@@ -17,6 +17,7 @@ import type * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Probe from "@wardic/core/Probe"
 import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
@@ -25,6 +26,7 @@ import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
 import { InputDomLive } from "./input.ts"
 import { InterpolatorRegistryDomLive } from "./interpolators.ts"
+import { PositionalKeysDomLive } from "./positional-keys.ts"
 import { ProbeDomLive } from "./probe.ts"
 import { RendererDomLive } from "./renderer.ts"
 
@@ -32,6 +34,8 @@ export const VERSION = "0.1.0-alpha.0"
 
 export { ClockDomLive } from "./clock.ts"
 export { InputDomLive } from "./input.ts"
+// The DOM Environment's Positional keys (ADR-0036): the transforms and CSS's box keys.
+export { isPositional, PositionalKeysDomLive } from "./positional-keys.ts"
 // The DOM Environment's Key rules (ADR-0035): Tier 2. How a CSS property's pair blends by name
 // (display / visibility, the Animatable none, shadow lists), and the registry DomLive provides.
 export { animatableNone, keyRules, visibility } from "./key-rules.ts"
@@ -144,8 +148,11 @@ export const DomLive: Layer.Layer<
   | InputSource.InputSource
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
+  | ReducedMotion.PositionalKeys
   | AtomRegistry.AtomRegistry
 > = FrameLoop.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryDomLive)),
+  Layer.provideMerge(
+    Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryDomLive, PositionalKeysDomLive),
+  ),
   Layer.provideMerge(AtomRegistry.layer),
 )

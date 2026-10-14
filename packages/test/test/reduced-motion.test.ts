@@ -94,30 +94,36 @@ describe("the policy", () => {
     expect(ReducedMotion.applies("never", false)).toBe(false)
   })
 
-  it("isPositional: the transforms and the box's position and size, as Motion's positionalKeys", () => {
+  it("isTransform: Wardic's transform keys, positional in every Environment (ADR-0036)", () => {
     for (const key of ["x", "y", "z", "translateX", "translateY", "translateZ", "scale", "scaleX", "scaleY"]) {
-      expect(ReducedMotion.isPositional(key), key).toBe(true)
+      expect(ReducedMotion.isTransform(key), key).toBe(true)
     }
     for (const key of ["rotate", "rotateX", "rotateY", "rotateZ", "skewX", "skewY"]) {
-      expect(ReducedMotion.isPositional(key), key).toBe(true)
+      expect(ReducedMotion.isTransform(key), key).toBe(true)
     }
-    for (const key of ["width", "height", "top", "left", "right", "bottom"]) {
-      expect(ReducedMotion.isPositional(key), key).toBe(true)
-    }
-    for (const key of ["opacity", "background-color", "color", "filter", "box-shadow", "constructor", "toString"]) {
-      expect(ReducedMotion.isPositional(key), key).toBe(false)
+    // The box's position and size are an Environment's to name (the DOM's: @wardic/dom's PositionalKeysDomLive).
+    for (const key of ["width", "height", "top", "left", "right", "bottom", "opacity", "background-color", "constructor", "toString"]) {
+      expect(ReducedMotion.isTransform(key), key).toBe(false)
     }
   })
 
-  it("split: the positional keys, numbers and strings, apart from the rest", () => {
-    const { positional, rest } = ReducedMotion.split({
-      x: 10,
-      width: "200px",
-      opacity: 1,
-      "background-color": "#ffffff",
-    })
-    expect(positional).toEqual({ x: 10, width: "200px" })
-    expect(rest).toEqual({ opacity: 1, "background-color": "#ffffff" })
+  it.effect("transformsOnly: the Positional keys core and the Test Environment provide are the transforms", () =>
+    Effect.gen(function* () {
+      const keys = yield* ReducedMotion.PositionalKeys
+      expect(keys.isPositional("x")).toBe(true)
+      expect(keys.isPositional("width")).toBe(false)
+    }).pipe(Effect.provide(ReducedMotion.transformsOnly)),
+  )
+
+  it("split: by the Environment's Positional keys, numbers and strings, apart from the rest", () => {
+    const values = { x: 10, width: "200px", opacity: 1, "background-color": "#ffffff" }
+    const transforms = ReducedMotion.split(values, { isPositional: ReducedMotion.isTransform })
+    expect(transforms.positional).toEqual({ x: 10 })
+    expect(transforms.rest).toEqual({ width: "200px", opacity: 1, "background-color": "#ffffff" })
+    // An Environment that names `width` too.
+    const box = ReducedMotion.split(values, { isPositional: (key) => ReducedMotion.isTransform(key) || key === "width" })
+    expect(box.positional).toEqual({ x: 10, width: "200px" })
+    expect(box.rest).toEqual({ opacity: 1, "background-color": "#ffffff" })
   })
 })
 

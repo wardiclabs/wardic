@@ -5,11 +5,15 @@
  * run's positional keys (the transforms, and the box's position and size) snap to where the run
  * would end, and every other key (opacity, colour, filters) animates as it would. A binding reads
  * its app's {@link Config} and `Probe.prefersReducedMotion` when a run starts ({@link applies}),
- * splits the run's target ({@link split}), and runs the positional keys as a {@link snap}.
+ * splits the run's target by its Environment's {@link PositionalKeys} ({@link split}), and runs the
+ * positional keys as a {@link snap}. Which keys are positional beyond the transforms is the
+ * Environment's (ADR-0036).
  *
- * Tier 2 (ADR-0008): Effect-free, for binding authors.
+ * Tier 2 (ADR-0008), for binding authors.
  */
 import * as Bool from "effect/Boolean"
+import * as Context from "effect/Context"
+import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -35,26 +39,25 @@ export const applies = (config: Config, prefersReducedMotion: boolean): boolean 
     Match.exhaustive,
   )
 
+/** Whether `key` is a transform (`BaseValue.TRANSFORM_IDENTITY`'s keys): Wardic's own, positional in every Environment. */
+export const isTransform = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))
+
 /**
- * The keys reduced motion snaps (Motion's `positionalKeys`, `keys-position.ts` at 16c6122): the
- * transforms (`BaseValue.TRANSFORM_IDENTITY`'s keys) and the box's position and size.
+ * An Environment's **Positional keys** (CONTEXT.md; ADR-0029, ADR-0036): which keys move or resize
+ * its elements, which reduced motion Snaps. Core names only the transforms ({@link transformsOnly});
+ * an Environment adds its own box keys (the DOM's `width`, `height`, `top`, `left`, `right`,
+ * `bottom`: `@wardic/dom`'s `PositionalKeysDomLive`). A binding reads it once, as it reads the Probe,
+ * and passes it to {@link split}.
  */
-export const POSITIONAL_KEYS: ReadonlySet<string> = new Set([
-  ...Rec.keys(BaseValue.TRANSFORM_IDENTITY),
-  "width",
-  "height",
-  "top",
-  "left",
-  "right",
-  "bottom",
-])
+export class PositionalKeys extends Context.Service<PositionalKeys, {
+  /** Whether reduced motion Snaps `key`. */
+  readonly isPositional: (key: string) => boolean
+}>()("@wardic/PositionalKeys") {}
 
-/** Whether reduced motion snaps `key`: a transform, or the box's position or size. */
-export const isPositional = (key: string): boolean => POSITIONAL_KEYS.has(key)
+/** Positional keys with only the transforms: core's own, and the Test Environment's. */
+export const transformsOnly: Layer.Layer<PositionalKeys> = Layer.succeed(PositionalKeys, { isPositional: isTransform })
 
-const isNotPositional = Predicate.not(isPositional)
-
-/** A run's target, split by {@link isPositional}. */
+/** A run's target, split by an Environment's {@link PositionalKeys}. */
 export interface Split {
   /** The keys reduced motion snaps. */
   readonly positional: Values.Values
@@ -62,10 +65,10 @@ export interface Split {
   readonly rest: Values.Values
 }
 
-/** Split a run's target into the keys reduced motion snaps and the rest. */
-export const split = (values: Values.Values): Split => ({
-  positional: Rec.filter(values, (_, key) => isPositional(key)),
-  rest: Rec.filter(values, (_, key) => isNotPositional(key)),
+/** Split a run's target into the keys reduced motion snaps, by `keys`, and the rest. */
+export const split = (values: Values.Values, keys: PositionalKeys["Service"]): Split => ({
+  positional: Rec.filter(values, (_, key) => keys.isPositional(key)),
+  rest: Rec.filter(values, (_, key) => !keys.isPositional(key)),
 })
 
 /** A repeat count whose last run is odd-numbered, which `yoyo` runs backwards: finite, and odd once rounded up. */

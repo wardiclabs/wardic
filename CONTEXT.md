@@ -45,7 +45,7 @@ Time as a run on the Clock counts it: the sum of the `dt`s of the ticks it has b
 _Avoid_: animation time, clock time.
 
 **Positional key**:
-A key that moves or resizes the element: a transform (`x`, `scale`, `rotate`, …), or `width`, `height`, `top`, `left`, `right`, `bottom` (Motion's `positionalKeys`). Reduced motion Snaps these and no others (ADR-0029).
+A key that moves or resizes the element: a transform (`x`, `scale`, `rotate`, …), or a key its Environment names as the element's position or size (the DOM's: `width`, `height`, `top`, `left`, `right`, `bottom`, Motion's `positionalKeys`). Reduced motion Snaps these and no others (ADR-0029).
 _Avoid_: layout key (a layout animation is the projection's), geometry.
 
 **Snap**:
@@ -246,7 +246,7 @@ _Avoid_: resize freeze, blocked update (Motion's name).
 ### Environment
 
 **Environment**:
-A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, InputSource, Probe, InterpolatorRegistry with the Environment's **Key rules**), with core's **Frame loop** over its Clock — e.g. DOM, Test.
+A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, InputSource, Probe, InterpolatorRegistry with the Environment's **Key rules**, PositionalKeys naming its **Positional keys**), with core's **Frame loop** over its Clock — e.g. DOM, Test.
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:

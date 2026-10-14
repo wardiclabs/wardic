@@ -46,7 +46,7 @@ import { reportFailure, variableValues } from "@wardic/dom"
 import { constFalse } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
-import { useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
 /**
@@ -129,6 +129,7 @@ export interface AnimatePresenceProps {
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const runtime = useWardicRuntime()
   const reducedMotion = useWardicReducedMotion()
+  const positionalKeys = useWardicPositionalKeys()
   // A server render has no exit to drive and no runtime to log on: the same component
   // boundaries, with a context that registers nothing (ADR-0021).
   if (isServer) return serverPresence(props)
@@ -226,7 +227,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // Reduced motion (ADR-0029), read now: the exit's positional keys snap to their target on its
     // first tick, and the rest animate.
     const { positional, rest } = Bool.match(reducedMotion(), {
-      onTrue: () => ReducedMotion.split(exit),
+      onTrue: () => ReducedMotion.split(exit, positionalKeys),
       onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: exit }),
     })
     const snapped = Object.keys(positional).length
