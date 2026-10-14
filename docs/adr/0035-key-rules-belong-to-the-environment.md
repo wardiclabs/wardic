@@ -85,3 +85,9 @@ A pair can blend differently because of the key it belongs to. `display` turning
   - core's `codecs.test.ts` and `complex-interpolate.test.ts`, with a made-up `@name` span;
   - `@wardic/dom`'s `interpolators.node.test.ts` CV1–CV4: the `var()` pairs switch, lengths blend around a `var()`, the other tiers are core's, and the codec keeps a `var()` as text;
   - solid's SK18, with real paint: only the two greys.
+- **Mutation-checked**, in a separate worktree: five single-point mutations, each failing the tests meant for it:
+  - the DOM giving no spans;
+  - spans not folded into the text;
+  - matching ignoring the span count;
+  - a lone span taken as a complex value;
+  - spans matched after numbers. This one is caught only by a span that starts with a digit, which is why the test has one.
