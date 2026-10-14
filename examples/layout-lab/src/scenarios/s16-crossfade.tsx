@@ -119,6 +119,9 @@ const avatar = (left: number, top: number, size: number): JSX.CSSProperties => (
   "border-radius": "50%",
 })
 
+/** Every twin here takes Motion's default layout transition, a 0.45 s tween (#171). */
+const LAYOUT_DURATION = 0.45
+
 /** How many still frames end a run, and how long one may take. */
 const STILL_FRAMES = 6
 const SETTLE_MS = 4000
@@ -145,6 +148,8 @@ interface Watch {
   readonly startsFrom?: Drawn
   /** A toggle back with no twin left to fade (#170). */
   readonly back?: boolean
+  /** Something besides its layout animation moves the Lead (a container scaling in): lands isn't judged (#171). */
+  readonly carried?: boolean
   /** The pair of twins it hands over between, which a later run on the pair supersedes; its cell by default. */
   readonly pair?: string
   /** The `layout` badges in the Lead's and the Follower's containers, and their own ratios (#169). */
@@ -220,6 +225,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
     // The Lead's painted top-left, each frame: a handover that only moves is still only once it stops.
     const where: Array<number> = []
     const path: Array<Drawn> = []
+    // Where the Lead was drawn each frame, and when (#171).
+    const track: Array<{ readonly t: number; readonly at: Drawn }> = []
     // While the Follower shows, how far it's drawn from its Lead, each frame (#8).
     const follows: Array<number> = []
     const aspects: Array<{ readonly lead: number | null; readonly follower: number | null }> = []
@@ -246,6 +253,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
           ...(watch.hits === true ? { hitsFollower: hit } : {}),
           ...(watch.onlyMoves === true ? { onlyMoves: true } : {}),
           ...(watch.startsFrom === undefined ? {} : { startsFrom: watch.startsFrom, leadPath: path }),
+          ...(watch.carried === true ? {} : { landing: { duration: LAYOUT_DURATION, track } }),
           ...(watch.back === true ? {} : { follows }),
           ...(watch.back === true ? { back: true } : {}),
           ...(watch.badges === undefined ? {} : { aspects, ownAspects: watch.badges.own }),
@@ -271,6 +279,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
       const r = lead!.getBoundingClientRect()
       where.push(r.left * 10_000 + r.top)
       if (path.length < 2) path.push({ x: r.left, y: r.top, w: r.width, h: r.height })
+      track.push({ t: performance.now(), at: { x: r.left, y: r.top, w: r.width, h: r.height } })
       if (follower !== undefined && f !== null && f > 0.01) follows.push(apartOf(lead!, follower))
       if (watch.badges !== undefined) aspects.push({ lead: aspectOf(watch.badges.lead()), follower: aspectOf(watch.badges.follower()) })
       if (watch.lookFrom !== undefined) looks.push({ lead: lookOf(lead)!, follower: lookOf(follower) })
@@ -366,7 +375,7 @@ const View: ScenarioDef["View"] = (props) => {
     const opening = !inPlace()
     const from = paintedAt(el[opening ? "play" : "pause"])
     setInPlace(opening)
-    if (opening) recorder.start({ cell: "in place", pair: "in place", lead: at("pause"), follower: at("play"), startsFrom: from })
+    if (opening) recorder.start({ cell: "in place", pair: "in place", lead: at("pause"), follower: at("play"), startsFrom: from, carried: entrance() })
     else recorder.start({ cell: "in place: back", pair: "in place", lead: at("play"), follower: gone, startsFrom: from, back: true })
   }
   const toggleNested = (): void => {
@@ -398,7 +407,7 @@ const View: ScenarioDef["View"] = (props) => {
     const opening = !exit()
     const from = paintedAt(el[opening ? "thumb" : "exitModal"])
     setExit(opening)
-    if (opening) recorder.start({ cell: "exit: open", pair: "exit", lead: at("exitModal"), follower: at("thumb"), startsFrom: from })
+    if (opening) recorder.start({ cell: "exit: open", pair: "exit", lead: at("exitModal"), follower: at("thumb"), startsFrom: from, carried: wrapped() })
     else recorder.start({ cell: "exit: close", pair: "exit", lead: at("thumb"), follower: at("exitModal"), hits: true, startsFrom: from })
   }
 
