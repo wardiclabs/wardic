@@ -490,3 +490,37 @@ ADR-0033 decides it.
 - **`wardic_frameloop_tick_ms` ends before the hooks,** so it stays the cost of the steps alone, and the gate's flush (#79) stays separate from it.
 - **Decision 5's start rule reads:** "the first step is the loop's next tick", now the next Refresh frame's, cold or warm. The Priming tick is gone (ADR-0017, *Amendment (#73)*). A run added during a tick is stepped from the next one, as before, and painted in that frame.
 - ***Consequences*' "the gate's one frame of latency, until #73"** is resolved: it's gone for what a tick writes.
+
+## Amendment (#137, 2026-10-14): the coordinator steps after every other run
+
+*Implementation in #75* recorded the coordinator's order within a tick as its add order among the other runs, and "nothing depends on either". Since ADR-0012 *Amendment (#137)* that's no longer true:
+- **Each frame, the coordinator reads spine values:** a twin's ancestors' translate and scale (#137), a twin's own scale (ADR-0010 *Amendment (#8)*), and its own rotation and opacity (*Amendment (#166)*). It reads them as the binding last wrote them, in a leg's sink.
+- **The order decides which frame it reads.** The coordinator gets this tick's values only if it steps after the leg that writes them. A coordinator already on the loop when a leg starts steps first, and reads the frame before's.
+- **Found in #137's lab log:** ⏸ opened inside a container scaling in, while the back's flight was still running. Its Follower drew one frame behind the container, up to 2.0 px off its Lead, on 4 of 21 runs. Opens from rest passed.
+
+Decided 2026-10-14:
+- **The loop has a last lane.** Its shape gains `runLast(machine, sink)`, which is `run` but stepped after every run `run` added, in each tick. Among themselves, last-lane runs step in add order too.
+  - A tick takes both lanes' counts before any step, so a run added during it, to either lane, waits for the next tick (decision 5).
+  - A burst ends when both lanes are empty. `endAll` ends both lanes' runs.
+  - The tick stays allocation-free. The first lane's loops stay inline in it, as they were. The last lane has its own step and compaction, run only while it holds a run.
+  - Measured (`bench:core`, 11 paired reps against `main`). With one step function shared by both lanes, Node failed the time gate on its cheapest loop workloads: `chase/loop` +52.6% (0.05 → 0.07 ms a frame at 1,000 elements) and `springValues/loop` +9.4%. Bun and Chromium passed. Skipping an empty last lane didn't help. With the first lane inline, both are within noise on Node (+0.9%, −1.0%).
+- **dom's coordinator runs in the last lane**, so what it reads is what that tick paints, whichever run was added first. It is the one caller.
+- **Rejected:**
+  - The gate calling the projection back before its flush, to re-derive the twins that read live values. That's a second derive path, and those twins would be derived twice a frame.
+  - Recording the frame of lag as a limit.
+- **What still runs after the coordinator in a tick:**
+  - the continuation of a first-lane run that settles in the same tick;
+  - a run added during the tick, which waits for the next one, as before;
+  - the `afterTick` hooks, which write nothing the coordinator reads.
+
+**Pinned by:**
+- **core's `frame-loop.test.ts`, *the last lane*:**
+  - last-lane runs step after the others, whichever was added first;
+  - a last-lane sink sees what the others' sinks wrote that tick;
+  - an add to either lane during a tick waits for the next;
+  - a burst goes on while a last-lane run is left;
+  - a Clock whose ticks end interrupts both lanes.
+- **dom's `projection-coordinator.browser.test.ts`:**
+  - the FLIP's run is recorded in the last lane;
+  - the two re-entrancy tests (a coordinator started inside the tick it settled in, from a later run's sink) now start that later run in the last lane, since a first-lane run no longer steps after the coordinator.
+- **solid's MS3–MS4** (`layout-id-ancestor-transform.browser.test.tsx`, real paint): the projection is already running when the modal's scale starts. On the first lane, the Follower is 2.7 px off on frame 0.

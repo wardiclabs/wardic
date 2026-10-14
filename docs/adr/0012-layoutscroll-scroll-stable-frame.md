@@ -260,8 +260,11 @@ Grilled 2026-10-14:
 **The lab:** scenario 16's in-place cell gets **Toggle entrance**: ⏸ mounts inside a container scaling in from 0.8 about the cell's corner, so the twin flies from ▶ into it.
 - The grill placed this on the exit cell. There, the container would be presence's direct child and not a twin, so closing drops the twin inside it at once, with no crossfade. That's a gap of its own in how presence hands back a twin inside a non-twin container, on `main` too, and not this Amendment's. So the toggle went where no presence is involved.
 - The scripted driver toggles it at rest and mid-flight:
-  - **This branch:** all 42 runs pass, 0 page errors.
+  - **This branch:** all 46 runs pass, 0 page errors.
   - **`main`'s engine:** the entrance runs fail `follows` (up to 24.5 px off), and their toggles back fail `starts` (19–25 px jumps against a 1 px step).
+- **The hand run's log** (DPR 1.35) failed `follows` on 4 of its 21 runs: the Follower up to 2.0 px off its Lead. Each was an open started while the projection was still running a back's flight. Opens from rest passed.
+  - Each frame, the coordinator reads the container's scale as its spine leg last wrote it. Already on the Frame loop, it stepped before the leg added after it, so it read the frame before's.
+  - ADR-0027 *Amendment (#137)* steps the coordinator after every other run. The driver now opens while a back's flight runs too.
 
 **Pinned by:**
 - **`@wardic/dom`, AT1–AT5b** (`projection-ancestor-transforms.browser.test.ts`, frames fired by hand):
@@ -272,12 +275,15 @@ Grilled 2026-10-14:
   - AT5, AT5b: a transform Wardic doesn't own, as of the pass, and exact when it stands still on a scrolled page.
 
   AT1–AT3 fail on `main`. The rest are guards.
-- **solid's MS1–MS2** (`layout-id-ancestor-transform.browser.test.tsx`, real paint): the probe's two modals. On `main` the Follower is off on the first frame, and the `layout` modal's Lead starts 90.7 px off.
-- **Mutation-checked** in a separate worktree: eight single-point mutations, each failing the tests meant for it:
+- **solid's MS1–MS4** (`layout-id-ancestor-transform.browser.test.tsx`, real paint): the probe's two modals. Each opens just after a painted frame, so the first frame read is the first painted after the open.
+  - MS1–MS2: on `main` the Follower is off on the first frame, and the `layout` modal's Lead starts 90.7 px off.
+  - MS3–MS4: the same, with another `layout` node already moving, so the projection is on the Frame loop before the modal's scale starts. With the coordinator in the loop's first lane, the Follower is 2.7 px off on frame 0.
+- **Mutation-checked:** nine single-point mutations, each failing the tests meant for it (the first eight in a separate worktree):
   - no chain built (AT1–AT3, MS1–MS2);
   - values never read (AT1, AT3, MS1);
   - a node ancestor's own scale left out (AT2, MS2);
   - links composed inner first (AT3);
   - a pass map, or an element's origin, left in the page's frame (AT5b; AT1 scrolled);
   - a rotated ancestor mapped anyway (AT4b);
-  - the binding registering no values (MS1).
+  - the binding registering no values (MS1);
+  - the coordinator back in the loop's first lane (MS3–MS4, and the coordinator test's lane).
