@@ -192,13 +192,17 @@ it("crossfade (S1): a twin mounting beside a LIVE twin leads from its box; the l
   await until(() => leftOf(b) - base < 200 && op(b) < 0.95)
   expect(leftOf(b) - base).toBeLessThan(200) // started at A's side, not its own +300
 
-  // Crossfade: B opacity rises while A opacity falls, A locked onto B (overlapping).
-  let sawCross = false
+  // Crossfade (Motion's curves since #5): B fades in while A holds, then A fades out with B in,
+  // A locked onto B (overlapping), so the two are never see-through together.
+  let sawIn = false
+  let sawOut = false
   await until(() => {
-    if (op(b) > 0.2 && op(b) < 0.95 && op(a) < 0.95) sawCross = true
+    if (op(b) > 0.2 && op(b) < 0.95 && op(a) > 0.99) sawIn = true
+    if (op(a) > 0.05 && op(a) < 0.95 && op(b) > 0.99) sawOut = true
     return Math.abs(leftOf(b) - base - 300) < 2 // B settled at its own +300
   })
-  expect(sawCross).toBe(true)
+  expect(sawIn, "B fading in while A holds").toBe(true)
+  expect(sawOut, "A fading out with B in").toBe(true)
   expect(op(b)).toBeCloseTo(1, 1) // lead fully in
   expect(op(a)).toBeLessThan(0.1) // follower faded out (hidden, held)
   expect(Math.abs(leftOf(a) - leftOf(b))).toBeLessThan(3) // follower locked onto the lead's box

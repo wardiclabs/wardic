@@ -374,7 +374,8 @@ describe("a layout node's release is a Release offset on its layout animation (A
     const lEl = makeBox(root, 240, 60, 100, 80)
     const l = register(e, "l", lEl, { layoutId: "twin" })
     await endOfTask()
-    frames(5, () => undefined)
+    // Early, mid fade-in: since #5 the Lead is in by the handover's middle (Motion's circOut).
+    frames(2, () => undefined)
     const from = sk.writes.length
     const mid = opacityOf(sk.of("l").at(-1)!)!
     expect(mid).toBeGreaterThan(0.1)
@@ -409,12 +410,14 @@ describe("a layout node's release is a Release offset on its layout animation (A
     expect(e.system.handleLeave(lEl, () => (done = true))).toBe(true)
     // The coordinator's run, started by the promotion, asks for its first frame by the end of the task.
     await endOfTask()
-    frames(5, () => undefined)
+    frames(2, () => undefined)
     const f = opacityOf(sk.of("f").at(-1)!)!
     expect(f, "the promoted twin fades in").toBeGreaterThan(0.1)
     expect(f).toBeLessThan(0.9)
-    expect(Number(lEl.style.opacity), "the leaver fades out").toBeCloseTo(1 - f, 2)
-    frames(120, () => undefined)
+    // Since #5 the leaver holds until its twin is in, then fades out (Motion's curves).
+    expect(Number(lEl.style.opacity), "the leaver holds").toBe(1)
+    const leaver = frames(120, () => Number(lEl.style.opacity))
+    expect(leaver.some((o) => o > 0 && o < 1), "the leaver fades out").toBe(true)
     expect(done, "the leaver is removed once the crossfade settles").toBe(true)
     e.dispose()
   })
@@ -440,12 +443,14 @@ describe("a layout node's release is a Release offset on its layout animation (A
     register(e, "b", makeBox(root, 240, 60, 100, 80), { layoutId: "t" })
     await endOfTask()
     expect(left, "A is re-introduced as B's Follower").toBe(true)
-    frames(5, () => undefined)
+    frames(2, () => undefined)
     const b = opacityOf(sk.of("b").at(-1)!)!
     expect(b, "B fades in over its Switch").toBeGreaterThan(0.1)
     expect(b).toBeLessThan(0.9)
-    expect(Number(aEl.style.opacity), "A fades out").toBeCloseTo(1 - b, 2)
-    frames(120, () => undefined)
+    // Since #5, A holds until B is in, then fades out (Motion's curves).
+    expect(Number(aEl.style.opacity), "A holds").toBe(1)
+    const aOpacity = frames(120, () => Number(aEl.style.opacity))
+    expect(aOpacity.some((o) => o > 0 && o < 1), "A fades out").toBe(true)
     expect(done).toBe(true)
     e.dispose()
   })
