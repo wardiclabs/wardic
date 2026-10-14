@@ -103,10 +103,13 @@ describe("ComplexString", () => {
     rejectsAll(decodeComplex, ["10px", "120", "#f00", " rgb(255, 0, 0) ", "none", "auto", "", 5, ["M0,0 L1,1"]])
   })
 
-  it("reads a var() as text: the digits in a variable's name aren't numbers (#158)", () => {
-    rejectsAll(decodeComplex, ["var(--gray-500)", "var(--space-2)", "var(--brand, var(--gray-500))"])
-    expect(decodeComplex("0px 4px var(--shadow-1)")).toEqual(Option.some({ parts: ["", "px ", "px var(--shadow-1)"], tokens: [0, 4] }))
-    expect(decodeComplex("calc(var(--gap-1) * 2)")).toEqual(Option.some({ parts: ["calc(var(--gap-1) * ", ")"], tokens: [2] }))
+  it("keeps an Environment's text spans as text: the digits in them aren't numbers (#158, ADR-0035)", () => {
+    // A made-up syntax, `@name`: core names no Environment's own (the DOM's `var()` is @wardic/dom's).
+    const decodeWith = Schema.decodeUnknownOption(Interpolator.complexStringWith({ text: [/@[\w-]+/] }))
+    rejectsAll(decodeWith, ["@shade-1", "@space-2"])
+    expect(decodeWith("0px 4px @shade-1")).toEqual(Option.some({ parts: ["", "px ", "px @shade-1"], tokens: [0, 4] }))
+    // The default has none: there the same digits are numbers.
+    expect(decodeComplex("0px 4px @shade-1")).toEqual(Option.some({ parts: ["", "px ", "px @shade", ""], tokens: [0, 4, -1] }))
   })
 
   it("round-trips a string whose numbers are written in their shortest form and that holds no colour", () => {

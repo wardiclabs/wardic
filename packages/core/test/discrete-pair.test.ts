@@ -166,17 +166,4 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
       expect(yield* warningsOf("#000", "blur(4px)")).toEqual([])
     }),
   )
-
-  it.effect("DP16: a var() is no number: var(--gray-500) → var(--gray-600) switches at the first frame, not through var(--gray-550) (#158)", () =>
-    Effect.gen(function* () {
-      expect(yield* resolved("var(--gray-500)", "var(--gray-600)")).toEqual({
-        start: "var(--gray-500)",
-        first: "var(--gray-600)",
-        half: "var(--gray-600)",
-        end: "var(--gray-600)",
-      })
-      expect((yield* resolved("var(--space-2)", "var(--space-4)")).half).toBe("var(--space-4)")
-      expect(yield* warningsOf("var(--gray-500)", "var(--gray-600)")).toEqual([])
-    }),
-  )
 })

@@ -81,11 +81,14 @@ it("matches kind by kind, in order, written in the target's structure (#61, Moti
   expect(at("0px 0px 10px red", "0px 0px 20px blue", 0.5)).toBe("0px 0px 15px blue")
 })
 
-it("blends around a var(), whose name's digits aren't numbers; the target's var() is written (#158, Motion's)", () => {
-  expect(at("0px 0px 4px var(--shadow-1)", "0px 0px 8px var(--shadow-2)", 0.5)).toBe("0px 0px 6px var(--shadow-2)")
-  expect(at("calc(var(--gap-1) * 2)", "calc(var(--gap-2) * 4)", 0.5)).toBe("calc(var(--gap-2) * 3)")
-  // A different count of var()s can't blend (Motion's mixComplex).
-  expect(blendOf("0px 4px var(--a)", "0px 8px")).toEqual(Option.none())
+it("blends around an Environment's text spans; the target's spans are written (#158, ADR-0035; Motion's)", () => {
+  // A made-up syntax, `@name`: core names no Environment's own (the DOM's `var()` is @wardic/dom's).
+  const entry = Interpolator.complexWith({ text: [/@[\w-]+/] })
+  const decodeWith = Schema.decodeUnknownSync(entry.codec)
+  const blendWith = (from: string, to: string) => entry.blend(decodeWith(from), decodeWith(to))
+  expect(Option.getOrThrow(blendWith("0px 0px 4px @shade-1", "0px 0px 8px @shade-2"))(0.5)).toBe("0px 0px 6px @shade-2")
+  // A different count of spans can't blend (Motion's mixComplex, for its var()).
+  expect(blendWith("0px 4px @a", "0px 8px")).toEqual(Option.none())
 })
 
 // Registry-backed: resolution order — `complex` only catches what the specific
