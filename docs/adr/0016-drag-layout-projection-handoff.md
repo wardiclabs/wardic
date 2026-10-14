@@ -175,3 +175,7 @@ Cost, `.tmp/vel-cost/` (a Frame loop tick timed by hand against a fake sink, 8 r
 - Updated: `projection-handle.browser.test.ts` PH5 and PH8 (the raise is 2 while dragged), PH10 (a pass no longer ends a released `layoutRoot`'s flight), and `drag-pointer.browser.test.tsx` P6 (a restart after a lost release starts where the release was stopped, as a free drag's does).
 - On main, RL2–RL11, RL14, RL15 and DR1–DR4 fail; RL1, RL12 and RL13 pin what main already did (a release's curve, and the crossfades that stay); RL16 pins a bug this change found in itself (main has no `stopRelease`).
 - Mutation-checked: 32 single-point mutations of the new code, each failing the test meant for it.
+
+## Note (#171, 2026-10-14): the Release offset stays a spring
+
+A layout animation now defaults to Motion's 0.45 s tween (ADR-0009 *Amendment (#171)*). The Release offset still springs from the release's velocity: on the layout transition when that's a spring, else on the spring defaults (170/26). A tween can't carry a velocity. The slot FLIP under a release is a layout animation, and takes the tween. #140's `dragTransition` would give the Release offset its own transition, as Motion's does.

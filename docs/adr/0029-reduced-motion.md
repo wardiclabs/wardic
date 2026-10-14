@@ -117,3 +117,7 @@ This replaces CONTEXT.md's earlier resolution, which nothing applied: a Stream c
 - **Node's bytes:** one flag, `springBlend/loop` at 1.05 → 1.12 MB (+6.5%), inside the range the same workload reads on identical code (1.05–1.12, #94). It isn't this change:
   - **The steps-only probe** (`.tmp/94-bytes/`: 1,000 machines stepped by hand over 2,000 frames, 11 reps) reads the same median on both cores. That's 872,589 bytes per frame for `springBlend`, and 610,027 for `springValues`.
   - **A Node-only rerun** of the gate passes every workload, with `springBlend/loop` at 1.12 → 1.12.
+
+## Note (#171, 2026-10-14): a reduced layout animation takes no delay
+
+A layout animation's transition can now be a tween and can have a delay (ADR-0009 *Amendment (#171)*). When reduced motion applies, it still lands at once, and its delay is dropped, as Motion's `animationOptions.delay = 0`.

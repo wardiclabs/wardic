@@ -203,3 +203,7 @@ A first version read every node into a map and called `UndefinedOr.match` (a `du
 **Worth knowing before committing to API parity:** Motion's `layoutRoot` isn't settled upstream. Its author introduced it as *"a quick fix"* (*"A more universal fix for this class of animations would be preferable"*, [motion#1781](https://github.com/motiondivision/motion/pull/1781)), and later wrote *"I don't like the API as it stands"* ([motion#1535](https://github.com/motiondivision/motion/issues/1535)). The alternative he rejected, walking ancestors with `getComputedStyle`, was rejected on cost.
 
 The third item, scroll sampling, is ADR-0012 *Amendment (#7)*.
+
+## Note (#171, 2026-10-14): a restart is a fresh tween
+
+With a tween transition, Motion's default from ADR-0009 *Amendment (#171)*, *Amendment (#146)*'s restart is a fresh tween over the full duration, delay included, from where the node is drawn, at velocity 0, as Motion's is. A spring's restart is unchanged.
