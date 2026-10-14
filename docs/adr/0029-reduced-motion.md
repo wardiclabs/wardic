@@ -25,6 +25,7 @@ This replaces CONTEXT.md's earlier resolution, which nothing applied: a Stream c
 2. **Positional keys only, Motion's rule.** These snap:
    - the transforms, which are `BaseValue.TRANSFORM_IDENTITY`'s keys;
    - `width`, `height`, `top`, `left`, `right` and `bottom`.
+   - *Since ADR-0036 these six are the DOM Environment's (`@wardic/dom`'s `PositionalKeysDomLive`); core names only the transforms, through the `ReducedMotion.PositionalKeys` service.*
 
    Opacity, colours, filters and shadows animate: a fade moves nothing.
 3. **Reach.**

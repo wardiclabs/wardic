@@ -48,3 +48,10 @@ Comments and examples that name CSS describe the DOM Environment's use, not core
 - solid, Chromium (`reduced-motion.browser.test.tsx`):
   - RM-S8, a guard: in the DOM, `width` snaps under reduced motion.
   - RM-S9: an Environment whose Positional keys name only `opacity` snaps opacity and grows `width`. The binding honours the Environment's keys, not a list of its own.
+  - RM-S10: the same Environment's presence exit snaps opacity too.
+- **Mutation-checked** in a separate worktree: five single-point mutations, each failing the tests meant for it:
+  - the provider ignoring the Environment's keys;
+  - the DOM naming no box keys;
+  - `split` ignoring the keys;
+  - the spine's split ignoring the keys;
+  - the presence exit's split ignoring them. This one was first missed, which is why RM-S10 exists.
