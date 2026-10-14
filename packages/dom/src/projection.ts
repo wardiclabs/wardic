@@ -618,6 +618,19 @@ interface RecentLeaver {
 }
 
 /**
+ * A disposed layout node with no `layoutId`, held until the end of the current task (#169): what a
+ * presence `handleLeave` re-introduces it from when it sits inside the leaver, so a closing
+ * container's layout children stay corrected for its lock. `reintroduced` records whether it was.
+ */
+interface RecentNode {
+  readonly box: Box.Box
+  readonly paintDelta: Projection.Delta | undefined
+  readonly unpaintDelta: Projection.Delta | undefined
+  readonly layoutAnchor: Point.Point | false | undefined
+  reintroduced: boolean
+}
+
+/**
  * A disposed twin's Switch seed, in the **Root frame**, held per `layoutId` until
  * the end of the current task (ADR-0010 *Amendment (#13)*). `consumed` records
  * whether an enterer picked it up at registration.
@@ -727,6 +740,9 @@ export const makeProjectionSystem = (
   // AFTER dispose can re-introduce it as a leaving Follower (cleared at the end of
   // the task, by the leaver's `endOfTask` hold).
   const recentLeavers = new Map<HTMLElement, RecentLeaver>()
+  /** Disposed layout nodes with no `layoutId` this task (#169), cleared together at its end. */
+  const recentNodes = new Map<HTMLElement, RecentNode>()
+  let recentNodesHeld = false
   // A disposed twin's Switch seed per `layoutId`, in the Root frame, until the end of
   // the task (ADR-0010 *Amendment (#13)*). An enterer registering within the task
   // takes it; a twin already registered but unmeasured gets it handed over directly.
@@ -1039,6 +1055,44 @@ export const makeProjectionSystem = (
   }
 
   /**
+   * A node's box: its layout box, or, for one that has never animated, the box it was last measured
+   * at (a Follower that mounted at rest, #169). Per frame.
+   */
+  const boxOf = (node: NodeState | undefined): Box.Box | undefined => {
+    if (Predicate.isUndefined(node)) return undefined
+    const box = node.layoutBox
+    if (Predicate.isNotUndefined(box)) return box
+    return node.retained
+  }
+
+  /** The Lead of `node`'s stack, or undefined for a node with no `layoutId`. Per frame. */
+  const stackLeadOf = (node: NodeState): NodeState | undefined => {
+    if (node.layoutId === undefined) return undefined
+    return leadOf(node.layoutId)
+  }
+
+  /** Whether `node` is a Follower whose Lead is moving: derived every frame, locked onto it (#169). Per frame. */
+  const isMovingFollower = (node: NodeState): boolean => {
+    const lead = stackLeadOf(node)
+    return lead !== undefined && lead !== node && active.has(lead)
+  }
+
+  /**
+   * The nearest moving Follower above `node`, short of the next layoutRoot boundary (#169): what
+   * carries it while it's locked on, so it's derived after that Follower each frame, corrected for
+   * its lock as under any moving ancestor. Per frame.
+   */
+  const movingFollowerAbove = (node: NodeState): NodeState | undefined => {
+    let p = node.parent
+    while (p !== undefined) {
+      if (isMovingFollower(p)) return p
+      if (p.layoutRoot) return undefined
+      p = p.parent
+    }
+    return undefined
+  }
+
+  /**
    * The node's relativeParent (ADR-0009/0013, Motion's getClosestProjectingParent):
    * the nearest ANIMATING ancestor (any scale — the {@link layoutAnchor} makes
    * relative-through-a-scaled-parent sound, ADR-0013), OR a `layoutRoot` ancestor
@@ -1061,6 +1115,8 @@ export const makeProjectionSystem = (
       } else {
         // A layoutRoot is a persistent relative anchor AND the boundary — stop here.
         if (p.layoutRoot) return p.layoutBox !== undefined ? p : undefined
+        // A Follower locked onto its Lead carries what's inside it, placed in its lock (#169).
+        if (isMovingFollower(p) && Predicate.isNotUndefined(boxOf(p))) return p
         if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined) return p
       }
       p = p.parent
@@ -1192,8 +1248,9 @@ export const makeProjectionSystem = (
     // counter-acting its ancestors' layout animations; only their transforms carry it.
     if (node.layoutRoot) return offsetBox(box, carryOf(node))
     const rp = relativeParentOf(node)
+    const rpBox = boxOf(rp)
     let targetBox: Box.Box
-    if (rp !== undefined && rp.layoutBox !== undefined && rp.lastTarget !== undefined) {
+    if (rp !== undefined && rpBox !== undefined && rp.lastTarget !== undefined) {
       // RELATIVE: track the relativeParent (any scale, ADR-0013) at the node's
       // `layoutAnchor` (default top-left). Use the node's OWN progress while it
       // animates; once settled — or for a carried child — it sits at its final
@@ -1201,11 +1258,12 @@ export const makeProjectionSystem = (
       // from a slow one). For a static `layoutRoot` relativeParent (no own
       // animation), the parent's "from" box is just its layout box.
       const anchor = node.layoutAnchor !== false && node.layoutAnchor !== undefined ? node.layoutAnchor : ZERO_ANCHOR
-      const rpFromBox = rp.origin ?? rp.layoutBox
+      let rpFromBox = rpBox
+      if (rp.origin !== undefined) rpFromBox = rp.origin
       const progress = node.animating && node.spring !== undefined ? node.spring.position : 1
-      const relFrom =
-        node.origin !== undefined ? Projection.calcRelativeBox(node.origin, rpFromBox, anchor) : Projection.calcRelativeBox(box, rp.layoutBox, anchor)
-      const relTo = Projection.calcRelativeBox(box, rp.layoutBox, anchor)
+      const relTo = Projection.calcRelativeBox(box, rpBox, anchor)
+      let relFrom = relTo
+      if (node.origin !== undefined) relFrom = Projection.calcRelativeBox(node.origin, rpFromBox, anchor)
       const relTarget = Box.mix(relFrom, relTo, progress)
       targetBox = Projection.placeRelativeBox(relTarget, rp.lastTarget, anchor)
     } else if (node.animating && node.origin !== undefined && node.spring !== undefined) {
@@ -1259,17 +1317,28 @@ export const makeProjectionSystem = (
     const followers: Array<NodeState> = []
     for (const n of nodes) {
       if (isFollower(n)) {
-        const lead = n.layoutId !== undefined ? leadOf(n.layoutId) : undefined
-        if (lead !== undefined && active.has(lead)) followers.push(n)
+        if (isMovingFollower(n)) followers.push(n)
+      } else if (Predicate.isNotUndefined(movingFollowerAbove(n))) {
+        followers.push(n)
       } else if (active.has(n) || hasActiveAncestor(n)) {
         leads.push(n)
       }
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
-    // Top-down too: a twin inside a Follower reads its container's fresh lock (#5).
+    deriveCarried(followers)
+  }
+
+  /**
+   * The Followers, and what they carry, derived top-down (#5, #169): a twin or a layout node inside
+   * a Follower reads its container's fresh lock. Per frame.
+   */
+  const deriveCarried = (followers: Array<NodeState>): void => {
     followers.sort((a, b) => a.depth - b.depth)
-    for (const node of followers) deriveFollower(node)
+    for (const node of followers) {
+      if (isFollower(node)) deriveFollower(node)
+      else derive(node)
+    }
   }
 
   /**
@@ -1336,15 +1405,19 @@ export const makeProjectionSystem = (
       if (isFollower(n)) {
         const lead = n.layoutId !== undefined ? leadOf(n.layoutId) : undefined
         if (lead !== undefined && active.has(lead) && group.has(lead)) followers.push(n)
+        continue
+      }
+      const carrier = movingFollowerAbove(n)
+      if (Predicate.isNotUndefined(carrier)) {
+        const lead = stackLeadOf(carrier)
+        if (group.has(n) || (lead !== undefined && group.has(lead))) followers.push(n)
       } else if (group.has(n) && (active.has(n) || hasActiveAncestor(n))) {
         leads.push(n)
       }
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
-    // Top-down too: a twin inside a Follower reads its container's fresh lock (#5).
-    followers.sort((a, b) => a.depth - b.depth)
-    for (const node of followers) deriveFollower(node)
+    deriveCarried(followers)
   }
 
   /** Recompute parent links + depth for every node by walking DOM ancestry. */
@@ -1598,6 +1671,33 @@ export const makeProjectionSystem = (
       if (twin !== node && !twin.leaving && twin.retained === undefined) return twin
     }
     return undefined
+  }
+
+  /**
+   * Hold a disposed layout node with no `layoutId` until the end of the task (#169): what a
+   * presence `handleLeave` re-introduces it from, should it sit inside the leaver. One
+   * `wardic.projection.nodesHold` step clears every node held in the task, so unmounting a large
+   * layout list costs one map entry a node.
+   */
+  const holdNode = (node: NodeState): void => {
+    const box = boxOf(node)
+    if (Predicate.isUndefined(box)) return
+    recentNodes.set(node.element, {
+      box,
+      paintDelta: node.paintDelta,
+      unpaintDelta: node.unpaintDelta,
+      layoutAnchor: node.layoutAnchor,
+      reintroduced: false,
+    })
+    if (recentNodesHeld) return
+    recentNodesHeld = true
+    endOfTask("wardic.projection.nodesHold", {}, () => {
+      const held = recentNodes.size
+      const reintroduced = Arr.filter(Array.from(recentNodes.values()), (recent) => recent.reintroduced).length
+      recentNodes.clear()
+      recentNodesHeld = false
+      return { held, reintroduced }
+    })
   }
 
   /**
@@ -2571,11 +2671,24 @@ export const makeProjectionSystem = (
     active.delete(node)
     nodes.delete(node)
     painted.delete(node)
+    // What it carried and brought back with it goes with it (#169).
+    const within: Array<NodeState> = []
+    for (const n of nodes) if (n.leaving && node.element.contains(n.element)) within.push(n)
+    for (const n of within) if (n.leaving) finishLeaver(n)
     cb?.()
   }
 
-  /** Build a transient leaving-Follower node for a re-introduced (already-disposed) leaver. */
-  const makeFollowerNode = (el: HTMLElement, layoutId: string, recent: RecentLeaver, onDone: () => void): NodeState => ({
+  /**
+   * Build a transient leaving node for a re-introduced (already-disposed) one: a leaving Follower
+   * with its `layoutId`, or with none a layout node its leaving container carries (#169).
+   */
+  const makeLeavingNode = (
+    el: HTMLElement,
+    layoutId: string | undefined,
+    recent: { readonly box: Box.Box; readonly paintDelta: Projection.Delta | undefined; readonly unpaintDelta: Projection.Delta | undefined },
+    onDone: (() => void) | undefined,
+    layoutAnchor: Point.Point | false | undefined,
+  ): NodeState => ({
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     springOptions: () => ({}),
@@ -2615,7 +2728,7 @@ export const makeProjectionSystem = (
     passDelta: IDENTITY_DELTA,
     passPainted: undefined,
     layoutRoot: false,
-    layoutAnchor: undefined,
+    layoutAnchor,
     dragging: false,
     grabBox: undefined,
     dragDelta: { x: 0, y: 0 },
@@ -2660,7 +2773,7 @@ export const makeProjectionSystem = (
     if (lead === undefined || lead.element === el || recent === undefined) return false
     const stack = stacks.get(layoutId)
     if (stack === undefined) return false
-    const follower = makeFollowerNode(el, layoutId, recent, onDone)
+    const follower = makeLeavingNode(el, layoutId, recent, onDone, undefined)
     recent.reintroduced = true
     nodes.add(follower)
     elementToNode.set(el, follower)
@@ -2678,7 +2791,8 @@ export const makeProjectionSystem = (
    * Lead, corrected for the container's scale, until the container goes. Motion keeps an exiting
    * subtree mounted, so its twins go on projecting; Solid disposes them before presence asks.
    * Only one whose Lead is in a handover, which removes it as it settles; a twin presence leaves
-   * itself, or already re-introduced, is left alone.
+   * itself, or already re-introduced, is left alone. Its layout nodes with no `layoutId` come back
+   * as nodes it carries, corrected for its lock, and go with it (#169).
    */
   const reintroduceWithin = (container: HTMLElement): void => {
     for (const [inner, recent] of recentLeavers) {
@@ -2686,11 +2800,20 @@ export const makeProjectionSystem = (
       const lead = leadOf(recent.layoutId)
       const stack = stacks.get(recent.layoutId)
       if (lead === undefined || stack === undefined || lead.element === inner || !active.has(lead)) continue
-      const twin = makeFollowerNode(inner, recent.layoutId, recent, () => undefined)
+      const twin = makeLeavingNode(inner, recent.layoutId, recent, () => undefined, undefined)
       recent.reintroduced = true
       nodes.add(twin)
       elementToNode.set(inner, twin)
       stack.splice(stack.length - 1, 0, twin)
+    }
+    // Its layout nodes with no `layoutId` come back as nodes it carries (#169), derived under it
+    // each frame and finished with it.
+    for (const [inner, recent] of recentNodes) {
+      if (recent.reintroduced || !container.contains(inner)) continue
+      recent.reintroduced = true
+      const carried = makeLeavingNode(inner, undefined, recent, undefined, recent.layoutAnchor)
+      nodes.add(carried)
+      elementToNode.set(inner, carried)
     }
   }
 
@@ -2908,6 +3031,7 @@ export const makeProjectionSystem = (
         // a presence handleLeave arriving AFTER this dispose re-introduces, and its
         // Switch seed for a twin (ADR-0010 *Amendment (#13)*).
         if (node.layoutId !== undefined) holdLeaver(node, node.layoutId)
+        else holdNode(node)
         ro?.unobserve(node.element)
         elementToNode.delete(node.element)
         active.delete(node)
@@ -2951,6 +3075,7 @@ export const makeProjectionSystem = (
     runtime.runFork(Scope.close(scope, Exit.void))
     heldSeeds.clear()
     recentLeavers.clear()
+    recentNodes.clear()
     ro?.disconnect()
     ro = undefined
     active.clear()
