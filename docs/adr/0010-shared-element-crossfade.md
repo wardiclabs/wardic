@@ -115,6 +115,10 @@ Motion gives every non-Lead with a `layoutId` `pointer-events: none` (motion-dom
 3. **A handover inside a crossfading ancestor only moves** (Q4), as Motion's `!this.path.some(hasOpacityCrossfade)` does. Its Lead and Followers keep their own opacity, and its Followers are hidden when it ends, as at any rest. The ancestors' fade decides which twin shows, so a card opening into a modal with an avatar twin in each doesn't fade its avatars twice.
    - **Decided on the handover's first frame** (`handoverMoves`), not as it begins. Solid disposes an inner twin before its container, so when the inner twin is promoted, its container hasn't begun its own handover yet.
    - **An ancestor counts while its handover runs and doesn't only move, whatever its Followers are.** Presence can re-introduce an inner leaver before its container's, so a container closing under presence may have no Follower yet when the twins inside it ask (found by XF3b).
+   - **A closing container brings its twins back with it** (found testing the lab by hand). Presence hands back only the container it keeps (`handleLeave`). Solid had already disposed the twins inside it, so a twin there was carried by the container's lock onto its Lead, stretched and uncorrected. In the lab, the modal's avatar ended 4.5 px wider than the card's and 1 px off: a ghost that dissolved into the card's circle as the modal faded, read as a jump at the end. `main` paints the same mismatch; Motion's curves only held it at full strength for longer. Motion keeps an exiting subtree mounted, so its twins go on projecting.
+     - `handleLeave` now re-introduces each disposed `layoutId` twin inside the leaver too (`reintroduceWithin`, from the engine's end-of-task records), as a leaving Follower of its own Lead while that Lead is in a handover. It stays locked onto its Lead, corrected for the container's scale, until its Lead settles.
+     - Followers are now derived top-down, as Leads already were, so a twin inside a Follower reads its container's fresh lock, whichever was handed back first.
+     - A plain `layout` child inside a closing container has no such record and still stretches: #169.
 4. **A handover crossfades even when the twins' boxes are equal** (Q5). Motion animates any `resumeFrom`.
    - A first measure beside a live twin always crossfades, which replaces *Amendment (#13)*'s "no move to animate" for twins.
    - A promotion always begins a handover, so a leaver re-introduced by `handleLeave` fades out over its twin in place. With none, the promoted twin has no Follower and shows at once (Motion's `isOnlyMember`). This replaces #165's single write at rest.
@@ -141,14 +145,15 @@ The cells are overlap, in place, nested (card and avatar) and exit (open and clo
 - **`@wardic/dom`'s `projection-crossfade.browser.test.ts`,** XF1–XF5, with frames fired by hand. All seven fail on main.
   - XF1: each frame against Motion's curves, the handover's progress read from where the Lead paints.
   - XF2, XF2b: an interrupt early and late.
-  - XF3, XF3b: nested twins, opening, and closing with the inner twin disposed and re-introduced first.
+  - XF3, XF3b: nested twins, opening, and closing with the inner twin disposed and re-introduced first; XF3b also checks that the closing avatar paints on the card's avatar every frame.
   - XF4: equal boxes, a live twin's and a promotion under presence.
   - XF5: a hidden Follower through a third twin.
 - **Updated for the curves:**
   - RL11–RL13 now find the Lead mid fade-in at two frames, and the leaver holding until its twin is in.
   - solid's S1 checks the twins' order: the Lead fades in while the Follower holds, then the Follower fades out with the Lead in.
+- **solid's S5** (`layout-id.browser.test.tsx`, real paint): a twin inside a closing container stays within 0.5 px of its Lead every frame until the container goes. Before the fix it ended 4.3 px off.
 - **The lab's node tier:** `crossfade-board.test.ts`, the lines on runs shaped like Motion's and each failure.
-- **Mutation-checked** in a separate worktree: ten single-point mutations, each failing the tests meant for it:
+- **Mutation-checked** in a separate worktree: twelve single-point mutations, each failing the tests meant for it:
   - the Lead fading in linearly;
   - the Follower fading from the start;
   - a Follower always fading from 1;
@@ -158,5 +163,7 @@ The cells are overlap, in place, nested (card and avatar) and exit (open and clo
   - a first measure at an equal box not handing over;
   - a promotion at an equal box not handing over;
   - a settled Lead's Followers getting no last write;
-  - nesting decided as the handover begins.
+  - nesting decided as the handover begins;
+  - a closing container's inner twins not re-introduced (S5);
+  - Followers derived in insertion order (XF3b).
 
