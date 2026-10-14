@@ -258,7 +258,7 @@ Grilled 2026-10-14:
    - An ancestor that carried no transform at the pass, and starts one after, isn't followed.
 
 **The lab:** scenario 16's in-place cell gets **Toggle entrance**: ⏸ mounts inside a container scaling in from 0.8 about the cell's corner, so the twin flies from ▶ into it.
-- The grill placed this on the exit cell. There, the container would be presence's direct child and not a twin, so closing drops the twin inside it at once, with no crossfade. That's a gap of its own in how presence hands back a twin inside a non-twin container, on `main` too, and not this Amendment's. So the toggle went where no presence is involved.
+- The grill placed this on the exit cell. There, the container would be presence's direct child and not a twin, so closing drops the twin inside it at once, with no crossfade. That's a gap of its own in how presence hands back a twin inside a non-twin container, on `main` too, and not this Amendment's. So the toggle went where no presence is involved. Filed as #181 and fixed by ADR-0010 *Amendment (#181)*, whose exit cell has its own **Toggle wrapper**. There a twin handed back keeps its chain, with the leaving child read in at the hand-back, and presence registers what the child's exit draws, so the chain follows a leaving container too.
 - The scripted driver toggles it at rest and mid-flight:
   - **This branch:** all 46 runs pass, 0 page errors.
   - **`main`'s engine:** the entrance runs fail `follows` (up to 24.5 px off), and their toggles back fail `starts` (19–25 px jumps against a 1 px step).

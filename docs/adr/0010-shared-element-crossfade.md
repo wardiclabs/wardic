@@ -116,7 +116,7 @@ Motion gives every non-Lead with a `layoutId` `pointer-events: none` (motion-dom
    - **Decided on the handover's first frame** (`handoverMoves`), not as it begins. Solid disposes an inner twin before its container, so when the inner twin is promoted, its container hasn't begun its own handover yet.
    - **An ancestor counts while its handover runs and doesn't only move, whatever its Followers are.** Presence can re-introduce an inner leaver before its container's, so a container closing under presence may have no Follower yet when the twins inside it ask (found by XF3b).
    - **A closing container brings its twins back with it** (found testing the lab by hand). Presence hands back only the container it keeps (`handleLeave`). Solid had already disposed the twins inside it, so a twin there was carried by the container's lock onto its Lead, stretched and uncorrected. In the lab, the modal's avatar ended 4.5 px wider than the card's and 1 px off: a ghost that dissolved into the card's circle as the modal faded, read as a jump at the end. `main` paints the same mismatch; Motion's curves only held it at full strength for longer. Motion keeps an exiting subtree mounted, so its twins go on projecting.
-     - `handleLeave` now re-introduces each disposed `layoutId` twin inside the leaver too (`reintroduceWithin`, from the engine's end-of-task records), as a leaving Follower of its own Lead while that Lead is in a handover. It stays locked onto its Lead, corrected for the container's scale, until its Lead settles.
+     - `handleLeave` now re-introduces each disposed `layoutId` twin inside the leaver too (`reintroduceWithin`, from the engine's end-of-task records), as a leaving Follower of its own Lead while that Lead is in a handover. It stays locked onto its Lead, corrected for the container's scale, until its Lead settles. A leaver that isn't a twin hands back its twins too, from *Amendment (#181)*.
      - Followers are now derived top-down, as Leads already were, so a twin inside a Follower reads its container's fresh lock, whichever was handed back first.
      - A plain `layout` child inside a closing container had no such record and still stretched. *Amendment (#169)* below brings it back too.
 4. **A handover crossfades even when the twins' boxes are equal** (Q5). Motion animates any `resumeFrom`.
@@ -385,3 +385,66 @@ Grilled 2026-10-14:
   - no clean write at rest;
   - a radius written without its own scale divided out;
   - the binding giving no `ownRotate`.
+
+## Amendment (#181, 2026-10-14): a leaving presence child that isn't a twin hands back the twins inside it
+
+*Amendment (#5)* hands back the twins inside a leaving twin (`reintroduceWithin`). A leaving `<AnimatePresence>` child that isn't a twin, such as an overlay around a modal's image, was declined: `handleLeave` returns `false` for a leaver with no `layoutId`, and presence ran the child's own `exit`. The twin inside had been disposed with it, so its other twin was promoted with nothing to ride and popped in. Found building #137's lab toggle (ADR-0012 *Amendment (#137)*).
+
+**Probed** (`.tmp/presence-gap/probe.browser.test.tsx` beside Motion's `.tmp/vel/motion/presence-gap.tsx`): a 60×40 thumbnail twin, and a 300×240 wrapper under presence holding a 200×150 twin, opened, settled and closed, on a 170/26 spring.
+
+| After the close | `main`, wrapper `exit={{ opacity: 0 }}` | `main`, no `exit` | Motion 13.4.0, either |
+|---|---|---|---|
+| frame 2 | the inner twin in place at opacity 1; the thumbnail at **1.00**, flying back alone | wrapper and inner twin gone; the thumbnail at **1.00** | the inner twin rides the thumbnail as its Follower; the thumbnail at 0.11–0.16 |
+| frame 12 | the inner twin still in place, its wrapper at 0.30 | | both at one box; the inner twin at 0.64 |
+| removal | at the wrapper's exit | at once | once the handover settles (frames 55–60), with or without its `exit` |
+
+Motion: `MeasureLayout` registers every layout node with its presence child (`usePresence()`). On exit it calls `relegate()`, so the stack's previous twin leads the crossfade, and it calls `safeToRemove` only on `onExitComplete` / `animationComplete`. `AnimatePresence` keeps the child until every registered node is done. A node with no stack calls `safeToRemove` at once.
+
+Grilled 2026-10-14:
+1. **Any leaving child hands back the twins inside it** (Q1). Presence asks `handBackWithin(el, onDone)` for a child `handleLeave` declined.
+   - Each twin inside comes back as a leaving Follower of its Lead (#5's `reintroduceTwinsWithin`), with the layout nodes it carries (#169).
+   - The call returns the call that drops them, or `undefined` when it held none (no twin, or a twin with no other twin). Presence then runs the exit alone, as before.
+   - Rejected: an opt-in prop, which Motion doesn't have; and documenting "put the `layoutId` on presence's child", which rules out the overlay pattern.
+2. **The child stays until its own `exit` and every handover inside it have ended** (Q2, Motion's). Presence counts the two parts per leaving child and removes it with the last.
+   - A twin leaver keeps #5's rule: its crossfade replaces its `exit`.
+   - Rejected: removal at the exit's end, which removes a Follower while its Lead is still see-through when the exit is short or doesn't fade; and removal at the handovers' end, which cuts the user's exit short.
+3. **With no `exit`, it stays as drawn until the handovers end** (Q3, Motion's). An empty exit is a part that has already ended.
+   - Rejected: removal at once (today's), which keeps the bug for a wrapper with no exit; and an implied fade, which isn't the user's.
+4. **A reopen doesn't cut it short** (Q4). Presence's re-entry interrupts a stale exit, but not one whose child hosts handovers. The child finishes its exit and handovers beside the new one, its Followers locked onto the new Lead, as a closing twin's are today.
+   - An `AnimatePresence` that unmounts removes every retained child at once, and drops the twins it handed back.
+   - Rejected: interrupting it, which removes the Follower mid-crossfade, see-through.
+5. **Only twins come back** (Q5), as Motion's presence counts only stacked nodes.
+   - A plain layout node elsewhere in the child isn't brought back. One caught mid-flight stays where it was drawn until the child goes, where Motion's goes on flying. Recorded as a limit.
+   - Rejected: re-introducing mid-flight plain nodes too, another path for a rare edge.
+6. **An `exit` that moves or scales the child is followed** (Q6), beyond Motion, which doesn't follow ancestors that aren't projection nodes (ADR-0012 *Amendment (#137)*'s probe):
+   - The leaver record keeps a twin's chain from its last pass, and its frame's offset.
+   - At the hand-back, the child is read as a link with its transform on: its untransformed box is solved from the drawn one. That link replaces any older one for it in the twin's chain (as of an older pass, or for its node, now disposed).
+   - While presence drives the `exit`, it registers what the exit has drawn (`registerValues`), so the Follower is drawn on its Lead every frame while the child shrinks or slides around it.
+   - A child whose transform isn't a translate and a positive scale is left out, and the twin converts as of its last pass.
+
+**The lab:** scenario 16's exit cell gets **Toggle wrapper**, which puts the modal inside an overlay card that isn't a twin, around the modal and clear of the thumbnail. The card scales in from 0.8 and exits with `opacity: 0, scale: 0.9`.
+- The scripted driver toggles it at rest, mid-flight, and with a reopen mid-close:
+  - **This branch:** all 54 runs pass, 0 page errors.
+  - **Without the hand-back** (presence never asks): every wrapped `exit: close` run fails `follows`, the Follower up to 126.9 px off its Lead, and it never fades.
+
+**Pinned by:**
+- **`@wardic/dom`, HB1–HB5** (`projection-hand-back.browser.test.ts`, frames fired by hand):
+  - HB1: the twin crossfades back, locked every frame, and `onDone` waits for the handover;
+  - HB2: what's declined: no twin inside, a twin with no other twin, a twin leaver itself;
+  - HB3: the child's registered values scale and move it, and the Follower stays on its Lead;
+  - HB4: the drop: no write after it, no `onDone`, and the other twin goes on;
+  - HB5: a carried layout node comes back with its twin, and a plain one elsewhere neither comes back nor stays in the engine.
+- **solid's PH1–PH5** (`presence-hand-back.browser.test.tsx`, real paint):
+  - PH1–PH2: an opacity exit and none, the child present until the handover ends, as drawn with none;
+  - PH3: a scale-and-slide exit;
+  - PH4: a reopen mid-close, never see-through;
+  - PH5: the presence unmounting mid-close.
+- **Mutation-checked** in a separate worktree: twelve single-point mutations, each failing the tests meant for it:
+  - presence never handing back, or the engine declining every child;
+  - the child removed at its exit's end;
+  - a reopen cutting it short;
+  - the exit's values never registered, no child link, or the child's origin at its corner;
+  - the drop doing nothing;
+  - carried nodes left behind, or every layout node in the child brought back;
+  - `onDone` at once;
+  - teardown over running exits only.
