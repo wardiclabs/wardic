@@ -123,9 +123,9 @@ Motion gives every non-Lead with a `layoutId` `pointer-events: none` (motion-dom
    - A first measure beside a live twin always crossfades, which replaces *Amendment (#13)*'s "no move to animate" for twins.
    - A promotion always begins a handover, so a leaver re-introduced by `handleLeave` fades out over its twin in place. With none, the promoted twin has no Follower and shows at once (Motion's `isOnlyMember`). This replaces #165's single write at rest.
    - This also closes the gap #165 left: an in-place handover now writes the twin it relegates on every frame, where before it was left showing.
-   - A Switch from a seed at an equal box still doesn't animate. Nothing moves, and with no twin there's nothing to fade until #166 blends the leaver's values.
+   - A Switch from a seed at an equal box still doesn't animate. Nothing moves, and with no twin there's nothing to fade until #166 blends the leaver's values. *Amendment (#166)* below animates one when the two look different.
 5. **Detection is confirmed equivalent** (Q6). Motion's `snapshot.source !== layout.source`, crossfading when the stack has another member and switching otherwise, matches this ADR's structural detection (a live twin or a re-introduced leaver, else a seed) once equal boxes animate (4).
-   - Motion's `mixValues` also blends the leaver's border radius and rotation into the new Lead on every handover, and its opacity in a Switch. Wardic carries only the box. That is **#166**, one feature (the twins read as one object changing shape), split out on Q6.
+   - Motion's `mixValues` also blends the leaver's border radius and rotation into the new Lead on every handover, and its opacity in a Switch. Wardic carries only the box. That is **#166**, one feature (the twins read as one object changing shape), split out on Q6, and *Amendment (#166)* below.
 6. **`LayoutAnimationBuilder`, Motion's non-React precedent** (#5's item 6) for the leaving-Follower order that *Consequences* pins with browser tests in both orderings. Its `commit` processes "all additions before any removals so that, even across builders, a removed member knows whether a replacement with the same layoutId was added in this commit". A removed Lead with a surviving member and no replacement "runs an exit crossfade". Wardic reaches the same outcome through the engine's end-of-task records (the held seed, the recent leaver) rather than a two-phase commit.
 
 **The lab:** scenario 16, "Crossfade", is a board of four cells, each run judged on its two twins' opacity every frame (`lab/crossfade-board.ts`):
@@ -289,7 +289,7 @@ Grilled 2026-10-14:
    - Rejected: reading the drawn box from the DOM at each handover. It can't read a twin off the page, can't separate a new Lead's own scale (3) or a Follower's (2), forces a layout read at dispose, and takes a rotated twin's bounding box.
    - A leaving node is committed with its projection alone, so it's drawn with no own scale, and its node has none.
 
-**Out of scope:** `rotate` and `skew` (how twins share them belongs with #166's rotation blend), and an own scale on a *node ancestor* of a twin (a `layout` container held at a scale), which scales the twin through CSS and still isn't counted, as before.
+**Out of scope:** `rotate` and `skew` (how twins share them belongs with #166's rotation blend, *Amendment (#166)* below), and an own scale on a *node ancestor* of a twin (a `layout` container held at a scale), which scales the twin through CSS and still isn't counted, as before.
 
 **The lab:** scenario 16's overlap cell gets **Toggle scale**: A held at its own `scale: 1.4`, and B mounting at 0.8. Every run gains a **`follows`** line: while the Follower shows, it's drawn on its Lead within 0.5 px every frame. **`starts`** now measures the furthest edge, so a size jump counts. The scripted driver (`.tmp/5/drive16.ts`) toggles the scaled overlap mid-flight both ways, then at rest:
 - **This branch:** all 34 runs pass, 0 page errors, every Follower within 0.01 px of its Lead.
@@ -311,3 +311,77 @@ Grilled 2026-10-14:
   - `undrawnFor` dividing nothing out (XS3, XS3b, XS4b, S11), and each origin skipping it alone (XS3, S11; XS3b; XS4b);
   - no zero guard (XS5);
   - the binding giving no own scale (S9–S11).
+
+## Amendment (#166, 2026-10-14): a handover blends the twin's look into the Lead's
+
+A handover carried only the leaver's box. The new Lead drew its own border radius, rotation and opacity from its first frame, so twins whose corners, tilt or opacity differ jumped at the handover: a rounded, tilted card opening into a square modal squared off and straightened at once. In a Crossfade, the Follower kept its own look while it faded, so two different shapes traded places. In a Switch, everything popped.
+
+Motion blends them (motion-dom 13.3.0, `mixValues`, `projection/animation/mix-values.ts`). Through the layout progress, the new element draws `animationValues`, mixed from the old one's snapshot values into its own:
+- border radius, on every handover;
+- `rotate`, on every handover;
+- opacity, only in a Switch (`isOnlyMember`). In a Crossfade, opacity carries the dissolve (#5).
+
+The Follower draws its Lead's `animationValues`. Probed in Chromium with a 20 px, 20° twin (`.tmp/vel/motion/blend.tsx` beside `.tmp/166`'s Wardic probe):
+
+| | Motion | `main` |
+|---|---|---|
+| Crossfade | both twins drawn with radius 20 → 0 and rotation 20° → 0 | the Lead square and straight from frame 1; the Follower keeps its own look |
+| Switch, the leaver at 0.4 opacity | radius, rotation and opacity 0.4 → 1, continuous | square, straight and opaque at once |
+
+An interrupted handover in Motion blends from what the twin was drawn with (`stack.promote`: `prevLead.animationValues || prevLead.latestValues`).
+
+Grilled 2026-10-14:
+
+1. **Everything Motion blends** (Q1): border radius and rotation at every handover (a crossfade, a promotion, a Switch, a nested twin that only moves), and opacity in a Switch: a handover with no twin left on screen, a promotion whose leaver is gone included.
+   - The Follower is drawn with its Lead's blended values, as #8 has it drawn at the Lead's scale, so the twins overlap exactly.
+   - Rejected: radius and rotation only, or radius only.
+2. **The radius is Wardic's computed one** (Q2): the scale corrector's base, read at a node's first measure (ADR-0011), so a radius from a CSS class blends too, which Motion's doesn't.
+   - The leaver's is held with its Switch seed, or with the node for its promoted twin, as it's disposed.
+   - Per corner and axis, two radii blend when they're the same unit or one is 0, otherwise the Lead's own shows; never below 0, and `%` kept (`blendRadius`, Motion's rule).
+   - They blend as drawn, under each twin's own scale (#8): px corners scaled, `%` as they are. The node writing one divides its own scale back out, as `undrawnFor` does a box.
+   - ADR-0011's limit carries over: a radius that changes after the first measure isn't seen. So the lab's toggle mounts its twins afresh.
+   - Rejected: only a radius the binding holds as a value, as Motion does, which leaves a class's radius jumping; re-reading the computed radius at each handover, which would read Wardic's own corrected inline value back.
+3. **Rotation comes from an accessor, beside `ownScale`** (Q3): `RegisterNodeOptions.ownRotate`, and the Solid spine's `ownRotateOf(snapshot.values)`.
+   - The projection carries the blended `rotate` (`Projection.Value.rotate`), `mix(the twin's, the Lead's own read live, progress)`, which the renderer weaves in place of the element's own. A Follower carries its Lead's.
+   - Only `rotate`, as Motion's `mixValues`: not `rotateX`/`rotateY`/`rotateZ` or skew.
+   - Rejected: reading rotation from the computed transform, which carries the projection's own.
+4. **A Switch's opacity is the leaver's as it was drawn** (Q4): its computed opacity while it's on the page at dispose (one style read, beside the connected seed's layout read), else as the engine last drew it, else the binding's value (`ownOpacity`, `ownOpacityOf`).
+   - It blends into the Lead's own, read live, so an enter animation on the Lead's opacity still plays inside it.
+   - It's drawn as it is (`Projection.Value.blendOpacity`), not as a factor, so a Lead whose own opacity is 0 still blends from the leaver's. At rest the projection drops it, and the gate puts the element's own back.
+   - Rejected: the binding's values only, which reads a `style` opacity as 1; the Lead's opacity snapshotted at the handover, which would hold an enter animation.
+5. **A blend starts from the look the twin is drawn with** (Q5), mid-blend included, as Motion's and as #170's box:
+   - an interrupt takes the twin's current blended radius, rotation and opacity;
+   - so does a layout restart of a blending Lead (#146).
+   - The blend runs with the layout animation's progress, past 1 on a spring's overshoot, and ends as it settles: one last write draws the Lead's own look and drops the blended rotation and opacity, so its own later rotate or opacity shows.
+6. **A Switch at an equal box animates when the twins look different**, following *Amendment (#5)*'s note: with nothing to move, the look is still handed over. One at an equal box that looks the same still doesn't animate.
+
+**Considered:** a new ADR, since the engine now drives a second channel beside the box. Rejected: it's this ADR's handover, carrying more of the twin.
+
+**The lab:** scenario 16's overlap cell gets **Toggle shape**, which mounts the pair afresh: A rounded (14 px), tilted (12°) and at 0.6 opacity, and B square.
+- Every overlap run gains a **`blends`** line. The Lead's radius and rotation (and on the toggle back, its opacity) start within a step of the outgoing twin as drawn, and while the Follower shows, it's drawn with the Lead's, within 0.75 px and 0.75°.
+- A twin translucent on purpose is judged on its crossfade factor, its opacity over its own (`ownOpacity`), on the covers, order, fades and end lines.
+- The scripted driver (`.tmp/5/drive16.ts`) toggles the shaped pair mid-flight both ways, then at rest:
+  - **This branch:** all 38 runs pass, 0 page errors.
+  - **`main`'s engine:** the eight scaled or shaped overlap runs fail `blends`, the radius jumping (the scaled ones too, their radii under different own scales), and on the shaped crossfades `follows` as well, the tilted Follower up to 5.4 px off its straight Lead. The other 30 pass.
+
+**Pinned by:**
+- **`@wardic/dom`, XB1–XB7** (`projection-blend.browser.test.ts`, frames fired by hand), all failing on `main`:
+  - XB1: a crossfade, scale-corrected, the Follower drawn with the Lead's values, nothing of the blend left at rest;
+  - XB2: a promotion with nothing left on screen, opacity from the page;
+  - XB3: a Switch from a twin off the page; XB3b, an equal-box Switch animating only for a different look;
+  - XB4: an interrupt;
+  - XB5: the unit rule;
+  - XB6: a layout restart mid-blend;
+  - XB7: twins at different own scales.
+- **solid's BL1–BL2** (`layout-id-blend.browser.test.tsx`, real paint): the crossfade and the Switch as probed. Both fail on `main` with a 20 px radius jump.
+- **The lab's node tier:** `crossfade-board.test.ts`, the `blends` line and a translucent twin's factor.
+- **Mutation-checked** in a separate worktree: fourteen single-point mutations, each failing the tests meant for it:
+  - no rotation override; a Follower keeping its own rotation, or its own radius;
+  - a Lead's radius ignoring its blend;
+  - no Switch opacity; the leaver's opacity never read from the page;
+  - a live-twin crossfade, a promotion, or a Switch seed not blending;
+  - an equal-box Switch never animating;
+  - a restart not re-capturing;
+  - no clean write at rest;
+  - a radius written without its own scale divided out;
+  - the binding giving no `ownRotate`.

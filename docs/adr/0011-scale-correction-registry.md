@@ -28,3 +28,7 @@ Geometric counter-scale lives in the transform build (P1) and can't touch non-ge
 - Idle/unscaled elements pay nothing; a scaled element pays one `getComputedStyle` per measure + a string build per corrected key per frame.
 - Percentage radii and exotic-but-valid CSS work because the browser's computed-style normalisation feeds the correctors resolved px/%. Animating `border-radius`/`box-shadow` *while* a layout element scales is the one conflict (the corrector and the value spine both write the key — last write wins); a documented v0.1 edge.
 - Extending to a new scale-corrected property is adding one registry entry; a public registration API is the natural follow-up.
+
+## Note (#166, 2026-10-14): a handover's blended radius
+
+During a `layoutId` handover the radius corrector writes a blend instead of the node's own base: the twin's radius as drawn, eased into the Lead's own (ADR-0010 *Amendment (#166)*). A Follower is drawn with its Lead's. A blended radius is written at any scale, unit scale included, corrected for the scale like any base. The write after the blend puts the node's own back, as the restore at unit scale does. A node with no radius of its own blends from or to none rounded (`ZERO_RADIUS`). The once-at-first-measure read and its limit are unchanged.

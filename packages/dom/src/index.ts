@@ -49,7 +49,7 @@ export { interpolators, InterpolatorRegistryDomLive } from "./interpolators.ts"
 // binding binds to an element for each leg, with core's `InterpolatorRegistry.withKeyRules`.
 export { isVariableValue, resolveVariable, variableValues } from "./variables.ts"
 export { ProbeDomLive } from "./probe.ts"
-export { ownScaleOf, project, RendererDomLive } from "./renderer.ts"
+export { ownOpacityOf, ownRotateOf, ownScaleOf, project, RendererDomLive } from "./renderer.ts"
 
 // The flush gate (ADR-0006, ADR-0031) — framework-free; a binding builds one per provider with
 // its own `batch`, and hands the inert gate to a server render (ADR-0021, decision 9).

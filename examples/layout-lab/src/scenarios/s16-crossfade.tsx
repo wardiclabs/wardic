@@ -9,7 +9,10 @@
  *   handover's middle, A held until then, so the overlap is never see-through. Also watched: the
  *   point at B's centre never hits A, which paints above it (#165). Toggle scale holds A at its
  *   own `scale: 1.4` and has B mount at 0.8 (#8): each handover starts where its twin is drawn,
- *   own scale and all, and the Follower is drawn on its Lead.
+ *   own scale and all, and the Follower is drawn on its Lead. Toggle shape mounts the pair afresh
+ *   with A rounded (14px), tilted (12°) and at 0.6 opacity, and B square (#166): each handover
+ *   blends the twin's look into the Lead's own, the Follower drawn with it, and the toggle back,
+ *   with nothing left on screen, blends opacity too.
  * - **in place**: ▶ and ⏸ at one box; Toggle in place mounts ⏸ on ▶. Nothing moves, and they
  *   still crossfade (Motion's: any handover animates). Before #5 the swap was instant.
  * - **nested**: a card holding an avatar, and a modal holding its twin avatar, under
@@ -137,6 +140,25 @@ interface Watch {
     readonly follower: () => Element | undefined
     readonly own: { readonly lead: number; readonly follower: number }
   }
+  /** The outgoing twin's look as drawn at the toggle (#166), when the run watches the blend. */
+  readonly lookFrom?: Look
+  /** Each twin's own opacity, when one is translucent on purpose (#166's shaped A). */
+  readonly ownOpacity?: { readonly lead: number; readonly follower: number }
+}
+
+/** How an element is drawn (#166): its top-left radius in px as painted, its rotation in degrees, its opacity. */
+type Look = { readonly radius: number; readonly rotate: number; readonly opacity: number }
+
+/** `el`'s look as drawn, or `null` when it isn't on the page. */
+const lookOf = (el: Element | undefined): Look | null => {
+  if (el === undefined || !el.isConnected) return null
+  const cs = getComputedStyle(el)
+  const m = new DOMMatrix(cs.transform === "none" ? undefined : cs.transform)
+  return {
+    radius: Number.parseFloat(cs.borderTopLeftRadius) * Math.hypot(m.a, m.b),
+    rotate: (Math.atan2(m.b, m.a) * 180) / Math.PI,
+    opacity: Number(cs.opacity),
+  }
 }
 
 /** An element's painted width-to-height ratio, or `null` when it isn't on the page. */
@@ -188,6 +210,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
     // While the Follower shows, how far it's drawn from its Lead, each frame (#8).
     const follows: Array<number> = []
     const aspects: Array<{ readonly lead: number | null; readonly follower: number | null }> = []
+    // Each frame, the Lead's look and the Follower's (#166).
+    const looks: Array<{ readonly lead: Look; readonly follower: Look | null }> = []
     const channel = new MessageChannel()
     sampling.add(channel)
     const finish = (superseded = false): void => {
@@ -212,6 +236,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
           ...(watch.back === true ? {} : { follows }),
           ...(watch.back === true ? { back: true } : {}),
           ...(watch.badges === undefined ? {} : { aspects, ownAspects: watch.badges.own }),
+          ...(watch.lookFrom === undefined ? {} : { lookFrom: watch.lookFrom, looks }),
+          ...(watch.ownOpacity === undefined ? {} : { ownOpacity: watch.ownOpacity }),
         },
         ...(superseded ? { superseded: true } : {}),
       })
@@ -234,11 +260,14 @@ const makeRecorder = (ctx: ScenarioContext) => {
       if (path.length < 2) path.push({ x: r.left, y: r.top, w: r.width, h: r.height })
       if (follower !== undefined && f !== null && f > 0.01) follows.push(apartOf(lead!, follower))
       if (watch.badges !== undefined) aspects.push({ lead: aspectOf(watch.badges.lead()), follower: aspectOf(watch.badges.follower()) })
+      if (watch.lookFrom !== undefined) looks.push({ lead: lookOf(lead)!, follower: lookOf(follower) })
       if (watch.hits === true && lead !== undefined && follower !== undefined) hit.push(hits(lead, follower))
       const tail = (xs: ReadonlyArray<number | null>) => xs.slice(-STILL_FRAMES)
       const still = (xs: ReadonlyArray<number | null>) =>
         tail(xs).length === STILL_FRAMES && tail(xs).every((v) => v === tail(xs)[0] || (v !== null && tail(xs)[0] !== null && Math.abs(v - tail(xs)[0]!) < 0.0005))
-      if ((still(leads) && still(followers) && still(where) && l >= 0.99) || performance.now() - startedAt > SETTLE_MS) {
+      // A Lead translucent on purpose (#166's shaped A) comes in to its own opacity, not 1.
+      const ownLead = watch.ownOpacity?.lead ?? 1
+      if ((still(leads) && still(followers) && still(where) && l / ownLead >= 0.99) || performance.now() - startedAt > SETTLE_MS) {
         finish()
         return
       }
@@ -261,6 +290,35 @@ const View: ScenarioDef["View"] = (props) => {
   const [overlap, setOverlap] = createSignal(false)
   // The overlap twins' own scales (#8): A held at 1.4, B mounting at 0.8.
   const [scaled, setScaled] = createSignal(false)
+  // The overlap twins' looks (#166): A rounded, tilted and at 0.6 opacity, B square. A radius is read
+  // at a twin's first measure, so a toggle mounts the pair afresh, under their own layoutId.
+  const [shaped, setShaped] = createSignal(false)
+  const OverlapTwins = (p: { readonly shape: boolean }) => {
+    const id = p.shape ? "lab-s16-shape" : "lab-s16-overlap"
+    return (
+      <>
+        <wardic.div
+          ref={keep("overlapA")}
+          layoutId={id}
+          animate={{ scale: scaled() ? 1.4 : 1, rotate: p.shape ? 12 : 0, opacity: p.shape ? 0.6 : 1 }}
+          style={{ ...box(16, 40, 56, 40, ACCENT, 2), ...(p.shape ? { "border-radius": "14px" } : {}) }}
+        >
+          A
+        </wardic.div>
+        <Show when={overlap()}>
+          <wardic.div
+            ref={keep("overlapB")}
+            layoutId={id}
+            initial={{ scale: scaled() ? 0.8 : 1 }}
+            animate={{ scale: scaled() ? 0.8 : 1 }}
+            style={{ ...box(130, 40, 56, 40, ALT, 1), ...(p.shape ? { "border-radius": "0px" } : {}) }}
+          >
+            B
+          </wardic.div>
+        </Show>
+      </>
+    )
+  }
   const [inPlace, setInPlace] = createSignal(false)
   const [nested, setNested] = createSignal(false)
   const [exit, setExit] = createSignal(false)
@@ -275,9 +333,16 @@ const View: ScenarioDef["View"] = (props) => {
   const toggleOverlap = (): void => {
     const opening = !overlap()
     const from = paintedAt(el[opening ? "overlapA" : "overlapB"])
+    const look = lookOf(el[opening ? "overlapA" : "overlapB"]) ?? undefined
     setOverlap(opening)
-    if (opening) recorder.start({ cell: "overlap", pair: "overlap", lead: at("overlapB"), follower: at("overlapA"), hits: true, startsFrom: from })
-    else recorder.start({ cell: "overlap: back", pair: "overlap", lead: at("overlapA"), follower: gone, startsFrom: from, back: true })
+    // The shaped A is at 0.6 of its own: the lines on opacity judge its crossfade factor.
+    const a = shaped() ? 0.6 : 1
+    const lookFrom = {
+      ...(look === undefined ? {} : { lookFrom: look }),
+      ...(shaped() ? { ownOpacity: opening ? { lead: 1, follower: a } : { lead: a, follower: 1 } } : {}),
+    }
+    if (opening) recorder.start({ cell: "overlap", pair: "overlap", lead: at("overlapB"), follower: at("overlapA"), hits: true, startsFrom: from, ...lookFrom })
+    else recorder.start({ cell: "overlap: back", pair: "overlap", lead: at("overlapA"), follower: gone, startsFrom: from, back: true, ...lookFrom })
   }
   const toggleInPlace = (): void => {
     const opening = !inPlace()
@@ -324,19 +389,8 @@ const View: ScenarioDef["View"] = (props) => {
       <div class="stage" style={STAGE_STYLE}>
         <div style={GRID}>
           <div style={CELL} data-cell="overlap">
-            <wardic.div ref={keep("overlapA")} layoutId="lab-s16-overlap" animate={{ scale: scaled() ? 1.4 : 1 }} style={box(16, 40, 56, 40, ACCENT, 2)}>
-              A
-            </wardic.div>
-            <Show when={overlap()}>
-              <wardic.div
-                ref={keep("overlapB")}
-                layoutId="lab-s16-overlap"
-                initial={{ scale: scaled() ? 0.8 : 1 }}
-                animate={{ scale: scaled() ? 0.8 : 1 }}
-                style={box(130, 40, 56, 40, ALT, 1)}
-              >
-                B
-              </wardic.div>
+            <Show when={shaped()} fallback={<OverlapTwins shape={false} />}>
+              <OverlapTwins shape={true} />
             </Show>
             <span style={LABEL}>overlap</span>
           </div>
@@ -380,6 +434,9 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="toggle-scale" onClick={() => setScaled(!scaled())}>
           Toggle scale
         </button>
+        <button type="button" class="btn secondary small" data-action="toggle-shape" onClick={() => setShaped(!shaped())}>
+          Toggle shape
+        </button>
         <button type="button" class="btn secondary small" data-action="toggle-in-place" onClick={toggleInPlace}>
           Toggle in place
         </button>
@@ -405,7 +462,7 @@ export const s16: ScenarioDef = {
   boardLines: CROSSFADE_CHECK_NAMES,
   title: "crossfade (layoutId twins)",
   mechanism:
-    "Toggle overlap mounts a twin beside a live one, and Toggle scale gives the two their own scales; Toggle in place mounts one on the other at its box; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on where it starts, the Follower drawn on its Lead, and its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
+    "Toggle overlap mounts a twin beside a live one, Toggle scale gives the two their own scales, and Toggle shape a rounded, tilted, translucent A and a square B; Toggle in place mounts one on the other at its box; Toggle nested opens and closes a modal holding an avatar twin and a layout badge, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on where it starts, the Follower drawn on its Lead, the twin's look blended into the Lead's, and its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; each container's badge on keeping its shape; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
   prediction: "safe",
   rationale:
     "Motion's crossfade (motion-dom 13.3.0, mix-values.ts): the Lead fades in over the first half of the handover " +
@@ -414,6 +471,7 @@ export const s16: ScenarioDef = {
     "(path.some(hasOpacityCrossfade)). A Follower takes no pointer input (#165), and its layout nodes stay corrected " +
     "for its lock and ride it (#169; Motion leaves them where they sit on the page). A handover starts where its twin " +
     "is drawn, own scale and all, and a Follower is drawn where its Lead is (#8, Motion's lead.latestValues); a Lead " +
-    "with its own scale starts drawn on its twin, where Motion jumps. ADR-0010, Amendment (#5).",
+    "with its own scale starts drawn on its twin, where Motion jumps. The twin's border radius and rotation, and in a " +
+    "Switch its opacity, ease into the Lead's own (#166, Motion's mixValues). ADR-0010, Amendment (#5).",
   View,
 }
