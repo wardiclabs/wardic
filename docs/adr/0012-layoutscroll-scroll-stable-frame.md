@@ -61,7 +61,7 @@ What changes:
   - "Scrollable" means `overflow-x` or `overflow-y` is neither `visible` nor `clip`, cached per element. That's wider than Motion's `auto | scroll` test, because a `hidden` container can be scrolled from code.
   - The scroll is sampled in the pass's read phase, with the boxes.
   - `layoutScroll` keeps its meaning, including the `position: fixed` scroll-root rule. The fold now also covers every other scrollable ancestor.
-- **A plain `position: fixed` element stops the fold.** When a node's own element or an ancestor is fixed, no scroll above that element folds into the node's box, neither a container's nor the page's, because neither moves it. Its position is cached with the scrollable answer, so it goes stale the same way. Motion subtracts the page's scroll from every box outside a `layoutScroll` scroll root ([create-projection-node.ts:1024-1043](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L1024-L1043)), so by its source a plain fixed element there takes the page's scroll.
+- **A plain `position: fixed` element stops the fold.** When a node's own element or an ancestor is fixed, no scroll above that element folds into the node's box, neither a container's nor the page's, because neither moves it. Its position is cached with the scrollable answer, so it goes stale the same way (*Amendment (#7)* reads it live each pass). Motion subtracts the page's scroll from every box outside a `layoutScroll` scroll root ([create-projection-node.ts:1024-1043](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L1024-L1043)), so by its source a plain fixed element there takes the page's scroll.
 - **A scroll between passes never reaches a box.** A drag's grab box stays valid through a scroll made before the drag. Together with ADR-0019's *Amendment (Reorder)*, the dragged item also stays under the pointer through a scroll during the drag.
 - **Cost:** one DOM ancestor walk per node per pass, plus one scroll read per scrollable ancestor, in the read phase. With the list 15 wrapper `div`s deep in a plain container scrolled 60 px, a pass's median went 0.3 → 0.3 ms at 50 nodes and 0.6 → 0.8 ms at 200 in Chromium. At 1,000 it went 2.0–2.4 → 2.8–3.7 ms, where identical runs vary by up to 0.7 ms. The fold's own loop is 0.1 ms of that, and with the fold switched off the pass read 2.8–3.0 ms, so the rest isn't the fold (not traced further). Firefox's 1 ms clock doesn't resolve it (1 / 1 / 3–5 → 1 / 1 / 4 ms).
 - **Scroll anchoring:** when content above a scroll container's visible area grows, the browser moves the container's scroll by the growth so the visible items stay put. The fold folds that scroll, so the items below animate the growth: 40 px for a 40 px growth. That's the same curve Motion gives a `layoutScroll` container (39.9 px in Chromium, 39.4 in Firefox). Motion leaves a plain container still (0 px): it doesn't fold that scroll, and nothing moved on screen. Before the fold, Wardic flew them 200 px, the scroll made before the change. `overflow-anchor: none` on the container avoids it; `Reorder.Group` sets it, as Motion's does ([Group.tsx:187-195](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/Group.tsx#L187-L195)).
@@ -180,3 +180,50 @@ Wardic can't take the snapshot: its pass runs after the change (ADR-0018). For a
   - scenario 7 `scaled`: main grades A to B `wrong-origin`, its first frame 95.4 px off; this change grades both directions `clean`;
   - scenario 14's card: main's `uninvolved still` reads 58.5 and 39.0 px after a card drag, 29.2 px in a diagonal drag and 46.8 px after C; this change reads 0 on every run.
 - **The layout lab against main** (`.tmp/73-proto/drive.ts`, headless Chromium, k = 5, cold and warm): identical. Scenarios 1–10 held the same frames, with the same first steps to 0.2 px and every run `clean`; drag scenarios 11–14 were 0 frames behind and 0 release held, every run settled.
+
+## Amendment (#7, 2026-10-14): a scroll root switching is a change of frame, not a move
+
+#7 checked three details of ADR-0012 and ADR-0013 against Motion (`docs/research/motion-layout-orchestration.md` §8.6). Two were already in place (ADR-0013 *Note (#7)*). The third, scroll sampled at two moments, found a bug. Grilled 2026-10-14.
+
+**Two-moment sampling isn't needed.** Motion samples a node's scroll as it snapshots and again as it measures (`updateScroll(phase)`), because it measures twice per update, before and after the DOM change. Wardic measures once per pass and keeps the boxes from the last pass in the Scroll-stable frame, so a scroll between the two is folded out by construction.
+
+Motion's `ScrollMeasurements.wasRoot` exists for a container that becomes or stops being a scroll root between its two samples. Wardic had no equivalent across passes. Probe (`.tmp/7/probe-7.browser.test.tsx`, beside Motion's `.tmp/vel/motion/root-switch.tsx`): the page scrolled 300 px, and a `layoutScroll` container switches `position: fixed` without moving on screen:
+
+| | Wardic (`main`) | Motion 13.3.0 |
+|---|---|---|
+| To fixed | the container and its child fly 292 px back into place | nothing moves |
+| Back to absolute | both fly −292 px | the container flies 300 px, its child stays |
+| Unscrolled | nothing moves | nothing moves |
+
+A box stored while the page's scroll folded into it was compared with one stored as a scroll root, where it doesn't. The change of frame read as a move the scroll's length. A plain element's `position` was read once (*Amendment (Reorder)*), so one switching to fixed was never seen: every pass after a later scroll then compared boxes in the wrong frame.
+
+1. **A switch moves nothing, in both directions** (Q1). When the scroll folded into a node's box changes not by scrolling but by which scroll folds, its stored boxes are carried into the new frame (`carryAcrossFrames`): moved by what the new frame adds over the old one at this pass's scroll samples. A `position: fixed` ancestor switching, or a scrolled container gained or lost, both count. A switch then reads as no move, and only a real one animates, from where the node was drawn.
+   - The boxes carried: its stored box, and a running animation's box and origin, its last target, a drag's grab box, and the box it was last seen at.
+   - This goes past Motion's `wasRoot`, which still flies on the way back.
+   - Rejected: matching Motion, the switch to fixed only; recording it as a limit.
+2. **`position` is read live each pass** (Q2), for every element the fold walks, plain ones included (`isFixedNow`, from the live declaration the engine keeps). This retires *Amendment (Reorder)*'s stale cache for `position`.
+   - Overflow stays cached: a container that becomes scrollable starts at scroll 0, so it has no offset to misread.
+   - Cost, measured (`.tmp/7/position-cost.ts`): about 0.14 ms per pass per 1,000 elements walked; 0.005 ms at 50, 0.7 ms at 5,000. Reading the two overflow properties as well would double that.
+   - Rejected: fixing only `layoutScroll` containers, Motion's scope, which leaves a plain bar going fixed stale (RS2).
+
+**Corroboration, as #7 asks.** Wardic reached the Scroll-stable frame on its own. Motion's author describes the same conclusion from its 2021 rewrite ([motion#1159](https://github.com/motiondivision/motion/issues/1159#issuecomment-869846194)): *"One thing that was causing issues was the logic around the rebasing as different parts of the tree were using measurements based on the viewport being in different places. This has all been removed now in favour of page-relative measurements so many paths are simplified."*
+
+**Pinned by:**
+- **`@wardic/dom`, SR1–SR6** (`projection-scroll-root-switch.browser.test.ts`, frames fired by hand, the page scrolled 300 px):
+  - SR1: a `layoutScroll` container both ways (292 px on `main`);
+  - SR2: a plain `layout` node;
+  - SR3: an ancestor that isn't a node;
+  - SR4: a later scroll after the switch (195 px on `main`, the stale read);
+  - SR5: a real move with the switch, which still animates from where it was drawn;
+  - SR6: a switch mid-flight, then sent on again (#146), going on from where it's drawn.
+
+  SR2 and SR3 pass on `main` only because the stale read never sees the switch. With `position` read live, they pin the carry.
+- **solid's RS1–RS2** (`scroll-root-switch.browser.test.tsx`, real paint): the 300 px case both ways (292 px on `main`), and a nav bar going fixed, the page scrolling on, its indicator moving to the next tab (389 px on `main`).
+- **Mutation-checked** in a separate worktree: six single-point mutations, five failing the tests meant for them:
+  - nothing carried (SR1–SR3, SR5, RS1);
+  - `position` read once again (SR4, RS2);
+  - a frame ignoring whether the page's scroll folds (SR1–SR3, SR5, RS1);
+  - the old frame's page scroll left out (SR1–SR3, SR5, RS1);
+  - a running animation's boxes not carried (SR6).
+
+  The sixth leaves the last-seen box uncarried. That only makes the node read as moved, and re-read and folded in its new frame, so it draws the same: the carry saves a read.
