@@ -20,7 +20,9 @@
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "bezier-easing": "^3.0.0",
+    "bezier-easing": "^3.0.0"
+  },
+  "devDependencies": {
     "culori": "^4.0.2"
   },
   "peerDependencies": {

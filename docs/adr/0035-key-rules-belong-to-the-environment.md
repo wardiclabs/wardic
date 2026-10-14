@@ -19,6 +19,7 @@ A pair can blend differently because of the key it belongs to. `display` turning
    - A `KeyBlend` is on the per-frame path (ADR-0025).
 3. **`display` / `visibility` moves too** (Q3): the DOM's `visibility` rule. Core's `blendersFor` names no CSS property.
 4. **Only the complex tier stays in core** (Q4): one or more numbers, colour tokens, and kind-by-kind matching. The DOM builds each zero with core's public codecs (`ComplexString`, `ColorString`). The empty ends, `auto`, the `calc()` divisor, the filter and mask rules and the shadow split are the DOM's.
+   - *Since ADR-0036 the colour tokens and `ColorString` are the DOM's too, and the DOM builds each zero with its own codecs: `cssComplex`'s, which keeps a `var()` as text, and `ColorString`. With core's, a shadow holding `var(--gray-500)` was written `var(--gray0)` on its way to `none`.*
 5. **The Test Environment stays CSS-free** (Q5). `@wardic/test`'s `testLayer` keeps core's default registry, which has no Key rules, so there a `display` pair turning `none` is a Discrete pair. The DOM rules' tests run in `@wardic/dom`'s node tier, over `testLayer` with the DOM's registry in place of the default.
 6. **This ADR** (Q6), with pointers from ADR-0015's *Amendment (#61)*, ADR-0024's decision 4 and ADR-0026.
 
@@ -65,6 +66,8 @@ A pair can blend differently because of the key it belongs to. `display` turning
 ## Amendment (#158, 2026-10-14): a complex value's text spans come from the Environment
 
 #61 made the complex tier take a string with one or more numbers, and it read the digits in a CSS variable's name as numbers: `var(--gray-500)` → `var(--gray-600)` blended through `var(--gray-550)`, an undefined variable, so a background painted transparent mid-leg (#158). The fix keeps a `var()` as text. `var()` is CSS's syntax, so by this ADR it isn't core's: core gets a neutral seam, and the DOM supplies the syntax.
+
+*ADR-0036 widens the seam to kinds of token besides numbers, `complexWith({ text, tokens })`, and moves the colour tokens to the DOM as one. The DOM's complex tier is in `complex.ts` since.*
 
 - **Core:** `Interpolator.complexWith({ text })` and its codec, `complexStringWith({ text })`, take patterns for spans that are only text.
   - A text span is matched whole, before colours and numbers, so the digits in it are never numbers. It's kept in the text around the tokens.

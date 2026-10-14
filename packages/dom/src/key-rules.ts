@@ -33,6 +33,8 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
+import { type Color, ColorString, cssColor } from "./colors.ts"
+import { cssComplex } from "./complex.ts"
 import { dashCase } from "./svg.ts"
 
 /** A value a key blends: a number or a string. */
@@ -46,10 +48,12 @@ interface Prepared {
   readonly pairs: ReadonlyArray<Pair>
 }
 
-const decodeComplex = Schema.decodeUnknownOption(Interpolator.ComplexString)
-const encodeComplex = Schema.encodeSync(Interpolator.ComplexString)
-const decodeColor = Schema.decodeUnknownOption(Interpolator.ColorString)
-const encodeColor = Schema.encodeSync(Interpolator.ColorString)
+// The DOM's own codecs (ADR-0036): a template's colours are tokens and its `var()`s text, as the
+// DOM's registry reads them, so a zero keeps a variable's name as written (#160).
+const decodeComplex = Schema.decodeUnknownOption(cssComplex.codec)
+const encodeComplex = Schema.encodeSync(cssComplex.codec)
+const decodeColor = Schema.decodeUnknownOption(ColorString)
+const encodeColor = Schema.encodeSync(ColorString)
 
 /** The keys whose empty end takes each filter function's identity (Motion's `filter` type, and the backdrop it leaves out). */
 const FILTER_KEYS: ReadonlySet<string> = new Set(["filter", "-webkit-filter", "backdrop-filter", "-webkit-backdrop-filter"])
@@ -88,13 +92,16 @@ const isEmptyEnd: Predicate.Predicate<Value> = Predicate.or(isZero, (value: Valu
 const FIRST_NUMBER_RE = /-?\d*\.?\d+(?:e[-+]?\d+)?/i
 
 /** How an empty end's colours turn: transparent, or opaque in a mask. */
-type ColorTurn = (color: object) => object
+type ColorTurn = (color: Color) => Color
 
 const transparent: ColorTurn = (color) => ({ ...color, alpha: 0 })
 const opaque: ColorTurn = (color) => ({ ...color, alpha: 1 })
 
 /** A number written straight after a `/`: a `calc()` divisor, kept, since a 0 there is NaN (Motion's `convertToZero`). */
 const isDivisor = (partBefore: string): boolean => Str.endsWith("/")(Str.trim(partBefore))
+
+/** A colour token of the DOM's complex tier. */
+const isColorToken = (token: Interpolator.KindToken): token is { readonly kind: string; readonly value: Color } => token.kind === cssColor.name
 
 /** A complex value at zero: every number 0 (but a divisor), every colour turned. */
 const zeroComplex = (complex: Interpolator.Complex, turn: ColorTurn): string =>
@@ -104,7 +111,8 @@ const zeroComplex = (complex: Interpolator.Complex, turn: ColorTurn): string =>
       Match.value(token).pipe(
         Match.when(Predicate.isNumber, (n) =>
           Bool.match(isDivisor(complex.parts[i]), { onTrue: () => n, onFalse: () => 0 })),
-        Match.orElse((color) => turn(color) as Interpolator.ComplexToken),
+        Match.when(isColorToken, (color) => ({ kind: color.kind, value: turn(color.value) })),
+        Match.orElse((token) => token),
       )),
   })
 
@@ -112,7 +120,7 @@ const zeroComplex = (complex: Interpolator.Complex, turn: ColorTurn): string =>
 const zeroOf = (value: string, turn: ColorTurn): Option.Option<string> =>
   Option.orElse(
     Option.map(decodeComplex(value), (complex) => zeroComplex(complex, turn)),
-    () => Option.map(decodeColor(value), (color) => encodeColor(turn(color) as typeof color)),
+    () => Option.map(decodeColor(value), (color) => encodeColor(turn(color))),
   )
 
 /** How many numbers a complex value holds outside its colours: what complex matching counts. 0 for one that isn't. */

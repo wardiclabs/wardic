@@ -1,6 +1,7 @@
 import * as Interpolator from "@wardic/core/Interpolator"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { expect, it, layer } from "@effect/vitest"
@@ -55,29 +56,18 @@ it("can't blend two number counts, even with the same leading commands", () => {
   expect(blendOf("M0,0 L10,10", "M0,0 L10,10 L20,20")).toEqual(Option.none())
 })
 
-it("decodes one number inside a function, and colours as tokens, but not a lone colour (#61)", () => {
+it("decodes one number inside a function (#61)", () => {
   expect(decodes("blur(4px)")).toBe(true)
   expect(decodes("translateX(10px)")).toBe(true)
-  expect(decodes("0px 0px 10px rgb(255, 0, 0)")).toBe(true)
-  expect(decodes("#f00")).toBe(false) // a lone colour → color's job
   expect(decodes("120")).toBe(false) // a bare number string → unit's job
 })
 
-it("blends a shadow's colour as a colour, in sRGB as the colour tier does (#61)", () => {
-  expect(at("0px 0px 10px rgb(255, 0, 0)", "0px 0px 20px rgb(0, 0, 255)", 0.5)).toBe("0px 0px 15px rgb(128, 0, 128)")
-  expect(at("0px 0px 0px rgba(255, 0, 0, 0)", "0px 0px 10px rgb(255, 0, 0)", 0.5)).toBe("0px 0px 5px rgba(255, 0, 0, 0.5)")
-  // A hex and an rgb() are both colours, so they match.
-  expect(at("0px 0px 10px #f00", "0px 0px 20px rgb(0, 0, 255)", 0.5)).toBe("0px 0px 15px rgb(128, 0, 128)")
-})
-
-it("matches kind by kind, in order, written in the target's structure (#61, Motion's mixComplex)", () => {
-  // A computed shadow (colour first, a spread) into an authored one: the start's extra number is dropped.
-  expect(at("rgba(0, 0, 0, 0.2) 0px 1px 2px 0px", "0px 8px 24px rgba(0, 0, 0, 0.3)", 0.5)).toBe("0px 4.5px 13px rgba(0, 0, 0, 0.25)")
-  // Fewer numbers in the start than the target: Motion's rule can't blend it (the shadow rule pads it, in Machine).
-  expect(blendOf("0px 8px 24px rgba(0, 0, 0, 0.3)", "rgba(0, 0, 0, 0.2) 0px 1px 2px 0px")).toEqual(Option.none())
-  // A different count of colours can't blend.
-  expect(blendOf("0px 0px 10px rgb(255, 0, 0)", "0px 0px 10px rgb(255, 0, 0), 0px 0px 4px rgb(0, 0, 0)")).toEqual(Option.none())
-  // A named colour isn't a token: it's text, and the target's text is written.
+it("matches number by number, written in the target's structure (#61, Motion's mixComplex)", () => {
+  // The start's extra number is dropped.
+  expect(at("0px 1px 2px 0px", "0px 8px 24px", 0.5)).toBe("0px 4.5px 13px")
+  // Fewer numbers in the start than the target: Motion's rule can't blend it (the DOM's shadow rule pads it).
+  expect(blendOf("0px 8px 24px", "0px 1px 2px 0px")).toEqual(Option.none())
+  // A word is text, and the target's text is written.
   expect(at("0px 0px 10px red", "0px 0px 20px blue", 0.5)).toBe("0px 0px 15px blue")
 })
 
@@ -110,17 +100,7 @@ layer(InterpolatorRegistry.layer)("complex interpolator routing", (it) => {
     }),
   )
 
-  it.effect("does NOT steal a hex color pair (complex can't decode it; color blends to rgb)", () =>
-    Effect.gen(function* () {
-      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-      // `#000000`/`#ffffff` carry ≤1 numeric token, so complex doesn't decode them →
-      // color handles it, emitting a blended `rgb(...)` (not a discrete snap).
-      const fn = yield* registry.resolve("#000000", "#ffffff")
-      expect(String(fn(0.5))).toMatch(/^rgb\(/)
-    }),
-  )
-
-  it.effect("blends a drop-shadow, a two-function filter and a two-length clip path, where culori's parse threw at resolve (#154)", () =>
+  it.effect("blends a drop-shadow with a named colour, a two-function filter and a two-length clip path (#61, #154)", () =>
     Effect.gen(function* () {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const shadow = yield* registry.resolve("drop-shadow(0px 0px 4px red)", "drop-shadow(0px 0px 8px red)")
@@ -137,6 +117,85 @@ layer(InterpolatorRegistry.layer)("complex interpolator routing", (it) => {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       const fn = yield* registry.resolve("M0,0 L10,10", "M0,0 C1,1 2,2 3,3")
       expect([fn(0), fn(0.5), fn(1)]).toEqual(["M0,0 L10,10", "M0,0 C1,1 2,2 3,3", "M0,0 C1,1 2,2 3,3"])
+    }),
+  )
+})
+
+// Token kinds (#160, ADR-0036): an Environment's kinds of token besides numbers, each a pattern and
+// the Interpolator its tokens decode, blend and encode through. Two made-up kinds, since core names
+// no Environment's own (the DOM's colours are `@wardic/dom`'s, `colors.node.test.ts`): `<n>`, a
+// step that blends rounded, and `!word`, a flag that blends only into itself.
+
+/** `<n>`: a whole step, blended and rounded. */
+const step: Interpolator.Entry<number, string> = {
+  name: "step",
+  codec: Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      Interpolator.parseAndFormat(
+        (input: string) => Option.map(Option.fromNullishOr(/^<(-?\d+)>$/.exec(input.trim())), ([, n]) => Number(n)),
+        (n: number) => `<${n}>`,
+      ),
+    ),
+  ),
+  blend: (from, to) => Option.some((t: number) => `<${Math.round(from + (to - from) * t)}>`),
+}
+
+/** `!word`: a flag, which blends only into itself. */
+const flag: Interpolator.Entry<string, string> = {
+  name: "flag",
+  codec: Schema.String,
+  blend: (from, to) => Option.liftPredicate(() => to, () => from === to),
+}
+
+const stepped = Interpolator.complexWith({ tokens: [{ pattern: /<-?\d+>/, entry: step }, { pattern: /![a-z]+/, entry: flag }] })
+const decodeStepped = Schema.decodeUnknownOption(stepped.codec)
+const blendStepped = (from: string, to: string): Option.Option<(t: number) => string> =>
+  Option.flatMap(Option.all([decodeStepped(from), decodeStepped(to)] as const), ([a, b]) => stepped.blend(a, b))
+const atStepped = (from: string, to: string, t: number): string => Option.getOrThrow(blendStepped(from, to))(t)
+
+it("TK1: decodes a kind's tokens as that kind, its digits never numbers; a lone token is its kind's own", () => {
+  expect(decodeStepped("move <3> by 4px")).toEqual(Option.some({ parts: ["move ", " by ", "px"], tokens: [{ kind: "step", value: 3 }, 4] }))
+  expect(decodeStepped("!on 4px")).toEqual(Option.some({ parts: ["", " ", "px"], tokens: [{ kind: "flag", value: "!on" }, 4] }))
+  expect(decodeStepped("<12>")).toEqual(Option.none())
+  expect(decodeStepped(" !on ")).toEqual(Option.none())
+  // Core's default has no kinds: the same digits are numbers.
+  expect(decode("move <3> by 4px")).toEqual(Option.some({ parts: ["move <", "> by ", "px"], tokens: [3, 4] }))
+})
+
+it("TK2: blends a kind's tokens through its Interpolator, and numbers as numbers", () => {
+  expect(atStepped("<0> 0px", "<10> 10px", 0.25)).toBe("<3> 2.5px")
+  expect(atStepped("<0> 0px", "<10> 10px", 1)).toBe("<10> 10px")
+})
+
+it("TK3: matches kind by kind, in order, and needs the same count of each kind (Motion's mixComplex)", () => {
+  expect(atStepped("<1> 2px <5>", "0px <3> <9>", 0.5)).toBe("1px <2> <7>")
+  expect(blendStepped("<1> 0px", "0px 4px")).toEqual(Option.none())
+  expect(blendStepped("<1> 0px !on", "<2> 0px <3> !on")).toEqual(Option.none())
+})
+
+it("TK4: a pair of tokens its kind can't blend makes the pair a Discrete pair", () => {
+  expect(atStepped("!on 0px", "!on 10px", 0.5)).toBe("!on 5px")
+  expect(blendStepped("!on 0px", "!off 10px")).toEqual(Option.none())
+})
+
+it("TK5: encodes a kind's token by its kind's encode, and fails on a kind the codec doesn't have", () => {
+  const roundTrip = (input: string) => Schema.encodeSync(stepped.codec)(Schema.decodeUnknownSync(stepped.codec)(input))
+  expect(roundTrip("<03> 1.50px")).toBe("<3> 1.5px")
+  expect(() => Schema.encodeSync(stepped.codec)({ parts: ["", " ", "px"], tokens: [{ kind: "colour", value: 1 }, 4] })).toThrow()
+})
+
+layer(
+  Layer.effect(InterpolatorRegistry.InterpolatorRegistry)(
+    InterpolatorRegistry.make([Interpolator.number, Interpolator.array, step, Interpolator.unit, stepped]),
+  ),
+)("an Environment's token kinds through its registry (#160)", (it) => {
+  it.effect("TK6: a lone token goes to its kind's own Interpolator, and one among other text to the complex tier", () =>
+    Effect.gen(function* () {
+      const registry = yield* InterpolatorRegistry.InterpolatorRegistry
+      expect((yield* registry.resolve("<0>", "<10>"))(0.25)).toBe("<3>")
+      expect((yield* registry.resolve("<0> 0px", "<10> 10px"))(0.5)).toBe("<5> 5px")
+      expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("15px")
     }),
   )
 })

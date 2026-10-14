@@ -87,8 +87,8 @@ describe("springValues clamps a stall's dt at MAX_DT (#78)", () => {
   it.effect("on the Frame loop, springBlend: the spine's string legs", () =>
     stalledOnTheLoop(
       Machine.springBlend(
-        { "background-color": "#102030", width: "10px" },
-        { "background-color": "#ffffff", width: "200px" },
+        { filter: "blur(2px) brightness(0.5)", width: "10px" },
+        { filter: "blur(8px) brightness(1)", width: "200px" },
         OPTIONS,
       ),
     ))

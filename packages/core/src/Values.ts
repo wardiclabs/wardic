@@ -9,7 +9,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 
-/** A flat bag of animatable values (numbers or unit/color strings). */
+/** A flat bag of animatable values: numbers, or strings its Environment's Interpolators blend. */
 export type Values = Record<string, number | string>
 
 /** A named animation state. */

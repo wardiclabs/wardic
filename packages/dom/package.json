@@ -18,7 +18,8 @@
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@wardic/core": "workspace:*"
+    "@wardic/core": "workspace:*",
+    "culori": "^4.0.2"
   },
   "peerDependencies": {
     "effect": "^4.0.2"

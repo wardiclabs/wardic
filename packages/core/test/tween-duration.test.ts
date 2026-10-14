@@ -43,7 +43,7 @@ describe("a missing duration is 0.3 s, and the other options still apply", () =>
 
   it("animateValues", () => {
     const build = (options: Machine.AnimateOptions) =>
-      Effect.runSync(Effect.provide(Machine.animateValues({ x: 0, color: "#000000" }, { x: 16, color: "#ffffff" }, options), InterpolatorRegistry.layer))
+      Effect.runSync(Effect.provide(Machine.animateValues({ x: 0, width: "0px" }, { x: 16, width: "16px" }, options), InterpolatorRegistry.layer))
     expect(framesOf(build(MODIFIERS))).toEqual(framesOf(build({ duration: 0.3, ...MODIFIERS })))
   })
 })

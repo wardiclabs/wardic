@@ -850,10 +850,11 @@ const blendAt = (
 
 /**
  * Animate a bag of values from `from` to `to`, each key through the `InterpolatorRegistry`
- * (numbers, colours and unit strings). One `animate(0, 1, options)` progress drives every key,
- * so the modifiers (`reverse`, `repeat`, `yoyo`, an infinite `repeat`, `delay`) apply to the
- * bag as a whole, and `done` is the progress Frame's. A Discrete pair switches at the first
- * Frame; `display` and `visibility` turn `none` / `hidden` on the last (ADR-0024).
+ * (numbers, unit strings, complex values, and its Environment's own kinds, the DOM's colours).
+ * One `animate(0, 1, options)` progress drives every key, so the modifiers (`reverse`, `repeat`,
+ * `yoyo`, an infinite `repeat`, `delay`) apply to the bag as a whole, and `done` is the progress
+ * Frame's. A Discrete pair switches at the first Frame; an Environment's Key rule can hold a key
+ * until the last (the DOM's `display` and `visibility`, ADR-0024 and ADR-0035).
  *
  * Building it needs the `InterpolatorRegistry`, consulted once: each key resolves to a pure
  * blender. Its steps don't: per tick, `keys.length` direct calls.
@@ -878,12 +879,13 @@ export const animateValues = (
  * 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
  *
  * - The progress spans 0–100 as a numeric key travelling 100 would, so `restDelta` and
- *   `restVelocity` mean the same for both, and a colour beside an `x` going 0 → 100 lands with it.
+ *   `restVelocity` mean the same for both, and a string key beside an `x` going 0 → 100 lands with it.
  * - It always starts from rest: `options.from` and `options.velocity` don't move it. A velocity
  *   in a key's units has no meaning on the progress.
- * - Past 1, a colour holds at its target (culori clamps its progress) and a unit string or
- *   number overshoots. A Discrete pair switches at the first Frame past the delay; `display`
- *   and `visibility` turn `none` / `hidden` on the settle Frame.
+ * - Past 1, a key does what its Interpolator does past 1: a unit string or number overshoots, and
+ *   one that clamps its progress holds at its target (the DOM's colours). A Discrete pair switches
+ *   at the first Frame past the delay; an Environment's Key rule can hold a key until the settle
+ *   Frame (the DOM's `display` and `visibility`).
  */
 export const springBlend = (
   from: Values.Values,

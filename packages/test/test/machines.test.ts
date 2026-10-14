@@ -324,8 +324,8 @@ describe("the composites against their Streams before #94", () => {
       }))
   }
 
-  const FROM = { x: 0, "background-color": "#102030", width: "10px", "pointer-events": "auto", visibility: "visible" }
-  const TO = { x: 40, "background-color": "#ffffff", width: "200px", "pointer-events": "none", visibility: "hidden" }
+  const FROM = { x: 0, filter: "blur(2px) brightness(0.5)", width: "10px", "pointer-events": "auto", visibility: "visible" }
+  const TO = { x: 40, filter: "blur(8px) brightness(1)", width: "200px", "pointer-events": "none", visibility: "hidden" }
 
   it.effect("animateValues: strings, a Discrete pair and visibility, repeat 1 with yoyo and a delay", () =>
     Effect.gen(function* () {
@@ -384,8 +384,8 @@ const bothDrivers = <F extends Frame.Frame<unknown>>(build: () => Effect.Effect<
 
 describe("every constructor through both drivers", () => {
   const OPTIONS = { duration: 0.3, repeat: 2, yoyo: true, delay: 0.05, easing: Easing.easeInOutCubic }
-  const FROM = { x: 0, "background-color": "#102030", width: "10px", "pointer-events": "auto", visibility: "visible" }
-  const TO = { x: 40, "background-color": "#ffffff", width: "200px", "pointer-events": "none", visibility: "hidden" }
+  const FROM = { x: 0, filter: "blur(2px) brightness(0.5)", width: "10px", "pointer-events": "auto", visibility: "visible" }
+  const TO = { x: 40, filter: "blur(8px) brightness(1)", width: "200px", "pointer-events": "none", visibility: "hidden" }
   const cases: ReadonlyArray<
     readonly [string, () => Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, InterpolatorRegistry.InterpolatorRegistry>]
   > = [
