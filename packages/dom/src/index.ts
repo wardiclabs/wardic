@@ -38,6 +38,9 @@ export { animatableNone, keyRules, visibility } from "./key-rules.ts"
 // The DOM Environment's Interpolators (ADR-0035, *Amendment (#158)*): core's, with CSS's var() as
 // text in the complex tier, and the registry DomLive provides.
 export { cssComplex, interpolators, InterpolatorRegistryDomLive, VARIABLE_REFERENCE } from "./interpolators.ts"
+// Variable values (#55, ADR-0035 *Amendment (#55)*): Tier 2, for binding authors. The Key rule a
+// binding binds to an element for each leg, with core's `InterpolatorRegistry.withKeyRules`.
+export { isVariableValue, resolveVariable, variableValues } from "./variables.ts"
 export { ProbeDomLive } from "./probe.ts"
 export { project, RendererDomLive } from "./renderer.ts"
 
