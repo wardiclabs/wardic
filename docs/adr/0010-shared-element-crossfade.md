@@ -40,7 +40,7 @@ ADR-0009 established box projection as the only model where scale-correction, sc
 
 #13 showed the switch seed crossing coordinate frames (ADR-0012, *Amendment (#13)*). Fixing the frame inside the binding registry would have kept a per-environment registry that every binding re-implements. The seed moves into the projection engine instead, so no binding carries shared-layout boilerplate.
 
-- **Capture at dispose.** When a `layoutId` node that is not a leaving Follower is disposed, the engine computes its **Root frame** box. If the element is still connected, it reads the box fresh, with the node's own transform cleared. Otherwise it derives the box from the node's last measured box, taking the `layoutScroll` ancestors' share of the fold back out at each container's *live* scroll while it is still connected (its last-pass sample otherwise), so a container scrolled since that pass doesn't shift the seed; the root's scroll cancels in the Root frame.
+- **Capture at dispose.** When a `layoutId` node that is not a leaving Follower is disposed, the engine computes its **Root frame** box. If the element is still connected, it reads the box fresh, with the node's own transform cleared. *(Since Amendment (#170): as painted, its own transform kept, and when disconnected from where it last painted, so a twin disposed mid-flight seeds from where it was seen.)* Otherwise it derives the box from the node's last measured box, taking the `layoutScroll` ancestors' share of the fold back out at each container's *live* scroll while it is still connected (its last-pass sample otherwise), so a container scrolled since that pass doesn't shift the seed; the root's scroll cancels in the Root frame.
 - **Hold, or hand off directly.** If the node's stack holds a twin that is registered but not yet measured (the enterer mounted first), the seed goes straight to that node. Otherwise the engine holds it per `layoutId`, in a native `Map` next to the stack, until the end of the current task — precisely, the microtask checkpoint after the dispose, before any timer, frame or later task: Motion's one-update window. An enterer that registers synchronously in that task picks it up at its first measure, rebased into its own Scroll-stable frame (ADR-0012). An enterer that registers after that checkpoint (a later microtask, a timer, a later task) gets no seed and appears without a FLIP.
 - **End-of-task lifetime.** `@wardic/core` exports `nextMicrotask` (`Effect.callback` resumed by `queueMicrotask`, which runs the continuation synchronously inside the microtask, with no trip through the Effect scheduler). An engine-local `endOfTask` helper forks it into a `FiberSet` tracked by a `Scope` that `makeProjectionSystem` creates at construction and closes on system dispose, which interrupts any hold still pending. One fiber per leaver, traced as the `wardic.projection.leaverHold` span, expires both the switch-seed record and the existing presence `recentLeavers` entry, and annotates whether the seed was consumed or expired. The hold data stays in native `Map`s; nothing Effect-hashed is keyed by a DOM element.
 - **Removed.** The binding registry (`makeSharedLayoutRegistry` and its per-`layoutId` slots), the ownership tokens and the MEDIUM-1/2 cleanup logic, both binding-side seed reads, the `seedOrigin` register option, and five `@wardic/solid` exports: `SharedLayoutContext`, `useSharedLayout`, `makeSharedLayoutRegistry`, `SharedBox` and `SharedLayoutContextValue`.
@@ -166,4 +166,44 @@ The cells are overlap, in place, nested (card and avatar) and exit (open and clo
   - nesting decided as the handover begins;
   - a closing container's inner twins not re-introduced (S5);
   - Followers derived in insertion order (XF3b).
+
+## Amendment (#170, 2026-10-14): a handover starts from where its twin paints
+
+Every handover started the new Lead from its twin's **layout box**, where the twin rests once its own animation completes, not from where it was painted. An interrupted handover therefore jumped ahead to the twin's resting box and flew back from there. Toggling scenario 16's twins mid-flight (#5) showed it. The overlap cell's promoted twin jumped 43 px ahead of where its Lead was painted, and spamming toggles felt much rougher than Motion. `main` did the same at every origin.
+
+Motion starts a shared layout animation from the snapshot's `measuredBox`, its page box with its transforms (motion-dom 13.3.0, `notifyLayoutUpdate`: `calcBoxDelta(visualDelta, node.applyTransform(measuredLayout, true), snapshot.measuredBox)` when `isShared`). ADR-0013 *Amendment (#146)* already restarts a node from where it paints. Grilled 2026-10-14:
+
+1. **Where the twin paints counts everything that moves it on screen** (Q1): its layout animation mid-flight, its Release offset, a drag, and its carriers.
+   - Unlike #146's restart, the Release offset is included: a node's own restart leaves it out because it keeps running on top, but the new Lead doesn't inherit its twin's release.
+   - Rejected: the layout animation and carriers only. A twin let go mid-release would hand over from its slot.
+2. **All four origins, by one rule** (Q2). At rest that's the twin's layout box, as before.
+   - **A promotion** (`promoteFrom`, at a Lead's dispose or presence's `handleLeave`): from `paintedNowOf(from)`, its box through every projection as last written, root-first, as CSS composes them, the twin's own included.
+   - **A crossfade beside a live twin** (the first measure, inside a Measure pass): from `paintedAtPass(lead)`, #146's record of where it painted as the pass began.
+   - **A Switch seed** (`rootFrameBox`, at dispose): read fresh as painted, its own transform kept, while the element is connected (Solid's `<Show>` disposes with it still connected, S7). When disconnected, it's derived from where it last painted, then through its paint delta and its containers' scroll as before.
+   - **A leaver presence re-introduces** carries no box of its own any more: it is locked onto the promoted Lead, which starts from where the leaver painted, so the two go on together (XO4). It is always inserted below a Lead, so a later crossfade reads that Lead, not it.
+   - Rejected: promotions and live-twin crossfades only, which would leave a `<Show>` swap mid-flight jumping.
+3. **The new Lead starts from rest,** progress 0 with no velocity carried, as Motion's and #146's restarts do.
+4. **Pinned by tests and the lab** (Q3), below.
+
+**The lab:** scenario 16 judges every run on a new `starts` line. The recorder reads where the outgoing twin is painted just before the toggle, then the Lead's first two painted frames. The jump from the twin to the first frame must be no bigger than the Lead's next step, plus 1.5 px: a start from rest accelerates, so its first step is the smaller one. The overlap and in-place toggles-off are now runs too (`… : back`), judged on starts and end only. The recorder also supersedes by the pair of twins, so a toggle back mid-flight cuts the run it interrupts. The scripted driver (`.tmp/5/drive16.ts`) toggles each cell mid-flight, 150 ms in, both ways, then twice at rest:
+- **This branch:** all 30 runs pass, 0 page errors. A Lead's first frame lands about half its next step from where its twin was painted.
+- **`main`'s engine:** the mid-flight runs fail `starts`, jumping 23–31 px against a next step of about 5 px.
+
+**Pinned by:**
+- **`@wardic/dom`, XO1–XO4** (`projection-handover-origin.browser.test.ts`, frames fired by hand). Each origin is interrupted mid-flight and checked for continuity: the jump from the twin's last painted position to the new Lead's first frame is no bigger than its next step.
+  - XO1: a promotion.
+  - XO2: a crossfade beside a live twin.
+  - XO3: a Switch seed, disconnected.
+  - XO4: a promotion under presence, both twins.
+
+  All four fail on `main` with 88–94 px jumps.
+- **solid, real paint** (`layout-id.browser.test.tsx`): S6, the overlap toggle-off, and S7, a `<Show>` Switch swapped back mid-flight, which takes the connected seed path. Both fail on `main` with 123 px jumps.
+- **PE4 corrected** (`layout-id-pointer.browser.test.tsx`): it waited for B's left edge alone, which reads its new slot a frame before its FLIP paints. It now waits for B to rest, since a B mid-flight would rightly send its promoted twin flying.
+- **The lab's node tier:** `crossfade-board.test.ts`, the starts line and the back runs.
+- **Mutation-checked** in a separate worktree: five single-point mutations, each failing the tests meant for it:
+  - a promotion from the twin's layout box (XO1, XO4, S6);
+  - a live-twin crossfade from its layout box (XO2);
+  - a connected Switch seed with the transform cleared (S7);
+  - a disconnected seed from the stored box (XO3);
+  - where a node paints leaving its own projection out.
 
