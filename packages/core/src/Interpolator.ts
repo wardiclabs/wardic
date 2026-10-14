@@ -380,10 +380,10 @@ const tokenizerFor = (options: ComplexOptions): Tokenizer =>
  */
 export const complexStringWith = (options: ComplexOptions): Schema.Codec<Complex, string> => {
   const kinds = kindsOf(options)
-  const isKindToken = isKindTokenOf(Arr.map(kinds, (kind) => kind.name))
+  const isOwnKindToken = isKindTokenOf(Arr.map(kinds, (kind) => kind.name))
   return Schema.String.pipe(
     Schema.decodeTo(
-      Schema.Struct({ parts: Schema.Array(Schema.String), tokens: Schema.Array(Schema.Union([Schema.Number, Schema.declare(isKindToken)])) }),
+      Schema.Struct({ parts: Schema.Array(Schema.String), tokens: Schema.Array(Schema.Union([Schema.Number, Schema.declare(isOwnKindToken)])) }),
       parseAndFormat(parseComplexWith(tokenizerFor(options), kinds), formatComplexWith(kinds)),
     ),
   )
