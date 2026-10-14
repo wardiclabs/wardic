@@ -68,7 +68,9 @@ export { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
 export { DRAG_DEFAULT_ATTRIBUTES, type DragDefaultStyle, dragDefaultStyle, reorderTouchAction } from "./drag-defaults.ts"
 export { measureLayoutBox } from "./measure.ts"
 export {
+  DEFAULT_LAYOUT_TRANSITION,
   type DragProjectionHandle,
+  type LayoutTransition,
   makeProjectionSystem,
   type ProjectionNodeHandle,
   type ProjectionRuntime,
