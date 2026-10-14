@@ -203,8 +203,17 @@ export interface WardicReducedMotion {
  * optional {@link WardicOrchestration} fields and {@link WardicReducedMotion}'s opt-out.
  */
 export type WardicTransition =
-  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration & WardicReducedMotion)
-  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion)
+  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
+  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
+
+/**
+ * Motion's `layout` key (ADR-0009 *Amendment (#171)*): the element's layout animations' own
+ * transition, over the rest of its `transition`. Without it, the whole `transition` drives them; with
+ * no `transition`, Motion's default, a 0.45 s tween.
+ */
+export interface WardicLayoutKey {
+  readonly layout?: WardicTransition
+}
 
 /**
  * Config accepted by {@link useWardic}.
