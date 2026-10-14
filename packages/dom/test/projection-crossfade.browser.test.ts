@@ -18,6 +18,7 @@
 // `mix(origin, box, p)`.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
+import * as Projection from "@wardic/core/Projection"
 import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
@@ -46,6 +47,15 @@ const makeBox = (parent: HTMLElement, left: number, top: number, width: number, 
 
 /** Where a top-level node paints on x: its layout position plus its last translate. */
 const paintedX = (box: HTMLElement, sk: Sink, id: string): number => box.offsetLeft + (sk.of(id).at(-1)?.tx ?? 0)
+
+/** An element's box as the page paints it. */
+const rectBox = (el: Element) => {
+  const r = el.getBoundingClientRect()
+  return { x: { min: r.left, max: r.right }, y: { min: r.top, max: r.bottom } }
+}
+
+/** `id`'s delta as last written. */
+const deltaOf = (sk: Sink, id: string): Projection.Delta => sk.of(id).at(-1)!.value.delta as Projection.Delta
 
 /** `n` frames, each followed by `read`, collected. */
 const frames = <A>(n: number, read: () => A): Array<A> =>
@@ -176,13 +186,14 @@ describe("a layoutId crossfade's opacity is Motion's (#5)", () => {
     e.dispose()
   })
 
-  it("XF3b: closing, the inner twins are disposed before their container, and still only move", async () => {
+  it("XF3b: closing, the inner twins are disposed before their container, still only move, and stay locked onto their Leads", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const root = stage()
     const card = makeBox(root, 40, 60, 160, 120)
     register(e, "card", card, { layoutId: "card" })
-    register(e, "a1", makeBox(card, 10, 10, 40, 40), { layoutId: "avatar" })
+    const a1El = makeBox(card, 10, 10, 40, 40)
+    register(e, "a1", a1El, { layoutId: "avatar" })
     await endOfTask()
     fireFrame()
     const modal = makeBox(root, 260, 40, 300, 240)
@@ -203,7 +214,20 @@ describe("a layoutId crossfade's opacity is Motion's (#5)", () => {
     await endOfTask()
     expect(left).toBe(2)
     const from = sk.writes.length
-    frames(120, () => undefined)
+    // Where each avatar paints, every frame: the leaving ones are committed to the page itself; the
+    // card's avatar, through the fake sink, is its box through the card's delta, then its own.
+    const apart = frames(120, () => {
+      const a1Painted = Projection.applyTreeDeltas(rectBox(a1El), [deltaOf(sk, "card"), deltaOf(sk, "a1")]).box
+      const a2Painted = rectBox(a2El)
+      return Math.max(
+        Math.abs(a1Painted.x.min - a2Painted.x.min),
+        Math.abs(a1Painted.x.max - a2Painted.x.max),
+        Math.abs(a1Painted.y.min - a2Painted.y.min),
+        Math.abs(a1Painted.y.max - a2Painted.y.max),
+      )
+    })
+    // The inner twin was handed back before its container: derived after it all the same (top-down).
+    expect(Math.max(...apart.slice(0, 40)), "the closing avatar off the card's, px").toBeLessThan(0.5)
     const card1 = sk.writes.slice(from).filter((w) => w.id === "card").map(factorOf)
     const a1 = sk.writes.slice(from).filter((w) => w.id === "a1").map(factorOf)
     expect(card1.some((o) => o > 0.05 && o < 0.95), "the card crossfades back in").toBe(true)
