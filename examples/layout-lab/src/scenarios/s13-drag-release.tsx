@@ -34,6 +34,16 @@
  * remounts it. (Before #139 its 30 ms window read no velocity for moves more than 30 ms
  * apart, so a flick often stopped dead.)
  *
+ * Since #140 every release runs on the drag transition, Motion's inertia (ADR-0016,
+ * *Amendment (#140)*): a Fling glides on for seconds, easing out over 0.75 s (before, a decay
+ * that stopped in under 2 s, a third as far). The **bounds** box gives F `dragConstraints`,
+ * drawn dashed: x 0 to 200, y −150 to 0. The drag holds it within them, pulled back past an
+ * edge by Motion's default `dragElastic`, 0.35 (the card's `under pointer` expects that), and a
+ * Fling that would cross an edge springs back to it on the 200 / 40 bounce and rests there:
+ * the `stays in bounds` line (before #140 it coasted on past the edge and rested there). The
+ * **grid** box gives F a `modifyTarget` that rests a release on a 50 px grid, its dots where
+ * F's top-left corner can rest; the `rests` line judges it. Both remount F.
+ *
  * The card's release lines are the point of the plain runs: a release from a
  * pointerup moves on its first painted frame, and it always ends on the slot, even when
  * you let go back where you grabbed while still moving (the release that used to stay
@@ -90,8 +100,42 @@ const FREE_STYLE: JSX.CSSProperties = {
   "justify-content": "center",
 }
 
-/** How long F's release may take to settle, in ms: its Fling decays for a few seconds (#139). */
-const FREE_SETTLE_MS = 4000
+/** How long F's release may take to settle, in ms: its Fling glides on for up to about 6 s (#140: 0.75 s · ln of its glide). */
+const FREE_SETTLE_MS = 7000
+
+/** F's constraints with the bounds box (#140): on its x and y, so within the stage, on the grid's lines. */
+const FREE_BOUNDS = { x: { min: 0, max: 200 }, y: { min: -150, max: 0 } } as const
+
+/** Motion's default `dragElastic`, which F keeps (#140): what the card expects past an edge. */
+const DEFAULT_ELASTIC = 0.35
+
+/** The grid box's grid, in px (#140): F's release rests on multiples of it, on x and y. */
+const GRID_PX = 50
+
+/** Rest a release on the grid: Motion's `modifyTarget` (#140). */
+const toGrid = (ideal: number): number => Math.round(ideal / GRID_PX) * GRID_PX
+
+/** The bounds box's edges, drawn: the area F covers within its constraints (it rests at left 16, top 180). */
+const BOUNDS_STYLE: JSX.CSSProperties = {
+  position: "absolute",
+  left: `${16 + FREE_BOUNDS.x.min}px`,
+  top: `${180 + FREE_BOUNDS.y.min}px`,
+  width: `${FREE_BOUNDS.x.max - FREE_BOUNDS.x.min + 64}px`,
+  height: `${FREE_BOUNDS.y.max - FREE_BOUNDS.y.min + 64}px`,
+  "box-sizing": "border-box",
+  border: "1px dashed var(--lab-muted)",
+  "pointer-events": "none",
+}
+
+/** The grid box's grid, drawn: a dot wherever F's top-left corner can rest (x 16, y 180, then every 50 px). */
+const GRID_STYLE: JSX.CSSProperties = {
+  position: "absolute",
+  inset: "0",
+  "background-image": "radial-gradient(circle, var(--lab-muted) 1.5px, transparent 2px)",
+  "background-size": `${GRID_PX}px ${GRID_PX}px`,
+  "background-position": "41px 5px",
+  "pointer-events": "none",
+}
 
 /** How long after Z or P at rest D's own layout animation may still be running, in ms (the default transition, Motion's tween, lands at 450, #171). */
 const FLIGHT_MS = 1000
@@ -126,6 +170,9 @@ const View: ScenarioDef["View"] = (props) => {
   const [loseNext, setLoseNext] = createSignal(false)
   const [momentum, setMomentum] = createSignal(true)
   const [twin, setTwin] = createSignal(false)
+  // F's constraints and grid (#140), read at its mount, so each remounts it.
+  const [bounded, setBounded] = createSignal(false)
+  const [grid, setGrid] = createSignal(false)
   // Put the free box back: remounts F where it started (a flick can carry it out of the stage).
   const [freeKey, setFreeKey] = createSignal(0)
   let stage: HTMLDivElement | undefined
@@ -178,6 +225,9 @@ const View: ScenarioDef["View"] = (props) => {
       // F's runs are a free item's (#139): a Fling with momentum, none without.
       mode: () => (pressed === free ? (momentum() ? "fling" : "fling-off") : "release"),
       settleMs: () => (pressed === free ? FREE_SETTLE_MS : undefined),
+      // F's constraints and grid (#140), for its `under pointer`, `stays in bounds` and `rests` lines.
+      bounds: () => (pressed === free && bounded() ? { ...FREE_BOUNDS, elastic: DEFAULT_ELASTIC } : undefined),
+      grid: () => (pressed === free && grid() ? GRID_PX : undefined),
       onPhase: (phase) => {
         // Only D's own gesture and release change how Z and P act.
         if (pressed === free && phase !== "end") return
@@ -230,13 +280,21 @@ const View: ScenarioDef["View"] = (props) => {
             </>
           )}
         </Show>
-        {/* F, the free box (#139): its momentum is read at mount, so the box remounts it too. */}
-        <Show when={`${momentum()}:${freeKey()}`} keyed>
+        <Show when={grid()}>
+          <div style={GRID_STYLE} />
+        </Show>
+        <Show when={bounded()}>
+          <div data-bounds style={BOUNDS_STYLE} />
+        </Show>
+        {/* F, the free box (#139): its momentum, constraints and grid are read at mount, so the boxes remount it too. */}
+        <Show when={`${momentum()}:${freeKey()}:${bounded()}:${grid()}`} keyed>
           {(_mount) => (
             <wardic.div
               class="box"
               drag
               dragMomentum={momentum()}
+              {...(bounded() ? { dragConstraints: FREE_BOUNDS } : {})}
+              {...(grid() ? { dragTransition: { modifyTarget: toGrid } } : {})}
               data-action="fling"
               // eslint-disable-next-line solid/reactivity
               ref={(el: HTMLElement) => (free = el)}
@@ -251,6 +309,8 @@ const View: ScenarioDef["View"] = (props) => {
         <Checkbox label="momentum (dragMomentum)" name="momentum" checked={momentum()} onChange={setMomentum} />
         <Checkbox label="twin (a layoutId Follower)" name="twin" checked={twin()} onChange={setTwin} />
         <Checkbox label="lose the next release (L while held)" name="lose-next-release" checked={loseNext()} onChange={setLoseNext} />
+        <Checkbox label="bounds (free box's dragConstraints)" name="bounds" checked={bounded()} onChange={setBounded} />
+        <Checkbox label="grid (free box's modifyTarget, 50 px)" name="grid" checked={grid()} onChange={setGrid} />
         <button type="button" class="btn secondary small" data-action="free-back" onClick={() => setFreeKey((k) => k + 1)}>
           Put the free box back
         </button>
@@ -260,7 +320,8 @@ const View: ScenarioDef["View"] = (props) => {
         flies back, or at rest (then grab it while it animates: it slides on under the pointer, no jump). L (held)
         loses its release. Release still, release while moving (a flick carries it on, with momentum), and release
         back where you grabbed while moving. Throw the free box: let go while moving and it carries on; let go still,
-        or after a pause, and it stays.
+        or after a pause, and it stays. With bounds, drag it past the dashed edge (it lags the pointer there) and throw
+        it at one: it springs back and rests on it. With the grid, it rests on a dot.
       </p>
     </div>
   )
@@ -279,7 +340,7 @@ export const s13: ScenarioDef = {
   title: "Release and pointer lag",
   kind: "drag",
   mechanism:
-    "Grab the blue item, move it, let go: still, while moving, or back where you grabbed while moving. Z resizes the item's own slot and P FLIPs its parent 60px right, held, flying back or at rest (then grab it mid-animation). The boxes turn off momentum, and give the item a layoutId twin. Throw the free box (bottom left): let go while moving, still, or after a pause.",
+    "Grab the blue item, move it, let go: still, while moving, or back where you grabbed while moving. Z resizes the item's own slot and P FLIPs its parent 60px right, held, flying back or at rest (then grab it mid-animation). The boxes turn off momentum, and give the item a layoutId twin. Throw the free box (bottom left): let go while moving, still, or after a pause; with bounds, past an edge; with the grid, anywhere.",
   prediction: "safe",
   rationale:
     "Since #26 a pointer move re-derives the dragged item, so it paints in the frame the move reaches it (with a " +
@@ -293,7 +354,9 @@ export const s13: ScenarioDef = {
     "layout animation (Z or P at rest) leaves it running under the pointer, so the item slides the rest of the way " +
     "there with no jump; the card judges the drag from where it lands. The free box's release is a Fling from the " +
     "pointer's velocity over its last 100 ms, the release point counted (#139): a flick carries on, a pause before " +
-    "letting go doesn't.",
+    "letting go doesn't. Since #140 every release runs on the drag transition, Motion's inertia: a Fling glides on " +
+    "for seconds, and with constraints springs back to an edge it would cross and rests on it, on the 200 / 40 bounce; " +
+    "a grid's modifyTarget rests it on the grid.",
   dragExpect: {
     underPointerMaxPx: 1,
     framesBehindMax: 0,
@@ -305,6 +368,7 @@ export const s13: ScenarioDef = {
     gestureEndsMaxPx: 1,
   },
   // #139: the free box carries on when let go while moving, and stays when let go still.
-  flingExpect: { movingSpeed: 100, stillSpeed: 1, carriesMinPx: 2, staysMaxPx: 0.5 },
+  // #140: with the bounds box it rests within them; with the grid box, on it.
+  flingExpect: { movingSpeed: 100, stillSpeed: 1, carriesMinPx: 2, staysMaxPx: 0.5, outsideMaxPx: 0.5 },
   View,
 }

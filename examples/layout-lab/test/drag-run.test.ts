@@ -1092,7 +1092,7 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
 // frames 16 ms apart), so 1250 px/s; after the release the frames show what the Fling did.
 describe("a free item's release (#139, scenario 13's free box)", () => {
   const F: Box = box(16, 180, 64, 64)
-  const EXPECT: FlingExpect = { movingSpeed: 100, stillSpeed: 1, carriesMinPx: 2, staysMaxPx: 0.5 }
+  const EXPECT: FlingExpect = { movingSpeed: 100, stillSpeed: 1, carriesMinPx: 2, staysMaxPx: 0.5, outsideMaxPx: 0.5 }
   const S13: DragExpect = { underPointerMaxPx: 1, framesBehindMax: 0, childGlueMaxPx: 1, maxSeededPerPass: 1, releaseHeldMax: 0, endsOnSlotMaxPx: 0.5, gestureEndsMaxPx: 1 }
   /**
    * F's press: 8 moves, let go `pause` ms after the last (2 ms: in the same breath), then
@@ -1204,6 +1204,81 @@ describe("a free item's release (#139, scenario 13's free box)", () => {
     const run = dragRunOf(flingInput({ mode: "release" }), [])
     expect(run.fling).toBeNull()
     expect(flingChecksOf(run, EXPECT)).toEqual([])
+  })
+
+  // #140: the bounds box, x 0 to 100 here with Motion's dragElastic 0.35. The pointer goes 160 px right,
+  // so past 100 the drag holds F at 100 + (pointer − 100) × 0.35: 121 at the release.
+  const BOUNDS = { x: { min: 0, max: 100 }, y: { min: -150, max: 0 }, elastic: 0.35 }
+  const held = (dx: number): number => (dx <= 100 ? dx : 100 + (dx - 100) * 0.35)
+  /** F's press with the bounds box: held where the constraints hold it, then at `after`'s x, frame by frame. */
+  const boundedInput = (after: ReadonlyArray<number>, over: Partial<DragRunInput> = {}): DragRunInput => {
+    const moves: Array<DragMove> = Array.from({ length: 8 }, (_, i) => ({ t: frameAtOf(i + 1) + 8, frame: i + 1, dx: 20 * (i + 1), dy: 0 }))
+    const releaseAt = moves[7]!.t + 2
+    const heldFrames: Array<DragFrame> = []
+    for (let k = 1; frameAtOf(k) < releaseAt; k++) heldFrames.push(frameOf(k, moved(F, held(20 * Math.min(k - 1, 8)), 0), F, {}))
+    const first = heldFrames.length + 1
+    const frames = [...heldFrames, ...after.map((x, i) => frameOf(first + i, moved(F, x, 0), F, {}))]
+    return {
+      scenarioId: "drag-release",
+      mode: "fling",
+      grabAt: GRAB_AT,
+      grabBox: F,
+      moves,
+      frames,
+      childOffsets: {},
+      releaseAt,
+      endedAt: frames.at(-1)!.t + 1,
+      endedBy: "settled",
+      scheduler: "microtask",
+      bounds: BOUNDS,
+      ...over,
+    }
+  }
+  /** Motion's release past the edge: on 6 px, then back to the edge and on it. */
+  const SPRINGS_BACK = [125, 127, 124, 118, 111, 105, 101.5, 100, 100, 100, 100]
+
+  it("FR9: with constraints, under pointer expects the drag held within them, pulled back past an edge by the elastic", () => {
+    const run = dragRunOf(boundedInput(SPRINGS_BACK), [])
+    expect(run.underPointerMaxPx, "on the constrained place").toBeCloseTo(0, 6)
+    // Without the bounds, the same frames read as behind the pointer: the last held frame shows the
+    // seventh move, 140 px, with F held at 100 + 40 × 0.35 = 114.
+    const { bounds: _bounds, ...unbounded } = boundedInput(SPRINGS_BACK)
+    expect(dragRunOf(unbounded, []).underPointerMaxPx).toBeCloseTo(26, 6)
+  })
+
+  it("FR10: stays in bounds: springing back to the edge and resting on it passes, and how far past it went shows; the fling line isn't judged", () => {
+    const run = dragRunOf(boundedInput(SPRINGS_BACK), [])
+    expect(run.inBounds).toEqual({ rest: { x: 100, y: 0 }, outsidePx: 0, peakPastPx: 27, atEdge: true })
+    // Let go where the drag held it, 121: it ended 21 px back.
+    expect(run.fling!.carriedPx).toBeCloseTo(-21, 6)
+    const fling = flingChecksOf(run, EXPECT)
+    expect(fling.map((c) => c.name)).toEqual([...FLING_CHECK_NAMES])
+    expect(line(fling, "stays in bounds")).toEqual({
+      name: "stays in bounds",
+      ok: true,
+      text: "rests at x 100.00 px, y 0.00 px · 0.00 px outside · went 27.00 px past an edge ✓",
+    })
+    expect(line(fling, "fling")).toMatchObject({ ok: true })
+    expect(line(fling, "fling").text).toMatch(/at an edge, not judged$/)
+  })
+
+  it("FR11: stays in bounds fails a release that coasts on past the edge and rests there (before #140)", () => {
+    const coasts = line(flingChecksOf(dragRunOf(boundedInput([140, 160, 175, 185, 190, 192, 192, 192]), []), EXPECT), "stays in bounds")
+    expect(coasts.ok).toBe(false)
+    expect(coasts.text).toContain("92.00 px outside")
+    expect(coasts.text).toContain("✗ expected ≤ 0.5 px outside")
+  })
+
+  it("FR12: with no constraints the line isn't judged; with a grid, rests judges that it rests on it", () => {
+    expect(line(lines(flingInput({ carried: decaying(150) })).fling, "stays in bounds")).toEqual({ name: "stays in bounds", ok: true, text: "no constraints" })
+    const { bounds: _bounds, ...free } = boundedInput([125, 140, 148, 150, 150, 150, 150])
+    const on = flingChecksOf(dragRunOf({ ...free, grid: 50 }, []), EXPECT)
+    expect(line(on, "rests")).toEqual({ name: "rests", ok: true, text: "settled · 0.00 px off the 50 px grid ✓" })
+    expect(line(on, "fling").text).toMatch(/on a grid, not judged$/)
+    const { bounds: _also, ...drifted } = boundedInput([130, 131, 132, 132, 132, 132])
+    const off = line(flingChecksOf(dragRunOf({ ...drifted, grid: 50 }, []), EXPECT), "rests")
+    expect(off.ok).toBe(false)
+    expect(off.text).toContain("18.00 px off the 50 px grid")
   })
 })
 

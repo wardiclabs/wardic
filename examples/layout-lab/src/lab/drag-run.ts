@@ -49,12 +49,17 @@
  * end on: it rests where its release leaves it. Its run reads the release instead
  * ({@link FlingRead}): the pointer's speed as Wardic reads it, and how far the item went
  * on past where it was let go. The card's `fling` and `rests` lines judge it
- * ({@link flingChecksOf}), and the slot lines don't.
+ * ({@link flingChecksOf}), and the slot lines don't. With constraints (#140, the bounds box)
+ * the drag holds its x and y within them, pulled back past an edge by its `dragElastic`, so
+ * where it should be under the pointer is constrained too, and the `stays in bounds` line
+ * judges where its release leaves it ({@link BoundsRead}); with a grid (the grid box), the
+ * `rests` line judges that it rests on it.
  *
  * Pure (no DOM), so the node test tier imports it (`test/drag-run.test.ts`).
  *
  * @module
  */
+import * as Drag from "@wardic/core/Drag"
 import * as Velocity from "@wardic/core/Velocity"
 import type { SpanRecord } from "../probe/timeline.ts"
 import type { ReorderFrame, ReorderRunData } from "./reorder-run.ts"
@@ -274,6 +279,14 @@ export interface DragRunInput {
    */
   readonly lock?: "x" | "y"
   /**
+   * A free item's constraints on its x and y, with its `dragElastic` (scenario 13's bounds box,
+   * #140): the drag holds it within them, pulled back past an edge by the elastic, and its
+   * release springs back to an edge it would cross. Left out with none.
+   */
+  readonly bounds?: DragBounds
+  /** A free item's grid, in px (scenario 13's grid box, #140): its `modifyTarget` rests a release on multiples of it. Left out with none. */
+  readonly grid?: number
+  /**
    * The item's own layout animation was running at the press (the scenario says so,
    * scenario 13 after Z or P at rest): its slot then. A grab leaves that flight running
    * under the pointer, as Motion's does (#30, ADR-0016 *Amendment (velocity family)*),
@@ -281,6 +294,20 @@ export interface DragRunInput {
    * by the pointer. Left out otherwise.
    */
   readonly grabFlight?: { readonly slot: Box }
+}
+
+/** One axis's edges, in px. */
+export interface Range {
+  readonly min: number
+  readonly max: number
+}
+
+/** A free item's constraints on its x and y (see {@link DragRunInput.bounds}). */
+export interface DragBounds {
+  readonly x: Range
+  readonly y: Range
+  /** Its `dragElastic`: how far past an edge the drag lets it go, as a share of the pointer's. */
+  readonly elastic: number
 }
 
 /** One Measure pass that started during a drag run. */
@@ -399,6 +426,84 @@ export interface FlingRead {
   readonly movedPx: number
 }
 
+/** The item's x and y at the grab: its grab box less its slot (the first frame's). */
+const xyAtGrabOf = (input: DragRunInput): Point => {
+  const slot = input.frames[0]?.slot ?? input.grabBox
+  return { x: input.grabBox.x - slot.x, y: input.grabBox.y - slot.y }
+}
+
+/**
+ * How far a move should have taken the item from its grab box: the pointer's offset, or with
+ * {@link DragRunInput.bounds} that offset with the item's x and y kept within them, past an edge
+ * pulled back by the elastic (Motion's `applyConstraints`, `Drag.constrain`; #140).
+ */
+const heldOffsetOf = (input: DragRunInput, m: DragMove): Point => {
+  const b = input.bounds
+  if (b === undefined) return { x: m.dx, y: m.dy }
+  const at = xyAtGrabOf(input)
+  return { x: Drag.constrain(at.x + m.dx, b.x, b.elastic) - at.x, y: Drag.constrain(at.y + m.dy, b.y, b.elastic) - at.y }
+}
+
+/** Where a move should have put the item's centre, from its centre at the grab (see {@link heldOffsetOf}). */
+const followOf =
+  (input: DragRunInput, grabCentre: Point) =>
+  (m: DragMove): Point => {
+    const by = heldOffsetOf(input, m)
+    return { x: grabCentre.x + by.x, y: grabCentre.y + by.y }
+  }
+
+/**
+ * Where a free item's release left it, against its constraints (#140): what the `stays in bounds`
+ * line reads. Every field is JSON-safe.
+ */
+export interface BoundsRead {
+  /** Where it rests: its x and y at the run's last frame (its painted box less its slot). */
+  readonly rest: Point
+  /** How far outside the bounds it rests, in px (the larger of x and y; 0 within them). */
+  readonly outsidePx: number
+  /** The most it went past an edge after the release, in px (0 if it never did). */
+  readonly peakPastPx: number
+  /** Whether an edge turned the release: it was let go past one, or went past one (more than {@link NEAR_PX}). */
+  readonly atEdge: boolean
+}
+
+/** How far `v` is outside `range`, in px (0 within it). */
+const outsideOf = (v: number, range: Range): number => Math.max(range.min - v, v - range.max, 0)
+
+/** How far `p` is outside `b`, in px: the larger of its axes'. */
+const outsideBoundsOf = (p: Point, b: DragBounds): number => Math.max(outsideOf(p.x, b.x), outsideOf(p.y, b.y))
+
+/** A free item's release against its constraints (see {@link BoundsRead}); `null` with none, or with no release or a lost one. */
+const boundsOf = (input: DragRunInput): BoundsRead | null => {
+  const b = input.bounds
+  const { releaseAt } = input
+  const last = input.moves[input.moves.length - 1]
+  const end = input.frames[input.frames.length - 1]
+  if (b === undefined || !isFlingMode(input.mode) || releaseAt === null || input.releaseLost === true || last === undefined || end === undefined) return null
+  const xyOf = (f: DragFrame): Point => ({ x: f.d.x - f.slot.x, y: f.d.y - f.slot.y })
+  const rest = xyOf(end)
+  const after = input.frames.filter((f) => f.frameAt >= releaseAt)
+  const at = xyAtGrabOf(input)
+  const letGo = { x: at.x + heldOffsetOf(input, last).x, y: at.y + heldOffsetOf(input, last).y }
+  const peakPastPx = after.reduce((peak, f) => Math.max(peak, outsideBoundsOf(xyOf(f), b)), 0)
+  return {
+    rest,
+    outsidePx: outsideBoundsOf(rest, b),
+    peakPastPx,
+    atEdge: outsideBoundsOf(letGo, b) > NEAR_PX || peakPastPx > NEAR_PX,
+  }
+}
+
+/** How far `v` is off the nearest multiple of `grid`, in px. */
+const offGridOf = (v: number, grid: number): number => Math.abs(v - Math.round(v / grid) * grid)
+
+/** How far a free item rests off its grid (#140), in px (the larger of x and y); `null` with no grid, or no frame. */
+const offGridPxOf = (input: DragRunInput): number | null => {
+  const end = input.frames[input.frames.length - 1]
+  if (input.grid === undefined || !isFlingMode(input.mode) || end === undefined) return null
+  return Math.max(offGridOf(end.d.x - end.slot.x, input.grid), offGridOf(end.d.y - end.slot.y, input.grid))
+}
+
 /** A free item's release (see {@link FlingRead}); `null` for any other run, or one with no release or a lost one. */
 const flingOf = (input: DragRunInput): FlingRead | null => {
   const { releaseAt } = input
@@ -412,7 +517,7 @@ const flingOf = (input: DragRunInput): FlingRead | null => {
   ]
   const velocity = Velocity.trailing(points, FLING_WINDOW_MS)
   const speed = Math.hypot(velocity.x, velocity.y)
-  const letGo = offsetBy(input.grabBox, { x: last.dx, y: last.dy })
+  const letGo = offsetBy(input.grabBox, heldOffsetOf(input, last))
   const dx = end.d.x - letGo.x
   const dy = end.d.y - letGo.y
   return {
@@ -507,6 +612,10 @@ export interface DragRun extends DragRunInput {
   readonly gestureEnd: GestureEnd
   /** A free item's release (#139, {@link FlingRead}); `null` for any other run. */
   readonly fling: FlingRead | null
+  /** A free item's release against its constraints (#140, {@link BoundsRead}); `null` with none. */
+  readonly inBounds: BoundsRead | null
+  /** How far a free item rests off its grid (#140), in px; `null` with no grid. */
+  readonly offGridPx: number | null
   /** The recorded `wardic.*` spans that started in `[grabAt, endedAt]`, as the lab joined them. */
   readonly spans: ReadonlyArray<SpanRecord>
 }
@@ -559,7 +668,7 @@ export const DRAG_CHECK_NAMES = [
 ] as const
 
 /** A free item's lines (#139, scenario 13's free box), after the drag lines. {@link flingChecksOf} returns them. */
-export const FLING_CHECK_NAMES = ["fling", "rests"] as const
+export const FLING_CHECK_NAMES = ["fling", "rests", "stays in bounds"] as const
 
 /** One of {@link DRAG_CHECK_NAMES} or {@link FLING_CHECK_NAMES}. */
 export type DragCheckName = (typeof DRAG_CHECK_NAMES)[number] | (typeof FLING_CHECK_NAMES)[number]
@@ -700,7 +809,7 @@ const gestureEndOf = (
 ): GestureEnd => {
   const { frames, grabBox, releaseAt } = input
   const grabCentre = centreOf(grabBox)
-  const targetOf = (m: DragMove): Point => ({ x: grabCentre.x + m.dx, y: grabCentre.y + m.dy })
+  const targetOf = followOf(input, grabCentre)
   const lastMove = input.moves[input.moves.length - 1]
   // The pointer's last pressed point: where a Stale gesture's rule A ends the drag.
   const pressedAt = lastMove === undefined ? grabCentre : targetOf(lastMove)
@@ -840,7 +949,8 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
   // item rests against that slot: a settled run's last frame says how far off, sub-pixel.
   const flightSlot = input.grabFlight === undefined ? undefined : offsetBy(input.grabFlight.slot, restOffsetOf(input))
   const grabCentre = centreOf(flightSlot ?? input.grabBox)
-  const targetOf = (m: DragMove): Point => ({ x: grabCentre.x + m.dx, y: grabCentre.y + m.dy })
+  // Where each move should put the item: the pointer's offset, within a free item's constraints (#140).
+  const targetOf = followOf(input, grabCentre)
   const firstMove = moves[0]
   const held =
     firstMove === undefined
@@ -951,6 +1061,8 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     endsOnSlotPx,
     gestureEnd: gestureEndOf(input, end, previous, hop),
     fling: flingOf(input),
+    inBounds: boundsOf(input),
+    offGridPx: offGridPxOf(input),
     spans,
   }
 }
@@ -1164,6 +1276,8 @@ export interface FlingExpect {
   readonly carriesMinPx: number
   /** The most a release that should stay may move, in px. */
   readonly staysMaxPx: number
+  /** The most a constrained item may rest outside its constraints, in px (#140); and off its grid. */
+  readonly outsideMaxPx: number
 }
 
 /** A speed as the card prints it, e.g. `512 px/s`. */
@@ -1174,23 +1288,48 @@ const pxPerSecond = (n: number): string => `${n.toFixed(0)} px/s`
  * run (its card shows `–` there). `fling`: with momentum off, or let go below
  * `stillSpeed`, it should stay (`stays`, within `staysMaxPx`); let go at `movingSpeed` or
  * more with momentum, it should carry on (`carries on`, at least `carriesMinPx` along the
- * pointer's direction); between the two speeds it is shown and not judged. `rests`: the run
- * settled (a timeout fails it; a run cut short isn't judged). How far it carries is
- * Motion-parity work (#140), not judged.
+ * pointer's direction); between the two speeds it is shown and not judged. An edge that
+ * decided where it rests, or a grid, moves it by design (#140): the line is then shown and not
+ * judged. `rests`: the run settled (a timeout fails it; a run cut short isn't judged), and with a
+ * grid, on it (within `outsideMaxPx`). `stays in bounds` (#140): with constraints, it rests within
+ * them (within `outsideMaxPx`), and how far past an edge its release went is shown; with none it
+ * isn't judged.
  */
 export const flingChecksOf = (run: DragRun, expect: FlingExpect | undefined): Array<DragCheck> => {
   if (!isFlingMode(run.mode)) return []
   const f = run.fling
+  const outsideMax = expect?.outsideMaxPx
+  const gridNote = run.grid === undefined || run.offGridPx === null ? "" : ` · ${px(run.offGridPx)} off the ${run.grid} px grid`
   const rests = cutShort(run.endedBy)
     ? lineOf("rests", cutTextOf(run), undefined, true)
-    : lineOf("rests", run.endedBy === "timeout" ? "still moving at the timeout" : "settled", expect === undefined ? undefined : "settled", run.endedBy !== "timeout")
-  if (f === null) return [lineOf("fling", run.releaseLost === true ? "lost release" : "?", undefined, run.releaseLost === true), rests]
+    : lineOf(
+        "rests",
+        `${run.endedBy === "timeout" ? "still moving at the timeout" : "settled"}${gridNote}`,
+        expect === undefined ? undefined : `settled${gridNote === "" ? "" : `, on the grid within ${outsideMax} px`}`,
+        run.endedBy !== "timeout" && (run.offGridPx === null || outsideMax === undefined || run.offGridPx <= outsideMax),
+      )
+  const b = run.inBounds
+  const inBounds =
+    b === null
+      ? lineOf("stays in bounds", run.bounds === undefined ? "no constraints" : run.releaseLost === true ? "lost release" : "?", undefined, true)
+      : cutShort(run.endedBy)
+        ? lineOf("stays in bounds", cutTextOf(run), undefined, true)
+        : lineOf(
+            "stays in bounds",
+            `rests at x ${px(b.rest.x)}, y ${px(b.rest.y)} · ${px(b.outsidePx)} outside · went ${px(b.peakPastPx)} past an edge`,
+            outsideMax === undefined ? undefined : `≤ ${outsideMax} px outside`,
+            outsideMax === undefined || b.outsidePx <= outsideMax,
+          )
+  if (f === null) return [lineOf("fling", run.releaseLost === true ? "lost release" : "?", undefined, run.releaseLost === true), rests, inBounds]
   const at = `let go at ${pxPerSecond(f.speed)}`
+  // A grid, or an edge, moves where it rests by design (#140): shown, not judged.
+  const steered = run.grid !== undefined ? "on a grid" : b !== null && b.atEdge ? "at an edge" : undefined
+  if (steered !== undefined) return [lineOf("fling", `${px(f.carriedPx)} on · ${at} · ${steered}, not judged`, undefined, true), rests, inBounds]
   const stay = (why: string): DragCheck =>
     lineOf("fling", `stays: ${px(f.movedPx)} · ${why}`, expect === undefined ? undefined : `≤ ${expect.staysMaxPx} px`, expect === undefined || f.movedPx <= expect.staysMaxPx)
-  if (!f.momentum) return [stay(`momentum off · ${at}`), rests]
-  if (expect !== undefined && f.speed < expect.stillSpeed) return [stay("let go still"), rests]
-  if (expect !== undefined && f.speed < expect.movingSpeed) return [lineOf("fling", `${px(f.carriedPx)} on · ${at}: a slow release, not judged`, undefined, true), rests]
+  if (!f.momentum) return [stay(`momentum off · ${at}`), rests, inBounds]
+  if (expect !== undefined && f.speed < expect.stillSpeed) return [stay("let go still"), rests, inBounds]
+  if (expect !== undefined && f.speed < expect.movingSpeed) return [lineOf("fling", `${px(f.carriedPx)} on · ${at}: a slow release, not judged`, undefined, true), rests, inBounds]
   return [
     lineOf(
       "fling",
@@ -1199,6 +1338,7 @@ export const flingChecksOf = (run: DragRun, expect: FlingExpect | undefined): Ar
       expect === undefined || f.carriedPx >= expect.carriesMinPx,
     ),
     rests,
+    inBounds,
   ]
 }
 

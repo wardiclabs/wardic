@@ -65,7 +65,7 @@
  *
  * @module
  */
-import type { Box, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
+import type { Box, DragBounds, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
 import type { ReorderFrame } from "../lab/reorder-run.ts"
 import type { RestFrame, RestRunEnd, RestRunInput } from "../lab/rest-run.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
@@ -128,6 +128,13 @@ export interface DragRecorderOptions {
    * Fling decays for a few seconds before it stands still.
    */
   readonly settleMs?: () => number | undefined
+  /**
+   * The pressed item's constraints on its x and y, with its `dragElastic` (optional, read at the
+   * grab): scenario 13's free box with its bounds box on (#140). Recorded as the run's `bounds`.
+   */
+  readonly bounds?: () => DragBounds | undefined
+  /** The pressed item's grid, in px (optional, read at the grab): scenario 13's free box with its grid box on (#140). */
+  readonly grid?: () => number | undefined
   /**
    * Called as the press goes on: `start` when the pointer first moves past the drag
    * threshold (the drag has started), `release` on the pointerup, `end` once the run
@@ -246,6 +253,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
           endedBy?: DragRunEnd
           pointerLeft?: boolean
           scheduler: "default" | "microtask"
+          bounds?: DragBounds
+          grid?: number
         }
         /** Whether the press is the Primary pointer's: only its drag starts the scenario's `start` phase. */
         readonly primary: boolean
@@ -569,6 +578,14 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         endedAt: 0,
         scheduler: currentLabScheduler(),
         ...(opts.flyingAtPress?.() === true ? { grabFlight: { slot: layoutBox(item, stage) } } : {}),
+        ...((): { bounds?: DragBounds } => {
+          const bounds = opts.bounds?.()
+          return bounds === undefined ? {} : { bounds }
+        })(),
+        ...((): { grid?: number } => {
+          const grid = opts.grid?.()
+          return grid === undefined ? {} : { grid }
+        })(),
       },
       // Motion's `isPrimaryPointer`, as Wardic's recognizers read it after #31 (ADR-0019).
       primary: e.pointerType === "mouse" ? e.button <= 0 : e.isPrimary,
