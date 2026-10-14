@@ -179,7 +179,7 @@ The crossfade (ADR-0010 *Amendment (#5)*) and the blend (*Amendment (#166)*) rea
 - `measure-pass-timing` and `clock-cold-start` pin the spring too: its first step, about 2.5% of the move, is their measuring stick, and the tween's is under a pixel.
 - Every other solid test passes on the default.
 
-**The lab:** scenario 16's crossfade board gets **`lands`** (Q8): the Lead lands on its duration, within a frame and a half, exactly on its box, and never steps back by more than 0.05 px. A flight under 2 px isn't timed: the transform as written can't resolve its last frames. Not judged where a container scaling in moves the Lead too (the entrance and wrapper toggles), on a still run, or on one cut short.
+**The lab:** scenario 16's crossfade board gets **`lands`** (Q8): the Lead lands on its duration, within two frames, exactly on its box, and never steps back by more than 0.05 px. Two frames because a flight's first step counts a whole dt from the frame before, the nominal 1/60 s from an idle Clock. So on a display faster than 60 Hz it lands up to a frame early by the page's clock: a phone at 72 Hz landed 20 ms early, past a frame and a half. A flight under 2 px isn't timed: the transform as written can't resolve its last frames. Not judged where a container scaling in moves the Lead too (the entrance and wrapper toggles), on a still run, or on one cut short.
 - **This branch:** all 54 scripted runs pass; the 29 timed land at 448–451 ms.
 - **With the spring default:** all 29 land at 751 ms and fail `lands`.
 - **Reorder, scripted** (`.tmp/171/reorder-timing.ts`, a real mouse): a displaced sibling lands in 451 ms, against 751 ms on the spring.

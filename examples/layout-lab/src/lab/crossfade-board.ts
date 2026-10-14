@@ -18,9 +18,12 @@
  *   while one from where the twin would have rested jumps the rest of the twin's flight. Measured
  *   by the furthest edge (#8), so a twin's own scale counts: a start from its box without it jumps.
  * - **lands** (#171): the Lead lands on time, on its layout transition's duration (0.45 s, Motion's
- *   default tween), within a frame and a half of it, landed exactly on its box, and never steps back on its
+ *   default tween), within two frames of it, landed exactly on its box, and never steps back on its
  *   way: each frame no further from where it lands than the frame before, within 0.05px. A flight
- *   under 2px isn't timed: the transform as written can't resolve its last frames. A spring's tail crept for
+ *   under 2px isn't timed: the transform as written can't resolve its last frames. Two frames, not
+ *   one: a flight's first step counts a whole dt from the frame before, the nominal 1/60 s from an
+ *   idle Clock, so on a display faster than 60 Hz it lands up to a frame early by the page's clock
+ *   (a phone at 72 Hz: 20ms). A spring's tail crept for
  *   frames past that and could nudge back as it settled. Measured by the furthest edge, from the
  *   frame before its first sample. Not judged on a run something else moves the Lead in (a
  *   container scaling in), on one nothing moves, or on one the next run cut short.
@@ -193,6 +196,8 @@ const LANDED_WITHIN = 1e-4
  * under a pixel or two reads as landed frames early, and a landing that small can't be seen anyway.
  */
 const TIMED_FROM = 2
+/** How many frames off its duration a landing may be: its first step's dt counts from the frame before. */
+const ON_TIME_FRAMES = 2
 
 /** The lands line (#171), when the run recorded where its Lead was drawn each frame. */
 const landsOf = (series: CrossfadeSeries | undefined, superseded: boolean): Array<CrossfadeCheck> => {
@@ -209,9 +214,9 @@ const landsOf = (series: CrossfadeSeries | undefined, superseded: boolean): Arra
   const took = track[landed]!.t - track[0]!.t + frame
   const ms = landing.duration * 1000
   const back = left.filter((d, i) => i > 0 && d > left[i - 1]! + BACK_TOLERANCE).length
-  const onTime = Math.abs(took - ms) <= 1.5 * frame
+  const onTime = Math.abs(took - ms) <= ON_TIME_FRAMES * frame
   const text = [`at ${took.toFixed(0)}ms (its ${ms.toFixed(0)}ms)`, back === 0 ? "never back" : `back on ${back} frames`].join(", ")
-  return [line("lands", onTime && back === 0, text, `at ${ms.toFixed(0)}ms within ${(1.5 * frame).toFixed(0)}ms, never back`)]
+  return [line("lands", onTime && back === 0, text, `at ${ms.toFixed(0)}ms within ${(ON_TIME_FRAMES * frame).toFixed(0)}ms, never back`)]
 }
 
 /** The follows line (#8), when the run recorded where its Follower was drawn. */
