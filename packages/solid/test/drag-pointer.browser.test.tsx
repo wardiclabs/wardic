@@ -251,7 +251,9 @@ describe.each(["layout", "free"] as const)("%s drag", (mode) => {
     await wait(150)
     const off = seen(s)
     await mouse.up({ x: g.x + 240, y: g.y })
-    await wait(900)
+    // A layout D's Release offset springs back on the drag transition's 200 / 40 bounce, overdamped:
+    // from 240 px it's within 1 px after about 0.95 s (ADR-0016, *Amendment (#140)*).
+    await wait(1300)
     const after = seen(s)
     expect.soft(before.dx, "D follows the small moves").toBeCloseTo(12, 0)
     expect.soft(off.dx, "D follows the pointer after the jump off it").toBeCloseTo(240, 0)

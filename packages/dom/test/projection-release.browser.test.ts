@@ -3,7 +3,8 @@
 // with every Refresh frame fired by hand.
 //
 // The release is the drag target's distance from where the layout puts the node, springing
-// to zero per axis on the node's transition, from the drag's velocity. A slot move during it
+// to zero per axis on the node's drag transition (*Amendment (#140)*), from the drag's velocity:
+// Motion's inertia with both edges at its slot. A slot move during it
 // starts a layout animation under it and leaves its motion alone. A grab leaves a running
 // layout animation running, and stops a release where it is. Only a shared-element handover
 // crossfades.
@@ -14,8 +15,9 @@
 // Refresh frames by hand; ResizeObserver is stubbed to a no-op, so every Measure pass here
 // comes from `notify`.
 import { describe, expect, it } from "@effect/vitest"
+import * as Machine from "@wardic/core/Machine"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import { DEFAULT_DRAG_TRANSITION, type ProjectionNodeHandle, type RegisterNodeOptions } from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -60,36 +62,30 @@ const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<Reg
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 describe("a layout node's release is a Release offset on its layout animation (ADR-0016, Amendment (velocity family))", () => {
-  it("RL1: a release with no velocity paints a FLIP's curve and settles on the same frame (guard)", async () => {
+  it("RL1: a release with no velocity springs back from rest on the drag transition, core's inertia frame for frame (#140)", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const root = stage()
-    const aEl = makeBox(root, 0, 0, 100, 50)
-    const bEl = makeBox(root, 80, 100, 100, 50)
-    const a = register(e, "a", aEl)
-    const b = register(e, "b", bEl)
+    const a = register(e, "a", makeBox(root, 0, 0, 100, 50))
     await endOfTask()
     fireFrame()
     a.dragStart()
     a.dragMove({ x: 80, y: 0 })
     fireFrame()
-    // In one task: A released 80 px right of its slot, B moved 80 px left of where it paints.
     a.dragEnd()
-    bEl.style.left = "0px"
-    b.notify()
     await endOfTask()
-    const run = frames(90, () => [t(sk, "a").x, t(sk, "b").x] as const)
-    const as = run.map(([x]) => x)
-    const bs = run.map(([, x]) => x)
-    expect(as[0]).toBeLessThan(80)
-    as.forEach((x, k) => expect(x, `frame ${k}`).toBeCloseTo(bs[k]!, 6))
-    const settledAt = (id: string) => sk.writes.map((w) => w.id).lastIndexOf(id)
-    const aLast = sk.writes[settledAt("a")]!
-    const bLast = sk.writes[settledAt("b")]!
-    expect(aLast.tx).toBe(0)
-    expect(bLast.tx).toBe(0)
-    // Settled on the same frame: their last writes are adjacent in the log.
-    expect(Math.abs(settledAt("a") - settledAt("b"))).toBe(1)
+    const as = frames(90, () => t(sk, "a").x)
+    // Motion's drag transition (framer-motion 13.4.0, `startAnimation`, with its default `dragElastic`).
+    expect(DEFAULT_DRAG_TRANSITION).toEqual({ power: 0.8, timeConstant: 0.75, bounceStiffness: 200, bounceDamping: 40, restDelta: 1, restSpeed: 10 })
+    // Motion's `dragSnapToOrigin` release: an inertia from 80 px with both edges at the slot, on Motion's
+    // drag transition, so it starts past them and springs back on the 200 / 40 bounce.
+    const step = Machine.inertia(80, 0, { ...DEFAULT_DRAG_TRANSITION, min: 0, max: 0 }).start()
+    const expected = as.map(() => step(1 / 60))
+    const settles = expected.findIndex((f) => f.done)
+    expect(settles, "it settles within the run").toBeGreaterThan(10)
+    for (const [k, x] of as.slice(0, settles + 1).entries()) expect(x, `frame ${k + 1}`).toBeCloseTo(expected[k]!.value, 9)
+    expect(as[settles], "on its slot, once within 1 px and 10 px/s").toBe(0)
+    expect(sk.of("a").at(-1)!.tx, "and rests there").toBe(0)
     e.dispose()
   })
 
@@ -535,6 +531,41 @@ describe("a layout node's release is a Release offset on its layout animation (A
     await endOfTask()
     frames(150, () => undefined)
     expect(t(sk, "g")).toEqual({ x: 0, y: 0 })
+    e.dispose()
+  })
+
+  it("RL17: a release with velocity carries on outward on its drag transition, per axis, core's inertia frame for frame; a wall lands at once (#140)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const wall = { ...DEFAULT_DRAG_TRANSITION, bounceStiffness: 1e6, bounceDamping: 1e7 }
+    const a = register(e, "a", makeBox(root, 0, 0, 100, 50))
+    const w = register(e, "w", makeBox(root, 0, 100, 100, 50), { dragTransition: () => wall })
+    await endOfTask()
+    fireFrame()
+    for (const h of [a, w]) {
+      h.dragStart()
+      h.dragMove({ x: 60, y: -30 })
+    }
+    fireFrame()
+    for (const h of [a, w]) h.dragEnd({ x: 500, y: 200 })
+    await endOfTask()
+    const run = frames(90, () => [t(sk, "a"), t(sk, "w")] as const)
+    // Motion's: an inertia per axis from the offset at the release velocity, both edges at the slot.
+    const edges = { ...DEFAULT_DRAG_TRANSITION, min: 0, max: 0 }
+    const x = Machine.inertia(60, 500, edges).start()
+    const y = Machine.inertia(-30, 200, edges).start()
+    const expected = run.map(() => ({ x: x(1 / 60), y: y(1 / 60) }))
+    const settles = expected.findIndex((f) => f.x.done && f.y.done)
+    expect(settles, "it settles within the run").toBeGreaterThan(10)
+    for (const [k, [at]] of run.slice(0, settles + 1).entries()) {
+      expect(at.x, `frame ${k + 1}: x`).toBeCloseTo(expected[k]!.x.value, 9)
+      expect(at.y, `frame ${k + 1}: y`).toBeCloseTo(expected[k]!.y.value, 9)
+    }
+    expect(run[0]![0].x, "x carries on outward first").toBeGreaterThan(60)
+    expect(run[settles]![0], "on its slot").toEqual({ x: 0, y: 0 })
+    // Motion's wall (`dragElastic={0}`): its spring is so overdamped that it's on the slot on its first frame.
+    expect(run[0]![1], "the wall lands at once").toEqual({ x: 0, y: 0 })
     e.dispose()
   })
 })
