@@ -69,6 +69,9 @@ export interface UseLayoutMemberOptions {
   readonly layoutMode?: () => Projection.LayoutMode
   /** The element's own scale, read at each handover and each frame it follows (ADR-0010 *Amendment (#8)*). */
   readonly ownScale?: () => Point.Point
+  /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
+  readonly ownRotate?: () => number
+  readonly ownOpacity?: () => number
 }
 
 /**
@@ -92,7 +95,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
-  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, ownScale, raiseWhileDragged, transition } = opts
+  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 
   const handle = projection.register({
@@ -109,6 +112,8 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
     ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),
+    ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),
+    ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))

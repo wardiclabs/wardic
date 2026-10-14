@@ -44,6 +44,8 @@ import {
   type FlushGate,
   type FlushSink,
   mergeStyle,
+  ownOpacityOf,
+  ownRotateOf,
   ownScaleOf,
   ownValues,
   project as domProject,
@@ -754,6 +756,9 @@ export function runSpine(opts: RunSpineOptions): void {
           layoutMode: () => layoutModeOf(cfg().layout),
           // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
           ownScale: () => ownScaleOf(snapshot.values),
+          // And its own rotate and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*).
+          ownRotate: () => ownRotateOf(snapshot.values),
+          ownOpacity: () => ownOpacityOf(snapshot.values),
           ...(layoutId !== undefined ? { layoutId } : {}),
           ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
           ...(c0.layoutRoot === true ? { layoutRoot: true } : {}),

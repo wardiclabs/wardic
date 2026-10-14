@@ -90,7 +90,7 @@ import {
   transitionRunning,
 } from "./measure.ts"
 import { reportFailure } from "./report.ts"
-import { isUnitScale, SCALE_CORRECTORS, type ScaleCorrector } from "./scale-correction.ts"
+import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
 
 /**
  * The binding seam the coordinator writes through — structurally satisfied by the
@@ -187,28 +187,13 @@ const fadeOutAt = (p: number): number => {
   return (p - 0.5) / 0.45
 }
 
-/**
- * A Follower's `@projection` value (ADR-0010, *Amendment (#165)*): pointer input passes
- * through it, with the crossfade factor and the raise only when it carries them. Per frame.
- */
-const followerValue = (
-  delta: Projection.Delta,
-  treeScale: Point.Point,
-  opacity: number | undefined,
-  raise: number | undefined,
-): Projection.Value => {
-  if (Predicate.isUndefined(raise)) {
-    if (Predicate.isUndefined(opacity)) return { delta, treeScale, passesPointer: true }
-    return { delta, treeScale, opacity, passesPointer: true }
-  }
-  if (Predicate.isUndefined(opacity)) return { delta, treeScale, raise, passesPointer: true }
-  return { delta, treeScale, opacity, raise, passesPointer: true }
-}
+/** A `@projection` value under construction: its optional fields set only when present. */
+type ValueDraft = { -readonly [K in keyof Projection.Value]: Projection.Value[K] }
 
 /**
- * A node's `@projection` value, with the crossfade factor (ADR-0010) and the raise (ADR-0016)
- * only when it carries them; a Follower's passes pointer input through ({@link followerValue}).
- * Per frame.
+ * A node's `@projection` value, with the crossfade factor (ADR-0010), a handover's blended opacity and
+ * rotation (*Amendment (#166)*) and the raise (ADR-0016) only when it carries them. A Follower's passes
+ * pointer input through (*Amendment (#165)*). Per frame.
  */
 const projectionValue = (
   delta: Projection.Delta,
@@ -216,14 +201,16 @@ const projectionValue = (
   opacity: number | undefined,
   raise: number | undefined,
   follower: boolean,
+  rotate: number | undefined,
+  blendOpacity: number | undefined,
 ): Projection.Value => {
-  if (follower) return followerValue(delta, treeScale, opacity, raise)
-  if (Predicate.isUndefined(raise)) {
-    if (Predicate.isUndefined(opacity)) return { delta, treeScale }
-    return { delta, treeScale, opacity }
-  }
-  if (Predicate.isUndefined(opacity)) return { delta, treeScale, raise }
-  return { delta, treeScale, opacity, raise }
+  const value: ValueDraft = { delta, treeScale }
+  if (Predicate.isNotUndefined(opacity)) value.opacity = opacity
+  if (Predicate.isNotUndefined(blendOpacity)) value.blendOpacity = blendOpacity
+  if (Predicate.isNotUndefined(rotate)) value.rotate = rotate
+  if (Predicate.isNotUndefined(raise)) value.raise = raise
+  if (follower) value.passesPointer = true
+  return value
 }
 
 /** How far `to` sits from `from`, by their top-left corners. */
@@ -371,6 +358,18 @@ export interface RegisterNodeOptions {
    */
   readonly ownScale?: () => Point.Point
   /**
+   * The element's own `rotate` in degrees (ADR-0010 *Amendment (#166)*), which the renderer weaves
+   * into its projection (`ownRotateOf`): what a handover blends a twin's rotation into, read each
+   * frame of one. Default 0.
+   */
+  readonly ownRotate?: () => number
+  /**
+   * The element's own opacity (ADR-0010 *Amendment (#166)*, `ownOpacityOf`): what a Switch blends the
+   * leaver's opacity into, read each frame of one, and a leaver's when it's already off the page.
+   * Default 1.
+   */
+  readonly ownOpacity?: () => number
+  /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
    * same task seed its first measure (a Switch, *Amendment (#13)*). Omitted for a
@@ -508,6 +507,23 @@ interface NodeState {
   readonly layoutMode: () => Projection.LayoutMode
   /** The element's own scale per axis, drawn on top of its projection (ADR-0010 *Amendment (#8)*). */
   readonly ownScale: () => Point.Point
+  /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
+  readonly ownRotate: () => number
+  readonly ownOpacity: () => number
+  /**
+   * What the node's handover blends from (ADR-0010 *Amendment (#166)*): the twin's radius, rotation
+   * and, for a Switch, opacity, as they were drawn as it began. Eased into the node's own over the
+   * handover's progress; cleared as it settles. `undefined` otherwise.
+   */
+  blend: Blend | undefined
+  /** What a Switch seed handed to this node blends from (*Amendment (#166)*), taken with the seed. */
+  seedBlend: Blend | undefined
+  /** The node's look as it was drawn when it was disposed (*Amendment (#166)*): what its promoted twin blends from. */
+  leftLook: Blend | undefined
+  /** The opacity the node was last drawn at, as an absolute value (*Amendment (#166)*). */
+  drawnOpacity: number | undefined
+  /** Whether a blended radius was written, so the next write puts the node's own back (*Amendment (#166)*). */
+  radiusBlended: boolean
   /** Shared-element match key (ADR-0010), or `undefined` for a plain layout node. */
   readonly layoutId: string | undefined
   /**
@@ -690,7 +706,21 @@ interface RecentNode {
  */
 interface HeldSeed {
   readonly box: Box.Box
+  /** What the twin taking the seed blends from (ADR-0010 *Amendment (#166)*). */
+  readonly blend: Blend
   consumed: boolean
+}
+
+/**
+ * A twin's look as it was drawn when a handover began (ADR-0010 *Amendment (#166)*): its border
+ * radius as drawn, under its own scale (a scale corrector's base, `undefined` for none), its
+ * rotation in degrees, and its opacity,
+ * which only a Switch blends (`undefined` when a live twin crossfades instead).
+ */
+interface Blend {
+  readonly radius: unknown
+  readonly rotate: number
+  readonly opacity: number | undefined
 }
 
 /** A node with no Layout mode animates position and size (ADR-0009, *Amendment (#42)*). */
@@ -699,6 +729,9 @@ const ALWAYS_BOTH = (): Projection.LayoutMode => true
 /** No own scale: a node the binding gives none, or a leaving one, which the renderer draws without its own values. */
 const UNIT_SCALE: Point.Point = { x: 1, y: 1 }
 const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
+/** No own rotation or opacity of its own: a node the binding gives none, or a leaving one (*Amendment (#166)*). */
+const NO_OWN_ROTATE = (): number => 0
+const NO_OWN_OPACITY = (): number => 1
 
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point.Point = { x: 0, y: 0 }
@@ -917,7 +950,12 @@ export const makeProjectionSystem = (
     corrected?: Record<string, string>,
   ): void => {
     node.fade = opacity
-    const value = projectionValue(delta, treeScale, opacity, raiseOf(node), isFollower(node))
+    const follower = isFollower(node)
+    // A handover's blend (ADR-0010 *Amendment (#166)*): its rotation, and a Switch's opacity.
+    const rotate = rotateOverrideOf(node, follower)
+    const blendOpacity = switchOpacityOf(node, opacity, follower)
+    node.drawnOpacity = drawnOpacityAt(node, opacity, blendOpacity)
+    const value = projectionValue(delta, treeScale, opacity, raiseOf(node), follower, rotate, blendOpacity)
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
       renderer.commit(node.element, renderer.project(patch))
@@ -943,6 +981,23 @@ export const makeProjectionSystem = (
    * stale correction lingers and rest stays zero-cost.
    */
   const correctionsFor = (node: NodeState, sx: number, sy: number): Record<string, string> | undefined => {
+    const radius = radiusOverrideOf(node)
+    if (Predicate.isUndefined(radius) && !node.radiusBlended) return plainCorrectionsFor(node, sx, sy)
+    // A blended radius (ADR-0010 *Amendment (#166)*) is written whatever the scale, corrected for it;
+    // the write after the blend puts the node's own back, as the restore at unit scale does.
+    const out = UndefinedOr.match(plainCorrectionsFor(node, sx, sy), { onUndefined: (): Record<string, string> => ({}), onDefined: identity })
+    if (Predicate.isNotUndefined(radius)) {
+      node.radiusBlended = true
+      out[borderRadiusCorrector.key] = borderRadiusCorrector.correct(radius, sx, sy)
+      return out
+    }
+    node.radiusBlended = false
+    out[borderRadiusCorrector.key] = borderRadiusCorrector.correct(ownRadiusOrZero(node), sx, sy)
+    return out
+  }
+
+  /** The scale-corrected style keys for `node`'s own bases (ADR-0011), as {@link correctionsFor}. Per frame. */
+  const plainCorrectionsFor = (node: NodeState, sx: number, sy: number): Record<string, string> | undefined => {
     const bases = node.correctorBases
     if (bases === undefined || bases.length === 0) return undefined
     if (isUnitScale(sx, sy)) {
@@ -1070,6 +1125,147 @@ export const makeProjectionSystem = (
     node.crossfadeFrom = 0
     node.handoverMoves = undefined
     captureExits(node)
+  }
+
+  // --- A handover's blend (ADR-0010 *Amendment (#166)*): radius, rotation, a Switch's opacity ---
+
+  /** A node's own border radius (its scale corrector's base, ADR-0011), `undefined` for none. */
+  const ownRadiusOf = (node: NodeState): unknown => {
+    const bases = node.correctorBases
+    if (Predicate.isUndefined(bases)) return undefined
+    for (const { corrector, base } of bases) if (corrector === borderRadiusCorrector) return base
+    return undefined
+  }
+
+  /** {@link ownRadiusOf}, or no corner rounded. */
+  const ownRadiusOrZero = (node: NodeState): unknown => {
+    const radius = ownRadiusOf(node)
+    if (Predicate.isUndefined(radius)) return ZERO_RADIUS
+    return radius
+  }
+
+  /** How far `node`'s handover has run: its layout animation's progress, past 1 on a spring's overshoot; 1 at rest. Per frame. */
+  const blendProgressOf = (node: NodeState): number => {
+    const spring = node.spring
+    if (Predicate.isUndefined(spring)) return 1
+    return spring.position
+  }
+
+  /** `node`'s own radius as drawn: under its own scale (#8), px corners scaled. */
+  const drawnOwnRadiusOf = (node: NodeState): unknown => {
+    const scale = node.ownScale()
+    return scaleRadius(ownRadiusOf(node), scale.x, scale.y)
+  }
+
+  /** A radius as drawn, as `node` writes it: its own scale divided out, as {@link undrawnFor} does a box. */
+  const undrawnRadiusFor = (node: NodeState, radius: unknown): unknown => {
+    const scale = node.ownScale()
+    return scaleRadius(radius, invertScale(scale.x), invertScale(scale.y))
+  }
+
+  /**
+   * Where a Lead's radius is drawn, its own scale included (#8): its blend's eased into its own, or
+   * its own; `undefined` for none. Per frame.
+   */
+  const leadRadiusOf = (node: NodeState): unknown => {
+    const own = drawnOwnRadiusOf(node)
+    const blend = node.blend
+    if (Predicate.isUndefined(blend)) return own
+    if (Predicate.isUndefined(blend.radius) && Predicate.isUndefined(own)) return undefined
+    return blendRadius(blend.radius, own, blendProgressOf(node))
+  }
+
+  /** Where a Lead's rotation is drawn: its blend's eased into its own, or its own. Per frame. */
+  const leadRotateOf = (node: NodeState): number => {
+    const own = node.ownRotate()
+    const blend = node.blend
+    if (Predicate.isUndefined(blend)) return own
+    return blend.rotate + (own - blend.rotate) * blendProgressOf(node)
+  }
+
+  /** The Lead `node` follows, or `undefined` for a Lead or a node in no stack. Per frame. */
+  const followedLeadOf = (node: NodeState): NodeState | undefined => {
+    const lead = stackLeadOf(node)
+    if (Predicate.isUndefined(lead)) return undefined
+    if (lead === node) return undefined
+    return lead
+  }
+
+  /** `node`'s look as a Lead draws it, with `opacity`: what a handover from it blends from. */
+  const lookAsLeadOf = (node: NodeState, opacity: number | undefined): Blend => ({
+    radius: leadRadiusOf(node),
+    rotate: leadRotateOf(node),
+    opacity,
+  })
+
+  /** `node`'s look as it's drawn now, a Follower's being its Lead's, with `opacity`. */
+  const drawnLookOf = (node: NodeState, opacity: number | undefined): Blend =>
+    lookAsLeadOf(UndefinedOr.match(followedLeadOf(node), { onUndefined: () => node, onDefined: identity }), opacity)
+
+  /**
+   * The opacity a leaver was drawn at as it went (Q4): read from the page while it's on it (one style
+   * read, with the Switch seed's layout read), else as the engine last drew it.
+   */
+  const leavingOpacityOf = (node: NodeState): number => {
+    if (node.element.isConnected) return Number(getComputedStyle(node.element).opacity)
+    return drawnOpacityOf(node)
+  }
+
+  /** The rotation `node`'s projection draws in place of its own: a Follower's Lead's, a blending Lead's. Per frame. */
+  const rotateOverrideOf = (node: NodeState, follower: boolean): number | undefined => {
+    if (follower) return UndefinedOr.map(followedLeadOf(node), leadRotateOf)
+    if (Predicate.isUndefined(node.blend)) return undefined
+    return leadRotateOf(node)
+  }
+
+  /**
+   * The radius `node`'s corrections write in place of its own: a Follower's Lead's (none rounded when
+   * the Lead has none and it has one), a blending Lead's; `undefined` when neither applies. Per frame.
+   */
+  const radiusOverrideOf = (node: NodeState): unknown => {
+    const lead = followedLeadOf(node)
+    if (Predicate.isNotUndefined(lead)) {
+      const radius = leadRadiusOf(lead)
+      if (Predicate.isNotUndefined(radius)) return undrawnRadiusFor(node, radius)
+      if (Predicate.isUndefined(ownRadiusOf(node))) return undefined
+      return ZERO_RADIUS
+    }
+    if (Predicate.isUndefined(node.blend)) return undefined
+    return undrawnRadiusFor(node, leadRadiusOf(node))
+  }
+
+  /**
+   * A Switch's blended opacity: with no Follower to crossfade with (no factor), the leaver's eased into
+   * the node's own, read live (Motion's `isOnlyMember` mix). Drawn as it is. Per frame.
+   */
+  const switchOpacityOf = (node: NodeState, factor: number | undefined, follower: boolean): number | undefined => {
+    if (follower) return undefined
+    if (Predicate.isNotUndefined(factor)) return undefined
+    const from = node.blend?.opacity
+    if (Predicate.isUndefined(from)) return undefined
+    const mixed = from + (node.ownOpacity() - from) * blendProgressOf(node)
+    return Math.min(1, Math.max(0, mixed))
+  }
+
+  /** The opacity `node` is drawn at, as an absolute value: a Switch's blend, or its own times its factor. Per frame. */
+  const drawnOpacityAt = (node: NodeState, factor: number | undefined, blendOpacity: number | undefined): number => {
+    if (Predicate.isNotUndefined(blendOpacity)) return blendOpacity
+    const own = node.ownOpacity()
+    if (Predicate.isUndefined(factor)) return own
+    return own * factor
+  }
+
+  /** The opacity `node` was last drawn at, as an absolute value: its own before any write. */
+  const drawnOpacityOf = (node: NodeState): number =>
+    UndefinedOr.match(node.drawnOpacity, { onUndefined: () => node.ownOpacity(), onDefined: identity })
+
+  /** Whether `look` differs from how `node` draws itself at rest: a Switch at an equal box with something to blend. */
+  const looksOtherThan = (node: NodeState, look: Blend): boolean => {
+    if (look.rotate !== node.ownRotate()) return true
+    if (Predicate.isNotUndefined(look.opacity) && look.opacity !== node.ownOpacity()) return true
+    const own = drawnOwnRadiusOf(node)
+    if (Predicate.isUndefined(look.radius) && Predicate.isUndefined(own)) return false
+    return JSON.stringify(look.radius) !== JSON.stringify(own)
   }
 
   /**
@@ -1783,15 +1979,19 @@ export const makeProjectionSystem = (
     if (recent !== undefined) recentLeavers.set(node.element, recent)
 
     const seedBox = rootFrameBox(node)
+    // Its look as drawn as it goes (ADR-0010 *Amendment (#166)*): what a twin taking over blends from.
+    const look = drawnLookOf(node, leavingOpacityOf(node))
+    node.leftLook = look
     let handedOff = false
     let held: HeldSeed | undefined
     if (seedBox !== undefined) {
       const twin = pendingTwinOf(node, layoutId)
       if (twin !== undefined) {
         twin.seed = seedBox
+        twin.seedBlend = look
         handedOff = true
       } else {
-        held = { box: seedBox, consumed: false }
+        held = { box: seedBox, blend: look, consumed: false }
         heldSeeds.set(layoutId, held)
       }
     }
@@ -2037,6 +2237,8 @@ export const makeProjectionSystem = (
       // (#13)*); take it now, whichever branch below handles the node.
       const seed = node.seed
       node.seed = undefined
+      const seedBlend = node.seedBlend
+      node.seedBlend = undefined
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
       // stable box (layoutBox + lastTarget) so descendants project relative to it; a FLIP
@@ -2113,6 +2315,12 @@ export const makeProjectionSystem = (
             (box) => undrawnFor(node, between(lead, node, drawnOf(lead, box))),
           ))
         if (priorBox !== undefined) {
+          // It blends from the prior Lead's look as drawn, and the prior Lead's own blend ends: it
+          // follows this one now (ADR-0010 *Amendment (#166)*).
+          UndefinedOr.map(priorLeadOf(node), (prior) => {
+            node.blend = lookAsLeadOf(prior, undefined)
+            prior.blend = undefined
+          })
           // Shaped by its Layout mode; a handover crossfades even when that leaves nothing to
           // move, the twins' boxes equal (#5, Motion's: any `resumeFrom` animates).
           node.origin = shapedOrigin(node, priorBox, newBox)
@@ -2135,7 +2343,11 @@ export const makeProjectionSystem = (
           const containers = scrollOffset(node, ZERO_POINT)
           // Drawn there on its first frame, its own scale divided out (ADR-0010 *Amendment (#8)*).
           const origin = undrawnFor(node, unpaintedOf(node, containers === ZERO_POINT ? seed : offsetBox(seed, containers)))
-          if (!boxesEqual(origin, newBox)) {
+          // It blends from the leaver's look as drawn (ADR-0010 *Amendment (#166)*), so a Switch at an
+          // equal box animates too when the two look different (Motion's: any `resumeFrom` animates).
+          const differs = UndefinedOr.match(seedBlend, { onUndefined: constFalse, onDefined: (look) => looksOtherThan(node, look) })
+          if (Bool.or(Bool.not(boxesEqual(origin, newBox)), differs)) {
+            node.blend = seedBlend
             node.origin = shapedOrigin(node, origin, newBox)
             node.layoutBox = newBox
             node.spring = startSpring(node) // progress spring restarts at 0
@@ -2182,6 +2394,8 @@ export const makeProjectionSystem = (
         node.crossfadeFrom = fadeOf(node)
         captureExits(node)
       }
+      // A blend this interrupts goes on from the look it was drawn with (ADR-0010 *Amendment (#166)*).
+      node.blend = UndefinedOr.map(node.blend, (blend) => lookAsLeadOf(node, UndefinedOr.map(blend.opacity, () => drawnOpacityOf(node))))
       node.origin = origin
       node.layoutBox = newBox
       node.spring = startSpring(node) // progress spring restarts at 0 (velocity 0)
@@ -2491,8 +2705,12 @@ export const makeProjectionSystem = (
       node.handoverMoves = undefined
       node.lastDelta = IDENTITY_DELTA
       active.delete(node)
+      // Its blend has run its course (ADR-0010 *Amendment (#166)*): one last write, at rest, draws its
+      // own look again, so its own later rotate or opacity shows.
+      const blended = Predicate.isNotUndefined(node.blend)
+      node.blend = undefined
       // A raised node's release has settled: one last write, at rest, drops the raise.
-      if (node.raised) {
+      if (Bool.or(node.raised, blended)) {
         node.raised = false
         derive(node)
       }
@@ -2736,6 +2954,9 @@ export const makeProjectionSystem = (
     // A handover, even with nothing to move (#5, Motion's): a leaver `handleLeave` re-introduces
     // rides it, fading out as this twin fades in. With none, each frame writes this twin as the Lead
     // it is: shown, and taking its own pointer input (#165).
+    // It blends from the leaver's look as drawn as it went (ADR-0010 *Amendment (#166)*): taken at its
+    // dispose, or, handed back by presence first, read now, as the Lead it was.
+    node.blend = UndefinedOr.match(from.leftLook, { onUndefined: () => lookAsLeadOf(from, leavingOpacityOf(from)), onDefined: identity })
     node.origin = shapedOrigin(node, fromBox, ownBox)
     node.layoutBox = ownBox
     node.spring = startSpring(node)
@@ -2789,6 +3010,13 @@ export const makeProjectionSystem = (
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
+    ownRotate: NO_OWN_ROTATE,
+    ownOpacity: NO_OWN_OPACITY,
+    blend: undefined,
+    seedBlend: undefined,
+    leftLook: undefined,
+    drawnOpacity: undefined,
+    radiusBlended: false,
     layoutId,
     seed: undefined,
     paintDelta: recent.paintDelta,
@@ -2931,6 +3159,13 @@ export const makeProjectionSystem = (
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
+      ownRotate: UndefinedOr.match(opts.ownRotate, { onUndefined: () => NO_OWN_ROTATE, onDefined: identity }),
+      ownOpacity: UndefinedOr.match(opts.ownOpacity, { onUndefined: () => NO_OWN_OPACITY, onDefined: identity }),
+      blend: undefined,
+      seedBlend: undefined,
+      leftLook: undefined,
+      drawnOpacity: undefined,
+      radiusBlended: false,
       layoutId: opts.layoutId,
       seed: undefined,
       paintDelta: undefined,
@@ -2994,6 +3229,7 @@ export const makeProjectionSystem = (
       const held = heldSeeds.get(node.layoutId)
       if (held !== undefined) {
         node.seed = held.box
+        node.seedBlend = held.blend
         held.consumed = true
         heldSeeds.delete(node.layoutId)
       }
