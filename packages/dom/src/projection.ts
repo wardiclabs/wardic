@@ -55,6 +55,7 @@ import * as Box from "@wardic/core/Box"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as Inertia from "@wardic/core/Inertia"
 import * as Microtask from "@wardic/core/Microtask"
 import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
@@ -222,17 +223,32 @@ const distanceBetween = (from: Box.Box, to: Box.Box): Point.Point => ({ x: to.x.
 const releasesInPlace = (offset: Point.Point, velocity: Point.Point): boolean =>
   Bool.every([Math.abs(offset.x) < BOX_EPSILON, Math.abs(offset.y) < BOX_EPSILON, velocity.x === 0, velocity.y === 0])
 
-/** A Release offset (ADR-0016, *Amendment (velocity family)*) from `offset`, each axis starting at `velocity`'s. */
-const releaseFrom = (offset: Point.Point, velocity: Point.Point): Release => {
-  const scaleX = Math.max(Math.abs(offset.x), 1)
-  const scaleY = Math.max(Math.abs(offset.y), 1)
+/**
+ * A Release offset (ADR-0016, *Amendment (velocity family)*) from `offset`, each axis starting at
+ * `velocity`'s, on `transition` with both edges at zero (*Amendment (#140)*).
+ */
+const releaseFrom = (offset: Point.Point, velocity: Point.Point, transition: DragTransition): Release => {
+  const options: Machine.InertiaOptions = { ...transition, min: 0, max: 0 }
+  const inertiaX = Inertia.resolve(offset.x, velocity.x, options)
+  const inertiaY = Inertia.resolve(offset.y, velocity.y, options)
   return {
-    x: Spring.init({ from: offset.x / scaleX, velocity: velocity.x / scaleX }),
-    y: Spring.init({ from: offset.y / scaleY, velocity: velocity.y / scaleY }),
-    scaleX,
-    scaleY,
+    x: offset.x,
+    y: offset.y,
+    stateX: Inertia.init(offset.x, inertiaX),
+    stateY: Inertia.init(offset.y, inertiaY),
+    inertiaX,
+    inertiaY,
+    options,
     stopped: false,
   }
+}
+
+/** Restart `release` from rest where it is (Motion's `stopAnimation`): its speed dropped, its edges kept. */
+const restFrom = (release: Release): void => {
+  release.inertiaX = Inertia.resolve(release.x, 0, release.options)
+  release.inertiaY = Inertia.resolve(release.y, 0, release.options)
+  release.stateX = Inertia.init(release.x, release.inertiaX)
+  release.stateY = Inertia.init(release.y, release.inertiaY)
 }
 
 /**
@@ -310,6 +326,27 @@ export type LayoutTransition = ({ readonly type: "spring" } & Machine.SpringOpti
  */
 export const DEFAULT_LAYOUT_TRANSITION: LayoutTransition = { type: "tween", duration: 0.45, easing: Easing.cubicBezier(0.4, 0, 0.1, 1) }
 
+/**
+ * A drag's release (ADR-0016, *Amendment (#140)*, Motion's `dragTransition`): the inertia a node's
+ * Release offset runs on, with both edges at its slot, so it springs back there on the bounce. Times in
+ * seconds. Its edges are the slot's, never its own.
+ */
+export type DragTransition = Omit<Machine.InertiaOptions, "min" | "max">
+
+/**
+ * Motion's drag transition (framer-motion 13.4.0, `VisualElementDragControls.startAnimation`), with its
+ * default `dragElastic`: a 0.75 s time constant, power 0.8, the bounce 200 / 40, at rest within 1 px and
+ * 10 px/s. A node's Release offset runs on it when it's given none (ADR-0016, *Amendment (#140)*).
+ */
+export const DEFAULT_DRAG_TRANSITION: DragTransition = {
+  power: 0.8,
+  timeConstant: 0.75,
+  bounceStiffness: 200,
+  bounceDamping: 40,
+  restDelta: 1,
+  restSpeed: 10,
+}
+
 /** A tween's duration and easing when its transition gives none: the tween's own defaults (#107). */
 const TWEEN_DURATION = 0.3
 
@@ -348,16 +385,6 @@ const timingOf = (transition: LayoutTransition): FlightTiming =>
 /** A flight already landed: what reduced motion starts (ADR-0029), at 1 with no delay, settling on its first step. */
 const LANDED: FlightTiming = { kind: "spring", options: Spring.resolve({}) }
 
-/**
- * The spring a node's Release offset steps on (ADR-0016): its layout transition's, when that's a
- * spring, else the spring defaults (ADR-0009 *Amendment (#171)*). Per frame.
- */
-const releaseSpringOf = (transition: LayoutTransition | undefined): Machine.SpringOptions => {
-  if (Predicate.isUndefined(transition)) return NO_SPRING_OPTIONS
-  if (transition.type === "spring") return transition
-  return NO_SPRING_OPTIONS
-}
-const NO_SPRING_OPTIONS: Machine.SpringOptions = {}
 
 /**
  * What a Measure pass read of an ancestor whose transform moves a twin (ADR-0012, *Amendment
@@ -591,10 +618,14 @@ export interface RegisterNodeOptions {
   /**
    * The node's layout transition, read at each layout animation's (re)start (ADR-0009 *Amendment
    * (#171)*): a spring or a tween, or `undefined` for Motion's default,
-   * {@link DEFAULT_LAYOUT_TRANSITION}. Its Release offset springs on it when it's a spring, else on
-   * the spring defaults (ADR-0016).
+   * {@link DEFAULT_LAYOUT_TRANSITION}.
    */
   readonly transition: () => LayoutTransition | undefined
+  /**
+   * The node's drag transition, read at each release (ADR-0016, *Amendment (#140)*): what its Release
+   * offset runs on, or `undefined` for Motion's, {@link DEFAULT_DRAG_TRANSITION}.
+   */
+  readonly dragTransition?: () => DragTransition | undefined
   /**
    * Whether the node's layout animations honour reduced motion (ADR-0029), read at each
    * (re)start: `false` animates them whatever the system's `reducedMotion` says (a binding's
@@ -932,18 +963,21 @@ interface NodeState {
 
 /**
  * A **Release offset** (ADR-0016, *Amendment (velocity family)*): per axis, how far the
- * released node paints from where its layout puts it, a spring toward zero on the node's
- * transition. Each axis runs in units of its starting distance (`scaleX`/`scaleY` px, at least
- * 1), so the transition's rest thresholds mean what they did for the progress spring a release
- * used to run, and a release with no velocity settles on the same frame. Stopped by a grab
- * (`stopped`), it holds where it is until a drag takes it or the press ends, which starts it
- * again from rest.
+ * released node paints from where its layout puts it, `x` and `y` px, springing back to zero on
+ * the node's **Drag transition** (*Amendment (#140)*): an inertia with both edges at zero, so it
+ * starts past them and springs back on the bounce, as Motion's `dragSnapToOrigin` release does.
+ * In px, as Motion's: its rest thresholds are px. Stopped by a grab (`stopped`), it holds where it
+ * is until a drag takes it or the press ends, which starts it again from rest.
  */
 interface Release {
-  x: Spring.State
-  y: Spring.State
-  readonly scaleX: number
-  readonly scaleY: number
+  x: number
+  y: number
+  stateX: Inertia.State
+  stateY: Inertia.State
+  inertiaX: Inertia.Resolved
+  inertiaY: Inertia.Resolved
+  /** Its drag transition with both edges at zero, for a restart from rest. */
+  readonly options: Machine.InertiaOptions
   stopped: boolean
 }
 
@@ -1013,6 +1047,8 @@ const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
 /** No own rotation or opacity of its own: a node the binding gives none, or a leaving one (*Amendment (#166)*). */
 const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
+/** No drag transition of its own: a node releases on Motion's, {@link DEFAULT_DRAG_TRANSITION} (ADR-0016, *Amendment (#140)*). */
+const NO_DRAG_TRANSITION = (): DragTransition | undefined => undefined
 
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point.Point = { x: 0, y: 0 }
@@ -1735,7 +1771,7 @@ export const makeProjectionSystem = (
   const releasedOf = (node: NodeState, box: Box.Box): Box.Box => {
     const release = node.release
     if (Predicate.isUndefined(release)) return box
-    return offsetBox(box, { x: release.x.position * release.scaleX, y: release.y.position * release.scaleY })
+    return offsetBox(box, { x: release.x, y: release.y })
   }
 
   /**
@@ -3102,7 +3138,7 @@ export const makeProjectionSystem = (
   const releaseOffsetOf = (node: NodeState): Point.Point =>
     UndefinedOr.match(node.release, {
       onUndefined: () => ZERO_POINT,
-      onDefined: (release) => ({ x: release.x.position * release.scaleX, y: release.y.position * release.scaleY }),
+      onDefined: (release) => ({ x: release.x, y: release.y }),
     })
 
   /** Whether `n` is placed in `frame`'s frame: its relative parent is `frame`, or a running node that is. */
@@ -3193,19 +3229,21 @@ export const makeProjectionSystem = (
   }
 
   /**
-   * Step `node`'s Release offset toward zero on each axis, on the node's transition, if one
-   * runs (ADR-0016, *Amendment (velocity family)*); whether it is at rest. A stopped one holds
-   * where it is. Reduced motion leaves it alone: it continues the gesture (ADR-0029). Per frame.
+   * Step `node`'s Release offset back to zero on each axis, on its drag transition, if one runs
+   * (ADR-0016, *Amendment (velocity family)*, *Amendment (#140)*); whether it is at rest. A stopped
+   * one holds where it is. Reduced motion leaves it alone: it continues the gesture (ADR-0029). Per
+   * frame: written in place.
    */
   const stepRelease = (node: NodeState, dt: number): boolean => {
     const release = node.release
     if (Predicate.isUndefined(release)) return true
     if (release.stopped) return false
-    const options = Spring.resolve(releaseSpringOf(node.transition()))
-    const x = Spring.step(release.x, dt, 0, options)
-    const y = Spring.step(release.y, dt, 0, options)
-    release.x = x.state
-    release.y = y.state
+    const x = Inertia.step(release.stateX, dt, release.inertiaX)
+    const y = Inertia.step(release.stateY, dt, release.inertiaY)
+    release.stateX = x.state
+    release.stateY = y.state
+    release.x = x.value
+    release.y = y.value
     if (!x.done) return false
     return y.done
   }
@@ -3774,6 +3812,8 @@ export const makeProjectionSystem = (
     )
 
   const register: ProjectionSystem["register"] = (opts) => {
+    // Read at each release, in `dragEnd` (ADR-0016, *Amendment (#140)*): kept off the node's state, which every frame reads.
+    const dragTransition = UndefinedOr.match(opts.dragTransition, { onUndefined: () => NO_DRAG_TRANSITION, onDefined: identity })
     const node: NodeState = {
       id: opts.id,
       element: opts.element,
@@ -3956,7 +3996,7 @@ export const makeProjectionSystem = (
           if (active.size === 0) stopTicking()
           return
         }
-        node.release = releaseFrom(offset, velocity)
+        node.release = releaseFrom(offset, velocity, UndefinedOr.match(dragTransition(), { onUndefined: () => DEFAULT_DRAG_TRANSITION, onDefined: identity }))
         node.releasing = true
         active.add(node)
         ensureRunning()
@@ -3967,8 +4007,7 @@ export const makeProjectionSystem = (
         if (release.stopped) return
         // Where it is, at rest: a press drops the release's speed, as Motion's `stopAnimation` does.
         release.stopped = true
-        release.x = Spring.init({ from: release.x.position })
-        release.y = Spring.init({ from: release.y.position })
+        restFrom(release)
       },
       resumeRelease: () => {
         const release = node.release

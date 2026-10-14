@@ -30,7 +30,7 @@ This replaces CONTEXT.md's earlier resolution, which nothing applied: a Stream c
    Opacity, colours, filters and shadows animate: a fade moves nothing.
 3. **Reach.**
    - **Reduced:** the spine's legs; presence's exit; layout animations (a crossfade's new Lead, a Switch seed, a box change, a promote).
-   - **Not reduced:** drag's release, meaning snap-to-origin's spring, momentum's decay, and the projection's FLIP from a dragged position back to the slot. It continues the user's own gesture, as Motion's release does.
+   - **Not reduced:** drag's release, meaning snap-to-origin's spring, momentum's decay, and the projection's FLIP from a dragged position back to the slot. It continues the user's own gesture, as Motion's release does. *Since ADR-0016's Amendment (#140) all three run on the drag transition, Motion's inertia; still not reduced.*
 4. **The binding snaps; core holds the policy.**
    - `ReducedMotion` becomes `Config`, `applies`, `POSITIONAL_KEYS` and `isPositional`, `split`, `endOf` and `snap`.
    - The binding runs a run's positional keys as one Snap leg beside its usual legs.

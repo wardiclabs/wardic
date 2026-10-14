@@ -48,6 +48,7 @@ import {
   runSpine,
   useWardicWith,
   type WardicConfig,
+  type WardicDragTransition,
   type WardicTransition,
   type WardicValues,
   type WardUserProps,
@@ -81,6 +82,7 @@ export const MOTION_PROPS = [
   "dragElastic",
   "dragMomentum",
   "dragSnapToOrigin",
+  "dragTransition",
   "dragPropagation",
   "layout",
   "layoutDependency",
@@ -137,14 +139,22 @@ export interface WardicMotionProps {
    * stripped) so e.g. `scale: 1.1` animates while held and returns after release.
    */
   readonly whileDrag?: WardicValues
-  /** Constrain the drag to a static numeric box (per axis). Only when `drag` is on. */
+  /**
+   * Constrain the element's `x`/`y` to a static numeric box (per axis), whichever gesture moved it
+   * there; a Fling springs back to an edge it would cross. Only when `drag` is on.
+   */
   readonly dragConstraints?: Drag.Bounds
-  /** Rubber-band resistance past {@link dragConstraints} (0 = hard clamp, default). */
+  /** Rubber-band resistance past {@link dragConstraints}: 0 a hard clamp, with a wall for a bounce. Default 0.35. */
   readonly dragElastic?: number
-  /** Fling on release under decay (default `true`). Only when `drag` is on. */
+  /** Fling on release (default `true`); `false` releases with no velocity. Only when `drag` is on. */
   readonly dragMomentum?: boolean
-  /** Spring `x`/`y` back to the origin on release (overrides momentum). Only when `drag` is on. */
+  /** Spring `x`/`y` back to the origin on release, on {@link dragTransition}. Only when `drag` is on. */
   readonly dragSnapToOrigin?: boolean
+  /**
+   * What the release runs on (Motion's `dragTransition`): Motion's inertia, its options over
+   * Motion's defaults, `timeConstant` in milliseconds. Only when `drag` is on.
+   */
+  readonly dragTransition?: WardicDragTransition
   /**
    * `true`: the drag takes no Drag claim, so a draggable ancestor drags with it (Motion's
    * `dragPropagation`). Only when `drag` is on.
@@ -220,6 +230,7 @@ export const motionToConfig =
     const dragElastic = motion.dragElastic
     const dragMomentum = motion.dragMomentum
     const dragSnapToOrigin = motion.dragSnapToOrigin
+    const dragTransition = motion.dragTransition
     const dragPropagation = motion.dragPropagation
     const layout = motion.layout
     const layoutDependency = motion.layoutDependency
@@ -241,6 +252,7 @@ export const motionToConfig =
     if (dragElastic !== undefined) config.dragElastic = dragElastic
     if (dragMomentum !== undefined) config.dragMomentum = dragMomentum
     if (dragSnapToOrigin !== undefined) config.dragSnapToOrigin = dragSnapToOrigin
+    if (dragTransition !== undefined) config.dragTransition = dragTransition
     if (dragPropagation !== undefined) config.dragPropagation = dragPropagation
     if (layout !== undefined) config.layout = layout
     if (layoutDependency !== undefined) config.layoutDependency = layoutDependency

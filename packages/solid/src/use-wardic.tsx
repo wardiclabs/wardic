@@ -81,7 +81,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js"
-import { type DragTrackConfig, runDragTrack } from "./drag.ts"
+import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
@@ -216,6 +216,30 @@ export interface WardicLayoutKey {
 }
 
 /**
+ * A drag's release (ADR-0016, *Amendment (#140)*), Motion's `dragTransition`: the inertia every
+ * release runs on, a Fling, a snap back to the origin, and a layout node's Release offset. A glide
+ * toward `power` × the release velocity that eases out over `timeConstant`, springing back on the
+ * bounce at an edge it would cross. Motion's names and units: `timeConstant` in milliseconds. The
+ * edges are `dragConstraints`, both at the origin with `dragSnapToOrigin`, or the slot for a layout
+ * node. A release never borrows the element's `transition`.
+ */
+export interface WardicDragTransition {
+  /** How far a release glides, as a multiple of its velocity. Default 0.8. */
+  readonly power?: number
+  /** The glide's time constant, in milliseconds. Default 750. */
+  readonly timeConstant?: number
+  /** The bounce at an edge: 200 / 40 by default, a wall (1e6 / 1e7) with `dragElastic={0}`. */
+  readonly bounceStiffness?: number
+  readonly bounceDamping?: number
+  /** At rest within this many px of where it's going. Default 1. */
+  readonly restDelta?: number
+  /** At an edge, at rest below this speed, px/s. Default 10. */
+  readonly restSpeed?: number
+  /** Moves where a release rests, called per axis with where it would: snapping it to a grid, say. */
+  readonly modifyTarget?: (ideal: number) => number
+}
+
+/**
  * Config accepted by {@link useWardic}.
  *
  * REACTIVITY LAYERING (step 21e): every field here is a STATIC value. The hook's
@@ -267,7 +291,8 @@ export interface WardicConfig {
    *
    * STATIC (LOW-3, reactivity-layering rule): the drag CONFIG — this field plus
    * {@link dragConstraints} / {@link dragElastic} / {@link dragMomentum} /
-   * {@link dragSnapToOrigin} / {@link dragPropagation} — is read EXACTLY ONCE at mount (`untrack`); only
+   * {@link dragSnapToOrigin} / {@link dragTransition} / {@link dragPropagation} — is read EXACTLY ONCE
+   * at mount (`untrack`); only
    * {@link whileDrag} participates in the reactive override / `dragging` path. A
    * reactively-changed axis / constraints is NOT re-read in v0.1.
    *
@@ -293,14 +318,27 @@ export interface WardicConfig {
    * release. Only consulted when `drag` is on.
    */
   readonly whileDrag?: WardicValues
-  /** Constrain the drag to a static numeric box (per axis). Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
+  /**
+   * Constrain the element's `x`/`y` to a static numeric box (per axis), whichever gesture moved it
+   * there; a Fling springs back to an edge it would cross (ADR-0016, *Amendment (#140)*). Only when
+   * `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
+   */
   readonly dragConstraints?: Drag.Bounds
-  /** Rubber-band resistance past {@link dragConstraints} (0 = hard clamp, default). Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
+  /**
+   * Rubber-band resistance past {@link dragConstraints}: 0 a hard clamp, with a wall for a bounce.
+   * Default 0.35, Motion's. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
+   */
   readonly dragElastic?: number
-  /** Fling on release under decay (default `true`). Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
+  /** Fling on release (default `true`); `false` releases with no velocity. Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
   readonly dragMomentum?: boolean
-  /** Spring `x`/`y` back to the origin on release (overrides momentum). Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
+  /** Spring `x`/`y` back to the origin on release, on {@link dragTransition}. Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
   readonly dragSnapToOrigin?: boolean
+  /**
+   * What the release runs on (Motion's `dragTransition`, ADR-0016 *Amendment (#140)*): Motion's
+   * inertia, its options over Motion's defaults. Only when `drag` is on. Static config (LOW-3): read
+   * ONCE at mount; not re-read reactively in v0.1.
+   */
+  readonly dragTransition?: WardicDragTransition
   /**
    * `true`: the drag takes no **Drag claim** and is never refused one, so a draggable
    * ancestor drags with it (Motion's `dragPropagation`, ADR-0019 *Amendment (#29)*). It
@@ -759,12 +797,15 @@ export function runSpine(opts: RunSpineOptions): void {
       // layout / layoutId / layoutScroll / layoutRoot each warrant a node; layoutAnchor
       // alone does not (it only tunes a node that already projects), but is forwarded.
       let layoutHandle: ProjectionNodeHandle | undefined
+      // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
+      const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (c0.layout === true || Predicate.isString(c0.layout) || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
         layoutHandle = useLayoutMember({
           id,
           element,
           layoutDependency: () => cfg().layoutDependency,
           transition: () => cfg().transition ?? parent?.transition(),
+          dragTransition: () => dragTransition,
           // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
           layoutMode: () => layoutModeOf(cfg().layout),
           // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
@@ -799,7 +840,7 @@ export function runSpine(opts: RunSpineOptions): void {
           momentum: c0d.dragMomentum,
           snapToOrigin: c0d.dragSnapToOrigin,
           propagation: c0d.dragPropagation,
-          springOpts: (c0d.transition ?? parent?.transition()) as Machine.SpringOptions | undefined,
+          transition: dragTransition,
         }
         runDragTrack({
           runtime,

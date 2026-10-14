@@ -19,7 +19,7 @@
  */
 import type * as Point from "@wardic/core/Point"
 import type * as Projection from "@wardic/core/Projection"
-import { DEFAULT_LAYOUT_TRANSITION, type LayoutTransition, type ProjectionNodeHandle } from "@wardic/dom"
+import { DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition, type ProjectionNodeHandle } from "@wardic/dom"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, identity } from "effect/Function"
@@ -76,6 +76,8 @@ export interface UseLayoutMemberOptions {
   readonly layoutDependency: () => unknown
   /** The element's effective transition: its `layout` key, else itself, drives its layout animations (ADR-0009 *Amendment (#171)*). */
   readonly transition: () => WardicTransition | undefined
+  /** The element's drag transition, resolved: what its Release offset runs on (ADR-0016, *Amendment (#140)*). */
+  readonly dragTransition?: () => DragTransition
   /**
    * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
    * `layout` element. When set, the one node joins the engine's per-`layoutId`
@@ -125,7 +127,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
-  const { element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
+  const { dragTransition, element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 
   const handle = projection.register({
@@ -140,6 +142,7 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     ...(layoutRoot === true ? { layoutRoot: true } : {}),
     ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
     ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
+    ...UndefinedOr.match(dragTransition, { onUndefined: () => ({}), onDefined: (release) => ({ dragTransition: release }) }),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
     ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),
     ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),

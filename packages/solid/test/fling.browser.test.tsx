@@ -4,10 +4,12 @@
 // held only the last move and the up, at the same point, and read none); a pause before letting
 // go reads none; `dragMomentum={false}` never carries; `dragSnapToOrigin` springs back from the
 // flick's velocity. A layout drag past elastic constraints releases with the pointer's velocity,
-// not its slower elastic offsets'.
+// not its slower elastic offsets'. Each release runs on the drag transition (ADR-0016, *Amendment
+// (#140)*): FL4 and FL5 give it a soft bounce, so a release's carry outward before it turns back
+// shows its velocity.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid"
+import { wardic, type WardicDragTransition, WardicProvider } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
@@ -40,7 +42,7 @@ const mountBox = async (opts: {
   readonly snapToOrigin?: boolean
   readonly layout?: boolean
   readonly constraints?: { readonly x: { readonly min: number; readonly max: number } }
-  readonly transition?: { readonly type: "spring"; readonly stiffness: number; readonly damping: number }
+  readonly dragTransition?: WardicDragTransition
 }): Promise<Box> => {
   const [el, setEl] = createSignal<HTMLElement>()
   render(() => (
@@ -53,7 +55,7 @@ const mountBox = async (opts: {
           dragMomentum={opts.momentum !== false}
           dragSnapToOrigin={opts.snapToOrigin === true}
           {...(opts.constraints !== undefined ? { dragConstraints: opts.constraints, dragElastic: 0.5 } : {})}
-          {...(opts.transition !== undefined ? { transition: opts.transition } : {})}
+          {...(opts.dragTransition !== undefined ? { dragTransition: opts.dragTransition } : {})}
           style={{ position: "relative", width: "120px", height: "80px", background: "#8af" }}
         />
       </div>
@@ -82,8 +84,8 @@ const flick = async (b: Box, slow: number, step: number): Promise<Pt> => {
   return add(g, slow + 4 * step, 0)
 }
 
-/** A soft spring (40/12), so a release's carry outward before it turns back shows its velocity. */
-const SOFT = { type: "spring", stiffness: 40, damping: 12 } as const
+/** A soft bounce (40/12), so a release's carry outward before it turns back shows its velocity. */
+const SOFT: WardicDragTransition = { bounceStiffness: 40, bounceDamping: 12 }
 
 describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amendment (#139))", () => {
   it("FL1: a flick with moves about 50 ms apart carries on past where it was let go", async () => {
@@ -116,7 +118,7 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
   })
 
   it("FL4: with dragSnapToOrigin a flick away from the origin carries on outward first, then springs back to it", async () => {
-    const b = await mountBox({ snapToOrigin: true, transition: SOFT })
+    const b = await mountBox({ snapToOrigin: true, dragTransition: SOFT })
     const at = await flick(b, 100, 50)
     const released = dxOf(b)
     const sampling = sampleFrames(() => dxOf(b))
@@ -133,7 +135,7 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
     // The offsets past the bound move at half the pointer's speed; the release reads the pointer's.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
-      const b = await mountBox({ layout: true, transition: SOFT, ...(constrained ? { constraints: { x: { min: 0, max: 50 } } } : {}) })
+      const b = await mountBox({ layout: true, dragTransition: SOFT, ...(constrained ? { constraints: { x: { min: 0, max: 50 } } } : {}) })
       const at = await flick(b, constrained ? 150 : 50, 25)
       const released = dxOf(b)
       expect(released, "let go 150 px right of the slot").toBeCloseTo(150, -1)

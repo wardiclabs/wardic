@@ -1,6 +1,7 @@
 /**
- * The `Drag` module: a drag gesture's `Sample`, its `Axis`, and the shaping combinator over a stream
- * of them (`withinBounds`, `dual`, the stream first). `Recognizer.drag` recognizes the gesture, kept
+ * The `Drag` module: a drag gesture's `Sample`, its `Axis`, a constraint on one value (`constrain`),
+ * and the shaping combinator over a stream of them (`withinBounds`, `dual`, the stream first).
+ * `Recognizer.drag` recognizes the gesture, kept
  * to its `axis` (ADR-0019, *Amendment (#29)*); a binding composes its response, the Fling included
  * (ADR-0004, *Amendment (#32)*).
  */
@@ -78,7 +79,8 @@ const aboveMax = (v: number, range: AxisRange, elastic: number): Option.Option<n
   )
 
 /**
- * Constrain a single scalar to `range` with optional `elastic` resistance.
+ * Constrain a single scalar to `range` with optional `elastic` resistance (Motion's
+ * `applyConstraints`).
  *
  * - No `range`: pass through.
  * - Below `range.min`: `min - (min - v) * elastic`.
@@ -88,8 +90,14 @@ const aboveMax = (v: number, range: AxisRange, elastic: number): Option.Option<n
  * So `elastic = 0` is a hard clamp (snaps to the bound) and `elastic = 1` is
  * free (no resistance — the value passes through). Values in `(0, 1)` rubber-
  * band: the overshoot past the bound is scaled by `elastic`.
+ *
+ * Positional: a drag whose constraints bound the element's x/y applies it where the
+ * gesture's offset meets where the element started (ADR-0016, *Amendment (#140)*).
+ *
+ * @example
+ * Drag.constrain(130, { min: 0, max: 100 }, 0.35) // 110.5
  */
-const constrain = (v: number, range: AxisRange | undefined, elastic: number): number =>
+export const constrain = (v: number, range: AxisRange | undefined, elastic: number): number =>
   Option.fromUndefinedOr(range).pipe(
     Option.flatMap((r) => Option.orElse(belowMin(v, r, elastic), () => aboveMax(v, r, elastic))),
     Option.getOrElse(() => v),

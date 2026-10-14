@@ -9,10 +9,10 @@
  * layout/Reorder FLIP can take over from the rested position).
  *
  * This module is the RESPONSE half (binding orchestration). Core ships the
- * RECOGNITION (`drag()`, kept to its axis and holding its **Drag claim**, + the
- * `withinBounds` shaping combinator) and the decay PRIMITIVE (`decayVec`); the
- * release driver, the gate writes, and the snapshot sync are response concerns and
- * live here (ADR-0004).
+ * RECOGNITION (`drag()`, kept to its axis and holding its **Drag claim**), the
+ * constraint (`Drag.constrain`) and the inertia PRIMITIVE (`inertia`, `inertiaVec`); the
+ * constraints on the element's x/y, the release driver, the gate writes, and the
+ * snapshot sync are response concerns and live here (ADR-0004, ADR-0016 *Amendment (#140)*).
  *
  * STRUCTURE (ADR-0032): input is handled inside its event. Two consumers, each a
  * `Stream.runForEach` that applies what arrives in place, with no scheduler hop
@@ -43,17 +43,18 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
-import type { DragProjectionHandle, FlushGate } from "@wardic/dom"
+import type { DragProjectionHandle, DragTransition, FlushGate } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
-import { constVoid } from "effect/Function"
+import { constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { runScoped, type WardicRuntime } from "./provider.tsx"
+import type { WardicDragTransition } from "./use-wardic.tsx"
 
 /**
  * The spine's mutable Snapshot object (the SAME object `runSpine` holds): each
@@ -76,17 +77,53 @@ export interface DragTrackConfig {
    * drag with it (Motion's `dragPropagation`, ADR-0019 *Amendment (#29)*). Default `false`.
    */
   readonly propagation?: boolean | undefined
-  /** Optional numeric constraint box (per axis) applied to the drag offset. */
+  /**
+   * Optional numeric constraints (per axis) on the element's x/y, whichever gesture moved it there
+   * (Motion's, ADR-0016 *Amendment (#140)*): the drag keeps it within them, and a Fling springs back
+   * to an edge it would cross. A projection node's x/y is its drag offset.
+   */
   readonly constraints?: Drag.Bounds | undefined
-  /** Rubber-band resistance past `constraints` (0 = hard clamp). */
+  /** Rubber-band resistance past `constraints`: 0 a hard clamp. Default {@link DEFAULT_DRAG_ELASTIC}. */
   readonly elastic?: number | undefined
-  /** Fling on release under decay (default true). */
+  /** Fling on release (default true); `false` releases with no velocity. */
   readonly momentum?: boolean | undefined
-  /** Spring back to the origin on release (overrides momentum). */
+  /** Spring back to the origin on release: both edges at 0. */
   readonly snapToOrigin?: boolean | undefined
-  /** The spring options used for the snapToOrigin release. */
-  readonly springOpts?: Machine.SpringOptions | undefined
+  /** What the release runs on: the element's drag transition, resolved ({@link dragTransitionOf}). */
+  readonly transition: DragTransition
 }
+
+/** Motion's `dragElastic` default (`defaultElastic`, ADR-0016 *Amendment (#140)*). */
+export const DEFAULT_DRAG_ELASTIC = 0.35
+
+/** A drag's `dragElastic`, or Motion's default. */
+const elasticOf = (elastic: number | undefined): number =>
+  UndefinedOr.match(elastic, { onUndefined: () => DEFAULT_DRAG_ELASTIC, onDefined: identity })
+
+/** Motion's release (`startAnimation`), in seconds: a 0.75 s time constant, power 0.8, at rest within 1 px and 10 px/s. */
+const MOTION_RELEASE = { power: 0.8, timeConstant: 0.75, restDelta: 1, restSpeed: 10 } as const
+/** The bounce with an elastic drag, Motion's `dragElastic ? 200 : …`. */
+const ELASTIC_BOUNCE = { bounceStiffness: 200, bounceDamping: 40 } as const
+/** The bounce with none, a wall: Motion's `… : 1000000` and `10000000`. */
+const RIGID_BOUNCE = { bounceStiffness: 1e6, bounceDamping: 1e7 } as const
+
+/**
+ * An element's drag transition, resolved (ADR-0016, *Amendment (#140)*): Motion's release, its bounce
+ * from `dragElastic` (a wall with none), then the element's own `dragTransition` over it, its
+ * `timeConstant` from milliseconds to seconds. What every release runs on: a Fling, a snap back to the
+ * origin, and a projection node's Release offset.
+ */
+export const dragTransitionOf = (elastic: number | undefined, own: WardicDragTransition | undefined): DragTransition => ({
+  ...MOTION_RELEASE,
+  ...Bool.match(elasticOf(elastic) !== 0, { onTrue: () => ELASTIC_BOUNCE, onFalse: () => RIGID_BOUNCE }),
+  ...UndefinedOr.match(own, {
+    onUndefined: () => ({}),
+    onDefined: ({ timeConstant, ...rest }) => ({
+      ...rest,
+      ...UndefinedOr.match(timeConstant, { onUndefined: () => ({}), onDefined: (ms) => ({ timeConstant: ms / 1000 }) }),
+    }),
+  }),
+})
 
 /** Options for {@link runDragTrack}. */
 export interface RunDragTrackOptions {
@@ -138,12 +175,14 @@ const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
 
 /**
  * The track's state: `base` is the rebase point, `position` the live absolute position,
- * and `held` whether a gesture is on (from its "start" to its "end").
+ * `held` whether a gesture is on (from its "start" to its "end"), and `axis` the axes it
+ * moves on, read at its "start".
  */
 interface DragTrackState {
   readonly base: Point.Point
   readonly position: Point.Point
   readonly held: boolean
+  readonly axis: Drag.Axis
 }
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
@@ -161,6 +200,55 @@ const releaseVelocity = (config: DragTrackConfig, velocity: Point.Point): Point.
     onTrue: () => ORIGIN,
     onFalse: () => velocity,
   })
+
+/** The axes a gesture moves on, read at its "start": a `<Reorder>` item's group decides them per gesture (D5). */
+const gestureAxisOf = (opts: RunDragTrackOptions): Drag.Axis =>
+  toDragAxis(UndefinedOr.match(opts.axisAt, { onUndefined: () => opts.config.axis, onDefined: (at) => at() }))
+
+/**
+ * Where the drag puts the element: `p`, kept within the constraints on each axis the gesture moves,
+ * pulled back past an edge by `dragElastic` (Motion's `applyConstraints`). They bound the element's
+ * x/y, whichever gesture moved it there (ADR-0016, *Amendment (#140)*); an axis it doesn't move stays
+ * where it is. Per pointer event: statement `if`s.
+ */
+const constrainedTo = (p: Point.Point, axis: Drag.Axis, config: DragTrackConfig): Point.Point => {
+  const bounds = config.constraints
+  if (Predicate.isUndefined(bounds)) return p
+  const elastic = elasticOf(config.elastic)
+  let x = p.x
+  let y = p.y
+  if (axis !== "y") x = Drag.constrain(p.x, bounds.x, elastic)
+  if (axis !== "x") y = Drag.constrain(p.y, bounds.y, elastic)
+  return { x, y }
+}
+
+/** Both edges at the origin: what `dragSnapToOrigin` releases toward (Motion's `{ min: 0, max: 0 }`). */
+const AT_ORIGIN: Drag.Bounds = { x: { min: 0, max: 0 }, y: { min: 0, max: 0 } }
+const NO_EDGES: Drag.Bounds = {}
+
+/** The edges a release springs back to: both at the origin with `snapToOrigin`, else the constraints. */
+const edgesOf = (config: DragTrackConfig): Drag.Bounds =>
+  Bool.match(config.snapToOrigin === true, {
+    onTrue: () => AT_ORIGIN,
+    onFalse: () => UndefinedOr.match(config.constraints, { onUndefined: () => NO_EDGES, onDefined: identity }),
+  })
+
+/** Whether `v` sits within `range`, or there's none: a hard clamp leaves it where it is. */
+const within = (v: number, range: Drag.AxisRange | undefined): boolean => Drag.constrain(v, range, 0) === v
+
+/**
+ * Whether a release with `velocity` from `position` rests where it was dropped: no speed, no
+ * `modifyTarget` to move it, and within its edges on each axis it moves. Motion's inertia is done on
+ * its first frame then; Wardic commits it at once.
+ */
+const restsWhereDropped = (position: Point.Point, velocity: Point.Point, axis: Drag.Axis, edges: Drag.Bounds, transition: DragTransition): boolean =>
+  Bool.every([
+    velocity.x === 0,
+    velocity.y === 0,
+    Predicate.isUndefined(transition.modifyTarget),
+    Bool.or(axis === "y", within(position.x, edges.x)),
+    Bool.or(axis === "x", within(position.y, edges.y)),
+  ])
 /**
  * Read the current rested `x`/`y` off the snapshot (defaulting to 0, as for a string
  * translate the drag can't continue from). Captured at a drag's "start" so a drag (or a
@@ -244,8 +332,8 @@ const reportSample = (opts: RunDragTrackOptions, sample: Drag.Sample): void =>
 
 /**
  * Follow the pointer for a "start" or "move" sample: absolute position = base + drag
- * offset. A "start" rebases to wherever the element currently rests (the snapshot's
- * x/y); for a projection node the snapshot x/y stays 0 (the projection owns position),
+ * offset, kept within the constraints. A "start" rebases to wherever the element currently
+ * rests (the snapshot's x/y); for a projection node the snapshot x/y stays 0 (the projection owns position),
  * so `base` stays the origin, and the "start" begins the projection's drag first, so
  * `dragStart` runs before the first `dragMove`.
  */
@@ -253,8 +341,9 @@ const follow = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOption
   const st = MutableRef.get(state)
   const starts = sample.phase === "start"
   const base = Bool.match(starts, { onTrue: () => snapshotPos(opts.snapshot), onFalse: () => st.base })
-  const p: Point.Point = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
-  MutableRef.set(state, { ...st, base, position: p })
+  const axis = Bool.match(starts, { onTrue: () => gestureAxisOf(opts), onFalse: () => st.axis })
+  const p = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, opts.config)
+  MutableRef.set(state, { ...st, base, position: p, axis })
   opts.setDragging(true)
   if (starts) UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.dragStart() })
   directSet(opts, p)
@@ -262,19 +351,19 @@ const follow = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOption
 }
 
 /**
- * The pluggable release driver (ADR-0004 binding orchestration), seeded from the
- * release position + velocity:
- *   - `snapToOrigin`: spring `x`/`y` back to `{0,0}` (deterministic target).
- *   - else `momentum: false`: rest in place: commit the exact release position once (so
- *     the element rests at the pointer-up point, not the last move), and hand `x`/`y` back
- *     at the end of the release's task.
- *   - else: fling under `decayVec`.
+ * The release driver (ADR-0004 binding orchestration; ADR-0016, *Amendment (#140)*), Motion's: an
+ * inertia on the drag transition on each axis the gesture moved, from the release position and
+ * velocity (none with `momentum: false`), toward its edges: both at the origin with `snapToOrigin`,
+ * else the constraints. A Fling glides on and springs back to an edge it would cross, or starts past.
+ * One that rests where it was dropped (no velocity, within its edges) commits the exact release
+ * position once (so the element rests at the pointer-up point, not the last move), and hands `x`/`y`
+ * back at the end of the release's task.
  *
  * Each release frame taps `gate.write` + snapshot sync + recordFrame, and the track's
  * state, so a re-grab mid-tail rebases from where the tail reached. On completion
- * `setDragging(false)` hands ownership of `x`/`y` back to the spring. The spring and the
- * fling run on the Frame loop (ADR-0027); interrupting the release removes its run from
- * the loop at once, before the next handler touches the state.
+ * `setDragging(false)` hands ownership of `x`/`y` back to the spring. The inertia runs on the
+ * Frame loop (ADR-0027); interrupting the release removes its run from the loop at once,
+ * before the next handler touches the state.
  */
 const release = (
   opts: RunDragTrackOptions,
@@ -292,26 +381,32 @@ const release = (
   }
 
   const done = Effect.sync(() => opts.setDragging(false))
+  const { axis } = MutableRef.get(state)
+  const edges = edgesOf(cfg)
+  const v = releaseVelocity(cfg, velocity)
+  const transition = cfg.transition
 
-  return Match.value(cfg).pipe(
-    Match.when({ snapToOrigin: true }, () =>
-      Machine.springValues({ x: 0, y: 0 }, cfg.springOpts, { x: position.x, y: position.y }, { x: velocity.x, y: velocity.y }).pipe(
-        Machine.run((frame) => tapFrame({ x: UndefinedOr.getOrThrow(frame.value.x), y: UndefinedOr.getOrThrow(frame.value.y) })),
-        Effect.andThen(done),
-      )),
-    // The position now; the hand-back at the end of the release's task, once every other
-    // consumer of the same event has handled it: a press that ends with the drag (`whileTap`)
-    // then finds `x`/`y` still the drag's, so a key the drag moved stays where it was dropped.
-    Match.when({ momentum: false }, () =>
-      Effect.sync(() => directSet(opts, position)).pipe(Effect.andThen(Microtask.next), Effect.andThen(done))),
-    Match.orElse(() => Machine.decayVec(position, velocity, {}).pipe(Machine.run((frame) => tapFrame(frame.value)), Effect.andThen(done))),
+  // The position now; the hand-back at the end of the release's task, once every other
+  // consumer of the same event has handled it: a press that ends with the drag (`whileTap`)
+  // then finds `x`/`y` still the drag's, so a key the drag moved stays where it was dropped.
+  if (restsWhereDropped(position, v, axis, edges, transition)) {
+    return Effect.sync(() => directSet(opts, position)).pipe(Effect.andThen(Microtask.next), Effect.andThen(done))
+  }
+  // Only the axes the gesture moved run (Motion's `shouldDrag`): the other stays where it is.
+  return Match.value(axis).pipe(
+    Match.when("x", () =>
+      Machine.inertia(position.x, v.x, { ...transition, ...edges.x }).pipe(Machine.run((frame) => tapFrame({ x: frame.value, y: position.y })))),
+    Match.when("y", () =>
+      Machine.inertia(position.y, v.y, { ...transition, ...edges.y }).pipe(Machine.run((frame) => tapFrame({ x: position.x, y: frame.value })))),
+    Match.orElse(() => Machine.inertiaVec(position, v, { ...transition, ...edges }).pipe(Machine.run((frame) => tapFrame(frame.value)))),
+    Effect.andThen(done),
   )
 }
 
 /**
  * Run the drag track for one element. Recognize `drag(element)` on its axis (read at
  * each gesture's start for a `<Reorder>` item) with its **Drag claim** (none with
- * `propagation`), shape it (withinBounds), then consume it and the element's bare
+ * `propagation`), then consume it, kept within its constraints, and the element's bare
  * pointer-down grabs, each in place as it arrives (ADR-0032; the module doc). A drag
  * refused its claim emits nothing, so a draggable ancestor of the element that claimed
  * neither follows the pointer nor turns `whileDrag` on; its grab still stops its running
@@ -330,7 +425,7 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
   runScoped(
     runtime,
     Effect.gen(function* () {
-      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false })
+      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false, axis: "xy" })
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
 
@@ -344,18 +439,12 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
         onDefined: (at) => () => toDragAxis(at()),
       })
       const { propagation = false } = config
-      let shaped: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element, {
+      // The constraints bound the element's x/y, so they're applied where the gesture's offset
+      // meets its base, in `follow` and at the release (ADR-0016, *Amendment (#140)*).
+      const samples: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element, {
         axis,
         claim: Bool.not(propagation),
       })
-      if (config.constraints !== undefined) {
-        shaped = shaped.pipe(
-          Drag.withinBounds(
-            config.constraints,
-            config.elastic !== undefined ? { elastic: config.elastic } : undefined,
-          ),
-        )
-      }
 
       // A free drag's "end" starts its release; a projection node's Release offset already
       // began in `settleGesture`, so its drag track skips the tail (ADR-0016, Q3c).
@@ -363,8 +452,8 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
         UndefinedOr.match(opts.projection, {
           onDefined: () => Effect.void,
           onUndefined: () => {
-            const { base } = MutableRef.get(state)
-            const position: Point.Point = { x: base.x + sample.offset.x, y: base.y + sample.offset.y }
+            const { axis, base } = MutableRef.get(state)
+            const position = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, config)
             return FiberHandle.run(releasing, release(opts, state, position, sample.velocity)).pipe(Effect.asVoid)
           },
         })
@@ -410,7 +499,7 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
       // Started inline, in this order, so the samples subscribe before the grabs. Once both
       // inputs end (a test's script), the track ends when its release does; a failure of
       // either input, or of a release (`FiberHandle.join`), fails the track.
-      const inputs = Effect.all([Stream.runForEach(shaped, onSample), Stream.runForEach(presses, onPress)], {
+      const inputs = Effect.all([Stream.runForEach(samples, onSample), Stream.runForEach(presses, onPress)], {
         concurrency: "unbounded",
         discard: true,
       })

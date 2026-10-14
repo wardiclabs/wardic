@@ -51,6 +51,7 @@ import {
   stepTween,
   valueOr,
 } from "./internal/stepper.ts"
+import * as Inertia from "./Inertia.ts"
 import type * as Point from "./Point.ts"
 import * as Spring from "./Spring.ts"
 import type * as Values from "./Values.ts"
@@ -173,6 +174,44 @@ export interface DecayOptions {
   readonly restVelocity?: number
   /** Delay before the animation starts, in seconds. */
   readonly delay?: number
+}
+
+/**
+ * Options for an inertia (ADR-0016, *Amendment (#140)*, Motion's `inertia`): a glide toward
+ * `power` × the velocity that eases out over `timeConstant`, and springs back on the bounce at an
+ * edge it would cross, or starts past. Times in seconds, as every option bag here (Motion's
+ * `timeConstant` is in milliseconds).
+ */
+export interface InertiaOptions {
+  /** How far the glide carries, as a multiple of the velocity: it rests at `initial + power × velocity`. Default 0.8. */
+  readonly power?: number
+  /** The glide's time constant, in seconds: it eases out as `e^(−t / timeConstant)`. Default 0.325. */
+  readonly timeConstant?: number
+  /** The bounce spring's stiffness at an edge. Default 500. */
+  readonly bounceStiffness?: number
+  /** The bounce spring's damping. Default 10. */
+  readonly bounceDamping?: number
+  /** The glide is done within this of where it rests, and the bounce within this of its edge. Default 0.5. */
+  readonly restDelta?: number
+  /** The bounce rests below this speed, per second. Default 2. */
+  readonly restSpeed?: number
+  /** Moves where the glide rests, called once with where it would: snapping a flick to a grid, say. */
+  readonly modifyTarget?: (ideal: number) => number
+  /** The edges: past one, the glide springs back to it. None by default. */
+  readonly min?: number
+  readonly max?: number
+}
+
+/** An axis's edges for {@link inertiaVec}: either may be left out. */
+export interface InertiaEdges {
+  readonly min?: number
+  readonly max?: number
+}
+
+/** Options for {@link inertiaVec}: {@link InertiaOptions} for both axes, with each axis's edges. */
+export interface InertiaVecOptions extends Omit<InertiaOptions, "min" | "max"> {
+  readonly x?: InertiaEdges
+  readonly y?: InertiaEdges
 }
 
 /** Repeat / lifecycle modifiers shared across primitives. */
@@ -613,6 +652,53 @@ export const decayVec = (initial: Point.Point, velocity: Point.Point, options: D
     },
   })
 }
+
+/**
+ * Inertia (ADR-0016, *Amendment (#140)*, Motion's `inertia`): a glide from `initial` at `velocity`
+ * toward `initial + power × velocity` (or where `modifyTarget` moves it), easing out over
+ * `timeConstant`; where it would cross `min` or `max`, or starts past one, a spring back to that edge
+ * on the bounce. What a drag's release runs: a Fling, and a snap back to the origin (both edges 0).
+ */
+export const inertia = (initial: number, velocity: number, options: InertiaOptions = {}): Machine<Frame.Physics> =>
+  make({
+    settles: true,
+    span: { name: "wardic.inertia", attributes: { initial, velocity } },
+    start: () => {
+      const resolved = Inertia.resolve(initial, velocity, options)
+      let state = Inertia.init(initial, resolved)
+      // Per frame (ADR-0025): the glide resolved at the run's start, `dt` clamped (#78).
+      return (dt) => {
+        const result = Inertia.step(state, Math.min(dt, MAX_DT), resolved)
+        state = result.state
+        return { value: result.value, velocity: result.velocity, done: result.done }
+      }
+    },
+  })
+
+/**
+ * Two-axis inertia: both axes stepped together, one `Point` per tick, each with its own edges,
+ * settling once both rest. A drag's release in the Solid binding (ADR-0016, *Amendment (#140)*).
+ */
+export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options: InertiaVecOptions = {}): Machine<Frame.Frame<Point.Point>> =>
+  make({
+    settles: true,
+    span: { name: "wardic.inertiaVec", attributes: {} },
+    start: () => {
+      const rx = Inertia.resolve(initial.x, velocity.x, { ...options, ...options.x })
+      const ry = Inertia.resolve(initial.y, velocity.y, { ...options, ...options.y })
+      let x = Inertia.init(initial.x, rx)
+      let y = Inertia.init(initial.y, ry)
+      // Per frame (ADR-0025): each axis's glide resolved at the run's start, `dt` clamped once (#78).
+      return (dt) => {
+        const clamped = Math.min(dt, MAX_DT)
+        const sx = Inertia.step(x, clamped, rx)
+        const sy = Inertia.step(y, clamped, ry)
+        x = sx.state
+        y = sy.state
+        return { value: { x: sx.value, y: sy.value }, done: sx.done && sy.done }
+      }
+    },
+  })
 
 /**
  * Spring a bag of numeric values toward `target`: one spring per key with the shared `options`,

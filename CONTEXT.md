@@ -9,11 +9,11 @@ independent of any rendering environment.
 ### Motion production
 
 **Primitive**:
-A clock-driven piece of motion (`spring`, `tween`, `decay`, `animate`, `keyframes`, `chase`, and their multi-key forms) that produces one Frame per tick until it Settles. It runs as a Stream of Frames, or on the **Frame loop**.
+A clock-driven piece of motion (`spring`, `tween`, `decay`, `inertia`, `animate`, `keyframes`, `chase`, and their multi-key forms) that produces one Frame per tick until it Settles. It runs as a Stream of Frames, or on the **Frame loop**.
 _Avoid_: animation (too broad), tweener, machine (its code form).
 
 **Physics primitive**:
-A Primitive whose motion is governed by simulated forces and therefore carries velocity — `spring`, `decay`.
+A Primitive whose motion is governed by simulated forces and therefore carries velocity — `spring`, `decay`, and `inertia`, a decay that springs back to an edge it would cross (Motion's, what a drag's release runs).
 _Avoid_: dynamic animation.
 
 **Definite primitive**:
@@ -123,7 +123,7 @@ _Avoid_: registered child, orchestrated child.
 ### Interaction
 
 **Recognizer**:
-A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at a Fling, where `decay` ticks).
+A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at a Fling, where `inertia` ticks).
 _Avoid_: gesture (names the whole feature, not the core piece), handler, listener.
 
 **State recognizer**:
@@ -135,15 +135,19 @@ A Recognizer that emits an event-driven stream of samples carrying positional da
 _Avoid_: continuous recognizer, tracker.
 
 **Drag sample**:
-One emission of the `drag` Sample recognizer — four `{ x, y }` vectors plus a phase: `point` (current pointer position), `offset` (total movement since drag start — for positioning), `delta` (movement since the last sample — for incremental work), `velocity` (per-axis: the pointer's speed over its last 100 ms, up to this sample, as Motion's `info.velocity`), and `phase` (`"start" | "move" | "end"`). The `end` sample counts the release point too, so letting go after a pause gives a lower velocity, down to none. It is the only drag velocity Wardic reads: the `end` sample's feeds a Fling (a fresh `decay` seeded from it) and a layout drag's release, and each move's gives a Reorder group its direction. All four vectors are **2D**: a pointer has no z, so 3D "z-drag" is a consumer-side *projection* (camera/raycast) — response, not recognition. A genuinely spatial input environment (VR/AR, raycast-with-depth) would warrant a dedicated spatial Recognizer, not a z bolted onto this sample.
+One emission of the `drag` Sample recognizer — four `{ x, y }` vectors plus a phase: `point` (current pointer position), `offset` (total movement since drag start — for positioning), `delta` (movement since the last sample — for incremental work), `velocity` (per-axis: the pointer's speed over its last 100 ms, up to this sample, as Motion's `info.velocity`), and `phase` (`"start" | "move" | "end"`). The `end` sample counts the release point too, so letting go after a pause gives a lower velocity, down to none. It is the only drag velocity Wardic reads: the `end` sample's feeds a Fling (a fresh `inertia` seeded from it) and a layout drag's release, and each move's gives a Reorder group its direction. All four vectors are **2D**: a pointer has no z, so 3D "z-drag" is a consumer-side *projection* (camera/raycast) — response, not recognition. A genuinely spatial input environment (VR/AR, raycast-with-depth) would warrant a dedicated spatial Recognizer, not a z bolted onto this sample.
 _Avoid_: drag event, pointer sample.
 
+**Drag transition**:
+What every drag release runs on, apart from the element's own transition (Motion's `dragTransition`): a **Fling**, a snap back to the drag's origin, and a **Projection node**'s **Release offset**, Reorder's included. A release never borrows the element's transition.
+_Avoid_: release transition, momentum transition.
+
 **Fling** (momentum handoff):
-A drag release continuing under physics — a fresh `decay` (or `spring`) **per axis** seeded from the Drag sample's `end` velocity, so motion continues with no visible kink. A press on the element (a grab) stops it where it is. The binding composes it from core's `drag` Sample recognizer and `decay` Primitive; core has no Fling of its own until a binding-less Environment needs one (ADR-0004, *Amendment (#32)*).
-_Avoid_: inertia, throw, momentum (name the mechanism — Fling).
+A drag release continuing under physics — a fresh `inertia` **per axis** seeded from the Drag sample's `end` velocity, so motion continues with no visible kink. It runs on the **Drag transition**, and respects the drag's constraints: where its glide would cross one, or starts past one, it springs back to that edge and rests there. A press on the element (a grab) stops it where it is. The binding composes it from core's `drag` Sample recognizer and `inertia` Primitive; core has no Fling of its own until a binding-less Environment needs one (ADR-0004, *Amendment (#32)*).
+_Avoid_: inertia (the Primitive it runs), throw, momentum (name the mechanism — Fling).
 
 **Release offset**:
-A released **Projection node**'s distance from its slot, per axis, springing to zero on its own from the drag's release velocity (none with `dragMomentum={false}`), on top of the node's layout animation. A slot that moves during the release animates underneath it and leaves the offset's motion as it was, as Motion's `dragSnapToOrigin` release does (ADR-0016).
+A released **Projection node**'s distance from its slot, per axis, springing to zero on its own, on the **Drag transition**, from the drag's release velocity (none with `dragMomentum={false}`), on top of the node's layout animation. A slot that moves during the release animates underneath it and leaves the offset's motion as it was, as Motion's `dragSnapToOrigin` release does (ADR-0016).
 _Avoid_: release FLIP, flight back.
 
 **Primary pointer**:
@@ -314,7 +318,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 - Target change has three regimes: a *static* target → `spring`; an *occasional/discrete* change → `spring` + **Retarget**; a *continuous* change → **Chase**.
 - A **Chase** never **Settle**s on its own; it ends only when cancelled. Every other Primitive Settles and completes.
 - A **Recognizer** consumes an **Environment**'s input/geometry and emits an interaction signal — a **State recognizer** a boolean, a **Sample recognizer** Drag samples. A Recognizer is *not* a Primitive: event-driven, no **Settle**.
-- A **Fling** composes the `drag` Sample recognizer with a `decay` Primitive, in the binding.
+- A **Fling** composes the `drag` Sample recognizer with an `inertia` Primitive, in the binding.
 - Stacked gesture states resolve through an **Override stack** to the target that feeds the multi-value Primitives (`springValues`/`animateValues`).
 - **FLIP** animates from a prior **Measurement** to the current one; a **Measurement** is geometry and a **Snapshot** is a motion value — never interchanged.
 - A key that leaves the target animates to its **Base value**, whose last link is the element's **Own value**.
@@ -322,9 +326,9 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 ## Example dialogue
 
 > **Dev:** "When the user flicks the card and lets go, the drag hands off to motion — is that a Retarget?"
-> **Engine:** "It's a fresh `decay` Primitive seeded from the drag's release velocity. Because decay is a Physics primitive, the Snapshot carries velocity, so there's no visible kink."
+> **Engine:** "It's a fresh `inertia` Primitive seeded from the drag's release velocity, on the Drag transition. Because inertia is a Physics primitive, the Snapshot carries velocity, so there's no visible kink."
 > **Dev:** "And if they grab it again mid-fling?"
-> **Engine:** "Retarget again — cancel the decay Stream, read its last Physics frame, seed the next motion from that value and velocity."
+> **Engine:** "Retarget again — cancel the inertia, read its last Physics frame, seed the next motion from that value and velocity."
 
 ## Flagged ambiguities
 

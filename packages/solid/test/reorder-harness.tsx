@@ -145,6 +145,8 @@ export interface SceneOptions {
   /** Extra item style, read reactively (the user's, over the scene's). */
   readonly itemStyle?: Accessor<JSX.CSSProperties>
   readonly whileDrag?: WardicValues
+  /** Each item's `dragElastic` (#140): its release's bounce. */
+  readonly dragElastic?: number
 }
 
 export interface Scene {
@@ -219,6 +221,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
             data-value={value}
             {...(o.itemAs !== undefined ? { as: o.itemAs } : {})}
             {...(o.whileDrag !== undefined ? { whileDrag: o.whileDrag } : {})}
+            {...(o.dragElastic !== undefined ? { dragElastic: o.dragElastic } : {})}
             style={{ ...itemCss(o), ...o.itemStyle?.() }}
           >
             {o.text === true ? `item ${value} text` : value}

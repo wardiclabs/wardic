@@ -7,13 +7,13 @@
 // - LT2: a tween's duration, easing and delay: held at its origin through the delay, then on its curve.
 // - LT3: an interrupt restarts a fresh full tween from where the node is drawn (Motion's).
 // - LT4: reduced motion lands at once, its delay dropped (ADR-0029).
-// - LT5: a release's Release offset stays a spring under a tween (ADR-0016): the same on the default
-//   tween as on the default spring, and its own on a spring of its own.
+// - LT5: a release's Release offset runs on its drag transition, whatever its layout transition
+//   (ADR-0016 *Amendment (#140)*), and on its own drag transition when it has one.
 // - LT6: a spring's delay holds it too.
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
-import type { LayoutTransition, ProjectionNodeHandle, ProjectionSystemOptions } from "../src/index.ts"
+import { DEFAULT_DRAG_TRANSITION, type DragTransition, type LayoutTransition, type ProjectionNodeHandle, type ProjectionSystemOptions } from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -103,19 +103,26 @@ describe("a layout animation's transition (#171)", () => {
     m.e.dispose()
   })
 
-  it("LT5: a release's Release offset stays a spring under a tween", async () => {
-    // Three nodes in one engine, dragged and released on the same frames, so each steps the same dts.
+  it("LT5: a release's Release offset runs on its drag transition, whatever its layout transition", async () => {
+    // Nodes in one engine, dragged and released on the same frames, so each steps the same dts.
     const sk = makeSink()
     const e = makeEngine(sk.sink)
-    const root = stage("position:relative;width:800px;height:300px")
-    const transitions: ReadonlyArray<LayoutTransition | undefined> = [
-      undefined,
-      { type: "spring" },
-      { type: "spring", stiffness: 400, damping: 30 },
-      { type: "tween", duration: 0.2 },
+    const root = stage("position:relative;width:800px;height:400px")
+    const stiff: DragTransition = { ...DEFAULT_DRAG_TRANSITION, bounceStiffness: 400, bounceDamping: 30 }
+    const nodes: ReadonlyArray<{ readonly transition: LayoutTransition | undefined; readonly dragTransition?: DragTransition }> = [
+      { transition: undefined },
+      { transition: { type: "spring" } },
+      { transition: { type: "spring", stiffness: 400, damping: 30 } },
+      { transition: { type: "tween", duration: 0.2 } },
+      { transition: undefined, dragTransition: stiff },
     ]
-    const handles = transitions.map((transition, i) =>
-      e.system.register({ id: `n${i}`, element: el(root, `position:absolute;top:${i * 80}px;left:0px;width:50px;height:50px`), transition: () => transition }),
+    const handles = nodes.map((node, i) =>
+      e.system.register({
+        id: `n${i}`,
+        element: el(root, `position:absolute;top:${i * 80}px;left:0px;width:50px;height:50px`),
+        transition: () => node.transition,
+        ...(node.dragTransition === undefined ? {} : { dragTransition: () => node.dragTransition }),
+      }),
     )
     await endOfTask()
     fireFrame()
@@ -126,14 +133,15 @@ describe("a layout animation's transition (#171)", () => {
     await endOfTask()
     const run = Array.from({ length: 90 }, () => {
       fireFrame()
-      return [tx(sk, "n0"), tx(sk, "n1"), tx(sk, "n2"), tx(sk, "n3")] as const
+      return nodes.map((_, i) => tx(sk, `n${i}`))
     })
     expect(run[0]![0], "it starts from the drag").toBeGreaterThan(40)
-    run.forEach(([tween, spring, , own], k) => {
-      expect(tween, `frame ${k}: the default tween's release is the default spring's`).toBeCloseTo(spring, 9)
-      expect(own, `frame ${k}: a tween of its own releases on the default spring too`).toBeCloseTo(spring, 9)
+    run.forEach(([none, spring, ownSpring, tween], k) => {
+      expect(spring, `frame ${k}: the default spring's release is the default tween's`).toBeCloseTo(none!, 9)
+      expect(ownSpring, `frame ${k}: a spring of its own releases the same`).toBeCloseTo(none!, 9)
+      expect(tween, `frame ${k}: a tween of its own too`).toBeCloseTo(none!, 9)
     })
-    expect(run.some(([, spring, stiff]) => Math.abs(stiff - spring) > 1), "a spring of its own steps its release").toBe(true)
+    expect(run.some(([none, , , , own]) => Math.abs(own! - none!) > 1), "a drag transition of its own steps its release").toBe(true)
     e.dispose()
   })
 

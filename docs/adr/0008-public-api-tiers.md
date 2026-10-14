@@ -42,6 +42,6 @@ ADR-0028's decision 2 lands the subpaths, and with them the curation this record
 
 - **Every export lives in a module, `@wardic/core/<Module>`,** and the root re-exports each module as a namespace and nothing else. The folder barrels are gone, and lint holds the root's shape (ADR-0028, decision 10).
 - **Tier 3 is fenced off:** `package.json`'s `"./internal/*": null` makes `src/internal/` unimportable from outside core. The tween's and decay's steppers and the Frame loop's shape and `make` live there. `chaseCore` went with #94, and `springStep` (the options form) with #95.
-- **A Tier 3 function with a caller outside core stays public, labelled:** `Spring.init`, `Spring.resolve`, `Spring.step` and `Spring.State`, which dom's projection pass steps per node per frame. Their JSDoc says Tier 3.
+- **A Tier 3 function with a caller outside core stays public, labelled:** `Spring.init`, `Spring.resolve`, `Spring.step` and `Spring.State`, which dom's projection pass steps per node per frame. Their JSDoc says Tier 3. *Since ADR-0016's Amendment (#140), `Inertia.init`, `Inertia.resolve`, `Inertia.step`, `Inertia.State` and `Inertia.Resolved` too: dom steps a Release offset with them.*
 - **"No subpath split yet" is reversed, but not as an `/unstable` subpath:** the subpaths are per module, not per tier. Tier 1 and Tier 2 are still told apart by JSDoc, and an `/unstable` subpath stays possible, additively.
 

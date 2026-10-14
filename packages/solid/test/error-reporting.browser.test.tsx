@@ -149,7 +149,7 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     const reports: Array<string> = []
     const { container } = render(() => (
       <WardicProvider env={envWith({ logs, reports, checkFrames: true })}>
-        <wardic.div data-drag drag="x" dragSnapToOrigin transition={{ stiffness: Number.NaN }} style={{ width: "40px", height: "40px" }}>
+        <wardic.div data-drag drag="x" dragSnapToOrigin dragTransition={{ bounceStiffness: Number.NaN }} style={{ width: "40px", height: "40px" }}>
           d
         </wardic.div>
       </WardicProvider>

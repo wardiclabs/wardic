@@ -110,6 +110,7 @@ Each comes from Q3b's fold of the drag offset into one FLIP on the node's progre
    - Rejected: keeping Q3c (a flick stops dead at the release, then springs back); core `drag`'s 30 ms window.
 3. **The offset runs on the element's `transition` (Q3)**, as the node's layout animation and a free `dragSnapToOrigin` release do: 170/26 by default. Each axis runs in units of its starting distance (at least 1 px), so the transition's rest thresholds mean what they meant for the progress spring Q3b ran: a release with no velocity and no slot move paints the same curve as before and settles on the same frame. In px, the default 0.01 thresholds kept a 15 px release raised about 0.4 s longer (`reorder.browser.test.tsx` RO13 caught it).
    - Rejected: adding Motion's `dragTransition` here (new API, and it would change the free drag's default release too; #140); Motion's 200/40 bounce for layout releases only (it splits Wardic's own releases and gives no way to change it).
+   - *Replaced by Amendment (#140): the offset runs on the drag transition, Motion's inertia with both edges at the slot, in px; every release does.*
 4. **A grab leaves a running layout animation running (Q4, #30).**
    - The drag is a layer on top of the layout animation, as the release is: a node grabbed mid-FLIP keeps flying under the pointer, and the drag target is that flight moved by the pointer's offset. The slot moves that come during the drag still start nothing (**Drag block**).
    - A grab during a release stops its offset where it is, at the press (Motion's `stopAnimation` at the pan session's start), and the drag continues from there. A press that ends with no drag starts the offset again from rest (Motion's `resumeAnimation` for `dragSnapToOrigin`): at its up, its cancel, or, when its release was lost, the pointer's first move with no button pressed (ADR-0019).
@@ -131,7 +132,7 @@ Each comes from Q3b's fold of the drag offset into one FLIP on the node's progre
 - One change at the edge: a Measure pass no longer ends a released `layoutRoot`'s flight. Its self-snap is about its own layout, and the Release offset isn't a layout animation, so it goes on from the new slot (`projection-handle.browser.test.ts` PH10, which pinned the old cut).
 - Reduced motion leaves a release alone, since it continues the gesture (ADR-0029).
 - The release's first step is the loop's next tick (*Amendment (#73)*).
-- Free drags are unchanged.
+- Free drags are unchanged. *(Until Amendment (#140): their release is the drag transition's inertia.)*
 
 ### Limits
 
@@ -162,7 +163,7 @@ Cost, `.tmp/vel-cost/` (a Frame loop tick timed by hand against a fake sink, 8 r
 ### Pinned by
 
 - `packages/dom/test/projection-release.browser.test.ts`, RL1–RL16, against a fake sink:
-  - RL1: a release with no velocity paints a FLIP's curve and settles on the same frame (a guard);
+  - RL1: a release with no velocity paints a FLIP's curve and settles on the same frame (a guard; *re-pinned by Amendment (#140) to the drag transition's inertia*);
   - RL2 and RL3: a slot move mid-release keeps the release's speed, and a resting child stays on its parent through it (#28);
   - RL4: a running child keeps its line as its released parent comes to rest (#38);
   - RL5, RL6 and RL14: a grab leaves a running layout animation running, with no jump at the grab or at a release, also after a slot move mid-drag (#30);
@@ -178,4 +179,70 @@ Cost, `.tmp/vel-cost/` (a Frame loop tick timed by hand against a fake sink, 8 r
 
 ## Note (#171, 2026-10-14): the Release offset stays a spring
 
-A layout animation now defaults to Motion's 0.45 s tween (ADR-0009 *Amendment (#171)*). The Release offset still springs from the release's velocity: on the layout transition when that's a spring, else on the spring defaults (170/26). A tween can't carry a velocity. The slot FLIP under a release is a layout animation, and takes the tween. #140's `dragTransition` would give the Release offset its own transition, as Motion's does.
+A layout animation now defaults to Motion's 0.45 s tween (ADR-0009 *Amendment (#171)*). The Release offset still springs from the release's velocity: on the layout transition when that's a spring, else on the spring defaults (170/26). A tween can't carry a velocity. The slot FLIP under a release is a layout animation, and takes the tween. #140's `dragTransition` would give the Release offset its own transition, as Motion's does. *Resolved by Amendment (#140): it runs on the drag transition.*
+
+## Amendment (#140, 2026-10-14): every release runs on the drag transition
+
+Measured on main `d6908a1` against framer-motion 13.4.0 (`.tmp/140/`, real Playwright mouse, Chromium 147, 3 runs each): a flick right of 6 moves of 12 px, 16 ms apart, on Motion's `fling.tsx` and Wardic's `wardic-fling.tsx` (a free box, and two `drag="x"` boxes with `dragConstraints` 0..100, one with `dragElastic={0}`).
+
+| Scene | Motion | main |
+|---|---|---|
+| free: carried on past the release | 247–287 px, still at 3.9–4.2 s | 77–78 px, still at 1.68 s |
+| constrained, elastic: where it rests | the edge, 100; peaks 108–114, still at 566–650 ms | 150–161, past the edge, still at 1.68 s |
+| constrained, `dragElastic={0}` | the edge; peaks 102, still at 132 ms | 150, past the edge |
+
+Motion's release (`VisualElementDragControls.startAnimation`) is an `inertia` per axis it dragged: a glide toward `power` × the velocity, easing out over `timeConstant`, that springs back on a bounce to an edge it would cross, or starts past. Its options are `bounceStiffness` 200 / `bounceDamping` 40 with `dragElastic` (1e6 / 1e7 without), `timeConstant` 750 ms, `restDelta` 1, `restSpeed` 10, then the element's `dragTransition`, then the constraints as `min`/`max`, both 0 with `dragSnapToOrigin`; velocity 0 with `dragMomentum={false}`. Wardic's Fling was a `decayVec` (friction 3) that ignored the constraints; `dragSnapToOrigin` sprang on the element's `transition`; a layout node's Release offset on its layout transition's spring, else 170/26 (*Note (#171)*). And the constraints bound each gesture's offset, not where the element is: a box dropped at 80 could be dragged on to 180.
+
+### Decisions (grilled 2026-10-14)
+
+1. **One drag transition drives every release** (Q1; CONTEXT.md **Drag transition**): a Fling, a snap back to the origin, and a layout node's Release offset, `<Reorder>`'s included. A release never borrows the element's `transition`.
+   - Rejected: the snap and the Release offset keeping the element's transition (Motion's runs them on `dragTransition` too, and a layout node's 0.45 s tween can't carry a velocity).
+2. **Motion's defaults** (Q2): power 0.8, a 0.75 s time constant, the bounce 200 / 40 (1e6 / 1e7 with `dragElastic={0}`, a wall), `restDelta` 1 and `restSpeed` 10, in px.
+3. **A Fling respects the constraints** (Q3): where its glide would cross an edge, or it starts past one, it springs back to the edge on the bounce and rests there.
+4. **`dragElastic` defaults to 0.35** (Q4), Motion's `defaultElastic`: a drag past an edge goes on at 0.35 of the pointer's pace, and the release's bounce is the soft one.
+5. **Motion's names** (Q5): `dragTransition={{ power, timeConstant, bounceStiffness, bounceDamping, restDelta, restSpeed, modifyTarget }}`, `timeConstant` in milliseconds as Motion's; the edges come from `dragConstraints` (or the origin, or the slot), so there's no `min`, `max` or `type`. Its type is Wardic's own, `WardicDragTransition`.
+6. **`dragMomentum={false}` zeroes the velocity, for every release** (Q6), as Motion's: past an edge it springs back from rest, and a snap back returns directly, never carrying on outward first. One that would rest where it was dropped (no velocity, within its edges, no `modifyTarget`) commits at once and hands `x`/`y` back at the end of its task, as before.
+7. **A core Physics primitive, `inertia`** (Q7): `Machine.inertia` and `Machine.inertiaVec`, on a new Tier 3 module, `Inertia` (`resolve`, `init`, `step`; ADR-0008), Motion's generator as a pure stepper. Its bounce is Motion's analytic spring, under-, critically and overdamped, with Motion's cap of 300 on the hyperbolic argument: a stepped spring isn't stable at 1e6 / 1e7, and the cap is what lets Motion's wall land on its next frame. The binding's Fling and snap back run `inertiaVec` (or `inertia` on a one-axis drag's axis, the other left where it is); the dom engine steps a Release offset with `Inertia.step` per axis, both edges at the slot, from a new `register` option, `dragTransition`, read at each release (`DEFAULT_DRAG_TRANSITION` without it).
+   - The Release offset is now in px, Motion's: its thresholds are px, so *Amendment (velocity family)*'s units of the starting distance go. It starts past its edges, so its bounce starts at the glide's speed there, `power` / `timeConstant` × the velocity (1.07 times it with the defaults), which is the 1.07 that decision's *Limits* measured in Motion's.
+   - A bounce is at rest only when both thresholds hold, so a step that isn't a number (a NaN option) is never at rest, and the frame check reports it (ADR-0030).
+   - Rejected: Euler-stepping the bounce on `Spring` (unstable at Motion's wall); a binding-only inertia (the dom engine needs the same stepper).
+8. **The constraints bound the element's `x`/`y`, whichever gesture moved it there** (asked during the PR, Motion's): the drag keeps `base + offset` within them, pulled back past an edge by the elastic (`Drag.constrain`, now public, Motion's `applyConstraints`), on the axes it moves only, and the release starts from there. A projection node's `x`/`y` is its drag offset, so its drag is as before.
+   - Rejected: keeping the per-gesture offset, where a Fling's edges and a drag's would disagree.
+9. **Tests and the lab** (Q8): core unit tests against Motion's generator's own frames; dom engine tests; real-paint tests; and the layout lab's scenario 13 free box gains a **bounds** box (drawn edges, x 0..200 and y −150..0) with a **stays in bounds** line, and a **grid** box (`modifyTarget` to 50 px) judged on the `rests` line. With bounds, the card's `under pointer` expects the constrained place.
+
+### What stays
+
+- A layout drag still always returns to its slot (*Limits* above): its Release offset is the snap back, both edges at the slot.
+- Reduced motion leaves every release alone (ADR-0029): it continues the gesture.
+- The release velocity is `Velocity.trailing`'s (ADR-0004, *Amendment (#139)*).
+
+### Limits
+
+- A free flick carries 0.8 × the velocity Wardic reads, as Motion's does, and Wardic reads about 20% less on a release made a frame after the last move (ADR-0004, *Amendment (#139)*): 191 px against Motion's 247 below. The inertia itself is Motion's to 1e-13 px.
+- `dragElastic` is a number, not Motion's per-edge object; `dragConstraints` is numeric, not a ref.
+- `<Reorder.Item>` with `dragElastic={0}` lands on its slot on the release's first frame, as Motion's does (the wall's spring is that overdamped).
+
+### Measured on this branch
+
+`.tmp/140/flick.ts`, the same flick, 3 runs each, Chromium 147:
+
+| Scene | Motion | main | this branch |
+|---|---|---|---|
+| free: carried on | 247–287 px, still at 3.9–4.2 s | 77–78 px, at 1.68 s | 191–192 px, at 3.97 s |
+| constrained, elastic | the edge; peaks 108.2–113.5; still at 566–650 ms | 150–161 | the edge; peaks 106.8–107.0; still at 565–566 ms |
+| constrained, `dragElastic={0}` | the edge; peaks 102.3; 132 ms | 150 | the edge; peaks 102.9–103.5; 149–165 ms |
+
+`.tmp/140/motion-oracle.ts` runs motion-dom 13.3.0's `inertia` beside `Machine.inertia` on seven cases (crossing a max edge, starting past both, a wall, underdamped, critically damped, crossing a min edge, and no edges): every frame within 5e-13 px, done on the same frame.
+
+The layout lab on a private server, scripted (`.tmp/140/drive13.ts`): with bounds, a flick past the right edge reads `under pointer` 0.00 px and rests on 200, 43 px past it at most; with the momentum box off, it springs back to the edge from rest; with the grid, it rests on a multiple of 50.
+
+Cost, `.tmp/vel-cost/` (main built from a worktree, 10 rounds, main against itself as the control): 1,000 nodes released in one frame +5% in Chromium (control +1%) and −8% in Firefox (control 0%, its 1 ms clock); FLIPs unchanged (3,000 nodes −4%, control −5%). An earlier run read 3,000-node FLIPs +20%: its main bundle had been built through a symlink that took the branch's core from another path, so it wasn't main.
+
+### Pinned by
+
+- `packages/core/test/inertia.test.ts`: the glide on Motion's curve and its rest frame, `modifyTarget`, a release at rest, Motion's generator's frames for five bounces, Motion's wall, a NaN bounce never at rest, and `inertiaVec`'s axes each on its own edges.
+- `packages/dom/test/projection-release.browser.test.ts`: RL1 (now: a release with no velocity springs back from rest on the drag transition, `Machine.inertia`'s frames, and `DEFAULT_DRAG_TRANSITION` is Motion's) and RL17 (with velocity, per axis; a wall lands at once); `projection-layout-transition.browser.test.ts` LT5 (now: the Release offset is the drag transition's whatever the layout transition, its own when it has one).
+- `packages/solid/test/drag-transition.browser.test.tsx`, DT1–DT9, with the real mouse: the free glide's time constant; a constrained Fling at elastic 0.35 and 0; momentum off past an edge; a direct snap back; `power`, `timeConstant` in ms and `modifyTarget` (also at rest); the constraints across gestures; an x drag's release on x alone; a `<Reorder.Item>` on 200 / 40, and at once with `dragElastic={0}`.
+- Updated: `while-drag` (the hard clamp needs `dragElastic={0}` now; the default pulls back by 0.35), `fling` FL4 and FL5 (a soft `dragTransition`, not `transition`), `drag-pointer` P1 (a longer wait for the 200 / 40 bounce from 240 px), `error-reporting` (the NaN goes through `dragTransition`).
+- Lab: `test/drag-run.test.ts` FR9–FR12.
+- Mutation-checked: 45 single-point mutations of the new code, each failing the test meant for it.

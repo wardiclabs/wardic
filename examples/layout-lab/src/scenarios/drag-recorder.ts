@@ -65,7 +65,7 @@
  *
  * @module
  */
-import type { Box, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
+import type { Box, DragBounds, DragFrame, DragMove, DragRunEnd, DragRunInput, Point } from "../lab/drag-run.ts"
 import type { ReorderFrame } from "../lab/reorder-run.ts"
 import type { RestFrame, RestRunEnd, RestRunInput } from "../lab/rest-run.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
@@ -128,6 +128,13 @@ export interface DragRecorderOptions {
    * Fling decays for a few seconds before it stands still.
    */
   readonly settleMs?: () => number | undefined
+  /**
+   * The pressed item's constraints on its x and y, with its `dragElastic` (optional, read at the
+   * grab): scenario 13's free box with its bounds box on (#140). Recorded as the run's `bounds`.
+   */
+  readonly bounds?: () => DragBounds | undefined
+  /** The pressed item's grid, in px (optional, read at the grab): scenario 13's free box with its grid box on (#140). */
+  readonly grid?: () => number | undefined
   /**
    * Called as the press goes on: `start` when the pointer first moves past the drag
    * threshold (the drag has started), `release` on the pointerup, `end` once the run
@@ -199,6 +206,16 @@ const layoutBox = (el: HTMLElement, stage: HTMLElement): Box => {
   return { x, y, width: el.offsetWidth, height: el.offsetHeight }
 }
 
+/**
+ * `el`'s own translation, as its computed transform has it: its x and y, exactly. Its painted box
+ * less its layout box reads up to about 0.7 px off where the device pixel ratio isn't whole (borders
+ * snap to device pixels, and the offsets round), more than a constrained item's checks allow (#140).
+ */
+const translateOf = (el: Element): Point => {
+  const m = new DOMMatrixReadOnly(getComputedStyle(el).transform)
+  return { x: m.m41, y: m.m42 }
+}
+
 /** What {@link attachDragRecorder} returns. */
 export interface DragRecorder {
   /** Tell the recorder a layout change is about to be made from outside a frame (see the module doc). */
@@ -246,6 +263,9 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
           endedBy?: DragRunEnd
           pointerLeft?: boolean
           scheduler: "default" | "microtask"
+          bounds?: DragBounds
+          grid?: number
+          grabTranslate?: Point
         }
         /** Whether the press is the Primary pointer's: only its drag starts the scenario's `start` phase. */
         readonly primary: boolean
@@ -411,6 +431,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       t: performance.now(),
       d,
       slot: layoutBox(item, stage),
+      // A free item with constraints or a grid (#140): its x and y as its own transform has them.
+      ...(p.input.bounds === undefined && p.input.grid === undefined ? {} : { translate: translateOf(item) }),
       children: boxesOf(opts.children(), stage),
       ...(opts.reorderFrame === undefined ? {} : { reorder: opts.reorderFrame(p.pointer) }),
       ...(scroll === undefined ? {} : { scrolled }),
@@ -569,6 +591,16 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         endedAt: 0,
         scheduler: currentLabScheduler(),
         ...(opts.flyingAtPress?.() === true ? { grabFlight: { slot: layoutBox(item, stage) } } : {}),
+        ...((): { bounds?: DragBounds } => {
+          const bounds = opts.bounds?.()
+          return bounds === undefined ? {} : { bounds }
+        })(),
+        ...((): { grid?: number } => {
+          const grid = opts.grid?.()
+          return grid === undefined ? {} : { grid }
+        })(),
+        // With constraints or a grid, its x and y at the grab, exactly (#140; see `translateOf`).
+        ...(opts.bounds?.() === undefined && opts.grid?.() === undefined ? {} : { grabTranslate: translateOf(item) }),
       },
       // Motion's `isPrimaryPointer`, as Wardic's recognizers read it after #31 (ADR-0019).
       primary: e.pointerType === "mouse" ? e.button <= 0 : e.isPrimary,

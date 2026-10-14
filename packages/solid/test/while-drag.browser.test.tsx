@@ -108,7 +108,19 @@ describe("drag — (c) axis lock", () => {
 })
 
 describe("drag — (d) constraints", () => {
-  it("hard-clamps the followed x at the max bound (elastic default 0)", async () => {
+  it("hard-clamps the followed x at the max bound with dragElastic={0}", async () => {
+    let el: HTMLElement | undefined
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(node: HTMLElement) => (el = node)} drag dragConstraints={{ x: { min: 0, max: 100 } }} dragElastic={0} />
+      </WardicProvider>
+    ))
+
+    await dragTo(el!, 200, 0) // offset 200 clamps to max 100
+    expect(translateXOf(el!)).toBeCloseTo(100, 0)
+  })
+
+  it("pulls the followed x back past the bound by Motion's default dragElastic, 0.35 (#140)", async () => {
     let el: HTMLElement | undefined
     render(() => (
       <WardicProvider env={DomLive}>
@@ -116,8 +128,8 @@ describe("drag — (d) constraints", () => {
       </WardicProvider>
     ))
 
-    await dragTo(el!, 200, 0) // offset 200 clamps to max 100
-    expect(translateXOf(el!)).toBeCloseTo(100, 0)
+    await dragTo(el!, 200, 0) // 100 past the bound, pulled back to 100 + 100 × 0.35
+    expect(translateXOf(el!)).toBeCloseTo(135, 0)
   })
 })
 

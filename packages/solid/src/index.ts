@@ -70,6 +70,7 @@ export {
 export {
   type Ward,
   type WardicConfig,
+  type WardicDragTransition,
   type WardicReducedMotion,
   type WardicTransformShorthands,
   type WardicTransition,
