@@ -84,7 +84,7 @@ import { createVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
-import { useWardicGate, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 
@@ -572,6 +572,7 @@ export function runSpine(opts: RunSpineOptions): void {
 
   // Whether reduced motion applies (ADR-0029), read at each Retarget.
   const reducedMotion = useWardicReducedMotion()
+  const positionalKeys = useWardicPositionalKeys()
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
@@ -1012,7 +1013,7 @@ export function runSpine(opts: RunSpineOptions): void {
               onDefined: (tr) => tr.respectReducedMotion !== false,
             })
             const { positional, rest } = Bool.match(Bool.and(respects, reducedMotion()), {
-              onTrue: () => ReducedMotion.split(t),
+              onTrue: () => ReducedMotion.split(t, positionalKeys),
               onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: t }),
             })
             const snapping = hasKeys(positional)

@@ -51,7 +51,11 @@ export type WardicServices =
   | InputSource.InputSource
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
+  | ReducedMotion.PositionalKeys
   | AtomRegistry.AtomRegistry
+
+/** A server render's Positional keys: it builds no runtime, and reduced motion never applies there. */
+const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
 
 /** The `ManagedRuntime` flavour built from a {@link WardicEnv}. */
 export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
@@ -67,6 +71,8 @@ interface WardicContextValue {
   readonly projection: ProjectionSystem | undefined
   /** Whether reduced motion applies now (ADR-0029): read when each animation starts. */
   readonly reducedMotion: () => boolean
+  /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
+  readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
 }
 
 /**
@@ -113,7 +119,9 @@ export function WardicProvider(props: {
     // be built by user code: dispose it with the render, as the client does on unmount.
     onCleanup(() => void runtime.dispose())
     return (
-      <WardicContext.Provider value={{ runtime, gate: INERT_GATE, projection: undefined, reducedMotion: constFalse }}>
+      <WardicContext.Provider
+        value={{ runtime, gate: INERT_GATE, projection: undefined, reducedMotion: constFalse, positionalKeys: SERVER_POSITIONAL_KEYS }}
+      >
         {props.children}
       </WardicContext.Provider>
     )
@@ -139,6 +147,9 @@ export function WardicProvider(props: {
       Option.getOrElse(Option.fromUndefinedOr(untrack(() => props.reducedMotion)), () => "user" as const),
       registry.get(probe.prefersReducedMotion),
     )
+  // Which keys reduced motion Snaps: the Environment's Positional keys (ADR-0036), read once, as
+  // the Probe is.
+  const positionalKeys = runtime.runSync(ReducedMotion.PositionalKeys)
 
   // The box-based projection system (ADR-0009) — provider-owned like the gate.
   // It holds the projection nodes + the coordinator (a run on the Frame loop); standalone
@@ -159,7 +170,7 @@ export function WardicProvider(props: {
   })
 
   return (
-    <WardicContext.Provider value={{ runtime, gate, projection, reducedMotion }}>{props.children}</WardicContext.Provider>
+    <WardicContext.Provider value={{ runtime, gate, projection, reducedMotion, positionalKeys }}>{props.children}</WardicContext.Provider>
   )
 }
 
@@ -196,6 +207,19 @@ export function useWardicGate(): FlushGate {
     throw new Error("useWardicGate must be used within a <WardicProvider>")
   }
   return value.gate
+}
+
+/**
+ * Reads the Environment's Positional keys (ADR-0036): which keys reduced motion Snaps. Throws a
+ * clear, named error outside a `WardicProvider`; during a server render, the transforms only.
+ * Internal: not exported from the package.
+ */
+export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
+  const value = useContext(WardicContext)
+  if (value === undefined) {
+    throw new Error("useWardicPositionalKeys must be used within a <WardicProvider>")
+  }
+  return value.positionalKeys
 }
 
 /**
