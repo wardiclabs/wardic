@@ -13,6 +13,12 @@
  * - **end**: the Lead at 1, and its Follower at 0 or gone.
  * - **passes** (#165), for a cell that watches it: the point at the Lead's centre never hit the
  *   Follower.
+ * - **starts** (#170): the Lead goes on from where its twin was painted at the toggle. Its first
+ *   frame is no further from there than its next step (plus 1.5px): a start from rest accelerates,
+ *   while one from where the twin would have rested jumps the rest of the twin's flight.
+ *
+ * A toggle back with no twin left to fade (`back`: the overlap and in place cells closed) is judged
+ * on starts and end only.
  *
  * A handover that only moves, inside a crossfading container (#5), is judged on **own fade**
  * instead: its Lead at 1 on every frame, and its **end**, its Follower hidden once it's over.
@@ -35,10 +41,15 @@ export interface CrossfadeSeries {
   readonly hitsFollower?: ReadonlyArray<boolean>
   /** A handover that only moves, inside a crossfading container (#5). */
   readonly onlyMoves?: boolean
+  /** Where the outgoing twin was painted at the toggle, and the Lead's first painted frames (#170). */
+  readonly startsFrom?: { readonly x: number; readonly y: number }
+  readonly leadPath?: ReadonlyArray<{ readonly x: number; readonly y: number }>
+  /** A toggle back with no twin left to fade (#170): judged on starts and end only. */
+  readonly back?: boolean
 }
 
 /** A crossfade card's lines, in display order. */
-export const CROSSFADE_CHECK_NAMES = ["covers", "order", "fades", "own fade", "end", "passes"] as const
+export const CROSSFADE_CHECK_NAMES = ["starts", "covers", "order", "fades", "own fade", "end", "passes"] as const
 
 /** One crossfade card line. */
 export interface CrossfadeCheck {
@@ -57,6 +68,17 @@ const line = (name: CrossfadeCheck["name"], ok: boolean, value: string, expected
 /** The Follower's last reading, or `null` once it's gone. */
 const lastOf = (xs: ReadonlyArray<number | null>): number | null | undefined => xs[xs.length - 1]
 
+/** The starts line (#170), when the run recorded where it started from and its first two frames. */
+const startsOf = (series: CrossfadeSeries | undefined): Array<CrossfadeCheck> => {
+  const from = series?.startsFrom
+  const path = series?.leadPath
+  if (from === undefined || path === undefined || path.length < 2) return []
+  const [first, second] = [path[0]!, path[1]!]
+  const jump = Math.hypot(first.x - from.x, first.y - from.y)
+  const step = Math.hypot(second.x - first.x, second.y - first.y)
+  return [line("starts", jump <= step + 1.5, `${jump.toFixed(1)}px from its twin (next step ${step.toFixed(1)}px)`, "where its twin was painted")]
+}
+
 /** A crossfade run's lines (see the module doc). */
 export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> => {
   const lead = input.during
@@ -67,9 +89,17 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const followerHidden = followerEnd === null || followerEnd === undefined || followerEnd <= 0.01
   const superseded = input.superseded === true
   const notJudged = (name: CrossfadeCheck["name"]): CrossfadeCheck => ({ name, ok: true, text: "superseded by the next run, not judged" })
+  const starts = startsOf(series)
+  if (series?.back === true) {
+    return [
+      ...starts,
+      superseded ? notJudged("end") : line("end", leadEnd !== undefined && leadEnd >= 0.99, `Lead ${v3(leadEnd)}`, "Lead 1"),
+    ]
+  }
   if (series?.onlyMoves === true) {
     const lowest = Math.min(...lead)
     return [
+      ...starts,
       line("own fade", lowest >= 0.99, lowest >= 0.99 ? "none" : `down to ${v3(lowest)}`, "none: the Lead at 1 every frame"),
       superseded ? notJudged("end") : line("end", followerHidden, `Follower ${followerEnd === null ? "gone" : v3(followerEnd)}`, "the Follower hidden"),
     ]
@@ -86,6 +116,7 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const between = lead.filter((l) => l > 0.01 && l < 0.99).length
   const ended = leadEnd !== undefined && leadEnd >= 0.99 && followerHidden
   const checks = [
+    ...starts,
     line("covers", lowest >= 0.98, `at least ${v3(lowest)}`, "0.98: never see-through"),
     line("order", ordered, out === -1 ? "the Follower never faded" : `Lead at ${v3(leadAtOut)} as the Follower fades`, "the Lead in first"),
     superseded ? notJudged("fades") : line("fades", between > 0, `${between} frames between`, "a fade, not a swap"),

@@ -124,6 +124,8 @@ The layout lab, scripted (`.tmp/vel-lab/drive.ts`), scenario 12's X both ways, r
 
 ## Amendment (#146, 2026-10-13): a restart starts from where the node paints
 
+*ADR-0010's Amendment (#170) gives a shared-element handover the same rule: the new Lead starts from where its twin paints, mid-flight or not. It differs on the Release offset, which a handover counts and a restart leaves out, since the new Lead doesn't inherit its twin's release.*
+
 A Measure pass that interrupts a layout animation restarts it from where the element appears. The engine took that as `mix(origin, box, progress)` at the node's own progress, in page space, or its box before the pass at rest. That is where an absolutely placed node paints. A node placed relative to a running parent paints at its relative offset placed in where the parent paints, so its restart was off whenever the two progresses differ:
 
 - a slower child mid-flight, by (the parent's progress − its own) × the parent's move;

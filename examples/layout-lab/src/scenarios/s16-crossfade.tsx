@@ -19,7 +19,12 @@
  *   watched: the point at the thumbnail's centre never hits the leaving modal (#165).
  *
  * Closing the overlap and in place cells unmounts the Lead with no presence: its twin is promoted
- * and shows at once (Motion's: nothing left to crossfade with), which isn't a run.
+ * and shows at once (Motion's: nothing left to crossfade with), a `back` run judged on where it
+ * starts and ends.
+ *
+ * Every run is also judged on where it starts (#170): the recorder reads where the outgoing twin is
+ * painted just before the toggle, and the Lead's first painted frames, so toggling mid-flight
+ * shows a handover that starts from where its twin would have rested.
  *
  * @module
  */
@@ -95,6 +100,19 @@ interface Watch {
   readonly follower: () => Element | undefined
   readonly hits?: boolean
   readonly onlyMoves?: boolean
+  /** Where the outgoing twin was painted just before the toggle (#170). */
+  readonly startsFrom?: { readonly x: number; readonly y: number }
+  /** A toggle back with no twin left to fade (#170). */
+  readonly back?: boolean
+  /** The pair of twins it hands over between, which a later run on the pair supersedes; its cell by default. */
+  readonly pair?: string
+}
+
+/** Where an element is painted: its top-left, or `undefined` when it isn't on the page. */
+const paintedAt = (el: Element | undefined): { readonly x: number; readonly y: number } | undefined => {
+  if (el === undefined || !el.isConnected) return undefined
+  const r = el.getBoundingClientRect()
+  return { x: r.left, y: r.top }
 }
 
 /**
@@ -107,22 +125,24 @@ interface Watch {
  */
 const makeRecorder = (ctx: ScenarioContext) => {
   const sampling = new Set<MessageChannel>()
-  // Each cell's run still sampling: a new run on the cell supersedes it.
+  // Each pair of twins' run still sampling: a new run on the pair (either way) supersedes it.
   const current = new Map<string, () => void>()
   const start = (watch: Watch): void => {
-    current.get(watch.cell)?.()
+    const pair = watch.pair ?? watch.cell
+    current.get(pair)?.()
     const startedAt = performance.now()
     const leads: Array<number> = []
     const followers: Array<number | null> = []
     const hit: Array<boolean> = []
     // The Lead's painted top-left, each frame: a handover that only moves is still only once it stops.
     const where: Array<number> = []
+    const path: Array<{ readonly x: number; readonly y: number }> = []
     const channel = new MessageChannel()
     sampling.add(channel)
     const finish = (superseded = false): void => {
       channel.port1.close()
       sampling.delete(channel)
-      if (current.get(watch.cell) === supersede) current.delete(watch.cell)
+      if (current.get(pair) === supersede) current.delete(pair)
       ctx.recordBoardRun({
         cell: watch.cell,
         kind: "crossfade",
@@ -137,12 +157,14 @@ const makeRecorder = (ctx: ScenarioContext) => {
           follower: followers,
           ...(watch.hits === true ? { hitsFollower: hit } : {}),
           ...(watch.onlyMoves === true ? { onlyMoves: true } : {}),
+          ...(watch.startsFrom === undefined ? {} : { startsFrom: watch.startsFrom, leadPath: path }),
+          ...(watch.back === true ? { back: true } : {}),
         },
         ...(superseded ? { superseded: true } : {}),
       })
     }
     const supersede = (): void => finish(true)
-    current.set(watch.cell, supersede)
+    current.set(pair, supersede)
     channel.port1.onmessage = () => {
       const lead = watch.lead()
       const follower = watch.follower()
@@ -156,6 +178,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
       followers.push(f)
       const r = lead!.getBoundingClientRect()
       where.push(r.left * 10_000 + r.top)
+      if (path.length < 2) path.push({ x: r.left, y: r.top })
       if (watch.hits === true && lead !== undefined && follower !== undefined) hit.push(hits(lead, follower))
       const tail = (xs: ReadonlyArray<number | null>) => xs.slice(-STILL_FRAMES)
       const still = (xs: ReadonlyArray<number | null>) =>
@@ -190,32 +213,41 @@ const View: ScenarioDef["View"] = (props) => {
     el[name] = node
   }
 
+  // Each toggle reads where the outgoing twin is painted before the state changes (#170).
+  const gone = () => undefined
   const toggleOverlap = (): void => {
     const opening = !overlap()
+    const from = paintedAt(el[opening ? "overlapA" : "overlapB"])
     setOverlap(opening)
-    if (opening) recorder.start({ cell: "overlap", lead: at("overlapB"), follower: at("overlapA"), hits: true })
+    if (opening) recorder.start({ cell: "overlap", pair: "overlap", lead: at("overlapB"), follower: at("overlapA"), hits: true, startsFrom: from })
+    else recorder.start({ cell: "overlap: back", pair: "overlap", lead: at("overlapA"), follower: gone, startsFrom: from, back: true })
   }
   const toggleInPlace = (): void => {
     const opening = !inPlace()
+    const from = paintedAt(el[opening ? "play" : "pause"])
     setInPlace(opening)
-    if (opening) recorder.start({ cell: "in place", lead: at("pause"), follower: at("play") })
+    if (opening) recorder.start({ cell: "in place", pair: "in place", lead: at("pause"), follower: at("play"), startsFrom: from })
+    else recorder.start({ cell: "in place: back", pair: "in place", lead: at("play"), follower: gone, startsFrom: from, back: true })
   }
   const toggleNested = (): void => {
     const opening = !nested()
+    const card = paintedAt(el[opening ? "card" : "modal"])
+    const face = paintedAt(el[opening ? "cardAvatar" : "modalAvatar"])
     setNested(opening)
     if (opening) {
-      recorder.start({ cell: "nested: card", lead: at("modal"), follower: at("card") })
-      recorder.start({ cell: "nested: avatar", lead: at("modalAvatar"), follower: at("cardAvatar"), onlyMoves: true })
+      recorder.start({ cell: "nested: card", lead: at("modal"), follower: at("card"), startsFrom: card })
+      recorder.start({ cell: "nested: avatar", lead: at("modalAvatar"), follower: at("cardAvatar"), onlyMoves: true, startsFrom: face })
     } else {
-      recorder.start({ cell: "nested: card", lead: at("card"), follower: at("modal") })
-      recorder.start({ cell: "nested: avatar", lead: at("cardAvatar"), follower: at("modalAvatar"), onlyMoves: true })
+      recorder.start({ cell: "nested: card", lead: at("card"), follower: at("modal"), startsFrom: card })
+      recorder.start({ cell: "nested: avatar", lead: at("cardAvatar"), follower: at("modalAvatar"), onlyMoves: true, startsFrom: face })
     }
   }
   const toggleExit = (): void => {
     const opening = !exit()
+    const from = paintedAt(el[opening ? "thumb" : "exitModal"])
     setExit(opening)
-    if (opening) recorder.start({ cell: "exit: open", lead: at("exitModal"), follower: at("thumb") })
-    else recorder.start({ cell: "exit: close", lead: at("thumb"), follower: at("exitModal"), hits: true })
+    if (opening) recorder.start({ cell: "exit: open", pair: "exit", lead: at("exitModal"), follower: at("thumb"), startsFrom: from })
+    else recorder.start({ cell: "exit: close", pair: "exit", lead: at("thumb"), follower: at("exitModal"), hits: true, startsFrom: from })
   }
 
   return (

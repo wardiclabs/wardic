@@ -368,6 +368,77 @@ it("crossfade (S5): a twin inside a closing container stays locked onto its Lead
   expect(worst, "the modal's avatar off the card's, px").toBeLessThan(0.5)
 })
 
+/** Each frame's painted left, `n` frames, read just after paint. */
+const leftsAfterPaint = (el: () => Element, n: number, base: number): Promise<Array<number>> =>
+  new Promise((resolve) => {
+    const out: Array<number> = []
+    const ch = new MessageChannel()
+    ch.port1.onmessage = () => {
+      out.push(el().getBoundingClientRect().left - base)
+      if (out.length >= n) return resolve(out)
+      requestAnimationFrame(() => ch.port2.postMessage(undefined))
+    }
+    requestAnimationFrame(() => ch.port2.postMessage(undefined))
+  })
+
+/** A start that goes on from `before`: its first frame no further from it than its next step (#170). */
+const expectContinuous = (before: number, [first, second]: ReadonlyArray<number>, what: string) => {
+  expect(Math.abs(first! - before), `${what}: jump at the start (next step ${Math.abs(second! - first!).toFixed(2)}px)`).toBeLessThanOrEqual(
+    Math.abs(second! - first!) + 1,
+  )
+}
+
+it("crossfade (S6): the Lead unmounted mid-flight, its promoted twin goes on from where the Lead was seen (#170)", async () => {
+  // Scenario 16's overlap toggled off mid-flight. Before #170 the twin started from where the Lead
+  // would have rested, 40-odd px ahead of where it was painted, and flew back from there.
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative" }}>
+        <wardic.div data-a class="ind a" layoutId="s6" style={{ "z-index": 2 }} />
+        <Show when={open()}>
+          <wardic.div data-b class="ind b" layoutId="s6" style={{ "z-index": 1 }} />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const base = leftOf(container.querySelector("[data-root]") as HTMLElement)
+  const a = container.querySelector("[data-a]") as HTMLElement
+  await raf()
+  await raf()
+  setOpen(true)
+  const b = () => container.querySelector("[data-b]") as HTMLElement
+  const flight = await leftsAfterPaint(b, 8, base)
+  const seen = flight.at(-1)!
+  expect(seen, "B mid-flight").toBeLessThan(250)
+  setOpen(false)
+  expectContinuous(seen, await leftsAfterPaint(() => a, 2, base), "A")
+})
+
+it("switch (S7): a <Show> swapped back mid-flight seeds the twin from where the leaver was seen (#170)", async () => {
+  const [atB, setAtB] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative" }}>
+        <Show when={atB()} fallback={<wardic.div data-a class="ind a" layoutId="s7" />}>
+          <wardic.div data-b class="ind b" layoutId="s7" />
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  const base = leftOf(container.querySelector("[data-root]") as HTMLElement)
+  await raf()
+  await raf()
+  setAtB(true) // A leaves, B switches in from A's box
+  const flight = await leftsAfterPaint(() => container.querySelector("[data-b]") as HTMLElement, 8, base)
+  const seen = flight.at(-1)!
+  expect(seen, "B mid-flight").toBeLessThan(250)
+  setAtB(false) // B leaves mid-flight, A switches back in from where B was seen
+  expectContinuous(seen, await leftsAfterPaint(() => container.querySelector("[data-a]") as HTMLElement, 2, base), "A")
+})
+
 it("lone layoutId leave (no twin) under <AnimatePresence> degrades to the normal exit", async () => {
   const [show, setShow] = createSignal(true)
   const { container } = render(() => (

@@ -65,6 +65,25 @@ describe("crossfadeChecksOf", () => {
     expect(failed({ ...run([0.5, 0.5], { follower: [0.5, 0.5] }), superseded: true })).toEqual(["covers", "order"])
   })
 
+  it("judges where a run starts against where its twin was painted, by its next step (#170)", () => {
+    const lead = ps.map(motionIn)
+    const follower = ps.map((p) => 1 - motionOut(p))
+    // Half a step from its twin, then a full one: it goes on from there.
+    const near = run(lead, { follower, startsFrom: { x: 100, y: 50 }, leadPath: [{ x: 103, y: 50 }, { x: 109, y: 50 }] })
+    expect(boardChecksOf(near)[0]).toMatchObject({ name: "starts", ok: true })
+    // 30px ahead, as from where the twin would have rested: a jump.
+    const jumped = run(lead, { follower, startsFrom: { x: 100, y: 50 }, leadPath: [{ x: 130, y: 50 }, { x: 124, y: 50 }] })
+    expect(failed(jumped)).toEqual(["starts"])
+    // A run with no record of its start has no starts line.
+    expect(boardChecksOf(run(lead, { follower })).map((c) => c.name)).not.toContain("starts")
+  })
+
+  it("judges a toggle back, with no twin left to fade, on starts and end only", () => {
+    const back = run(ps.map(() => 1), { follower: ps.map(() => null), back: true, startsFrom: { x: 0, y: 0 }, leadPath: [{ x: 1, y: 0 }, { x: 3, y: 0 }] })
+    expect(boardChecksOf(back).map((c) => c.name)).toEqual(["starts", "end"])
+    expect(failed(back)).toEqual([])
+  })
+
   it("judges a handover that only moves on own fade and end", () => {
     const held = ps.map(() => 1)
     expect(failed(run(held, { follower: [...held.slice(0, -1), 0], onlyMoves: true }))).toEqual([])
