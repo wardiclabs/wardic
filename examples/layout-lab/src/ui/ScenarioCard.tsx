@@ -21,7 +21,7 @@
  * @module
  */
 import { createMemo, For, type JSX, Show } from "solid-js"
-import { BOARD_CHECK_NAMES, type BoardRunInput, boardChecksOf } from "../lab/base-values-board.ts"
+import { BOARD_CHECK_NAMES, type BoardCheck, type BoardRunInput, boardChecksOf } from "../lab/base-values-board.ts"
 import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf, FLING_CHECK_NAMES, type FlingExpect, flingChecksOf } from "../lab/drag-run.ts"
 import { REORDER_CHECK_NAMES, type ReorderExpect, reorderChecksOf } from "../lab/reorder-run.ts"
 import { REST_CHECK_NAMES, type RestExpect, type RestRun, restChecksOf } from "../lab/rest-run.ts"
@@ -80,7 +80,7 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
       </p>
       <View ctx={props.ctx} />
       {board ? (
-        <BoardResult run={props.lastBoardRun} />
+        <BoardResult run={props.lastBoardRun} lines={def.boardLines ?? BOARD_CHECK_NAMES} />
       ) : drag ? (
         <Show
           when={restIsLatest(props.lastRestRun, props.lastDragRun)}
@@ -227,7 +227,7 @@ const RestResult = (props: { readonly run: RestRun | undefined; readonly expect:
  * A board card's result (#47): the last run's cell and gesture, then its `start` and `end`
  * lines, `–` before the first run. Props are static values; `run` is a tracked prop getter.
  */
-const BoardResult = (props: { readonly run: BoardRunInput | undefined }): JSX.Element => {
+const BoardResult = (props: { readonly run: BoardRunInput | undefined; readonly lines: ReadonlyArray<BoardCheck["name"]> }): JSX.Element => {
   const checks = createMemo(() => (props.run === undefined ? undefined : boardChecksOf(props.run)))
   return (
     <footer class="card-result drag" aria-live="polite">
@@ -235,7 +235,7 @@ const BoardResult = (props: { readonly run: BoardRunInput | undefined }): JSX.El
         <span class="result-label">cell</span>
         <span class="result-value">{props.run === undefined ? "–" : `${props.run.cell} · ${props.run.kind}`}</span>
       </div>
-      <For each={BOARD_CHECK_NAMES}>
+      <For each={props.lines}>
         {(name) => {
           const check = () => checks()?.find((c) => c.name === name)
           return (
