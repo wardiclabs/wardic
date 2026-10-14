@@ -56,6 +56,15 @@ describe("crossfadeChecksOf", () => {
     expect(failed(run(lead, { follower: [...follower.slice(0, -1), 0.5] }))).toEqual(["end"])
   })
 
+  it("judges a run the next one cut short only on what it saw before: covers, order, own fade, passes", () => {
+    // Cut early, then the twins swapped roles: the Lead's sample ends at 0, the Follower's at 1.
+    const cut = { ...run([0.3, 0.6, 0.2, 0], { follower: [1, 1, 1, 1] }), superseded: true }
+    expect(failed(cut)).toEqual([])
+    expect(failed({ ...run([0.3, 0.6, 0.2, 0], { follower: [1, 1, 1, 1] }) })).toEqual(["end"])
+    // A see-through frame before the cut still fails covers, and order with it.
+    expect(failed({ ...run([0.5, 0.5], { follower: [0.5, 0.5] }), superseded: true })).toEqual(["covers", "order"])
+  })
+
   it("judges a handover that only moves on own fade and end", () => {
     const held = ps.map(() => 1)
     expect(failed(run(held, { follower: [...held.slice(0, -1), 0], onlyMoves: true }))).toEqual([])

@@ -101,12 +101,16 @@ interface Watch {
  * Sample each watched run just after every painted frame (a `MessageChannel` message posted from
  * each rAF runs after that frame's rendering, as scenario 15's recorder reads) until both twins'
  * opacity and the Lead's painted position stood still, then record it. A handover that only moves
- * keeps its opacity throughout, so its position is what says it's over. Closed unrecorded when
- * the View goes.
+ * keeps its opacity throughout, so its position is what says it's over. A new run on a cell
+ * records the one still sampling there as superseded, cut at the new one's start: the twins have
+ * swapped roles since. Closed unrecorded when the View goes.
  */
 const makeRecorder = (ctx: ScenarioContext) => {
   const sampling = new Set<MessageChannel>()
+  // Each cell's run still sampling: a new run on the cell supersedes it.
+  const current = new Map<string, () => void>()
   const start = (watch: Watch): void => {
+    current.get(watch.cell)?.()
     const startedAt = performance.now()
     const leads: Array<number> = []
     const followers: Array<number | null> = []
@@ -115,9 +119,10 @@ const makeRecorder = (ctx: ScenarioContext) => {
     const where: Array<number> = []
     const channel = new MessageChannel()
     sampling.add(channel)
-    const finish = (): void => {
+    const finish = (superseded = false): void => {
       channel.port1.close()
       sampling.delete(channel)
+      if (current.get(watch.cell) === supersede) current.delete(watch.cell)
       ctx.recordBoardRun({
         cell: watch.cell,
         kind: "crossfade",
@@ -133,8 +138,11 @@ const makeRecorder = (ctx: ScenarioContext) => {
           ...(watch.hits === true ? { hitsFollower: hit } : {}),
           ...(watch.onlyMoves === true ? { onlyMoves: true } : {}),
         },
+        ...(superseded ? { superseded: true } : {}),
       })
     }
+    const supersede = (): void => finish(true)
+    current.set(watch.cell, supersede)
     channel.port1.onmessage = () => {
       const lead = watch.lead()
       const follower = watch.follower()

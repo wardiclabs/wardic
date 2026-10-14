@@ -17,6 +17,10 @@
  * A handover that only moves, inside a crossfading container (#5), is judged on **own fade**
  * instead: its Lead at 1 on every frame, and its **end**, its Follower hidden once it's over.
  *
+ * A run its cell's next handover cut short is **superseded**: what it sampled from then on was the
+ * next run's, with the twins' roles swapped, so only what it saw before is judged (covers, order,
+ * own fade, passes); fades and end aren't.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/crossfade-board.test.ts`).
  *
  * @module
@@ -61,11 +65,13 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const leadEnd = lead[lead.length - 1]
   const followerEnd = lastOf(follower)
   const followerHidden = followerEnd === null || followerEnd === undefined || followerEnd <= 0.01
+  const superseded = input.superseded === true
+  const notJudged = (name: CrossfadeCheck["name"]): CrossfadeCheck => ({ name, ok: true, text: "superseded by the next run, not judged" })
   if (series?.onlyMoves === true) {
     const lowest = Math.min(...lead)
     return [
       line("own fade", lowest >= 0.99, lowest >= 0.99 ? "none" : `down to ${v3(lowest)}`, "none: the Lead at 1 every frame"),
-      line("end", followerHidden, `Follower ${followerEnd === null ? "gone" : v3(followerEnd)}`, "the Follower hidden"),
+      superseded ? notJudged("end") : line("end", followerHidden, `Follower ${followerEnd === null ? "gone" : v3(followerEnd)}`, "the Follower hidden"),
     ]
   }
   const cover = lead.map((l, i) => {
@@ -82,8 +88,10 @@ export const crossfadeChecksOf = (input: BoardRunInput): Array<CrossfadeCheck> =
   const checks = [
     line("covers", lowest >= 0.98, `at least ${v3(lowest)}`, "0.98: never see-through"),
     line("order", ordered, out === -1 ? "the Follower never faded" : `Lead at ${v3(leadAtOut)} as the Follower fades`, "the Lead in first"),
-    line("fades", between > 0, `${between} frames between`, "a fade, not a swap"),
-    line("end", ended, `Lead ${v3(leadEnd)}, Follower ${followerEnd === null ? "gone" : v3(followerEnd)}`, "Lead 1, Follower hidden"),
+    superseded ? notJudged("fades") : line("fades", between > 0, `${between} frames between`, "a fade, not a swap"),
+    superseded
+      ? notJudged("end")
+      : line("end", ended, `Lead ${v3(leadEnd)}, Follower ${followerEnd === null ? "gone" : v3(followerEnd)}`, "Lead 1, Follower hidden"),
   ]
   const hits = series?.hitsFollower
   if (hits === undefined) return checks
