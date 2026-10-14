@@ -216,7 +216,7 @@ The **Shared layout** mode where both twins are mounted at once (one app-rendere
 _Avoid_: fade transition (opacity-only, no shared box), dissolve.
 
 **Lead / Follower**:
-Among the Projection nodes sharing one `layoutId`, the **Lead** is the most-recently-mounted live node — the only visible one, projecting to its own Box. Every other node is a **Follower**: locked onto the Lead's Box (so it overlaps) and held hidden (a *live* follower at rest) or fading out toward removal (a *leaving* follower, retained mid-exit). A Follower takes no pointer input, so one painted over its Lead never takes the Lead's clicks. The layout nodes a Follower carries stay corrected for its lock, as under any moving ancestor, and a leaving Follower brings them back with it. Mounting promotes a new Lead; the prior Lead is relegated to a Follower.
+Among the Projection nodes sharing one `layoutId`, the **Lead** is the most-recently-mounted live node — the only visible one, projecting to its own Box. Every other node is a **Follower**: locked onto where the Lead is drawn, its Box at the Lead's own scale, so the two overlap exactly (its own scale set aside while it follows), and held hidden (a *live* follower at rest) or fading out toward removal (a *leaving* follower, retained mid-exit). A Follower takes no pointer input, so one painted over its Lead never takes the Lead's clicks. The layout nodes a Follower carries stay corrected for its lock, as under any moving ancestor, and a leaving Follower brings them back with it. Mounting promotes a new Lead; the prior Lead is relegated to a Follower.
 _Avoid_: active/inactive, primary/secondary.
 
 **Scale correction**:

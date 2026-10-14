@@ -173,7 +173,7 @@ Every handover started the new Lead from its twin's **layout box**, where the tw
 
 Motion starts a shared layout animation from the snapshot's `measuredBox`, its page box with its transforms (motion-dom 13.3.0, `notifyLayoutUpdate`: `calcBoxDelta(visualDelta, node.applyTransform(measuredLayout, true), snapshot.measuredBox)` when `isShared`). ADR-0013 *Amendment (#146)* already restarts a node from where it paints. Grilled 2026-10-14:
 
-1. **Where the twin paints counts everything that moves it on screen** (Q1): its layout animation mid-flight, its Release offset, a drag, and its carriers.
+1. **Where the twin paints counts everything that moves it on screen** (Q1): its layout animation mid-flight, its Release offset, a drag, and its carriers. Its own scale was still left out; *Amendment (#8)* below counts it.
    - Unlike #146's restart, the Release offset is included: a node's own restart leaves it out because it keeps running on top, but the new Lead doesn't inherit its twin's release.
    - Rejected: the layout animation and carriers only. A twin let go mid-release would hand over from its slot.
 2. **All four origins, by one rule** (Q2). At rest that's the twin's layout box, as before.
@@ -262,3 +262,52 @@ The scripted driver (`.tmp/5/drive16.ts`):
   - carried nodes derived in insertion order (XF3b);
   - a Measure pass's seed not deriving them (XC3);
   - a carried node losing its `layoutAnchor` (XC4).
+
+## Amendment (#8, 2026-10-14): a twin's own scale in a handover
+
+#8 asked whether a handover is computed in the space Motion's is: Motion starts a shared layout animation from the twin's `measuredBox`, every transform included (motion-dom 13.3.0, `notifyLayoutUpdate`). In Wardic, the only transform of an element's own that changes a projected box is its own scale (`scale`, `scaleX`, `scaleY`): the renderer draws it on top of the projection, about the projected box's centre (ADR-0009, *Amendment (Reorder)*). The projection owns `x`/`y` (ADR-0016), and `rotate`/`skew` don't change the box. The engine never saw an own scale, so #170's "where the twin paints" left it out.
+
+Probes with a twin held at `scale: 1.5`, Motion beside Wardic's `main`:
+
+| Probe | Motion | `main` |
+|---|---|---|
+| P1: a crossfade beside a live twin held at its own scale | the new Lead starts at the twin's drawn 120x60, and the twin, now a Follower, is drawn on it every frame; both shrink together | the Lead starts at the twin's unscaled 80x40, and the Follower stays drawn ×1.5 around it: a crossfade between two sizes |
+| P2: a promotion from a Lead held at its own scale | continuous | a jump from 120x60 to 80x40 |
+| P3: a new Lead carrying its own scale | starts at the twin's box ×1.5, a jump, with the Follower jumping alongside (a Follower is drawn with its Lead's values, `valuesToRender = lead.latestValues`). It then grows to 180x90, its scale applied twice, and snaps to 120x60 at the end. | the same start jump; the Follower stays put, and nothing compounds |
+| P4: a Switch seed from a connected twin | continuous | continuous: #170 reads the box as drawn |
+
+Grilled 2026-10-14:
+
+1. **A twin's own scale counts in where it's drawn, at every origin** (Q1): a promotion (`promoteFrom`), a crossfade beside a live twin (the first measure), and a Switch seed read from a twin already off the page (`rootFrameBox`). Each takes the twin's box as its projection puts it (`paintedNowOf`, `paintedAtPass`) with its own scale on top (`drawnOf`). A restart (#146) still reads where the node's projection puts it: its own scale is on both sides, so it cancels.
+   - Rejected: promotions only. The live-twin crossfade would stay a crossfade between sizes.
+2. **A Follower is drawn exactly where its Lead is** (Q2), as Motion's is: at the Lead's own scale, its own divided out of its lock (`deriveFollower`). The twins overlap on every frame. Its own scale comes back when it's promoted, starting where it's drawn (3).
+   - Rejected: keeping its own scale on top of its Lead's box. With (1), a Follower held at ×1.5 would jump from 120x60 to 180x90 as the handover began.
+3. **A new Lead starts drawn on its twin** (Q3): its start is the twin's drawn box with the Lead's own scale divided out about its centre (`undrawnFor`), so its first frame is drawn exactly on its twin, and its scale comes in over the flight. It applies at every origin: a crossfade, a promotion and a Switch.
+   - An axis whose own scale is 0 (a pop-in from nothing) has nothing to divide out: it starts from the twin's box as it is, and the pop-in plays as its own animation.
+   - **A deliberate divergence from Motion's start jump**, by #170's rule. Under Motion's, both twins jump at the handover now that the Follower is drawn on its Lead (2): a tab pill mounting under a pointer with `whileHover={{ scale: 1.1 }}` would jump 10%.
+4. **The binding hands each node its own scale** (Q4): `RegisterNodeOptions.ownScale`, read at each handover and each frame a Follower is derived. Solid's spine reads it from the values it last wrote (`ownScaleOf(snapshot.values)`, exported by `@wardic/dom`), as the renderer draws them. It works for a twin already off the page, and needs no layout read.
+   - Rejected: reading the drawn box from the DOM at each handover. It can't read a twin off the page, can't separate a new Lead's own scale (3) or a Follower's (2), forces a layout read at dispose, and takes a rotated twin's bounding box.
+   - A leaving node is committed with its projection alone, so it's drawn with no own scale, and its node has none.
+
+**Out of scope:** `rotate` and `skew` (how twins share them belongs with #166's rotation blend), and an own scale on a *node ancestor* of a twin (a `layout` container held at a scale), which scales the twin through CSS and still isn't counted, as before.
+
+**The lab:** scenario 16's overlap cell gets **Toggle scale**: A held at its own `scale: 1.4`, and B mounting at 0.8. Every run gains a **`follows`** line: while the Follower shows, it's drawn on its Lead within 0.5 px every frame. **`starts`** now measures the furthest edge, so a size jump counts. The scripted driver (`.tmp/5/drive16.ts`) toggles the scaled overlap mid-flight both ways, then at rest:
+- **This branch:** all 34 runs pass, 0 page errors, every Follower within 0.01 px of its Lead.
+- **`main`'s engine:** the four scaled overlap runs fail `starts` (19–20 px against a 4–6 px step) and `follows` (up to 16.8 px off). The other 30 pass.
+
+**Pinned by:**
+- **`@wardic/dom`, XS1–XS5** (`projection-own-scale.browser.test.ts`, frames fired by hand). XS1–XS4b fail on `main` with 25–32 px jumps.
+  - XS1: a crossfade beside a twin at its own scale, and the Follower on its Lead every frame.
+  - XS2: a promotion; XS2b, under presence, both twins.
+  - XS3: a new Lead at its own scale, with the Follower riding it; XS3b, a promoted one.
+  - XS4: a Switch seed from a twin off the page; XS4b, into a twin at its own scale.
+  - XS5: an axis at no own scale: no NaN. A guard; it passes on `main` too.
+- **solid, S9–S12** (`layout-id.browser.test.tsx`, real paint, `animate={{ scale: 1.5 }}`): P1–P3, each failing on `main` with a 27 px jump, and P4 as a guard.
+- **The lab's node tier:** `crossfade-board.test.ts`, the `follows` line and a size jump on `starts`.
+- **Mutation-checked** in a separate worktree: twelve single-point mutations, each failing the tests meant for it:
+  - `drawnOf` leaving the own scale out (XS1, XS2, XS2b, XS4, S9, S10);
+  - a promotion, a live-twin crossfade, or a disconnected seed without the twin's own scale (XS2, XS2b, S10; XS1, S9; XS4);
+  - a Follower keeping its own scale around its Lead (XS1, XS3, S9, S11), or drawn without its Lead's (XS3, S11);
+  - `undrawnFor` dividing nothing out (XS3, XS3b, XS4b, S11), and each origin skipping it alone (XS3, S11; XS3b; XS4b);
+  - no zero guard (XS5);
+  - the binding giving no own scale (S9–S11).
