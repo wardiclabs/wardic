@@ -87,7 +87,7 @@ import { createVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress } from "./sensors.ts"
-import { useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 
@@ -730,6 +730,10 @@ export function runSpine(opts: RunSpineOptions): void {
         Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
           Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
         )
+
+      // Every element's values, by element, for the projection (ADR-0012 *Amendment (#137)*): a twin's
+      // flight follows the translate and scale Wardic animates on its ancestors each frame.
+      onCleanup(useWardicProjection().registerValues(element, () => snapshot.values))
 
       // --- Layout / shared-element / scroll projection (ADR-0009/0010/0012) ---
       // ONE projection node per element: `layout`, `layoutId`, and/or `layoutScroll`
