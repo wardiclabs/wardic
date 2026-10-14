@@ -690,7 +690,7 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 | R49 | the same | press **Toggle none** twice quickly: the first run reads `superseded`, and the second starts where the first had got to | 2 |
 | R50 | hover shadow | hover until it settles, then leave: **end** `back at 2.000 through n frames ✓` (#61) | 3 |
 | R51 | colour to var, var to var, token scale | press **Toggle variables**, let them settle, press it again: each blends from where it is, a flip to a `var()` **rests** as the `var()`, and **paints** `no fallback frame ✓` (#55, #158) | 3 |
-| R52 | the same | with the cells settled, press **Switch theme**: each cell resting on a `var()` shows the new theme's colour at once (a style change run) | 2 per state |
+| R52 | the same | with the cells settled, press **Switch theme**: each cell resting on a `var()` shows the new theme's colour at once (a style change run). Pressed while a flip runs, it moves that flip's target instead: the flip lands on the new theme's colour when its last frame writes the `var()` | 2 per state |
 | R53 | the same | press **Toggle variables** twice quickly: the cut-short runs read `superseded`, and the second starts where the first had got to | 2 |
 
 Every run should read `start ✓` and `end ✓`, a run back to `none` or to a `var()` `rests ✓`, and the Variable value cells `paints ✓`.

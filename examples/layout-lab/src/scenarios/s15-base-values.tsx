@@ -59,7 +59,9 @@
  * itself, and **paints** checks no frame was transparent (before #158 the token scale blended the
  * variable's name, through an undefined `var(--gray-550)`; before #55 every flip switched at once).
  * A theme switch at rest is a style change run: each cell resting on a `var()` shows the theme's
- * colour within three frames, since it rests as the `var()`.
+ * colour within three frames, since it rests as the `var()`. One while a flip runs moves that flip's
+ * target instead: the flip keeps the colour it resolved when it started, and lands on the new
+ * theme's when its last frame writes the `var()` (#55).
  *
  * Each Animatable none read is the painted blur radius (the fill's alpha), 0 for `none`. Before #61 each switched
  * at the first frame. A toggle back to `none` is also judged on what it rests at: `none` itself,
@@ -217,6 +219,8 @@ interface Recording {
   readonly kind: BoardRunKind
   readonly base: number
   readonly target: number
+  /** Where a toggle run should land instead of `target`: a Switch theme while it runs (#55). */
+  landsOn: number | undefined
   readonly before: number
   readonly startedAt: number
   readonly values: Array<number>
@@ -233,7 +237,7 @@ interface Recording {
  */
 const landed = (rec: Recording, value: number): boolean => {
   if (rec.kind !== "toggle") return true
-  if (Math.abs(value - rec.target) > 0.005) return false
+  if (Math.abs(value - (rec.landsOn ?? rec.target)) > 0.005) return false
   const rest = rec.extra.rest?.()
   return rest === undefined || rest.value === rest.expected
 }
@@ -249,6 +253,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
   // Each cell's run still sampling: a new run on the cell records it as superseded (#61), since
   // what it samples from then on is the new run's.
   const current = new Map<string, () => void>()
+  // Each cell's run still sampling, by cell, for a retarget (#55).
+  const running = new Map<string, Recording>()
   const start = (
     cell: string,
     kind: BoardRunKind,
@@ -259,7 +265,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
     extra: RunExtra = {},
   ): { readonly end: () => void } => {
     current.get(cell)?.()
-    const rec: Recording = { cell, kind, base, target, before, startedAt: performance.now(), values: [], extra, split: undefined, endAt: undefined }
+    const rec: Recording = { cell, kind, base, target, landsOn: undefined, before, startedAt: performance.now(), values: [], extra, split: undefined, endAt: undefined }
     const channel = new MessageChannel()
     sampling.add(channel)
     // A mount or a style change has no end event: every frame until it stands still is `during`.
@@ -268,12 +274,14 @@ const makeRecorder = (ctx: ScenarioContext) => {
       channel.port1.close()
       sampling.delete(channel)
       if (current.get(cell) === supersede) current.delete(cell)
+      if (running.get(cell) === rec) running.delete(cell)
       const split = open ? rec.values.length : (rec.split ?? rec.values.length)
       ctx.recordBoardRun({
         cell,
         kind,
         base,
         target,
+        ...(rec.landsOn === undefined ? {} : { landsOn: rec.landsOn }),
         before,
         during: rec.values.slice(0, split),
         after: rec.values.slice(split),
@@ -287,6 +295,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
     }
     const supersede = (): void => finish(true)
     current.set(cell, supersede)
+    running.set(cell, rec)
     channel.port1.onmessage = () => {
       const value = read()
       // The node went (an exit): the run ends with it.
@@ -320,7 +329,17 @@ const makeRecorder = (ctx: ScenarioContext) => {
     for (const channel of sampling) channel.port1.close()
     sampling.clear()
   }
-  return { start, dispose }
+  /**
+   * Move the target of `cell`'s toggle run, if one is still sampling (#55): a Switch theme while a
+   * flip runs, which follows the new theme from its last frame. Whether there was one.
+   */
+  const retarget = (cell: string, target: number): boolean => {
+    const rec = running.get(cell)
+    if (rec === undefined || rec.kind !== "toggle") return false
+    rec.landsOn = target
+    return true
+  }
+  return { start, dispose, retarget }
 }
 
 /** The scenario View. */
@@ -436,6 +455,9 @@ const View: ScenarioDef["View"] = (props) => {
       const el = document.querySelector<HTMLElement>(`[data-scenario="${ID}"] [data-cell="${cell.dataCell}"]`)
       if (el === null) continue
       const red = redIn(THEMES[next]!, end)
+      // Mid-flight, the flip follows the new theme from its last frame (it resolved its colour when
+      // it started): its own run lands there. At rest, the cell shows it at once.
+      if (recorder.retarget(cell.label, red)) continue
       recorder.start(cell.label, "style change", () => backgroundRedOf(el), red, red, backgroundRedOf(el), { watchesFallback: true }).end()
     }
     setThemeIndex(next)

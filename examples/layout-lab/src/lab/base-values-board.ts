@@ -60,6 +60,11 @@ export interface BoardRunInput {
    * cell's background, transparent when an undefined `var()` made it invalid.
    */
   readonly watchesFallback?: boolean
+  /**
+   * Where a toggle run should land instead of `target` (#55): a Switch theme while it ran, which it
+   * follows from its last frame. Its start is still judged against `target`, where it was headed.
+   */
+  readonly landsOn?: number
 }
 
 /** The card's lines, in display order. */
@@ -126,8 +131,10 @@ const endOf = (input: BoardRunInput): BoardCheck => {
       return line("end", ok, `at ${v3(last)}`, `${input.base}`)
     }
     case "toggle": {
-      const ok = last !== undefined && Math.abs(last - input.target) <= 0.005
-      return ok ? line("end", true, `settled at ${v3(last)}`, "") : line("end", false, `at ${v3(last)}`, `settled at ${input.target}`)
+      const target = input.landsOn ?? input.target
+      const moved = input.landsOn === undefined ? "" : " (retargeted)"
+      const ok = last !== undefined && Math.abs(last - target) <= 0.005
+      return ok ? line("end", true, `settled at ${v3(last)}${moved}`, "") : line("end", false, `at ${v3(last)}${moved}`, `settled at ${target}`)
     }
   }
 }
