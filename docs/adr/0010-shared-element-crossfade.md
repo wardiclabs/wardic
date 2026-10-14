@@ -17,7 +17,7 @@ ADR-0009 established box projection as the only model where scale-correction, sc
 - **Detection (at the node's first measure), priority order:** (1) the stack already holds another *live* twin ⇒ **crossfade** (origin = prior lead's box); (2) else the engine holds a switch seed for this node ⇒ **switch** (origin = the seed, rebased into the enterer's Scroll-stable frame; *Amendment (#13)*); (3) else first appearance, no FLIP.
 - **Geometry:** the Lead is an ordinary node whose origin is the prior lead's box; Followers project to `lead.lastTarget` via `calcBoxDelta`, so they overlap and track the Lead. `deriveAll` runs two passes (leads/normal top-down — they can be in unrelated subtrees — then followers), because a follower must read its lead's fresh `lastTarget`.
 - **One node per element:** an element with `layout` and/or `layoutId` registers exactly one Projection node (unified `useLayoutMember(…, layoutId?)`); `layoutId` supplies stack membership + seed, `layout` supplies the reflow triggers, both feeding the one progress spring.
-- **Opacity = multiplicative factor (not an override of the `opacity` key):** the projection emits an `@projection.opacity` factor (lead `mix(0,1,progress)`, follower `mix(1,0,progress)`); the Renderer's `project()` composes `finalOpacity = userOpacity × factor` inside the existing `@projection` branch (still pure — it composes two values already in the map, like `buildProjectionTransform`). So a user `animate` opacity and a crossfade compose correctly (Motion parity).
+- **Opacity = multiplicative factor (not an override of the `opacity` key):** the projection emits an `@projection.opacity` factor (lead `mix(0,1,progress)`, follower `mix(1,0,progress)`); the Renderer's `project()` composes `finalOpacity = userOpacity × factor` inside the existing `@projection` branch (still pure — it composes two values already in the map, like `buildProjectionTransform`). So a user `animate` opacity and a crossfade compose correctly (Motion parity). *Since Amendment (#5), the factors follow Motion's two curves rather than `mix(0,1,progress)` and `mix(1,0,progress)`.*
 - **Rest states:** Lead → identity delta + no factor (user opacity passes through); *leaving* Follower → fires `onDone` on the lead's settle, then presence removes it; *live* relegated Follower → static hidden-locked (factor 0, delta to the lead's rested box), re-derived only when the lead moves (zero per-frame cost at rest). A lone leave with no twin degrades to the normal `exit` (no lead to crossfade toward).
 - **Presence coupling = a method on the shared engine, not a service:** `ProjectionSystem.handleLeave(el, onDone): boolean`. The data flow is unidirectional (presence initiates, engine responds), so the binding (which already holds the `ProjectionSystem`) calls the method; the engine never reaches back into presence except through the supplied `onDone`. Projection drives the retained leaver's crossfade; presence keeps ADR-0007 ownership of retention + DOM removal. Model: **re-introduce via `handleLeave`** (dispose stays clean; `handleLeave` re-adds the retained element as a transient leaving follower) — not a zombie node preserved through dispose.
 
@@ -44,6 +44,7 @@ ADR-0009 established box projection as the only model where scale-correction, sc
 - **Hold, or hand off directly.** If the node's stack holds a twin that is registered but not yet measured (the enterer mounted first), the seed goes straight to that node. Otherwise the engine holds it per `layoutId`, in a native `Map` next to the stack, until the end of the current task — precisely, the microtask checkpoint after the dispose, before any timer, frame or later task: Motion's one-update window. An enterer that registers synchronously in that task picks it up at its first measure, rebased into its own Scroll-stable frame (ADR-0012). An enterer that registers after that checkpoint (a later microtask, a timer, a later task) gets no seed and appears without a FLIP.
 - **End-of-task lifetime.** `@wardic/core` exports `nextMicrotask` (`Effect.callback` resumed by `queueMicrotask`, which runs the continuation synchronously inside the microtask, with no trip through the Effect scheduler). An engine-local `endOfTask` helper forks it into a `FiberSet` tracked by a `Scope` that `makeProjectionSystem` creates at construction and closes on system dispose, which interrupts any hold still pending. One fiber per leaver, traced as the `wardic.projection.leaverHold` span, expires both the switch-seed record and the existing presence `recentLeavers` entry, and annotates whether the seed was consumed or expired. The hold data stays in native `Map`s; nothing Effect-hashed is keyed by a DOM element.
 - **Removed.** The binding registry (`makeSharedLayoutRegistry` and its per-`layoutId` slots), the ownership tokens and the MEDIUM-1/2 cleanup logic, both binding-side seed reads, the `seedOrigin` register option, and five `@wardic/solid` exports: `SharedLayoutContext`, `useSharedLayout`, `makeSharedLayoutRegistry`, `SharedBox` and `SharedLayoutContextValue`.
+- *Superseded by Amendment (#5): a handover crossfades even when the twins' boxes are equal, so a first measure beside a live twin always takes the crossfade branch.*
 - **The live-twin fall-through disappears for a pair of twins.** Before, a first measure beside a live twin at an equal box skipped the crossfade branch (no move to animate) and fell through to the switch branch, which seeded from the registry's box, captured in the viewport frame. A seed now exists only after a twin's node has been disposed, so with two twins the switch branch finds none and the node appears at its box. No separate guard is added. With three or more twins sharing an id it can still happen: A live, B (the Lead) disposed with its seed held (A is already measured), C registering in the same task and taking B's seed; if C's box equals A's, the crossfade branch is skipped and C moves from B's box — the box A is itself being promoted from — which reads as consistent, so it is documented rather than guarded.
 - **Both swap orderings stay pinned** by painted-position browser tests (`packages/solid/test/layout-id-scroll.browser.test.tsx`): dispose-then-register (the `<Show>` swap) and register-then-dispose (the direct handoff), plus a test that an enterer mounting a task later gets no seed, and one for a leaver already detached from the DOM when its node is disposed.
 
@@ -97,4 +98,65 @@ Motion gives every non-Lead with a `layoutId` `pointer-events: none` (motion-dom
   - a Lead passing its input through too;
   - promotion in place writing nothing;
   - a Follower's value with an opacity dropping the field.
+
+## Amendment (#5, 2026-10-14): Motion's crossfade, checked item by item
+
+#5 listed six checks of this ADR against Motion's crossfade (motion-dom 13.3.0: `projection/animation/mix-values.ts`, `projection/node/create-projection-node.ts`), from `docs/research/motion-layout-orchestration.md` §8.4. Grilled 2026-10-14. The one that broke behaviour, a Follower taking its Lead's clicks, was split out and fixed first (#165, *Amendment (#165)* above).
+
+1. **Motion's two curves** (Q2). A handover's opacity no longer cross-dissolves on one progress. Over its progress `p`:
+   - the Lead fades in over `p` 0–0.5 with `circOut`, Motion's `easeCrossfadeIn`;
+   - its Followers fade out over 0.5–0.95, linearly, Motion's `easeCrossfadeOut`.
+
+   At the middle both are opaque, so the overlap is never see-through: a symmetric fade left it 75% covered there. Past either end each holds, so a spring's overshoot ends faded in and out.
+   - **Each twin goes on from where it was.** A handover, or an interrupt of one, records each Follower's factor (`exitFrom`) beside the Lead's (`crossfadeFrom`), and each continues from there along its own curve. *Note (velocity family)*'s interrupt rule now holds per twin.
+   - **Found while implementing:** with one factor for every Follower (`1 − lead`), a Follower already hidden behind a Lead flashed back to full when a third twin took over, then faded again. Each Follower now fades from its own factor, so a hidden one stays hidden (XF5).
+   - Rejected: keeping the symmetric fade as a deliberate divergence.
+2. **The multiply stays for both channels** (Q3). Motion overrides a Follower's opacity with `opacityExit`, a mix from the prior Lead's opacity as snapshotted at the handover. Wardic multiplies each twin's own live opacity, as *Decisions* chose for the Lead. They differ only when a Follower's own opacity changes during the fade, and then Wardic follows the change. This is a deliberate divergence. Motion's `preserveOpacity` is unreachable from framer-motion, so it doesn't apply.
+3. **A handover inside a crossfading ancestor only moves** (Q4), as Motion's `!this.path.some(hasOpacityCrossfade)` does. Its Lead and Followers keep their own opacity, and its Followers are hidden when it ends, as at any rest. The ancestors' fade decides which twin shows, so a card opening into a modal with an avatar twin in each doesn't fade its avatars twice.
+   - **Decided on the handover's first frame** (`handoverMoves`), not as it begins. Solid disposes an inner twin before its container, so when the inner twin is promoted, its container hasn't begun its own handover yet.
+   - **An ancestor counts while its handover runs and doesn't only move, whatever its Followers are.** Presence can re-introduce an inner leaver before its container's, so a container closing under presence may have no Follower yet when the twins inside it ask (found by XF3b).
+4. **A handover crossfades even when the twins' boxes are equal** (Q5). Motion animates any `resumeFrom`.
+   - A first measure beside a live twin always crossfades, which replaces *Amendment (#13)*'s "no move to animate" for twins.
+   - A promotion always begins a handover, so a leaver re-introduced by `handleLeave` fades out over its twin in place. With none, the promoted twin has no Follower and shows at once (Motion's `isOnlyMember`). This replaces #165's single write at rest.
+   - This also closes the gap #165 left: an in-place handover now writes the twin it relegates on every frame, where before it was left showing.
+   - A Switch from a seed at an equal box still doesn't animate. Nothing moves, and with no twin there's nothing to fade until #166 blends the leaver's values.
+5. **Detection is confirmed equivalent** (Q6). Motion's `snapshot.source !== layout.source`, crossfading when the stack has another member and switching otherwise, matches this ADR's structural detection (a live twin or a re-introduced leaver, else a seed) once equal boxes animate (4).
+   - Motion's `mixValues` also blends the leaver's border radius and rotation into the new Lead on every handover, and its opacity in a Switch. Wardic carries only the box. That is **#166**, one feature (the twins read as one object changing shape), split out on Q6.
+6. **`LayoutAnimationBuilder`, Motion's non-React precedent** (#5's item 6) for the leaving-Follower order that *Consequences* pins with browser tests in both orderings. Its `commit` processes "all additions before any removals so that, even across builders, a removed member knows whether a replacement with the same layoutId was added in this commit". A removed Lead with a surviving member and no replacement "runs an exit crossfade". Wardic reaches the same outcome through the engine's end-of-task records (the held seed, the recent leaver) rather than a two-phase commit.
+
+**The lab:** scenario 16, "Crossfade", is a board of four cells, each run judged on its two twins' opacity every frame (`lab/crossfade-board.ts`):
+- **covers:** never see-through, the twins together at 0.98 or more;
+- **order:** the Lead in before its Follower fades;
+- **fades:** a fade, not a swap;
+- **end:** where the twins end;
+- **passes:** #165's click check;
+- **own fade:** for the nested avatars.
+
+The cells are overlap, in place, nested (card and avatar) and exit (open and close). Scripted twice each in headless Chromium (`.tmp/5/drive16.ts`): every run passes, with 0 page errors. The same script against main's engine fails:
+- overlap, nested card and exit cover 0.751 at the middle, and their Follower fades while the Lead is at 0.026;
+- in place swaps with no fade and leaves both twins showing;
+- the opening nested avatar fades down to 0.026 on its own.
+
+**Pinned by:**
+- **`@wardic/dom`'s `projection-crossfade.browser.test.ts`,** XF1–XF5, with frames fired by hand. All seven fail on main.
+  - XF1: each frame against Motion's curves, the handover's progress read from where the Lead paints.
+  - XF2, XF2b: an interrupt early and late.
+  - XF3, XF3b: nested twins, opening, and closing with the inner twin disposed and re-introduced first.
+  - XF4: equal boxes, a live twin's and a promotion under presence.
+  - XF5: a hidden Follower through a third twin.
+- **Updated for the curves:**
+  - RL11–RL13 now find the Lead mid fade-in at two frames, and the leaver holding until its twin is in.
+  - solid's S1 checks the twins' order: the Lead fades in while the Follower holds, then the Follower fades out with the Lead in.
+- **The lab's node tier:** `crossfade-board.test.ts`, the lines on runs shaped like Motion's and each failure.
+- **Mutation-checked** in a separate worktree: ten single-point mutations, each failing the tests meant for it:
+  - the Lead fading in linearly;
+  - the Follower fading from the start;
+  - a Follower always fading from 1;
+  - an interrupt not capturing the Followers' factors;
+  - no ancestor ever crossfading;
+  - an ancestor counting only with Followers;
+  - a first measure at an equal box not handing over;
+  - a promotion at an equal box not handing over;
+  - a settled Lead's Followers getting no last write;
+  - nesting decided as the handover begins.
 
