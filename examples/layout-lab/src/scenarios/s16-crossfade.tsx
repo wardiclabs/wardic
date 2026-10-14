@@ -1,0 +1,300 @@
+/**
+ * Scenario 16: a `layoutId` crossfade (#5, ADR-0010 *Amendment (#5)*), four cells, each a pair of
+ * twins its button hands over between. Every handover is one board run of kind `crossfade`: the
+ * recorder reads the Lead's and the Follower's computed opacity just after every painted frame,
+ * until both stood still, and the card judges it (`crossfadeChecksOf` in `lab/crossfade-board.ts`).
+ *
+ * - **overlap**: twin A at the cell's left, painted above; Toggle overlap mounts twin B at its
+ *   right, which leads from A's box while A follows it, fading. Motion's curves: B in by the
+ *   handover's middle, A held until then, so the overlap is never see-through. Also watched: the
+ *   point at B's centre never hits A, which paints above it (#165).
+ * - **in place**: ▶ and ⏸ at one box; Toggle in place mounts ⏸ on ▶. Nothing moves, and they
+ *   still crossfade (Motion's: any handover animates). Before #5 the swap was instant.
+ * - **nested**: a card holding an avatar, and a modal holding its twin avatar, under
+ *   `<AnimatePresence>`; Toggle nested opens and closes the modal. The card and modal crossfade;
+ *   the avatars only move, with no fade of their own (Motion's `path.some(hasOpacityCrossfade)`),
+ *   so the containers' fade decides which shows. Two runs a toggle: `nested: card` and `nested: avatar`.
+ * - **exit**: a thumbnail, and a modal above it under `<AnimatePresence>`; Toggle exit opens it,
+ *   then closes it back onto the thumbnail, a leaving Follower that fades out over it. Also
+ *   watched: the point at the thumbnail's centre never hits the leaving modal (#165).
+ *
+ * Closing the overlap and in place cells unmounts the Lead with no presence: its twin is promoted
+ * and shows at once (Motion's: nothing left to crossfade with), which isn't a run.
+ *
+ * @module
+ */
+import { AnimatePresence, wardic } from "@wardic/solid"
+import { createSignal, type JSX, onCleanup, Show } from "solid-js"
+import type { ScenarioContext, ScenarioDef } from "./types.ts"
+import { CROSSFADE_CHECK_NAMES } from "../lab/crossfade-board.ts"
+
+/** The scenario id, also the View root's `data-scenario` value. */
+const ID = "crossfade"
+
+const GRID: JSX.CSSProperties = {
+  display: "grid",
+  "grid-template-columns": "repeat(2, 1fr)",
+  "grid-template-rows": "repeat(2, 1fr)",
+  width: "100%",
+  height: "100%",
+}
+const CELL: JSX.CSSProperties = { position: "relative" }
+const LABEL: JSX.CSSProperties = { position: "absolute", left: "0", right: "0", bottom: "4px", "text-align": "center", "font-size": "10px", opacity: 0.8 }
+const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
+/** Two rows of two cells, each wide enough for its twins apart. */
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "320px" }
+
+const ACCENT = "var(--lab-accent, rgb(0, 102, 204))"
+const ALT = "rgb(204, 85, 0)"
+/** An absolutely placed box in its cell. */
+const box = (left: number, top: number, width: number, height: number, background: string, zIndex: number): JSX.CSSProperties => ({
+  position: "absolute",
+  left: `${left}px`,
+  top: `${top}px`,
+  width: `${width}px`,
+  height: `${height}px`,
+  background,
+  "border-radius": "6px",
+  "z-index": zIndex,
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+  color: "white",
+  "font-size": "16px",
+})
+/** An avatar in its container, at `(left, top)`. */
+const avatar = (left: number, top: number, size: number): JSX.CSSProperties => ({
+  position: "absolute",
+  left: `${left}px`,
+  top: `${top}px`,
+  width: `${size}px`,
+  height: `${size}px`,
+  background: "white",
+  "border-radius": "50%",
+})
+
+/** How many still frames end a run, and how long one may take. */
+const STILL_FRAMES = 6
+const SETTLE_MS = 4000
+
+/** An element's computed opacity, or `null` once it's gone. */
+const opacityOf = (el: Element | undefined): number | null =>
+  el === undefined || !el.isConnected ? null : Number(getComputedStyle(el).opacity)
+
+/** Whether the point at `lead`'s centre hits `follower` (#165). */
+const hits = (lead: Element, follower: Element): boolean => {
+  const r = lead.getBoundingClientRect()
+  const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+  return at !== null && follower.isConnected && follower.contains(at)
+}
+
+/** What one run reads, and what else it watches. */
+interface Watch {
+  readonly cell: string
+  readonly lead: () => Element | undefined
+  readonly follower: () => Element | undefined
+  readonly hits?: boolean
+  readonly onlyMoves?: boolean
+}
+
+/**
+ * Sample each watched run just after every painted frame (a `MessageChannel` message posted from
+ * each rAF runs after that frame's rendering, as scenario 15's recorder reads) until both twins'
+ * opacity and the Lead's painted position stood still, then record it. A handover that only moves
+ * keeps its opacity throughout, so its position is what says it's over. A new run on a cell
+ * records the one still sampling there as superseded, cut at the new one's start: the twins have
+ * swapped roles since. Closed unrecorded when the View goes.
+ */
+const makeRecorder = (ctx: ScenarioContext) => {
+  const sampling = new Set<MessageChannel>()
+  // Each cell's run still sampling: a new run on the cell supersedes it.
+  const current = new Map<string, () => void>()
+  const start = (watch: Watch): void => {
+    current.get(watch.cell)?.()
+    const startedAt = performance.now()
+    const leads: Array<number> = []
+    const followers: Array<number | null> = []
+    const hit: Array<boolean> = []
+    // The Lead's painted top-left, each frame: a handover that only moves is still only once it stops.
+    const where: Array<number> = []
+    const channel = new MessageChannel()
+    sampling.add(channel)
+    const finish = (superseded = false): void => {
+      channel.port1.close()
+      sampling.delete(channel)
+      if (current.get(watch.cell) === supersede) current.delete(watch.cell)
+      ctx.recordBoardRun({
+        cell: watch.cell,
+        kind: "crossfade",
+        base: 0,
+        target: 1,
+        before: Number.NaN,
+        during: leads,
+        after: [],
+        startedAt,
+        endedAt: performance.now(),
+        crossfade: {
+          follower: followers,
+          ...(watch.hits === true ? { hitsFollower: hit } : {}),
+          ...(watch.onlyMoves === true ? { onlyMoves: true } : {}),
+        },
+        ...(superseded ? { superseded: true } : {}),
+      })
+    }
+    const supersede = (): void => finish(true)
+    current.set(watch.cell, supersede)
+    channel.port1.onmessage = () => {
+      const lead = watch.lead()
+      const follower = watch.follower()
+      const l = opacityOf(lead)
+      if (l === null) {
+        finish()
+        return
+      }
+      const f = opacityOf(follower)
+      leads.push(l)
+      followers.push(f)
+      const r = lead!.getBoundingClientRect()
+      where.push(r.left * 10_000 + r.top)
+      if (watch.hits === true && lead !== undefined && follower !== undefined) hit.push(hits(lead, follower))
+      const tail = (xs: ReadonlyArray<number | null>) => xs.slice(-STILL_FRAMES)
+      const still = (xs: ReadonlyArray<number | null>) =>
+        tail(xs).length === STILL_FRAMES && tail(xs).every((v) => v === tail(xs)[0] || (v !== null && tail(xs)[0] !== null && Math.abs(v - tail(xs)[0]!) < 0.0005))
+      if ((still(leads) && still(followers) && still(where) && l >= 0.99) || performance.now() - startedAt > SETTLE_MS) {
+        finish()
+        return
+      }
+      requestAnimationFrame(() => channel.port2.postMessage(undefined))
+    }
+    requestAnimationFrame(() => channel.port2.postMessage(undefined))
+  }
+  const dispose = (): void => {
+    for (const channel of sampling) channel.port1.close()
+    sampling.clear()
+  }
+  return { start, dispose }
+}
+
+/** The scenario View. */
+const View: ScenarioDef["View"] = (props) => {
+  const recorder = makeRecorder(props.ctx)
+  onCleanup(recorder.dispose)
+
+  const [overlap, setOverlap] = createSignal(false)
+  const [inPlace, setInPlace] = createSignal(false)
+  const [nested, setNested] = createSignal(false)
+  const [exit, setExit] = createSignal(false)
+  const el: Record<string, Element | undefined> = {}
+  const at = (name: string) => () => el[name]
+  const keep = (name: string) => (node: Element) => {
+    el[name] = node
+  }
+
+  const toggleOverlap = (): void => {
+    const opening = !overlap()
+    setOverlap(opening)
+    if (opening) recorder.start({ cell: "overlap", lead: at("overlapB"), follower: at("overlapA"), hits: true })
+  }
+  const toggleInPlace = (): void => {
+    const opening = !inPlace()
+    setInPlace(opening)
+    if (opening) recorder.start({ cell: "in place", lead: at("pause"), follower: at("play") })
+  }
+  const toggleNested = (): void => {
+    const opening = !nested()
+    setNested(opening)
+    if (opening) {
+      recorder.start({ cell: "nested: card", lead: at("modal"), follower: at("card") })
+      recorder.start({ cell: "nested: avatar", lead: at("modalAvatar"), follower: at("cardAvatar"), onlyMoves: true })
+    } else {
+      recorder.start({ cell: "nested: card", lead: at("card"), follower: at("modal") })
+      recorder.start({ cell: "nested: avatar", lead: at("cardAvatar"), follower: at("modalAvatar"), onlyMoves: true })
+    }
+  }
+  const toggleExit = (): void => {
+    const opening = !exit()
+    setExit(opening)
+    if (opening) recorder.start({ cell: "exit: open", lead: at("exitModal"), follower: at("thumb") })
+    else recorder.start({ cell: "exit: close", lead: at("thumb"), follower: at("exitModal"), hits: true })
+  }
+
+  return (
+    <div data-scenario={ID}>
+      <div class="stage" style={STAGE_STYLE}>
+        <div style={GRID}>
+          <div style={CELL} data-cell="overlap">
+            <wardic.div ref={keep("overlapA")} layoutId="lab-s16-overlap" style={box(16, 40, 56, 40, ACCENT, 2)}>A</wardic.div>
+            <Show when={overlap()}>
+              <wardic.div ref={keep("overlapB")} layoutId="lab-s16-overlap" style={box(130, 40, 56, 40, ALT, 1)}>B</wardic.div>
+            </Show>
+            <span style={LABEL}>overlap</span>
+          </div>
+          <div style={CELL} data-cell="in-place">
+            <wardic.div ref={keep("play")} layoutId="lab-s16-in-place" style={box(76, 40, 56, 40, ACCENT, 1)}>▶</wardic.div>
+            <Show when={inPlace()}>
+              <wardic.div ref={keep("pause")} layoutId="lab-s16-in-place" style={box(76, 40, 56, 40, ALT, 1)}>⏸</wardic.div>
+            </Show>
+            <span style={LABEL}>in place</span>
+          </div>
+          <div style={CELL} data-cell="nested">
+            <wardic.div data-twin="card" ref={keep("card")} layoutId="lab-s16-card" style={box(12, 36, 72, 56, ACCENT, 1)}>
+              <wardic.div data-twin="card-avatar" ref={keep("cardAvatar")} layoutId="lab-s16-avatar" style={avatar(6, 6, 20)} />
+            </wardic.div>
+            <AnimatePresence>
+              <Show when={nested()}>
+                <wardic.div data-twin="modal" ref={keep("modal")} layoutId="lab-s16-card" style={box(100, 12, 100, 112, ALT, 2)} exit={{ opacity: 0 }}>
+                  <wardic.div data-twin="modal-avatar" ref={keep("modalAvatar")} layoutId="lab-s16-avatar" style={avatar(10, 10, 34)} />
+                </wardic.div>
+              </Show>
+            </AnimatePresence>
+            <span style={LABEL}>nested</span>
+          </div>
+          <div style={CELL} data-cell="exit">
+            <wardic.div ref={keep("thumb")} layoutId="lab-s16-exit" style={box(16, 44, 48, 36, ACCENT, 1)} />
+            <AnimatePresence>
+              <Show when={exit()}>
+                <wardic.div ref={keep("exitModal")} layoutId="lab-s16-exit" style={box(96, 16, 100, 96, ALT, 2)} exit={{ opacity: 0 }} />
+              </Show>
+            </AnimatePresence>
+            <span style={LABEL}>exit</span>
+          </div>
+        </div>
+      </div>
+      <div style={BUTTONS}>
+        <button type="button" class="btn secondary small" data-action="toggle-overlap" onClick={toggleOverlap}>
+          Toggle overlap
+        </button>
+        <button type="button" class="btn secondary small" data-action="toggle-in-place" onClick={toggleInPlace}>
+          Toggle in place
+        </button>
+        <button type="button" class="btn secondary small" data-action="toggle-nested" onClick={toggleNested}>
+          Toggle nested
+        </button>
+        <button type="button" class="btn secondary small" data-action="toggle-exit" onClick={toggleExit}>
+          Toggle exit
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Scenario 16, crossfade (#5): four pairs of `layoutId` twins, each handover judged on its two
+ * twins' opacity, frame by frame, against Motion's curves.
+ */
+export const s16: ScenarioDef = {
+  id: ID,
+  index: 16,
+  kind: "board",
+  boardLines: CROSSFADE_CHECK_NAMES,
+  title: "crossfade (layoutId twins)",
+  mechanism:
+    "Toggle overlap mounts a twin beside a live one; Toggle in place mounts one on the other at its box; Toggle nested opens and closes a modal holding an avatar twin, under AnimatePresence; Toggle exit opens a modal and closes it back onto its thumbnail. Each handover is judged on its twins' opacity every frame: never see-through, the Lead in before the Follower fades, a fade not a swap, and where they end; a nested avatar on having no fade of its own; and the overlap and the closing exit on the Lead's point never hitting the Follower.",
+  prediction: "safe",
+  rationale:
+    "Motion's crossfade (motion-dom 13.3.0, mix-values.ts): the Lead fades in over the first half of the handover " +
+    "(circOut) and its Followers out over 0.5–0.95, linearly, so the overlap is never see-through. Any handover " +
+    "animates, so twins at one box crossfade. A node under a crossfading ancestor moves without a fade of its own " +
+    "(path.some(hasOpacityCrossfade)). A Follower takes no pointer input (#165). ADR-0010, Amendment (#5).",
+  View,
+}

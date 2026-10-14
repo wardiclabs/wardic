@@ -19,13 +19,17 @@
  * - **rests** (#61), for a run back to `none`: the key's computed value once still is `none`
  *   itself, not a zero like `blur(0px)`. Other runs have no such line.
  *
+ * A crossfade run (#5, scenario 16) has lines of its own: `crossfadeChecksOf` in
+ * `lab/crossfade-board.ts`.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/base-values-board.test.ts`).
  *
  * @module
  */
+import { type CrossfadeCheck, crossfadeChecksOf, type CrossfadeSeries } from "./crossfade-board.ts"
 
-/** What a run is: a gesture (hover, press), a mount, an exit, a style change at rest, or a toggle (#61). */
-export type BoardRunKind = "gesture" | "mount" | "exit" | "style change" | "toggle"
+/** What a run is: a gesture (hover, press), a mount, an exit, a style change at rest, a toggle (#61), or a crossfade (#5). */
+export type BoardRunKind = "gesture" | "mount" | "exit" | "style change" | "toggle" | "crossfade"
 
 /** One gesture on one cell, as the board's recorder sampled it. */
 export interface BoardRunInput {
@@ -65,14 +69,16 @@ export interface BoardRunInput {
    * follows from its last frame. Its start is still judged against `target`, where it was headed.
    */
   readonly landsOn?: number
+  /** A crossfade run's Follower, and what else its cell watches (#5, scenario 16): `during` is its Lead's. */
+  readonly crossfade?: CrossfadeSeries
 }
 
 /** The card's lines, in display order. */
 export const BOARD_CHECK_NAMES = ["start", "end", "rests", "paints"] as const
 
-/** One card line. */
+/** One card line: one of a base value run's (`BOARD_CHECK_NAMES`) or a crossfade run's (`CROSSFADE_CHECK_NAMES`). */
 export interface BoardCheck {
-  readonly name: (typeof BOARD_CHECK_NAMES)[number]
+  readonly name: (typeof BOARD_CHECK_NAMES)[number] | CrossfadeCheck["name"]
   readonly ok: boolean
   readonly text: string
 }
@@ -130,6 +136,9 @@ const endOf = (input: BoardRunInput): BoardCheck => {
       const ok = last !== undefined && Math.abs(last - input.base) <= 0.005
       return line("end", ok, `at ${v3(last)}`, `${input.base}`)
     }
+    case "crossfade":
+      // Judged on its own lines, by `crossfadeChecksOf`.
+      return { name: "end", ok: true, text: "" }
     case "toggle": {
       const target = input.landsOn ?? input.target
       const moved = input.landsOn === undefined ? "" : " (retargeted)"
@@ -153,4 +162,5 @@ const paintsOf = (input: BoardRunInput): Array<BoardCheck> => {
 }
 
 /** A run's lines (see the module doc): start and end, rests for a run back to `none`, paints for a run that watches for the fallback. */
-export const boardChecksOf = (input: BoardRunInput): Array<BoardCheck> => [startOf(input), endOf(input), ...restsOf(input), ...paintsOf(input)]
+export const boardChecksOf = (input: BoardRunInput): Array<BoardCheck> =>
+  input.kind === "crossfade" ? crossfadeChecksOf(input) : [startOf(input), endOf(input), ...restsOf(input), ...paintsOf(input)]

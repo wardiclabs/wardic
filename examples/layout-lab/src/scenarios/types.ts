@@ -31,7 +31,7 @@
  * @module
  */
 import type { Component } from "solid-js"
-import type { BoardRunInput } from "../lab/base-values-board.ts"
+import type { BoardCheck, BoardRunInput } from "../lab/base-values-board.ts"
 import type { DragExpect, DragRunInput, FlingExpect } from "../lab/drag-run.ts"
 import type { ReorderExpect } from "../lab/reorder-run.ts"
 import type { RestExpect, RestRunInput } from "../lab/rest-run.ts"
@@ -194,6 +194,11 @@ export interface ScenarioDef {
    * latest run.
    */
   readonly restExpect?: RestExpect
+  /**
+   * The lines a board scenario's card shows (#5): scenario 15's (`BOARD_CHECK_NAMES`) when left
+   * out, scenario 16's crossfade lines (`CROSSFADE_CHECK_NAMES`) for its runs.
+   */
+  readonly boardLines?: ReadonlyArray<BoardCheck["name"]>
   /**
    * The scenario's UI: a `.stage` holding the watched element, and a Run button (a
    * drag scenario: its drag handle). It receives its context as a static prop (see

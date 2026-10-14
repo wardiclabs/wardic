@@ -167,6 +167,27 @@ const offsetBox = (box: Box.Box, delta: Point.Point): Box.Box => ({
 })
 
 /**
+ * The crossfade's curves, Motion's (motion-dom 13.3.0, `projection/animation/mix-values.ts`,
+ * `easeCrossfadeIn` / `easeCrossfadeOut`): over a handover's progress `p`, the Lead fades in over
+ * its first half, `circOut` (`sin(acos(1 − p))`, motion-utils' `reverseEasing(circIn)`), and its
+ * Followers fade out over 0.5–0.95, linearly. The twins are both opaque at the middle, so the
+ * overlap is never see-through (#5, ADR-0010 *Amendment (#5)*). Past either end each holds, so a
+ * spring's overshoot ends faded in and out. Per frame: early returns.
+ */
+const fadeInAt = (p: number): number => {
+  if (p <= 0) return 0
+  if (p >= 0.5) return 1
+  return Math.sin(Math.acos(1 - p / 0.5))
+}
+
+/** {@link fadeInAt}'s twin: how far a Follower has faded out at progress `p`, 0 to 1. */
+const fadeOutAt = (p: number): number => {
+  if (p <= 0.5) return 0
+  if (p >= 0.95) return 1
+  return (p - 0.5) / 0.45
+}
+
+/**
  * A Follower's `@projection` value (ADR-0010, *Amendment (#165)*): pointer input passes
  * through it, with the crossfade factor and the raise only when it carries them. Per frame.
  */
@@ -480,6 +501,22 @@ interface NodeState {
    * starts it at 0; a layout animation that interrupts it continues it from where it was.
    */
   crossfadeFrom: number | undefined
+  /**
+   * Whether its handover only moves, with no fade of its own (#5, ADR-0010 *Amendment (#5)*):
+   * `true` when a projection ancestor was crossfading as it began, so the ancestor's fade decides
+   * which twin shows (Motion's `path.some(hasOpacityCrossfade)`); `false` when it fades. `undefined`
+   * until its first frame decides, once every promotion of its task has run: Solid disposes an
+   * inner twin before its container.
+   */
+  handoverMoves: boolean | undefined
+  /**
+   * A Follower's crossfade factor when its Lead's handover (re)started (#5): where it fades out from.
+   * `undefined` for one that joined after it began (a leaver `handleLeave` re-introduced), which
+   * fades from 1, as the Lead it was.
+   */
+  exitFrom: number | undefined
+  /** The crossfade factor its last projection write carried; `undefined` for none, at its own opacity. */
+  fade: number | undefined
   /**
    * Its box and projection delta as the current Measure pass began (#146): where it painted, which a
    * restart in that pass starts from, read after the pass has changed both.
@@ -806,6 +843,7 @@ export const makeProjectionSystem = (
     opacity?: number,
     corrected?: Record<string, string>,
   ): void => {
+    node.fade = opacity
     const value = projectionValue(delta, treeScale, opacity, raiseOf(node), isFollower(node))
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
@@ -867,24 +905,98 @@ export const makeProjectionSystem = (
     node.layoutId !== undefined && leadOf(node.layoutId) !== node
 
   /**
-   * A Lead's crossfade factor (ADR-0010, *Note (velocity family)*): from where its crossfade
-   * (re)started to 1 over its progress, while a handover's animation runs; 1 otherwise, so
-   * any other layout animation, or its Release offset, leaves its Followers hidden. Per frame.
+   * Whether `lead`'s handover crossfades (#5): one runs, and it doesn't only move. The first frame
+   * that asks decides whether it only moves, once; the decision is provisionally `false` while it's
+   * made, so a cycle through its own `layoutId` ends. Its Followers don't count: a container closed
+   * under presence crossfades once its leaver is re-introduced, which can come after the twins
+   * inside it ask.
+   */
+  const crossfading = (lead: NodeState): boolean => {
+    if (Predicate.isUndefined(lead.crossfadeFrom)) return false
+    if (Predicate.isUndefined(lead.handoverMoves)) {
+      lead.handoverMoves = false
+      lead.handoverMoves = hasCrossfadingAncestor(lead)
+    }
+    return !lead.handoverMoves
+  }
+
+  /**
+   * Whether a projection ancestor of `node` is crossfading (#5): it, or the Lead it follows, is in a
+   * handover that crossfades (Motion's `path.some(hasOpacityCrossfade)`, which reads the Lead's values).
+   */
+  const hasCrossfadingAncestor = (node: NodeState): boolean => {
+    let p = node.parent
+    while (p !== undefined) {
+      if (p.layoutId !== undefined) {
+        const lead = leadOf(p.layoutId)
+        if (lead !== undefined && crossfading(lead)) return true
+      }
+      p = p.parent
+    }
+    return false
+  }
+
+  /**
+   * A Lead's crossfade factor (ADR-0010, *Note (velocity family)*, *Amendment (#5)*): from where
+   * its handover's fade (re)started to 1 along Motion's curve in ({@link fadeInAt}), while one fades;
+   * 1 otherwise, so any other layout animation, its Release offset, or a handover that only moves
+   * leaves it at its own opacity. Per frame.
    */
   const fadeOf = (node: NodeState): number => {
     const from = node.crossfadeFrom
     if (Predicate.isUndefined(from)) return 1
     const spring = node.spring
     if (Predicate.isUndefined(spring)) return 1
-    return from + (1 - from) * spring.position
+    if (node.handoverMoves === true) return 1
+    return from + (1 - from) * fadeInAt(spring.position)
   }
 
-  /** The crossfade factor for a LEAD ({@link fadeOf}) — only when it has Followers; else undefined. */
+  /** The crossfade factor for a LEAD ({@link fadeOf}) — only when it has Followers; else undefined. Per frame. */
   const leadOpacity = (node: NodeState): number | undefined => {
     if (node.layoutId === undefined) return undefined
     const stack = stacks.get(node.layoutId)
     if (stack === undefined || stack.length < 2 || stack[stack.length - 1] !== node) return undefined
+    crossfading(node) // decides, on its first frame, whether its handover only moves
     return fadeOf(node)
+  }
+
+  /** Where a Follower fades out from: its factor as its Lead's handover (re)started, or 1. Per frame. */
+  const exitFromOf = (node: NodeState): number => {
+    const from = node.exitFrom
+    if (Predicate.isUndefined(from)) return 1
+    return from
+  }
+
+  /**
+   * A Follower's crossfade factor (#5): from where it was as its Lead's handover (re)started to 0
+   * along Motion's curve out ({@link fadeOutAt}), while that handover fades; held there while one
+   * only moves; 0 at rest, or under any other layout animation of its Lead. Per frame.
+   */
+  const exitOf = (node: NodeState, lead: NodeState): number => {
+    if (Predicate.isUndefined(lead.crossfadeFrom)) return 0
+    const spring = lead.spring
+    if (Predicate.isUndefined(spring)) return 0
+    crossfading(lead) // decides, on its first frame, whether its handover only moves
+    if (lead.handoverMoves === true) return exitFromOf(node)
+    return exitFromOf(node) * (1 - fadeOutAt(spring.position))
+  }
+
+  /** Each Follower of `lead` fades out from where it is now (#5): set as a handover begins or a crossfade is interrupted. */
+  const captureExits = (lead: NodeState): void => {
+    if (lead.layoutId === undefined) return
+    const stack = stacks.get(lead.layoutId)
+    if (stack === undefined) return
+    for (const f of stack) if (f !== lead) f.exitFrom = UndefinedOr.match(f.fade, { onUndefined: () => 1, onDefined: identity })
+  }
+
+  /**
+   * A handover begins on `node` (ADR-0010): its fade starts at 0, whether it only moves is decided on
+   * its first frame (#5), and its Followers fade from where they are.
+   */
+  const beginHandover = (node: NodeState): void => {
+    node.crossfadeFrom = 0
+    node.handoverMoves = undefined
+    captureExits(node)
   }
 
   /**
@@ -1131,7 +1243,7 @@ export const makeProjectionSystem = (
     node.lastTarget = target
     node.lastDelta = delta
     const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
-    writeProjection(node, delta, treeScale, 1 - fadeOf(lead), corrected) // follower fades out as its Lead fades in
+    writeProjection(node, delta, treeScale, exitOf(node, lead), corrected) // fades out as its Lead fades in (#5)
   }
 
   /**
@@ -1155,6 +1267,8 @@ export const makeProjectionSystem = (
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
+    // Top-down too: a twin inside a Follower reads its container's fresh lock (#5).
+    followers.sort((a, b) => a.depth - b.depth)
     for (const node of followers) deriveFollower(node)
   }
 
@@ -1228,6 +1342,8 @@ export const makeProjectionSystem = (
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
+    // Top-down too: a twin inside a Follower reads its container's fresh lock (#5).
+    followers.sort((a, b) => a.depth - b.depth)
     for (const node of followers) deriveFollower(node)
   }
 
@@ -1755,6 +1871,7 @@ export const makeProjectionSystem = (
         node.spring = undefined
         node.animating = false
         node.crossfadeFrom = undefined
+        node.handoverMoves = undefined
         // A released layoutRoot's Release offset isn't a layout animation: it goes on from
         // its new slot, derived with the pass's group (ADR-0016, *Amendment (velocity family)*).
         if (Predicate.isNotUndefined(node.release)) {
@@ -1800,13 +1917,14 @@ export const makeProjectionSystem = (
         // The prior Lead's box in this node's frame, through where it paints (#136).
         const priorBox = UndefinedOr.map(priorLeadOf(node), (lead) =>
           UndefinedOr.map(UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }), (box) => between(lead, node, box)))
-        if (priorBox !== undefined && !boxesEqual(priorBox, newBox)) {
-          // Shaped by its Layout mode; a handover crossfades even when that leaves nothing to move.
+        if (priorBox !== undefined) {
+          // Shaped by its Layout mode; a handover crossfades even when that leaves nothing to
+          // move, the twins' boxes equal (#5, Motion's: any `resumeFrom` animates).
           node.origin = shapedOrigin(node, priorBox, newBox)
           node.layoutBox = newBox
           node.spring = startSpring(node)
           // A handover: the crossfade fades the new Lead in from 0 (ADR-0010).
-          node.crossfadeFrom = 0
+          beginHandover(node)
           node.animating = true
           active.add(node)
           start(node)
@@ -1826,7 +1944,7 @@ export const makeProjectionSystem = (
             node.layoutBox = newBox
             node.spring = startSpring(node) // progress spring restarts at 0
             // A handover: a leaver re-introduced as a Follower (`handleLeave`) fades out with it.
-            node.crossfadeFrom = 0
+            beginHandover(node)
             node.animating = true
             active.add(node)
             start(node)
@@ -1863,7 +1981,11 @@ export const makeProjectionSystem = (
 
       // A crossfade this interrupts goes on from the factor it had (ADR-0010, *Note (velocity
       // family)*); any other restart is no handover, and leaves the factors alone.
-      if (Predicate.isNotUndefined(node.crossfadeFrom)) node.crossfadeFrom = fadeOf(node)
+      // Each twin goes on from the factor it had, along its own curve (#5).
+      if (Predicate.isNotUndefined(node.crossfadeFrom)) {
+        node.crossfadeFrom = fadeOf(node)
+        captureExits(node)
+      }
       node.origin = origin
       node.layoutBox = newBox
       node.spring = startSpring(node) // progress spring restarts at 0 (velocity 0)
@@ -2154,6 +2276,7 @@ export const makeProjectionSystem = (
       node.spring = undefined
       node.origin = undefined
       node.crossfadeFrom = undefined
+      node.handoverMoves = undefined
       node.lastDelta = IDENTITY_DELTA
       active.delete(node)
       // A raised node's release has settled: one last write, at rest, drops the raise.
@@ -2161,6 +2284,13 @@ export const makeProjectionSystem = (
         node.raised = false
         derive(node)
       }
+    }
+    // A settled Lead's live Followers come to rest hidden, one write each (#5): a handover that only
+    // moved held them at their own opacity until now.
+    for (const node of settled) {
+      if (node.layoutId === undefined || leadOf(node.layoutId) !== node) continue
+      const stack = stacks.get(node.layoutId)
+      if (stack !== undefined) for (const f of stack) if (f !== node && !f.leaving) deriveFollower(f)
     }
     // 3b) A leaving Follower whose Lead just settled is done crossfading → remove it
     //     (fires onDone → presence removes the retained DOM node).
@@ -2387,19 +2517,14 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(fromStored)) return
     if (Predicate.isUndefined(ownBox)) return
     const fromBox = between(from, node, fromStored)
-    // Nothing to move: one write at rest, as the Lead it now is, un-hides it and gives it its
-    // pointer input back (#165). Without it the twin kept its last Follower write: hidden, and
-    // passing its input through.
-    if (boxesEqual(fromBox, ownBox)) {
-      node.lastDelta = IDENTITY_DELTA
-      writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
-      return
-    }
+    // A handover, even with nothing to move (#5, Motion's): a leaver `handleLeave` re-introduces
+    // rides it, fading out as this twin fades in. With none, each frame writes this twin as the Lead
+    // it is: shown, and taking its own pointer input (#165).
     node.origin = shapedOrigin(node, fromBox, ownBox)
     node.layoutBox = ownBox
     node.spring = startSpring(node)
     // A handover: the promoted twin fades in from 0 as the one it takes over from fades out.
-    node.crossfadeFrom = 0
+    beginHandover(node)
     node.animating = true
     active.add(node)
     ensureRunning()
@@ -2461,6 +2586,9 @@ export const makeProjectionSystem = (
     raiseWhileDragged: false,
     raised: false,
     crossfadeFrom: undefined,
+    handoverMoves: undefined,
+    exitFrom: undefined,
+    fade: undefined,
     passBox: undefined,
     passDelta: IDENTITY_DELTA,
     passPainted: undefined,
@@ -2515,10 +2643,33 @@ export const makeProjectionSystem = (
     nodes.add(follower)
     elementToNode.set(el, follower)
     stack.splice(stack.length - 1, 0, follower) // insert below the Lead
+    reintroduceWithin(el)
     computeTree()
     if (active.has(lead)) deriveAll()
     else finishLeaver(follower)
     return true
+  }
+
+  /**
+   * The twins inside a leaver presence re-introduced, disposed with it, come back too (#5): each
+   * a leaving Follower of its own Lead, so a twin inside a closing container stays locked onto its
+   * Lead, corrected for the container's scale, until the container goes. Motion keeps an exiting
+   * subtree mounted, so its twins go on projecting; Solid disposes them before presence asks.
+   * Only one whose Lead is in a handover, which removes it as it settles; a twin presence leaves
+   * itself, or already re-introduced, is left alone.
+   */
+  const reintroduceWithin = (container: HTMLElement): void => {
+    for (const [inner, recent] of recentLeavers) {
+      if (inner === container || recent.reintroduced || !container.contains(inner)) continue
+      const lead = leadOf(recent.layoutId)
+      const stack = stacks.get(recent.layoutId)
+      if (lead === undefined || stack === undefined || lead.element === inner || !active.has(lead)) continue
+      const twin = makeFollowerNode(inner, recent.layoutId, recent, () => undefined)
+      recent.reintroduced = true
+      nodes.add(twin)
+      elementToNode.set(inner, twin)
+      stack.splice(stack.length - 1, 0, twin)
+    }
   }
 
   /**
@@ -2566,6 +2717,9 @@ export const makeProjectionSystem = (
       raiseWhileDragged: opts.raiseWhileDragged === true,
       raised: false,
       crossfadeFrom: undefined,
+      handoverMoves: undefined,
+      exitFrom: undefined,
+      fade: undefined,
       passBox: undefined,
       passDelta: IDENTITY_DELTA,
       passPainted: undefined,

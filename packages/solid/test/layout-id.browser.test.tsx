@@ -192,13 +192,17 @@ it("crossfade (S1): a twin mounting beside a LIVE twin leads from its box; the l
   await until(() => leftOf(b) - base < 200 && op(b) < 0.95)
   expect(leftOf(b) - base).toBeLessThan(200) // started at A's side, not its own +300
 
-  // Crossfade: B opacity rises while A opacity falls, A locked onto B (overlapping).
-  let sawCross = false
+  // Crossfade (Motion's curves since #5): B fades in while A holds, then A fades out with B in,
+  // A locked onto B (overlapping), so the two are never see-through together.
+  let sawIn = false
+  let sawOut = false
   await until(() => {
-    if (op(b) > 0.2 && op(b) < 0.95 && op(a) < 0.95) sawCross = true
+    if (op(b) > 0.2 && op(b) < 0.95 && op(a) > 0.99) sawIn = true
+    if (op(a) > 0.05 && op(a) < 0.95 && op(b) > 0.99) sawOut = true
     return Math.abs(leftOf(b) - base - 300) < 2 // B settled at its own +300
   })
-  expect(sawCross).toBe(true)
+  expect(sawIn, "B fading in while A holds").toBe(true)
+  expect(sawOut, "A fading out with B in").toBe(true)
   expect(op(b)).toBeCloseTo(1, 1) // lead fully in
   expect(op(a)).toBeLessThan(0.1) // follower faded out (hidden, held)
   expect(Math.abs(leftOf(a) - leftOf(b))).toBeLessThan(3) // follower locked onto the lead's box
@@ -303,6 +307,65 @@ it("crossfade (S3): closing a layoutId twin under <AnimatePresence> flies it bac
   expect(modal.isConnected).toBe(false) // onDone removed the retained node
   expect(leftOf(thumb) - base).toBeCloseTo(20, 0) // thumbnail back home
   expect(op(thumb)).toBeCloseTo(1, 1) // and fully visible again
+})
+
+it("crossfade (S5): a twin inside a closing container stays locked onto its Lead until the container goes (#5)", async () => {
+  // Solid disposes the modal's avatar node with the modal, before presence hands the modal back;
+  // the engine brings the avatar back too, as a leaving Follower of the card's avatar. Before #5's
+  // fix the modal's stretch carried it uncorrected: 4.5px wider than the card's avatar and 1px off
+  // by the end, a ghost that dissolved into the card's circle as the modal faded.
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative", width: "600px", height: "300px" }}>
+        <wardic.div data-card layoutId="s5-card" style={{ position: "absolute", left: "12px", top: "36px", width: "72px", height: "56px" }}>
+          <wardic.div data-card-avatar layoutId="s5-avatar" style={{ position: "absolute", left: "6px", top: "6px", width: "20px", height: "20px" }} />
+        </wardic.div>
+        <AnimatePresence>
+          <Show when={open()}>
+            <wardic.div
+              data-modal
+              layoutId="s5-card"
+              exit={{ opacity: 0 }}
+              style={{ position: "absolute", left: "200px", top: "12px", width: "100px", height: "112px", "z-index": 2 }}
+            >
+              <wardic.div data-modal-avatar layoutId="s5-avatar" style={{ position: "absolute", left: "10px", top: "10px", width: "34px", height: "34px" }} />
+            </wardic.div>
+          </Show>
+        </AnimatePresence>
+      </div>
+    </WardicProvider>
+  ))
+  const root = container.querySelector("[data-root]") as HTMLElement
+  const cardAvatar = container.querySelector("[data-card-avatar]") as HTMLElement
+  await raf()
+  await raf()
+  setOpen(true)
+  await until(() => {
+    const m = container.querySelector("[data-modal]")
+    return m instanceof HTMLElement && op(m) > 0.99 && Math.abs(leftOf(m) - leftOf(root) - 200) < 0.5
+  })
+  await until(() => op(container.querySelector("[data-card]") as HTMLElement) < 0.01)
+  const modal = container.querySelector("[data-modal]") as HTMLElement
+  const modalAvatar = container.querySelector("[data-modal-avatar]") as HTMLElement
+
+  setOpen(false) // presence keeps the modal: it crossfades back onto the card, its avatar onto the card's
+  // From the first frame presence's hand-back has reached: the frame before it paints the modal,
+  // and its avatar, where they stood (the S3 interleaving above).
+  let frames = 0
+  let worst = 0
+  await until(() => {
+    if (!modal.isConnected) return true
+    if (modal.style.transform === "none" || modal.style.transform === "") return false
+    frames++
+    const a = cardAvatar.getBoundingClientRect()
+    const b = modalAvatar.getBoundingClientRect()
+    worst = Math.max(worst, Math.abs(a.left - b.left), Math.abs(a.top - b.top), Math.abs(a.width - b.width), Math.abs(a.height - b.height))
+    return false
+  })
+  expect(frames, "frames the closing modal was on screen").toBeGreaterThan(5)
+  expect(worst, "the modal's avatar off the card's, px").toBeLessThan(0.5)
 })
 
 it("lone layoutId leave (no twin) under <AnimatePresence> degrades to the normal exit", async () => {
