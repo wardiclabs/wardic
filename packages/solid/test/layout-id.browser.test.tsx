@@ -439,6 +439,77 @@ it("switch (S7): a <Show> swapped back mid-flight seeds the twin from where the 
   expectContinuous(seen, await leftsAfterPaint(() => container.querySelector("[data-a]") as HTMLElement, 2, base), "A")
 })
 
+it("crossfade (S8): a Follower's layout child keeps its shape and rides it, opening and closing (#169)", async () => {
+  // A badge (a plain `layout` node, ratio 3) in the card and in the modal. Opening, the card is a
+  // Follower locked onto the growing modal; closing, the modal is a leaving Follower. Before #169
+  // neither badge was corrected: opening it stretched to 39.5x18.1, closing it squashed to 23x6.
+  const [open, setOpen] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      {styled()}
+      <div data-root style={{ position: "relative", width: "600px", height: "300px" }}>
+        <wardic.div data-card layoutId="s8" style={{ position: "absolute", left: "12px", top: "36px", width: "72px", height: "56px" }}>
+          <wardic.div data-card-badge layout style={{ position: "absolute", left: "6px", top: "40px", width: "30px", height: "10px" }} />
+        </wardic.div>
+        <AnimatePresence>
+          <Show when={open()}>
+            <wardic.div
+              data-modal
+              layoutId="s8"
+              exit={{ opacity: 0 }}
+              style={{ position: "absolute", left: "200px", top: "12px", width: "100px", height: "112px", "z-index": 2 }}
+            >
+              <wardic.div data-modal-badge layout style={{ position: "absolute", left: "10px", top: "90px", width: "30px", height: "10px" }} />
+            </wardic.div>
+          </Show>
+        </AnimatePresence>
+      </div>
+    </WardicProvider>
+  ))
+  /** The badge's painted ratio and its offset in its container, every frame until `done`. */
+  const track = async (badge: () => Element | null, box: () => Element | null, done: () => boolean) => {
+    const seen: Array<{ readonly ratio: number; readonly dx: number; readonly dy: number }> = []
+    await until(() => {
+      const b = badge()
+      const c = box()
+      if (b instanceof HTMLElement && b.isConnected && c instanceof HTMLElement) {
+        const r = b.getBoundingClientRect()
+        const q = c.getBoundingClientRect()
+        seen.push({ ratio: r.width / r.height, dx: r.left - q.left, dy: r.top - q.top })
+      }
+      return done()
+    })
+    return seen
+  }
+  const card = container.querySelector("[data-card]") as HTMLElement
+  await raf()
+  await raf()
+  setOpen(true)
+  const opening = await track(
+    () => container.querySelector("[data-card-badge]"),
+    () => card,
+    () => op(card) < 0.01,
+  )
+  expect(opening.length, "frames the card was locked on").toBeGreaterThan(5)
+  for (const [i, f] of opening.entries()) {
+    expect(Math.abs(f.ratio / 3 - 1), `opening frame ${i}: the card's badge ratio ${f.ratio.toFixed(2)}`).toBeLessThan(0.02)
+    expect(Math.abs(f.dx - 6) + Math.abs(f.dy - 40), `opening frame ${i}: its offset in the card`).toBeLessThan(1)
+  }
+  const modal = container.querySelector("[data-modal]") as HTMLElement
+  await until(() => op(modal) > 0.99 && op(card) < 0.01)
+  setOpen(false)
+  const closing = await track(
+    () => container.querySelector("[data-modal-badge]"),
+    () => modal,
+    () => !modal.isConnected,
+  )
+  expect(closing.length, "frames the modal was leaving").toBeGreaterThan(5)
+  for (const [i, f] of closing.entries()) {
+    expect(Math.abs(f.ratio / 3 - 1), `closing frame ${i}: the modal's badge ratio ${f.ratio.toFixed(2)}`).toBeLessThan(0.02)
+    expect(Math.abs(f.dx - 10) + Math.abs(f.dy - 90), `closing frame ${i}: its offset in the modal`).toBeLessThan(1)
+  }
+})
+
 it("lone layoutId leave (no twin) under <AnimatePresence> degrades to the normal exit", async () => {
   const [show, setShow] = createSignal(true)
   const { container } = render(() => (
