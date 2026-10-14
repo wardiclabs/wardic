@@ -66,7 +66,7 @@ Comments and examples that name CSS describe the DOM Environment's use, not core
   - `color`, `ColorString` and culori leave `Interpolator`, and `defaults` is `[number, array, unit, complex]`. `parseAndFormat` is exported, so an Environment can build its codecs the way core builds its own. culori stays a devDependency, for the bench.
   - **Without an Environment's colours, a colour is text with numbers in it.** `#000` → `#fff` is a Discrete pair, since `#fff` holds no number. `rgb(0, 0, 0)` → `rgb(255, 255, 255)` blends its three channels as numbers. The Test Environment is one such Environment. Core's own tests use made-up kinds.
 - **`@wardic/dom`:**
-  - `colors.ts`: `ColorString`, `color(mode)`, `cssColor` (sRGB) and `COLOR_TOKEN` (Motion's colour token, #61). They are the same code as core's were.
+  - `colors.ts`: `ColorString`, `color(mode)`, `cssColor` (sRGB) and `COLOR_TOKEN` (Motion's colour token, #61). They are the same code as core's were. *Since ADR-0026's Amendment (#156), `color("rgb")` blends with Wardic's own lerp and format, writing culori's strings.*
   - `complex.ts`: `VARIABLE_REFERENCE` and `cssComplex`, which keeps a `var()` as text and reads a colour as a kind of token blended through `cssColor`.
   - `interpolators` lists number, array, `cssColor`, unit and `cssComplex`, the order core's defaults had.
   - **Found while implementing:** the Key rules built each zero with core's complex codec, which read the digits in a `var()` name as a number. A shadow holding `var(--gray-500)` went to `none` through `var(--gray0)`, an undefined variable, until its last frame. The rules now use the DOM's codecs (AN15).
