@@ -134,6 +134,19 @@ const tweenS5: Fixture = {
   samples: [sFive(108079.10000002384, 7769, 745.5324096679688), sFive(108088.20000004768, 7770, 745.1566162109375), sFive(108101.70000004768, 7771, 743.891845703125)],
 }
 
+/**
+ * Scenario 4 on the tween (log of 2026-10-14T21-57): a 192px move on x, with the page scrolled 300px
+ * during the run, so its destination sits 300px further on y. Its x moves from the second frame; its
+ * box's largest edge distance, on y, didn't shrink until the scroll, 28 frames on.
+ */
+const sFour = (t: number, frame: number, left: number): PaintSample => ({ t, frame, box: { left, top: 109.12036895751953, width: 63.9930534362793, height: 63.9930534362793 } })
+const scrolledS4: Fixture = {
+  measureStart: 17563.700000047684,
+  origin: { left: 67.46527862548828, top: 109.12036895751953, width: 63.9930534362793, height: 63.9930534362793 },
+  destination: { left: 259.46759033203125, top: 409.120361328125, width: 63.9930534362793, height: 63.9930534362793 },
+  samples: [sFour(17567.800000071526, 693, 67.46527862548828), sFour(17577.600000023842, 694, 68.06694793701172), sFour(17591.400000095367, 695, 69.5748519897461)],
+}
+
 const fromMeasure = (f: Fixture) =>
   heldFramesOf(f.samples, f.origin, f.destination, { from: "measure", at: f.measureStart }, MOVED_PX)
 
@@ -182,6 +195,10 @@ describe("heldFramesOf", () => {
   it("counts a tween's eased first step, under a pixel, as motion, and a hair off the origin away from the destination as held (#171)", () => {
     expect(fromMeasure(tweenS1)?.heldFrames, "scenario 1 holds 0, as expected").toBe(0)
     expect(fromMeasure(tweenS5)?.heldFrames, "scenario 5 holds 1, as expected").toBe(1)
+  })
+
+  it("counts motion on any edge, so a page scrolled during the run doesn't hide it (#171)", () => {
+    expect(fromMeasure(scrolledS4)?.heldFrames, "scenario 4 holds 1, as expected").toBe(1)
   })
 
   it("is undefined when nothing moved after the anchor", () => {
