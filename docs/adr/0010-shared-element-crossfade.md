@@ -215,7 +215,7 @@ A Follower is locked onto its Lead: its transform maps its own box onto where th
 
 The Lead's badge stayed at ratio 3.00 throughout.
 
-Motion keeps an exiting subtree mounted (`AnimatePresence`), so every projection node in it goes on projecting, and a `layout` node goes on counter-scaling for its ancestors' scale (`treeScale`) through the close.
+Motion keeps an exiting subtree mounted (`AnimatePresence`), so every projection node in it goes on projecting, and a `layout` node goes on counter-scaling for its ancestors' scale (`treeScale`) through the close. Where it places a Follower's children differs (4).
 
 Grilled 2026-10-14:
 
@@ -229,8 +229,18 @@ Grilled 2026-10-14:
    - When the leaver finishes, what it carried finishes with it and leaves the engine.
    - Rejected: the binding keeping a leaving subtree's nodes registered until presence removes it. The engine already brings twins back from its records, so both kinds now come back by one path.
 3. **The "one-frame hand-back lag"** #169 noted is measured as none since #170: presence's `handleLeave` runs within the dispose's task, so the first frame after a close is already locked.
+4. **Riding the Follower is a deliberate divergence from Motion** (decided after testing the lab, against Motion with the same boxes: `.tmp/vel/motion/crossfade-badge.tsx`). Motion keeps a Follower's `layout` child at its own size, but not on its container. While opening, the card's bar stays where it sits on the page as the card flies into the modal: its offset in the card drifts from 6, 38 to −81, 62. While closing, the modal's bar stays where the modal rests. Nothing in motion-dom 13.3.0 handles a Follower's children on purpose:
+   - Only the Lead runs the handover's animation, so only it has a target each frame (`mixTargetDelta` → `setTargetDelta`). A Follower borrows `lead.target` in its own `calcProjection`, the last step, and nowhere else.
+   - A child attaches to the nearest ancestor with a target of its own (`getClosestProjectingParent`, `isProjecting`). A Follower has none, or a stale one at its resting box. So the child attaches there, or falls through to scale correction without a target, which corrects it back onto its own layout box.
+   - So Motion varies. With twins the same size, nothing scales while opening, the fallback never fires, and the card's bar rides with the card. While closing, the modal's bar still stays where the modal rests.
 
-**The lab:** scenario 16's nested cell holds a `layout` badge in the card and one in the modal, 32x8 and 48x10, and its `nested: card` runs gain an `aspect` line: each badge within 3% of its own ratio on every frame it's on the page. The scripted driver (`.tmp/5/drive16.ts`):
+   Wardic's bar rides its container in every case, as a Lead's does. On any stage that isn't white, Motion's leaves a bar behind where its container was.
+
+**The lab:** scenario 16's nested cell holds a `layout` badge in the card and one in the modal, 32x8 and 48x10, and its `nested: card` runs gain an `aspect` line: each badge within 3% of its own ratio on every frame it's on the page.
+- **A grey stage** for the nested cell, so a white bar outside its container shows.
+- **Testing by hand found a bar outside its container.** The modal's bar sits 92 px below the modal's top-left, its offset kept on every frame (ADR-0013), so while the modal is under 102 px tall it hangs below it. Motion's is identical on every frame. A bar meant to stay on its container's bottom edge takes `layoutAnchor` `{ x: 0, y: 1 }`.
+
+The scripted driver (`.tmp/5/drive16.ts`):
 - **This branch:** all 30 runs pass, 0 page errors, every badge within 0.0%.
 - **`main`'s engine:** every `nested: card` run fails `aspect` on the Follower's badge: off by 25–31% opening, 34–44% closing.
 
