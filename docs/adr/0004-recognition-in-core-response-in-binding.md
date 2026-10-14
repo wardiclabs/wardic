@@ -50,7 +50,7 @@ Grilled on 2026-10-13:
    - `Reorder.dragStart` no longer takes a point and a time. `Reorder.dragMove` takes the sample's velocity in place of them.
    - A layout drag past elastic `dragConstraints` now releases with the pointer's velocity, not with its slower elastic offsets'. Motion's does the same.
    - Rejected: only the layout release reading it; keeping three histories.
-4. **How far a Fling carries is unchanged** (Q4). A `decayVec` with friction 3 carries about v/3; Motion's drag inertia (`power` 0.8, `timeConstant` 750) carries 0.8·v. That's the release's physics, #140's question; the side-by-side is measured there.
+4. **How far a Fling carries is unchanged** (Q4). A `decayVec` with friction 3 carries about v/3; Motion's drag inertia (`power` 0.8, `timeConstant` 750) carries 0.8·v. That's the release's physics, #140's question; the side-by-side is measured there. *Since ADR-0016's Amendment (#140) a Fling is Motion's inertia on the drag transition, and respects the constraints.*
 5. **The layout lab's scenario 13 gains a free-drag box** (Q5). It is recorded by the same drag recorder and judged:
    - **carries on:** a release while moving travels on in the pointer's direction;
    - **stays:** a release made still, or after a pause, stays within 0.5 px of where it was let go;
