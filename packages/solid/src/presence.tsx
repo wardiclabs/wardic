@@ -30,7 +30,13 @@
  *
  * v0.1 scope: a SINGLE child. A re-entry while the previous node is still
  * exiting INTERRUPTS the exiting node (its fiber is interrupted + node removed);
- * full mid-exit reuse is deferred.
+ * full mid-exit reuse is deferred. One hosting the handovers of twins it handed
+ * back is left to finish beside the new one (ADR-0010 *Amendment (#181)*).
+ *
+ * A leaving child that isn't a twin hands back the twins inside it (#181): each
+ * crossfades onto its other twin while the child runs its own exit, and the child
+ * goes once both have ended. Its exit's values reach the projection, so a twin
+ * inside stays on its other twin while the exit moves or scales the child.
  */
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
@@ -42,6 +48,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Predicate from "effect/Predicate"
 import { reportFailure, variableValues } from "@wardic/dom"
 import { constFalse } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -159,6 +166,15 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // component's own teardown) can interrupt them.
   const exiting = new Map<HTMLElement, Fiber.Fiber<void, never>>()
 
+  // A leaving child's parts still running (ADR-0010 *Amendment (#181)*): its exit, and the handovers
+  // of the twins it handed back. It goes when the count reaches 0. Every retained child that runs its
+  // own exit is here; a twin presence left to the projection isn't.
+  const pending = new Map<HTMLElement, number>()
+  // The handed-back twins of a leaving child, by it: the call that drops them, for an interrupted exit.
+  const handovers = new Map<HTMLElement, () => void>()
+  // The unregistration of each exit's values with the projection.
+  const exitValues = new Map<HTMLElement, () => void>()
+
   // `initial={false}` (#134): the children set up with this first render start at their
   // `animate`; one that enters after it animates in.
   let firstRender = true
@@ -187,18 +203,51 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const finishExit = (el: HTMLElement): void => {
     exiting.delete(el)
     registry.delete(el)
+    pending.delete(el)
+    handovers.delete(el)
+    const unregister = exitValues.get(el)
+    exitValues.delete(el)
+    if (Predicate.isNotUndefined(unregister)) unregister()
     el.remove()
   }
 
+  // One of a leaving child's parts ended (#181): it goes with the last. A child already removed
+  // (an interrupted exit's fiber ending after) is ignored.
+  const partDone = (el: HTMLElement): void => {
+    const left = pending.get(el)
+    if (Predicate.isUndefined(left)) return
+    if (left > 1) {
+      pending.set(el, left - 1)
+      return
+    }
+    finishExit(el)
+  }
+
   // Interrupt an in-flight exit for `el` (re-entry / teardown) and remove the
-  // retained node. Idempotent.
+  // retained node, the twins it handed back dropped with it. Idempotent.
   const interruptExit = (el: HTMLElement): void => {
     const fiber = exiting.get(el)
     if (fiber !== undefined) {
       debug("exit: interrupt")
       runtime.runFork(Fiber.interrupt(fiber))
     }
+    const drop = handovers.get(el)
+    if (Predicate.isNotUndefined(drop)) drop()
     finishExit(el)
+  }
+
+  // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
+  // it, then runs its own exit, and goes once both have ended.
+  const leave = (rec: PresenceRecord): void => {
+    const el = rec.element
+    const drop = projection.handBackWithin(el, () => partDone(el))
+    pending.set(el, 1)
+    if (Predicate.isNotUndefined(drop)) {
+      handovers.set(el, drop)
+      pending.set(el, 2)
+      debug("leave: hands back its twins")
+    }
+    driveExit(rec)
   }
 
   // Drive the parent-owned exit for a leaving node: from its last snapshot
@@ -209,7 +258,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     const exit = rec.exit.current
     if (isEmpty(exit)) {
       debug("exit: immediate (no target)")
-      finishExit(el)
+      partDone(el)
       return
     }
 
@@ -239,9 +288,14 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // Accumulate the merged latest value-map so each committed frame carries the
     // full set of keys (numeric + string collapse into one projected Patch).
     const latest: Values.Values = { ...from, ...exit }
+    // What the exit has drawn, for the projection (ADR-0010 *Amendment (#181)*): the twins this
+    // child handed back follow it. Its last snapshot until the first frame commits.
+    const drawn: Values.Values = { ...from }
+    exitValues.set(el, projection.registerValues(el, () => drawn))
     const commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>> = (frame) => {
       Object.assign(latest, frame.value)
       commitValues(el, latest)
+      Object.assign(drawn, latest)
       return undefined
     }
 
@@ -267,7 +321,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     const fiber = runtime.runFork(
       Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
         Effect.tapCause((cause) => reportFailure("wardic.presence: an exit failed", cause)),
-        Effect.ensuring(Effect.sync(() => finishExit(el))),
+        Effect.ensuring(Effect.sync(() => partDone(el))),
         Effect.withSpan("wardic.presence.exit", {
           attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped },
         }),
@@ -321,15 +375,18 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
           const leavingEl = prevEl // narrowed const (prevEl is a reassigned `let`)
           const crossfaded = projection.handleLeave(leavingEl, () => finishExit(leavingEl))
           if (crossfaded) debug("leave: crossfade (deferred to projection)")
-          else driveExit(rec)
+          else leave(rec)
         }
       }
 
       // A fresh child re-entered while an OLD node (different element) is still
       // exiting -> interrupt every stale exit (v0.1: clean interrupt, no reuse).
+      // One hosting the handovers of twins it handed back finishes beside the new one (#181).
       if (currentEl !== undefined) {
         for (const el of [...exiting.keys()]) {
-          if (el !== currentEl) interruptExit(el)
+          if (el === currentEl) continue
+          if (handovers.has(el)) continue
+          interruptExit(el)
         }
       }
 
@@ -344,10 +401,11 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     return resolved as unknown as JSX.Element
   }
 
-  // Teardown: interrupt every in-flight exit + remove retained nodes (no leaks).
+  // Teardown: interrupt every in-flight exit + remove retained nodes, the twins they handed back
+  // dropped with them (no leaks). Every child running its own exit is in `pending`.
   onCleanup(() => {
-    debug("teardown", { inflight: exiting.size })
-    for (const el of [...exiting.keys()]) interruptExit(el)
+    debug("teardown", { inflight: exiting.size, retained: pending.size })
+    for (const el of [...pending.keys()]) interruptExit(el)
   })
 
   return (
