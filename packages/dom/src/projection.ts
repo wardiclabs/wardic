@@ -220,9 +220,10 @@ const projectionValue = (
  * Whether `a` and `b` draw the same (#27, ADR-0009 *Amendment (#27)*): every field the renderer reads,
  * each axis's translate and scale, the tree scale, the opacities, the rotation, the raise and the
  * pointer pass-through, and each axis's origin. Not `originPoint`, the engine's own, which moves with
- * a translating parent while nothing drawn changes. Per frame: statement `if`s, no allocation.
+ * a translating parent while nothing drawn changes. Per frame: statement `if`s, no allocation. Exported
+ * for its test, not from the package.
  */
-const drawsSame = (a: Projection.Value, b: Projection.Value): boolean => {
+export const drawsSame = (a: Projection.Value, b: Projection.Value): boolean => {
   if (a.delta.x.translate !== b.delta.x.translate) return false
   if (a.delta.y.translate !== b.delta.y.translate) return false
   if (a.delta.x.scale !== b.delta.x.scale) return false
@@ -888,9 +889,8 @@ interface NodeState {
   readonly onLayoutAnimationStart: () => (() => void) | undefined
   readonly onLayoutAnimationComplete: () => (() => void) | undefined
   /**
-   * The value last written to the sink with no scale correction beside it (#27): the coordinator's
-   * tick doesn't write one that draws the same again. `undefined` before a write, or after a
-   * corrected one.
+   * The value last written to the sink (#27): the coordinator's tick doesn't write one that draws the
+   * same again, unless scale corrections go with it. `undefined` before the first write.
    */
   lastWritten: Projection.Value | undefined
   /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
@@ -1396,7 +1396,7 @@ export const makeProjectionSystem = (
     // its running ancestor), and so does a scale-corrected node, whose correction can change alone.
     const last = node.lastWritten
     if (inStep && corrected === undefined && !node.leaving && last !== undefined && drawsSame(last, value)) return
-    node.lastWritten = corrected === undefined ? value : undefined
+    node.lastWritten = value
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
       renderer.commit(node.element, renderer.project(patch))

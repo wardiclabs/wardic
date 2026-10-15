@@ -236,4 +236,10 @@ Inside the coordinator's tick, the engine doesn't write a node's value again whe
   - `projection-drag` N2: a dragged node held still is no longer written every frame.
   - `projection-coordinator`'s "steps from the next tick": the write it used as a signal; the release settling still proves the step.
 
-  New: `projection-render-gate.browser.test.ts` RG1, the riding child written at most once over the flight while its parent is written every frame (17 times without the gate), and RG2, a changing value written every frame.
+  New, in `projection-render-gate.browser.test.ts`:
+  - RG1: the riding child is written at most once over the flight while its parent is written every frame (17 times without the gate).
+  - RG2: a changing value is written every frame.
+  - RG3–RG5: a value changing in one field alone is written every frame: a centred box's y scale, a child under a widening parent, and a Switch at an equal box differing only in rotation, opacity or radius (the radius is a correction beside an unchanged value).
+  - RG6: `drawsSame` counts each field the renderer reads, and not `originPoint`.
+
+  Mutations: 12 single-point mutations of the gate's guards and the comparison's fields; 11 caught. The survivor drops `!node.leaving`. A leaving node commits straight to the renderer, without the element's own values, and the guard keeps those commits out of a gate rule that only reasons about gate writes. Building a node that turns leaving in place with an unchanged value mid-tick, to tell the two apart, wasn't worth it.
