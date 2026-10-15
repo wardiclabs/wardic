@@ -29,6 +29,8 @@ export interface ServerRender {
 
 declare module "vitest/browser" {
   interface BrowserCommands {
+    /** Real Playwright keyboard input to whatever has focus: a press, or a key held (`down`, a second `down` repeats) and let go. */
+    realKey: (type: "press" | "down" | "up", key: string) => Promise<void>
     /** Real Playwright mouse input at a client point in the test iframe. */
     realMouse: (type: "move" | "down" | "up", x: number, y: number, options?: RealMouseOptions) => Promise<void>
     /**

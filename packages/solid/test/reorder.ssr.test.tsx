@@ -97,4 +97,25 @@ describe("server rendering", () => {
     expect(typeof document, "a server has no document").toBe("undefined")
     expect(() => serve(list())).not.toThrow()
   })
+
+  it("SS7: each item is a tab stop for the keyboard reorder (#43), with no aria-describedby until the client's instructions exist", () => {
+    const [, ...items] = tagsOf(serve(list()))
+    for (const item of items) {
+      expect(item.attrs.tabindex).toBe("0")
+      expect(item.attrs["aria-describedby"]).toBeUndefined()
+    }
+    // The app's own tabIndex wins; with the keyboard reorder off, no tab stop.
+    const own = () => (
+      <Reorder.Group values={VALUES} onReorder={() => {}}>
+        <For each={VALUES}>{(value) => <Reorder.Item value={value} tabIndex={-1}>{value}</Reorder.Item>}</For>
+      </Reorder.Group>
+    )
+    for (const item of tagsOf(serve(own)).slice(1)) expect(item.attrs.tabindex).toBe("-1")
+    const off = () => (
+      <Reorder.Group values={VALUES} onReorder={() => {}} keyboard={false}>
+        <For each={VALUES}>{(value) => <Reorder.Item value={value}>{value}</Reorder.Item>}</For>
+      </Reorder.Group>
+    )
+    for (const item of tagsOf(serve(off)).slice(1)) expect(item.attrs.tabindex).toBeUndefined()
+  })
 })

@@ -15,14 +15,27 @@
  * gesture, raised while dragged, whose `touch-action` follows the group's axis. A
  * `values` change re-measures, so a reorder the app makes itself animates.
  *
+ * Each item is also a tab stop for the group's **Keyboard reorder** (ADR-0037): `tabindex="0"`
+ * unless the app gives its own, and `aria-describedby` pointing at the group's instructions (on
+ * the client, with the app's ids kept). Its keys, blurs and presses reach the controller, which
+ * speaks through the Environment's `Announcer`; a lift turns its `whileDrag` on. `keyboard: false`
+ * on the group turns all of that off; `move` still announces.
+ *
  * Observability: the controller logs its own `wardic.reorder:` events through the
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
+import * as Announcer from "@wardic/core/Announcer"
+import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
-import { INERT_REORDER_CONTROLLER, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, reorderTouchAction } from "@wardic/dom"
+import { documentOf, INERT_REORDER_CONTROLLER, instructionsId, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, type ReorderItemDriver, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import {
   type Accessor,
   type Component,
@@ -31,6 +44,7 @@ import {
   createSignal,
   createUniqueId,
   type JSX,
+  mergeProps,
   on,
   onCleanup,
   splitProps,
@@ -38,8 +52,8 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
-import { runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardUserProps } from "./use-wardic.tsx"
+import { runScoped, useWardicGate, useWardicProjection, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
+import { runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardProps, type WardUserProps } from "./use-wardic.tsx"
 import { isServer } from "./server.ts"
 import { changesContext, createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
@@ -54,6 +68,12 @@ export interface ReorderGroupConfig<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly axis?: CoreReorder.Axis
+  /** The **Keyboard reorder** (ADR-0037): on unless `false`. Off, items get no keys, no tab stop and no instructions. */
+  readonly keyboard?: boolean
+  /** The group's announcements, over the English defaults (`CoreReorder.defaultAnnouncements`). */
+  readonly announcements?: Partial<CoreReorder.Announcements<V>>
+  /** What each item's `aria-describedby` reads, over the English default (`CoreReorder.DEFAULT_INSTRUCTIONS`). */
+  readonly instructions?: string
 }
 
 /** The spreadable props a {@link ReorderGroupWard} returns. */
@@ -70,7 +90,12 @@ export interface ReorderGroupWardProps {
 export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWardProps) & {
   readonly group: CoreReorder.Group<V>
   readonly axis: Accessor<CoreReorder.Axis>
+  /** Move a value in code, and announce it (ADR-0037). */
   readonly move: (value: V, toIndex: number) => void
+  /** Whether the items reorder by keyboard (ADR-0037). */
+  readonly keyboard: Accessor<boolean>
+  /** The items' instructions text (ADR-0037). */
+  readonly instructions: Accessor<string>
   /** @internal for the items: the group's controller. */
   readonly controller: ReorderController<V>
 }
@@ -111,14 +136,20 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     return serverReorderGroup(cfg)
   }
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
+  const runtime = useWardicRuntime()
+  // The Environment's channel to assistive technology (ADR-0037).
+  const announcer = runtime.runSync(Announcer.Announcer)
   const controller = makeReorderController<V>({
-    runtime: useWardicRuntime(),
+    runtime,
     projection: useWardicProjection(),
     values: () => untrack(cfg).values,
     onReorder: (values) => untrack(cfg).onReorder(values),
     axis: () => untrack(cfg).axis,
     onAxis: setDetected,
     keyedWith: "<For>",
+    keyboard: () => untrack(cfg).keyboard !== false,
+    announcements: () => untrack(cfg).announcements,
+    announce: announcer.announce,
   })
   onCleanup(controller.dispose)
   const axis: Accessor<CoreReorder.Axis> = () => cfg().axis ?? detected()
@@ -144,9 +175,15 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     },
   })
 
-  const move = (value: V, toIndex: number): void => CoreReorder.move(controller.group, value, toIndex)
-  return Object.assign(ward, { group: controller.group, axis, move, controller })
+  const move = (value: V, toIndex: number): void => controller.move(value, toIndex)
+  return Object.assign(ward, { group: controller.group, axis, move, controller, ...keyboardOf(cfg) })
 }
+
+/** A group's keyboard reorder settings, as accessors (ADR-0037). */
+const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
+  keyboard: (): boolean => cfg().keyboard !== false,
+  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => CoreReorder.DEFAULT_INSTRUCTIONS, onDefined: (text: string) => text }),
+})
 
 /**
  * The spine additions of an item with `value` in `group` (D8: shared by
@@ -159,12 +196,48 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
  * axis. Any {@link ReorderGroupWard} is one. Its value type appears only in `item`'s
  * parameters, so `ItemGroup<never>` accepts a group of any value type.
  */
-type ItemGroup<V> = { readonly controller: Pick<ReorderController<V>, "item">; readonly axis: Accessor<CoreReorder.Axis> }
+type ItemGroup<V> = {
+  readonly controller: Pick<ReorderController<V>, "item">
+  readonly axis: Accessor<CoreReorder.Axis>
+  readonly keyboard: Accessor<boolean>
+  readonly instructions: Accessor<string>
+}
 
-const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>): SpineInternals => {
-  const driver = group.controller.item(value, element)
-  // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture.
+/**
+ * Feed an item's keys, blurs and presses to its driver (ADR-0037), for as long as the owner lives:
+ * its keys inside their dispatch, so the reorder's `preventDefault` counts.
+ */
+const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderItemDriver): void => {
+  runScoped(
+    runtime,
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      yield* Effect.all(
+        [
+          Stream.runForEach(input.keyboard(el), (event) => Effect.sync(() => driver.onKey(event))),
+          Stream.runForEach(Stream.filter(input.focus(el), (event) => event.type === "blur"), () => Effect.sync(driver.onBlur)),
+          Stream.runForEach(
+            Stream.filter(input.pointer(el), (event) => Bool.and(event.type === "down", InputSource.isPrimaryPointer(event))),
+            () => Effect.sync(driver.onPress),
+          ),
+        ],
+        { concurrency: "unbounded", discard: true },
+      )
+    }),
+  )
+}
+
+const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime): SpineInternals => {
+  // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
+  const [lifted, setLifted] = createSignal(false)
+  const driver = group.controller.item(value, element, setLifted)
+  // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture (and a lift).
   onCleanup(driver.dispose)
+  createEffect(
+    on(element, (el) => {
+      if (el !== undefined) runItemInput(runtime, el, driver)
+    }),
+  )
   return {
     dragAxis: () => {
       const a = driver.dragAxis()
@@ -173,9 +246,45 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
     onDragSample: driver.onSample,
     onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
     raiseWhileDragged: true,
+    lifted,
     baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }),
   }
 }
+
+/**
+ * What an item adds to its element for the keyboard reorder (ADR-0037): `tabindex="0"` while the
+ * group's keyboard is on and the app gave no `tabIndex` of its own, and `aria-describedby` with
+ * the group's instructions (`describedBy`, set on the client) after the app's own ids.
+ */
+const keyboardAttributes = (group: ItemGroup<never>, user: ReorderItemUserProps | undefined, describedBy: Accessor<string | undefined>) => ({
+  get tabindex() {
+    if (Predicate.isNotUndefined(user?.tabIndex)) return user?.tabIndex
+    return Bool.match(group.keyboard(), { onTrue: () => 0, onFalse: () => undefined })
+  },
+  get "aria-describedby"() {
+    const ids = [user?.["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: () => undefined })].filter(Predicate.isNotUndefined)
+    return Bool.match(ids.length === 0, { onTrue: () => undefined, onFalse: () => ids.join(" ") })
+  },
+})
+
+/**
+ * What an item's spread takes from the app: a {@link WardUserProps}, plus its own `tabIndex`
+ * (which wins over the keyboard reorder's) and its own `aria-describedby` ids (kept, before the
+ * instructions'), ADR-0037.
+ */
+export type ReorderItemUserProps = WardUserProps & {
+  readonly tabIndex?: number | undefined
+  readonly "aria-describedby"?: string | undefined
+}
+
+/** A `<Reorder>` item's spread: a {@link WardProps}, plus its keyboard reorder's `tabindex` and `aria-describedby`. */
+export type ReorderItemSpread = WardProps & {
+  readonly tabindex?: number | undefined
+  readonly "aria-describedby"?: string | undefined
+}
+
+/** {@link createReorderItem}'s result: call it to spread onto the item's element, as a `Ward`. */
+export type ReorderItemWard = ((userProps?: ReorderItemUserProps) => ReorderItemSpread) & Pick<Ward, "Provider">
 
 /**
  * Create a `<Reorder>` item in `group` (ADR-0020): spread the result onto the item's
@@ -183,9 +292,10 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
  * group's `values` (static, read once); the rest is ordinary motion config, except
  * `layout` (the item is one), `layoutId` and `drag` (the group decides the axis).
  * The element gets the drag defaults, with the group's axis's `touch-action`
- * (overridable by its style).
+ * (overridable by its style), and the keyboard reorder's tab stop and instructions
+ * (ADR-0037; pass the app's own `tabIndex` and `aria-describedby` through the spread's props).
  */
-export function createReorderItem<V>(group: ReorderGroupWard<V>, config: ReorderItemConfig<V> | Accessor<ReorderItemConfig<V>>): Ward {
+export function createReorderItem<V>(group: ReorderGroupWard<V>, config: ReorderItemConfig<V> | Accessor<ReorderItemConfig<V>>): ReorderItemWard {
   const cfg: Accessor<ReorderItemConfig<V>> = typeof config === "function" ? config : () => config
   const value = untrack(cfg).value
   const [element, setElement] = createSignal<HTMLElement>()
@@ -193,20 +303,30 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
   // joins no controller (ADR-0021).
   const internals: SpineInternals = isServer
     ? { dragAxis: () => true, baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }) }
-    : itemInternals(group, value, element)
+    : itemInternals(group, value, element, useWardicRuntime())
   const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
+  // The instructions element exists on the client only, so `aria-describedby` waits for the mount.
+  const [describedBy, setDescribedBy] = createSignal<string>()
+  if (!isServer) {
+    createEffect(on([element, group.instructions] as const, ([el, text]) => {
+      if (el !== undefined) setDescribedBy(instructionsId(documentOf(el), text))
+    }))
+  }
   // The item's element, for Auto-scroll's held scroll shift.
   // The user's style is passed on as a getter, so a live one stays live (WardUserProps).
-  const item = (userProps?: WardUserProps) =>
-    ward({
-      ref: mergeRefs(userProps?.ref, setElement),
-      get style() {
-        return userProps?.style
-      },
-    })
+  const item = (userProps?: ReorderItemUserProps): ReorderItemSpread =>
+    mergeProps(
+      ward({
+        ref: mergeRefs(userProps?.ref, setElement),
+        get style() {
+          return userProps?.style
+        },
+      }),
+      keyboardAttributes(group as unknown as ItemGroup<never>, userProps, describedBy),
+    )
   return Object.assign(item, {
     Provider: ward.Provider,
-  }) as Ward
+  })
 }
 
 const noop = (): void => {}
@@ -222,7 +342,8 @@ const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGr
     style: { ...REORDER_GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
   })
   const controller = INERT_REORDER_CONTROLLER as unknown as ReorderController<V>
-  return Object.assign(ward, { group: controller.group, axis: () => cfg().axis ?? ("y" as const), move: noop, controller })
+  const axis = (): CoreReorder.Axis => UndefinedOr.match(cfg().axis, { onUndefined: () => "y" as const, onDefined: (a: CoreReorder.Axis) => a })
+  return Object.assign(ward, { group: controller.group, axis, move: noop, controller, ...keyboardOf(cfg) })
 }
 
 const withoutValue = <V,>(config: ReorderItemConfig<V>): WardicConfig => {
@@ -257,8 +378,19 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
   }
   // As `use:ward`: a Variant child joins the nearest variant context; it provides none (#50).
   const node = createVariantNode(cfg, useVariantContext())
+  const runtime = useWardicRuntime()
+  const group = first.group as ItemGroup<unknown>
+  // The keyboard reorder's tab stop and instructions (ADR-0037), on the element itself: the app's
+  // own `tabindex` wins, and its `aria-describedby` ids are kept.
+  createEffect(() => {
+    if (Bool.not(group.keyboard())) return
+    if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0")
+    const id = instructionsId(documentOf(el), group.instructions())
+    const ids = Option.getOrElse(Option.fromNullishOr(el.getAttribute("aria-describedby")), () => "").split(" ").filter((t) => t !== "")
+    if (!ids.includes(id)) el.setAttribute("aria-describedby", [...ids, id].join(" "))
+  })
   runSpine({
-    runtime: useWardicRuntime(),
+    runtime,
     gate: useWardicGate(),
     id: createUniqueId(),
     el: () => el,
@@ -268,7 +400,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
     canStart: node.canStart,
     onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
-    internal: itemInternals(first.group as ItemGroup<unknown>, first.value, () => el),
+    internal: itemInternals(group, first.value, () => el, runtime),
   })
 }
 
@@ -297,6 +429,12 @@ export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly axis?: CoreReorder.Axis | undefined
+  /** The keyboard reorder (ADR-0037): on unless `false`. */
+  readonly keyboard?: boolean | undefined
+  /** The group's announcements, over the English defaults (ADR-0037). */
+  readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
+  /** The items' instructions, over the English default (ADR-0037). */
+  readonly instructions?: string | undefined
   readonly as?: Tag
 } & Omit<WardicProps<Tag>, "onReorder">
 
@@ -325,6 +463,9 @@ interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly axis?: CoreReorder.Axis | undefined
+  readonly keyboard?: boolean | undefined
+  readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
+  readonly instructions?: string | undefined
   readonly as?: string | undefined
   readonly ref?: ((el: HTMLElement) => void) | undefined
   readonly style?: JSX.CSSProperties | undefined
@@ -336,6 +477,8 @@ interface ItemLocal<V> {
   readonly ref?: ((el: HTMLElement) => void) | undefined
   readonly style?: JSX.CSSProperties | undefined
   readonly children?: JSX.Element
+  readonly tabIndex?: number | undefined
+  readonly "aria-describedby"?: string | undefined
 }
 
 /** The motion element for `tag` (`wardic[tag]`), typed as a plain component. */
@@ -347,6 +490,9 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
     "values",
     "onReorder",
     "axis",
+    "keyboard",
+    "announcements",
+    "instructions",
     "as",
     "ref",
     "style",
@@ -356,6 +502,9 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
     values: local.values,
     onReorder: local.onReorder,
     ...(local.axis !== undefined ? { axis: local.axis } : {}),
+    ...(local.keyboard !== undefined ? { keyboard: local.keyboard } : {}),
+    ...(local.announcements !== undefined ? { announcements: local.announcements } : {}),
+    ...(local.instructions !== undefined ? { instructions: local.instructions } : {}),
   }))
   const Tag = wardicTag(untrack(() => local.as) ?? "ul")
   const userRef = local.ref
@@ -385,7 +534,7 @@ export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: Reor
   // omits them), so none reaches the DOM.
   const [local, motion, rest] = splitProps(
     props as unknown as ItemLocal<V> & WardicMotionProps & Record<string, unknown>,
-    ["value", "as", "ref", "style", "children"],
+    ["value", "as", "ref", "style", "children", "tabIndex", "aria-describedby"],
     MOTION_PROPS,
   )
   const config = motionToConfig(motion as WardicMotionProps)
@@ -396,6 +545,12 @@ export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: Reor
     ...(userRef !== undefined ? { ref: userRef } : {}),
     get style() {
       return local.style
+    },
+    get tabIndex() {
+      return local.tabIndex
+    },
+    get "aria-describedby"() {
+      return local["aria-describedby"]
     },
   })
   const element = (): JSX.Element => (
