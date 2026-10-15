@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
-import { InputDomLive } from "../src/input.ts"
+import { InputDomLive, keyOf } from "../src/input.ts"
 
 /** Hand the scheduler a fixed budget of turns so async steps settle. */
 const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
@@ -112,7 +112,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
       yield* sub.close
     }))
 
-  it.effect("keyboard(target) maps keydown/keyup at the target and inside it, with key/code/repeat and whether it came from the target (#43)", () =>
+  it.effect("keyboard(target) maps keydown/keyup at the target and inside it, with repeat and whether it came from the target (#43)", () =>
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
@@ -121,21 +121,26 @@ layer(InputDomLive)("InputDomLive", (it) => {
       document.body.appendChild(el)
       const sub = yield* subscribeIn(input.keyboard(el))
 
-      el.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", repeat: false, bubbles: true }))
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", code: "ArrowUp", repeat: false, bubbles: true }))
       child.dispatchEvent(new KeyboardEvent("keyup", { key: "b", code: "KeyB", repeat: true, bubbles: true }))
       // A key elsewhere on the page isn't the target's.
       document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", bubbles: true }))
 
       const events = yield* sub.collect(2)
-      expect(events.map((e) => ({ type: e.type, key: e.key, code: e.code, repeat: e.repeat, fromTarget: e.fromTarget }))).toEqual([
-        { type: "down", key: "a", code: "KeyA", repeat: false, fromTarget: true },
-        { type: "up", key: "b", code: "KeyB", repeat: true, fromTarget: false },
+      expect(events.map((e) => ({ type: e.type, key: e.key, repeat: e.repeat, fromTarget: e.fromTarget }))).toEqual([
+        { type: "down", key: "up", repeat: false, fromTarget: true },
+        { type: "up", key: "other", repeat: true, fromTarget: false },
       ])
       yield* sub.close
       el.remove()
     }))
 
-  it.effect("keyboard(target) runs after the page's handlers and inside the dispatch: it sees their preventDefault, and its own counts (#43)", () =>
+  it("keyOf names the browser's keys in core's names, and every other key other (#43)", () => {
+    const keys = [" ", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "a", "Tab", "Spacebar", "Esc", "PageDown"]
+    expect(keys.map(keyOf)).toEqual(["space", "enter", "escape", "left", "right", "up", "down", "home", "end", "other", "other", "other", "other", "other"])
+  })
+
+  it.effect("keyboard(target) runs after the page's handlers and inside the dispatch: it sees their preventDefault as handled, and its own handle() counts (#43)", () =>
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
@@ -148,29 +153,29 @@ layer(InputDomLive)("InputDomLive", (it) => {
         if (ev.key === "Escape") ev.preventDefault()
       }
       document.addEventListener("keydown", onDocument)
-      const seen: Array<{ key: string; defaultPrevented: boolean }> = []
+      const seen: Array<{ key: InputSource.Key; handled: boolean }> = []
       const fiber = yield* Effect.forkChild(
         Stream.runForEach(input.keyboard(el), (e) =>
           Effect.sync(() => {
-            seen.push({ key: e.key, defaultPrevented: e.defaultPrevented })
-            if (e.key === " ") e.preventDefault()
+            seen.push({ key: e.key, handled: e.handled })
+            if (e.key === "space") e.handle()
           })),
       )
       yield* drain
 
       const space = new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true })
       el.dispatchEvent(space)
-      // Handled inside the dispatch: seen before dispatchEvent returned, and its preventDefault took.
-      expect(seen.map((s) => s.key)).toEqual([" "])
+      // Handled inside the dispatch: seen before dispatchEvent returned, and its handle() prevented the default.
+      expect(seen.map((s) => s.key)).toEqual(["space"])
       expect(space.defaultPrevented).toBe(true)
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }))
       expect(seen).toEqual([
-        { key: " ", defaultPrevented: false },
-        { key: "Enter", defaultPrevented: true },
-        { key: "Escape", defaultPrevented: true },
-        { key: "a", defaultPrevented: false },
+        { key: "space", handled: false },
+        { key: "enter", handled: true },
+        { key: "escape", handled: true },
+        { key: "other", handled: false },
       ])
       yield* Fiber.interrupt(fiber).pipe(Effect.andThen(drain))
       document.removeEventListener("keydown", onDocument)

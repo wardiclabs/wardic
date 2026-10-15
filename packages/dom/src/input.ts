@@ -10,9 +10,10 @@
  *
  * `keyboard(target)` (ADR-0037) listens on the target's window, in the bubble phase, for
  * the keys at the target or inside it: there it runs after the page's own handlers (the
- * element's, and Solid's delegated ones on the document), so `defaultPrevented` says whether
- * one took the key, and a consumer can still `preventDefault()`. Its events reach their
- * consumers inside the dispatch (ADR-0032): each one is offered and the queue flushed.
+ * element's, and Solid's delegated ones on the document), so `handled` (`defaultPrevented`) says
+ * whether one took the key, and a consumer can still `handle()` it (`preventDefault()`). Its events
+ * reach their consumers inside the dispatch (ADR-0032): each one is offered and the queue flushed.
+ * Keys are in core's names (`keyOf`), not the browser's.
  *
  * `pointer(target)` also carries every **Held pointer**'s events (ADR-0019): core's
  * `InputSource.heldPointer` adds a page-wide set (the target's window, capture phase) inside
@@ -45,6 +46,7 @@ import type * as Point from "@wardic/core/Point"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Match from "effect/Match"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { scrollersOf } from "./measure.ts"
@@ -181,15 +183,30 @@ const toWheel = (ev: WheelEvent): InputSource.WheelLikeEvent => ({
   timeStamp: ev.timeStamp,
 })
 
+/** A `KeyboardEvent.key` in core's names (ADR-0037): the keys core acts on, else `"other"`. */
+export const keyOf = (key: string): InputSource.Key =>
+  Match.value(key).pipe(
+    Match.when(" ", (): InputSource.Key => "space"),
+    Match.when("Enter", (): InputSource.Key => "enter"),
+    Match.when("Escape", (): InputSource.Key => "escape"),
+    Match.when("ArrowLeft", (): InputSource.Key => "left"),
+    Match.when("ArrowRight", (): InputSource.Key => "right"),
+    Match.when("ArrowUp", (): InputSource.Key => "up"),
+    Match.when("ArrowDown", (): InputSource.Key => "down"),
+    Match.when("Home", (): InputSource.Key => "home"),
+    Match.when("End", (): InputSource.Key => "end"),
+    Match.orElse((): InputSource.Key => "other"),
+  )
+
+/** A key as the engine's portable event: core's key name, and the page's `preventDefault` as `handled`/`handle()`. */
 const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"], ev: KeyboardEvent, target: unknown): InputSource.KeyboardLikeEvent => ({
   type,
-  key: ev.key,
-  code: ev.code,
+  key: keyOf(ev.key),
   repeat: ev.repeat,
   timeStamp: ev.timeStamp,
   fromTarget: ev.target === target,
-  defaultPrevented: ev.defaultPrevented,
-  preventDefault: () => ev.preventDefault(),
+  handled: ev.defaultPrevented,
+  handle: () => ev.preventDefault(),
 })
 
 /** A `keydown` or `keyup` as the engine's portable phase. */
@@ -202,7 +219,7 @@ const throughTarget = (ev: Event, target: unknown): boolean => ev.composedPath()
 /**
  * The keys at `target` or inside it (ADR-0037): `keydown`/`keyup` on its window, in the bubble
  * phase, so after the page's own handlers. Each one is offered and the queue flushed, so a waiting
- * consumer handles it inside the dispatch (ADR-0032), where its `preventDefault()` still counts.
+ * consumer handles it inside the dispatch (ADR-0032), where its `handle()` still counts.
  */
 const keyboardOf = (target: unknown): Stream.Stream<InputSource.KeyboardLikeEvent> =>
   Stream.callback<InputSource.KeyboardLikeEvent>((queue) =>

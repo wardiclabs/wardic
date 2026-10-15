@@ -99,6 +99,13 @@ export interface ReorderItemDriver {
 /** How long a held arrow's announcements wait for the next repeat, in ms: only the last is spoken (ADR-0037, Q4). */
 export const REPEAT_ANNOUNCE_MS = 150
 
+/**
+ * A Reorder item's default instructions on the web (ADR-0037, the NVDA pass): core's keys, and
+ * focus mode. A screen reader in browse mode (NVDA's, JAWS's) keeps Space and the arrows for itself
+ * until its user switches to focus mode, and it doesn't switch by itself on a list item.
+ */
+export const DEFAULT_REORDER_INSTRUCTIONS = `${Reorder.DEFAULT_INSTRUCTIONS} Some screen readers need focus mode for these keys.`
+
 /** How an item is spoken: its `aria-label`, else its text with its whitespace collapsed, else its value. */
 const labelOf = (element: Element | undefined, value: unknown): string => {
   const aria = element?.getAttribute("aria-label")?.trim()
@@ -225,7 +232,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
     if (event.type !== "down") return
     if (options.keyboard?.() === false) return
     // A key the page took, or one from inside the item (a text field), isn't the reorder's.
-    if (event.defaultPrevented) return
+    if (event.handled) return
     if (Bool.not(event.fromTarget)) return
     // Keys during a pointer drag are left alone.
     if (Option.isSome(MutableRef.get(group.gesture))) return
@@ -235,7 +242,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
       onSome: (intent) =>
         Match.value(intent).pipe(
           Match.tag("Toggle", () => {
-            event.preventDefault()
+            event.handle()
             if (event.repeat) return
             if (lifted) return dropLifted()
             // Lifting another item drops the one lifted first.
@@ -250,7 +257,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
           }),
           Match.tag("Cancel", () => {
             if (Bool.not(lifted)) return
-            event.preventDefault()
+            event.handle()
             Option.match(Reorder.cancel(group, value), {
               onNone: constVoid,
               onSome: (placement) => {
@@ -272,7 +279,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
   const stepLifted = (event: InputSource.KeyboardLikeEvent, value: V, lifted: boolean, intent: Extract<Reorder.KeyIntent, { readonly _tag: "Step" | "End" }>): void => {
     // Not lifted, the arrows, Home and End keep their own work (scrolling the page).
     if (Bool.not(lifted)) return
-    event.preventDefault()
+    event.handle()
     Option.match(Reorder.step(group, value, intent), {
       onNone: constVoid,
       onSome: (placement) => {

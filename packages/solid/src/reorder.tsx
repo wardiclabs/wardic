@@ -28,7 +28,7 @@
 import * as Announcer from "@wardic/core/Announcer"
 import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
-import { documentOf, INERT_REORDER_CONTROLLER, instructionsId, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, type ReorderItemDriver, reorderTouchAction } from "@wardic/dom"
+import { DEFAULT_REORDER_INSTRUCTIONS, documentOf, INERT_REORDER_CONTROLLER, instructionsId, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, type ReorderItemDriver, reorderTouchAction } from "@wardic/dom"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -72,7 +72,7 @@ export interface ReorderGroupConfig<V> {
   readonly keyboard?: boolean
   /** The group's announcements, over the English defaults (`CoreReorder.defaultAnnouncements`). */
   readonly announcements?: Partial<CoreReorder.Announcements<V>>
-  /** What each item's `aria-describedby` reads, over the English default (`CoreReorder.DEFAULT_INSTRUCTIONS`). */
+  /** What each item's `aria-describedby` reads, over the English default (`@wardic/dom`'s `DEFAULT_REORDER_INSTRUCTIONS`). */
   readonly instructions?: string
 }
 
@@ -182,7 +182,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
 /** A group's keyboard reorder settings, as accessors (ADR-0037). */
 const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
   keyboard: (): boolean => cfg().keyboard !== false,
-  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => CoreReorder.DEFAULT_INSTRUCTIONS, onDefined: (text: string) => text }),
+  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => DEFAULT_REORDER_INSTRUCTIONS, onDefined: (text: string) => text }),
 })
 
 /**
@@ -205,7 +205,7 @@ type ItemGroup<V> = {
 
 /**
  * Feed an item's keys, blurs and presses to its driver (ADR-0037), for as long as the owner lives:
- * its keys inside their dispatch, so the reorder's `preventDefault` counts.
+ * its keys inside their dispatch, so the reorder's `handle()` (the page's `preventDefault`) counts.
  */
 const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderItemDriver): void => {
   runScoped(

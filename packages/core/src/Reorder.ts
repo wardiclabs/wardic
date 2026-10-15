@@ -19,6 +19,7 @@ import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import type { Invariant } from "effect/Types"
 import type * as Box from "./Box.ts"
+import type * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
 
 /**
@@ -595,17 +596,14 @@ const CANCEL: KeyIntent = { _tag: "Cancel" }
 const stepTo = (arrow: Arrow): KeyIntent => ({ _tag: "Step", arrow })
 const endTo = (end: "first" | "last"): KeyIntent => ({ _tag: "End", end })
 
-/** What `key` (a `KeyboardEvent.key`) does to a keyboard reorder, if anything (see {@link KeyIntent}). */
-export const keyIntent = (key: string): Option.Option<KeyIntent> =>
+/** What `key` does to a keyboard reorder, if anything (see {@link KeyIntent}). */
+export const keyIntent = (key: InputSource.Key): Option.Option<KeyIntent> =>
   Match.value(key).pipe(
-    Match.when(Match.is(" ", "Enter"), () => Option.some(TOGGLE)),
-    Match.when("Escape", () => Option.some(CANCEL)),
-    Match.when("ArrowLeft", () => Option.some(stepTo("left"))),
-    Match.when("ArrowRight", () => Option.some(stepTo("right"))),
-    Match.when("ArrowUp", () => Option.some(stepTo("up"))),
-    Match.when("ArrowDown", () => Option.some(stepTo("down"))),
-    Match.when("Home", () => Option.some(endTo("first"))),
-    Match.when("End", () => Option.some(endTo("last"))),
+    Match.when(Match.is("space", "enter"), () => Option.some(TOGGLE)),
+    Match.when("escape", () => Option.some(CANCEL)),
+    Match.when(Match.is("left", "right", "up", "down"), (arrow) => Option.some(stepTo(arrow))),
+    Match.when("home", () => Option.some(endTo("first"))),
+    Match.when("end", () => Option.some(endTo("last"))),
     Match.orElse(() => Option.none()),
   )
 
@@ -799,8 +797,8 @@ export const liftedValue = <V>(group: Group<V>): Option.Option<V> => Option.map(
 // --- The keyboard reorder's wording (ADR-0037) ---------------------------------------
 
 /**
- * What an announcement says about an item: its `value`, the `label` it's spoken as (the binding's:
- * the element's `aria-label`, else its text), its 1-based `position` and the list's `count`.
+ * What an announcement says about an item: its `value`, the `label` it's spoken as (its name, as the
+ * Environment reads it), its 1-based `position` and the list's `count`.
  *
  * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
  */
@@ -836,8 +834,7 @@ export const defaultAnnouncements: Announcements<unknown> = {
 }
 
 /**
- * The default instructions for an item, in English (ADR-0037, Q8): the keys, as Q3 sets them, and
- * focus mode, which a screen reader in browse mode needs before the keys reach the item (the NVDA pass).
+ * The default instructions for an item, in English (ADR-0037, Q8): the keys, as Q3 sets them. An
+ * Environment adds what its own assistive technology needs (`@wardic/dom`'s `DEFAULT_REORDER_INSTRUCTIONS`).
  */
-export const DEFAULT_INSTRUCTIONS =
-  "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel. Some screen readers need focus mode for these keys."
+export const DEFAULT_INSTRUCTIONS = "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel."

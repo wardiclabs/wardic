@@ -1,8 +1,7 @@
 /**
  * The `Announcer` module: how an Environment speaks an **Announcement** to assistive technology
- * (ADR-0037). Core words the message; the Environment delivers it: in the DOM a visually hidden live
- * region shared by the page (`@wardic/dom`'s `AnnouncerDomLive`), elsewhere the platform's own
- * channel (React Native's `announceForAccessibility`). Each announcement replaces the last.
+ * (ADR-0037). Core words the message; the Environment delivers it, through its platform's own
+ * channel (`@wardic/dom`'s `AnnouncerDomLive`). Each announcement replaces the last.
  *
  * A Context service, as `ReducedMotion.PositionalKeys` is: core names the contract and no
  * Environment's syntax (ADR-0036). A plain call: an announcement answers a key just pressed, on no

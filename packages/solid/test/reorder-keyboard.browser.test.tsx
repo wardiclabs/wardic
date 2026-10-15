@@ -3,7 +3,8 @@
 // Announcer speaks into the page's live region (read here as its text).
 //
 // - KB1: Space lifts, the arrows move one place per press, Space drops: `values`, the announcements,
-//   focus kept on the item, the raise and `whileDrag` while lifted.
+//   focus kept on the item, the raise and `whileDrag` while lifted; the item reads the web's default
+//   instructions (core's keys, and focus mode).
 // - KB2: Escape cancels, restoring the order from the lift; Enter lifts and drops as Space does.
 // - KB3: the keys it uses don't scroll the page; not lifted, the arrows keep scrolling it.
 // - KB4: a key the app took (its own `preventDefault`) is left alone, and so is one from inside the
@@ -17,7 +18,7 @@
 // - KB9: in a scroll container, End moves the item to the last place and scrolls it into view.
 // - KB10: keys during a pointer drag are left alone.
 import { cleanup, render } from "@solidjs/testing-library"
-import { ANNOUNCER_ATTRIBUTE, DomLive } from "@wardic/dom"
+import { ANNOUNCER_ATTRIBUTE, DEFAULT_REORDER_INSTRUCTIONS, DomLive } from "@wardic/dom"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { createReorderGroup, createReorderItem, Reorder, WardicProvider } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
@@ -111,6 +112,10 @@ const recordAnnouncements = (): { readonly texts: Array<string>; readonly stop: 
 it("KB1: Space lifts, the arrows move one place per press, Space drops; focus stays, and the item is raised and lifted", async () => {
   const m = await mount()
   const b = m.item("b")
+  expect(document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent, "the web's default instructions").toBe(DEFAULT_REORDER_INSTRUCTIONS)
+  expect(DEFAULT_REORDER_INSTRUCTIONS).toBe(
+    "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel. Some screen readers need focus mode for these keys.",
+  )
   b.focus()
   await commands.realKey("press", "Space")
   await frames(2)

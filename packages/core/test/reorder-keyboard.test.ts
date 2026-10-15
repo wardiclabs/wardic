@@ -1,4 +1,5 @@
 import type * as Box from "@wardic/core/Box"
+import type * as InputSource from "@wardic/core/InputSource"
 import * as Reorder from "@wardic/core/Reorder"
 import * as Option from "effect/Option"
 import { describe, expect, it } from "@effect/vitest"
@@ -52,7 +53,7 @@ const harness = <V,>(initial: ReadonlyArray<V>, options: { readonly slotOf?: (i:
     })
   }
   /** Step `value` once with `key`, then run a Measure pass, as the engine would before the next key. */
-  const press = (value: V, key: string) => {
+  const press = (value: V, key: InputSource.Key) => {
     const intent = Option.getOrThrow(Reorder.keyIntent(key))
     if (intent._tag !== "Step" && intent._tag !== "End") throw new Error(`not a step: ${key}`)
     const placement = Option.getOrThrow(Reorder.step(group, value, intent))
@@ -64,22 +65,24 @@ const harness = <V,>(initial: ReadonlyArray<V>, options: { readonly slotOf?: (i:
 
 describe("the keyboard reorder (#43)", () => {
   it("KR1: Space and Enter toggle, Escape cancels, the arrows step, Home and End jump; other keys do nothing", () => {
-    expect(Reorder.keyIntent(" ")).toEqual(Option.some({ _tag: "Toggle" }))
-    expect(Reorder.keyIntent("Enter")).toEqual(Option.some({ _tag: "Toggle" }))
-    expect(Reorder.keyIntent("Escape")).toEqual(Option.some({ _tag: "Cancel" }))
-    expect(Reorder.keyIntent("ArrowDown")).toEqual(Option.some({ _tag: "Step", arrow: "down" }))
-    expect(Reorder.keyIntent("ArrowLeft")).toEqual(Option.some({ _tag: "Step", arrow: "left" }))
-    expect(Reorder.keyIntent("Home")).toEqual(Option.some({ _tag: "End", end: "first" }))
-    expect(Reorder.keyIntent("End")).toEqual(Option.some({ _tag: "End", end: "last" }))
-    for (const key of ["a", "Tab", "Shift", "PageDown", "Spacebar"]) expect(Reorder.keyIntent(key), key).toEqual(Option.none())
+    expect(Reorder.keyIntent("space")).toEqual(Option.some({ _tag: "Toggle" }))
+    expect(Reorder.keyIntent("enter")).toEqual(Option.some({ _tag: "Toggle" }))
+    expect(Reorder.keyIntent("escape")).toEqual(Option.some({ _tag: "Cancel" }))
+    expect(Reorder.keyIntent("down")).toEqual(Option.some({ _tag: "Step", arrow: "down" }))
+    expect(Reorder.keyIntent("up")).toEqual(Option.some({ _tag: "Step", arrow: "up" }))
+    expect(Reorder.keyIntent("left")).toEqual(Option.some({ _tag: "Step", arrow: "left" }))
+    expect(Reorder.keyIntent("right")).toEqual(Option.some({ _tag: "Step", arrow: "right" }))
+    expect(Reorder.keyIntent("home")).toEqual(Option.some({ _tag: "End", end: "first" }))
+    expect(Reorder.keyIntent("end")).toEqual(Option.some({ _tag: "End", end: "last" }))
+    expect(Reorder.keyIntent("other")).toEqual(Option.none())
   })
 
   it("KR2: lift, two steps down and a drop move the item one place per press, through onReorder, with its 1-based place", () => {
     const h = harness(["a", "b", "c", "d", "e"])
     expect(Reorder.lift(h.group, "b")).toEqual(Option.some({ position: 2, count: 5, moved: false, waiting: false }))
     expect(Reorder.liftedValue(h.group)).toEqual(Option.some("b"))
-    expect(h.press("b", "ArrowDown")).toEqual({ position: 3, count: 5, moved: true, waiting: false })
-    expect(h.press("b", "ArrowDown")).toEqual({ position: 4, count: 5, moved: true, waiting: false })
+    expect(h.press("b", "down")).toEqual({ position: 3, count: 5, moved: true, waiting: false })
+    expect(h.press("b", "down")).toEqual({ position: 4, count: 5, moved: true, waiting: false })
     expect(h.state.calls).toEqual([
       ["a", "c", "b", "d", "e"],
       ["a", "c", "d", "b", "e"],
@@ -102,12 +105,12 @@ describe("the keyboard reorder (#43)", () => {
   it("KR4: at an end an arrow moves nothing; Home and End go to the first and last place; arrows off the axis do nothing", () => {
     const h = harness(["a", "b", "c", "d", "e"])
     Reorder.lift(h.group, "a")
-    expect(h.press("a", "ArrowUp")).toEqual({ position: 1, count: 5, moved: false, waiting: false })
-    expect(h.press("a", "ArrowLeft")).toEqual({ position: 1, count: 5, moved: false, waiting: false })
-    expect(h.press("a", "End")).toEqual({ position: 5, count: 5, moved: true, waiting: false })
+    expect(h.press("a", "up")).toEqual({ position: 1, count: 5, moved: false, waiting: false })
+    expect(h.press("a", "left")).toEqual({ position: 1, count: 5, moved: false, waiting: false })
+    expect(h.press("a", "end")).toEqual({ position: 5, count: 5, moved: true, waiting: false })
     expect(h.state.values).toEqual(["b", "c", "d", "e", "a"])
-    expect(h.press("a", "ArrowDown")).toEqual({ position: 5, count: 5, moved: false, waiting: false })
-    expect(h.press("a", "Home")).toEqual({ position: 1, count: 5, moved: true, waiting: false })
+    expect(h.press("a", "down")).toEqual({ position: 5, count: 5, moved: false, waiting: false })
+    expect(h.press("a", "home")).toEqual({ position: 1, count: 5, moved: true, waiting: false })
     expect(h.state.values).toEqual(["a", "b", "c", "d", "e"])
     expect(h.state.calls).toHaveLength(2)
   })
@@ -116,14 +119,14 @@ describe("the keyboard reorder (#43)", () => {
     const column = harness(["a", "b", "c", "d", "e"], { slotOf: reversedSlot })
     Reorder.lift(column.group, "b")
     // b is second from the bottom; the item above it on screen is c.
-    expect(column.press("b", "ArrowUp")).toEqual({ position: 3, count: 5, moved: true, waiting: false })
+    expect(column.press("b", "up")).toEqual({ position: 3, count: 5, moved: true, waiting: false })
     expect(column.state.values).toEqual(["a", "c", "b", "d", "e"])
 
     const row = harness(["a", "b", "c", "d", "e"], { slotOf: rtlRowSlot, direction: "rtl" })
     Reorder.lift(row.group, "b")
     // b is second from the right; the item left of it on screen is c.
-    expect(row.press("b", "ArrowLeft")).toEqual({ position: 3, count: 5, moved: true, waiting: false })
-    expect(row.press("b", "ArrowRight")).toEqual({ position: 2, count: 5, moved: true, waiting: false })
+    expect(row.press("b", "left")).toEqual({ position: 3, count: 5, moved: true, waiting: false })
+    expect(row.press("b", "right")).toEqual({ position: 2, count: 5, moved: true, waiting: false })
     expect(row.state.values).toEqual(["a", "b", "c", "d", "e"])
   })
 
@@ -131,27 +134,27 @@ describe("the keyboard reorder (#43)", () => {
     const h = harness(["a", "b", "c", "d", "e", "f", "g", "h", "i"], { slotOf: gridSlot })
     Reorder.lift(h.group, "c")
     // c ends the first row: Right wraps to the second row's first place.
-    expect(h.press("c", "ArrowRight")).toEqual({ position: 4, count: 9, moved: true, waiting: false })
+    expect(h.press("c", "right")).toEqual({ position: 4, count: 9, moved: true, waiting: false })
     expect(h.state.values).toEqual(["a", "b", "d", "c", "e", "f", "g", "h", "i"])
     // Down takes the place below it: the third row's first.
-    expect(h.press("c", "ArrowDown")).toEqual({ position: 7, count: 9, moved: true, waiting: false })
+    expect(h.press("c", "down")).toEqual({ position: 7, count: 9, moved: true, waiting: false })
     expect(h.state.values).toEqual(["a", "b", "d", "e", "f", "g", "c", "h", "i"])
     // Down again: no row below.
-    expect(h.press("c", "ArrowDown")).toEqual({ position: 7, count: 9, moved: false, waiting: false })
-    expect(h.press("c", "ArrowUp")).toEqual({ position: 4, count: 9, moved: true, waiting: false })
-    expect(h.press("c", "ArrowLeft")).toEqual({ position: 3, count: 9, moved: true, waiting: false })
+    expect(h.press("c", "down")).toEqual({ position: 7, count: 9, moved: false, waiting: false })
+    expect(h.press("c", "up")).toEqual({ position: 4, count: 9, moved: true, waiting: false })
+    expect(h.press("c", "left")).toEqual({ position: 3, count: 9, moved: true, waiting: false })
 
     const rtl = harness(["a", "b", "c", "d", "e", "f"], { slotOf: gridSlot, direction: "rtl" })
     Reorder.lift(rtl.group, "b")
     // In rtl reading order runs the other way: Left is the next place.
-    expect(rtl.press("b", "ArrowLeft")).toEqual({ position: 3, count: 6, moved: true, waiting: false })
+    expect(rtl.press("b", "left")).toEqual({ position: 3, count: 6, moved: true, waiting: false })
   })
 
   it("KR7: a cancel restores the order from the lift, through onReorder; with nothing moved it calls nothing", () => {
     const h = harness(["a", "b", "c", "d", "e"])
     Reorder.lift(h.group, "b")
-    h.press("b", "ArrowDown")
-    h.press("b", "ArrowDown")
+    h.press("b", "down")
+    h.press("b", "down")
     expect(Reorder.cancel(h.group, "b")).toEqual(Option.some({ position: 2, count: 5, moved: false, waiting: false }))
     expect(h.state.values).toEqual(["a", "b", "c", "d", "e"])
     expect(h.state.calls).toHaveLength(3)
@@ -178,15 +181,13 @@ describe("the keyboard reorder (#43)", () => {
     expect(Reorder.lift(group, "z")).toEqual(Option.none())
   })
 
-  it("KR9: the default wording names the item and its place; the instructions name the keys and focus mode", () => {
+  it("KR9: the default wording names the item and its place; the instructions name the keys", () => {
     const info = { value: "milk", label: "Milk", position: 3, count: 6 }
     expect(Reorder.defaultAnnouncements.lift(info)).toBe("Picked up Milk, position 3 of 6.")
     expect(Reorder.defaultAnnouncements.step(info)).toBe("Milk, position 3 of 6.")
     expect(Reorder.defaultAnnouncements.drop(info)).toBe("Dropped Milk at position 3 of 6.")
     expect(Reorder.defaultAnnouncements.cancel(info)).toBe("Cancelled. Milk is back at position 3 of 6.")
     expect(Reorder.defaultAnnouncements.move(info)).toBe("Moved Milk to position 3 of 6.")
-    expect(Reorder.DEFAULT_INSTRUCTIONS).toBe(
-      "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel. Some screen readers need focus mode for these keys.",
-    )
+    expect(Reorder.DEFAULT_INSTRUCTIONS).toBe("Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel.")
   })
 })

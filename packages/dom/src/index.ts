@@ -89,6 +89,7 @@ export {
 export { reportFailure } from "./report.ts"
 // The Reorder group's controller (ADR-0020): the framework-free half of <Reorder>.
 export {
+  DEFAULT_REORDER_INSTRUCTIONS,
   INERT_REORDER_CONTROLLER,
   makeReorderController,
   REORDER_GROUP_STYLE,
