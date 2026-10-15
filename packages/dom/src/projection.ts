@@ -366,6 +366,19 @@ interface Flight {
   /** A spring's state, stepped toward 1; `undefined` for a tween. */
   spring: Spring.State | undefined
   readonly timing: FlightTiming
+  /** Whether it has taken its first step: its start, for the app's callback (#191, ADR-0039). */
+  started: boolean
+  /** Whether it has landed on its own: its completion, for the app's callback and `onSettled` (#191). */
+  landed: boolean
+}
+
+/**
+ * A **Declared layout change**'s `onSettled` (#191, ADR-0039): the flights its end-of-task pass
+ * started, each with its node, and the callbacks to call once every one has ended.
+ */
+interface Settling {
+  readonly flights: ReadonlyArray<readonly [NodeState, Flight]>
+  readonly callbacks: ReadonlyArray<() => void>
 }
 
 /** A transition's timing for a flight. Once per (re)start. */
@@ -622,6 +635,18 @@ export interface RegisterNodeOptions {
    */
   readonly transition: () => LayoutTransition | undefined
   /**
+   * The app's `onLayoutAnimationStart` (#191, ADR-0039), read when it fires: at the frame where a
+   * layout animation of this node takes its first step, once per animation (restarts in one task
+   * are one). Not for a node that is a **Follower**: a handover is its Lead's.
+   */
+  readonly onLayoutAnimationStart?: () => (() => void) | undefined
+  /**
+   * The app's `onLayoutAnimationComplete` (#191, ADR-0039), read when it fires: at the frame where
+   * a layout animation of this node lands on its own. Not for one interrupted by a restart, finished
+   * early by a window resize, or cut off by an unmount; not for a Follower.
+   */
+  readonly onLayoutAnimationComplete?: () => (() => void) | undefined
+  /**
    * The node's drag transition, read at each release (ADR-0016, *Amendment (#140)*): what its Release
    * offset runs on, or `undefined` for Motion's, {@link DEFAULT_DRAG_TRANSITION}.
    */
@@ -788,8 +813,12 @@ export interface ProjectionSystem {
    *   reads that pass just made.
    * - **Synchronous only.** A promise `fn` returns isn't awaited: a change after an `await` is in
    *   a later task. Such a call logs a warning.
+   * - **`onSettled`** (#191, ADR-0039) is called once the change has settled: every layout animation
+   *   the end-of-task pass started has ended, however each ended (landed, cut short by a resize or an
+   *   unmount, or restarted by a later change), or at the end of that pass if it started none. Calls
+   *   in one task share that pass, so they settle together.
    */
-  readonly animateLayout: <A>(fn: () => A) => A
+  readonly animateLayout: <A>(fn: () => A, options?: AnimateLayoutOptions) => A
   /**
    * Shared-element exit coupling (ADR-0010). A binding's presence layer calls this
    * for a leaving `layoutId` element it has RETAINED (kept in the DOM mid-exit).
@@ -822,11 +851,20 @@ export interface ProjectionSystem {
   readonly dispose: () => void
 }
 
+/** {@link ProjectionSystem.animateLayout}'s options (#191, ADR-0039). */
+export interface AnimateLayoutOptions {
+  /** Called once the change has settled: every layout animation it started has ended, however; at once after its pass if it started none. */
+  readonly onSettled?: () => void
+}
+
 /** Per-node mutable state held by the system. */
 interface NodeState {
   readonly id: string
   readonly element: HTMLElement
   readonly transition: () => LayoutTransition | undefined
+  /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
+  readonly onLayoutAnimationStart: () => (() => void) | undefined
+  readonly onLayoutAnimationComplete: () => (() => void) | undefined
   /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
   readonly respectReducedMotion: () => boolean
   /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
@@ -1077,6 +1115,10 @@ const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
 /** No drag transition of its own: a node releases on Motion's, {@link DEFAULT_DRAG_TRANSITION} (ADR-0016, *Amendment (#140)*). */
 const NO_DRAG_TRANSITION = (): DragTransition | undefined => undefined
+/** No layout animation callback: a node the binding gives none (#191). */
+const NO_CALLBACK = (): (() => void) | undefined => undefined
+/** A call with no options. */
+const NO_ANIMATE_LAYOUT_OPTIONS: AnimateLayoutOptions = {}
 
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point.Point = { x: 0, y: 0 }
@@ -1159,10 +1201,10 @@ export const makeProjectionSystem = (
    */
   const startFlight = (node: NodeState): Flight =>
     Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), {
-      onTrue: (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED }),
+      onTrue: (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false }),
       onFalse: (): Flight => {
         const timing = timingOf(UndefinedOr.match(node.transition(), { onUndefined: () => DEFAULT_LAYOUT_TRANSITION, onDefined: identity }))
-        return { position: 0, elapsed: 0, spring: Spring.init({}), timing }
+        return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false }
       },
     })
   // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
@@ -1208,6 +1250,14 @@ export const makeProjectionSystem = (
   // Whether a **Declared layout change** in this task has taken its Measurements (#4): the end-of-task
   // pass, which animates from them, clears it.
   let declared = false
+  // The app's layout animation callbacks (#191, ADR-0039): the nodes whose flight took its first step,
+  // and whose flight landed, this tick, called after the tick's flush. Reused every tick.
+  const flightStarts: Array<NodeState> = []
+  const flightLands: Array<NodeState> = []
+  // This task's `animateLayout` onSettled callbacks, which its end-of-task pass takes, and the
+  // settlings waiting on that pass's flights (#191).
+  let settleCallbacks: Array<() => void> = []
+  let settlings: ReadonlyArray<Settling> = []
   let disposed = false
   // The Resize block (ADR-0018 *Amendment (#39)*): the window width last seen, whether
   // the next Measure pass is blocked, and the timer that runs it if nothing else does.
@@ -3034,6 +3084,8 @@ export const makeProjectionSystem = (
         runtime.runFork(reportFailure("wardic.projection: pass-end listener failed", Cause.die(defect)))
       }
     }
+    // This task's Declared layout changes settle once the flights this pass started have ended (#191).
+    takeSettleCallbacks(seeded)
     if (triggeredDuringPass && !disposed) {
       triggeredDuringPass = false
       debug("measure round cap", { rounds })
@@ -3077,6 +3129,70 @@ export const makeProjectionSystem = (
     )
   }
 
+  /** Call an app's `callback` (#191): one that throws is reported, and the engine goes on. */
+  const callApp = (callback: (() => void) | undefined, name: string): void => {
+    if (Predicate.isUndefined(callback)) return
+    try {
+      callback()
+    } catch (defect) {
+      runtime.runFork(reportFailure(`wardic.projection: ${name} failed`, Cause.die(defect)))
+    }
+  }
+
+  /** Whether `flight` still runs on `node`: not landed, not replaced by a restart, not cut short, not unmounted. */
+  const stillFlying = ([node, flight]: readonly [NodeState, Flight]): boolean =>
+    Bool.every([nodes.has(node), node.flight === flight, Bool.not(flight.landed)])
+
+  /** Call the `onSettled` of each settling none of whose flights still runs (#191). */
+  const checkSettlings = (): void => {
+    if (Arr.isReadonlyArrayEmpty(settlings)) return
+    const done = Arr.filter(settlings, (s) => Bool.not(Arr.some(s.flights, stillFlying)))
+    if (Arr.isReadonlyArrayEmpty(done)) return
+    settlings = Arr.filter(settlings, (s) => Arr.some(s.flights, stillFlying))
+    for (const s of done) for (const callback of s.callbacks) callApp(callback, "onSettled")
+  }
+
+  /** A settling's ending outside a tick or a pass (an unmount): checked at the end of the task. */
+  const checkSettlingsLater = (): void => {
+    if (Arr.isReadonlyArrayEmpty(settlings)) return
+    endOfTask("wardic.projection.settle", {}, () => {
+      checkSettlings()
+      return {}
+    })
+  }
+
+  /**
+   * The end-of-task pass takes its task's `onSettled` callbacks (#191, ADR-0039): they wait on the
+   * flights it started (`seeded`), and are called at once if it started none.
+   */
+  const takeSettleCallbacks = (seeded: ReadonlySet<NodeState>): void => {
+    if (Arr.isArrayNonEmpty(settleCallbacks)) {
+      const flights: Array<readonly [NodeState, Flight]> = []
+      for (const node of seeded) if (Predicate.isNotUndefined(node.flight)) flights.push([node, node.flight])
+      settlings = Arr.append(settlings, { flights, callbacks: settleCallbacks })
+      settleCallbacks = []
+    }
+    checkSettlings()
+  }
+
+  /**
+   * After each tick's flush (#191, ADR-0039): the app's `onLayoutAnimationStart` for each flight that
+   * took its first step, then `onLayoutAnimationComplete` for each that landed, then any `onSettled`
+   * whose flights have all ended. The Frame loop calls its hooks in the order they were added, and the
+   * provider adds its gate's first, so the frame is in the DOM. Per frame: nothing to do is two reads.
+   */
+  const afterTick = (): undefined => {
+    if (Arr.isArrayNonEmpty(flightStarts)) {
+      for (const node of flightStarts.splice(0)) callApp(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
+    }
+    if (Arr.isArrayNonEmpty(flightLands)) {
+      for (const node of flightLands.splice(0)) callApp(node.onLayoutAnimationComplete(), "onLayoutAnimationComplete")
+    }
+    checkSettlings()
+    return undefined
+  }
+  runtime.runSync(FrameLoop.FrameLoop.use((loop) => loop.afterTick(afterTick)).pipe(Scope.provide(scope)))
+
   /**
    * A **Declared layout change**'s Measurements (#4, ADR-0038): one slot-only round over every node at
    * the call, before its callback runs, so the end-of-task pass animates what the callback moves from
@@ -3114,8 +3230,10 @@ export const makeProjectionSystem = (
     declared = true
   }
 
-  const animateLayout: ProjectionSystem["animateLayout"] = (fn) => {
+  const animateLayout: ProjectionSystem["animateLayout"] = (fn, options = NO_ANIMATE_LAYOUT_OPTIONS) => {
     if (Bool.not(Bool.some([disposed, declared, inPass]))) takeMeasurements()
+    // Its end-of-task pass takes it, whatever `fn` does (#191).
+    if (Bool.not(disposed)) UndefinedOr.map(options.onSettled, (onSettled) => settleCallbacks.push(onSettled))
     try {
       const result = fn()
       if (Predicate.isPromiseLike(result)) {
@@ -3267,6 +3385,25 @@ export const makeProjectionSystem = (
     for (const n of subtree) derive(n)
   }
 
+  /**
+   * Note `node`'s flight after its step, for the app's callbacks (#191, ADR-0039): its first step is
+   * its start, and the step it lands its completion, each once per flight. A Follower's flight is
+   * marked too (a relegated twin can still be flying), so an `onSettled` waiting on it ends, but its
+   * callbacks don't fire: a handover is its Lead's. Per frame: statement `if`s, no allocation.
+   */
+  const noteFlight = (node: NodeState, landed: boolean): void => {
+    const flight = node.flight
+    if (Predicate.isUndefined(flight)) return
+    if (!flight.started) {
+      flight.started = true
+      if (!isFollower(node)) flightStarts.push(node)
+    }
+    if (!landed) return
+    if (flight.landed) return
+    flight.landed = true
+    if (!isFollower(node)) flightLands.push(node)
+  }
+
   // --- The coordinator (writes), one tick of the Clock. -----------------------
   const step = (dtRaw: number): void => {
     const dt = dtRaw > Machine.MAX_DT ? Machine.MAX_DT : dtRaw
@@ -3278,12 +3415,13 @@ export const makeProjectionSystem = (
       // A dragging node (ADR-0016) follows the pointer — kept active + derived each frame,
       // never settled. A layout animation its grab left running goes on under it.
       if (node.dragging) {
-        stepFlight(node, dt)
+        noteFlight(node, stepFlight(node, dt))
         continue
       }
       // Both stepped every tick; it settles once both are at rest. Statement `if`s: `Bool.and` is a
       // `dual`, a cost per node per frame (ADR-0025).
       const landed = stepFlight(node, dt)
+      noteFlight(node, landed)
       const released = stepRelease(node, dt)
       if (!landed) continue
       if (!released) continue
@@ -3478,6 +3616,8 @@ export const makeProjectionSystem = (
       deriveGroup(groupOf(new Set(finished)))
       finishSettled(finished)
       debug("resize finish", { finished: finished.length })
+      // Their flights are cut short: a Declared layout change waiting on them has settled (#191).
+      checkSettlings()
     }
     resizeBlocked = true
     if (resizeTimer !== undefined) clearTimeout(resizeTimer)
@@ -3662,6 +3802,9 @@ export const makeProjectionSystem = (
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     transition: () => undefined,
+    // A Follower's callbacks never fire: a handover is its Lead's (#191).
+    onLayoutAnimationStart: NO_CALLBACK,
+    onLayoutAnimationComplete: NO_CALLBACK,
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
@@ -3911,6 +4054,8 @@ export const makeProjectionSystem = (
       id: opts.id,
       element: opts.element,
       transition: opts.transition,
+      onLayoutAnimationStart: UndefinedOr.match(opts.onLayoutAnimationStart, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
+      onLayoutAnimationComplete: UndefinedOr.match(opts.onLayoutAnimationComplete, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
@@ -4149,6 +4294,8 @@ export const makeProjectionSystem = (
           }
         }
         if (active.size === 0) stopTicking()
+        // Its flight, if one ran, is cut off: a Declared layout change waiting on it may have settled (#191).
+        checkSettlingsLater()
       },
     }
   }
@@ -4181,6 +4328,11 @@ export const makeProjectionSystem = (
     nodes.clear()
     elementToNode.clear()
     passEndListeners.clear()
+    // The provider and its app are gone: nothing is called back (#191).
+    flightStarts.length = 0
+    flightLands.length = 0
+    settleCallbacks = []
+    settlings = []
   }
 
   const registerValues: ProjectionSystem["registerValues"] = (el, read) => {
