@@ -75,7 +75,7 @@ A change on the per-frame path is checked with `bun run bench:core --base main`.
 | a loop over Effects | `Effect.forEach`, `Effect.all` |
 | `switch`, or `if … else` on a union | `Match.type<T>().pipe(Match.discriminator("type")("down", …), Match.exhaustive)`, `Match.value(x).pipe(…)` |
 | `let x: T \| undefined` in a callback | `MutableRef.make(Option.none<T>())` |
-| `Effect.fn(name)(…)`, `effect.pipe(Effect.withSpan(name))` | `Effect.withSpan(Effect.gen(…), name, { captureStackTrace: false })`, data-first; `Stream.withSpan(name, { captureStackTrace: false })`. No span captures a call-site stack: `Effect.fn` always does, and Effect 4's data-last `withSpan` ignores the option (ADR-0040, decision 2; lint's `SPANS`) |
+| `Effect.fn(name)(…)`, `effect.pipe(Effect.withSpan(name))` | `effect.pipe(Effect.withSpan(name, options, { captureStackTrace: false }))`, the stack option as the pipeable form's third argument; data-first, `Effect.withSpan(effect, name, { captureStackTrace: false })`; `Stream.withSpan(name, { captureStackTrace: false })`. No span captures a call-site stack, and `Effect.fn` always does (ADR-0040, decision 2; lint's `SPANS`) |
 
 ## Import aliases
 

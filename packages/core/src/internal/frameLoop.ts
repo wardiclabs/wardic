@@ -336,16 +336,14 @@ export const make = () =>
         animations.updateUnsafe(0, buildContext)
       }
 
-      const ticking: Effect.Effect<void> = Effect.withSpan(
-        clock.ticks.pipe(
-          Stream.map(tick),
-          Stream.takeUntil(identity),
-          Stream.runDrain,
-          Effect.onExit((exit) => Effect.sync(() => endAll(exit))),
-        ),
-        "wardic.frameloop",
-        { root: true, captureStackTrace: false },
-      ).pipe(Effect.provideContext(buildContext))
+      const ticking: Effect.Effect<void> = clock.ticks.pipe(
+        Stream.map(tick),
+        Stream.takeUntil(identity),
+        Stream.runDrain,
+        Effect.onExit((exit) => Effect.sync(() => endAll(exit))),
+        Effect.withSpan("wardic.frameloop", { root: true }, { captureStackTrace: false }),
+        Effect.provideContext(buildContext),
+      )
 
       /**
        * Start a burst unless one holds the subscription, inline: no scheduler hop before the

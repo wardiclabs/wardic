@@ -29,7 +29,14 @@ A mount of 1,000 elements falls from 132 ms to 28 ms, a mid-flight Retarget from
   Effect's runtime was 72–86% of each task's self time. Solid was 3–6%, and core's and dom's own code 1–3% each.
 - **#76's "at rest" was mid-flight.** Its page waited 5 frames after every element's colour read its target. A colour rounds to its target while its spring's tail still runs, so that Retarget still interrupted every Leg: 106 ms there, 63 here. Waiting 90 frames, it's 37 ms.
 - **The three causes,** each measured by removing it at build time (prototypes, `.tmp/87/build-variants.ts`):
-  1. **A call-site stack per span.** Effect's `withSpan` runs `new Error()` for every span unless it's passed `captureStackTrace: false`, and Wardic's span sites didn't pass it. That was 53 ms (39%) of a mount and 20 ms of each Retarget. Wardic couldn't have turned it off on a run's span anyway. Effect 4.0.2's data-last `Effect.withSpan(name, options)` takes its stack option from `arguments[2]`, which is undefined in that form (`internal/effect.js:2804`), so the option only works data-first. It's unchanged in 4.0.5. `Effect.fn` always captures one, at its definition and at every call. `Stream.withSpan` honours the option in both forms.
+  1. **A call-site stack per span.** Effect's `withSpan` runs `new Error()` for every span unless it's passed `captureStackTrace: false`, and Wardic's span sites didn't pass it. That was 53 ms (39%) of a mount and 20 ms of each Retarget. `Effect.fn` always captures one, at its definition and at every call, with no option to stop it.
+
+     **Where the option goes.**
+     - **Data-first** `Effect.withSpan(effect, name, options)`: in its options.
+     - **Pipeable** `Effect.withSpan(name, options, traceOptions)`: as the separate third argument. Its options are `SpanOptionsNoTrace`, since they may be a function of each call's arguments, while the stack is captured once, when `withSpan` is called.
+     - **`Stream.withSpan`:** in its options.
+
+     #87's first prototype put the option inside the pipeable form's options, where it's ignored and doesn't typecheck (the patch was applied at build time, untyped). For a while that read as an Effect bug; it isn't one.
   2. **Hover and press for every element.** The binding started both State recognizers at every element's mount (`createHover`, `createPress`). That's two fibers, two shared subscriptions and four spans per element, although only `whileHover` and `whileTap` read them: 74 ms of a mount, and half of an unmount.
   3. **The span's frame in every interrupt.** Effect annotates a failed or interrupted fiber's cause with its stack frame (`exitFailCause`, `internal/core.js:338-348`). Each finalizer the exit passes then combines causes, de-duplicating their reasons by structural hash and equality (`dedupeReasons`, `:195`). The run's `withSpan` pushed that frame, so each interrupted Leg hashed it several times: about 12 ms of a 1,000-element Retarget or unmount.
 
@@ -42,12 +49,13 @@ A mount of 1,000 elements falls from 132 ms to 28 ms, a mid-flight Retarget from
    - **How:** `createWhenWanted` in `sensors.ts` starts the recognizer under the element's owner, not its own computation, so the recognizer ends with the element.
    - Rejected: starting and stopping with the prop, which churns fibers and subscriptions for nothing; keeping both for every element.
 2. **No Wardic span captures a call-site stack** (Q2).
-   - **Every span passes `captureStackTrace: false`:**
-     - `Effect.withSpan` written data-first, `withSpan(effect, name, options)`;
-     - `Stream.withSpan` with the option;
-     - no `Effect.fn`: `Effect.gen` inside a data-first `withSpan` instead (`Renderer.applyTo`, the loop's `make`).
+   - **Every span passes `captureStackTrace: false`, where Effect reads it:**
+     - data-first `Effect.withSpan(effect, name, { captureStackTrace: false })`;
+     - pipeable `Effect.withSpan(name, options, { captureStackTrace: false })`, the third argument;
+     - `Stream.withSpan(name, { captureStackTrace: false })`;
+     - no `Effect.fn`: `Effect.gen` inside `withSpan` instead (`Renderer.applyTo`, the loop's `make`).
    - **What's lost:** only a file and line that always pointed at Wardic's own `withSpan` call (`at wardic.springValues (…/frameLoop.ts:377:14)`), never the app's code. A defect still prints `at <span>`.
-   - **Held by lint:** `eslint.config.js` (`SPANS`) rejects `Effect.fn`, a data-last `Effect.withSpan`, and a `withSpan` without `captureStackTrace`, in core's, dom's and solid's source.
+   - **Held by lint:** `eslint.config.js` (`SPANS`) rejects `Effect.fn` and a `withSpan` without `captureStackTrace`, in core's, dom's and solid's source. TypeScript rejects the option anywhere Effect doesn't read it.
    - Rejected: only the per-element spans, which leaves two conventions for one thing; keeping the stack.
 3. **A run keeps its span, opened without a stack frame** (Q3).
    - **How:** the run's body runs under `Effect.useSpan(name, { attributes }, (span) => Effect.provideService(body, Tracer.ParentSpan, span))`, not `withSpan`.
@@ -79,7 +87,6 @@ A mount of 1,000 elements falls from 132 ms to 28 ms, a mid-flight Retarget from
 
 Defaults stated, not asked:
 - **The start log stays.** A run's `<name>: start` debug log is about 5% of a Retarget and 16% of an unmount, and #83 kept it.
-- **The upstream report.** Reporting Effect's data-last `withSpan` to Effect is the maintainer's call.
 
 ## Measured
 

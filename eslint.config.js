@@ -57,23 +57,21 @@ const BRANCHES = [
 const restrictSpan = (selector, message) => ({ selector, message: `${message} (ADR-0040, decision 2).` })
 
 /**
- * No Wardic span captures a call-site stack (#87, ADR-0040, decision 2): `Effect.fn` always
- * captures one, at its definition and at every call, and Effect 4's data-last
- * `withSpan(name, options)` ignores `captureStackTrace`. So a span is a data-first
- * `Effect.withSpan(effect, name, { captureStackTrace: false })`, or a `Stream.withSpan` with it.
+ * No Wardic span captures a call-site stack (#87, ADR-0040, decision 2). Every `withSpan` passes
+ * `captureStackTrace: false` where Effect reads it: data-first in its options,
+ * `Effect.withSpan(effect, name, { captureStackTrace: false })`; pipeable as its third argument,
+ * `Effect.withSpan(name, options, { captureStackTrace: false })`; `Stream.withSpan(name, { … })` in
+ * its options. TypeScript rejects it anywhere else. `Effect.fn` always captures one, at its
+ * definition and at every call, with no option to stop it.
  */
 const SPANS = [
   restrictSpan(
     "CallExpression[callee.object.name='Effect'][callee.property.name='fn']",
-    "Effect.fn captures a call-site stack at its definition and at every call: use Effect.gen inside a data-first Effect.withSpan",
-  ),
-  restrictSpan(
-    "CallExpression[callee.object.name='Effect'][callee.property.name='withSpan']:not([arguments.2])",
-    "Write Effect.withSpan data-first, withSpan(effect, name, options): the data-last form ignores captureStackTrace",
+    "Effect.fn captures a call-site stack at its definition and at every call: use Effect.gen with Effect.withSpan",
   ),
   restrictSpan(
     "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name='withSpan']:not(:has(Property[key.name='captureStackTrace']))",
-    "A Wardic span captures no call-site stack: pass captureStackTrace: false",
+    "A Wardic span captures no call-site stack: pass captureStackTrace: false (pipeable Effect.withSpan: its third argument)",
   ),
 ]
 

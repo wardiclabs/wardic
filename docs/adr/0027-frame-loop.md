@@ -69,7 +69,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
    - **Idle:** with nothing left, the loop drops its Clock subscription, so the Clock idles at its next Refresh frame (ADR-0017, decision 9).
    - **Presence's exit** is two runs. **Drag's release** runs on the loop; the drag track stays a fiber, since input drives it.
 6. **The API: `FrameLoop.run(machine, sink): Effect<F>`, on Effect's resource semantics.**
-   - **The service:** a core `Context.Service`, with `make` (`Effect.fn("wardic.frameloop.make")`; a data-first `withSpan` since #87, *Amendment (#87)*) and `FrameLoopLive = Layer.effect(FrameLoop)(FrameLoop.make)`, needing `Clock`. Every Environment merges it in.
+   - **The service:** a core `Context.Service`, with `make` (`Effect.fn("wardic.frameloop.make")`; `Effect.gen` inside `withSpan` since #87, *Amendment (#87)*) and `FrameLoopLive = Layer.effect(FrameLoop)(FrameLoop.make)`, needing `Clock`. Every Environment merges it in.
    - **`run`** is `Effect.acquireUseRelease`:
      - acquire adds the entry;
      - use awaits a `Deferred` the loop completes at settle, which yields the settled Frame;
@@ -531,6 +531,6 @@ ADR-0040, decision 3. A run's span is now `Effect.useSpan(name, { attributes }, 
 
 - **What stays:** decision 3's span per run, named after its Primitive, parented to the caller's span, and ended at its settle or removal. It reaches the app's Tracer as before (SF1).
 - **What changes:** the run's fiber no longer gets the span's stack frame. Effect annotated an interrupted run's cause with that frame and hashed it in every finalizer the exit passed, about 12 ms of a 1,000-element Retarget. The loop now names a run's defect itself (ADR-0030, *Amendment (#87)*).
-- **No span here captures a call-site stack** (ADR-0040, decision 2). The burst's `wardic.frameloop` and the loop's `wardic.frameloop.make` are data-first `withSpan`s with `captureStackTrace: false`, since `Effect.fn` always captures one.
+- **No span here captures a call-site stack** (ADR-0040, decision 2). The burst's `wardic.frameloop` and the loop's `wardic.frameloop.make` pass `captureStackTrace: false`, and `make` is `Effect.gen` inside `withSpan`, not `Effect.fn`, which always captures one.
 - **Decision 3's "about 1 µs per start"** timed `Effect.makeSpan` alone. #83 measured all of `withSpan` at 1.4–5.5 µs (ADR-0030, decision 9), and #87 found most of it was the stack capture.
 
