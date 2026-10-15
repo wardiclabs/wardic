@@ -53,7 +53,7 @@ The *Central coordinator over steppers* option is adopted: measurement showed th
 
 ADR-0031 decides it, and #122 and #123 land it.
 - **The gate requests its flushes from the Environment's `RefreshFrameSource`** (ADR-0031, decisions 1 and 2), not from a raw `requestAnimationFrame`. On the web that member *is* `requestAnimationFrame`, so the gate makes the same calls in the same order. The next-rAF flush, its one frame of latency and the *Synchronous flush* rejection stand. A flush at the end of the Frame loop's tick is still #73's.
-- **The gate lives in `@wardic/dom`,** framework-free: `makeFlushGate(runtime, { batch })`, with `batch` handed in by the binding (ADR-0031, decision 3). The one Effect runtime still lives in `WardicProvider`, which builds the gate with Solid's `batch`. A server render still gets the inert gate (ADR-0021, decision 9), now dom's too.
+- **The gate lives in `@wardic/dom`,** framework-free: `makeFlushGate(runtime, { batch })`, with `batch` handed in by the binding (ADR-0031, decision 3). The one Effect runtime still lives in `WardicProvider`, which builds the gate with Solid's `batch` (on first need since #51: ADR-0021, *Amendment (#51)*). A server render still gets the inert gate (ADR-0021, decision 9), now dom's too.
 - **The React bullet in *Consequences* now holds literally:** a React binding passes its own `batch` (the identity function with commit sinks, or `flushSync` with state sinks, inferred) and its sinks, and reuses the gate unchanged.
 
 ## Amendment (#73, 2026-10-11): the gate flushes at the end of the Frame loop's tick
