@@ -232,19 +232,22 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     expect(e.spans).toHaveLength(spans)
   })
 
-  it("RB10: a Declared layout change in the block runs its callback and animates nothing (#4: the Resize block wins)", async () => {
+  it("RB10: a Declared layout change in the block runs its callback and animates nothing, a pass already due or not (#4: the Resize block wins)", async () => {
     const e = makeEngine(makeSink().sink)
     const els = centredColumn(5)
-    await mount(e, els)
+    const handles = await mount(e, els)
     await narrow()
+    // A pass due in the block doesn't run at the call: it would take the block, and leave the call's pass free to animate.
+    handles[0]!.notify()
     const before = e.spans.length
     const result = e.system.animateLayout(() => {
       els[1]!.parentElement!.insertBefore(els[2]!, els[1]!)
       return "ran"
     })
     expect(result).toBe("ran")
-    expect(e.spans.length, "no Measurements taken at the call").toBe(before)
+    expect(e.spans.length, "no pass ran at the call").toBe(before)
     await endOfTask()
+    expect(e.spans.length - before, "one pass, at the end of the task").toBe(1)
     expect(e.spans.at(-1)?.blocked).toBe(true)
     expect(e.spans.at(-1)?.seeded).toBe(0)
     e.dispose()

@@ -9,7 +9,8 @@
 //   calls in one task, where A's change pushes B's element. B animates from where it was before
 //   either change, and at 50% of a linear tween both read Motion's boxes.
 // - DL3: a Measure pass already due runs at the call, so what triggered it animates as it would
-//   have, and the end-of-task pass animates the call's change: two passes, no more.
+//   have, and the end-of-task pass animates the call's change: two passes, no more. A second call
+//   in the task shares the Measurements.
 // - DL4: the callback's result comes back, its error throws to the caller with the pass still
 //   run, and a promise from it logs a warning.
 // - DL5: a running animation the callback moves restarts from where it paints; one it doesn't
@@ -136,6 +137,8 @@ describe("a Declared layout change (#4, ADR-0038)", () => {
     expect(e.spans.length - passes, "the pass that was due ran at the call").toBe(1)
     expect(e.spans.at(-1)?.seeded, "and animated what triggered it").toBe(1)
     expect(seedOf(sk, "n0", from)?.ty).toBeCloseTo(-50, 6)
+    // A second call in the task shares those Measurements: it doesn't read B where the first call put it.
+    e.system.animateLayout(() => {})
     const at = sk.writes.length
     await endOfTask()
     expect(e.spans.length - passes, "one more pass, at the end of the task").toBe(2)
