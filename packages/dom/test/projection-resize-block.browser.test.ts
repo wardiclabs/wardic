@@ -6,7 +6,8 @@
 // pass within 250 ms: every node gets a slot-only update (fresh boxes, nothing seeded),
 // and the pass clears the block. If none runs, the engine runs one itself at 250 ms; a
 // drag that starts while boxes are stale runs it first. A height-only change does
-// nothing, and a Declared layout change in the block animates nothing (#4, RB10).
+// nothing, and a Declared layout change in the block animates nothing (#4, RB10). The flights a
+// width change finishes fire no complete, and settle a Declared layout change waiting on them (#191, RB11).
 // Before, nothing re-measured on a resize, so the next pass animated every node from
 // its box before the resize (#39).
 import { describe, expect, it } from "@effect/vitest"
@@ -250,6 +251,37 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     expect(e.spans.length - before, "one pass, at the end of the task").toBe(1)
     expect(e.spans.at(-1)?.blocked).toBe(true)
     expect(e.spans.at(-1)?.seeded).toBe(0)
+    e.dispose()
+  })
+
+  it("RB11: a width change that finishes a flight fires no complete, and settles a Declared layout change waiting on it (#191)", async () => {
+    const e = makeEngine(makeSink().sink)
+    const els = centredColumn(3)
+    const calls: Array<string> = []
+    els.forEach((element, i) =>
+      e.system.register({
+        id: `c${i}`,
+        element,
+        transition: () => ({ type: "spring" }),
+        onLayoutAnimationStart: () => () => calls.push(`start c${i}`),
+        onLayoutAnimationComplete: () => () => calls.push(`complete c${i}`),
+      }),
+    )
+    await endOfTask()
+    fireFrame()
+    e.system.animateLayout(
+      () => {
+        els[0]!.style.marginTop = "40px"
+      },
+      { onSettled: () => calls.push("settled") },
+    )
+    await endOfTask()
+    fireFrames(2)
+    expect(calls).toEqual(["start c0", "start c1", "start c2"])
+    await narrow()
+    expect(calls, "finished early: no complete, and settled").toEqual(["start c0", "start c1", "start c2", "settled"])
+    fireFrames(30)
+    expect(calls.filter((c) => c.startsWith("complete"))).toEqual([])
     e.dispose()
   })
 })

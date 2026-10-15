@@ -30,6 +30,7 @@ export {
   WardicProvider,
 } from "./provider.tsx"
 export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./provider.tsx"
+export type { AnimateLayoutOptions } from "@wardic/dom"
 
 /**
  * The provider-owned reactive flush gate (ADR-0006): an accumulator + gated

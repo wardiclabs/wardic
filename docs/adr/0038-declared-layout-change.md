@@ -80,6 +80,7 @@ Defaults stated, not asked:
   A hand-built `ProjectionSystem` adds the method.
 - **Cost:** a call reads every node's box once more than the task would have, at the call. The `wardic.projection.declared` span traces that read.
 - **What it can't see:** a change after an `await` in the callback, and anything that happens in a later task.
+- *Note (#191, 2026-10-15):* A call can now ask to be told when its change has settled: `animateLayout(fn, { onSettled })`. That's once every layout animation its end-of-task pass started has ended, however each ended, or at that pass's end if it started none. Calls in one task settle together (ADR-0039).
 - **The lab's scenario 17 shows it next to what it fixes:**
   - **Shuffle** declares a keyed reorder: clean.
   - **Shuffle, untriggered** snaps.

@@ -104,6 +104,9 @@ export interface UseLayoutMemberOptions {
   /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
   readonly ownRotate?: () => number
   readonly ownOpacity?: () => number
+  /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
+  readonly onLayoutAnimationStart?: () => (() => void) | undefined
+  readonly onLayoutAnimationComplete?: () => (() => void) | undefined
 }
 
 /**
@@ -127,7 +130,7 @@ export interface UseLayoutMemberOptions {
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
-  const { dragTransition, element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
+  const { dragTransition, element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 
   const handle = projection.register({
@@ -147,6 +150,8 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHan
     ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),
     ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
+    ...UndefinedOr.match(onLayoutAnimationStart, { onUndefined: () => ({}), onDefined: (start) => ({ onLayoutAnimationStart: start }) }),
+    ...UndefinedOr.match(onLayoutAnimationComplete, { onUndefined: () => ({}), onDefined: (complete) => ({ onLayoutAnimationComplete: complete }) }),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))
