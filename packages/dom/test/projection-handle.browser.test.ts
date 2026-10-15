@@ -224,4 +224,48 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     expect(e.spans).toHaveLength(spans)
     e.dispose()
   })
+
+  it("PH11: a keyboard lift (#43) raises a node at rest at once (2), keeps it through a step's layout animation and its landing, and after the drop the animation carries 1 until it lands", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
+    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }), raiseWhileDragged: true })
+    await endOfTask()
+    fireFrame()
+    // At rest, the lift is one write now, raised.
+    let from = sk.of("a").length
+    h.lift(true)
+    fireFrame()
+    expect(sk.of("a").slice(from).map((w) => w.value.raise)).toEqual([2])
+    // A step moves its slot: its layout animation carries 2, through its landing too, while lifted.
+    from = sk.of("a").length
+    box.style.left = "100px"
+    h.notify()
+    await endOfTask()
+    fireFrames(120)
+    const step = sk.of("a").slice(from).map((w) => w.value.raise)
+    expect(step.length).toBeGreaterThan(3)
+    expect(step.every((r) => r === 2)).toBe(true)
+    // Another step, then the drop mid-flight: 2, then 1 until it lands, then one write without it.
+    from = sk.of("a").length
+    box.style.left = "200px"
+    h.notify()
+    await endOfTask()
+    fireFrames(4)
+    const dropped = sk.of("a").length
+    h.lift(false)
+    fireFrames(120)
+    expect(sk.of("a").slice(from, dropped).every((w) => w.value.raise === 2)).toBe(true)
+    const back = sk.of("a").slice(dropped).map((w) => w.value.raise)
+    expect(back.length).toBeGreaterThan(2)
+    expect(back.slice(0, -1).every((r) => r === 1)).toBe(true)
+    expect(back.at(-1)).toBeUndefined()
+    // Lifted and dropped at rest: a write up, a write down.
+    from = sk.of("a").length
+    h.lift(true)
+    h.lift(false)
+    fireFrame()
+    expect(sk.of("a").slice(from).map((w) => w.value.raise)).toEqual([2, undefined])
+    e.dispose()
+  })
 })

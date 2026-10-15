@@ -191,7 +191,7 @@ export const insetOf = (el: HTMLElement): Point => {
 }
 
 /** `el`'s painted box relative to `stage`'s padding box. */
-const paintedBox = (el: Element, stage: HTMLElement): Box => {
+export const paintedBox = (el: Element, stage: HTMLElement): Box => {
   const r = el.getBoundingClientRect()
   const s = stage.getBoundingClientRect()
   const inset = insetOf(stage)
@@ -202,7 +202,7 @@ const paintedBox = (el: Element, stage: HTMLElement): Box => {
  * `el`'s layout box, which transforms don't move, relative to `stage`'s padding box: its
  * offsets, less the scroll of the ancestors between it and the stage (offsets ignore it).
  */
-const layoutBox = (el: HTMLElement, stage: HTMLElement): Box => {
+export const layoutBox = (el: HTMLElement, stage: HTMLElement): Box => {
   let x = 0
   let y = 0
   for (let at = el.parentElement; at !== null && at !== stage; at = at.parentElement) {

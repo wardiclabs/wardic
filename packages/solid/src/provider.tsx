@@ -17,6 +17,7 @@ import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Announcer from "@wardic/core/Announcer"
 import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
@@ -52,6 +53,7 @@ export type WardicServices =
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
+  | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 
 /** A server render's Positional keys: it builds no runtime, and reduced motion never applies there. */

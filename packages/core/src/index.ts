@@ -12,6 +12,7 @@
  * `InputSource.heldPointer`, `InterpolatorRegistry.layer`, `FrameLoop.layer`). Design decisions
  * and the project glossary live in `CONTEXT.md` and `docs/adr/`.
  */
+export * as Announcer from "./Announcer.ts"
 export * as AutoScroll from "./AutoScroll.ts"
 export * as BaseValue from "./BaseValue.ts"
 export * as Box from "./Box.ts"

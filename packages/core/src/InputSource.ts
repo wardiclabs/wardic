@@ -92,12 +92,28 @@ export const isPrimaryPointer = (event: PointerLikeEvent): boolean =>
     Match.orElse((other) => other.isPrimary),
   )
 
+/**
+ * A key, in core's own names (ADR-0037): the keys core acts on, and `"other"` for the rest. Each
+ * Environment maps its platform's key names onto these, so no platform's names reach core.
+ */
+export type Key = "space" | "enter" | "escape" | "left" | "right" | "up" | "down" | "home" | "end" | "other"
+
+/**
+ * A key going down or up at a target, or inside it (ADR-0037). `fromTarget`: the key came from the
+ * target itself, not from something inside it (a text field, a button). `handled`: a handler that
+ * ran before this one (the app's) already took the key, as the Environment sees it once those have
+ * run. `handle()` takes it, so the platform's own response to it (scrolling, say) doesn't run; a
+ * consumer calls it while it handles the event, which reaches it inside the platform's dispatch
+ * (ADR-0032).
+ */
 export interface KeyboardLikeEvent {
   readonly type: "down" | "up"
-  readonly key: string
-  readonly code: string
+  readonly key: Key
   readonly repeat: boolean
   readonly timeStamp: number
+  readonly fromTarget: boolean
+  readonly handled: boolean
+  readonly handle: () => void
 }
 
 export interface WheelLikeEvent {
@@ -124,7 +140,12 @@ export interface FocusLikeEvent {
  */
 export class InputSource extends Context.Service<InputSource, {
   readonly pointer: (target: unknown) => Stream.Stream<PointerLikeEvent>
-  readonly keyboard: () => Stream.Stream<KeyboardLikeEvent>
+  /**
+   * The keys at `target` or inside it (ADR-0037): a **Shared source** per target, delivered inside
+   * the platform's dispatch, after the app's own handlers, so a consumer reads whether one took
+   * the key and can still take it itself.
+   */
+  readonly keyboard: (target: unknown) => Stream.Stream<KeyboardLikeEvent>
   readonly wheel: (target: unknown) => Stream.Stream<WheelLikeEvent>
   /**
    * Focus/blur transitions for a target. Like `pointer`, this is a Shared

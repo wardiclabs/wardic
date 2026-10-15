@@ -5,10 +5,15 @@
  *
  * Every accessor is built on the shared-source helpers (CONTEXT.md's **Shared
  * source** contract): per-target streams go through {@link makeSharedByTarget}
- * (one listener-set per element, ref-counted) and the document-level keyboard
- * goes through {@link makeSharedGlobal} (one keydown/keyup listener-pair for the
- * whole Environment). A consumer attaching `hover` + `press` + `drag` to one
- * element therefore shares a single pointer listener-set, not three.
+ * (one listener-set per element, ref-counted). A consumer attaching `hover` + `press`
+ * + `drag` to one element therefore shares a single pointer listener-set, not three.
+ *
+ * `keyboard(target)` (ADR-0037) listens on the target's window, in the bubble phase, for
+ * the keys at the target or inside it: there it runs after the page's own handlers (the
+ * element's, and Solid's delegated ones on the document), so `handled` (`defaultPrevented`) says
+ * whether one took the key, and a consumer can still `handle()` it (`preventDefault()`). Its events
+ * reach their consumers inside the dispatch (ADR-0032): each one is offered and the queue flushed.
+ * Keys are in core's names (`keyOf`), not the browser's.
  *
  * `pointer(target)` also carries every **Held pointer**'s events (ADR-0019): core's
  * `InputSource.heldPointer` adds a page-wide set (the target's window, capture phase) inside
@@ -38,12 +43,15 @@
  */
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Match from "effect/Match"
+import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { scrollersOf } from "./measure.ts"
 import { requireGlobal } from "./require-global.ts"
-import { makeSharedByTarget, makeSharedGlobal } from "./shared.ts"
+import { makeSharedByTarget } from "./shared.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */
 const POINTER_TYPE: Record<string, InputSource.PointerLikeEvent["type"]> = {
@@ -175,14 +183,63 @@ const toWheel = (ev: WheelEvent): InputSource.WheelLikeEvent => ({
   timeStamp: ev.timeStamp,
 })
 
-const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"]) =>
-  (ev: KeyboardEvent): InputSource.KeyboardLikeEvent => ({
-    type,
-    key: ev.key,
-    code: ev.code,
-    repeat: ev.repeat,
-    timeStamp: ev.timeStamp,
-  })
+/** A `KeyboardEvent.key` in core's names (ADR-0037): the keys core acts on, else `"other"`. */
+export const keyOf = (key: string): InputSource.Key =>
+  Match.value(key).pipe(
+    Match.when(" ", (): InputSource.Key => "space"),
+    Match.when("Enter", (): InputSource.Key => "enter"),
+    Match.when("Escape", (): InputSource.Key => "escape"),
+    Match.when("ArrowLeft", (): InputSource.Key => "left"),
+    Match.when("ArrowRight", (): InputSource.Key => "right"),
+    Match.when("ArrowUp", (): InputSource.Key => "up"),
+    Match.when("ArrowDown", (): InputSource.Key => "down"),
+    Match.when("Home", (): InputSource.Key => "home"),
+    Match.when("End", (): InputSource.Key => "end"),
+    Match.orElse((): InputSource.Key => "other"),
+  )
+
+/** A key as the engine's portable event: core's key name, and the page's `preventDefault` as `handled`/`handle()`. */
+const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"], ev: KeyboardEvent, target: unknown): InputSource.KeyboardLikeEvent => ({
+  type,
+  key: keyOf(ev.key),
+  repeat: ev.repeat,
+  timeStamp: ev.timeStamp,
+  fromTarget: ev.target === target,
+  handled: ev.defaultPrevented,
+  handle: () => ev.preventDefault(),
+})
+
+/** A `keydown` or `keyup` as the engine's portable phase. */
+const keyTypeOf = (ev: Event): InputSource.KeyboardLikeEvent["type"] =>
+  Bool.match(ev.type === "keydown", { onTrue: () => "down" as const, onFalse: () => "up" as const })
+
+/** Whether `ev` went through `target`: it's the target, or inside it (a shadow root's too). */
+const throughTarget = (ev: Event, target: unknown): boolean => ev.composedPath().includes(target as EventTarget)
+
+/**
+ * The keys at `target` or inside it (ADR-0037): `keydown`/`keyup` on its window, in the bubble
+ * phase, so after the page's own handlers. Each one is offered and the queue flushed, so a waiting
+ * consumer handles it inside the dispatch (ADR-0032), where its `handle()` still counts.
+ */
+const keyboardOf = (target: unknown): Stream.Stream<InputSource.KeyboardLikeEvent> =>
+  Stream.callback<InputSource.KeyboardLikeEvent>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const win = windowOf(target)
+        const listener = (ev: Event): void => {
+          if (!throughTarget(ev, target)) return
+          Queue.offerUnsafe(queue, toKeyboard(keyTypeOf(ev), ev as KeyboardEvent, target))
+          Queue.flushUnsafe(queue)
+        }
+        win.addEventListener("keydown", listener)
+        win.addEventListener("keyup", listener)
+        return (): void => {
+          win.removeEventListener("keydown", listener)
+          win.removeEventListener("keyup", listener)
+        }
+      }),
+      (stop) => Effect.sync(stop),
+    ))
 
 /**
  * One `fromEventListener` per DOM event type, mapped to a Like-event, except
@@ -191,7 +248,7 @@ const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"]) =>
  * these are plain `Stream`s, so each `lookup` simply succeeds with the stream.
  */
 const make = Effect.gen(function* () {
-  // Client-only (ADR-0021, decision 7): the keyboard stream below is built on `document`.
+  // Client-only (ADR-0021, decision 7): every stream below is built on a live document.
   yield* requireGlobal("InputDomLive", "document")
 
   const pointer = yield* makeSharedByTarget((target) =>
@@ -225,22 +282,13 @@ const make = Effect.gen(function* () {
     )
   )
 
-  const keyboardStream = yield* makeSharedGlobal(
-    Effect.succeed(
-      Stream.merge(
-        Stream.fromEventListener<KeyboardEvent>(document as unknown as Stream.EventListener<KeyboardEvent>, "keydown")
-          .pipe(Stream.map(toKeyboard("down"))),
-        Stream.fromEventListener<KeyboardEvent>(document as unknown as Stream.EventListener<KeyboardEvent>, "keyup")
-          .pipe(Stream.map(toKeyboard("up"))),
-      ),
-    ),
-  )
+  const keyboard = yield* makeSharedByTarget((target) => Effect.succeed(keyboardOf(target)))
 
   return InputSource.InputSource.of({
     pointer,
     focus,
     wheel,
-    keyboard: () => keyboardStream,
+    keyboard,
   })
 })
 

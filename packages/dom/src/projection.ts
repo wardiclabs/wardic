@@ -751,6 +751,12 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
    * 13.4.5).
    */
   readonly layoutVersion: () => number
+  /**
+   * A **Keyboard reorder**'s lift (ADR-0037): `true` raises the node as a drag does (`2`) while it's
+   * lifted, through the layout animations its steps start; `false` (its drop or cancel) leaves it
+   * raised (`1`) until its last one lands, as a drag's release does, or drops the raise now at rest.
+   */
+  readonly lift: (on: boolean) => void
   /** Unregister the node, finalising any in-flight animation. */
   readonly dispose: () => void
 }
@@ -870,6 +876,8 @@ interface NodeState {
   readonly raiseWhileDragged: boolean
   /** Whether its projection carries the raise now: from its drag start until its release settles. */
   raised: boolean
+  /** Whether a **Keyboard reorder** has it lifted (ADR-0037): raised as if dragged, its landings keeping the raise. */
+  lifted: boolean
   /**
    * The Lead's crossfade factor when its crossfade (re)started, or `undefined` when its layout
    * animation isn't a shared-element handover (ADR-0010, *Note (velocity family)*). A handover
@@ -1239,12 +1247,13 @@ export const makeProjectionSystem = (
 
   /**
    * A raised node's `z-index` (ADR-0016, *Amendment (velocity family)*, decision 6): `2` while
-   * dragged, `1` while it comes to rest after its release, so the item under the pointer
-   * paints above one flying back; none otherwise. Per frame.
+   * dragged or lifted by a **Keyboard reorder** (ADR-0037), `1` while it comes to rest after its
+   * release or drop, so the item held paints above one flying back; none otherwise. Per frame.
    */
   const raiseOf = (node: NodeState): number | undefined => {
     if (Bool.not(node.raised)) return undefined
     if (node.dragging) return 2
+    if (node.lifted) return 2
     return 1
   }
 
@@ -2807,9 +2816,10 @@ export const makeProjectionSystem = (
           changed.add(node)
           continue
         }
-        // One whose release has nothing left to run comes to rest here, its raise with this write.
+        // One whose release has nothing left to run comes to rest here, its raise with this write,
+        // unless a keyboard reorder still has it lifted (ADR-0037).
         node.releasing = false
-        node.raised = false
+        if (Bool.not(node.lifted)) node.raised = false
         active.delete(node)
         node.lastDelta = IDENTITY_DELTA
         writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
@@ -3266,9 +3276,11 @@ export const makeProjectionSystem = (
       // own look again, so its own later rotate or opacity shows.
       const blended = Predicate.isNotUndefined(node.blend)
       node.blend = undefined
-      // A raised node's release has settled: one last write, at rest, drops the raise.
-      if (Bool.or(node.raised, blended)) {
-        node.raised = false
+      // A raised node's release has settled: one last write, at rest, drops the raise; a node a
+      // keyboard reorder still has lifted keeps it (ADR-0037).
+      const unraises = node.raised && Bool.not(node.lifted)
+      if (Bool.or(unraises, blended)) {
+        if (unraises) node.raised = false
         derive(node)
       }
     }
@@ -3607,6 +3619,7 @@ export const makeProjectionSystem = (
     layoutVersion: 0,
     raiseWhileDragged: false,
     raised: false,
+    lifted: false,
     crossfadeFrom: undefined,
     handoverMoves: undefined,
     exitFrom: undefined,
@@ -3855,6 +3868,7 @@ export const makeProjectionSystem = (
         layoutVersion: 0,
       raiseWhileDragged: opts.raiseWhileDragged === true,
       raised: false,
+      lifted: false,
       crossfadeFrom: undefined,
       handoverMoves: undefined,
       exitFrom: undefined,
@@ -4000,6 +4014,17 @@ export const makeProjectionSystem = (
         node.releasing = true
         active.add(node)
         ensureRunning()
+      },
+      // --- keyboard lift (ADR-0037) --------------------------------------------
+      lift: (on) => {
+        if (node.lifted === on) return
+        node.lifted = on
+        if (on) node.raised = node.raiseWhileDragged
+        // A running layout animation writes the raise each frame, and its landing drops it after a
+        // drop; at rest, one write now raises it or drops it.
+        if (active.has(node)) return
+        if (Bool.not(on)) node.raised = false
+        derive(node)
       },
       stopRelease: () => {
         const release = node.release

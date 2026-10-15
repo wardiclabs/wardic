@@ -39,7 +39,7 @@ The same work fixes four engine problems that broke a reorder outright. Each has
   - `reorderItem(el, () => ({ group, value, … }))` drives any element it's given through the commit sink, like `use:ward`, and is client-only for the same reason (ADR-0003).
   - `Reorder.Group` (`as`, default `"ul"`) renders the matching `wardic.*` element. `Reorder.Item` (`as`, default `"li"`) renders a plain `as` element wired by `createReorderItem`. Both take the element's props and the motion props, except `layout` / `layoutId` / `drag` on the item.
   - The app renders items with `<For>`, which is React's `key` here. A warning (an Effect `logWarning`, once per group) fires when an item unmounts and one with the same `value` mounts in the same task, the signature of `.map`.
-  - `move(value, toIndex)` on the group reorders through `onReorder`, so an app can add buttons or keys (WCAG 2.2 SC 2.5.7; built-in keyboard reordering is #43).
+  - `move(value, toIndex)` on the group reorders through `onReorder`, so an app can add buttons or keys (WCAG 2.2 SC 2.5.7; built-in keyboard reordering is #43). *Since ADR-0037, every group has a built-in **Keyboard reorder** (D13's deferral resolved), and `move` announces.*
 - **Each item's box reaches the group by pull (decision 2).**
   - The projection handle gains `layoutBox()`, `dragOffset()` and `layoutVersion()` (ADR-0016, *Amendment (Reorder)*). The group reads them on each drag sample.
   - After a reorder it makes no further reorder until the dragged item's `layoutVersion()` has moved, i.e. until a Measure pass has measured the new order. That's Motion's `isReordering` guard, which 13.4.6 clears only when `values` changes.

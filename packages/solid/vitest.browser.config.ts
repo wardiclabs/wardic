@@ -53,6 +53,17 @@ const realMouse: BrowserCommand<[
   if (type === "up") await ctx.page.mouse.up({ button })
 }
 
+/**
+ * Real Playwright keyboard input (#43): `press` a key (down and up), or hold it with `down` (a
+ * second `down` before its `up` is a repeat, as a held key's) and let it go with `up`. Sent to
+ * whatever has focus in the page, through the browser's own input pipeline.
+ */
+const realKey: BrowserCommand<[type: "press" | "down" | "up", key: string]> = async (ctx, type, key) => {
+  if (type === "press") await ctx.page.keyboard.press(key)
+  if (type === "down") await ctx.page.keyboard.down(key)
+  if (type === "up") await ctx.page.keyboard.up(key)
+}
+
 /** One DevTools session per page, with touch emulation on. */
 const touchSessions = new WeakMap<object, Promise<CDPSession>>()
 
@@ -142,7 +153,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { emulateReducedMotion, realMouse, realTouch },
+      commands: { emulateReducedMotion, realKey, realMouse, realTouch },
     },
   },
 })

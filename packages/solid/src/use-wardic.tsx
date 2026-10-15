@@ -514,6 +514,8 @@ interface Resolution {
  * - `onDragSample`: each drag sample, after its projection write.
  * - `onLayoutHandle`: the projection node's handle, once registered.
  * - `raiseWhileDragged`: raise the node while dragged.
+ * - `lifted`: whether a **Keyboard reorder** has the element lifted (ADR-0037): its `whileDrag`
+ *   applies then too, as for a drag, with nothing else of the drag's (its `x`/`y` stay the spring's).
  * - `baseStyle`: style under the user's, above the drag defaults (the item's
  *   `touch-action`), read reactively.
  * - `tag`: the element's tag, set by `wardic.create(tag)`, so an svg-inner element's
@@ -526,6 +528,7 @@ export interface SpineInternals {
   readonly onDragSample?: ((sample: Drag.Sample) => void) | undefined
   readonly onLayoutHandle?: ((handle: ProjectionNodeHandle) => void) | undefined
   readonly raiseWhileDragged?: boolean | undefined
+  readonly lifted?: Accessor<boolean> | undefined
   readonly baseStyle?: (() => JSX.CSSProperties | undefined) | undefined
 }
 
@@ -913,8 +916,9 @@ export function runSpine(opts: RunSpineOptions): void {
           { active: pressed(), values: toValues(c.whileTap) },
           // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
           // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
-          // after release. Read dragging() so a flip recomputes this memo.
-          { active: dragging(), values: toValues(c.whileDrag) },
+          // after release. Read dragging() so a flip recomputes this memo; a keyboard
+          // lift turns it on too (ADR-0037).
+          { active: Bool.or(dragging(), internal?.lifted?.() === true), values: toValues(c.whileDrag) },
         ])
         return { resolved, base, dragging: dragging() }
       })

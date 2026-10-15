@@ -181,6 +181,14 @@ _Avoid_: swap (one outcome), collision (dnd-kit's term for a different model).
 While a **Reorder group** item is dragged toward, and within 50 px of, its scroll container's visible edge, the container scrolls, faster the nearer the edge. It stops at the scroll range it had when it started. Because each scroll moves the **Held pointer**, it keeps going while the pointer holds still (Motion's; ADR-0020).
 _Avoid_: edge scroll, drag scroll.
 
+**Keyboard reorder**:
+A **Reorder group** item moved with the keyboard instead of a drag: lifted with a key, moved one place per arrow key, then dropped or cancelled, each step animating as a drag's reorder does and each announced to assistive technology. Built into every group (#43); Motion has none.
+_Avoid_: keyboard drag (nothing is dragged), keyboard sort.
+
+**Announcement**:
+A message spoken to assistive technology, such as a **Keyboard reorder**'s "Dropped Milk at position 3 of 6". Core words it; the Environment's Announcer delivers it (in the DOM, a live region shared by the page). Each one replaces the last.
+_Avoid_: notification, toast (visible), alert (a role).
+
 ### Layout
 
 **Measurement**:

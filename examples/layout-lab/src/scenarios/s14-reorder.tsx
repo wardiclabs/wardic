@@ -39,6 +39,13 @@
  * still` fails), and in a diagonal drag the dragged item drifted off its card. On a
  * card, the drag lines read boxes relative to the card instead of the stage.
  *
+ * The keyboard reorder (#43, ADR-0037): Tab to an item, Space (or Enter) lifts it, the
+ * arrows move it one place per press (Home and End to the ends), Space drops it and Escape
+ * cancels. Each lift is a keyboard run (`scenarios/keyboard-recorder.ts`), read from the
+ * live region as a screen reader hears it: the reorder lines judge it from its lift to its
+ * drop, with the lifted item's centre as the pointer, and its `announced` line lists what was
+ * said, the lift first and the drop or cancel last, with focus kept on the item.
+ *
  * Two toggles break it on purpose: "items via .map" renders the items without
  * `<For>`, so each reorder remounts them (the console shows one warning, and the
  * reorder doesn't animate); "touch-action: auto on items" overrides the drag default
@@ -57,6 +64,7 @@ import type { Box, Point } from "../lab/drag-run.ts"
 import type { ReorderEvent, ReorderFrame } from "../lab/reorder-run.ts"
 import { Checkbox, CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
 import { attachDragRecorder } from "./drag-recorder.ts"
+import { attachKeyboardRecorder } from "./keyboard-recorder.ts"
 import type { ScenarioDef } from "./types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
@@ -231,6 +239,11 @@ const View: ScenarioDef["View"] = (props) => {
   // the new press, so the run takes its own press's data, not the new one's.
   let current: PressData | undefined
   let cutShort: PressData | undefined
+  // A keyboard reorder's run (#43): its lift's data, from its lift until its run is recorded.
+  let keyed: PressData | undefined
+  let keyFrame = (): number => 0
+  // The keyboard run's lifted item: its frames' `raised` reads ask about it, as a press's about the pressed item.
+  let liftedEl: HTMLElement | undefined
 
   const scrollNow = (): Point =>
     inContainer() && container !== undefined
@@ -238,8 +251,49 @@ const View: ScenarioDef["View"] = (props) => {
       : { x: window.scrollX, y: window.scrollY }
 
   const onReorder = (values: Array<string>): void => {
-    current?.reorders.push({ t: performance.now(), frame: currentFrame(), order: [...values] })
+    if (current !== undefined) current.reorders.push({ t: performance.now(), frame: currentFrame(), order: [...values] })
+    else keyed?.reorders.push({ t: performance.now(), frame: keyFrame(), order: [...values] })
     setOrder(values)
+  }
+
+  /** The mode a run records: the layout and every option on. */
+  const modeNow = (): string =>
+    `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}${card() === "none" ? "" : ` · ${card()} card`}${itemLayout() === "position" ? " · position" : ""}${variable() ? " · variable" : ""}`
+
+  /** A press's (or a lift's) data, gathered now. */
+  const pressData = (dragged: string): PressData => ({
+    dragged,
+    reorders: [],
+    orderAtGrab: order(),
+    scrollAtGrab: scrollNow(),
+    scrolledByHand: { x: 0, y: 0 },
+    layoutAtGrab: layout(),
+    childAtGrab: layoutChild(),
+    itemLayoutAtGrab: itemLayout(),
+    variableAtGrab: variable(),
+    liftAtGrab: lift() ? LIFT.scale : undefined,
+  })
+
+  /** A press's reorder data for its run. */
+  const reorderData = (press: PressData) => {
+    const axis = axisOf(press.layoutAtGrab)
+    return {
+      axis,
+      data: {
+        layout: press.layoutAtGrab,
+        axis,
+        dragged: press.dragged,
+        orderAtGrab: press.orderAtGrab,
+        reorders: press.reorders,
+        scrollAtGrab: press.scrollAtGrab,
+        scrollAtEnd: scrollNow(),
+        scrolledByHand: press.scrolledByHand,
+        nodesPerItem: press.childAtGrab ? 2 : 1,
+        ...(press.liftAtGrab !== undefined ? { lift: press.liftAtGrab } : {}),
+        ...(press.itemLayoutAtGrab === "position" ? { itemLayout: "position" as const } : {}),
+        ...(press.variableAtGrab ? { variableSizes: true } : {}),
+      },
+    }
   }
 
   /** S: scroll the container (or the page) 60px along the list's axis. */
@@ -250,7 +304,8 @@ const View: ScenarioDef["View"] = (props) => {
     if (inContainer() && container !== undefined) container.scrollBy(onX ? 60 : 0, onX ? 0 : 60)
     else window.scrollBy(0, 60)
     const after = scrollNow()
-    if (current !== undefined) current.scrolledByHand = { x: current.scrolledByHand.x + after.x - before.x, y: current.scrolledByHand.y + after.y - before.y }
+    const press = current ?? keyed
+    if (press !== undefined) press.scrolledByHand = { x: press.scrolledByHand.x + after.x - before.x, y: press.scrolledByHand.y + after.y - before.y }
   }
 
   /** A new card choice starts it back where it rests. */
@@ -291,7 +346,8 @@ const View: ScenarioDef["View"] = (props) => {
       .map((el) => el.closest<HTMLElement>("[data-value]"))
       .filter((el): el is HTMLElement => el !== null && group!.contains(el))
     const hit = atPointer[0]?.dataset.value ?? null
-    const pointerInDragged = pressed !== undefined && atPointer.includes(pressed)
+    const held = liftedEl ?? pressed
+    const pointerInDragged = held !== undefined && atPointer.includes(held)
     return { items, slots, hit, pointerInDragged }
   }
 
@@ -305,18 +361,7 @@ const View: ScenarioDef["View"] = (props) => {
       pressed = el ?? undefined
       if (pressed === undefined) return
       if (current !== undefined) cutShort = current
-      current = {
-        dragged: pressed.dataset.value ?? "",
-        reorders: [],
-        orderAtGrab: order(),
-        scrollAtGrab: scrollNow(),
-        scrolledByHand: { x: 0, y: 0 },
-        layoutAtGrab: layout(),
-        childAtGrab: layoutChild(),
-        itemLayoutAtGrab: itemLayout(),
-        variableAtGrab: variable(),
-        liftAtGrab: lift() ? LIFT.scale : undefined,
-      }
+      current = pressData(pressed.dataset.value ?? "")
     }
     const area = stage!
     area.addEventListener("pointerdown", pick, { capture: true, passive: true })
@@ -327,40 +372,58 @@ const View: ScenarioDef["View"] = (props) => {
       children: () => ({}),
       reorderFrame,
       scroller: () => (inContainer() ? container : window),
-      mode: () =>
-        `${layout()}${inContainer() ? " · container" : ""}${layoutChild() ? " · child" : ""}${card() === "none" ? "" : ` · ${card()} card`}${itemLayout() === "position" ? " · position" : ""}${variable() ? " · variable" : ""}`,
+      mode: modeNow,
       record: (input) => {
         const press = cutShort ?? current
         if (press === undefined) return
         if (press === cutShort) cutShort = undefined
         else current = undefined
-        const axis = axisOf(press.layoutAtGrab)
+        const { axis, data } = reorderData(press)
         props.ctx.recordDragRun({
           ...input,
           ...(axis === "xy" ? {} : { lock: axis }),
-          reorder: {
-            layout: press.layoutAtGrab,
-            axis,
-            dragged: press.dragged,
-            orderAtGrab: press.orderAtGrab,
-            reorders: press.reorders,
-            scrollAtGrab: press.scrollAtGrab,
-            scrollAtEnd: scrollNow(),
-            scrolledByHand: press.scrolledByHand,
-            nodesPerItem: press.childAtGrab ? 2 : 1,
-            ...(press.liftAtGrab !== undefined ? { lift: press.liftAtGrab } : {}),
-            ...(press.itemLayoutAtGrab === "position" ? { itemLayout: "position" as const } : {}),
-            ...(press.variableAtGrab ? { variableSizes: true } : {}),
-          },
+          reorder: data,
         })
       },
     })
+    // A keyboard reorder's runs (#43): one per lift, read from the live region.
+    const keyboard = attachKeyboardRecorder({
+      stage: boxesFrame,
+      group: () => group,
+      reorderFrame,
+      onLift: (dragged) => {
+        keyed = pressData(dragged)
+        liftedEl = group?.querySelector<HTMLElement>(`[data-value="${dragged}"]`) ?? undefined
+      },
+      record: (run) => {
+        const press = keyed
+        keyed = undefined
+        liftedEl = undefined
+        if (press === undefined) return
+        const { data } = reorderData(press)
+        props.ctx.recordDragRun({
+          scenarioId: "",
+          mode: `${modeNow()} · keyboard`,
+          grabAt: run.grabAt,
+          grabBox: run.grabBox,
+          moves: [],
+          frames: run.frames,
+          childOffsets: {},
+          releaseAt: run.releaseAt,
+          endedAt: run.endedAt,
+          endedBy: run.endedBy,
+          reorder: { ...data, keyboard: { announced: run.announced, focusKept: run.focusKept } },
+        })
+      },
+    })
+    keyFrame = keyboard.currentFrame
     noteLayoutChange = recorder.noteLayoutChange
     pressing = recorder.pressing
     currentFrame = recorder.currentFrame
     window.addEventListener("keydown", onKey)
     onCleanup(() => {
       recorder.detach()
+      keyboard.detach()
       area.removeEventListener("pointerdown", pick, true)
       window.removeEventListener("keydown", onKey)
     })
@@ -449,7 +512,8 @@ const View: ScenarioDef["View"] = (props) => {
         <Select label="card" name="reorder-card" options={CARDS} value={card()} onChange={chooseCard} />
       </div>
       <p style={NOTE_STYLE}>
-        Drag an item past one neighbour, past several, and flick it. While you hold it: S scrolls the container (or the
+        Or Tab to an item and press Space to lift it, the arrows to move it, Space to drop, Escape to cancel: each lift is
+        a keyboard run, with what was announced. Drag an item past one neighbour, past several, and flick it. While you hold it: S scrolls the container (or the
         page) 60px; hold it near an edge to Auto-scroll. M moves the first item to the end in code. On a card (#136),
         move the card (drag its edge, or C), then reorder: nothing should fly in from where the card was.
       </p>
@@ -468,7 +532,7 @@ export const s14: ScenarioDef = {
   title: "Reorder",
   kind: "drag",
   mechanism:
-    "Drag an item to reorder the list, in any layout, in a scroll container or on the page, optionally on a card a transform moves. While held, S scrolls 60px; near an edge it Auto-scrolls. M moves the first item to the end in code; C moves the CSS card.",
+    "Drag an item to reorder the list, in any layout, in a scroll container or on the page, optionally on a card a transform moves. While held, S scrolls 60px; near an edge it Auto-scrolls. M moves the first item to the end in code; C moves the CSS card. Or reorder by keyboard: Tab to an item, Space lifts, the arrows move, Space drops, Escape cancels.",
   prediction: "safe",
   rationale:
     "The group runs Motion's Crossover on each drag sample, with the neighbour on the side of the motion (so rtl " +

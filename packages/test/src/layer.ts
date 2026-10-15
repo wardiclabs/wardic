@@ -1,3 +1,4 @@
+import * as Announcer from "@wardic/core/Announcer"
 import type * as Clock from "@wardic/core/Clock"
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -42,6 +43,7 @@ export const testLayer = (
   | InputSource.InputSource
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
+  | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 > =>
   FrameLoop.layer.pipe(
@@ -55,6 +57,8 @@ export const testLayer = (
         InterpolatorRegistry.layer,
         // The transforms only: the Test Environment names no box keys (ADR-0036).
         ReducedMotion.transformsOnly,
+        // No assistive technology to reach headless (ADR-0037).
+        Announcer.silent,
         AtomRegistry.layer,
         Layer.sync(DragActivity.DragActivity, DragActivity.make),
       ),

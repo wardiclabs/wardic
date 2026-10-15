@@ -1,7 +1,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import { ClockDomLive, DomLive, InputDomLive, PositionalKeysDomLive, ProbeDomLive, RendererDomLive, reportFailure } from "@wardic/dom"
+import { ClockDomLive, DomLive, InputDomLive, AnnouncerDomLive, PositionalKeysDomLive, ProbeDomLive, RendererDomLive, reportFailure } from "@wardic/dom"
 import { AnimatePresence, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import type * as Context from "effect/Context"
 import { DevTools } from "effect/devtools"
@@ -62,6 +62,7 @@ const envWith = (options: { readonly logs: Array<Logged>; readonly reports: Arra
     InputDomLive,
     ProbeDomLive,
     PositionalKeysDomLive,
+    AnnouncerDomLive,
   )
   const environment = FrameLoop.layer.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer))
   return Layer.mergeAll(

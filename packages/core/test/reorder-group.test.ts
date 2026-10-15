@@ -303,10 +303,12 @@ describe("Reorder.Group, the data type (ADR-0028, decision 1)", () => {
     expect(fresh.state.calls).toEqual([["b", "c", "a"]])
   })
 
-  it("toJSON shows how many items are registered and the value being dragged", () => {
+  it("toJSON shows how many items are registered, the value being dragged, and the one lifted by keyboard (#43)", () => {
     const h = harness(["a", "b", "c"])
-    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.none() })
+    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.none(), lifted: Option.none() })
     Reorder.dragStart(h.group, "b")
-    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.some("b") })
+    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.some("b"), lifted: Option.none() })
+    Reorder.lift(h.group, "c")
+    expect(h.group.toJSON()).toEqual({ _id: "Reorder.Group", registered: 3, dragging: Option.some("b"), lifted: Option.some("c") })
   })
 })

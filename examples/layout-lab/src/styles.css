@@ -420,6 +420,12 @@ body {
   font: 700 12px/16px var(--lab-mono);
 }
 
+/* A line whose whole text is the point wraps instead (#43: what a keyboard run announced). */
+.card-result.drag .result-value.wraps {
+  white-space: normal;
+  overflow: visible;
+}
+
 /* ---- Sidebar panels ---------------------------------------------------- */
 .panel {
   padding: 12px;

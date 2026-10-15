@@ -692,6 +692,22 @@ const DRAG_LINE_NAMES: ReadonlyArray<DragCheckName> = DRAG_CHECK_NAMES.filter((n
 /** Every drag line of a press that never moved past {@link DRAG_THRESHOLD_PX}: no drag started. */
 const CLICK_TEXT = "click, no drag"
 
+/** A keyboard run's drag lines but `ends on slot`: no pointer to read (#43). */
+const KEYBOARD_TEXT = "a keyboard run: no pointer"
+
+/** A keyboard reorder's drag lines (#43): `ends on slot` judged as a drag's, the rest {@link KEYBOARD_TEXT}. */
+const keyboardDragLines = (run: DragRun, slotMax: number | undefined): Array<DragCheck> =>
+  DRAG_CHECK_NAMES.map((name): DragCheck => {
+    if (name !== "ends on slot") return { name, ok: true, text: KEYBOARD_TEXT }
+    if (cutShort(run.endedBy)) return lineOf("ends on slot", run.endsOnSlotPx === null ? cutTextOf(run) : `${px(run.endsOnSlotPx)} · ${cutTextOf(run)}`, undefined, true)
+    return lineOf(
+      "ends on slot",
+      run.endsOnSlotPx === null ? "?" : px(run.endsOnSlotPx),
+      slotMax === undefined ? undefined : `≤ ${slotMax} px`,
+      run.endsOnSlotPx !== null && slotMax !== undefined && run.endsOnSlotPx <= slotMax,
+    )
+  })
+
 /** Every drag line of a press of a pointer that isn't the Primary pointer, which must not drag. */
 const NOT_PRIMARY_TEXT = "not the primary pointer, no drag"
 
@@ -1187,6 +1203,9 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   const startMove = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
   const gesture = gestureLineOf(run, startMove === undefined, expect.gestureEndsMaxPx)
   if (!isPrimaryPress(run)) return [...DRAG_LINE_NAMES.map((name) => ({ name, ok: true, text: NOT_PRIMARY_TEXT })), gesture]
+  // A keyboard reorder's run (#43): no pointer, so the pointer's lines read nothing; where it ends
+  // is judged as a drag's.
+  if (run.reorder?.keyboard !== undefined) return keyboardDragLines(run, expect.endsOnSlotMaxPx)
   if (startMove === undefined) return [...DRAG_LINE_NAMES.map((name) => ({ name, ok: true, text: CLICK_TEXT })), gesture]
   const under = run.heldFrameCount === 0 ? undefined : run.underPointerMaxPx
   const glue = Object.entries(run.childGlueMaxPx)
