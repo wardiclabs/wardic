@@ -70,7 +70,7 @@ Defaults stated, not asked:
   - `RegisterNodeOptions`' two accessors.
 - **The engine adds an `afterTick` hook,** which per tick costs two empty-array reads when nothing is pending. The coordinator's step notes each flight with two statement `if`s and no allocation.
 - **A `NodeState` built for a leaving Follower** gets empty callbacks.
-- **The lab's scenario 17** shows a `callbacks` line under its buttons: each run's starts and completes, and a declared run's settling, judged on as many completes as starts and the settling after the last complete. Shuffle and Two calls wait for their change to settle. A timeline note keeps each settling in a saved log.
+- **The lab's scenario 17** shows a `callbacks` line under its buttons: each run's starts and completes, and a declared run's settling, judged on as many completes as starts and the settling after the last complete. Shuffle and Two calls wait for their change to settle. Each settling is also noted on the lab's timeline panel; a saved log keeps runs only, so neither the line nor the note is in it.
 
 ## Pinned by
 

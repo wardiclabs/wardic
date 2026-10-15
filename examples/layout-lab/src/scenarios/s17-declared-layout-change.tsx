@@ -14,8 +14,9 @@
  * - **The callbacks** (#191, ADR-0039). Every tile counts its `onLayoutAnimationStart` and
  *   `onLayoutAnimationComplete` for the run, and a declared run passes `onSettled`: the `callbacks`
  *   line under the buttons shows them, judged on as many completes as starts and the settling after
- *   the last complete, and a note on the timeline keeps them in a saved log. Shuffle and Two calls
- *   wait for their change to settle before they can run again.
+ *   the last complete, and each settling is noted on the timeline panel. A saved log keeps runs
+ *   only, so neither is in it. Shuffle and Two calls wait for their change to settle before they
+ *   can run again.
  *
  * @module
  */
