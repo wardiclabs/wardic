@@ -835,5 +835,9 @@ export const defaultAnnouncements: Announcements<unknown> = {
   move: ({ label, position, count }) => `Moved ${label} to position ${position} of ${count}.`,
 }
 
-/** The default instructions for an item, in English (ADR-0037, Q8): the keys, as Q3 sets them. */
-export const DEFAULT_INSTRUCTIONS = "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel."
+/**
+ * The default instructions for an item, in English (ADR-0037, Q8): the keys, as Q3 sets them, and
+ * focus mode, which a screen reader in browse mode needs before the keys reach the item (the NVDA pass).
+ */
+export const DEFAULT_INSTRUCTIONS =
+  "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel. Some screen readers need focus mode for these keys."

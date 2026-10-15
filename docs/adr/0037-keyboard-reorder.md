@@ -18,7 +18,7 @@ Two current patterns were weighed (2026-10-15):
    - Rejected:
      - headless building blocks only (Atlassian's way): a plain `<Reorder>` would stay keyboard-inaccessible until the app built controls;
      - a built-in move menu: Wardic would render UI an app has to style.
-   - JAWS's browse mode is the known risk. The announcements and instructions carry it, and the NVDA pass by hand checks it.
+   - JAWS's browse mode is the known risk. The announcements and instructions carry it, and the NVDA pass by hand checks it. NVDA has the same risk (see the NVDA pass, below), so the instructions name focus mode.
 2. **Every item is a tab stop** (Q2): `tabindex="0"` unless the app gives its own `tabIndex`, which wins. A key acts only when the item itself has focus, not a field or button inside it.
    - Rejected: a roving tabindex (the arrows would mean two things), and nothing focusable (it undoes Q1).
 3. **Space or Enter lifts and drops, Escape cancels** (Q3). A key the page already took (its handler called `preventDefault`) is left alone, so an item that opens on Enter keeps that. The keys aren't configurable for now.
@@ -48,6 +48,14 @@ Two current patterns were weighed (2026-10-15):
 
 Two defaults stated, not asked: the axis and direction are fixed for a lift, as for a drag gesture (ADR-0020); and SSR renders `tabindex` but not `aria-describedby` (decision 8).
 
+## The NVDA pass (2026-10-15)
+
+On Windows, in Chrome, on the lab's scenario 14:
+- **NVDA stayed in browse mode on a focused item.** NVDA switches to focus mode by itself only when focus lands on a widget (a field, a listbox's option, a grid's cell). An item that keeps its role (decision 8) is a list item with `tabindex`, so Space and the arrows went to NVDA's browse mode and never reached the item.
+- **In focus mode it all worked.** After NVDA+Space, the lift, the steps and the drop worked, and Escape put the item back where it was lifted from.
+
+So the default instructions now end with "Some screen readers need focus mode for these keys.", as react-beautiful-dnd's do. Switching the mode by itself would need a widget role on the items, which decision 8 rejected.
+
 ## Consequences
 
 - **New public API:**
@@ -62,7 +70,12 @@ Two defaults stated, not asked: the axis and direction are fixed for a lift, as 
   - `Reorder.move` returns a placement.
 - **Every Reorder item is now a tab stop by default.** An app whose items hold their own focusable controls gets one more tab stop per item, or turns the keyboard reorder off.
 - **The lab's scenario 14** records each lift as a keyboard run, read from the live region as a screen reader hears it, and judges it on the Reorder lines, plus `announced` (the lift first, the drop or cancel last, focus kept).
-- **Not covered:** a grid in `row-reverse`, whose Left and Right still follow reading order, and configurable keys. A screen reader can't run in CI, so the NVDA pass is by hand.
+- **Not covered:**
+  - a grid in `row-reverse`, whose Left and Right still follow reading order;
+  - configurable keys;
+  - focus mode switching on by itself (the NVDA pass).
+
+  A screen reader can't run in CI, so the NVDA pass is by hand.
 
 ## Pinned by
 

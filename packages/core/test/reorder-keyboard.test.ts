@@ -178,13 +178,15 @@ describe("the keyboard reorder (#43)", () => {
     expect(Reorder.lift(group, "z")).toEqual(Option.none())
   })
 
-  it("KR9: the default wording names the item and its place; the instructions name the keys", () => {
+  it("KR9: the default wording names the item and its place; the instructions name the keys and focus mode", () => {
     const info = { value: "milk", label: "Milk", position: 3, count: 6 }
     expect(Reorder.defaultAnnouncements.lift(info)).toBe("Picked up Milk, position 3 of 6.")
     expect(Reorder.defaultAnnouncements.step(info)).toBe("Milk, position 3 of 6.")
     expect(Reorder.defaultAnnouncements.drop(info)).toBe("Dropped Milk at position 3 of 6.")
     expect(Reorder.defaultAnnouncements.cancel(info)).toBe("Cancelled. Milk is back at position 3 of 6.")
     expect(Reorder.defaultAnnouncements.move(info)).toBe("Moved Milk to position 3 of 6.")
-    expect(Reorder.DEFAULT_INSTRUCTIONS).toBe("Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel.")
+    expect(Reorder.DEFAULT_INSTRUCTIONS).toBe(
+      "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel. Some screen readers need focus mode for these keys.",
+    )
   })
 })
