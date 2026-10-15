@@ -14,7 +14,10 @@
  * - **uninvolved still**: the items whose place in the order never changed during the
  *   press: the most any of them moved, painted, relative to the group (so a scroll of
  *   the container or the page, which moves the group with them, doesn't count). A leak
- *   of a resize (#39) or a scroll (D15) into a layout animation moves them.
+ *   of a resize (#39) or a scroll (D15) into a layout animation moves them. An item still
+ *   landing at the grab, more than {@link SETTLING_PX} off its slot on the press's first
+ *   frame (a re-grab that cut the last press's reorder short), is left out and counted:
+ *   its landing says nothing about this press (#142).
  * - **raised**: on every held frame with the dragged item among the items at the pointer
  *   (`elementsFromPoint`), the topmost of them is the dragged one: it paints above its
  *   siblings (the engine's raise, D10). A frame with the item clipped by its scroll
@@ -25,7 +28,9 @@
  *   scale (its painted box's width over its slot's): the lowest and the highest on a held
  *   frame, and the last frame's. A lift starts at the item's own 1 and lands back at it
  *   once the release settles (#47, ADR-0022): lowest ≥ 0.99, held within 0.01 of the lift,
- *   after within 0.005 of 1.
+ *   after within 0.005 of 1. Held is judged only on a press whose lift ran at least
+ *   {@link LIFT_LANDS_MS} (from the drag's start to the release), or one that reached it
+ *   sooner; after only on a run that settled, not one the next press cut short (#142).
  *
  * Pure (no DOM), so the node test tier imports it (`test/reorder-run.test.ts`).
  *
@@ -35,6 +40,19 @@ import type { Box, DragRunInput, Point } from "./drag-run.ts"
 
 /** The drag recognizer's threshold, in px (as `lab/drag-run.ts`). */
 const DRAG_THRESHOLD_PX = 3
+
+/**
+ * How long a lift needs to land, in ms (#142): scenario 14's `whileDrag` scale runs the default
+ * spring, 170 / 26, which is within 0.01 of 1.05 by about 0.23 s and still by about 0.4 s. A press
+ * shorter than this that hasn't reached the lift isn't judged on it.
+ */
+export const LIFT_LANDS_MS = 400
+
+/** How far off its slot an item may paint on a press's first frame and still be at rest, in px (#142). */
+export const SETTLING_PX = 0.5
+
+/** Whether a run stopped before its release could settle: the next press, or its item leaving the page (as `lab/drag-run.ts`). */
+const cutShort = (input: DragRunInput): boolean => input.endedBy === "next-press" || input.endedBy === "removed"
 
 /** What scenario 14 reads in each frame, after its paint. */
 export interface ReorderFrame {
@@ -115,8 +133,10 @@ export interface ReorderRun {
   readonly steps: ReadonlyArray<number>
   /** How many slots the drop was from the slot nearest the item's painted centre at the release; `null` with no frame to read. */
   readonly dropFromNearest: number | null
-  /** The items whose place never changed during the press. */
+  /** The items whose place never changed during the press, at rest at the grab. */
   readonly uninvolved: ReadonlyArray<string>
+  /** The items whose place never changed during the press, still landing at the grab: left out (#142). */
+  readonly settlingAtGrab: ReadonlyArray<string>
   /** The most any of them moved, painted, relative to the group, in px. */
   readonly uninvolvedMaxPx: number
   /** The held frames with the pointer inside the dragged item and an item at the pointer. */
@@ -129,6 +149,10 @@ export interface ReorderRun {
   readonly liftLowest: number | null
   readonly liftHeld: number | null
   readonly liftAfter: number | null
+  /** How long the lift ran while held, from the drag's start to the release, in ms (#142); `null` with no start or release. */
+  readonly liftMs: number | null
+  /** Whether the next press, or the item leaving, cut the run short before its release settled (#142). */
+  readonly cutShort: boolean
   /**
    * The most any item's painted size was off its slot's, in px (the larger of width and
    * height), over every frame of the press, and which item (#42); the dragged item is left
@@ -176,13 +200,20 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     before = r.order
   }
 
-  // The items whose place never changed.
+  // The items whose place never changed: those at rest at the grab, and those still landing then (#142).
   const orders = [data.orderAtGrab, ...data.reorders.map((r) => r.order)]
-  const uninvolved = data.orderAtGrab.filter(
+  const first = frames[0]?.reorder
+  const landingAtGrab = (v: string): boolean => {
+    const painted = first?.items[v]
+    const slot = first?.slots[v]
+    return painted !== undefined && slot !== undefined && boxDistance(painted, slot) > SETTLING_PX
+  }
+  const unmoved = data.orderAtGrab.filter(
     (v) => v !== data.dragged && orders.every((o) => o.indexOf(v) === data.orderAtGrab.indexOf(v)),
   )
+  const uninvolved = unmoved.filter((v) => !landingAtGrab(v))
+  const settlingAtGrab = unmoved.filter(landingAtGrab)
   let uninvolvedMaxPx = 0
-  const first = frames[0]?.reorder
   if (first !== undefined) {
     for (const f of frames) {
       for (const v of uninvolved) {
@@ -195,6 +226,8 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
 
   // The held frames: after the drag's first move past the threshold, before the release.
   const start = input.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
+  // The lift turns on with the drag, at its start, and off at the release.
+  const liftMs = start === undefined || input.releaseAt === null ? null : input.releaseAt - start.t
   const held =
     start === undefined
       ? []
@@ -261,6 +294,7 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     steps,
     dropFromNearest,
     uninvolved,
+    settlingAtGrab,
     uninvolvedMaxPx,
     raisedFrames: covering.length,
     raisedMisses,
@@ -268,6 +302,8 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     liftLowest: heldScales.length === 0 ? null : Math.min(...heldScales),
     liftHeld: heldScales.length === 0 ? null : Math.max(...heldScales),
     liftAfter: scaleOn(frames[frames.length - 1]),
+    liftMs,
+    cutShort: cutShort(input),
     stretchMaxPx,
     stretchItem,
   }
@@ -321,7 +357,7 @@ export const reorderChecksOf = (input: DragRunInput, expect: ReorderExpect): Arr
     ),
     lineOf(
       "uninvolved still",
-      run.uninvolved.length === 0 ? "none uninvolved" : `${px(run.uninvolvedMaxPx)} · ${run.uninvolved.length} item${run.uninvolved.length === 1 ? "" : "s"}`,
+      `${run.uninvolved.length === 0 ? "none uninvolved" : `${px(run.uninvolvedMaxPx)} · ${run.uninvolved.length} item${run.uninvolved.length === 1 ? "" : "s"}`}${run.settlingAtGrab.length === 0 ? "" : ` · ${run.settlingAtGrab.length} settling at the grab, left out`}`,
       expect.uninvolvedMaxPx === undefined || run.uninvolved.length === 0 ? undefined : `≤ ${expect.uninvolvedMaxPx} px`,
       expect.uninvolvedMaxPx === undefined || run.uninvolvedMaxPx <= expect.uninvolvedMaxPx,
     ),
@@ -349,20 +385,24 @@ const noStretchLineOf = (run: ReorderRun, data: ReorderRunData, max: number | un
 
 const scale3 = (r: number | null): string => (r === null ? "?" : r.toFixed(3))
 
-/** The lift line: `lift off` with Lift off; else the item's painted scale, judged (see the module doc). */
+/**
+ * The lift line: `lift off` with Lift off; else the item's painted scale (see the module doc). Lowest
+ * is judged on every press; held on one whose lift ran {@link LIFT_LANDS_MS}, or reached it sooner;
+ * after on a run that settled (#142).
+ */
 const liftLineOf = (run: ReorderRun, lift: number | undefined): ReorderCheck => {
   if (lift === undefined) return { name: "lift", ok: true, text: "lift off" }
-  const ok =
-    run.liftLowest !== null &&
-    run.liftHeld !== null &&
-    run.liftAfter !== null &&
-    run.liftLowest >= 0.99 &&
-    Math.abs(run.liftHeld - lift) <= 0.01 &&
-    Math.abs(run.liftAfter - 1) <= 0.005
+  const lowestOk = run.liftLowest !== null && run.liftLowest >= 0.99
+  const heldOk = run.liftHeld !== null && Math.abs(run.liftHeld - lift) <= 0.01
+  const short = run.liftMs !== null && run.liftMs < LIFT_LANDS_MS
+  const judgeHeld = heldOk || !short
+  const afterOk = run.liftAfter !== null && Math.abs(run.liftAfter - 1) <= 0.005
+  const heldNote = judgeHeld ? "" : ` (${run.liftMs!.toFixed(0)} ms: too short for the lift to land, not judged)`
+  const afterNote = run.cutShort ? " (cut short, not judged)" : ""
   return lineOf(
     "lift",
-    `lowest ${scale3(run.liftLowest)} · held ${scale3(run.liftHeld)} · after ${scale3(run.liftAfter)}`,
-    `lowest ≥ 0.99 · held ${lift} · after 1`,
-    ok,
+    `lowest ${scale3(run.liftLowest)} · held ${scale3(run.liftHeld)}${heldNote} · after ${scale3(run.liftAfter)}${afterNote}`,
+    ["lowest ≥ 0.99", ...(judgeHeld ? [`held ${lift}`] : []), ...(run.cutShort ? [] : ["after 1"])].join(" · "),
+    lowestOk && (!judgeHeld || heldOk) && (run.cutShort || afterOk),
   )
 }

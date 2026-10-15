@@ -108,6 +108,25 @@ describe("reorder runs (#44, scenario 14)", () => {
     expect(l.reorders!.text).toContain("places 2")
   })
 
+  it("L4b: an item still landing at the grab is left out and counted; one at rest that flies still fails (#142)", () => {
+    // e lands from 6 px off its slot over the press (the last press's reorder, cut short by this one).
+    const landing = (k: number): number => Math.max(0, 6 - k)
+    const frames = Array.from({ length: 12 }, (_, k) =>
+      frameOf(k >= 8 ? AFTER : VALUES, { dragged: "b", paint: moved(slot(1), Math.min(4.6 * k, 46)), shift: { e: landing(k) } }),
+    )
+    const run = reorderRunOf(pressOf({ frames }))!
+    expect(run.settlingAtGrab).toEqual(["e"])
+    expect(run.uninvolved).toEqual(["a", "d", "f"])
+    expect(lines(pressOf({ frames }))["uninvolved still"]).toEqual({ name: "uninvolved still", ok: true, text: "0.00 px · 3 items · 1 settling at the grab, left out ✓" })
+    // f at rest at the grab, then thrown 20 px: it still fails beside the landing e.
+    const thrown = frames.map((f, k) => (k === 9 ? { ...f, items: { ...f.items, f: moved(f.items.f!, 20) } } : f))
+    expect(lines(pressOf({ frames: thrown }))["uninvolved still"]).toEqual({
+      name: "uninvolved still",
+      ok: false,
+      text: "20.00 px · 3 items · 1 settling at the grab, left out ✗ expected ≤ 1 px",
+    })
+  })
+
   it("L4: an uninvolved item that flies fails its line, with how far", () => {
     const frames = Array.from({ length: 12 }, (_, k) =>
       frameOf(k >= 8 ? AFTER : VALUES, { dragged: "b", paint: moved(slot(1), Math.min(4.6 * k, 46)), shift: { e: k === 9 ? 58.4 : 0 } }),
@@ -222,6 +241,40 @@ describe("the lift line (#47, scenario 14's Lift)", () => {
     const run = liftRun([1], [1], 1.05)
     const click = { ...run, moves: [{ t: 8, frame: 0, dx: 1, dy: 1, buttons: 1 }] }
     expect(liftLine(click)).toEqual({ name: "lift", ok: true, text: "click, no drag" })
+  })
+
+  // #142: a rapid re-grab's press is shorter than the lift's spring takes to land (about 0.4 s).
+  /** `n` held frames rising toward `top` (16 ms each: the lift runs 16·n − 4 ms from the drag's start). */
+  const rising = (n: number, top: number): Array<number> => Array.from({ length: n }, (_, k) => 1 + (top - 1) * Math.min(1, k / 6))
+
+  it("L17: a press too short for the lift to land isn't judged on held, and says so (#142)", () => {
+    // 7 held frames: the lift ran 116 ms, reaching 1.02.
+    const line = liftLine(liftRun(rising(7, 1.02), [1.01, 1.005, 1, 1], 1.05))
+    expect(line).toEqual({ name: "lift", ok: true, text: "lowest 1.000 · held 1.020 (116 ms: too short for the lift to land, not judged) · after 1.000 ✓" })
+  })
+
+  it("L18: a short press that reached the lift is judged on it; a long one that never did fails (#142)", () => {
+    expect(liftLine(liftRun([1, 1.02, 1.045, 1.05, 1.05], [1.02, 1, 1], 1.05))?.text).toBe("lowest 1.000 · held 1.050 · after 1.000 ✓")
+    // 26 held frames, 420 ms, stalled at 1.03.
+    const stalled = liftLine(liftRun(rising(26, 1.03), [1.01, 1, 1], 1.05))
+    expect(stalled?.ok).toBe(false)
+    expect(stalled?.text).toBe("lowest 1.000 · held 1.030 · after 1.000 ✗ expected lowest ≥ 0.99 · held 1.05 · after 1")
+  })
+
+  it("L19: a short press's lowest is still judged: a lift that dips fails (#142)", () => {
+    const line = liftLine(liftRun([1, 0.95, 1.01, 1.02], [1, 1], 1.05))
+    expect(line?.ok).toBe(false)
+    expect(line?.text).toMatch(/✗ expected lowest ≥ 0\.99 · after 1$/)
+  })
+
+  it("L20: a run the next press cut short isn't judged on after; one that settled mid-spring is (#142)", () => {
+    const run = liftRun(rising(7, 1.02), [1.015, 1.012], 1.05)
+    expect(liftLine({ ...run, endedBy: "next-press" })).toEqual({
+      name: "lift",
+      ok: true,
+      text: "lowest 1.000 · held 1.020 (116 ms: too short for the lift to land, not judged) · after 1.012 (cut short, not judged) ✓",
+    })
+    expect(liftLine({ ...run, endedBy: "settled" })?.ok).toBe(false)
   })
 })
 
