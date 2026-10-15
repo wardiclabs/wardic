@@ -27,7 +27,9 @@ import * as Latch from "effect/Latch"
 import type * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
 import { type FlushGate, INERT_GATE, makeFlushGate, makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
@@ -252,6 +254,36 @@ export function useWardicProjection(): ProjectionSystem {
     throw new Error("useWardicProjection: there is no projection system during a server render (ADR-0021)")
   }
   return value.projection
+}
+
+/** A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s result. */
+export type AnimateLayout = <A>(fn: () => A) => A
+
+/** During a server render nothing is measured: `fn` just runs (ADR-0021). */
+const runOnly: AnimateLayout = (fn) => fn()
+
+/**
+ * The provider's `animateLayout` (#4, ADR-0038): run `fn`, and animate the layout change it makes
+ * from where every layout element is at the call, a **Declared layout change**. It's for a change no
+ * trigger sees, such as a keyed `<For>` reordered or a plain element's class, and for one made after
+ * an untriggered change left a Measurement out of date:
+ *
+ * ```tsx
+ * const animateLayout = useAnimateLayout()
+ * const shuffle = () => animateLayout(() => setItems(shuffled(items())))
+ * ```
+ *
+ * `fn` runs at once, so the change is there when the call returns, and its error throws to the
+ * caller. Calls in one task share the first call's Measurements. Only the synchronous part animates:
+ * a promise `fn` returns isn't awaited, and logs a warning. During a server render it just runs `fn`.
+ * Throws a clear, named error outside a `WardicProvider`. Must be called within a Solid owner.
+ */
+export function useAnimateLayout(): AnimateLayout {
+  const value = useContext(WardicContext)
+  if (Predicate.isUndefined(value)) {
+    throw new Error("useAnimateLayout must be used within a <WardicProvider>")
+  }
+  return UndefinedOr.match(value.projection, { onUndefined: () => runOnly, onDefined: (projection) => projection.animateLayout })
 }
 
 /**

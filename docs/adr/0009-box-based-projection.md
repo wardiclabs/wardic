@@ -32,6 +32,7 @@ Delta-key FLIP springs each element's inverse delta *independently* and leans on
 - Core gains the `Axis`/`Box`/`Delta` geometry cluster; the binding gains the Projection node tree + Clock-driven coordinator; the gate gains a pre-flush measure read-queue (removed by *Amendment (#2)*: the gate gains `flushPass` instead). The Renderer stays pure (corrected values are computed upstream).
 - The existing flat `useLayoutMember`/`useLayoutIdMember`/`<LayoutGroup>` path is migrated onto the one tree incrementally (gate green each step); no two coexisting layout models.
 - Idle stays zero-cost: no node animating ⇒ the coordinator is unsubscribed from the Clock; measure passes run only on triggers. *Amendment (#9)* measures what idle nodes cost while another one animates.
+- *Note (#4, 2026-10-15):* The engine gains `ProjectionSystem.animateLayout(fn)`, a **Declared layout change**: it measures the whole tree at the call, runs `fn`, and the task's Measure pass animates from those Measurements (ADR-0038).
 - Phased: **P1** full geometric engine (incl. nested scale) · **P2** visual scale-correction registry · **P3** `layoutScroll` · **P4** `layoutRoot`+`layoutAnchor` · shared-element crossfade is a later presence-coupled phase. `<Reorder>` builds on this engine afterwards.
 
 ## Amendment (#2, 2026-09-28): the engine runs each Measure pass at the end of its task

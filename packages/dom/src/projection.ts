@@ -771,6 +771,26 @@ export interface ProjectionSystem {
    */
   readonly notify: () => void
   /**
+   * A **Declared layout change** (#4, ADR-0038): run `fn`, and animate the layout change it makes
+   * from where every node is at the call, even where no trigger sees the change or a node's last
+   * Measurement is out of date. Returns `fn`'s result; its error throws to the caller.
+   *
+   * - **The Measurements.** The first call in a task measures every node before `fn` runs. A
+   *   Measure pass already due in the task runs then instead, so what triggered it animates as
+   *   before, and its reads are the Measurements. Later calls in the task share them, so a node
+   *   one call's change pushes animates from before the first change (Motion's
+   *   `parallel-calls-intersecting`).
+   * - **The pass.** The Measure pass at the end of the task animates every node that moved from
+   *   those Measurements. A running animation `fn` moves restarts from where it paints (ADR-0013,
+   *   *Amendment (#146)*); one it doesn't move carries on.
+   * - **What stays as in any pass.** A **Resize block** wins: `fn` runs and nothing animates. A
+   *   dragged subtree takes its slot-only update. A call from inside a pass's own flush uses the
+   *   reads that pass just made.
+   * - **Synchronous only.** A promise `fn` returns isn't awaited: a change after an `await` is in
+   *   a later task. Such a call logs a warning.
+   */
+  readonly animateLayout: <A>(fn: () => A) => A
+  /**
    * Shared-element exit coupling (ADR-0010). A binding's presence layer calls this
    * for a leaving `layoutId` element it has RETAINED (kept in the DOM mid-exit).
    * Returns `true` if there is a live twin (Lead) to crossfade toward — the engine
@@ -1185,6 +1205,9 @@ export const makeProjectionSystem = (
   let inPass = false
   let triggeredDuringPass = false
   let leftover: ReturnType<typeof setTimeout> | undefined
+  // Whether a **Declared layout change** in this task has taken its Measurements (#4): the end-of-task
+  // pass, which animates from them, clears it.
+  let declared = false
   let disposed = false
   // The Resize block (ADR-0018 *Amendment (#39)*): the window width last seen, whether
   // the next Measure pass is blocked, and the timer that runs it if nothing else does.
@@ -2580,7 +2603,12 @@ export const makeProjectionSystem = (
     return true
   }
 
-  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean): void => {
+  /**
+   * One round of a Measure pass. `blocked`: every node takes a slot-only update (a **Resize block**,
+   * or a **Declared layout change**'s Measurements). `versioned`: each node's `layoutVersion` rises,
+   * except for a Declared layout change's Measurements, which read the layout from before its change.
+   */
+  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean, versioned: boolean): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain, and the depth order makes every phase below
     // ancestors-first, so each scroll container's offset is sampled before a
@@ -2782,7 +2810,7 @@ export const makeProjectionSystem = (
       const prev = node.retained
       const newBox = boxThisPass(node, moved[i], viewportBoxes[i], documentScroll)
       node.retained = newBox
-      node.layoutVersion++
+      if (versioned) node.layoutVersion++
       // A Switch seed only ever serves a node's first measure (ADR-0010 *Amendment
       // (#13)*); take it now, whichever branch below handles the node.
       const seed = node.seed
@@ -2977,6 +3005,8 @@ export const makeProjectionSystem = (
    */
   const measurePass: Effect.Effect<void> = Effect.suspend(() => {
     passQueued = false
+    // A Declared layout change's Measurements serve this pass, and the next task's call takes its own.
+    declared = false
     const seeded = new Set<NodeState>()
     const dragBlocked = new Set<NodeState>()
     // The Resize block: this pass takes it and clears it.
@@ -2992,7 +3022,7 @@ export const makeProjectionSystem = (
       do {
         triggeredDuringPass = false
         rounds++
-        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, blocked))
+        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, blocked, true))
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
@@ -3045,6 +3075,56 @@ export const makeProjectionSystem = (
         ),
       ),
     )
+  }
+
+  /**
+   * A **Declared layout change**'s Measurements (#4, ADR-0038): one slot-only round over every node at
+   * the call, before its callback runs, so the end-of-task pass animates what the callback moves from
+   * where each node is now. It starts nothing, and a running animation keeps its delta (the Resize
+   * block's update, ADR-0018 *Amendment (#39)*). It isn't a pass a **Reorder group** waits on, since
+   * the layout it reads is from before the change: no node's `layoutVersion` rises, and no pass-end
+   * listener runs. Traced as `wardic.projection.declared`.
+   */
+  const declaredMeasure: Effect.Effect<void> = Effect.suspend(() => {
+    inPass = true
+    try {
+      sink.flushPass(() => runMeasurePass(new Set(), new Set(), true, false))
+    } finally {
+      inPass = false
+    }
+    // A trigger from its flush is the end-of-task pass's, which the call queues.
+    triggeredDuringPass = false
+    return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size })
+  }).pipe(Effect.withSpan("wardic.projection.declared"))
+
+  /**
+   * The Measurements a task's first **Declared layout change** takes (#4): a Measure pass already due
+   * runs now, so what triggered it animates as it would have, and its reads stand; else the slot-only
+   * read. None under a **Resize block**, which wins: the pass after the callback starts nothing. A
+   * failure is reported, and the callback still runs.
+   */
+  const takeMeasurements = (): void => {
+    declared = true
+    if (resizeBlocked) return
+    const measure = Bool.match(passQueued, { onTrue: () => measurePass, onFalse: () => declaredMeasure })
+    const due = passQueued
+    runtime.runSync(measure.pipe(Effect.catchCause((cause) => reportFailure("wardic.projection: animateLayout's measure failed", cause))))
+    // The pass that ran was due at the end of the task: its queued fiber runs that pass now, after the callback.
+    if (due) passQueued = true
+    declared = true
+  }
+
+  const animateLayout: ProjectionSystem["animateLayout"] = (fn) => {
+    if (Bool.not(Bool.some([disposed, declared, inPass]))) takeMeasurements()
+    try {
+      const result = fn()
+      if (Predicate.isPromiseLike(result)) {
+        runtime.runFork(Effect.logWarning("wardic.projection: animateLayout's callback returned a promise; only its synchronous part animates"))
+      }
+      return result
+    } finally {
+      scheduleMeasure()
+    }
   }
 
   /**
@@ -4110,7 +4190,7 @@ export const makeProjectionSystem = (
     }
   }
 
-  const system: ProjectionSystem = { register, notify: scheduleMeasure, handleLeave, handBackWithin, dispose, registerValues }
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, animateLayout, handleLeave, handBackWithin, dispose, registerValues }
   passEnds.set(system, passEndListeners)
   return system
 }

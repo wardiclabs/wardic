@@ -6,8 +6,9 @@
 // pass within 250 ms: every node gets a slot-only update (fresh boxes, nothing seeded),
 // and the pass clears the block. If none runs, the engine runs one itself at 250 ms; a
 // drag that starts while boxes are stale runs it first. A height-only change does
-// nothing. Before, nothing re-measured on a resize, so the next pass animated every node
-// from its box before the resize (#39).
+// nothing, and a Declared layout change in the block animates nothing (#4, RB10).
+// Before, nothing re-measured on a resize, so the next pass animated every node from
+// its box before the resize (#39).
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import { page } from "vitest/browser"
@@ -229,5 +230,26 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     e.dispose()
     await wait(350)
     expect(e.spans).toHaveLength(spans)
+  })
+
+  it("RB10: a Declared layout change in the block runs its callback and animates nothing, a pass already due or not (#4: the Resize block wins)", async () => {
+    const e = makeEngine(makeSink().sink)
+    const els = centredColumn(5)
+    const handles = await mount(e, els)
+    await narrow()
+    // A pass due in the block doesn't run at the call: it would take the block, and leave the call's pass free to animate.
+    handles[0]!.notify()
+    const before = e.spans.length
+    const result = e.system.animateLayout(() => {
+      els[1]!.parentElement!.insertBefore(els[2]!, els[1]!)
+      return "ran"
+    })
+    expect(result).toBe("ran")
+    expect(e.spans.length, "no pass ran at the call").toBe(before)
+    await endOfTask()
+    expect(e.spans.length - before, "one pass, at the end of the task").toBe(1)
+    expect(e.spans.at(-1)?.blocked).toBe(true)
+    expect(e.spans.at(-1)?.seeded).toBe(0)
+    e.dispose()
   })
 })

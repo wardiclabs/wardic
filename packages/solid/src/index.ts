@@ -23,12 +23,13 @@ export const VERSION = "0.1.0-alpha.0"
  */
 export {
   runScoped,
+  useAnimateLayout,
   useWardicFiber,
   useWardicGate,
   useWardicRuntime,
   WardicProvider,
 } from "./provider.tsx"
-export type { WardicEnv, WardicRuntime, WardicServices } from "./provider.tsx"
+export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./provider.tsx"
 
 /**
  * The provider-owned reactive flush gate (ADR-0006): an accumulator + gated
