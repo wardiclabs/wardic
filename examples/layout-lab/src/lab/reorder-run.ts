@@ -32,6 +32,12 @@
  *   {@link LIFT_LANDS_MS} (from the drag's start to the release), or one that reached it
  *   sooner; after only on a run that settled, not one the next press cut short (#142).
  *
+ * - **announced** (#43): a **Keyboard reorder**'s run (one lift to its drop or cancel, the
+ *   recorder's `keyboard` data) lists what the live region said, and judges that the lift came
+ *   first, the drop or cancel last, and that focus stayed on the item. A keyboard run is judged on
+ *   the lines above as a drag is, from its lift to its drop, the lifted item's centre standing in
+ *   for the pointer; a pointer's run announces nothing, by design.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/reorder-run.test.ts`).
  *
  * @module
@@ -107,6 +113,11 @@ export interface ReorderRunData {
   readonly lift?: number
   /** The items' Layout mode at the grab (#42), `"position"`; left out, `true`. */
   readonly itemLayout?: "position"
+  /**
+   * A keyboard reorder's run (#43): what the live region said from the lift to the drop or cancel,
+   * in order, and whether focus stayed on the item throughout. Left out for a pointer's run.
+   */
+  readonly keyboard?: { readonly announced: ReadonlyArray<string>; readonly focusKept: boolean }
   /** Whether the items' sizes followed their index at the grab (#42); left out, they didn't. */
   readonly variableSizes?: boolean
 }
@@ -163,7 +174,7 @@ export interface ReorderRun {
 }
 
 /** The card's reorder lines, in display order. */
-export const REORDER_CHECK_NAMES = ["reorders", "uninvolved still", "raised", "auto-scrolled", "lift", "no stretch"] as const
+export const REORDER_CHECK_NAMES = ["reorders", "uninvolved still", "raised", "auto-scrolled", "lift", "no stretch", "announced"] as const
 
 /** One of {@link REORDER_CHECK_NAMES}. */
 export type ReorderCheckName = (typeof REORDER_CHECK_NAMES)[number]
@@ -192,10 +203,13 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
   if (data === undefined) return undefined
   const frames = input.frames.filter((f) => f.reorder !== undefined)
 
-  // The places each reorder moved the dragged item.
+  // The places each reorder moved the dragged item. A keyboard run's cancel (#43) restores the order
+  // from its lift in one reorder: that's no step, and it's left out.
+  const keyboardCancel = data.keyboard?.announced.at(-1)?.startsWith("Cancelled") === true
+  const stepped = keyboardCancel ? data.reorders.slice(0, -1) : data.reorders
   const steps: Array<number> = []
   let before = data.orderAtGrab
-  for (const r of data.reorders) {
+  for (const r of stepped) {
     steps.push(Math.abs(r.order.indexOf(data.dragged) - before.indexOf(data.dragged)))
     before = r.order
   }
@@ -224,12 +238,16 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     }
   }
 
-  // The held frames: after the drag's first move past the threshold, before the release.
+  // The held frames: after the drag's first move past the threshold, before the release; a
+  // keyboard run's, from its lift (its grab) to its drop (#43).
   const start = input.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
-  // The lift turns on with the drag, at its start, and off at the release.
-  const liftMs = start === undefined || input.releaseAt === null ? null : input.releaseAt - start.t
-  const held =
-    start === undefined
+  const keyboard = data.keyboard !== undefined
+  const startedAt = keyboard ? input.grabAt : start?.t
+  // The lift turns on with the drag, at its start (a keyboard run's lift), and off at the release.
+  const liftMs = startedAt === undefined || input.releaseAt === null ? null : input.releaseAt - startedAt
+  const held = keyboard
+    ? frames.filter((f) => f.frameAt >= input.grabAt && (input.releaseAt === null || f.frameAt < input.releaseAt))
+    : start === undefined
       ? []
       : frames.filter((f) => f.frame > start.frame && (input.releaseAt === null || f.frameAt < input.releaseAt))
   // A frame with no item at the pointer (the dragged item clipped by its container) shows
@@ -290,7 +308,7 @@ export const reorderRunOf = (input: DragRunInput): ReorderRun | undefined => {
     y: data.scrollAtEnd.y - data.scrollAtGrab.y - data.scrolledByHand.y,
   }
   return {
-    reorderCount: data.reorders.length,
+    reorderCount: stepped.length,
     steps,
     dropFromNearest,
     uninvolved,
@@ -335,17 +353,21 @@ export const reorderChecksOf = (input: DragRunInput, expect: ReorderExpect): Arr
   const run = reorderRunOf(input)
   const data = dataOf(input)
   if (run === undefined || data === undefined) return []
-  if (input.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX) === undefined) {
+  if (data.keyboard === undefined && input.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX) === undefined) {
     return REORDER_CHECK_NAMES.map((name) => ({ name, ok: true, text: CLICK_TEXT }))
   }
   const singleAxis = data.axis !== "xy"
   const oneStep = run.steps.every((s) => s === 1)
+  // A keyboard run has no pointer to drop it (#43): it's placed by its keys, or put back by a cancel.
+  const keyboardEnd = data.keyboard?.announced.at(-1)?.startsWith("Cancelled") === true ? "cancelled: back where it was" : "placed by keyboard"
   const drop =
-    run.dropFromNearest === null
-      ? "drop ?"
-      : run.dropFromNearest === 0
-        ? "dropped on the nearest slot"
-        : `dropped ${run.dropFromNearest} slot${run.dropFromNearest === 1 ? "" : "s"} from the nearest`
+    data.keyboard !== undefined
+      ? keyboardEnd
+      : run.dropFromNearest === null
+        ? "drop ?"
+        : run.dropFromNearest === 0
+          ? "dropped on the nearest slot"
+          : `dropped ${run.dropFromNearest} slot${run.dropFromNearest === 1 ? "" : "s"} from the nearest`
   const steps = run.reorderCount === 0 ? "" : ` · ${oneStep ? "one place each" : `places ${run.steps.join(", ")}`}`
   const judgeSteps = expect.oneStep === true && singleAxis
   return [
@@ -372,7 +394,23 @@ export const reorderChecksOf = (input: DragRunInput, expect: ReorderExpect): Arr
     lineOf("auto-scrolled", px(run.autoScrolledPx), undefined, true),
     liftLineOf(run, data.lift),
     noStretchLineOf(run, data, expect.noStretchMaxPx),
+    announcedLineOf(data, input),
   ]
+}
+
+/**
+ * The announced line (#43): a keyboard run's announcements in order, judged on its lift spoken
+ * first, its drop or cancel last (not on a run the next one cut short), and focus kept on the item.
+ */
+const announcedLineOf = (data: ReorderRunData, input: DragRunInput): ReorderCheck => {
+  const k = data.keyboard
+  if (k === undefined) return { name: "announced", ok: true, text: "a pointer's run: nothing, by design" }
+  const first = k.announced[0] ?? ""
+  const last = k.announced.at(-1) ?? ""
+  const cut = input.endedBy === "next-press" || input.endedBy === "removed"
+  const ends = cut || last.startsWith("Dropped") || last.startsWith("Cancelled")
+  const text = `${k.announced.length === 0 ? "nothing" : k.announced.map((a) => `“${a}”`).join(" · ")}${k.focusKept ? "" : " · focus left the item"}${cut ? " · cut short" : ""}`
+  return lineOf("announced", text, "the lift first, the drop or cancel last, focus kept", first.startsWith("Picked up") && ends && k.focusKept)
 }
 
 /** The no stretch line (#42): judged with the items' Layout mode `"position"`, shown with `true`. */

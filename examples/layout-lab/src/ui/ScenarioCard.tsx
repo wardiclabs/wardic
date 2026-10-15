@@ -150,6 +150,9 @@ interface DragResultProps {
   readonly flingExpect: FlingExpect | undefined
 }
 
+/** Lines whose whole text is the point, so they wrap rather than end in an ellipsis: what a keyboard run announced (#43). */
+const WRAPPING_LINES: ReadonlySet<string> = new Set(["announced"])
+
 /**
  * A drag card's result: one line per drag check, `–` before the first press. A
  * missed check is coloured, and a line too long for the card ends in an ellipsis
@@ -183,7 +186,7 @@ const DragResult = (props: DragResultProps): JSX.Element => {
           return (
             <div class="result-cell">
               <span class="result-label">{name}</span>
-              <span class="result-value" classList={{ "check-miss": check()?.ok === false }} title={check()?.text}>
+              <span class="result-value" classList={{ "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) }} title={check()?.text}>
                 {check()?.text ?? "–"}
               </span>
             </div>
@@ -212,7 +215,7 @@ const RestResult = (props: { readonly run: RestRun | undefined; readonly expect:
           return (
             <div class="result-cell">
               <span class="result-label">{name}</span>
-              <span class="result-value" classList={{ "check-miss": check()?.ok === false }} title={check()?.text}>
+              <span class="result-value" classList={{ "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) }} title={check()?.text}>
                 {check()?.text ?? "–"}
               </span>
             </div>
@@ -241,7 +244,7 @@ const BoardResult = (props: { readonly run: BoardRunInput | undefined; readonly 
           return (
             <div class="result-cell">
               <span class="result-label">{name}</span>
-              <span class="result-value" classList={{ "check-miss": check()?.ok === false }} title={check()?.text}>
+              <span class="result-value" classList={{ "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) }} title={check()?.text}>
                 {check()?.text ?? "–"}
               </span>
             </div>

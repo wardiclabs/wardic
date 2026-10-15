@@ -4,7 +4,7 @@
 // The recorder's first rAF after the grab is frame 1, frames are 16 ms apart, and each
 // move is handled between one frame's paint and the next frame's rAF.
 import { describe, expect, it } from "vitest"
-import type { Box, DragFrame, DragMove, DragRunInput } from "../src/lab/drag-run.ts"
+import { type Box, type DragFrame, type DragMove, type DragRunInput, dragChecksOf, dragRunOf } from "../src/lab/drag-run.ts"
 import { REORDER_CHECK_NAMES, type ReorderEvent, type ReorderFrame, reorderChecksOf, reorderRunOf } from "../src/lab/reorder-run.ts"
 
 const VALUES = ["a", "b", "c", "d", "e", "f"]
@@ -319,5 +319,61 @@ describe("the no stretch line (#42, scenario 14's item layout)", () => {
     const base = growRun("position", [56, 56, 56, 56], 1.05)
     const lifted = { ...base, frames: base.frames.map((f) => ({ ...f, reorder: { ...f.reorder!, items: { ...f.reorder!.items, b: { ...f.reorder!.items.b!, width: 189 } } } })) }
     expect(line(lifted)?.ok).toBe(true)
+  })
+})
+
+// #43: a keyboard reorder's run (scenario 14's keyboard recorder): no pointer moves, its held
+// frames from its lift (its grab) to its drop, and what the live region said.
+describe("keyboard runs (#43, scenario 14)", () => {
+  const SAID = ["Picked up b, position 2 of 6.", "b, position 3 of 6.", "Dropped b at position 3 of 6."]
+  /** pressOf's run as a keyboard run: no moves, the lift at the grab, and its announcements. */
+  const keyboardOf = (over: { readonly announced?: ReadonlyArray<string>; readonly focusKept?: boolean; readonly endedBy?: DragRunInput["endedBy"] } = {}): DragRunInput => {
+    const base = pressOf()
+    return {
+      ...base,
+      moves: [],
+      ...(over.endedBy !== undefined ? { endedBy: over.endedBy } : {}),
+      reorder: { ...base.reorder!, keyboard: { announced: over.announced ?? SAID, focusKept: over.focusKept ?? true } },
+    }
+  }
+
+  it("KR1: a keyboard run is judged as a drag from its lift to its drop, and announces the lift first and the drop last, focus kept", () => {
+    const l = lines(keyboardOf())
+    expect(l.reorders).toEqual({ name: "reorders", ok: true, text: "1 · one place each · placed by keyboard ✓" })
+    expect(l["uninvolved still"]).toEqual({ name: "uninvolved still", ok: true, text: "0.00 px · 4 items ✓" })
+    expect(l.raised!.text).toMatch(/^\d+\/\d+ frames on top ✓$/)
+    expect(l.announced).toEqual({
+      name: "announced",
+      ok: true,
+      text: "“Picked up b, position 2 of 6.” · “b, position 3 of 6.” · “Dropped b at position 3 of 6.” ✓",
+    })
+  })
+
+  it("KR2: announced fails with no lift first, no drop or cancel last, or focus that left the item; a run cut short isn't held to its end", () => {
+    expect(lines(keyboardOf({ announced: SAID.slice(1) })).announced!.ok).toBe(false)
+    expect(lines(keyboardOf({ announced: SAID.slice(0, 2) })).announced!.ok).toBe(false)
+    expect(lines(keyboardOf({ announced: [SAID[0]!, "Cancelled. b is back at position 2 of 6."] })).announced!.ok).toBe(true)
+    const left = lines(keyboardOf({ focusKept: false })).announced!
+    expect(left.ok).toBe(false)
+    expect(left.text).toContain("focus left the item")
+    const cut = lines(keyboardOf({ announced: SAID.slice(0, 2), endedBy: "next-press" })).announced!
+    expect(cut.ok).toBe(true)
+    expect(cut.text).toContain("cut short")
+  })
+
+  it("KR4: a cancel's restore of the order from the lift is no step: left out of reorders, which says it's back", () => {
+    const base = keyboardOf({ announced: [SAID[0]!, SAID[1]!, "Cancelled. b is back at position 2 of 6."] })
+    const restored = { ...base, reorder: { ...base.reorder!, reorders: [...base.reorder!.reorders, { t: 200, frame: 11, order: VALUES }] } }
+    expect(lines(restored).reorders).toEqual({ name: "reorders", ok: true, text: "1 · one place each · cancelled: back where it was ✓" })
+  })
+
+  it("KR3: a pointer's run announces nothing, by design; a keyboard run's drag lines but ends on slot have no pointer to read", () => {
+    expect(lines(pressOf()).announced).toEqual({ name: "announced", ok: true, text: "a pointer's run: nothing, by design" })
+    const drag = dragChecksOf(dragRunOf(keyboardOf(), []), { endsOnSlotMaxPx: 0.5, underPointerMaxPx: 1 })
+    for (const c of drag.filter((c) => c.name !== "ends on slot")) expect(c, c.name).toEqual({ name: c.name, ok: true, text: "a keyboard run: no pointer" })
+    // Read as a drag's: this fixture has no frame after its release, so it reads `?`, as the pointer run's does.
+    const end = drag.find((c) => c.name === "ends on slot")!
+    expect(end.text).not.toBe("a keyboard run: no pointer")
+    expect(end).toEqual(dragChecksOf(dragRunOf(pressOf(), []), { endsOnSlotMaxPx: 0.5, underPointerMaxPx: 1 }).find((c) => c.name === "ends on slot"))
   })
 })
