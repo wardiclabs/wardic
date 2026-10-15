@@ -205,7 +205,7 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     e.dispose()
   })
 
-  it("N2: while a node is dragged, a resting descendant gets no writes per frame and a running one gets one", async () => {
+  it("N2: while a node is dragged, a resting descendant gets no writes per frame and a running one gets one; the dragged node, held still, none (#27)", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const dEl = makeBox(0, 0, 200, 80)
@@ -229,7 +229,8 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     for (let i = 0; i < 5; i++) fireFrame()
     const frames = sk.log.slice(from)
 
-    expect(writesFor(frames, "d"), "D written every frame").toHaveLength(5)
+    // Held still, D draws the same each frame: the render gate writes it no more (#27, ADR-0009 Amendment (#27)).
+    expect(writesFor(frames, "d"), "D, held still, not written again").toHaveLength(0)
     expect(writesFor(frames, "run"), "the running descendant written every frame").toHaveLength(5)
     expect(writesFor(frames, "rest"), "the resting descendant not written (CSS carries it)").toHaveLength(0)
     e.dispose()
