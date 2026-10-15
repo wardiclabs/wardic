@@ -38,6 +38,12 @@ const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
 }
 
+/** `until`, which returns at its timeout either way, then the check that `done` was reached. */
+const reach = async (done: () => boolean, what: string): Promise<void> => {
+  await until(done)
+  expect(done(), what).toBe(true)
+}
+
 /** One element on `useWardic` with the config `config()` reads, in a provider over `env`. */
 const mount = (env: WardicEnv, config: () => WardicConfig): { readonly el: () => HTMLElement | undefined } => {
   let el: HTMLElement | undefined
@@ -59,7 +65,7 @@ describe("State recognizers start when wanted (#87)", () => {
   it("WW1: an element with neither whileHover nor whileTap starts neither recognizer, and still animates", async () => {
     const { env, count } = recording()
     const { el } = mount(env, () => ({ initial: { opacity: 0 }, animate: { opacity: 1 } }))
-    await until(() => opacityOf(el()) >= 0.99)
+    await reach(() => opacityOf(el()) >= 0.99, "animates to 1")
     el()!.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
     el()!.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true, isPrimary: true, button: 0 }))
     await frames(3)
@@ -75,18 +81,18 @@ describe("State recognizers start when wanted (#87)", () => {
       animate: { opacity: 0.2 },
       ...(hoverable() ? { whileHover: { opacity: 1 } } : {}),
     }))
-    await until(() => Math.abs(opacityOf(el()) - 0.2) < 0.01)
+    await reach(() => Math.abs(opacityOf(el()) - 0.2) < 0.01, "settles at its base")
     expect(count("wardic.hover"), "not wanted yet").toBe(0)
 
     setHoverable(true)
     await frames(2)
     expect(count("wardic.hover"), "started once it appears").toBe(1)
     // The recognizer attaches its listener asynchronously: enter each frame until it takes.
-    await until(() => {
+    await reach(() => {
       el()!.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
       return opacityOf(el()) > 0.3
-    })
-    await until(() => opacityOf(el()) >= 0.99)
+    }, "hover takes")
+    await reach(() => opacityOf(el()) >= 0.99, "hovered: at the hover target")
 
     setHoverable(false)
     await frames(2)
@@ -96,20 +102,20 @@ describe("State recognizers start when wanted (#87)", () => {
     expect(count("wardic.press"), "never wanted").toBe(0)
     // Still alive: it lives with the element, not with the computation that started it.
     el()!.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, bubbles: true }))
-    await until(() => opacityOf(el()) <= 0.25)
+    await reach(() => opacityOf(el()) <= 0.25, "left: back at its base")
     el()!.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
-    await until(() => opacityOf(el()) >= 0.99)
+    await reach(() => opacityOf(el()) >= 0.99, "entered again: at the hover target")
   })
 
   it("WW3: whileTap at mount starts press only, which drives the tap target", async () => {
     const { env, count } = recording()
     const { el } = mount(env, () => ({ initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileTap: { opacity: 1 } }))
-    await until(() => Math.abs(opacityOf(el()) - 0.2) < 0.01)
+    await reach(() => Math.abs(opacityOf(el()) - 0.2) < 0.01, "settles at its base")
     expect(count("wardic.press")).toBe(1)
     expect(count("wardic.hover")).toBe(0)
-    await until(() => {
+    await reach(() => {
       el()!.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true, isPrimary: true, button: 0 }))
       return opacityOf(el()) > 0.3
-    })
+    }, "press takes")
   })
 })
