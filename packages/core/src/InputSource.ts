@@ -92,12 +92,23 @@ export const isPrimaryPointer = (event: PointerLikeEvent): boolean =>
     Match.orElse((other) => other.isPrimary),
   )
 
+/**
+ * A key going down or up at a target, or inside it (ADR-0037). `fromTarget`: the key came from the
+ * target itself, not from something inside it (a text field, a button). `defaultPrevented`: a
+ * handler on the page already took it (the app's), as the Environment sees it once those have run.
+ * `preventDefault()` stops the platform's own action (Space and the arrows scroll the page); a
+ * consumer calls it while it handles the event, which reaches it inside the platform's dispatch
+ * (ADR-0032).
+ */
 export interface KeyboardLikeEvent {
   readonly type: "down" | "up"
   readonly key: string
   readonly code: string
   readonly repeat: boolean
   readonly timeStamp: number
+  readonly fromTarget: boolean
+  readonly defaultPrevented: boolean
+  readonly preventDefault: () => void
 }
 
 export interface WheelLikeEvent {
@@ -124,7 +135,12 @@ export interface FocusLikeEvent {
  */
 export class InputSource extends Context.Service<InputSource, {
   readonly pointer: (target: unknown) => Stream.Stream<PointerLikeEvent>
-  readonly keyboard: () => Stream.Stream<KeyboardLikeEvent>
+  /**
+   * The keys at `target` or inside it (ADR-0037): a **Shared source** per target, delivered inside
+   * the platform's dispatch, after the page's own handlers, so a consumer reads whether one took
+   * the key and can still prevent its default.
+   */
+  readonly keyboard: (target: unknown) => Stream.Stream<KeyboardLikeEvent>
   readonly wheel: (target: unknown) => Stream.Stream<WheelLikeEvent>
   /**
    * Focus/blur transitions for a target. Like `pointer`, this is a Shared

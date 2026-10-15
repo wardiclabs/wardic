@@ -1,8 +1,9 @@
 /**
  * The `Reorder` module: the **Reorder group**'s pure pieces (ADR-0020): the Crossover
- * (`check`), axis detection, and the group a binding drives from a drag, a `Pipeable` data type
- * (`Group`) with `dual` operations (ADR-0028, decision 1). DOM-free; the binding and the
- * Environment supply the boxes, points and scrollers.
+ * (`check`), axis detection, and the group a binding drives from a drag or from the keys (a
+ * **Keyboard reorder**, ADR-0037), a `Pipeable` data type (`Group`) with `dual` operations
+ * (ADR-0028, decision 1), and the keyboard reorder's wording. DOM-free; the binding and the
+ * Environment supply the boxes, points, keys and scrollers, and speak the announcements.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -321,6 +322,17 @@ export interface GroupOptions<V> {
   readonly debug?: ((event: string, annotations: Record<string, unknown>) => void) | undefined
 }
 
+/** A **Keyboard reorder** under way: the lifted value, where it was, and the axis and direction fixed at the lift. */
+interface Lift<V> {
+  readonly value: V
+  /** The order at the lift, which a cancel restores. */
+  readonly origin: ReadonlyArray<V>
+  readonly axis: Axis
+  readonly direction: "ltr" | "rtl"
+  /** The lifted item's `layoutVersion()` at its last step, until a Measure pass passes it (as a drag's guard). */
+  guard: Option.Option<number>
+}
+
 /** The one drag gesture a group runs at a time. */
 interface Gesture<V> {
   readonly value: V
@@ -347,6 +359,8 @@ interface Gesture<V> {
  *   Auto-scroll; `dragEnd` ends it.
  * - `move(group, value, toIndex)` moves a value in code (clamped to the list, an unknown
  *   value ignored).
+ * - `lift`, `step`, `drop` and `cancel` run a **Keyboard reorder** (ADR-0037), one item at a
+ *   time: each returns where the item is, for its announcement.
  *
  * Its state is the group's own, changed only by those operations.
  *
@@ -360,6 +374,8 @@ export interface Group<in out V> extends Pipeable, Inspectable.Inspectable {
   readonly sources: Map<V, ItemSource>
   /** The drag gesture, while one runs. */
   readonly gesture: MutableRef.MutableRef<Option.Option<Gesture<V>>>
+  /** The **Keyboard reorder**, while an item is lifted (ADR-0037). */
+  readonly lifted: MutableRef.MutableRef<Option.Option<Lift<V>>>
 }
 
 const Proto = {
@@ -370,6 +386,7 @@ const Proto = {
       _id: "Reorder.Group",
       registered: this.sources.size,
       dragging: Option.map(MutableRef.get(this.gesture), (gesture) => gesture.value),
+      lifted: Option.map(MutableRef.get(this.lifted), (lift) => lift.value),
     }
   },
   pipe() {
@@ -395,6 +412,7 @@ export const make = <V>(options: GroupOptions<V>): Group<V> =>
     options,
     sources: new Map<V, ItemSource>(),
     gesture: MutableRef.make(Option.none<Gesture<V>>()),
+    lifted: MutableRef.make(Option.none<Lift<V>>()),
   })
 
 /** Whether `u` is a **Reorder group** (built by {@link make}). */
@@ -451,11 +469,7 @@ const reorderOn = <V>(group: Group<V>, g: Gesture<V>, value: V, source: ItemSour
   const measured = measure(group, values)
   const next = check(measured, value, source.dragOffset(), velocity, g.axis, g.direction)
   if (next === measured) return
-  // The measured items' slots in `values`, refilled in their new order.
-  const newValues = Arr.reduce(next, Arr.copy(values), (out, item, i) => {
-    out[Arr.getUnsafe(measured, i).index] = item.value
-    return out
-  })
+  const newValues = refill(values, measured, next)
   const indexIn = (list: ReadonlyArray<V>): number =>
     Option.getOrElse(Arr.findFirstIndex(list, (v) => v === value), () => -1)
   g.guard = Option.some(source.layoutVersion())
@@ -463,6 +477,13 @@ const reorderOn = <V>(group: Group<V>, g: Gesture<V>, value: V, source: ItemSour
   log(group, "reorder", { value, from: indexIn(values), to: indexIn(newValues), axis: g.axis, direction: g.direction })
   group.options.onReorder(newValues)
 }
+
+/** `values` with the measured items' slots refilled in `next`'s order: an unmeasured value keeps its index. */
+const refill = <V>(values: ReadonlyArray<V>, measured: ReadonlyArray<Measured<V>>, next: ReadonlyArray<ItemData<V>>): Array<V> =>
+  Arr.reduce(next, Arr.copy(values), (out, item, i) => {
+    out[Arr.getUnsafe(measured, i).index] = item.value
+    return out
+  })
 
 /** Add `value`'s item, read through `source`; the returned function removes it. */
 export const register: {
@@ -482,16 +503,20 @@ export const resolveAxis = <V>(group: Group<V>): Axis =>
     Option.getOrElse(() => detectAxis(Arr.map(measure(group, group.options.values()), (item) => item.layout))),
   )
 
+/** The group's inline direction now: its `direction`, else `"ltr"`. */
+const directionOf = <V>(group: Group<V>): "ltr" | "rtl" =>
+  Option.fromUndefinedOr(group.options.direction).pipe(
+    Option.flatMap((read) => Option.fromNullishOr(read())),
+    Option.getOrElse((): "ltr" | "rtl" => "ltr"),
+  )
+
 /** Start dragging `value`'s item: the gesture's axis and direction are fixed now. Returns the axis. */
 export const dragStart: {
   <V>(value: V): (group: Group<V>) => Axis
   <V>(group: Group<V>, value: V): Axis
 } = dual(2, <V>(group: Group<V>, value: V): Axis => {
   const axis = resolveAxis(group)
-  const direction = Option.fromUndefinedOr(group.options.direction).pipe(
-    Option.flatMap((directionOf) => Option.fromNullishOr(directionOf())),
-    Option.getOrElse((): "ltr" | "rtl" => "ltr"),
-  )
+  const direction = directionOf(group)
   MutableRef.set(group.gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
   log(group, "reorder start", { value, axis, direction })
   return axis
@@ -527,19 +552,288 @@ export const dragEnd: {
   }
 })
 
-/** Move `value` to `toIndex` in code, through `onReorder` (clamped to the list; an unknown value is ignored). */
+/**
+ * Move `value` to `toIndex` in code, through `onReorder` (clamped to the list), and return where it
+ * is then, for its announcement (ADR-0037; `moved` false when it was already there). An unknown
+ * value is ignored (`None`).
+ */
 export const move: {
-  <V>(value: V, toIndex: number): (group: Group<V>) => void
-  <V>(group: Group<V>, value: V, toIndex: number): void
-} = dual(3, <V>(group: Group<V>, value: V, toIndex: number): void => {
+  <V>(value: V, toIndex: number): (group: Group<V>) => Option.Option<Placement>
+  <V>(group: Group<V>, value: V, toIndex: number): Option.Option<Placement>
+} = dual(3, <V>(group: Group<V>, value: V, toIndex: number): Option.Option<Placement> => {
   const values = group.options.values()
-  Option.match(Arr.findFirstIndex(values, (v) => v === value), {
-    onNone: constVoid,
-    onSome: (from) => {
-      const to = Math.min(Math.max(0, toIndex), values.length - 1)
-      if (to === from) return
-      log(group, "move", { value, from, to })
-      group.options.onReorder(moveItem(values, from, to))
-    },
+  return Option.flatMap(Arr.findFirstIndex(values, (v) => v === value), (from) => {
+    const to = Math.min(Math.max(0, toIndex), values.length - 1)
+    if (to === from) return placementIn(values, value, false)
+    log(group, "move", { value, from, to })
+    const next = moveItem(values, from, to)
+    group.options.onReorder(next)
+    return placementIn(next, value, true)
   })
 })
+
+// --- The keyboard reorder (ADR-0037) ----------------------------------------------
+
+/**
+ * What a key does to a **Keyboard reorder** (ADR-0037): Space or Enter lifts an item, or drops the
+ * lifted one (`Toggle`); Escape cancels; an arrow steps the lifted item one place on screen; Home and
+ * End move it to the first or last place. Any other key does nothing.
+ *
+ * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ */
+export type KeyIntent =
+  | { readonly _tag: "Toggle" }
+  | { readonly _tag: "Cancel" }
+  | { readonly _tag: "Step"; readonly arrow: Arrow }
+  | { readonly _tag: "End"; readonly end: "first" | "last" }
+
+/** An arrow key, by where it points on screen. */
+export type Arrow = "left" | "right" | "up" | "down"
+
+const TOGGLE: KeyIntent = { _tag: "Toggle" }
+const CANCEL: KeyIntent = { _tag: "Cancel" }
+const stepTo = (arrow: Arrow): KeyIntent => ({ _tag: "Step", arrow })
+const endTo = (end: "first" | "last"): KeyIntent => ({ _tag: "End", end })
+
+/** What `key` (a `KeyboardEvent.key`) does to a keyboard reorder, if anything (see {@link KeyIntent}). */
+export const keyIntent = (key: string): Option.Option<KeyIntent> =>
+  Match.value(key).pipe(
+    Match.when(Match.is(" ", "Enter"), () => Option.some(TOGGLE)),
+    Match.when("Escape", () => Option.some(CANCEL)),
+    Match.when("ArrowLeft", () => Option.some(stepTo("left"))),
+    Match.when("ArrowRight", () => Option.some(stepTo("right"))),
+    Match.when("ArrowUp", () => Option.some(stepTo("up"))),
+    Match.when("ArrowDown", () => Option.some(stepTo("down"))),
+    Match.when("Home", () => Option.some(endTo("first"))),
+    Match.when("End", () => Option.some(endTo("last"))),
+    Match.orElse(() => Option.none()),
+  )
+
+/**
+ * Where a lifted item goes for one arrow (ADR-0037, Q4): its new index in `order`, by what's on
+ * screen. On a single axis only that axis's arrows act: the item takes the place of the neighbour,
+ * of the two next to it in `order`, whose centre lies the way the arrow points, as the **Crossover**
+ * chooses its neighbour by position, so an rtl row or a reversed list moves the way the arrow points.
+ * In `"xy"`, Left and Right step one place in reading order (flipped in rtl), which wraps across
+ * rows; Up and Down take the place of the item in the row above or below whose centre is nearest.
+ * With nowhere to go (an end, or an arrow off the axis), it's `index`.
+ *
+ * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ */
+export const arrowTarget = <V>(order: ReadonlyArray<ItemData<V>>, index: number, arrow: Arrow, axis: Axis, direction: "ltr" | "rtl"): number =>
+  Option.match(Arr.get(order, index), {
+    onNone: () => index,
+    onSome: (item) =>
+      Match.value(axis).pipe(
+        Match.when("xy", () => gridTarget(order, index, item, arrow, direction)),
+        Match.orElse((single) => axisTarget(order, index, item, arrow, single)),
+      ),
+  })
+
+/** Which way along `axis` an arrow points: `1` toward greater coordinates, `-1` toward smaller, `0` off it. */
+const signOn = (arrow: Arrow, axis: "x" | "y"): number =>
+  Match.value({ arrow, axis }).pipe(
+    Match.when({ arrow: "right", axis: "x" }, () => 1),
+    Match.when({ arrow: "left", axis: "x" }, () => -1),
+    Match.when({ arrow: "down", axis: "y" }, () => 1),
+    Match.when({ arrow: "up", axis: "y" }, () => -1),
+    Match.orElse(() => 0),
+  )
+
+/** A single axis's step: the neighbour whose centre lies the way the arrow points, by position. */
+const axisTarget = <V>(order: ReadonlyArray<ItemData<V>>, index: number, item: ItemData<V>, arrow: Arrow, axis: "x" | "y"): number => {
+  const sign = signOn(arrow, axis)
+  if (sign === 0) return index
+  const forward = sign > 0
+  const centre = centreOf(item.layout[axis])
+  return Option.getOrElse(
+    Option.orElse(
+      Option.as(centreOnSide(order, index - 1, axis, centre, forward), index - 1),
+      () => Option.as(centreOnSide(order, index + 1, axis, centre, forward), index + 1),
+    ),
+    () => index,
+  )
+}
+
+/** A grid's step: reading order across, the nearest centre in the row above or below. */
+const gridTarget = <V>(order: ReadonlyArray<ItemData<V>>, index: number, item: ItemData<V>, arrow: Arrow, direction: "ltr" | "rtl"): number =>
+  Match.value(arrow).pipe(
+    Match.when(Match.is("left", "right"), (across) => {
+      const ahead = Bool.match(direction === "rtl", { onTrue: () => across === "left", onFalse: () => across === "right" })
+      const next = index + Bool.match(ahead, { onTrue: () => 1, onFalse: () => -1 })
+      return Bool.match(Bool.and(next >= 0, next < order.length), { onTrue: () => next, onFalse: () => index })
+    }),
+    Match.orElse((vertical) => {
+      // The rows, top to bottom; the item's, and the one above or below it.
+      const rows = Arr.sort(getLines(order), Order.mapInput(Num.Order, (line: Line<V>) => line.min))
+      const own = Option.getOrElse(Arr.findFirstIndex(rows, (row) => row.items.includes(item)), () => -1)
+      const x = centreOf(item.layout.x)
+      return Arr.get(rows, own + Bool.match(vertical === "down", { onTrue: () => 1, onFalse: () => -1 })).pipe(
+        Option.map((row) => Arr.min(row.items, Order.mapInput(Num.Order, (other: ItemData<V>) => Math.abs(centreOf(other.layout.x) - x)))),
+        Option.flatMap((nearest) => Arr.findFirstIndex(order, (other) => other === nearest)),
+        Option.getOrElse(() => index),
+      )
+    }),
+  )
+
+/**
+ * Where an item is after a keyboard reorder's step, for its announcement: its 1-based `position` in
+ * the order and the order's `count`, and whether this step `moved` it (not at an end).
+ *
+ * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ */
+export interface Placement {
+  readonly position: number
+  readonly count: number
+  readonly moved: boolean
+  /**
+   * Whether the step waited for a Measure pass (ADR-0037): after a step the boxes are the old order's
+   * until a pass measures the new one, so a step read against them could go the wrong way. It moved
+   * nothing, and has nothing to announce: a held arrow's repeat in that window is dropped.
+   */
+  readonly waiting: boolean
+}
+
+/** `value`'s placement in `values`, `None` when it isn't in it. */
+const placementIn = <V>(values: ReadonlyArray<V>, value: V, moved: boolean, waiting = false): Option.Option<Placement> =>
+  Option.map(Arr.findFirstIndex(values, (v) => v === value), (index) => ({ position: index + 1, count: values.length, moved, waiting }))
+
+/** The lifted item, when it's `value`. */
+const liftOf = <V>(group: Group<V>, value: V): Option.Option<Lift<V>> => Option.filter(MutableRef.get(group.lifted), (lift) => lift.value === value)
+
+/**
+ * Lift `value`'s item for a keyboard reorder (ADR-0037): the axis and direction are fixed now, as a
+ * drag's are at its start, and the order kept for a cancel. Lifting another item drops the one lifted.
+ * `None` for a value not in `values`.
+ */
+export const lift: {
+  <V>(value: V): (group: Group<V>) => Option.Option<Placement>
+  <V>(group: Group<V>, value: V): Option.Option<Placement>
+} = dual(2, <V>(group: Group<V>, value: V): Option.Option<Placement> => {
+  const values = group.options.values()
+  return Option.map(placementIn(values, value, false), (placement) => {
+    const axis = resolveAxis(group)
+    const direction = directionOf(group)
+    MutableRef.set(group.lifted, Option.some({ value, origin: Arr.copy(values), axis, direction, guard: Option.none() }))
+    log(group, "keyboard lift", { value, position: placement.position, axis, direction })
+    return placement
+  })
+})
+
+/**
+ * One key's move of the lifted item (ADR-0037): an arrow's on-screen step ({@link arrowTarget}), or
+ * Home's or End's jump to the first or last place, through `onReorder`. `moved` is false where it
+ * had nowhere to go (an end). Until a Measure pass has measured the order its last step made, a step
+ * waits (`waiting`, nothing moved), as a drag's next reorder does. `None` when `value` isn't the
+ * lifted item.
+ */
+export const step: {
+  <V>(value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): (group: Group<V>) => Option.Option<Placement>
+  <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement>
+} = dual(3, <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement> =>
+  Option.flatMap(liftOf(group, value), (l) => {
+    const values = group.options.values()
+    const source = group.sources.get(value)
+    const version = Option.match(Option.fromUndefinedOr(source), { onNone: () => 0, onSome: (s) => s.layoutVersion() })
+    if (Option.exists(l.guard, (guard) => version <= guard)) return placementIn(values, value, false, true)
+    l.guard = Option.none()
+    const measured = measure(group, values)
+    return Option.flatMap(Arr.findFirstIndex(measured, (item) => item.value === value), (index) => {
+      const target = Match.value(intent).pipe(
+        Match.tag("Step", ({ arrow }) => arrowTarget(measured, index, arrow, l.axis, l.direction)),
+        Match.tag("End", ({ end }) => Bool.match(end === "first", { onTrue: () => 0, onFalse: () => measured.length - 1 })),
+        Match.exhaustive,
+      )
+      if (target === index) return placementIn(values, value, false)
+      const newValues = refill(values, measured, moveItem(measured, index, target))
+      log(group, "keyboard step", { value, from: Arr.getUnsafe(measured, index).index, to: Arr.getUnsafe(measured, target).index })
+      l.guard = Option.some(version)
+      group.options.onReorder(newValues)
+      return placementIn(newValues, value, true)
+    })
+  }))
+
+/** Drop the lifted item where it is (ADR-0037): its placement; `None` when `value` isn't lifted. */
+export const drop: {
+  <V>(value: V): (group: Group<V>) => Option.Option<Placement>
+  <V>(group: Group<V>, value: V): Option.Option<Placement>
+} = dual(2, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
+  Option.flatMap(liftOf(group, value), () => {
+    MutableRef.set(group.lifted, Option.none())
+    const placement = placementIn(group.options.values(), value, false)
+    log(group, "keyboard drop", { value, position: Option.map(placement, (p) => p.position) })
+    return placement
+  }))
+
+/**
+ * Cancel the keyboard reorder (ADR-0037): the order from the lift comes back through `onReorder`,
+ * when it changed, and the item's placement there; `None` when `value` isn't lifted.
+ */
+export const cancel: {
+  <V>(value: V): (group: Group<V>) => Option.Option<Placement>
+  <V>(group: Group<V>, value: V): Option.Option<Placement>
+} = dual(2, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
+  Option.flatMap(liftOf(group, value), (l) => {
+    MutableRef.set(group.lifted, Option.none())
+    const values = group.options.values()
+    const restored = restore(values, l.origin, value)
+    if (Bool.not(sameOrder(restored, values))) group.options.onReorder(restored)
+    log(group, "keyboard cancel", { value })
+    return placementIn(restored, value, false)
+  }))
+
+/**
+ * The order from the lift, as far as `values` still holds it: `value` back at its index there, the
+ * rest in their current order. Only the lifted item moved during the lift, so this is the lift's
+ * order unless the app changed `values` (which drops the lift first).
+ */
+const restore = <V>(values: ReadonlyArray<V>, origin: ReadonlyArray<V>, value: V): Array<V> =>
+  Option.match(Arr.findFirstIndex(values, (v) => v === value), {
+    onNone: () => Arr.copy(values),
+    onSome: (from) => moveItem(values, from, Option.getOrElse(Arr.findFirstIndex(origin, (v) => v === value), () => from)),
+  })
+
+/** The lifted value, while a keyboard reorder runs. */
+export const liftedValue = <V>(group: Group<V>): Option.Option<V> => Option.map(MutableRef.get(group.lifted), (l) => l.value)
+
+// --- The keyboard reorder's wording (ADR-0037) ---------------------------------------
+
+/**
+ * What an announcement says about an item: its `value`, the `label` it's spoken as (the binding's:
+ * the element's `aria-label`, else its text), its 1-based `position` and the list's `count`.
+ *
+ * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ */
+export interface AnnouncementInfo<V> {
+  readonly value: V
+  readonly label: string
+  readonly position: number
+  readonly count: number
+}
+
+/**
+ * A **Reorder group**'s announcements (ADR-0037): one per moment of a keyboard reorder, and `move`
+ * for a move in code (an app's own buttons, through `move`). A group overrides any of them, and its
+ * `instructions`, for translation or tone.
+ *
+ * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ */
+export interface Announcements<V> {
+  readonly lift: (info: AnnouncementInfo<V>) => string
+  readonly step: (info: AnnouncementInfo<V>) => string
+  readonly drop: (info: AnnouncementInfo<V>) => string
+  readonly cancel: (info: AnnouncementInfo<V>) => string
+  readonly move: (info: AnnouncementInfo<V>) => string
+}
+
+/** The default announcements, in English (ADR-0037, Q6). */
+export const defaultAnnouncements: Announcements<unknown> = {
+  lift: ({ label, position, count }) => `Picked up ${label}, position ${position} of ${count}.`,
+  step: ({ label, position, count }) => `${label}, position ${position} of ${count}.`,
+  drop: ({ label, position, count }) => `Dropped ${label} at position ${position} of ${count}.`,
+  cancel: ({ label, position, count }) => `Cancelled. ${label} is back at position ${position} of ${count}.`,
+  move: ({ label, position, count }) => `Moved ${label} to position ${position} of ${count}.`,
+}
+
+/** The default instructions for an item, in English (ADR-0037, Q8): the keys, as Q3 sets them. */
+export const DEFAULT_INSTRUCTIONS = "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel."

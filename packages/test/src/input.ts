@@ -7,7 +7,7 @@ import * as Stream from "effect/Stream"
 /**
  * An InputSource that replays fixed scripts of events. `pointer(target)` returns
  * the same `pointerEvents` and `focus(target)` the same `focusEvents` (both
- * ignore `target` — tests address a single surface), while `keyboard()`/`wheel()`
+ * ignore `target` — tests address a single surface), while `keyboard(target)`/`wheel(target)`
  * stay empty. The first positional arg is pointer events for back-compat; focus
  * events are an optional second arg, defaulting to empty so existing one-arg call
  * sites emit nothing on focus. Called with no args it yields an InputSource that
