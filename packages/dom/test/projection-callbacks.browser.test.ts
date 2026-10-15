@@ -10,7 +10,9 @@
 //   offset running; not for a flight a restart interrupted, nor one an unmount cut off.
 // - LC3: under reduced motion the flight starts landed: both fire in its first frame.
 // - LC4: a layoutRoot's snap fires nothing; nor does a dragged subtree's slot-only update.
-// - LC5: in a handover only the new Lead's callbacks fire, not the Follower's.
+// - LC5: in a handover only the new Lead's callbacks fire, not the Follower's; LC5b: a Lead relegated
+//   before its flight's first step never starts, and one relegated in flight never completes.
+// - LC2b: a flight that lands under a held drag completes.
 // - LC6: a callback that throws is reported, and the frame goes on.
 // - LC7: `onSettled`: after a landing; after a restart cut the flight short; after an unmount; at
 //   the end of its pass when it started nothing; calls in one task together; a throw reported.
@@ -189,6 +191,65 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
     await endOfTask()
     fireFrames(20)
     expect(calls).toEqual(["start lead", "complete lead"])
+    e.dispose()
+  })
+
+  it("LC5b: a Lead relegated before its flight's first step, or in flight, fires nothing more: the handover is the new Lead's", async () => {
+    const e = makeEngine(makeSink().sink)
+    const s = stage(STAGE)
+    const register = (id: string, element: HTMLElement): ProjectionNodeHandle =>
+      e.system.register({
+        id,
+        element,
+        layoutId: "twin",
+        transition: () => TWEEN,
+        onLayoutAnimationStart: () => () => calls.push(`start ${id}`),
+        onLayoutAnimationComplete: () => () => calls.push(`complete ${id}`),
+      })
+    // In flight: started, then relegated two frames in; it never completes.
+    const a = absolute(s, 0)
+    const [ha] = await mount(e, [a], () => ({ layoutId: "twin" }))
+    moveTo(a, ha!, 100)
+    await endOfTask()
+    fireFrames(2)
+    register("lead", absolute(s, 300))
+    await endOfTask()
+    fireFrames(30)
+    expect(calls).toEqual(["start n0", "start lead", "complete lead"])
+    e.dispose()
+
+    // Before its first step: moved, and relegated in the same task; it never starts.
+    const e2 = makeEngine(makeSink().sink)
+    const s2 = stage(STAGE)
+    const c = absolute(s2, 0)
+    const [hc] = await mount(e2, [c], () => ({ layoutId: "twin" }))
+    moveTo(c, hc!, 100)
+    e2.system.register({
+      id: "lead2",
+      element: absolute(s2, 300),
+      layoutId: "twin",
+      transition: () => TWEEN,
+      onLayoutAnimationStart: () => () => calls.push("start lead2"),
+      onLayoutAnimationComplete: () => () => calls.push("complete lead2"),
+    })
+    await endOfTask()
+    fireFrames(30)
+    expect(calls.filter((call) => call.endsWith("n0"))).toEqual([])
+    e2.dispose()
+  })
+
+  it("LC2b: a flight that lands under a held drag completes", async () => {
+    const e = makeEngine(makeSink().sink)
+    const a = absolute(stage(STAGE), 0)
+    const [h] = await mount(e, [a])
+    moveTo(a, h!, 100)
+    await endOfTask()
+    fireFrame()
+    h!.dragStart()
+    h!.dragMove({ x: 80, y: 0 })
+    fireFrames(10)
+    expect(calls).toEqual(["start n0", "complete n0"])
+    h!.dragEnd()
     e.dispose()
   })
 
