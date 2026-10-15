@@ -49,7 +49,7 @@ const spyTarget = <T extends EventTarget>(target: T) => {
 // `layer()` provides InputDomLive to every test in the suite and memoizes it,
 // so we don't re-provide it per test. Each test uses a FRESH element, so the
 // shared RcMaps key distinct entries — no cross-test interference even though
-// the layer (and its global keyboard source) is shared.
+// the layer is shared.
 layer(InputDomLive)("InputDomLive", (it) => {
   it.effect("pointer maps down/move/up: type, coords, buttons, pointerId", () =>
     Effect.gen(function* () {
@@ -112,20 +112,69 @@ layer(InputDomLive)("InputDomLive", (it) => {
       yield* sub.close
     }))
 
-  it.effect("keyboard maps document keydown/keyup with key/code/repeat", () =>
+  it.effect("keyboard(target) maps keydown/keyup at the target and inside it, with key/code/repeat and whether it came from the target (#43)", () =>
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
-      const sub = yield* subscribeIn(input.keyboard())
+      const el = document.createElement("div")
+      const child = document.createElement("input")
+      el.appendChild(child)
+      document.body.appendChild(el)
+      const sub = yield* subscribeIn(input.keyboard(el))
 
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", repeat: false }))
-      document.dispatchEvent(new KeyboardEvent("keyup", { key: "a", code: "KeyA", repeat: false }))
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", repeat: false, bubbles: true }))
+      child.dispatchEvent(new KeyboardEvent("keyup", { key: "b", code: "KeyB", repeat: true, bubbles: true }))
+      // A key elsewhere on the page isn't the target's.
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", bubbles: true }))
 
       const events = yield* sub.collect(2)
-      expect(events.map((e) => ({ type: e.type, key: e.key, code: e.code, repeat: e.repeat }))).toEqual([
-        { type: "down", key: "a", code: "KeyA", repeat: false },
-        { type: "up", key: "a", code: "KeyA", repeat: false },
+      expect(events.map((e) => ({ type: e.type, key: e.key, code: e.code, repeat: e.repeat, fromTarget: e.fromTarget }))).toEqual([
+        { type: "down", key: "a", code: "KeyA", repeat: false, fromTarget: true },
+        { type: "up", key: "b", code: "KeyB", repeat: true, fromTarget: false },
       ])
       yield* sub.close
+      el.remove()
+    }))
+
+  it.effect("keyboard(target) runs after the page's handlers and inside the dispatch: it sees their preventDefault, and its own counts (#43)", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const el = document.createElement("div")
+      document.body.appendChild(el)
+      // The app's handlers: one on the element, one delegated to the document, as Solid's are.
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") ev.preventDefault()
+      })
+      const onDocument = (ev: KeyboardEvent): void => {
+        if (ev.key === "Escape") ev.preventDefault()
+      }
+      document.addEventListener("keydown", onDocument)
+      const seen: Array<{ key: string; defaultPrevented: boolean }> = []
+      const fiber = yield* Effect.forkChild(
+        Stream.runForEach(input.keyboard(el), (e) =>
+          Effect.sync(() => {
+            seen.push({ key: e.key, defaultPrevented: e.defaultPrevented })
+            if (e.key === " ") e.preventDefault()
+          })),
+      )
+      yield* drain
+
+      const space = new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true })
+      el.dispatchEvent(space)
+      // Handled inside the dispatch: seen before dispatchEvent returned, and its preventDefault took.
+      expect(seen.map((s) => s.key)).toEqual([" "])
+      expect(space.defaultPrevented).toBe(true)
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }))
+      expect(seen).toEqual([
+        { key: " ", defaultPrevented: false },
+        { key: "Enter", defaultPrevented: true },
+        { key: "Escape", defaultPrevented: true },
+        { key: "a", defaultPrevented: false },
+      ])
+      yield* Fiber.interrupt(fiber).pipe(Effect.andThen(drain))
+      document.removeEventListener("keydown", onDocument)
+      el.remove()
     }))
 
   it.effect("ref-counting: two subscribers to pointer(sameEl) attach one listener-set; removed after last closes", () =>

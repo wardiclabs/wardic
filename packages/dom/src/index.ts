@@ -17,6 +17,7 @@ import type * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as Announcer from "@wardic/core/Announcer"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Probe from "@wardic/core/Probe"
 import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
@@ -24,6 +25,7 @@ import type * as Renderer from "@wardic/core/Renderer"
 import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import { ClockDomLive } from "./clock.ts"
+import { AnnouncerDomLive } from "./announcer.ts"
 import { InputDomLive } from "./input.ts"
 import { InterpolatorRegistryDomLive } from "./interpolators.ts"
 import { PositionalKeysDomLive } from "./positional-keys.ts"
@@ -33,6 +35,7 @@ import { RendererDomLive } from "./renderer.ts"
 export const VERSION = "0.1.0-alpha.0"
 
 export { ClockDomLive } from "./clock.ts"
+export { ANNOUNCER_ATTRIBUTE, AnnouncerDomLive, announceIn, documentOf, instructionsId, prepareAnnouncer } from "./announcer.ts"
 export { InputDomLive } from "./input.ts"
 // The DOM Environment's Positional keys (ADR-0036): the transforms and CSS's box keys.
 export { isPositional, PositionalKeysDomLive } from "./positional-keys.ts"
@@ -156,10 +159,11 @@ export const DomLive: Layer.Layer<
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
+  | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 > = FrameLoop.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryDomLive, PositionalKeysDomLive),
+    Layer.mergeAll(ClockDomLive, RendererDomLive, InputDomLive, ProbeDomLive, InterpolatorRegistryDomLive, PositionalKeysDomLive, AnnouncerDomLive),
   ),
   Layer.provideMerge(AtomRegistry.layer),
 )
