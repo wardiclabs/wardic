@@ -69,7 +69,7 @@
   - Under the microtask shim, and in the browser tier, nothing changes: the hops already landed in the same task.
 - **What stays on the scheduler:**
   - one no-op release task per pointer event (decision 1);
-  - dom's other input sources, `focus`, `wheel` and `keyboard` (`Stream.fromEventListener`), and the Probe's (resize, `matchMedia`, `ResizeObserver`, `IntersectionObserver`): a hop per event each, none on a drag's path. A consumer of them that must land in the event's frame is the next to flush. *Since ADR-0037, `keyboard(target)` is one: it flushes after each key, so the keyboard reorder's `preventDefault()` counts.*
+  - dom's other input sources, `focus`, `wheel` and `keyboard` (`Stream.fromEventListener`), and the Probe's (resize, `matchMedia`, `ResizeObserver`, `IntersectionObserver`): a hop per event each, none on a drag's path. A consumer of them that must land in the event's frame is the next to flush. *Since ADR-0037, `keyboard(target)` is one: it flushes after each key, so the keyboard reorder's `handle()` (the event's `preventDefault()`) counts.*
 - **Consumers run inside DOM listeners:** the target's listener, or the window's capture-phase listener for a Held pointer's event. An exception can't escape (each consumer is a fiber), but a slow consumer now delays the rest of that dispatch.
 - **ADR-0027's decision 5 holds:** the drag track stays off the loop, since input drives it, and its release runs on it.
 - **#73's list of pipelines that hop:** the input queue and the drag track's `switchMap` come off it, and `Drag.fling` with them. No `merge` or `interruptWhen` is left on a per-frame path in `packages/*/src`.

@@ -18,10 +18,10 @@ Two current patterns were weighed (2026-10-15):
    - Rejected:
      - headless building blocks only (Atlassian's way): a plain `<Reorder>` would stay keyboard-inaccessible until the app built controls;
      - a built-in move menu: Wardic would render UI an app has to style.
-   - JAWS's browse mode is the known risk. The announcements and instructions carry it, and the NVDA pass by hand checks it. NVDA has the same risk (see the NVDA pass, below), so the instructions name focus mode.
+   - JAWS's browse mode is the known risk. The announcements and instructions carry it, and the NVDA pass by hand checks it. NVDA has the same risk (see the NVDA pass, below), so the web's instructions name focus mode.
 2. **Every item is a tab stop** (Q2): `tabindex="0"` unless the app gives its own `tabIndex`, which wins. A key acts only when the item itself has focus, not a field or button inside it.
    - Rejected: a roving tabindex (the arrows would mean two things), and nothing focusable (it undoes Q1).
-3. **Space or Enter lifts and drops, Escape cancels** (Q3). A key the page already took (its handler called `preventDefault`) is left alone, so an item that opens on Enter keeps that. The keys aren't configurable for now.
+3. **Space or Enter lifts and drops, Escape cancels** (Q3). A key the app already took (on the web, its handler called `preventDefault`) is left alone, so an item that opens on Enter keeps that. The keys aren't configurable for now.
 4. **The arrows move by what's on screen, one place per press** (Q4).
    - **A single axis:** only that axis's arrows act. The item takes the place of the neighbour, of the two next to it in the order, whose centre lies the way the arrow points: the **Crossover**'s rule by position. An rtl row, `row-reverse` and `column-reverse` therefore move the way the arrow points.
    - **A grid:** Left and Right step in reading order (flipped in rtl), which wraps across rows. Up and Down take the place of the item in the row above or below whose centre is nearest.
@@ -35,8 +35,11 @@ Two current patterns were weighed (2026-10-15):
    - Rejected: `aria-roledescription` (it replaces "list item" in some readers, and is ignored on an item rendered `as="div"`); `role="button"` with `aria-pressed`, dnd-kit's (a list of buttons loses "2 of 6", and an item's own controls would nest).
 9. **An interruption drops the item where it is** (Q9). Focus leaving the item drops it; a step can blur the node it moves, so focus is put back first, and a blur with focus back on the item isn't one. A press on the item drops it too (any drag goes on as usual), and so does the app changing `values` (at its new place). An unmount ends the lift unsaid. Only Escape restores the order from the lift. An arrow at an end re-announces the place, and keys during a pointer drag are left alone.
 10. **Core recognizes and decides; the Environment announces** (Q10, ADR-0004, ADR-0035, ADR-0036).
-    - **Recognition.** `InputSource.keyboard(target)` replaces the page-wide `keyboard()`, whose only user was its own test. Its events carry `fromTarget`, `defaultPrevented` and `preventDefault()`. The DOM's listens on the target's window, in the bubble phase, so it runs after the page's handlers (the element's, and Solid's delegated ones on the document). Each event is offered and its queue flushed, so a consumer handles it inside the dispatch, where its `preventDefault()` still counts (ADR-0032).
-    - **Decision.** Core's `Reorder` gains the pure model: `keyIntent`, `arrowTarget`, and `lift`, `step`, `drop` and `cancel` on the group, each returning the item's `Placement`, plus the wording (`defaultAnnouncements`, `DEFAULT_INSTRUCTIONS`). `Reorder.move` now returns its placement too.
+    - **Recognition.** `InputSource.keyboard(target)` replaces the page-wide `keyboard()`, whose only user was its own test. Its events carry `fromTarget`, `handled` (a handler that ran first took the key) and `handle()` (take it, so the platform's own response doesn't run).
+      - **Core names the keys.** An event's `key` is an `InputSource.Key`: `"space"`, `"enter"`, `"escape"`, the four arrows, `"home"`, `"end"`, and `"other"` for the rest. Each Environment maps its platform's names onto these; `@wardic/dom`'s `keyOf` maps `KeyboardEvent.key`. The event has no `code`: nothing read it.
+      - **The DOM's.** It listens on the target's window, in the bubble phase, so it runs after the page's handlers (the element's, and Solid's delegated ones on the document). `handled` is the event's `defaultPrevented`, and `handle()` its `preventDefault()`. Each event is offered and its queue flushed, so a consumer handles it inside the dispatch, where its `handle()` still counts (ADR-0032).
+      - Rejected: the DOM's own key names and `defaultPrevented`/`preventDefault()` in core, which the first draft of this PR had. Core holds no Environment's vocabulary (ADR-0035, ADR-0036), and a terminal's or a native platform's keys are named otherwise.
+    - **Decision.** Core's `Reorder` gains the pure model: `keyIntent`, `arrowTarget`, and `lift`, `step`, `drop` and `cancel` on the group, each returning the item's `Placement`, plus the wording (`defaultAnnouncements`, `DEFAULT_INSTRUCTIONS`, which names only the keys). `Reorder.move` now returns its placement too.
     - **Delivery.** A core contract, `Announcer.Announcer` (`announce(message)`), with a silent Layer for headless Environments. `@wardic/dom`'s `AnnouncerDomLive` is the live region, and `DomLive` provides it.
     - **The response.** `@wardic/dom`'s Reorder controller runs the keys, the announcements, the reveal and the interruptions. Solid adds `tabindex` and `aria-describedby`, feeds each item's keys, blurs and presses to the controller, and sets the spine's `lifted` so `whileDrag` applies.
     - Rejected: plain DOM listeners in the controller (a non-DOM Environment couldn't reuse the logic), and the logic in the Solid binding.
@@ -54,18 +57,18 @@ On Windows, in Chrome, on the lab's scenario 14:
 - **NVDA stayed in browse mode on a focused item.** NVDA switches to focus mode by itself only when focus lands on a widget (a field, a listbox's option, a grid's cell). An item that keeps its role (decision 8) is a list item with `tabindex`, so Space and the arrows went to NVDA's browse mode and never reached the item.
 - **In focus mode it all worked.** After NVDA+Space, the lift, the steps and the drop worked, and Escape put the item back where it was lifted from. NVDA spoke each announcement.
 
-So the default instructions now end with "Some screen readers need focus mode for these keys.", as react-beautiful-dnd's do. Switching the mode by itself would need a widget role on the items, which decision 8 rejected.
+So the web's default instructions end with "Some screen readers need focus mode for these keys.", as react-beautiful-dnd's do. Browse and focus mode are a web screen reader's, so the sentence is `@wardic/dom`'s: its `DEFAULT_REORDER_INSTRUCTIONS` is core's `Reorder.DEFAULT_INSTRUCTIONS` plus that sentence, and Solid's items read it. Switching the mode by itself would need a widget role on the items, which decision 8 rejected.
 
 ## Consequences
 
 - **New public API:**
   - `Reorder.Group`'s `keyboard`, `announcements` and `instructions`;
   - the `ReorderItemSpread`, `ReorderItemUserProps` and `ReorderItemWard` types (`createReorderItem` now returns a `ReorderItemWard`, which takes the app's `tabIndex` and `aria-describedby`);
-  - core's `Announcer` module and the keyboard part of `Reorder`;
-  - `@wardic/dom`'s `AnnouncerDomLive`, `announceIn`, `prepareAnnouncer`, `instructionsId` and `documentOf`;
+  - core's `Announcer` module, `InputSource.Key`, and the keyboard part of `Reorder`;
+  - `@wardic/dom`'s `AnnouncerDomLive`, `announceIn`, `prepareAnnouncer`, `instructionsId`, `documentOf` and `DEFAULT_REORDER_INSTRUCTIONS`;
   - `ProjectionNodeHandle.lift`.
 - **Breaking changes** (allowed before 1.0):
-  - `InputSource.keyboard()` takes a target, and its events carry three more fields;
+  - `InputSource.keyboard()` takes a target; its events' `key` is an `InputSource.Key`, `code` is gone, and they carry `fromTarget`, `handled` and `handle()`;
   - `WardicServices` includes `Announcer.Announcer`, so a hand-built Environment provides it (`Announcer.silent`, or `AnnouncerDomLive`);
   - `Reorder.move` returns a placement.
 - **Every Reorder item is now a tab stop by default.** An app whose items hold their own focusable controls gets one more tab stop per item, or turns the keyboard reorder off.
@@ -89,12 +92,12 @@ So the default instructions now end with "Some screen readers need focus mode fo
   - the axis fixed at the lift;
   - the wording.
 - **dom:**
-  - `test/input.browser.test.ts`: `keyboard(target)` (the target and inside it, after the page's handlers, inside the dispatch);
+  - `test/input.browser.test.ts`: `keyboard(target)` (the target and inside it, after the page's handlers, inside the dispatch, `handled` and `handle()`) and `keyOf`;
   - `test/announcer.browser.test.ts` AN1–AN4;
   - `test/projection-handle.browser.test.ts` PH11 (the lift's raise).
 - **Solid:**
   - `test/reorder-keyboard.browser.test.tsx` KB1–KB10, with real keys:
-    - lift, step and drop, with focus, the raise and `whileDrag`;
+    - lift, step and drop, with focus, the raise and `whileDrag`, and the web's default instructions;
     - Escape and Enter;
     - no page scroll;
     - the app's keys and a field's;
