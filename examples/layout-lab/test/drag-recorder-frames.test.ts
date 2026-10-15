@@ -1,6 +1,7 @@
 // The drag recorder's frames and moves on a phone (#184), against fakes for the browser's rAF, its
 // MessageChannel tasks, the window's events and the item's boxes, so the order of a frame's callback,
-// its read and a move is set by the test:
+// its read and a move is set by the test. They need no DOM: the repo's `bun run test` runs them in
+// plain Node, and the lab's own vitest under jsdom (vite-plugin-solid sets it):
 // - DR1: a read the next frame overtook (a phone painting every 7 ms while touched) reads that frame's
 //   paint, so it's recorded as that frame, and that frame's own read is skipped. Before, the recorder
 //   asked for its next frame only after a read: the overtaking frame went uncounted, and its paint was
@@ -35,6 +36,9 @@ const browser = () => {
   const doc = {}
   vi.stubGlobal("window", win)
   vi.stubGlobal("document", doc)
+  // The repo's gate runs this in plain Node, with no DOM: the recorder asks whether an event's target is a
+  // Node (whether the pointer left the item), and these fakes aren't.
+  vi.stubGlobal("Node", class {})
   vi.stubGlobal("requestAnimationFrame", (fn: FrameRequestCallback) => {
     const id = nextId++
     callbacks.set(id, fn)
