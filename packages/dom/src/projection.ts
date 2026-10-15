@@ -1342,11 +1342,15 @@ export const makeProjectionSystem = (
     FiberSet.addUnsafe(
       taskFibers,
       runtime.runFork(
-        Microtask.next.pipe(
-          Effect.map(expire),
-          Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
-          Effect.tapCause((cause) => reportFailure(`wardic.projection: ${span} failed`, cause)),
-          Effect.withSpan(span, { attributes }),
+        Effect.withSpan(
+          Microtask.next.pipe(
+            Effect.map(expire),
+            Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
+            Effect.tapCause((cause) => reportFailure(`wardic.projection: ${span} failed`, cause)),
+          ),
+          span,
+          // No call-site stack (ADR-0040, decision 2): Effect's data-last withSpan ignores the option.
+          { attributes, captureStackTrace: false },
         ),
       ),
     )
@@ -3145,7 +3149,7 @@ export const makeProjectionSystem = (
       rounds,
       blocked,
     })
-  }).pipe(Effect.withSpan("wardic.projection.measure"))
+  }).pipe((pass) => Effect.withSpan(pass, "wardic.projection.measure", { captureStackTrace: false }))
 
   /**
    * Queue the Measure pass for the end of the current task (one per task, however
@@ -3254,7 +3258,7 @@ export const makeProjectionSystem = (
     // A trigger from its flush is the end-of-task pass's, which the call queues.
     triggeredDuringPass = false
     return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size })
-  }).pipe(Effect.withSpan("wardic.projection.declared"))
+  }).pipe((pass) => Effect.withSpan(pass, "wardic.projection.declared", { captureStackTrace: false }))
 
   /**
    * The Measurements a task's first **Declared layout change** takes (#4): a Measure pass already due
@@ -4083,12 +4087,12 @@ export const makeProjectionSystem = (
    */
   const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) =>
     runtime.runSync(
-      Effect.sync(() => doHandleLeave(el, onDone)).pipe(Effect.withSpan("wardic.projection.handleLeave")),
+      Effect.withSpan(Effect.sync(() => doHandleLeave(el, onDone)), "wardic.projection.handleLeave", { captureStackTrace: false }),
     )
 
   const handBackWithin: ProjectionSystem["handBackWithin"] = (el, onDone) =>
     runtime.runSync(
-      Effect.sync(() => doHandBackWithin(el, onDone)).pipe(Effect.withSpan("wardic.projection.handBackWithin")),
+      Effect.withSpan(Effect.sync(() => doHandBackWithin(el, onDone)), "wardic.projection.handBackWithin", { captureStackTrace: false }),
     )
 
   /**

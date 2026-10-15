@@ -511,7 +511,7 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
         onFalse: () => frames,
       })
     }).pipe(Effect.annotateLogs(self.span.attributes)),
-  ).pipe(Stream.withSpan(self.span.name, { attributes: self.span.attributes }))
+  ).pipe(Stream.withSpan(self.span.name, { attributes: self.span.attributes, captureStackTrace: false }))
 
 /**
  * Run `self` on the Frame loop, from the loop's next tick, handing each Frame to `sink`: a plain

@@ -8,12 +8,14 @@ import * as internal from "../src/internal/frameLoop.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
-import type * as Context from "effect/Context"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Logger from "effect/Logger"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
+import * as References from "effect/References"
 import { MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -532,6 +534,56 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
     expect(Option.isNone(bursts[0]!.parent)).toBe(true)
     expect(bursts[0]!.status._tag).toBe("Ended")
     expect(settles.fiber.pollUnsafe()).toBeDefined()
+  })
+
+  // ADR-0040, decision 3: a run's span is opened without a stack frame, and the loop names a
+  // run's defect itself.
+  it("SF1: a run's span is parented to the caller's span, and is the current span inside the run: its start log lands on it", async () => {
+    const h = await makeHarness()
+    h.fork(
+      Effect.withSpan(h.loop.run(counting(1, "test.child"), ignore), "app.caller", { captureStackTrace: false }).pipe(
+        // Debug, and only the logger that makes each log an event on the current span.
+        Effect.provideService(References.MinimumLogLevel, "Debug"),
+        Effect.provideService(References.CurrentLoggers, new Set([Logger.tracerLogger])),
+      ),
+    )
+    await endOfTask()
+    h.frames.fire(1000)
+    const [caller] = h.spans.filter((span) => span.name === "app.caller")
+    const [child] = h.spans.filter((span) => span.name === "test.child")
+    expect(Option.map(child!.parent, (parent) => parent.spanId)).toEqual(Option.some(caller!.spanId))
+    expect(child!.status._tag).toBe("Ended")
+    expect(child!.events.map((event) => event[0])).toContain("test.child: start")
+  })
+
+  it("SF2: an interrupted run's cause carries no stack frame: its span pushes none, so no finalizer hashes one", async () => {
+    const h = await makeHarness()
+    const run = h.start(counting(Infinity, "test.interrupted"))
+    await endOfTask()
+    h.frames.fire(1000)
+    h.interrupt(run.fiber)
+    await endOfTask()
+    const exit = run.fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(true)
+    if (exit === undefined || Exit.isSuccess(exit)) return
+    expect(Context.getOrUndefined(Cause.annotations(exit.cause), Cause.StackTrace)).toBeUndefined()
+  })
+
+  it("SF3: a run's defect is named after its run, with no call site, in either lane: it pretty-prints `at <run>` and no location", async () => {
+    const h = await makeHarness()
+    const first = h.start(throwing(1))
+    const last = h.startLast(throwing(1))
+    await endOfTask()
+    h.frames.fire(1000)
+    await endOfTask()
+    for (const run of [first, last]) {
+      const exit = run.fiber.pollUnsafe()
+      expect(exit !== undefined && Exit.isFailure(exit)).toBe(true)
+      if (exit === undefined || Exit.isSuccess(exit)) return
+      const lines = Cause.pretty(exit.cause).split("\n").map((line) => line.trim())
+      expect(lines).toContain("at test.throwing")
+      expect(lines.some((line) => line.startsWith("at test.throwing ("))).toBe(false)
+    }
   })
 
   it("counts settles and failures", async () => {

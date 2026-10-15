@@ -319,12 +319,17 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // exit as a bar with its key counts. Removal-on-settle is the span's end. A failed run
     // is logged and reported (ADR-0030, decision 4); the node is removed either way.
     const fiber = runtime.runFork(
-      Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
-        Effect.tapCause((cause) => reportFailure("wardic.presence: an exit failed", cause)),
-        Effect.ensuring(Effect.sync(() => partDone(el))),
-        Effect.withSpan("wardic.presence.exit", {
+      Effect.withSpan(
+        Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
+          Effect.tapCause((cause) => reportFailure("wardic.presence: an exit failed", cause)),
+          Effect.ensuring(Effect.sync(() => partDone(el))),
+        ),
+        "wardic.presence.exit",
+        {
           attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped },
-        }),
+          // No call-site stack (ADR-0040, decision 2): Effect's data-last withSpan ignores the option.
+          captureStackTrace: false,
+        },
       ),
     )
     exiting.set(el, fiber)

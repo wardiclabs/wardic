@@ -93,7 +93,7 @@ const stateRecognizer = <Ev, S, R>(
           ),
       })
     }).pipe(Effect.annotateLogs(attributes)),
-  ).pipe(Stream.withSpan(span, { attributes }))
+  ).pipe(Stream.withSpan(span, { attributes, captureStackTrace: false }))
 
 /**
  * Hover's state: whether the pointer is inside the target, the pointer that went down
@@ -619,5 +619,5 @@ export const drag = (
         Stream.ensuring(Effect.sync(release)),
       )
     }).pipe(Effect.annotateLogs(attributes)),
-  ).pipe(Stream.withSpan("wardic.drag", { attributes }))
+  ).pipe(Stream.withSpan("wardic.drag", { attributes, captureStackTrace: false }))
 }
