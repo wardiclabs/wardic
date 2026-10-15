@@ -32,7 +32,7 @@ import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
-import { type FlushGate, INERT_GATE, makeFlushGate, makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
+import { type AnimateLayoutOptions, type FlushGate, INERT_GATE, makeFlushGate, makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
 import { isHydrating, isServer } from "./server.ts"
 
 /**
@@ -256,11 +256,19 @@ export function useWardicProjection(): ProjectionSystem {
   return value.projection
 }
 
-/** A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s result. */
-export type AnimateLayout = <A>(fn: () => A) => A
+/**
+ * A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s
+ * result. `onSettled` is called once the change has settled (#191, ADR-0039).
+ */
+export type AnimateLayout = <A>(fn: () => A, options?: AnimateLayoutOptions) => A
 
-/** During a server render nothing is measured: `fn` just runs (ADR-0021). */
-const runOnly: AnimateLayout = (fn) => fn()
+/** During a server render nothing is measured: `fn` just runs, and with nothing to animate it has settled (ADR-0021). */
+const runOnly: AnimateLayout = (fn, options = NO_OPTIONS) => {
+  const result = fn()
+  UndefinedOr.map(options.onSettled, (onSettled) => onSettled())
+  return result
+}
+const NO_OPTIONS: AnimateLayoutOptions = {}
 
 /**
  * The provider's `animateLayout` (#4, ADR-0038): run `fn`, and animate the layout change it makes

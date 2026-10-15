@@ -90,6 +90,8 @@ export const MOTION_PROPS = [
   "layoutScroll",
   "layoutRoot",
   "layoutAnchor",
+  "onLayoutAnimationStart",
+  "onLayoutAnimationComplete",
   "transition",
 ] as const
 
@@ -190,6 +192,20 @@ export interface WardicMotionProps {
    * anchors (0–1 per axis, default top-left). `false` forces absolute projection.
    */
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
+  /**
+   * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
+   * frame where it takes its first step, after that frame is painted. A restart fires it again;
+   * restarts in one task are one. A handover's is the new Lead's. No call when nothing animates (a
+   * `layoutRoot`'s snap, a Layout mode with nothing to move). Read when it fires.
+   */
+  readonly onLayoutAnimationStart?: () => void
+  /**
+   * Called when a layout animation of this element lands on its own (#191, ADR-0039, Motion's prop):
+   * at the frame it lands. Not for one a restart interrupted, a window resize finished early, or an
+   * unmount cut off, so a start isn't always followed by a complete; `animateLayout`'s `onSettled`
+   * reports a change's end however it went. Read when it fires.
+   */
+  readonly onLayoutAnimationComplete?: () => void
 }
 
 /** Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props. */
@@ -238,6 +254,8 @@ export const motionToConfig =
     const layoutScroll = motion.layoutScroll
     const layoutRoot = motion.layoutRoot
     const layoutAnchor = motion.layoutAnchor
+    const onLayoutAnimationStart = motion.onLayoutAnimationStart
+    const onLayoutAnimationComplete = motion.onLayoutAnimationComplete
     if (initial !== undefined) config.initial = initial
     if (animate !== undefined) config.animate = animate
     if (whileHover !== undefined) config.whileHover = whileHover
@@ -260,6 +278,8 @@ export const motionToConfig =
     if (layoutScroll !== undefined) config.layoutScroll = layoutScroll
     if (layoutRoot !== undefined) config.layoutRoot = layoutRoot
     if (layoutAnchor !== undefined) config.layoutAnchor = layoutAnchor
+    if (onLayoutAnimationStart !== undefined) config.onLayoutAnimationStart = onLayoutAnimationStart
+    if (onLayoutAnimationComplete !== undefined) config.onLayoutAnimationComplete = onLayoutAnimationComplete
     return config
   }
 

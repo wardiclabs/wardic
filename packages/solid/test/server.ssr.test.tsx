@@ -504,4 +504,15 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(result).toBe("ran")
     expect(html).toContain("ran")
   })
+
+  it("SV18: on the server, onSettled is called once the callback has run, and the layout callbacks render nothing (#191)", () => {
+    const calls: Array<string> = []
+    const html = serve(() => {
+      const animateLayout = useAnimateLayout()
+      animateLayout(() => calls.push("ran"), { onSettled: () => calls.push("settled") })
+      return <wardic.div layout onLayoutAnimationStart={() => calls.push("start")} onLayoutAnimationComplete={() => calls.push("complete")} />
+    })
+    expect(calls).toEqual(["ran", "settled"])
+    expect(html.toLowerCase()).not.toContain("onlayoutanimation")
+  })
 })
