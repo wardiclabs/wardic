@@ -37,7 +37,7 @@ Every layout trigger in a task (a node registering, the shared `ResizeObserver`,
 - The five paths that flashed now paint their origin in that frame and move on the next. `framesToMeasure` is 0 for every layout trigger in the lab.
 - A task-triggered layout FLIP moves on its first painted frame (ADR-0017's "2nd painted frame" is amended). Cold and warm starts match on every path.
 - Several layout-changing tasks in one frame run one pass each, and every pass measures the whole registered tree (ADR-0009): about 0.4–0.8 ms at 50 nodes, 6–10 ms at 1,000 and 31–60 ms at 5,000 (headless Chromium / Firefox on WSL2). Motion measures only layout-dirty nodes (`create-projection-node.ts:899-909`); ADR-0009's deferred affected-subtree scope is the lever if this shows up in profiles.
-- The observer's first delivery for a newly mounted node still runs a pass that changes nothing, once per batch of mounts (6–10 ms at 1,000 nodes, headless). Filtering it is a follow-up.
+- The observer's first delivery for a newly mounted node still runs a pass that changes nothing, once per batch of mounts (6–10 ms at 1,000 nodes, headless). Filtering it is a follow-up. *Amendment (#21)* removes it.
 - A pass that runs after its frame's gate flush paints its seeded group one frame early and holds it for one frame; other animations keep their cadence (ADR-0006, *Amendment (#2)*).
 - A change made between a frame's gate flush and its Clock tick (an effect inside the gate's `batch()`) gets the Priming step and that frame's tick before its first painted move: a first step about twice the usual size. Documented, not guarded.
 - The Priming step relies on a Cold start's Priming tick being queued inside the pass, where the coordinator subscribes synchronously. A coordinator fiber that ran out of its op budget while subscribing (a very small `MaxOpsBeforeYield`) could take both steps. Documented, not guarded.
@@ -99,3 +99,45 @@ ADR-0033 decides it.
   - **"A change made between a frame's gate flush and its Clock tick":** the flush is now inside the Clock's callback, after the tick. An effect inside it queues a pass that runs after the tick, so the frame paints the origin and the next one takes a single first step (scenario 8: 5.0 px, was 15.7).
   - **The Priming tick queued inside the pass,** and the op-budget caveat of *Amendment (#75)*, went with the Priming tick (ADR-0017, *Amendment (#73)*).
 - **Pinned by** `projection-measure-pass.browser.test.ts` (the seed alone before the frame, cold and warm), `projection-coordinator.browser.test.ts`, and `measure-pass-timing.browser.test.tsx` and `clock-cold-start.browser.test.tsx`, which keep their painted-frame expectations.
+
+## Amendment (#21, 2026-10-15): the observer runs a pass only for a size the engine hasn't measured
+
+The shared `ResizeObserver` used to queue a Measure pass on every delivery. Two of those passes re-read every node and seeded nothing:
+- **Its first delivery for a node just mounted,** the follow-up named in Consequences;
+- **Its echo of a size a triggered pass had already read,** after every `layoutDependency` change that resized a node.
+
+Now a delivery runs a pass only when an entry reports a size the engine hasn't measured. The decisions, grilled 2026-10-15, all A:
+
+1. **Any delivery the engine has already measured is skipped,** not only the first after `observe()`. That covers mounts, `layoutId` switches and the echo after every resize. A resize the engine hasn't measured still differs from its node's Measurement, so it still runs a pass. That holds for one between `observe()` and the first delivery, and for an element mounted at 0×0, which gets no first delivery and runs one when it grows.
+2. **The observer watches the border box,** which is what the engine measures (`{ box: "border-box" }`).
+   - **What counts as measured:** an entry's `borderBoxSize` inline size equals its node's last Measurement's width and its block size the height, within 0.01 px.
+   - **Everything else runs the pass, as before:**
+     - a vertical writing mode, where inline is height;
+     - a node with no Measurement yet;
+     - an ancestor that scales the element without being a node, when its scale is in the Measurement;
+     - a real resize.
+
+     The check can only remove passes.
+   - **An element that is no node any more** (disposed, or a finished leaver) asks for nothing.
+   - **A side fix:** a padding or border change on a node now runs a pass. The content box, watched before, didn't change, so nothing saw it.
+3. **Measured** (`.tmp/21/`, production build, headless Chromium 147 on the bench server). Each case ran two whole-tree passes and now runs one:
+
+   | Change | The pass kept | The pass skipped |
+   |---|---|---|
+   | mount of 1,000 nodes | 8.6 ms | 2.5 ms |
+   | mount of 1,000 nodes with a child each (2,000) | 16 ms | 5.0 ms |
+   | a `layoutId` switch beside 1,000 resting nodes | 3.6 ms | 1.9 ms, on every switch |
+   | a triggered resize of 1,000 nodes | 10.2 ms | 4.9 ms |
+
+4. **Rejected:**
+   - **The first delivery only:** it leaves the echo after every resize, and needs a special case for an element mounted at 0×0.
+   - **The content box less padding and border:** a `getComputedStyle` per element per delivery, 1,000 on a mount.
+   - **`offsetWidth` / `offsetHeight`:** they're rounded, so a sub-pixel resize (100.3 → 100.6 px) would be skipped and missed.
+   - **A pass scoped to the elements that changed:** ADR-0009's deferred affected-subtree scope, a separate and larger design.
+
+Pinned by:
+- `packages/dom/test/projection-observer.browser.test.ts` RS1–RS6, with the real observer and real frames:
+  - a mount and a triggered resize each run one pass (RS1, RS2; two on main);
+  - an untriggered resize before the first delivery, a 0×0 element growing, and a padding change each still run one (RS3–RS5; RS5 runs none on main);
+  - a vertical writing mode and a resize under a scaling ancestor fall back to the pass (RS6).
+- The layout lab: scenario 7 reads `passes 1 (1 seeding)`, and every scenario's held count is as before (30 runs, 0 off).
