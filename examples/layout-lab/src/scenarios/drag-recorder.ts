@@ -61,7 +61,9 @@
  *   glued ones, read for their painted box, and isolated ones (a `layoutRoot` and what's
  *   inside it), read for their painted and layout box.
  * Layouts should keep whole-pixel positions and sizes: `offsetLeft` and friends are
- * rounded, so a fractional slot would read up to half a pixel off.
+ * rounded, so a fractional slot would read up to half a pixel off. A border is read as
+ * drawn, not as `clientLeft` rounds it (#89): at a pixel ratio that isn't whole, a 1px
+ * border is drawn narrower, snapped to device pixels.
  *
  * @module
  */
@@ -174,11 +176,26 @@ export interface DragRecorderOptions {
   }
 }
 
+/**
+ * How far `el`'s padding box sits in from its border box's top-left corner, as drawn: `clientLeft` and
+ * `clientTop` with their border part as the computed width, not rounded (#89). A border snaps to device
+ * pixels, so at a 1.35 pixel ratio a 1px one is drawn 0.740741 css px wide, where `clientLeft` says 1:
+ * every box read through it was 0.26 px off per bordered level (0.53 px in scenario 14's container).
+ * Whatever else `clientLeft` counts (a scrollbar on the left) stays as it reads.
+ */
+export const insetOf = (el: HTMLElement): Point => {
+  const style = getComputedStyle(el)
+  const left = Number.parseFloat(style.borderLeftWidth)
+  const top = Number.parseFloat(style.borderTopWidth)
+  return { x: el.clientLeft - Math.round(left) + left, y: el.clientTop - Math.round(top) + top }
+}
+
 /** `el`'s painted box relative to `stage`'s padding box. */
 const paintedBox = (el: Element, stage: HTMLElement): Box => {
   const r = el.getBoundingClientRect()
   const s = stage.getBoundingClientRect()
-  return { x: r.left - s.left - stage.clientLeft, y: r.top - s.top - stage.clientTop, width: r.width, height: r.height }
+  const inset = insetOf(stage)
+  return { x: r.left - s.left - inset.x, y: r.top - s.top - inset.y, width: r.width, height: r.height }
 }
 
 /**
@@ -198,8 +215,9 @@ const layoutBox = (el: HTMLElement, stage: HTMLElement): Box => {
     y += at.offsetTop
     const parent = at.offsetParent as HTMLElement | null
     if (parent !== null && parent !== stage) {
-      x += parent.clientLeft
-      y += parent.clientTop
+      const inset = insetOf(parent)
+      x += inset.x
+      y += inset.y
     }
     at = parent
   }

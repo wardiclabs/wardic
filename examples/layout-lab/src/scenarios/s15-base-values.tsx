@@ -203,6 +203,13 @@ const STILL_FRAMES = 4
  */
 const TOGGLE_SETTLE_MS = 5000
 const settleMsOf = (kind: BoardRunKind): number => (kind === "toggle" ? TOGGLE_SETTLE_MS : SETTLE_MS)
+/**
+ * The most one gap between frames counts toward a run's settle time, in ms (#89): a page that paints
+ * no frame for a while (a hidden tab, a page still loading) doesn't run the clock out, so the run
+ * samples on to where it lands. Before, a mount at page load whose first frame came 7 s late ended on
+ * that frame, the fade's first step, and its end failed.
+ */
+const FRAME_GAP_MS = 100
 
 /** What a run is also judged on (#61). */
 interface RunExtra {
@@ -229,6 +236,12 @@ interface Recording {
   /** Where `during` ends (the gesture's end), once it has. */
   split: number | undefined
   endAt: number | undefined
+  /** When the last frame was read (the run's start before any). */
+  lastAt: number
+  /** How long the run has settled since its gesture ended, each gap between frames counted up to {@link FRAME_GAP_MS}. */
+  settling: number
+  /** The longest the page painted no frame during the run, in ms: from its start to its first frame, or between two. */
+  pausedMs: number
 }
 
 /**
@@ -265,7 +278,23 @@ const makeRecorder = (ctx: ScenarioContext) => {
     extra: RunExtra = {},
   ): { readonly end: () => void } => {
     current.get(cell)?.()
-    const rec: Recording = { cell, kind, base, target, landsOn: undefined, before, startedAt: performance.now(), values: [], extra, split: undefined, endAt: undefined }
+    const startedAt = performance.now()
+    const rec: Recording = {
+      cell,
+      kind,
+      base,
+      target,
+      landsOn: undefined,
+      before,
+      startedAt,
+      values: [],
+      extra,
+      split: undefined,
+      endAt: undefined,
+      lastAt: startedAt,
+      settling: 0,
+      pausedMs: 0,
+    }
     const channel = new MessageChannel()
     sampling.add(channel)
     // A mount or a style change has no end event: every frame until it stands still is `during`.
@@ -287,6 +316,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
         after: rec.values.slice(split),
         startedAt: rec.startedAt,
         endedAt: performance.now(),
+        pausedMs: rec.pausedMs,
         ...(rec.extra.rest === undefined || superseded ? {} : { rest: rec.extra.rest() }),
         ...(rec.extra.blendsBack === true ? { blendsBack: true } : {}),
         ...(rec.extra.watchesFallback === true ? { watchesFallback: true } : {}),
@@ -297,6 +327,10 @@ const makeRecorder = (ctx: ScenarioContext) => {
     current.set(cell, supersede)
     running.set(cell, rec)
     channel.port1.onmessage = () => {
+      const now = performance.now()
+      rec.pausedMs = Math.max(rec.pausedMs, now - rec.lastAt)
+      if (rec.endAt !== undefined) rec.settling += Math.min(now - Math.max(rec.lastAt, rec.endAt), FRAME_GAP_MS)
+      rec.lastAt = now
       const value = read()
       // The node went (an exit): the run ends with it.
       if (value === undefined) {
@@ -308,7 +342,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
       if (rec.split !== undefined) {
         const tail = rec.values.slice(-STILL_FRAMES)
         const still = tail.length === STILL_FRAMES && tail.every((v) => Math.abs(v - tail[0]!) < 0.0005) && landed(rec, value)
-        if (still || performance.now() - (rec.endAt ?? 0) > settleMsOf(rec.kind)) {
+        if (still || rec.settling > settleMsOf(rec.kind)) {
           finish()
           return
         }
