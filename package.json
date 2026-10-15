@@ -18,6 +18,7 @@
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "lint": "eslint packages/core/src packages/core/bench packages/dom packages/solid packages/test",
     "bench:core": "bun packages/core/bench/run.ts",
+    "bench:solid": "bun packages/solid/bench/run.ts",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "bun run build && changeset publish"
