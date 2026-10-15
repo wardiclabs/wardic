@@ -208,3 +208,38 @@ The crossfade (ADR-0010 *Amendment (#5)*) and the blend (*Amendment (#166)*) rea
   - the release on another spring under a tween;
   - the `layout` key ignored; a delay alone making a spring; a spring field ignored;
   - `lands` never late.
+
+## Amendment (#27, 2026-10-15): the render gate
+
+Inside the coordinator's tick, the engine doesn't write a node's value again when it draws the same as the last one it wrote. That's Motion's render gate in `calcProjection`, which renders only when the delta or the tree scale changed.
+
+- **What counts as the same** (`drawsSame`): every field the renderer reads:
+  - each axis's translate and scale;
+  - the tree scale;
+  - the crossfade and Switch opacities;
+  - the handover rotation;
+  - the raise;
+  - the pointer pass-through;
+  - each axis's origin, for safety.
+
+  Not `originPoint`, which only the engine's math uses: it moves with a translating parent while nothing drawn changes. Comparing it was why a first prototype skipped nothing.
+- **Only inside the tick.** Since ADR-0033 the gate holds nothing a tick wrote once the tick ends. So a skipped duplicate is either on screen, or still pending from a write outside the tick (a drag's move) and flushed at this tick's end.
+  - **What always writes:** a Measure pass and a drag's move write every node they derive, so a pass's seed is still applied with its running ancestor (ADR-0018, decision 12). A scale-corrected node is always written too, since its correction can change while its value doesn't (a handover's radius blend at equal boxes).
+- **Measured** (`.tmp/27/`, headless Chromium 147 on the bench server, production builds of main and the branch, 9 reps interleaved, mean tick over the animation):
+  - **The waste:** each gate apply was compared with the patch already on screen. At N = 1,000, a `layout` child riding a parent that only translates re-committed the same patch every frame, about 1,000 a frame. A layout tween's delay re-committed 35% of its applies while holding. A full FLIP or a scaling parent re-committed 3–4%, its settle frames. A drag held still wrote only the dragged node.
+  - **The gain:** the glued case's tick drops 32% at N = 1,000 (1.68 → 1.14 ms) and 16% at N = 100 (0.47 → 0.40 ms). Delay, flip and scaled stay within ±2%, except scaled at N = 1,000, which read +6%; with 21 reps it read 0% in one order and +4% in the other, which is noise.
+- **Rejected:**
+  - **A dedupe in the gate,** against the value it last applied: 23% slower in every case. Since #79 an unchanged apply costs about 0.5 µs, less than a general deep comparison, and a faster comparison would put projection knowledge into the gate, which knows no key.
+  - **The same skip outside the tick too:** in a pass, the re-derived running ancestor isn't written, so it isn't applied with the seed. Two decision-12 tests failed.
+  - **Not deriving such children at all,** as #26 did for a drag's resting descendants: it needs a rule for when a child's motion is exactly its parent's. That's a separate design.
+- **Tests:** two tests that counted writes now count what's drawn:
+  - `projection-drag` N2: a dragged node held still is no longer written every frame.
+  - `projection-coordinator`'s "steps from the next tick": the write it used as a signal; the release settling still proves the step.
+
+  New, in `projection-render-gate.browser.test.ts`:
+  - RG1: the riding child is written at most once over the flight while its parent is written every frame (17 times without the gate).
+  - RG2: a changing value is written every frame.
+  - RG3–RG5: a value changing in one field alone is written every frame: a centred box's y scale, a child under a widening parent, and a Switch at an equal box differing only in rotation, opacity or radius (the radius is a correction beside an unchanged value).
+  - RG6: `drawsSame` counts each field the renderer reads, and not `originPoint`.
+
+  Mutations: 12 single-point mutations of the gate's guards and the comparison's fields; 11 caught. The survivor drops `!node.leaving`. A leaving node commits straight to the renderer, without the element's own values, and the guard keeps those commits out of a gate rule that only reasons about gate writes. Building a node that turns leaving in place with an unchanged value mid-tick, to tell the two apart, wasn't worth it.

@@ -216,6 +216,29 @@ const projectionValue = (
   return value
 }
 
+/**
+ * Whether `a` and `b` draw the same (#27, ADR-0009 *Amendment (#27)*): every field the renderer reads,
+ * each axis's translate and scale, the tree scale, the opacities, the rotation, the raise and the
+ * pointer pass-through, and each axis's origin. Not `originPoint`, the engine's own, which moves with
+ * a translating parent while nothing drawn changes. Per frame: statement `if`s, no allocation. Exported
+ * for its test, not from the package.
+ */
+export const drawsSame = (a: Projection.Value, b: Projection.Value): boolean => {
+  if (a.delta.x.translate !== b.delta.x.translate) return false
+  if (a.delta.y.translate !== b.delta.y.translate) return false
+  if (a.delta.x.scale !== b.delta.x.scale) return false
+  if (a.delta.y.scale !== b.delta.y.scale) return false
+  if (a.delta.x.origin !== b.delta.x.origin) return false
+  if (a.delta.y.origin !== b.delta.y.origin) return false
+  if (a.treeScale.x !== b.treeScale.x) return false
+  if (a.treeScale.y !== b.treeScale.y) return false
+  if (a.opacity !== b.opacity) return false
+  if (a.blendOpacity !== b.blendOpacity) return false
+  if (a.rotate !== b.rotate) return false
+  if (a.raise !== b.raise) return false
+  return a.passesPointer === b.passesPointer
+}
+
 /** How far `to` sits from `from`, by their top-left corners. */
 const distanceBetween = (from: Box.Box, to: Box.Box): Point.Point => ({ x: to.x.min - from.x.min, y: to.y.min - from.y.min })
 
@@ -865,6 +888,11 @@ interface NodeState {
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart: () => (() => void) | undefined
   readonly onLayoutAnimationComplete: () => (() => void) | undefined
+  /**
+   * The value last written to the sink (#27): the coordinator's tick doesn't write one that draws the
+   * same again, unless scale corrections go with it. `undefined` before the first write.
+   */
+  lastWritten: Projection.Value | undefined
   /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
   readonly respectReducedMotion: () => boolean
   /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
@@ -1360,6 +1388,15 @@ export const makeProjectionSystem = (
     const blendOpacity = switchOpacityOf(node, opacity, follower)
     node.drawnOpacity = drawnOpacityAt(node, opacity, blendOpacity)
     const value = projectionValue(delta, treeScale, opacity, raiseOf(node), follower, rotate, blendOpacity)
+    // The render gate (#27, ADR-0009 *Amendment (#27)*, Motion's in `calcProjection`): inside the
+    // coordinator's tick, a value that draws as the last one written isn't written again, such as a
+    // `layout` child riding a parent that only translates. Since ADR-0033 the gate holds nothing a tick
+    // wrote once the tick ends, so that write is on screen, or still pending and flushed at this tick's
+    // end. A Measure pass or a drag's move always writes (ADR-0018, decision 12: a seed is applied with
+    // its running ancestor), and so does a scale-corrected node, whose correction can change alone.
+    const last = node.lastWritten
+    if (inStep && corrected === undefined && !node.leaving && last !== undefined && drawsSame(last, value)) return
+    node.lastWritten = value
     const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
     if (node.leaving) {
       renderer.commit(node.element, renderer.project(patch))
@@ -3805,6 +3842,7 @@ export const makeProjectionSystem = (
     // A Follower's callbacks never fire: a handover is its Lead's (#191).
     onLayoutAnimationStart: NO_CALLBACK,
     onLayoutAnimationComplete: NO_CALLBACK,
+    lastWritten: undefined,
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
@@ -4056,6 +4094,7 @@ export const makeProjectionSystem = (
       transition: opts.transition,
       onLayoutAnimationStart: UndefinedOr.match(opts.onLayoutAnimationStart, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       onLayoutAnimationComplete: UndefinedOr.match(opts.onLayoutAnimationComplete, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
+      lastWritten: undefined,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),

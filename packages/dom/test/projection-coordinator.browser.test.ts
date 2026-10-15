@@ -330,9 +330,10 @@ describe("a coordinator started inside a tick, after it settled earlier in that 
     expect(grabbedAt, "the grab came in the tick the coordinator settled in").toBe(settledAt)
     expect(sk.of("b").length, "only the grab's own derive in that tick").toBe(bWritesAtGrab)
 
+    // The new coordinator derives b at the next tick; held still, b draws the same, so the render gate
+    // writes nothing then (#27). That it steps is the release below: only the coordinator settles it.
     frame++
     fireFrame()
-    expect(sk.of("b").length, "the new coordinator derives b at the next tick").toBeGreaterThan(bWritesAtGrab)
 
     b.dragMove({ x: 60, y: 0 })
     b.dragEnd()
