@@ -14,6 +14,9 @@
  *   stylesheet shadow) also has to pass through values in between on its way back.
  * - A run its cell's next run cut short (a second press, a hover before the last one landed) is
  *   **superseded**: only its start is judged (#61).
+ * - A run during which the page painted no frame for over {@link PAUSED_MS} (a hidden tab, a page still
+ *   loading: #89) isn't judged on its start, since the frames it would read may have gone unseen. Its
+ *   end is: the recorder counts its settle time in painted frames, so it samples on to the landing.
  * - **paints** (#158), for the token scale cell: no frame painted the property's fallback (an
  *   undefined `var()` mid-leg made the background transparent).
  * - **rests** (#61), for a run back to `none`: the key's computed value once still is `none`
@@ -50,6 +53,11 @@ export interface BoardRunInput {
   /** When the run started and ended (`performance.now()`, ms). */
   readonly startedAt: number
   readonly endedAt: number
+  /**
+   * The longest the page painted no frame during the run, in ms (#89): from its start to its first
+   * frame, or between two. Left out in a log from before #89.
+   */
+  readonly pausedMs?: number
   /** A run back to an empty end (#61): the key's computed value once still, and what it should be. */
   readonly rest?: { readonly value: string; readonly expected: string }
   /** A gesture whose way back must blend, not switch (#61). */
@@ -94,7 +102,13 @@ const line = (name: BoardCheck["name"], ok: boolean, value: string, expected: st
 const firstMovedOf = (input: BoardRunInput): number | undefined =>
   Number.isNaN(input.before) ? input.during[0] : input.during.find((v) => Math.abs(v - input.before) > 0.002)
 
+/** A pause longer than this, in ms, leaves a run's start unjudged (#89): about six frames painted none. */
+export const PAUSED_MS = 100
+
 const startOf = (input: BoardRunInput): BoardCheck => {
+  if (input.pausedMs !== undefined && input.pausedMs > PAUSED_MS) {
+    return { name: "start", ok: true, text: `the page painted no frame for ${input.pausedMs.toFixed(0)} ms, not judged` }
+  }
   if (input.kind === "style change") {
     const shown = input.during.slice(0, 3).find((v) => Math.abs(v - input.base) <= 0.005)
     const seen = shown ?? input.during[Math.min(2, input.during.length - 1)]

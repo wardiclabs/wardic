@@ -130,4 +130,17 @@ describe("base-value board runs (#47, scenario 15)", () => {
     expect(l.end).toEqual({ name: "end", ok: true, text: "settled at 107.000 (retargeted) ✓" })
     expect(lines(run({ ...flip, landsOn: 107, during: [107, 106, 100, 90, 80, 76, 75] })).end!.ok).toBe(false)
   })
+
+  it("BV16: a run during which the page painted no frame for over 100 ms isn't judged on its start, and is on its end (#89)", () => {
+    // A mount at page load in a hidden tab: its first frame came 3 s late, past where the fade began.
+    const mount = { cell: "fade, no initial", kind: "mount", base: 1, target: 0.5, before: Number.NaN, after: [] } as const
+    const paused = lines(run({ ...mount, during: [0.73, 0.6, 0.52, 0.5], pausedMs: 3003 }))
+    expect(paused.start).toEqual({ name: "start", ok: true, text: "the page painted no frame for 3003 ms, not judged" })
+    expect(paused.end).toEqual({ name: "end", ok: true, text: "settled at 0.500 ✓" })
+    // Its end still fails where it doesn't land.
+    expect(lines(run({ ...mount, during: [0.97], pausedMs: 3003 })).end!.ok).toBe(false)
+    // At 100 ms or less, and in a log from before #89 (no pausedMs), its start is judged as before.
+    expect(lines(run({ ...mount, during: [0.73, 0.6, 0.5], pausedMs: 100 })).start!.ok).toBe(false)
+    expect(lines(run({ ...mount, during: [0.73, 0.6, 0.5] })).start!.ok).toBe(false)
+  })
 })
