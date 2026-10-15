@@ -52,7 +52,7 @@ Two defaults stated, not asked: the axis and direction are fixed for a lift, as 
 
 On Windows, in Chrome, on the lab's scenario 14:
 - **NVDA stayed in browse mode on a focused item.** NVDA switches to focus mode by itself only when focus lands on a widget (a field, a listbox's option, a grid's cell). An item that keeps its role (decision 8) is a list item with `tabindex`, so Space and the arrows went to NVDA's browse mode and never reached the item.
-- **In focus mode it all worked.** After NVDA+Space, the lift, the steps and the drop worked, and Escape put the item back where it was lifted from.
+- **In focus mode it all worked.** After NVDA+Space, the lift, the steps and the drop worked, and Escape put the item back where it was lifted from. NVDA spoke each announcement.
 
 So the default instructions now end with "Some screen readers need focus mode for these keys.", as react-beautiful-dnd's do. Switching the mode by itself would need a widget role on the items, which decision 8 rejected.
 
