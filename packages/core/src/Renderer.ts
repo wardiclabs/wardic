@@ -73,10 +73,16 @@ export const applyTo: {
   <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.Effect<void, E, R | Renderer>
 } = dual(
   2,
-  Effect.fn("wardic.applyTo")(function* <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T) {
-    yield* Effect.annotateCurrentSpan({ target: typeof target })
-    const renderer = yield* Renderer
-    yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(Effect.annotateLogs({ target: typeof target }))
-    yield* stream.pipe(Stream.runForEach((frame) => Effect.sync(() => renderer.commit(target, renderer.project(frame.value)))))
-  }),
+  // Not `Effect.fn`, which always captures a call-site stack (ADR-0040, decision 2).
+  <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.Effect<void, E, R | Renderer> =>
+    Effect.withSpan(
+      Effect.gen(function* () {
+        yield* Effect.annotateCurrentSpan({ target: typeof target })
+        const renderer = yield* Renderer
+        yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(Effect.annotateLogs({ target: typeof target }))
+        yield* stream.pipe(Stream.runForEach((frame) => Effect.sync(() => renderer.commit(target, renderer.project(frame.value)))))
+      }),
+      "wardic.applyTo",
+      { captureStackTrace: false },
+    ),
 )

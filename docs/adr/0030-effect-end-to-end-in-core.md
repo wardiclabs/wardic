@@ -38,7 +38,7 @@
    - **#66 decides the shape of the first one.** ADR-0028's decision 3 already gives a build that needs a service an `E` (`Effect<Machine<F>, E, R>`). The plain constructors (`Machine.tween`, `spring`, `animate`, …) return a `Machine`, so a decode that rejects would make them Effects, or run in the binding instead: one of #66's own "where" options.
    - **Rejected:** `Schema.TaggedError`s for #83's four cases, and the binding choosing the fallback with `catchTag` (#83, C.1).
 3. **A run's defect stays the thrown value: Effect names its run.**
-   - **Effect 4 annotates the defect with the run's span.** When a run's fiber resumes from its `Deferred` with `Exit.die`, `exitFailCause` annotates the cause with the fiber's stack frame (`effect/Cause/StackTrace`, `internal/core.js:338-348`), which the run's `withSpan` pushed with the span's name (`provideSpanStackFrame`, `internal/effect.js:2746`). `Cause.pretty` prints it.
+   - **Effect 4 annotates the defect with the run's span.** When a run's fiber resumes from its `Deferred` with `Exit.die`, `exitFailCause` annotates the cause with the fiber's stack frame (`effect/Cause/StackTrace`, `internal/core.js:338-348`), which the run's `withSpan` pushed with the span's name (`provideSpanStackFrame`, `internal/effect.js:2746`). `Cause.pretty` prints it. Since #87 the loop annotates a run's defect itself, with a frame of the span's name and no call site: *Amendment (#87)*.
    - **Measured** (`.tmp/83-defect/probe.ts`: a step that throws on its second tick, on core's real Frame loop, logged as the spine's `legEnded` logs):
 
      ```
@@ -115,7 +115,7 @@
    - **ADR-0027's target is steady frames,** not a burst's first tick. A rule that fits it (skip a burst's first ticks, a p95 over a window) is policy without a caller, and `wardic_frameloop_tick_ms` (ADR-0027, decision 6) already holds every tick, which decision 6's devtools show.
    - **Found on the way:** Effect's default logger wrote the Warning to stdout, which the bench's `run.ts` parses as JSON. The probe sent it to stderr (`References.LogToStderr`).
    - **Rejected:** the Warning (#83, C.6), and the same check at Debug, which fires on the same cold ticks.
-9. **The start path: `FrameLoop.run` stays as it is, and #87 decides with its profile.**
+9. **The start path: `FrameLoop.run` stays as it is, and #87 decides with its profile.** #87 decided: *Amendment (#87)*.
    - **Measured** (`.tmp/83-starts/`: 1,000 `FrameLoop.run` starts in one task on core's real Clock and Frame loop, `MixedScheduler("sync")` as the bench's; a copy of `internal/frameLoop.ts` with each variant; 11 paired reps on the bench server). Main's 1,000 starts take 5.0–7.4 ms for `springValues` and 4.2–7.1 ms for `springBlend`, 4–7 µs a start; building 1,000 `springBlend` machines, blenders resolved, takes 3.8–6.3 ms more. Each variant / main, median [p25–p75]:
 
      | Starts | Bun | Node | Chromium |
@@ -390,3 +390,12 @@
   - Every other test passes as it was: 674 node tests and 643 browser tests, the browser tier on a warm cache.
 - **No bench run:** nothing changes per frame.
 - **#83's slices have all landed:** #109, #110, #111, #112 and this one.
+
+## Amendment (#87, 2026-10-15): the loop names a run's defect; per-animation spans stay, without a stack
+
+ADR-0040 is #87's record: decision 9's question, answered with the whole task profiled.
+
+- **Decision 3 keeps its output and changes its mechanism.** A run's span no longer pushes a stack frame (ADR-0040, decision 3). So a step or sink that throws ends its run with `Cause.die` annotated with a `Cause.StackTrace` frame of the run's span name and no call site (`dieNamed`, `internal/frameLoop.ts`). `Cause.pretty` prints `at wardic.springValues` where it printed `at wardic.springValues (…/frameLoop.ts:377:14)`, a location that never named the app's code. The defect is still the thrown value, and a reporter still receives the annotation (decision 4).
+- **Decision 9: per-animation spans stay.** The span's cost at a start was mostly Effect's call-site stack (`addSpanStackTrace`), which no Wardic span captures now (ADR-0040, decision 2). Its cost at an interruption was its frame, which a run's span no longer pushes. What's left of a span per run is about 3.5 µs per run in a Retarget (ADR-0040, decision 3's rejected option). The start log stays. `runAll` and the rest of an interrupt's cost go to #200.
+- **Pinned by** core's SF1–SF3 (`test/frame-loop.test.ts`) and check-frames' existing `at test.record`.
+

@@ -138,7 +138,7 @@ export const makeSharedByTarget = <A>(
           const pubsub = yield* RcMap.get(map, keyFor(target))
           return Stream.fromPubSub(pubsub)
         }),
-      ).pipe(Stream.withSpan("wardic.dom.shared.byTarget"))
+      ).pipe(Stream.withSpan("wardic.dom.shared.byTarget", { captureStackTrace: false }))
   })
 
 /**
@@ -168,5 +168,5 @@ export const makeSharedGlobal = <A>(
         const pubsub = yield* RcRef.get(ref)
         return Stream.fromPubSub(pubsub)
       }),
-    ).pipe(Stream.withSpan("wardic.dom.shared.global"))
+    ).pipe(Stream.withSpan("wardic.dom.shared.global", { captureStackTrace: false }))
   })

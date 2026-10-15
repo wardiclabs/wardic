@@ -322,9 +322,12 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
       Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
         Effect.tapCause((cause) => reportFailure("wardic.presence: an exit failed", cause)),
         Effect.ensuring(Effect.sync(() => partDone(el))),
-        Effect.withSpan("wardic.presence.exit", {
-          attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped },
-        }),
+        Effect.withSpan(
+          "wardic.presence.exit",
+          { attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped } },
+          // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
+          { captureStackTrace: false },
+        ),
       ),
     )
     exiting.set(el, fiber)

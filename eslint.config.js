@@ -53,6 +53,28 @@ const BRANCHES = [
   ),
 ]
 
+/** A `no-restricted-syntax` entry whose message points at the span rule's record. */
+const restrictSpan = (selector, message) => ({ selector, message: `${message} (ADR-0040, decision 2).` })
+
+/**
+ * No Wardic span captures a call-site stack (#87, ADR-0040, decision 2). Every `withSpan` passes
+ * `captureStackTrace: false` where Effect reads it: data-first in its options,
+ * `Effect.withSpan(effect, name, { captureStackTrace: false })`; pipeable as its third argument,
+ * `Effect.withSpan(name, options, { captureStackTrace: false })`; `Stream.withSpan(name, { … })` in
+ * its options. TypeScript rejects it anywhere else. `Effect.fn` always captures one, at its
+ * definition and at every call, with no option to stop it.
+ */
+const SPANS = [
+  restrictSpan(
+    "CallExpression[callee.object.name='Effect'][callee.property.name='fn']",
+    "Effect.fn captures a call-site stack at its definition and at every call: use Effect.gen with Effect.withSpan",
+  ),
+  restrictSpan(
+    "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name='withSpan']:not(:has(Property[key.name='captureStackTrace']))",
+    "A Wardic span captures no call-site stack: pass captureStackTrace: false (pipeable Effect.withSpan: its third argument)",
+  ),
+]
+
 /** Rule 1: missing values and boolean checks. */
 const CHECKS = [
   restrict("LogicalExpression[operator='??']", "A missing value is an Option, not ??"),
@@ -111,13 +133,13 @@ export default defineConfig([
     rules: {
       "no-ternary": "error",
       "@typescript-eslint/no-non-null-assertion": "error",
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...SPANS],
     },
   },
   {
     files: PER_FRAME_LOOPS,
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS],
     },
   },
   {
@@ -136,12 +158,12 @@ export default defineConfig([
   {
     files: ["packages/core/src/index.ts"],
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT, ...SPANS],
     },
   },
   {
     // Only this rule here: the Effect-first rules reach dom, solid and test with #69.
-    files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/core/bench/**/*.ts"],
+    files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     // solid's code carries eslint-plugin-solid's `solid/reactivity` directives, for an editor
     // that runs the plugin; this lint doesn't, so the rule is named here, doing nothing, and its
@@ -150,6 +172,13 @@ export default defineConfig([
     linterOptions: { reportUnusedDisableDirectives: "off" },
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS],
+    },
+  },
+  {
+    // dom's and solid's source take the span rule too (ADR-0040, decision 2), over the block above.
+    files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS],
     },
   },
   {

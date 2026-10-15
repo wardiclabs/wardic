@@ -86,7 +86,7 @@ import { createElementStyle } from "./element-style.ts"
 import { createVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
-import { createHover, createPress } from "./sensors.ts"
+import { createHover, createPress, createWhenWanted } from "./sensors.ts"
 import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
@@ -880,10 +880,17 @@ export function runSpine(opts: RunSpineOptions): void {
         })
       }
 
-      // Recognizers over the live element (run their fibers, scoped to this
-      // owner's onCleanup via streamToSignal -> runScoped).
-      const hovered = createHover(element)
-      const pressed = createPress(element)
+      // Recognizers over the live element, each started the first time its `while*` target
+      // appears (#87, ADR-0040), its fiber scoped to this owner's onCleanup via
+      // streamToSignal -> runScoped. Until then it reads false.
+      const hovered = createWhenWanted(
+        () => Predicate.isNotUndefined(cfg().whileHover),
+        () => createHover(element),
+      )
+      const pressed = createWhenWanted(
+        () => Predicate.isNotUndefined(cfg().whileTap),
+        () => createPress(element),
+      )
 
       // The keys a Retarget drove, each with its last target value (its shape), and the
       // ones returning to their Base value until that return settles (ADR-0022). Both are

@@ -247,7 +247,7 @@ export const fromRefreshFrames = <Handle>(
         yield* Effect.acquireRelease(join, () => leave)
         return Stream.fromSubscription(subscription)
       }),
-    ).pipe(Stream.withSpan("wardic.clock"))
+    ).pipe(Stream.withSpan("wardic.clock", { captureStackTrace: false }))
 
     return { ticks, tick }
   })
