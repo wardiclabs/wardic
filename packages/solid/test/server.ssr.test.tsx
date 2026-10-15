@@ -10,7 +10,8 @@
 // - A component wrap gets the Starting style through `style` (decision 6).
 // - Running anything on the runtime during a server render fails with DomLive's
 //   client-only error (decision 7).
-// - Client-only hooks return a fixed value and start nothing (decisions 8 and 9).
+// - Client-only hooks return a fixed value and start nothing (decisions 8 and 9), and
+//   `useAnimateLayout` just runs its callback (#4).
 //
 // Expected styles come from @wardic/dom's own Renderer (RendererDomLive), not hard-coded.
 import * as Renderer from "@wardic/core/Renderer"
@@ -28,6 +29,7 @@ import {
   Reorder,
   runScoped,
   streamToSignal,
+  useAnimateLayout,
   useWardic,
   useWardicFiber,
   useWardicGate,
@@ -485,5 +487,21 @@ describe("a server render on DomLive (ADR-0021)", () => {
       env,
     )
     expect(builds).toBe(0)
+  })
+
+  it("SV17: useAnimateLayout's animateLayout just runs its callback and returns its result (#4)", () => {
+    let result: string | undefined
+    let runs = 0
+    const html = serve(() => {
+      const animateLayout = useAnimateLayout()
+      result = animateLayout(() => {
+        runs += 1
+        return "ran"
+      })
+      return <div>{result}</div>
+    })
+    expect(runs).toBe(1)
+    expect(result).toBe("ran")
+    expect(html).toContain("ran")
   })
 })
