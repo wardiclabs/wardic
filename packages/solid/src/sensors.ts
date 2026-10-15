@@ -16,9 +16,12 @@ import * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
+import * as Bool from "effect/Boolean"
+import { constFalse } from "effect/Function"
+import * as Predicate from "effect/Predicate"
 import type * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createMemo } from "solid-js"
+import { type Accessor, createComputed, createMemo, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
 import { fromAtom, streamToSignal } from "./bridge.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -35,6 +38,26 @@ export const createHover = (target: unknown): Accessor<boolean> => streamToSigna
  * transition.
  */
 export const createPress = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.press(target), false)
+
+/**
+ * A State recognizer an element starts only once it wants it (#87, ADR-0040): `false` until
+ * `wanted()` is first true, then `make()`'s signal, kept from then on. Motion's rule: its hover
+ * and tap features attach only once their props are set. An element that never wants it starts
+ * no fiber and no subscription; one that stops wanting it keeps the recognizer, so a prop that
+ * toggles starts it once. A pointer already resting on the element when it starts counts from
+ * its next entry, as Motion's does.
+ *
+ * `make` runs under the caller's owner, not this hook's computation, so the recognizer lives
+ * and ends with the caller (its `onCleanup`), not with the next change of `wanted`.
+ */
+export const createWhenWanted = (wanted: Accessor<boolean>, make: () => Accessor<boolean>): Accessor<boolean> => {
+  const owner = getOwner()
+  const [sensor, setSensor] = createSignal<Accessor<boolean> | undefined>(undefined)
+  createComputed(() => {
+    if (Bool.and(Predicate.isUndefined(untrack(sensor)), wanted())) setSensor(() => runWithOwner(owner, make))
+  })
+  return () => UndefinedOr.match(sensor(), { onUndefined: constFalse, onDefined: (started) => started() })
+}
 
 /**
  * `true` while `target` is focused, `false` once blurred. Wraps the core `focus`
