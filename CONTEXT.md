@@ -216,7 +216,7 @@ The projection engine's end-of-task unit. Every layout trigger in a task (a node
 _Avoid_: commit (the Renderer's write), layout update (Motion's name).
 
 **Declared layout change**:
-A layout change an app marks itself, by making it inside `animateLayout(fn)`, so it animates even where no trigger sees it, or a node's last Measurement is out of date. Before `fn` runs, every **Projection node** is measured afresh (a **Measure pass** already due in the task runs first, so a change made earlier still animates), and the pass at the end of the task animates every node that moved from those Measurements. Calls in one task share the first call's Measurements.
+A layout change an app marks itself, by making it inside `animateLayout(fn)`, so it animates even where no trigger sees it, or a node's last Measurement is out of date. Before `fn` runs, every **Projection node** is measured afresh (a **Measure pass** already due in the task runs first, so a change made earlier still animates), and the pass at the end of the task animates every node that moved from those Measurements. Calls in one task share the first call's Measurements. It has **settled** once every layout animation that pass started has ended, however each ended (landed, cut short, or restarted by a later change), or once the pass has run if it started none.
 _Avoid_: snapshot (reserved), layout boundary (avoided for a **Layout sub-root**), layout transaction, batch.
 
 **Drag block**:
