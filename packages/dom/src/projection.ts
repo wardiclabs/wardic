@@ -1143,6 +1143,12 @@ const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
 /** No drag transition of its own: a node releases on Motion's, {@link DEFAULT_DRAG_TRANSITION} (ADR-0016, *Amendment (#140)*). */
 const NO_DRAG_TRANSITION = (): DragTransition | undefined => undefined
+/** What the shared ResizeObserver watches: the border box, which the engine measures (#21). */
+const BORDER_BOX: ResizeObserverOptions = { box: "border-box" }
+
+/** How far an observer's size may sit from a node's Measurement and still be it (#21), in px. */
+const SIZE_EPSILON = 0.01
+
 /** No layout animation callback: a node the binding gives none (#191). */
 const NO_CALLBACK = (): (() => void) | undefined => undefined
 /** A call with no options. */
@@ -4085,6 +4091,40 @@ export const makeProjectionSystem = (
       Effect.sync(() => doHandBackWithin(el, onDone)).pipe(Effect.withSpan("wardic.projection.handBackWithin")),
     )
 
+  /**
+   * Whether the engine has already measured `entry`'s size (#21, ADR-0018 *Amendment (#21)*): its
+   * node's last Measurement is the border box the observer reports, read horizontally (inline as
+   * width, block as height), within {@link SIZE_EPSILON}. Anything else counts as unmeasured and runs
+   * a pass, as every delivery did before:
+   * - a vertical writing mode, where inline is height;
+   * - an ancestor that scales the element without being a node, whose scale the Measurement carries
+   *   and the observer's size doesn't;
+   * - a node with no Measurement yet;
+   * - a real resize.
+   * An element that is no node any more (disposed, or a finished leaver) has nothing to measure.
+   */
+  const alreadyMeasured = (entry: ResizeObserverEntry): boolean => {
+    const node = elementToNode.get(entry.target as HTMLElement)
+    if (Predicate.isUndefined(node)) return true
+    const box = node.retained
+    const size = entry.borderBoxSize[0]
+    if (Predicate.isUndefined(box) || Predicate.isUndefined(size)) return false
+    return Bool.and(
+      Math.abs(size.inlineSize - (box.x.max - box.x.min)) <= SIZE_EPSILON,
+      Math.abs(size.blockSize - (box.y.max - box.y.min)) <= SIZE_EPSILON,
+    )
+  }
+
+  /**
+   * The shared observer's delivery (#21, ADR-0018 *Amendment (#21)*): a Measure pass only when an
+   * entry reports a size the engine hasn't measured. Its first delivery for a node just mounted, and
+   * its echo of a size a triggered pass already read, run none.
+   */
+  const onObserved = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
+    if (Arr.every(entries, alreadyMeasured)) return
+    scheduleMeasure()
+  }
+
   const register: ProjectionSystem["register"] = (opts) => {
     // Read at each release, in `dragEnd` (ADR-0016, *Amendment (#140)*): kept off the node's state, which every frame reads.
     const dragTransition = UndefinedOr.match(opts.dragTransition, { onUndefined: () => NO_DRAG_TRANSITION, onDefined: identity })
@@ -4176,14 +4216,14 @@ export const makeProjectionSystem = (
       }
     }
     if (ro === undefined && typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => scheduleMeasure())
+      ro = new ResizeObserver(onObserved)
     }
     if (!resizeListening && typeof window !== "undefined") {
       resizeListening = true
       lastWidth = window.innerWidth
       window.addEventListener("resize", onResize)
     }
-    ro?.observe(node.element)
+    ro?.observe(node.element, BORDER_BOX)
     // Seed retained + write the identity projection on the next frame.
     scheduleMeasure()
 
