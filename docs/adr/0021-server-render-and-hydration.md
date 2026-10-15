@@ -194,7 +194,8 @@ A provider with nothing from Wardic under it, say at an app's root over a route 
 - **Pinned by** `packages/solid/test/provider-lazy.browser.test.tsx`:
   - LZ1: a provider with nothing from Wardic under it builds nothing over several frames;
   - LZ2: the first element builds it during its render, with one gate however often it's read, and animates;
-  - LZ3: a never-built provider unmounts cleanly and builds nothing on its way out.
+  - LZ3: a never-built provider unmounts cleanly and builds nothing on its way out;
+  - LZ4: one that built disposes what it built, its projection system's `resize` listener included. That's main's teardown too, unpinned until now.
 
-  LZ1 and LZ3 fail on main.
+  LZ1 and LZ3 fail on main. Five single-point mutations of the provider are all caught: an eager build, no memo, a build in teardown, no teardown, and a build on reading the runtime.
 

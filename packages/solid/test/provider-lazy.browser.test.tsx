@@ -7,6 +7,8 @@
 // - LZ2: the first Wardic element builds it, during its render: built when `render` returns, one
 //   gate however many times it's read, and the element animates.
 // - LZ3: a provider that never built unmounts cleanly, and builds nothing on its way out.
+// - LZ4: a provider that built disposes what it built on unmount (its projection system's
+//   resize listener goes).
 import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
@@ -97,5 +99,22 @@ describe("a client WardicProvider builds on first need (#51)", () => {
     expect(errors).toEqual([])
     expect(runtime!.cachedContext, "still unbuilt").toBeUndefined()
     expect(seen.mediaQueries(), "no media query read").toBe(0)
+  })
+
+  it("LZ4: a provider that built disposes what it built on unmount: the projection system's resize listener goes", async () => {
+    const add = vi.spyOn(window, "addEventListener")
+    const remove = vi.spyOn(window, "removeEventListener")
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div layout style={{ width: "40px", height: "40px" }} />
+      </WardicProvider>
+    ))
+    await frames(2)
+    const listeners = add.mock.calls.filter(([type]) => type === "resize").map(([, fn]) => fn)
+    expect(listeners.length, "a layout node: the projection system listens for resizes").toBeGreaterThan(0)
+    cleanup()
+    await frames(2)
+    const removed = new Set(remove.mock.calls.filter(([type]) => type === "resize").map(([, fn]) => fn))
+    expect(listeners.filter((fn) => !removed.has(fn)), "every resize listener removed").toEqual([])
   })
 })
