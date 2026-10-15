@@ -23,6 +23,12 @@
  *   `offsetHeight`, which transforms don't move) and each watched child's painted box,
  *   all relative to the stage's padding box. A move is stamped with the counter's
  *   value when it was handled, so which frame could first show it is exact.
+ * - **A read the next frame overtook (#184).** The loop asks for its next frame in each
+ *   callback, not after the read, so it counts every frame the page renders. A read can
+ *   still run late: the message is an ordinary task, and a phone that paints every 7 ms
+ *   while touched (or a long task ahead of it) renders the next frame first. The read then
+ *   shows that frame's paint, so it's recorded as that frame, the newest whose callback
+ *   ran, and any later read of the same frame is skipped.
  * - **Reads no frame painted.** A layout change the scenario makes from a timer can
  *   run between a frame's paint and its read, and the read then forces a layout no
  *   frame paints. The scenario calls `noteLayoutChange` just before such a change, and
@@ -47,7 +53,8 @@
  *   pointer's client offset plus the page's scroll since the down (the stage moves with
  *   the page; no layout read). A page scroll during a press is recorded as a move of
  *   the pointer by the scrolled distance, as Wardic's Held pointer treats it (ADR-0019
- *   *Amendment (Reorder)*), so the drag checks follow it. A slot is the layout box less
+ *   *Amendment (Reorder)*), so the drag checks follow it. Not before the pointer's first
+ *   move, though: until then the Held pointer only adds the scroll to that move (#184). A slot is the layout box less
  *   the scroll of the ancestors between the item and the stage (offsets ignore it), so
  *   an item in a scrolled container (scenario 14) reads its slot where it paints.
  *
@@ -265,6 +272,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         readonly scrollAtDown: Point
         /** The latest move's buttons, for a scroll's move. */
         buttons: number
+        /** Whether the pointer has moved since the down: until then a page scroll is no move (#184). */
+        moved: boolean
         readonly input: {
           scenarioId: string
           mode: string
@@ -300,10 +309,12 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
   let rafId = 0
   /**
    * The current frame loop. A tick posts it, and the read drops a message from an earlier
-   * loop: one in flight when a new press began would otherwise arm a second loop, which
-   * reads every frame twice (and three still reads come at once after a release).
+   * loop: one in flight when a new press began would otherwise be read as the new loop's
+   * frame (and three still reads come at once after a release).
    */
   let loop = 0
+  /** The newest frame read: a read the next frame overtook reads that frame, and its own read is skipped (#184). */
+  let readFrame = 0
   /** The scroller's scroll at the previous read, for `scrolled`. */
   let lastScroll: Point | undefined
   const scrollOf = (): Point | undefined => {
@@ -388,11 +399,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       finishRest("removed")
       return
     }
-    if (changes !== changesAtTick) {
-      // A layout change landed between this frame's paint and this read: skip the read.
-      rafId = requestAnimationFrame(tick)
-      return
-    }
+    // A layout change landed between this frame's paint and this read: skip the read.
+    if (changes !== changesAtTick) return
     const isolated: Record<string, { painted: Box; layout: Box }> = {}
     for (const [name, el] of Object.entries(at.isolated())) {
       if (el !== undefined) isolated[name] = { painted: paintedBox(el, stage), layout: layoutBox(el, stage) }
@@ -412,13 +420,13 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     const settled = r.still >= STILL_FRAMES && at.engineIdle()
     if (settled || performance.now() - r.input.startedAt > REST_MS) {
       finishRest(settled ? "settled" : "timeout")
-      return
     }
-    rafId = requestAnimationFrame(tick)
   }
 
   channel.port1.onmessage = (e: MessageEvent<number>) => {
-    if (e.data !== loop) return
+    // From an earlier loop, or a frame already read: a read the next frame overtook read it (#184).
+    if (e.data !== loop || frame === readFrame) return
+    readFrame = frame
     if (press === undefined && rest !== undefined) {
       readRest()
       return
@@ -433,11 +441,8 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       finish("removed")
       return
     }
-    if (changes !== changesAtTick) {
-      // A layout change landed between this frame's paint and this read: skip the read.
-      rafId = requestAnimationFrame(tick)
-      return
-    }
+    // A layout change landed between this frame's paint and this read: skip the read.
+    if (changes !== changesAtTick) return
     const d = paintedBox(item, stage)
     const opacities = opts.opacity?.()
     const scroll = scrollOf()
@@ -478,13 +483,13 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       const settled = p.still >= STILL_FRAMES
       if (settled || performance.now() - (p.endAt ?? p.input.releaseAt) > p.settleMs) {
         finish(settled ? "settled" : "timeout")
-        return
       }
     }
-    rafId = requestAnimationFrame(tick)
   }
 
+  /** One frame: counted, and its read posted. The next frame is asked for here, so every frame is counted (#184). */
   const tick = (): void => {
+    rafId = requestAnimationFrame(tick)
     frame += 1
     frameAt = performance.now()
     changesAtTick = changes
@@ -516,10 +521,17 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     buttons,
   })
 
-  /** A page scroll during a press: the pointer moved on the page by the scrolled distance. */
+  /**
+   * A page scroll during a press: the pointer moved on the page by the scrolled distance. Not
+   * before the pointer's first move: until then Wardic's Held pointer only adds a scroll to the
+   * pointer's next move, as Motion's pan session does, so a press held still while the page
+   * scrolls stays a press (ADR-0019, *Amendment (Reorder)*). A phone still settling a fling
+   * when the finger lands scrolls just then (#184). The next move's offset counts the scroll.
+   */
   const onScroll = (e: Event): void => {
     const p = press
     if (p === undefined || (e.target !== document && e.target !== window)) return
+    if (p.input.releaseAt === null && !p.moved) return
     const move = moveOf(p, p.pointer.x, p.pointer.y, p.buttons)
     if (p.input.releaseAt !== null) p.input.releaseMoves.push(move)
     else p.input.moves.push(move)
@@ -529,6 +541,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     const p = press
     if (p === undefined || e.pointerId !== p.pointerId) return
     const move = moveOf(p, e.clientX, e.clientY, e.buttons)
+    p.moved = true
     p.pointer = { x: e.clientX, y: e.clientY }
     p.buttons = e.buttons
     if (p.input.releaseAt === null && e.buttons === 0) {
@@ -595,6 +608,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       pointer: { x: e.clientX, y: e.clientY },
       scrollAtDown: { x: window.scrollX, y: window.scrollY },
       buttons: e.buttons,
+      moved: false,
       input: {
         scenarioId: "",
         mode: opts.mode(),
