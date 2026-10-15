@@ -12,6 +12,8 @@
 //   watched before, didn't).
 // - RS6: a vertical writing mode (inline is height) falls back to running the pass, and so does a
 //   resize under an ancestor that scales the element without being a node.
+// - RS7: a `display: contents` node has no box, so no Measurement (ADR-0009 *Amendment (#9)*): when it
+//   takes a box, with no trigger, the observer's delivery runs a pass.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach } from "vitest"
 import { clearStages, el, endOfTask, type Engine, makeEngine, makeSink, stage, wait } from "./projection-harness.ts"
@@ -109,5 +111,20 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
     await wait(SETTLE_MS)
     expect(passesOf(e2) - before, "the resize still runs a pass").toBe(1)
     e2.dispose()
+  })
+
+  it("RS7: a display:contents node taking a box, with no trigger, runs a pass: it had no Measurement", async () => {
+    const e = makeEngine(makeSink().sink)
+    const a = el(stage("position:relative;width:600px;height:300px"), "display:contents")
+    el(a, "width:50px;height:30px")
+    e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
+    await wait(SETTLE_MS)
+    const before = passesOf(e)
+    a.style.display = "block"
+    a.style.width = "80px"
+    a.style.height = "40px"
+    await wait(SETTLE_MS)
+    expect(passesOf(e) - before).toBe(1)
+    e.dispose()
   })
 })

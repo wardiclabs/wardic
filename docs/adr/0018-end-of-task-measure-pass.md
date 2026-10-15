@@ -136,8 +136,10 @@ Now a delivery runs a pass only when an entry reports a size the engine hasn't m
    - **A pass scoped to the elements that changed:** ADR-0009's deferred affected-subtree scope, a separate and larger design.
 
 Pinned by:
-- `packages/dom/test/projection-observer.browser.test.ts` RS1–RS6, with the real observer and real frames:
+- `packages/dom/test/projection-observer.browser.test.ts` RS1–RS7, with the real observer and real frames:
   - a mount and a triggered resize each run one pass (RS1, RS2; two on main);
   - an untriggered resize before the first delivery, a 0×0 element growing, and a padding change each still run one (RS3–RS5; RS5 runs none on main);
-  - a vertical writing mode and a resize under a scaling ancestor fall back to the pass (RS6).
+  - a vertical writing mode and a resize under a scaling ancestor fall back to the pass (RS6);
+  - a `display: contents` node, which has no Measurement, runs one when it takes a box (RS7).
+- Mutations: 6 single-point mutations of the check, 5 caught. The survivor turns "an element that is no node any more asks for nothing" into "runs a pass", which can't happen: disposing a node unobserves it.
 - The layout lab: scenario 7 reads `passes 1 (1 seeding)`, and every scenario's held count is as before (30 runs, 0 off).
