@@ -8,8 +8,8 @@
 //   shadow corrected for its own scale, and the Lead its own for its.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
-import { boxShadowCorrector } from "../src/scale-correction.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import { boxShadowCorrector } from "../src/internal/scale-correction.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -21,7 +21,7 @@ afterEach(() => {
 
 type Engine = ReturnType<typeof makeEngine>
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 describe("a Follower keeps its own shadow (#6)", () => {

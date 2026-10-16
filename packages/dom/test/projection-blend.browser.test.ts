@@ -16,7 +16,7 @@
 // Before #166 the Lead drew its own look from its first frame, and a Switch popped.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -29,7 +29,7 @@ afterEach(() => {
 type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const makeBox = (parent: HTMLElement, left: number, width: number, extra = ""): HTMLElement =>

@@ -19,7 +19,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import * as Projection from "@wardic/core/Projection"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -64,7 +64,7 @@ const frames = <A>(n: number, read: () => A): Array<A> =>
     return read()
   })
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /** Motion's `circOut`: `reverseEasing(circIn)`. */

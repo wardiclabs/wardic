@@ -13,7 +13,8 @@ import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Projection from "@wardic/core/Projection"
-import { DomLive, type FlushGate } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import type * as FlushGate from "@wardic/dom/FlushGate"
 import { useWardicGate, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { TestInput } from "@wardic/test"
 import * as Effect from "effect/Effect"
@@ -59,7 +60,7 @@ let dispatching = false
 function GateSpy(props: { readonly writes: Array<Write> }) {
   const gate = useWardicGate()
   const write = gate.write
-  ;(gate as { write: FlushGate["write"] }).write = (id, partial) => {
+  ;(gate as { write: FlushGate.FlushGate["write"] }).write = (id, partial) => {
     const x = partial.x
     props.writes.push({ keys: Object.keys(partial), x: typeof x === "number" ? x : undefined, inDispatch: dispatching })
     write(id, partial)

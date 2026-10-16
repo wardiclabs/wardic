@@ -19,7 +19,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -58,7 +58,7 @@ const factor = (sk: Sink, id: string): number => {
 
 const apart = (a: Rect, b: Rect): number => Math.max(Math.abs(a.x.min - b.x.min), Math.abs(a.x.max - b.x.max), Math.abs(a.y.min - b.y.min), Math.abs(a.y.max - b.y.max))
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const frames = <A>(n: number, read: (i: number) => A): Array<A> =>
@@ -87,7 +87,7 @@ const opened = async (e: Engine, inner: (wrap: HTMLElement, big: HTMLElement) =>
 }
 
 /** Presence closes the wrapper: Solid disposes what it holds, then presence hands the wrapper's twins back, in one task. */
-const close = async (e: Engine, wrap: HTMLElement, dispose: ReadonlyArray<ProjectionNodeHandle>) => {
+const close = async (e: Engine, wrap: HTMLElement, dispose: ReadonlyArray<ProjectionSystem.NodeHandle>) => {
   const seen = { done: false, drop: undefined as (() => void) | undefined }
   queueMicrotask(() => {
     seen.drop = e.system.handBackWithin(wrap, () => {
@@ -191,7 +191,7 @@ describe("a leaving element that isn't a twin hands back the twins inside it (#1
   it("HB5: a layout node the twin carries comes back with it; a plain one elsewhere in the wrapper doesn't", async () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
-    const held: { badge?: HTMLElement; note?: HTMLElement; handles: Array<ProjectionNodeHandle> } = { handles: [] }
+    const held: { badge?: HTMLElement; note?: HTMLElement; handles: Array<ProjectionSystem.NodeHandle> } = { handles: [] }
     const { wrap, big, handle } = await opened(e, (w, b) => {
       held.badge = makeBox(b, 10, 100, 40, 12)
       held.note = makeBox(w, 10, 200, 80, 20)

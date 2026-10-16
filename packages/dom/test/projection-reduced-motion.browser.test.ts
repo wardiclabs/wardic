@@ -5,7 +5,7 @@
 // `respectReducedMotion: () => false` animates anyway, and a drag's release isn't reduced.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import type { RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import {
   clearStages,
   el,
@@ -31,7 +31,7 @@ const isIdentity = (w: Write): boolean =>
   Math.abs(w.tx) < 1e-6 && Math.abs(w.ty) < 1e-6 && Math.abs(w.sx - 1) < 1e-6 && Math.abs(w.sy - 1) < 1e-6
 
 /** A 100×50 box at `left`, registered and measured once. */
-const mount = async (e: Engine, id: string, left: number, extra: Partial<RegisterNodeOptions> = {}) => {
+const mount = async (e: Engine, id: string, left: number, extra: Partial<ProjectionSystem.RegisterNodeOptions> = {}) => {
   const element = el(stage(), `position:absolute;left:${left}px;top:0;width:100px;height:50px`)
   const handle = e.system.register({ id, element, transition: () => ({ type: "spring" }), ...extra })
   await endOfTask()

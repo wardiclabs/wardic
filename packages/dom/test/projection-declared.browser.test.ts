@@ -23,8 +23,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
-import type { LayoutTransition, ProjectionNodeHandle } from "../src/index.ts"
-import { onPassEnd } from "../src/projection.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import { onPassEnd } from "../src/internal/projection.ts"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(() => {
@@ -38,11 +38,11 @@ afterEach(() => {
 
 type Sink = ReturnType<typeof makeSink>
 
-const SPRING: LayoutTransition = { type: "spring" }
-const LINEAR: LayoutTransition = { type: "tween", duration: 0.2, easing: Easing.linear }
+const SPRING: ProjectionSystem.LayoutTransition = { type: "spring" }
+const LINEAR: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.2, easing: Easing.linear }
 
 /** Register `elements` (as `n0`, `n1`…) on `transition` and run their first pass. */
-const mount = async (e: Engine, elements: ReadonlyArray<HTMLElement>, transition: LayoutTransition = SPRING): Promise<Array<ProjectionNodeHandle>> => {
+const mount = async (e: Engine, elements: ReadonlyArray<HTMLElement>, transition: ProjectionSystem.LayoutTransition = SPRING): Promise<Array<ProjectionSystem.NodeHandle>> => {
   const handles = elements.map((element, i) => e.system.register({ id: `n${i}`, element, transition: () => transition }))
   await endOfTask()
   fireFrame()

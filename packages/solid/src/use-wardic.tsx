@@ -37,27 +37,14 @@ import * as Renderer from "@wardic/core/Renderer"
 import * as Stagger from "@wardic/core/Stagger"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
-import {
-  DRAG_DEFAULT_ATTRIBUTES,
-  dragDefaultStyle,
-  type DragDefaultStyle,
-  type FlushGate,
-  type FlushSink,
-  mergeStyle,
-  ownOpacityOf,
-  ownRotateOf,
-  ownScaleOf,
-  ownValues,
-  project as domProject,
-  type ProjectionNodeHandle,
-  reportFailure,
-  splitPatchForTag,
-  startingStyle,
-  styleValueOf,
-  toValues,
-  valueLike,
-  variableValues,
-} from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import type * as FlushGate from "@wardic/dom/FlushGate"
+import * as OwnValues from "@wardic/dom/OwnValues"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as Report from "@wardic/dom/Report"
+import * as Style from "@wardic/dom/Style"
+import * as Svg from "@wardic/dom/Svg"
+import * as Variables from "@wardic/dom/Variables"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -495,8 +482,8 @@ const resolveValues = (
   variants: Record<string, WardicValues> | undefined,
 ): Values.Values => {
   if (entry === undefined) return {}
-  if (typeof entry === "string") return toValues(variants?.[entry])
-  return toValues(entry)
+  if (typeof entry === "string") return Style.toValues(variants?.[entry])
+  return Style.toValues(entry)
 }
 
 /** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
@@ -540,7 +527,7 @@ export interface SpineInternals {
   readonly tag?: string | undefined
   readonly dragAxis?: (() => boolean | "x" | "y") | undefined
   readonly onDragSample?: ((sample: Drag.Sample) => void) | undefined
-  readonly onLayoutHandle?: ((handle: ProjectionNodeHandle) => void) | undefined
+  readonly onLayoutHandle?: ((handle: ProjectionSystem.NodeHandle) => void) | undefined
   readonly raiseWhileDragged?: boolean | undefined
   readonly lifted?: Accessor<boolean> | undefined
   readonly baseStyle?: (() => JSX.CSSProperties | undefined) | undefined
@@ -550,7 +537,7 @@ export interface RunSpineOptions {
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
   /** The provider-owned flush gate (ADR-0006). */
-  readonly gate: FlushGate
+  readonly gate: FlushGate.FlushGate
   /** SSR/hydration-stable gate id for this element's entry. */
   readonly id: string
   /** The element accessor; the spine is gated on it (started once defined). */
@@ -603,7 +590,7 @@ export interface RunSpineOptions {
    * surface whose `style` prop reaches it (`useWardic`, `wardic.create(Component)`), the hooks
    * that switch that `style` (ADR-0034). The spine itself never reads the sink's hooks.
    */
-  readonly makeSink: (el: HTMLElement) => FlushSink
+  readonly makeSink: (el: HTMLElement) => FlushGate.Sink
   /**
    * Whether the element's drag defaults and base style reach it with its props: a `useWardic`
    * spread's `style` and attributes. Otherwise the spine sets them on the element at mount (the
@@ -700,7 +687,7 @@ export function runSpine(opts: RunSpineOptions): void {
           createEffect(on(base, (style) => write(style as Record<string, unknown> | undefined), { defer: true }))
         }
         const dragAxis = dragAxisOf(untrack(cfg), internal)
-        if (dragAxis !== undefined) applyDragDefaults(element, dragDefaultStyle(dragAxis))
+        if (dragAxis !== undefined) applyDragDefaults(element, Style.dragDefaults(dragAxis))
       }
 
       // --- Base values (ADR-0022) ---------------------------------------------
@@ -709,16 +696,16 @@ export function runSpine(opts: RunSpineOptions): void {
       // Own value is read from the element once per key, at first need (D3): this runs after
       // mount, so never on a server (ADR-0021). Each link is coerced to the shape of the
       // key's target (`like`).
-      const ownValue = ownValues(element)
+      const ownValue = OwnValues.of(element)
       // Its Variable values (#55, ADR-0035 *Amendment (#55)*): the Key rule bound to this element,
       // added to each leg it starts, so a `var()` end blends what it resolves to here.
-      const elementRules = [variableValues(element)]
+      const elementRules = [Variables.values(element)]
       const linksFor = (like: number | string) => ({
         style: (key: string) =>
           Option.flatMap(Option.fromUndefinedOr(styleOf), (of) =>
-            Option.fromUndefinedOr(valueLike(styleValueOf(untrack(of), key), like)),
+            Option.fromUndefinedOr(OwnValues.valueLike(OwnValues.styleValueOf(untrack(of), key), like)),
           ),
-        own: (key: string) => Option.fromUndefinedOr(valueLike(ownValue(key), like)),
+        own: (key: string) => Option.fromUndefinedOr(OwnValues.valueLike(ownValue(key), like)),
       })
       const startOf = (key: string, like: number | string) => Option.getOrUndefined(BaseValue.start(key, linksFor(like)))
 
@@ -736,7 +723,7 @@ export function runSpine(opts: RunSpineOptions): void {
         presenceRec = {
           element,
           snapshot: { current: { ...initialValues } },
-          exit: { current: toValues(untrack(cfg).exit) },
+          exit: { current: Style.toValues(untrack(cfg).exit) },
           // An exit key with no value starts from its Base value's start links (ADR-0022),
           // read from the retained node at the exit.
           startOf: (key, like) => startOf(key, like)?.value,
@@ -744,7 +731,7 @@ export function runSpine(opts: RunSpineOptions): void {
         presence.register(presenceRec)
         // Keep exit.current current while the child is alive.
         createEffect(() => {
-          presenceRec!.exit.current = toValues(cfg().exit)
+          presenceRec!.exit.current = Style.toValues(cfg().exit)
         })
       }
 
@@ -775,7 +762,7 @@ export function runSpine(opts: RunSpineOptions): void {
           const style = untrack(styleOf)
           restore = {}
           for (const key of handedBack) {
-            const value = styleValueOf(style, key)
+            const value = OwnValues.styleValueOf(style, key)
             restore[key] = value !== undefined ? String(value) : ""
           }
         }
@@ -813,7 +800,7 @@ export function runSpine(opts: RunSpineOptions): void {
       const layoutId = c0.layoutId
       // layout / layoutId / layoutScroll / layoutRoot each warrant a node; layoutAnchor
       // alone does not (it only tunes a node that already projects), but is forwarded.
-      let layoutHandle: ProjectionNodeHandle | undefined
+      let layoutHandle: ProjectionSystem.NodeHandle | undefined
       // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (c0.layout === true || Predicate.isString(c0.layout) || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
@@ -826,10 +813,10 @@ export function runSpine(opts: RunSpineOptions): void {
           // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
           layoutMode: () => layoutModeOf(cfg().layout),
           // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
-          ownScale: () => ownScaleOf(snapshot.values),
+          ownScale: () => DomRenderer.ownScaleOf(snapshot.values),
           // And its own rotate and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*).
-          ownRotate: () => ownRotateOf(snapshot.values),
-          ownOpacity: () => ownOpacityOf(snapshot.values),
+          ownRotate: () => DomRenderer.ownRotateOf(snapshot.values),
+          ownOpacity: () => DomRenderer.ownOpacityOf(snapshot.values),
           // The app's layout animation callbacks, read when they fire (#191, ADR-0039).
           onLayoutAnimationStart: () => cfg().onLayoutAnimationStart,
           onLayoutAnimationComplete: () => cfg().onLayoutAnimationComplete,
@@ -936,13 +923,13 @@ export function runSpine(opts: RunSpineOptions): void {
               : initialLink
         const resolved = Override.resolve([
           { active: true, values: base },
-          { active: hovered(), values: toValues(c.whileHover) },
-          { active: pressed(), values: toValues(c.whileTap) },
+          { active: hovered(), values: Style.toValues(c.whileHover) },
+          { active: pressed(), values: Style.toValues(c.whileTap) },
           // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
           // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
           // after release. Read dragging() so a flip recomputes this memo; a keyboard
           // lift turns it on too (ADR-0037).
-          { active: Bool.or(dragging(), internal?.lifted?.() === true), values: toValues(c.whileDrag) },
+          { active: Bool.or(dragging(), internal?.lifted?.() === true), values: Style.toValues(c.whileDrag) },
         ])
         return { resolved, base, dragging: dragging() }
       })
@@ -1020,7 +1007,7 @@ export function runSpine(opts: RunSpineOptions): void {
             for (const key in t) {
               const like = t[key]!
               const current = snapshot.values[key]
-              const coerced = current !== undefined ? valueLike(current, like) : undefined
+              const coerced = current !== undefined ? OwnValues.valueLike(current, like) : undefined
               if (coerced !== undefined) {
                 snapshot.values[key] = coerced
                 continue
@@ -1054,7 +1041,7 @@ export function runSpine(opts: RunSpineOptions): void {
             const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
               Exit.match(exit, {
                 onSuccess: () => legDone,
-                onFailure: (cause) => reportFailure("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
+                onFailure: (cause) => Report.failure("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
               })
             // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
             // numeric one, so each leg's frames report, and only the last leg's settle reports done.
@@ -1278,14 +1265,14 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // (cold path).
   const projected = project(initialValues)
   const hydrating = isHydrating()
-  const startingPatch = hydrating ? domProject(initialValues) : projected
+  const startingPatch = hydrating ? DomRenderer.project(initialValues) : projected
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
-  const seed = splitPatchForTag(internal?.tag, startingPatch)
+  const seed = Svg.splitPatchForTag(internal?.tag, startingPatch)
 
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
   const dragAxis = dragAxisOf(untrack(cfg), internal)
-  const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
+  const dragDefaults = dragAxis !== undefined ? Style.dragDefaults(dragAxis) : undefined
   const baseStyle = internal?.baseStyle
 
   // The props `ward(userProps)` was last called with: their `style` is this element's style
@@ -1348,7 +1335,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
           return elementStyle.style(userProps?.style)
         },
         ...seed.attrs,
-        ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),
+        ...(dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES : {}),
       }
     },
     { Provider },
@@ -1393,18 +1380,18 @@ const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: Spi
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())
-  const seed = startingStyle(internal?.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
+  const seed = Style.starting(internal?.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
   const dragAxis = dragAxisOf(c, internal)
-  const dragDefaults = dragAxis !== undefined ? dragDefaultStyle(dragAxis) : undefined
+  const dragDefaults = dragAxis !== undefined ? Style.dragDefaults(dragAxis) : undefined
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
   )
   return Object.assign(
     (userProps?: WardUserProps): WardProps => ({
       ref: userProps?.ref ?? noRef,
-      style: mergeStyle(userProps?.style, seed.style, dragDefaults, internal?.baseStyle?.()) as JSX.CSSProperties,
+      style: Style.merge(userProps?.style, seed.style, dragDefaults, internal?.baseStyle?.()) as JSX.CSSProperties,
       ...seed.attrs,
-      ...(dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES : {}),
+      ...(dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES : {}),
     }),
     { Provider },
   )
@@ -1424,9 +1411,9 @@ export const dragAxisOf = (config: WardicConfig, internal: SpineInternals | unde
  * Set each of a drag element's defaults its inline style doesn't already set, and
  * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
  */
-const applyDragDefaults = (element: HTMLElement, defaults: DragDefaultStyle): void => {
+const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
   for (const key in defaults) {
     if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, defaults[key]!)
   }
-  if (!element.hasAttribute("draggable")) element.setAttribute("draggable", DRAG_DEFAULT_ATTRIBUTES.draggable)
+  if (!element.hasAttribute("draggable")) element.setAttribute("draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
 }

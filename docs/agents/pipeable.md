@@ -42,6 +42,16 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 - **A combinator needs a caller.** Add one when something uses it, not before.
 - **A layer is a call per element per frame.** Each combinator's step is one function shared by every machine, so V8 doesn't inline the call inside it. A constructor keeps a per-step concern inline in its leaf rather than as a layer: the `MAX_DT` clamp is each leaf's `Math.min` and `delay`'s hold, not `clampDt` (ADR-0028, *Implementation in #94*). Count a constructor's layers against main's, and run the bench.
 
+## dom (ADR-0041)
+
+`@wardic/dom` follows the same rules, for binding authors (#132):
+- **One module per concept,** at `@wardic/dom/<Module>`. The root re-exports each as a namespace and keeps `DomLive` and `VERSION` for an app. Repo code imports the subpaths, and `internal/` isn't exported.
+- **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomKeyRules`.
+- **dom's own concepts** take the glossary's names: `FlushGate`, `ProjectionSystem`, `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `OwnValues`, `Report`. No dom module repeats a core module's name.
+- **A member drops its module's noun:** `FlushGate.make`, `FlushGate.inert`, `Style.starting`.
+- **Long-lived parts are services built by Layers,** ended by their Scope, with plain functions per frame. A server's stand-ins are values (`FlushGate.inert`), plus a Layer for an Effect-run server.
+- **Pure helpers are `dual` functions over plain records,** read left to right: `pipe(user, Style.over(defaults))`.
+
 ## Checks
 
 - **`bun run lint`** (#95): the root re-exports namespaces only (`src/index.ts`: no `export *` without a name, no named export), and dom, solid and test (src and test) and the bench don't import `"@wardic/core"` itself. Lint covers those packages for that one rule; the Effect-first rules reach them with #69.

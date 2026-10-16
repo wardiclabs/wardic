@@ -8,7 +8,8 @@
 // Expected strings are literal: the point is the markup `project` writes.
 import * as BaseValue from "@wardic/core/BaseValue"
 import * as Projection from "@wardic/core/Projection"
-import { project, splitPatchForTag } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as Svg from "@wardic/dom/Svg"
 import { describe, expect, it } from "vitest"
 
 const IDENTITY = { x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }, y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 } }
@@ -23,65 +24,65 @@ const projected = (tx = 0, ty = 0) => ({
 describe("identity transforms: the normal path (ADR-0023)", () => {
   it("IT1: each transform key alone at its identity projects transform: none", () => {
     for (const [key, identity] of Object.entries(BaseValue.TRANSFORM_IDENTITY)) {
-      expect(project({ [key]: identity }), key).toEqual({ transform: "none" })
+      expect(DomRenderer.project({ [key]: identity }), key).toEqual({ transform: "none" })
     }
   })
 
   it("IT2: all fifteen at their identity project none, and the other keys still project", () => {
-    expect(project({ ...BaseValue.TRANSFORM_IDENTITY, opacity: 0.5 })).toEqual({ transform: "none", opacity: 0.5 })
+    expect(DomRenderer.project({ ...BaseValue.TRANSFORM_IDENTITY, opacity: 0.5 })).toEqual({ transform: "none", opacity: 0.5 })
   })
 
   it("IT3: a key at its identity is left out beside one that isn't", () => {
-    expect(project({ x: 10, y: 0 })).toEqual({ transform: "translateX(10px)" })
-    expect(project({ x: 0, scale: 1.5, rotate: 0, skewX: 10 })).toEqual({ transform: "scale(1.5) skewX(10deg)" })
+    expect(DomRenderer.project({ x: 10, y: 0 })).toEqual({ transform: "translateX(10px)" })
+    expect(DomRenderer.project({ x: 0, scale: 1.5, rotate: 0, skewX: 10 })).toEqual({ transform: "scale(1.5) skewX(10deg)" })
   })
 
   it("IT4 (guard): with no transform key, no transform is written", () => {
-    expect(project({ opacity: 0.5 })).toEqual({ opacity: 0.5 })
-    expect(project({})).toEqual({})
+    expect(DomRenderer.project({ opacity: 0.5 })).toEqual({ opacity: 0.5 })
+    expect(DomRenderer.project({})).toEqual({})
   })
 
   it("IT5: a string is at its identity when parseFloat gives it (Motion's test)", () => {
-    for (const x of ["0px", "0%", "-0px", "0", "0.0em"]) expect(project({ x }), x).toEqual({ transform: "none" })
-    for (const rotate of ["0deg", "0turn", "0rad"]) expect(project({ rotate }), rotate).toEqual({ transform: "none" })
-    expect(project({ scale: "1", scaleX: "1.0" })).toEqual({ transform: "none" })
+    for (const x of ["0px", "0%", "-0px", "0", "0.0em"]) expect(DomRenderer.project({ x }), x).toEqual({ transform: "none" })
+    for (const rotate of ["0deg", "0turn", "0rad"]) expect(DomRenderer.project({ rotate }), rotate).toEqual({ transform: "none" })
+    expect(DomRenderer.project({ scale: "1", scaleX: "1.0" })).toEqual({ transform: "none" })
   })
 
   it("IT6 (guard): a string parseFloat doesn't take to the identity is written", () => {
-    expect(project({ x: "calc(0px)" })).toEqual({ transform: "translateX(calc(0px))" })
-    expect(project({ x: "var(--x)" })).toEqual({ transform: "translateX(var(--x))" })
-    expect(project({ scale: "100%" })).toEqual({ transform: "scale(100%)" })
-    expect(project({ x: "0.5px" })).toEqual({ transform: "translateX(0.5px)" })
+    expect(DomRenderer.project({ x: "calc(0px)" })).toEqual({ transform: "translateX(calc(0px))" })
+    expect(DomRenderer.project({ x: "var(--x)" })).toEqual({ transform: "translateX(var(--x))" })
+    expect(DomRenderer.project({ scale: "100%" })).toEqual({ transform: "scale(100%)" })
+    expect(DomRenderer.project({ x: "0.5px" })).toEqual({ transform: "translateX(0.5px)" })
   })
 
   it("IT7: the test is exact: a value next to its identity is written, -0 is the identity", () => {
-    expect(project({ scale: 1.0000001 })).toEqual({ transform: "scale(1.0000001)" })
-    expect(project({ x: 0.001 })).toEqual({ transform: "translateX(0.001px)" })
-    expect(project({ x: -0 })).toEqual({ transform: "none" })
+    expect(DomRenderer.project({ scale: 1.0000001 })).toEqual({ transform: "scale(1.0000001)" })
+    expect(DomRenderer.project({ x: 0.001 })).toEqual({ transform: "translateX(0.001px)" })
+    expect(DomRenderer.project({ x: -0 })).toEqual({ transform: "none" })
   })
 })
 
 describe("identity transforms: the projection path (ADR-0023 decision 4, ADR-0009)", () => {
   it("IT8: an identity woven rotate or skew is left out: with no delta, none", () => {
-    expect(project({ ...projected(), rotate: 0 })).toEqual({ transform: "none" })
-    expect(project({ ...projected(), rotateX: 0, rotateY: "0deg", rotateZ: 0, skewX: 0, skewY: "0deg" })).toEqual({ transform: "none" })
+    expect(DomRenderer.project({ ...projected(), rotate: 0 })).toEqual({ transform: "none" })
+    expect(DomRenderer.project({ ...projected(), rotateX: 0, rotateY: "0deg", rotateZ: 0, skewX: 0, skewY: "0deg" })).toEqual({ transform: "none" })
   })
 
   it("IT9: with a delta, the identity woven terms are left out and the rest still woven", () => {
-    expect(project({ ...projected(12, 0), rotate: 0 })).toEqual({ transform: "translate3d(12px, 0px, 0px)" })
-    expect(project({ ...projected(12, 0), rotate: 10, skewX: 0 })).toEqual({ transform: "translate3d(12px, 0px, 0px) rotate(10deg)" })
+    expect(DomRenderer.project({ ...projected(12, 0), rotate: 0 })).toEqual({ transform: "translate3d(12px, 0px, 0px)" })
+    expect(DomRenderer.project({ ...projected(12, 0), rotate: 10, skewX: 0 })).toEqual({ transform: "translate3d(12px, 0px, 0px) rotate(10deg)" })
   })
 
   it("IT10: z at its identity, a number or a string, adds no translate3d", () => {
-    expect(project({ ...projected(), z: 0 })).toEqual({ transform: "none" })
-    expect(project({ ...projected(), z: "0px" })).toEqual({ transform: "none" })
-    expect(project({ ...projected(), z: 5 })).toEqual({ transform: "translate3d(0px, 0px, 5px)" })
+    expect(DomRenderer.project({ ...projected(), z: 0 })).toEqual({ transform: "none" })
+    expect(DomRenderer.project({ ...projected(), z: "0px" })).toEqual({ transform: "none" })
+    expect(DomRenderer.project({ ...projected(), z: 5 })).toEqual({ transform: "translate3d(0px, 0px, 5px)" })
   })
 })
 
 describe("identity transforms: SVG routing (ADR-0023 decision 6, ADR-0014)", () => {
   it("IT11: an svg-inner element's none still takes transform-box and transform-origin", () => {
-    expect(splitPatchForTag("circle", project({ scale: 1, opacity: 0.5 }))).toEqual({
+    expect(Svg.splitPatchForTag("circle", DomRenderer.project({ scale: 1, opacity: 0.5 }))).toEqual({
       style: { transform: "none", "transform-box": "fill-box", "transform-origin": "50% 50%" },
       attrs: { opacity: "0.5" },
     })

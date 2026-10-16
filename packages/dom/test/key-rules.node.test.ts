@@ -20,7 +20,7 @@ import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
-import { InterpolatorRegistryDomLive } from "@wardic/dom"
+import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import { TestClock, testLayer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -34,7 +34,7 @@ const framesOf = <F extends Frame.Frame<Values.Values>>(
   ticks: ReadonlyArray<number>,
 ) =>
   Stream.runCollect(machine.pipe(Effect.map(Machine.toStream), Stream.unwrap)).pipe(
-    Effect.provide(InterpolatorRegistryDomLive),
+    Effect.provide(DomInterpolators.layer),
     Effect.provide(testLayer(ticks)),
     Effect.map((frames) => Array.from(frames) as ReadonlyArray<F>),
   )

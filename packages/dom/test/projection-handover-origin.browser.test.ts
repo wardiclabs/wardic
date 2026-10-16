@@ -14,7 +14,7 @@
 // node paints at its layout position plus its last translate.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -37,7 +37,7 @@ const paintedX = (box: HTMLElement, sk: Sink, id: string): number => box.offsetL
 /** Where an element paints on x, committed to the page itself (a leaving Follower is). */
 const pageX = (box: HTMLElement): number => box.getBoundingClientRect().left - box.parentElement!.getBoundingClientRect().left
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /** `n` frames, each followed by `read`, collected. */

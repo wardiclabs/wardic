@@ -21,7 +21,7 @@ import { describe, expect, it } from "@effect/vitest"
 import type * as Box from "@wardic/core/Box"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -41,7 +41,7 @@ const ONE_AND_A_HALF: Scale = { x: 1.5, y: 1.5 }
 const makeBox = (parent: HTMLElement, left: number, top: number, width: number, height: number): HTMLElement =>
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /** An element's box as the page lays it out (the fake sink paints nothing). */

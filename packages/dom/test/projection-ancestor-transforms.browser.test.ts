@@ -17,7 +17,7 @@ import { describe, expect, it } from "@effect/vitest"
 import type * as Box from "@wardic/core/Box"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -30,7 +30,7 @@ afterEach(() => {
 type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 /**
@@ -100,7 +100,7 @@ describe("a twin's conversions follow Wardic's own ancestor transforms (#137)", 
     fireFrame()
     let own = 0.8
     const modal = el(root, "position:absolute;left:300px;top:100px;width:300px;height:240px")
-    register(e, "modal", modal, { layout: true, ownScale: () => ({ x: own, y: own }) } as Partial<RegisterNodeOptions>)
+    register(e, "modal", modal, { layout: true, ownScale: () => ({ x: own, y: own }) } as Partial<ProjectionSystem.RegisterNodeOptions>)
     const big = el(modal, "position:absolute;left:50px;top:40px;width:200px;height:150px")
     register(e, "big", big, { layoutId: "twin" })
     await endOfTask()

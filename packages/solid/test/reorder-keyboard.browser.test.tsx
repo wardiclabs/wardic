@@ -18,7 +18,9 @@
 // - KB9: in a scroll container, End moves the item to the last place and scrolls it into view.
 // - KB10: keys during a pointer drag are left alone.
 import { cleanup, render } from "@solidjs/testing-library"
-import { ANNOUNCER_ATTRIBUTE, DEFAULT_REORDER_INSTRUCTIONS, DomLive } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
+import * as ReorderController from "@wardic/dom/ReorderController"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { createReorderGroup, createReorderItem, Reorder, WardicProvider } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
@@ -37,7 +39,7 @@ const frames = async (n: number): Promise<void> => {
 }
 
 /** The page's live region's text: the last announcement. */
-const announced = (): string => document.querySelector(`[${ANNOUNCER_ATTRIBUTE}]`)?.textContent ?? ""
+const announced = (): string => document.querySelector(`[${DomAnnouncer.ATTRIBUTE}]`)?.textContent ?? ""
 
 interface MountOptions {
   readonly initial?: ReadonlyArray<string>
@@ -102,7 +104,7 @@ const mount = async (options: MountOptions = {}) => {
 
 /** Every text the live region shows from now on, in order. */
 const recordAnnouncements = (): { readonly texts: Array<string>; readonly stop: () => void } => {
-  const region = document.querySelector(`[${ANNOUNCER_ATTRIBUTE}]`)
+  const region = document.querySelector(`[${DomAnnouncer.ATTRIBUTE}]`)
   const texts: Array<string> = []
   const observer = new MutationObserver(() => texts.push((region?.textContent ?? "").replace(/\u00A0$/, "")))
   if (region !== null) observer.observe(region, { childList: true, characterData: true, subtree: true })
@@ -112,8 +114,8 @@ const recordAnnouncements = (): { readonly texts: Array<string>; readonly stop: 
 it("KB1: Space lifts, the arrows move one place per press, Space drops; focus stays, and the item is raised and lifted", async () => {
   const m = await mount()
   const b = m.item("b")
-  expect(document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent, "the web's default instructions").toBe(DEFAULT_REORDER_INSTRUCTIONS)
-  expect(DEFAULT_REORDER_INSTRUCTIONS).toBe(
+  expect(document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent, "the web's default instructions").toBe(ReorderController.DEFAULT_INSTRUCTIONS)
+  expect(ReorderController.DEFAULT_INSTRUCTIONS).toBe(
     "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel. Some screen readers need focus mode for these keys.",
   )
   b.focus()

@@ -11,7 +11,8 @@ import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as References from "effect/References"
 import * as Tracer from "effect/Tracer"
 import { vi } from "vitest"
-import { DomLive, makeProjectionSystem, type ProjectionSystemOptions } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 
 type FrameCallback = (t: number) => void
 
@@ -102,7 +103,7 @@ export const makeSink = () => {
 }
 
 /** Build the engine over `sink` with a DomLive runtime that records measure spans and debug logs. */
-export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: ProjectionSystemOptions) => {
+export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: ProjectionSystem.Options) => {
   const spans: Array<Record<string, unknown>> = []
   const logs: Array<{ readonly message: string; readonly annotations: Record<string, unknown> }> = []
   class MeasureSpan extends Tracer.NativeSpan {
@@ -126,7 +127,7 @@ export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: 
       Layer.succeed(References.MinimumLogLevel, "Debug"),
     ),
   )
-  const system = makeProjectionSystem(runtime, sink, options)
+  const system = ProjectionSystem.make(runtime, sink, options)
   return {
     system,
     runtime,

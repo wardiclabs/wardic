@@ -40,7 +40,7 @@
      - **A second key in the Clock module (`Clock.RefreshFrameSource`, in place):** the smallest change, but after #52 the source is the Clock's peer, not a part of it. `FrameLoop.CheckFrames` is the only second key in a module, and it's a `Reference` with a default.
      - **A separate `RefreshFrameSourceDomLive` Layer:** it changes the client-only error's Layer name, and it invites replacing one service without the other, so the Clock and the gate would end up on different frames.
 3. **The gate moves to `@wardic/dom`, with `batch` from the binding.**
-   - **`makeFlushGate(runtime, { batch })`,** Tier 2 and exported for binding authors, beside `makeProjectionSystem(runtime, sink, options)`. Its runtime is `ManagedRuntime<Renderer | RefreshFrameSource>`, the way `ProjectionRuntime` names what it needs.
+   - **`makeFlushGate(runtime, { batch })`** (`FlushGate.make` since #132, and a service built by `FlushGate.layer` from its PR 2; ADR-0041), Tier 2 and exported for binding authors, beside `makeProjectionSystem(runtime, sink, options)`. Its runtime is `ManagedRuntime<Renderer | RefreshFrameSource>`, the way `ProjectionRuntime` names what it needs.
    - **`batch`'s contract:** run `apply`, and return once every cell write inside it will reach the screen before the next paint. Solid 1's `batch` meets it.
    - **`INERT_GATE` moves with it,** since it's the server gate every binding needs (ADR-0021, decision 9). `FlushGate` and `FlushSink` move too. `ProjectionSink` stays the engine's narrower seam, because its tests use a fake sink.
    - **Solid keeps** the provider's wiring (`makeFlushGate(runtime, { batch })`) and `useWardicGate`, and re-exports the types. It drops its own `makeFlushGate` export, with no alias.

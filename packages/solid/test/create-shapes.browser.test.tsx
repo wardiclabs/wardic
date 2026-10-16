@@ -13,7 +13,9 @@
 // the settle, and after the user's own style changes.
 import { cleanup, render } from "@solidjs/testing-library"
 import * as Renderer from "@wardic/core/Renderer"
-import { DomLive, dragDefaultStyle, RendererDomLive } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as Style from "@wardic/dom/Style"
 import { wardic, type WardicMotionProps, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Effect from "effect/Effect"
 import { type Component, createRenderEffect, createSignal, ErrorBoundary, type JSX } from "solid-js"
@@ -82,7 +84,7 @@ const TWEEN_MS = 300
 const FIRST_FRAME = 0.1
 
 /** The DOM's projection, from the Renderer DomLive provides. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
 
 const opacityOf = (el: Element | null): number => (el === null ? 1 : Number(getComputedStyle(el).opacity))
 
@@ -270,9 +272,9 @@ describe("wardic.create(Component) shapes (ADR-0021, decision 6)", () => {
     expect(plain.after?.draggable).toBeUndefined()
 
     const drag = await spy({ style: { color: "red" }, drag: "x" })
-    expect(drag.before?.style, "before the first commit, with drag: + the drag defaults").toEqual({ ...dragDefaultStyle("x"), color: "red", ...starting })
+    expect(drag.before?.style, "before the first commit, with drag: + the drag defaults").toEqual({ ...Style.dragDefaults("x"), color: "red", ...starting })
     expect(drag.before?.draggable).toBe("false")
-    expect(drag.after?.style, "after it, with drag: the user's style over the drag defaults").toEqual({ ...dragDefaultStyle("x"), color: "red" })
+    expect(drag.after?.style, "after it, with drag: the user's style over the drag defaults").toEqual({ ...Style.dragDefaults("x"), color: "red" })
     expect(drag.after?.draggable).toBe("false")
 
     const bare = await spy({})

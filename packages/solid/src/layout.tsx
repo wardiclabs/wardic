@@ -19,7 +19,7 @@
  */
 import type * as Point from "@wardic/core/Point"
 import type * as Projection from "@wardic/core/Projection"
-import { DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition, type ProjectionNodeHandle } from "@wardic/dom"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, identity } from "effect/Function"
@@ -45,17 +45,17 @@ const hasSpringField = (t: SpringTransition): boolean => Arr.some(SPRING_FIELDS,
  * field; anything else, a `delay` alone say, is Motion's default tween with its delay, so it never
  * turns a layout animation into a spring (ADR-0009 *Amendment (#171)*).
  */
-const springOrDefault = (t: SpringTransition): LayoutTransition =>
+const springOrDefault = (t: SpringTransition): ProjectionSystem.LayoutTransition =>
   Bool.match(Bool.or(t.type === "spring", hasSpringField(t)), {
-    onTrue: (): LayoutTransition => ({ ...t, type: "spring" }),
+    onTrue: (): ProjectionSystem.LayoutTransition => ({ ...t, type: "spring" }),
     onFalse: () =>
-      UndefinedOr.match(t.delay, { onUndefined: () => DEFAULT_LAYOUT_TRANSITION, onDefined: (delay): LayoutTransition => ({ ...DEFAULT_LAYOUT_TRANSITION, delay }) }),
+      UndefinedOr.match(t.delay, { onUndefined: () => ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, onDefined: (delay): ProjectionSystem.LayoutTransition => ({ ...ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, delay }) }),
   })
 
 /** One transition as a layout animation's (ADR-0009 *Amendment (#171)*): a tween keeps its timing. */
-const asLayoutTransition = (t: WardicTransition): LayoutTransition =>
+const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransition =>
   Match.value(t).pipe(
-    Match.when({ type: "tween" }, (tween): LayoutTransition => ({ ...tween, type: "tween" })),
+    Match.when({ type: "tween" }, (tween): ProjectionSystem.LayoutTransition => ({ ...tween, type: "tween" })),
     Match.orElse(springOrDefault),
   )
 
@@ -63,7 +63,7 @@ const asLayoutTransition = (t: WardicTransition): LayoutTransition =>
  * The element's layout transition (ADR-0009 *Amendment (#171)*): Motion's `layout` key, else its
  * whole `transition`; `undefined`, with neither, for the engine's default, Motion's 0.45 s tween.
  */
-const toLayoutTransition = (t: WardicTransition | undefined): LayoutTransition | undefined =>
+const toLayoutTransition = (t: WardicTransition | undefined): ProjectionSystem.LayoutTransition | undefined =>
   UndefinedOr.map(t, (element) => asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: identity })))
 
 /** Options for {@link useLayoutMember}. */
@@ -77,7 +77,7 @@ export interface UseLayoutMemberOptions {
   /** The element's effective transition: its `layout` key, else itself, drives its layout animations (ADR-0009 *Amendment (#171)*). */
   readonly transition: () => WardicTransition | undefined
   /** The element's drag transition, resolved: what its Release offset runs on (ADR-0016, *Amendment (#140)*). */
-  readonly dragTransition?: () => DragTransition
+  readonly dragTransition?: () => ProjectionSystem.DragTransition
   /**
    * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
    * `layout` element. When set, the one node joins the engine's per-`layoutId`
@@ -129,7 +129,7 @@ export interface UseLayoutMemberOptions {
  *
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
-export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionNodeHandle => {
+export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => {
   const { dragTransition, element, id, layoutAnchor, layoutDependency, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
   const projection = useWardicProjection()
 

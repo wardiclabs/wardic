@@ -11,7 +11,8 @@
 //     (HY5);
 //   - `texts`: readouts, `server` in the markup and the first paint, `settled` after.
 import * as Renderer from "@wardic/core/Renderer"
-import { DomLive, RendererDomLive } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
   AnimatePresence,
   createHover,
@@ -34,7 +35,7 @@ import { createRenderEffect, For, type JSX, Show } from "solid-js"
 const TWEEN: WardicTransition = { type: "tween", duration: 0.3 }
 
 /** The DOM's projection (the server's, ADR-0021 decision 2), for the expected styles. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
 
 /** `values` projected as the server writes it: every key a string. */
 const projected = (values: Record<string, unknown>): Record<string, string> =>

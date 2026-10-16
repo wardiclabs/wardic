@@ -11,7 +11,12 @@ import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Values from "@wardic/core/Values"
-import { ClockDomLive, InputDomLive, AnnouncerDomLive, PositionalKeysDomLive, ProbeDomLive, RendererDomLive } from "@wardic/dom"
+import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
+import * as DomClock from "@wardic/dom/DomClock"
+import * as DomInput from "@wardic/dom/DomInput"
+import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
+import * as DomProbe from "@wardic/dom/DomProbe"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import { AnimatePresence, useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -57,13 +62,13 @@ const envWith = (options: {
   const { clock = identity, loop = identity, registry = identity, logs = [] } = options
   const services = Layer.mergeAll(
     // `provideMerge`: the wrapped Clock wins, and ClockDomLive's Refresh frame source stays visible.
-    Layer.effect(Clock.Clock)(Clock.Clock.useSync(clock)).pipe(Layer.provideMerge(ClockDomLive)),
+    Layer.effect(Clock.Clock)(Clock.Clock.useSync(clock)).pipe(Layer.provideMerge(DomClock.layer)),
     Layer.effect(InterpolatorRegistry.InterpolatorRegistry)(InterpolatorRegistry.InterpolatorRegistry.useSync(registry)).pipe(Layer.provide(InterpolatorRegistry.layer)),
-    RendererDomLive,
-    InputDomLive,
-    ProbeDomLive,
-    PositionalKeysDomLive,
-    AnnouncerDomLive,
+    DomRenderer.layer,
+    DomInput.layer,
+    DomProbe.layer,
+    DomPositionalKeys.layer,
+    DomAnnouncer.layer,
   )
   const frameLoop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync(loop)).pipe(Layer.provide(FrameLoop.layer))
   return Layer.merge(

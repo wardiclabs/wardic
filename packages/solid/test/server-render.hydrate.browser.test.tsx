@@ -25,7 +25,8 @@
 // Test names are `<check> <fixture>: <label>`, so `-t 'F8:'` runs one fixture.
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Renderer from "@wardic/core/Renderer"
-import { DomLive, RendererDomLive } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardicEnv } from "@wardic/solid"
 import { type JSX, sharedConfig } from "solid-js"
 import * as Effect from "effect/Effect"
@@ -159,7 +160,7 @@ describe("a custom Renderer's Starting style (decision 2)", () => {
     readonly message: string
     readonly annotations: Readonly<Record<string, unknown>>
   }
-  const domRenderer = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive))
+  const domRenderer = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer))
   /** `base` plus a debug-level logger that appends each log to `logs`. */
   const capturing = (base: WardicEnv, logs: Array<Captured>): WardicEnv =>
     Layer.mergeAll(

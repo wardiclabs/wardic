@@ -6,7 +6,7 @@
 // - PN2: each `button` to core's button: 0/1/2 main/middle/secondary, -1 none, the rest other.
 // - PN3: `toPointer` maps `buttons` to `pressed` (any bit), `isPrimary` to `primary`, and the rest.
 import { describe, expect, it } from "vitest"
-import { buttonOf, kindOf, toPointer } from "../src/input.ts"
+import { buttonOf, kindOf, toPointer } from "../src/internal/input.ts"
 
 describe("the DOM's pointer fields in core's names (#189)", () => {
   it("PN1: each pointerType to a Pointer kind, an unknown one to other", () => {

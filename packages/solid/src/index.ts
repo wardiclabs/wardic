@@ -30,7 +30,7 @@ export {
   WardicProvider,
 } from "./provider.tsx"
 export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./provider.tsx"
-export type { AnimateLayoutOptions } from "@wardic/dom"
+export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
 
 /**
  * The provider-owned reactive flush gate (ADR-0006): an accumulator + gated
@@ -38,7 +38,7 @@ export type { AnimateLayoutOptions } from "@wardic/dom"
  * It's `@wardic/dom`'s, built by the provider with Solid's `batch` (ADR-0031), and
  * `useWardicGate` returns it; the types are re-exported here.
  */
-export type { FlushGate, FlushSink } from "@wardic/dom"
+export type { FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGate"
 
 /**
  * Reactive bridges (ADR-0006): `streamToSignal` (core `Stream` -> Solid signal,
@@ -179,7 +179,7 @@ export {
  * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
 export { type UseLayoutMemberOptions, LayoutGroup, useLayoutMember } from "./layout.tsx"
-export { measureLayoutBox } from "@wardic/dom"
+export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
 
 /**
  * `use:ward` — the directive surface (ADR-0008 Tier 1). `<div use:ward={config}>`

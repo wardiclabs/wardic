@@ -13,7 +13,8 @@ import type * as Drag from "@wardic/core/Drag"
 import * as Reorder from "@wardic/core/Reorder"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import { makeReorderController, type ProjectionNodeHandle, type ReorderController, type ReorderControllerOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as ReorderController from "@wardic/dom/ReorderController"
 import { clearStages, el, endOfTask, type Engine, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -36,13 +37,13 @@ const ITEM: Record<Kind, string> = {
 
 interface Item {
   readonly element: HTMLElement
-  readonly handle: ProjectionNodeHandle
-  readonly driver: ReturnType<ReorderController<string>["item"]>
+  readonly handle: ProjectionSystem.NodeHandle
+  readonly driver: ReturnType<ReorderController.ReorderController<string>["item"]>
   readonly unregister: () => void
 }
 
 interface List {
-  readonly c: ReorderController<string>
+  readonly c: ReorderController.ReorderController<string>
   readonly items: Map<string, Item>
   readonly container: HTMLElement
   readonly reorders: Array<ReadonlyArray<string>>
@@ -63,14 +64,14 @@ const reorderLogs = (e: Engine) => (): Array<Log> =>
 const mountList = async (
   e: Engine,
   kind: Kind,
-  o: { readonly n?: number; readonly parent?: HTMLElement; readonly options?: Partial<ReorderControllerOptions<string>> } = {},
+  o: { readonly n?: number; readonly parent?: HTMLElement; readonly options?: Partial<ReorderController.Options<string>> } = {},
 ): Promise<List> => {
   const values = Array.from({ length: o.n ?? (kind === "grid" ? 6 : 3) }, (_, i) => String.fromCharCode(97 + i))
   let order: ReadonlyArray<string> = values
   const reorders: Array<ReadonlyArray<string>> = []
   const axes: Array<Reorder.Axis> = []
   const container = el(o.parent ?? stage(), CONTAINER[kind])
-  const c = makeReorderController<string>({
+  const c = ReorderController.make<string>({
     runtime: e.runtime,
     projection: e.system,
     values: () => order,

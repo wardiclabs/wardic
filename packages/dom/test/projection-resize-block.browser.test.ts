@@ -13,7 +13,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import { page } from "vitest/browser"
-import type { ProjectionNodeHandle } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames, wait } from "./projection-harness.ts"
 
 let width = 0
@@ -76,7 +76,7 @@ const centredColumn = (n: number): Array<HTMLElement> => {
 }
 
 const mount = async (e: Engine, els: ReadonlyArray<HTMLElement>, extra: { raiseWhileDragged?: boolean } = {}) => {
-  const handles: Array<ProjectionNodeHandle> = els.map((element, i) =>
+  const handles: Array<ProjectionSystem.NodeHandle> = els.map((element, i) =>
     e.system.register({ id: `n${i}`, element, transition: () => ({ type: "spring" }), ...extra }),
   )
   await endOfTask()

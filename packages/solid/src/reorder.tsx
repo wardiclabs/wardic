@@ -28,7 +28,9 @@
 import * as Announcer from "@wardic/core/Announcer"
 import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
-import { DEFAULT_REORDER_INSTRUCTIONS, documentOf, INERT_REORDER_CONTROLLER, instructionsId, makeReorderController, REORDER_GROUP_STYLE, type ReorderController, type ReorderItemDriver, reorderTouchAction } from "@wardic/dom"
+import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
+import * as ReorderController from "@wardic/dom/ReorderController"
+import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -97,7 +99,7 @@ export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWa
   /** The items' instructions text (ADR-0037). */
   readonly instructions: Accessor<string>
   /** @internal for the items: the group's controller. */
-  readonly controller: ReorderController<V>
+  readonly controller: ReorderController.ReorderController<V>
 }
 
 /**
@@ -139,7 +141,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   const runtime = useWardicRuntime()
   // The Environment's channel to assistive technology (ADR-0037).
   const announcer = runtime.runSync(Announcer.Announcer)
-  const controller = makeReorderController<V>({
+  const controller = ReorderController.make<V>({
     runtime,
     projection: useWardicProjection(),
     values: () => untrack(cfg).values,
@@ -171,7 +173,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
     ref: mergeRefs(userProps?.ref, (el: HTMLElement) => controller.attach(el)),
     get style() {
-      return { ...REORDER_GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties
+      return { ...ReorderController.GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties
     },
   })
 
@@ -182,7 +184,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
 /** A group's keyboard reorder settings, as accessors (ADR-0037). */
 const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
   keyboard: (): boolean => cfg().keyboard !== false,
-  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => DEFAULT_REORDER_INSTRUCTIONS, onDefined: (text: string) => text }),
+  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: (text: string) => text }),
 })
 
 /**
@@ -197,7 +199,7 @@ const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
  * parameters, so `ItemGroup<never>` accepts a group of any value type.
  */
 type ItemGroup<V> = {
-  readonly controller: Pick<ReorderController<V>, "item">
+  readonly controller: Pick<ReorderController.ReorderController<V>, "item">
   readonly axis: Accessor<CoreReorder.Axis>
   readonly keyboard: Accessor<boolean>
   readonly instructions: Accessor<string>
@@ -207,7 +209,7 @@ type ItemGroup<V> = {
  * Feed an item's keys, blurs and presses to its driver (ADR-0037), for as long as the owner lives:
  * its keys inside their dispatch, so the reorder's `handle()` (the page's `preventDefault`) counts.
  */
-const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderItemDriver): void => {
+const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderController.ItemDriver): void => {
   runScoped(
     runtime,
     Effect.gen(function* () {
@@ -247,7 +249,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
     onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
     raiseWhileDragged: true,
     lifted,
-    baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }),
+    baseStyle: () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }),
   }
 }
 
@@ -302,14 +304,14 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
   // On a server the item renders the drag defaults with its group's touch-action and
   // joins no controller (ADR-0021).
   const internals: SpineInternals = isServer
-    ? { dragAxis: () => true, baseStyle: () => ({ "touch-action": reorderTouchAction(group.axis()) }) }
+    ? { dragAxis: () => true, baseStyle: () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }) }
     : itemInternals(group, value, element, useWardicRuntime())
   const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
   // The instructions element exists on the client only, so `aria-describedby` waits for the mount.
   const [describedBy, setDescribedBy] = createSignal<string>()
   if (!isServer) {
     createEffect(on([element, group.instructions] as const, ([el, text]) => {
-      if (el !== undefined) setDescribedBy(instructionsId(documentOf(el), text))
+      if (el !== undefined) setDescribedBy(DomAnnouncer.instructionsId(DomAnnouncer.documentOf(el), text))
     }))
   }
   // The item's element, for Auto-scroll's held scroll shift.
@@ -339,9 +341,9 @@ const noop = (): void => {}
 const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> => {
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
     ref: userProps?.ref ?? noop,
-    style: { ...REORDER_GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
+    style: { ...ReorderController.GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
   })
-  const controller = INERT_REORDER_CONTROLLER as unknown as ReorderController<V>
+  const controller = ReorderController.inert as unknown as ReorderController.ReorderController<V>
   const axis = (): CoreReorder.Axis => UndefinedOr.match(cfg().axis, { onUndefined: () => "y" as const, onDefined: (a: CoreReorder.Axis) => a })
   return Object.assign(ward, { group: controller.group, axis, move: noop, controller, ...keyboardOf(cfg) })
 }
@@ -385,7 +387,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
   createEffect(() => {
     if (Bool.not(group.keyboard())) return
     if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0")
-    const id = instructionsId(documentOf(el), group.instructions())
+    const id = DomAnnouncer.instructionsId(DomAnnouncer.documentOf(el), group.instructions())
     const ids = Option.getOrElse(Option.fromNullishOr(el.getAttribute("aria-describedby")), () => "").split(" ").filter((t) => t !== "")
     if (!ids.includes(id)) el.setAttribute("aria-describedby", [...ids, id].join(" "))
   })

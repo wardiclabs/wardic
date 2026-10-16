@@ -16,7 +16,7 @@ Code follows the Effect-first rules: Effect's modules over vanilla TypeScript (l
 
 ### Pipeable core API
 
-Core's API is organised the way Effect's is: a module per data type (`@wardic/core/<Module>`), `Pipeable` data types, `dual` operations, and positional functions on the per-frame path. See `docs/agents/pipeable.md` and ADR-0028.
+Core's API is organised the way Effect's is: a module per data type (`@wardic/core/<Module>`), `Pipeable` data types, `dual` operations, and positional functions on the per-frame path. See `docs/agents/pipeable.md` and ADR-0028. `@wardic/dom` follows it too, for binding authors: `@wardic/dom/<Module>`, the DOM's service implementations `Dom`-prefixed with their `layer` (ADR-0041).
 
 ### Domain docs
 

@@ -5,7 +5,7 @@ import * as PubSub from "effect/PubSub"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
-import { makeSharedByTarget, makeSharedGlobal } from "../src/shared.ts"
+import { makeSharedByTarget, makeSharedGlobal } from "../src/internal/shared.ts"
 
 /**
  * A test-controlled cold source factory that records ref-counting facts. Each

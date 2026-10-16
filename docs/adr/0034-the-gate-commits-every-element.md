@@ -90,7 +90,7 @@
 - **core:** `Renderer.commit`'s type, and `applyTo`'s `Effect.sync`.
 - **test:** the recording Renderer's `commit`.
 - **dom:**
-  - `makeFlushGate`: one sink shape, a plain `commit`, `onHeld`, and the switches in `batch`.
+  - `makeFlushGate` (`FlushGate.make` since #132, ADR-0041): one sink shape, a plain `commit`, `onHeld`, and the switches in `batch`.
   - `renderer.ts`: the allocation-free commit and `transform`.
   - `svg.ts`: `dashCase`'s cache.
   - `starting-style.ts`: `fallbackStyle` and `heldTouches`.

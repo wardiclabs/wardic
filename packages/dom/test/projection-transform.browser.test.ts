@@ -3,7 +3,7 @@ import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { RendererDomLive } from "../src/renderer.ts"
+import { RendererDomLive } from "../src/internal/renderer.ts"
 
 const renderer = await Effect.runPromise(
   Effect.provide(

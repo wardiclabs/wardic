@@ -13,7 +13,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
-import { DEFAULT_DRAG_TRANSITION, type DragTransition, type LayoutTransition, type ProjectionNodeHandle, type ProjectionSystemOptions } from "../src/index.ts"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -32,11 +32,11 @@ const MOTION = Easing.cubicBezier(0.4, 0, 0.1, 1)
 const tx = (sk: Sink, id: string): number => sk.of(id).at(-1)?.tx ?? 0
 
 /** A 50 × 50 box at `left` on a fresh stage, registered on `transition`, its first pass run. */
-const mount = async (transition: LayoutTransition | undefined, options?: ProjectionSystemOptions) => {
+const mount = async (transition: ProjectionSystem.LayoutTransition | undefined, options?: ProjectionSystem.Options) => {
   const sk = makeSink()
   const e = makeEngine(sk.sink, options)
   const element = el(stage("position:relative;width:800px;height:100px"), "position:absolute;top:0;left:0px;width:50px;height:50px")
-  const handle: ProjectionNodeHandle = e.system.register({ id: "a", element, transition: () => transition })
+  const handle: ProjectionSystem.NodeHandle = e.system.register({ id: "a", element, transition: () => transition })
   await endOfTask()
   fireFrame()
   /** Move the box to `left`; the FLIP starts at the next frame. */
@@ -108,8 +108,8 @@ describe("a layout animation's transition (#171)", () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const root = stage("position:relative;width:800px;height:400px")
-    const stiff: DragTransition = { ...DEFAULT_DRAG_TRANSITION, bounceStiffness: 400, bounceDamping: 30 }
-    const nodes: ReadonlyArray<{ readonly transition: LayoutTransition | undefined; readonly dragTransition?: DragTransition }> = [
+    const stiff: ProjectionSystem.DragTransition = { ...ProjectionSystem.DEFAULT_DRAG_TRANSITION, bounceStiffness: 400, bounceDamping: 30 }
+    const nodes: ReadonlyArray<{ readonly transition: ProjectionSystem.LayoutTransition | undefined; readonly dragTransition?: ProjectionSystem.DragTransition }> = [
       { transition: undefined },
       { transition: { type: "spring" } },
       { transition: { type: "spring", stiffness: 400, damping: 30 } },

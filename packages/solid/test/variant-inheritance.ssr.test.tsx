@@ -3,7 +3,7 @@
 // or `animate` name of its own, `inherit` not false) with no `initial` renders its nearest
 // variant ancestor's `initial` name as its Starting style. Only names pass down, read once.
 import * as Renderer from "@wardic/core/Renderer"
-import { RendererDomLive } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import { useWardic, wardic } from "@wardic/solid"
 import * as Effect from "effect/Effect"
 import type { JSX } from "solid-js"
@@ -13,7 +13,7 @@ import { serve, type Tag, tagsOf } from "./ssr-helpers.ts"
 const VARIANTS = { hidden: { opacity: 0, scale: 0.5 }, shown: { opacity: 1, scale: 1 } }
 
 /** The DOM's projection, from the Renderer DomLive provides. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
 
 /** `tag`'s inline style carries every key of the DOM's projection of `values`. */
 const expectStartingStyle = (tag: Tag | undefined, values: Record<string, unknown>): void => {

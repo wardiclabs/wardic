@@ -17,7 +17,7 @@
  *
  * @module
  */
-import { ANNOUNCER_ATTRIBUTE } from "@wardic/dom"
+import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import type { Box, DragFrame, DragRunEnd, Point } from "../lab/drag-run.ts"
 import type { ReorderFrame } from "../lab/reorder-run.ts"
 import { layoutBox, paintedBox } from "./drag-recorder.ts"
@@ -169,7 +169,7 @@ export const attachKeyboardRecorder = (opts: KeyboardRecorderOptions): { readonl
   let observer: MutationObserver | undefined
   let waitId: number | undefined
   const observe = (tries: number): void => {
-    const region = document.querySelector(`[${ANNOUNCER_ATTRIBUTE}]`)
+    const region = document.querySelector(`[${DomAnnouncer.ATTRIBUTE}]`)
     if (region === null) {
       if (tries > 0) waitId = requestAnimationFrame(() => observe(tries - 1))
       return
