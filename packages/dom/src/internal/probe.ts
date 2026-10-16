@@ -22,8 +22,12 @@
  * `measure`/viewport-write paths stay quiet.
  */
 import * as Probe from "@wardic/core/Probe"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -72,16 +76,17 @@ const make = Effect.gen(function* () {
 
   // --- prefersReducedMotion ----------------------------------------------
   // Guard `matchMedia` (absent in some headless environments): default false.
-  const mql = typeof window.matchMedia === "function"
-    ? window.matchMedia("(prefers-reduced-motion: reduce)")
-    : undefined
-  const prefersReducedMotion = Atom.keepAlive(Atom.make(mql?.matches ?? false))
-  if (mql !== undefined) {
+  const mql = Bool.match(Predicate.isFunction(window.matchMedia), {
+    onTrue: () => Option.some(window.matchMedia("(prefers-reduced-motion: reduce)")),
+    onFalse: () => Option.none<MediaQueryList>(),
+  })
+  const prefersReducedMotion = Atom.keepAlive(Atom.make(Option.exists(mql, (query) => query.matches)))
+  if (Option.isSome(mql)) {
     // The MediaQueryList "change" event is the only writer of the Atom. Forked
     // into the layer scope; the finalizer removes the listener on teardown.
     yield* Effect.forkScoped(
       Stream.runForEach(
-        Stream.fromEventListener<MediaQueryListEvent>(mql as unknown as Stream.EventListener<MediaQueryListEvent>, "change"),
+        Stream.fromEventListener<MediaQueryListEvent>(mql.value as unknown as Stream.EventListener<MediaQueryListEvent>, "change"),
         (ev) => Effect.sync(() => registry.set(prefersReducedMotion, ev.matches)),
       ),
     )
@@ -114,7 +119,7 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const el = target as Element
           const io = new IntersectionObserver((entries) => {
-            for (const entry of entries) Queue.offerUnsafe(queue, entry.isIntersecting)
+            Arr.forEach(entries, (entry) => Queue.offerUnsafe(queue, entry.isIntersecting))
           })
           io.observe(el)
           yield* Effect.addFinalizer(() => Effect.sync(() => io.disconnect()))

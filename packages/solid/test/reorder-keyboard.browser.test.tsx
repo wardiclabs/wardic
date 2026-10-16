@@ -19,6 +19,8 @@
 // - KB10: keys during a pointer drag are left alone.
 // - KB11: a group unmounted while a held arrow's last place waits to be spoken never speaks it: the
 //   group's Scope ends its controller (#132's PR 3).
+// - KB12: an announcement spoken at once cancels a held arrow's waiting one: a drop right after a
+//   held arrow is the only thing said (#69's PR 2: the wait is Effect.sleep in a FiberHandle).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
@@ -402,4 +404,23 @@ it("KB11: a group unmounted while a held arrow's last place waits to be spoken n
   await commands.realKey("up", "ArrowDown")
   expect(m.container.querySelector("[data-value]"), "the group is gone").toBeNull()
   expect(record.texts, "nothing spoken after the unmount").toEqual([])
+})
+
+it("KB12: an announcement spoken at once cancels a held arrow's waiting one: a drop right after it is all that's said", async () => {
+  const m = await mount({ initial: ["a", "b", "c", "d", "e", "f", "g"] })
+  m.item("a").focus()
+  await commands.realKey("press", "Space")
+  await frames(2)
+  await commands.realKey("down", "ArrowDown")
+  await frames(3)
+  const record = recordAnnouncements()
+  // A repeat, as a held key's: its place waits to be spoken until the repeats stop.
+  await commands.realKey("down", "ArrowDown")
+  await commands.realKey("up", "ArrowDown")
+  // A drop, spoken at once, well inside that wait.
+  await commands.realKey("press", "Space")
+  await new Promise((r) => setTimeout(r, 300))
+  record.stop()
+  expect(m.values()).toEqual(["b", "c", "a", "d", "e", "f", "g"])
+  expect(record.texts, "the drop, and no stale place after it").toEqual(["Dropped a at position 3 of 7."])
 })

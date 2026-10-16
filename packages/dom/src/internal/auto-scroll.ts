@@ -9,14 +9,30 @@
  */
 import * as AutoScroll from "@wardic/core/AutoScroll"
 import type * as Point from "@wardic/core/Point"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as Equal from "effect/Equal"
+import { constVoid } from "effect/Function"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { heldScrollShift } from "./input.ts"
 
 /** The overflow values Motion's auto-scroll scrolls (auto-scroll.ts:4). */
 const SCROLLS = new Set(["auto", "scroll"])
 
+type Axis = "x" | "y"
+
 /** A scroller on one axis: an element, or the document (the window's scroll). */
 type Scroller = { readonly kind: "element"; readonly el: HTMLElement } | { readonly kind: "document"; readonly win: Window }
+
+/** A scroller's extent on one axis: its visible edges in viewport px, its scroll, and how far it can scroll. */
+interface View {
+  readonly start: number
+  readonly end: number
+  readonly scroll: number
+  readonly maxScroll: () => number
+}
 
 /**
  * The **Auto-scroll** of one group. `update(pointer, axis, velocity, item?)` takes the
@@ -27,24 +43,81 @@ type Scroller = { readonly kind: "element"; readonly el: HTMLElement } | { reado
  * afresh and needs velocity toward an edge again.
  */
 export interface AutoScroller {
-  readonly update: (pointer: Point.Point, axis: "x" | "y", velocity: number, item?: Element) => void
+  readonly update: (pointer: Point.Point, axis: Axis, velocity: number, item?: Element) => void
   readonly reset: () => void
 }
+
+const ZERO: Point.Point = { x: 0, y: 0 }
 
 /**
  * The nearest ancestor of `group` that scrolls on `axis` (`overflow` `auto | scroll`),
  * or the document once the walk reaches `body` (Motion's `findScrollableAncestor`).
  */
-const findScroller = (group: Element, axis: "x" | "y"): Scroller | undefined => {
+const findScroller = (group: Element, axis: Axis): Option.Option<Scroller> => {
   const doc = group.ownerDocument
-  const win = doc.defaultView
-  for (let cur = group.parentElement; cur !== null; cur = cur.parentElement) {
-    if (cur === doc.body || cur === doc.documentElement) return win !== null ? { kind: "document", win } : undefined
-    const style = getComputedStyle(cur)
-    if (SCROLLS.has(axis === "x" ? style.overflowX : style.overflowY)) return { kind: "element", el: cur }
-  }
-  return undefined
+  const from = (cur: HTMLElement | null): Option.Option<Scroller> =>
+    Option.flatMap(Option.fromNullOr(cur), (el) =>
+      Bool.match(el === doc.body || el === doc.documentElement, {
+        onTrue: () => Option.map(Option.fromNullOr(doc.defaultView), (win): Scroller => ({ kind: "document", win })),
+        onFalse: () => {
+          const style = getComputedStyle(el)
+          return Bool.match(SCROLLS.has({ x: style.overflowX, y: style.overflowY }[axis]), {
+            onTrue: () => Option.some<Scroller>({ kind: "element", el }),
+            onFalse: () => from(el.parentElement),
+          })
+        },
+      })
+    )
+  return from(group.parentElement)
 }
+
+/** `scroller`'s extent on `axis`: an element's visible edges are clamped to the viewport, as Motion's `getScrollAmount`. */
+const viewOf = (scroller: Scroller, axis: Axis): View =>
+  Match.value(scroller).pipe(
+    Match.when({ kind: "document" }, ({ win }): View => {
+      const root = win.document.documentElement
+      return {
+        start: 0,
+        end: { x: win.innerWidth, y: win.innerHeight }[axis],
+        scroll: { x: win.scrollX, y: win.scrollY }[axis],
+        maxScroll: { x: () => root.scrollWidth - win.innerWidth, y: () => root.scrollHeight - win.innerHeight }[axis],
+      }
+    }),
+    Match.when({ kind: "element" }, ({ el }): View => {
+      const rect = el.getBoundingClientRect()
+      const win = Option.fromNullOr(el.ownerDocument.defaultView)
+      const viewport = {
+        x: Option.match(win, { onNone: () => rect.right, onSome: (w) => w.innerWidth }),
+        y: Option.match(win, { onNone: () => rect.bottom, onSome: (w) => w.innerHeight }),
+      }
+      return {
+        start: Math.max(0, { x: rect.left, y: rect.top }[axis]),
+        end: Math.min(viewport[axis], { x: rect.right, y: rect.bottom }[axis]),
+        scroll: { x: el.scrollLeft, y: el.scrollTop }[axis],
+        maxScroll: { x: () => el.scrollWidth - el.clientWidth, y: () => el.scrollHeight - el.clientHeight }[axis],
+      }
+    }),
+    Match.exhaustive,
+  )
+
+/** Scroll `scroller` by `amount` on `axis`. */
+const scrollBy = (scroller: Scroller, axis: Axis, amount: number): void =>
+  Match.value(scroller).pipe(
+    Match.when({ kind: "document" }, ({ win }) => win.scrollBy({ x: { left: amount }, y: { top: amount } }[axis])),
+    Match.when({ kind: "element" }, ({ el }) =>
+      Match.value(axis).pipe(
+        Match.when("x", () => {
+          el.scrollLeft += amount
+        }),
+        Match.orElse(() => {
+          el.scrollTop += amount
+        }),
+      )
+    ),
+    Match.exhaustive,
+  )
+
+const edgeOf = (state: AutoScroll.State): AutoScroll.State["edge"] => state.edge
 
 /**
  * Build the **Auto-scroll** for `group` (the Reorder group's element). The scroller on
@@ -57,63 +130,46 @@ export const makeAutoScroller = (
   group: Element,
   debug?: (event: string, annotations: Record<string, unknown>) => void,
 ): AutoScroller => {
-  const scrollers = new Map<"x" | "y", Scroller | undefined>()
-  const states = new Map<"x" | "y", AutoScroll.State>()
+  const log = UndefinedOr.match(debug, { onUndefined: () => constVoid, onDefined: (d) => d })
+  // Each axis's scroller, found at the gesture's first update (`None` when there is none).
+  const scrollers = new Map<Axis, Option.Option<Scroller>>()
+  const states = new Map<Axis, AutoScroll.State>()
 
-  const setState = (axis: "x" | "y", next: AutoScroll.State | undefined): void => {
-    const prev = states.get(axis)
-    if (prev?.edge === next?.edge) {
-      if (next !== undefined) states.set(axis, next)
-      return
-    }
-    if (prev !== undefined) debug?.("auto-scroll stop", { axis, edge: prev.edge })
-    if (next !== undefined) {
-      states.set(axis, next)
-      debug?.("auto-scroll start", { axis, edge: next.edge })
-    } else {
-      states.delete(axis)
-    }
+  const setState = (axis: Axis, next: Option.Option<AutoScroll.State>): void => {
+    const prev = Option.fromUndefinedOr(states.get(axis))
+    const edgeChanged = Bool.not(Equal.equals(Option.map(prev, edgeOf), Option.map(next, edgeOf)))
+    if (edgeChanged && Option.isSome(prev)) log("auto-scroll stop", { axis, edge: prev.value.edge })
+    Option.match(next, {
+      onNone: () => states.delete(axis),
+      onSome: (state) => states.set(axis, state),
+    })
+    if (edgeChanged && Option.isSome(next)) log("auto-scroll start", { axis, edge: next.value.edge })
   }
 
   return {
     update: (pointer, axis, velocity, item) => {
-      let scroller = scrollers.get(axis)
-      if (!scrollers.has(axis)) {
-        scroller = findScroller(group, axis)
-        scrollers.set(axis, scroller)
-      }
-      if (scroller === undefined) return
-      const shift = item !== undefined ? heldScrollShift(item) : undefined
-      const at = (axis === "x" ? pointer.x : pointer.y) - (shift === undefined ? 0 : axis === "x" ? shift.x : shift.y)
-      let start: number
-      let end: number
-      let scroll: number
-      let maxScroll: () => number
-      if (scroller.kind === "document") {
-        const { win } = scroller
-        const root = win.document.documentElement
-        start = 0
-        end = axis === "x" ? win.innerWidth : win.innerHeight
-        scroll = axis === "x" ? win.scrollX : win.scrollY
-        maxScroll = () => (axis === "x" ? root.scrollWidth - win.innerWidth : root.scrollHeight - win.innerHeight)
-      } else {
-        const { el } = scroller
-        const rect = el.getBoundingClientRect()
-        const win = el.ownerDocument.defaultView
-        start = Math.max(0, axis === "x" ? rect.left : rect.top)
-        end = Math.min(axis === "x" ? (win?.innerWidth ?? rect.right) : (win?.innerHeight ?? rect.bottom), axis === "x" ? rect.right : rect.bottom)
-        scroll = axis === "x" ? el.scrollLeft : el.scrollTop
-        maxScroll = () => (axis === "x" ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight)
-      }
-      const step = AutoScroll.step(Option.fromUndefinedOr(states.get(axis)), { pointer: at, start, end, velocity, scroll, maxScroll })
-      setState(axis, Option.getOrUndefined(step.state))
+      const scroller = Option.getOrElse(Option.fromUndefinedOr(scrollers.get(axis)), () => {
+        const found = findScroller(group, axis)
+        scrollers.set(axis, found)
+        return found
+      })
+      if (Option.isNone(scroller)) return
+      const shift = UndefinedOr.match(item, { onUndefined: () => ZERO, onDefined: heldScrollShift })
+      const view = viewOf(scroller.value, axis)
+      const step = AutoScroll.step(Option.fromUndefinedOr(states.get(axis)), {
+        pointer: pointer[axis] - shift[axis],
+        start: view.start,
+        end: view.end,
+        velocity,
+        scroll: view.scroll,
+        maxScroll: view.maxScroll,
+      })
+      setState(axis, step.state)
       if (step.amount === 0) return
-      if (scroller.kind === "document") scroller.win.scrollBy(axis === "x" ? { left: step.amount } : { top: step.amount })
-      else if (axis === "x") scroller.el.scrollLeft += step.amount
-      else scroller.el.scrollTop += step.amount
+      scrollBy(scroller.value, axis, step.amount)
     },
     reset: () => {
-      for (const axis of [...states.keys()]) setState(axis, undefined)
+      Arr.forEach(Arr.fromIterable(states.keys()), (axis) => setState(axis, Option.none()))
       scrollers.clear()
     },
   }

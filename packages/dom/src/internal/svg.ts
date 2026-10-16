@@ -17,6 +17,7 @@
  */
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Bool from "effect/Boolean"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 
 /**
@@ -103,29 +104,41 @@ export const dashCase = (key: string): string => {
 }
 
 /** The attribute name for an engine key: dash-cased unless it's a known camelCase attr. */
-const attrName = (key: string): string => (CAMEL_CASE_ATTRS.has(key) ? key : dashCase(key))
+const attrName = (key: string): string => {
+  if (CAMEL_CASE_ATTRS.has(key)) return key
+  return dashCase(key)
+}
+
+/** Whether a key collapses into the stroke dash: `pathLength`, `pathSpacing` or `pathOffset`. */
+const isPathKey = (key: string): boolean => key === "pathLength" || key === "pathSpacing" || key === "pathOffset"
 
 /**
  * The attribute an svg-inner element's `key` is written as (the routing below), or
- * `undefined` for a key that stays style ({@link SVG_STYLE_KEYS}, a custom property) or collapses into the
+ * `None` for a key that stays style ({@link SVG_STYLE_KEYS}, a custom property) or collapses into the
  * stroke dash (`pathLength` / `pathSpacing` / `pathOffset`). Internal: the Own-value read
  * reads the attribute a key is written as (ADR-0022).
  */
-export const svgAttrNameOf = (key: string): string | undefined => {
-  if (key === "pathLength" || key === "pathSpacing" || key === "pathOffset" || isCustomProperty(key)) return undefined
-  const alias = ATTR_ALIASES[key]
-  if (alias !== undefined) return alias
-  if (SVG_STYLE_KEYS.has(key)) return undefined
-  return attrName(key)
-}
+export const svgAttrNameOf = (key: string): Option.Option<string> =>
+  Bool.match(isPathKey(key) || isCustomProperty(key), {
+    onTrue: () => Option.none(),
+    onFalse: () =>
+      Option.orElse(Option.fromUndefinedOr(ATTR_ALIASES[key]), () =>
+        Option.map(Option.liftPredicate(key, (k: string) => Bool.not(SVG_STYLE_KEYS.has(k))), attrName)
+      ),
+  })
 
 /** A real `<svg>` ROOT (`SVGSVGElement`) — styled like HTML (it has a CSS box). */
-export const isSvgRoot = (el: unknown): boolean =>
-  typeof SVGSVGElement !== "undefined" && el instanceof SVGSVGElement
+export const isSvgRoot = (el: unknown): boolean => {
+  // No SVG classes on a server. Per frame (a flush's split): plain checks.
+  const SvgRoot = (globalThis as { readonly SVGSVGElement?: typeof SVGSVGElement }).SVGSVGElement
+  return Predicate.isNotUndefined(SvgRoot) && el instanceof SvgRoot
+}
 
 /** An svg-INNER element (any `SVGElement` that is not the `<svg>` root). */
-export const isSvgInner = (el: unknown): boolean =>
-  typeof SVGElement !== "undefined" && el instanceof SVGElement && !isSvgRoot(el)
+export const isSvgInner = (el: unknown): boolean => {
+  const Svg = (globalThis as { readonly SVGElement?: typeof SVGElement }).SVGElement
+  return Predicate.isNotUndefined(Svg) && el instanceof Svg && !isSvgRoot(el)
+}
 
 /** The result of routing a flat `Patch`: CSS `style` keys vs DOM `attrs`. */
 export interface SplitPatch {
@@ -146,8 +159,10 @@ export interface SplitPatch {
  *   an HTML one; `pathLength`/`pathSpacing`/`pathOffset` collapse to a normalised
  *   `stroke-dasharray`/`stroke-dashoffset` (+ `pathLength=1`), unitless.
  */
-export const splitPatch = (el: unknown, patch: Renderer.Patch): SplitPatch =>
-  isSvgInner(el) ? routeSvgInner(patch) : { style: patch as Record<string, unknown>, attrs: {} }
+export const splitPatch = (el: unknown, patch: Renderer.Patch): SplitPatch => {
+  if (isSvgInner(el)) return routeSvgInner(patch)
+  return { style: patch as Record<string, unknown>, attrs: {} }
+}
 
 /**
  * SVG's element names that HTML doesn't share, lowercase (Motion's list,
@@ -191,7 +206,10 @@ export const isSvgInnerTag = (tag: string): boolean => !tag.includes("-") && (SV
  * the Starting style (ADR-0021). The same routing; `undefined` is an HTML element.
  */
 export const splitPatchForTag = (tag: string | undefined, patch: Renderer.Patch): SplitPatch =>
-  tag !== undefined && isSvgInnerTag(tag) ? routeSvgInner(patch) : { style: patch as Record<string, unknown>, attrs: {} }
+  Bool.match(Predicate.isNotUndefined(tag) && isSvgInnerTag(tag), {
+    onTrue: () => routeSvgInner(patch),
+    onFalse: () => ({ style: patch as Record<string, unknown>, attrs: {} }),
+  })
 
 /** The svg-inner routing {@link splitPatch} and {@link splitPatchForTag} share. */
 const routeSvgInner = (patch: Renderer.Patch): SplitPatch => {
@@ -204,7 +222,7 @@ const routeSvgInner = (patch: Renderer.Patch): SplitPatch => {
 
   for (const key in patch) {
     const value = patch[key]
-    if (value === undefined) continue
+    if (Predicate.isUndefined(value)) continue
     if (key === "pathLength") {
       pathLength = value
       continue
@@ -217,8 +235,8 @@ const routeSvgInner = (patch: Renderer.Patch): SplitPatch => {
       pathOffset = value
       continue
     }
-    const alias = ATTR_ALIASES[key]
-    if (alias !== undefined) {
+    const alias: string | undefined = ATTR_ALIASES[key]
+    if (Predicate.isNotUndefined(alias)) {
       attrs[alias] = String(value)
       continue
     }
@@ -239,28 +257,44 @@ const routeSvgInner = (patch: Renderer.Patch): SplitPatch => {
   // centre — so a CSS transform on SVG reads differently from HTML. `fill-box` +
   // a centred origin restore HTML-like semantics (Motion). User-set wins.
   if (hasTransform) {
-    if (style["transformBox"] === undefined && style["transform-box"] === undefined) {
+    if (Predicate.isUndefined(style["transformBox"]) && Predicate.isUndefined(style["transform-box"])) {
       style["transform-box"] = "fill-box"
     }
-    if (style["transformOrigin"] === undefined && style["transform-origin"] === undefined) {
+    if (Predicate.isUndefined(style["transformOrigin"]) && Predicate.isUndefined(style["transform-origin"])) {
       style["transform-origin"] = "50% 50%"
     }
   }
 
   // pathLength → normalised stroke dash (Motion's buildSVGPath). Unitless: Safari
   // mis-scales px dash values when the page is zoomed.
-  if (pathLength !== undefined) {
-    const spacing = pathSpacing ?? 1
-    const offset = typeof pathOffset === "number" ? pathOffset : Number(pathOffset ?? 0)
+  if (Predicate.isNotUndefined(pathLength)) {
     attrs["pathLength"] = "1"
-    attrs["stroke-dasharray"] = `${pathLength} ${spacing}`
-    attrs["stroke-dashoffset"] = String(Number.isFinite(offset) ? -offset : 0)
+    attrs["stroke-dasharray"] = `${pathLength} ${spacingOf(pathSpacing)}`
+    attrs["stroke-dashoffset"] = String(dashOffsetOf(offsetOf(pathOffset)))
   }
 
   return { style, attrs }
 }
 
+// The stroke dash's parts, per frame: early returns.
+/** `pathSpacing`, 1 when none is given. */
+const spacingOf = (spacing: unknown): unknown => {
+  if (Predicate.isNullish(spacing)) return 1
+  return spacing
+}
+/** `pathOffset` as a number, 0 when none is given. */
+const offsetOf = (offset: unknown): number => {
+  if (Predicate.isNumber(offset)) return offset
+  if (Predicate.isNullish(offset)) return 0
+  return Number(offset)
+}
+/** The dash offset an offset draws: its negation, 0 for one that isn't finite. */
+const dashOffsetOf = (offset: number): number => {
+  if (Number.isFinite(offset)) return -offset
+  return 0
+}
+
 /** Write each routed attribute onto `el` via `setAttribute`. No-op for an empty map. */
 export const setSvgAttrs = (el: Element, attrs: Record<string, string>): void => {
-  for (const name in attrs) el.setAttribute(name, attrs[name]!)
+  for (const name in attrs) el.setAttribute(name, attrs[name])
 }

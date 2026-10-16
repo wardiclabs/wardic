@@ -9,6 +9,7 @@
  * @internal for the Reorder controller.
  */
 import { scrollersOf } from "./measure.ts"
+import * as Arr from "effect/Array"
 
 /** A box on screen, in client coordinates. */
 interface Rect {
@@ -48,17 +49,17 @@ const scrollToShow = (min: number, max: number, viewMin: number, viewMax: number
 /** Scroll `el`'s new place into view (see the module doc). */
 export const revealLayoutOf = (el: Element): void => {
   const { ancestors, page } = scrollersOf(el)
-  let rect = layoutRectOf(el)
-  for (const scroller of ancestors) {
+  // Each scroller in turn, nearest first: what it scrolls moves the element for the next.
+  const rect = Arr.reduce(ancestors, layoutRectOf(el), (rect, scroller) => {
     const box = scroller.getBoundingClientRect()
     const top = box.top + scroller.clientTop
     const left = box.left + scroller.clientLeft
     const dy = scrollToShow(rect.top, rect.bottom, top, top + scroller.clientHeight)
     const dx = scrollToShow(rect.left, rect.right, left, left + scroller.clientWidth)
-    if (dx === 0 && dy === 0) continue
+    if (dx === 0 && dy === 0) return rect
     scroller.scrollBy({ left: dx, top: dy, behavior: "instant" })
-    rect = { left: rect.left - dx, top: rect.top - dy, right: rect.right - dx, bottom: rect.bottom - dy }
-  }
+    return { left: rect.left - dx, top: rect.top - dy, right: rect.right - dx, bottom: rect.bottom - dy }
+  })
   const win = el.ownerDocument.defaultView
   if (page && win !== null) {
     const dy = scrollToShow(rect.top, rect.bottom, 0, win.innerHeight)

@@ -21,6 +21,8 @@ import * as Announcer from "@wardic/core/Announcer"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import { requireGlobal } from "./require-global.ts"
 
 /** The attribute that marks the live region, for a test or a stylesheet to find it. */
@@ -34,9 +36,14 @@ const VISUALLY_HIDDEN =
 const regions = new WeakMap<Document, HTMLElement>()
 
 /** `doc`'s live region, added to its body when it has none. */
-const regionOf = (doc: Document): HTMLElement => {
-  const existing = regions.get(doc)
-  if (existing !== undefined && existing.isConnected) return existing
+const regionOf = (doc: Document): HTMLElement =>
+  Option.getOrElse(
+    Option.filter(Option.fromUndefinedOr(regions.get(doc)), (region) => region.isConnected),
+    () => addRegion(doc),
+  )
+
+/** Add `doc`'s live region to its body. */
+const addRegion = (doc: Document): HTMLElement => {
   const region = doc.createElement("div")
   region.setAttribute(ANNOUNCER_ATTRIBUTE, "")
   region.setAttribute("aria-live", "assertive")
@@ -78,13 +85,19 @@ let nextInstructions = 1
  * the `aria-describedby` of every item that shows it.
  */
 export const instructionsId = (doc: Document, text: string): string => {
-  let byText = instructions.get(doc)
-  if (byText === undefined) {
-    byText = new Map()
-    instructions.set(doc, byText)
-  }
-  const existing = byText.get(text)
-  if (existing !== undefined && doc.getElementById(existing) !== null) return existing
+  const byText = Option.getOrElse(Option.fromUndefinedOr(instructions.get(doc)), () => {
+    const added = new Map<string, string>()
+    instructions.set(doc, added)
+    return added
+  })
+  return Option.getOrElse(
+    Option.filter(Option.fromUndefinedOr(byText.get(text)), (id) => Predicate.isNotNull(doc.getElementById(id))),
+    () => addInstructions(doc, byText, text),
+  )
+}
+
+/** Add `doc`'s hidden element holding `text`, and keep its id under `text`. */
+const addInstructions = (doc: Document, byText: Map<string, string>, text: string): string => {
   const id = `wardic-instructions-${nextInstructions++}`
   const el = doc.createElement("div")
   el.id = id

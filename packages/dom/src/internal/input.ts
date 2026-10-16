@@ -43,12 +43,17 @@
  */
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { scrollersOf } from "./measure.ts"
 import { requireGlobal } from "./require-global.ts"
 import { makeSharedByTarget } from "./shared.ts"
@@ -96,7 +101,7 @@ export const buttonOf = (button: number): InputSource.PointerButton =>
 /** A DOM `PointerEvent` as core's pointer event, in core's names (ADR-0036, *Amendment (#189)*). */
 export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent): InputSource.PointerLikeEvent => ({
   type,
-  pointerId: ev.pointerId ?? 1,
+  pointerId: UndefinedOr.match(ev.pointerId as number | undefined, { onUndefined: () => 1, onDefined: identity }),
   x: ev.clientX,
   y: ev.clientY,
   pressed: ev.buttons !== 0,
@@ -112,21 +117,27 @@ export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: Pointe
  */
 const feedOf = (target: EventTarget, types: ReadonlyArray<string>, options?: AddEventListenerOptions): InputSource.PointerFeed =>
 (emit) => {
-  const listener = (ev: Event): void => emit(toPointer(POINTER_TYPE[ev.type]!, ev as PointerEvent), ev)
-  for (const type of types) target.addEventListener(type, listener, options)
-  return () => {
-    for (const type of types) target.removeEventListener(type, listener, options)
-  }
+  const listener = (ev: Event): void => emit(toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev as PointerEvent), ev)
+  Arr.forEach(types, (type) => target.addEventListener(type, listener, options))
+  return () => Arr.forEach(types, (type) => target.removeEventListener(type, listener, options))
 }
 
-/** The window an element's page-wide events reach: its own document's (an iframe's element has its own). */
+/** The window an element's page-wide events reach: its own document's (an iframe's element has its own), else the page's. */
 const windowOf = (target: unknown): Window =>
-  (target as { readonly ownerDocument?: { readonly defaultView?: Window | null } | null } | undefined)?.ownerDocument
-    ?.defaultView ?? window
+  Option.getOrElse(
+    Option.flatMap(
+      Option.flatMap(asKey(target), (key) => Option.fromNullishOr((key as { readonly ownerDocument?: Document | null }).ownerDocument)),
+      (doc) => Option.fromNullishOr(doc.defaultView),
+    ),
+    () => window,
+  )
+
+/** `target` as a WeakMap key: an object, not a primitive. */
+const asKey = (target: unknown): Option.Option<object> => Option.liftPredicate(target, Predicate.isObjectOrArray)
 
 /** Whether `target` is an element (by `nodeType`, so an iframe's elements count too). */
 const isElement = (target: unknown): target is Element =>
-  typeof target === "object" && target !== null && (target as { readonly nodeType?: number }).nodeType === 1
+  Predicate.isObjectOrArray(target) && (target as { readonly nodeType?: number }).nodeType === 1
 
 const CAPTURE_PASSIVE: AddEventListenerOptions = { capture: true, passive: true }
 const PASSIVE: AddEventListenerOptions = { passive: true }
@@ -143,7 +154,7 @@ const heldShifts = new WeakMap<object, { x: number; y: number }>()
  * @internal for the auto-scroller.
  */
 export const heldScrollShift = (target: unknown): Point.Point =>
-  (typeof target === "object" && target !== null ? heldShifts.get(target) : undefined) ?? ZERO
+  Option.getOrElse(Option.flatMap(asKey(target), (key) => Option.fromUndefinedOr(heldShifts.get(key))), () => ZERO)
 
 /**
  * The {@link ScrollFeed} of a pointer target: its scrollable ancestors' scroll
@@ -159,24 +170,30 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
   const doc = win.document
   const last = new Map<EventTarget, { x: number; y: number }>()
   const shift = { x: 0, y: 0 }
-  const key = typeof target === "object" && target !== null ? target : undefined
-  if (key !== undefined) heldShifts.set(key, shift)
+  const key = asKey(target)
+  if (Option.isSome(key)) heldShifts.set(key.value, shift)
   const report = (source: EventTarget, x: number, y: number, timeStamp: number): void => {
-    const prev = last.get(source)
-    if (prev === undefined) last.set(source, { x, y })
-    else {
-      shift.x += x - prev.x
-      shift.y += y - prev.y
-      prev.x = x
-      prev.y = y
-    }
+    Option.match(Option.fromUndefinedOr(last.get(source)), {
+      onNone: () => {
+        last.set(source, { x, y })
+      },
+      onSome: (prev) => {
+        shift.x += x - prev.x
+        shift.y += y - prev.y
+        prev.x = x
+        prev.y = y
+      },
+    })
     emit(source, { x, y }, timeStamp)
   }
   // The positions at subscribe are the baselines (no event, so no time). Inside a
   // `position: fixed` element only the scrollers up to it move the target, and the
   // page doesn't.
-  const scrollers = isElement(target) ? scrollersOf(target) : { ancestors: [], page: true }
-  for (const el of scrollers.ancestors) report(el, el.scrollLeft, el.scrollTop, 0)
+  const scrollers = Option.match(Option.liftPredicate(target, isElement), {
+    onNone: () => ({ ancestors: [], page: true }),
+    onSome: scrollersOf,
+  })
+  Arr.forEach(scrollers.ancestors, (el) => report(el, el.scrollLeft, el.scrollTop, 0))
   if (scrollers.page) report(win, win.scrollX, win.scrollY, 0)
   const onElement = (ev: Event): void => {
     const el = ev.target as Element
@@ -192,7 +209,7 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
   return () => {
     win.removeEventListener("scroll", onElement, CAPTURE_PASSIVE)
     win.removeEventListener("scroll", onWindow, PASSIVE)
-    if (key !== undefined && heldShifts.get(key) === shift) heldShifts.delete(key)
+    if (Option.isSome(key) && heldShifts.get(key.value) === shift) heldShifts.delete(key.value)
   }
 }
 

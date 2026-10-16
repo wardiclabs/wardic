@@ -64,6 +64,7 @@ export default defineConfig({
       "effect/Combiner",
       "effect/Data",
       "effect/Deferred",
+      "effect/Duration",
       "effect/Equivalence",
       "effect/ErrorReporter",
       "effect/Exit",

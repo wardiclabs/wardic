@@ -2,7 +2,7 @@
 
 How code in this repo is written: Effect's modules over vanilla TypeScript, and no ternary operators. Set in #63 and recorded, with the reasons and measurements, in [ADR-0025](../adr/0025-effect-first-core.md).
 
-**Scope.** `packages/core/src` follows these rules. New code in `@wardic/dom`, `@wardic/solid` and `@wardic/test` follows them too; converting those packages' existing code is #69. Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
+**Scope.** `packages/core/src` and `packages/dom/src` follow these rules (dom's `internal/projection.ts` from #69's PR 3). New code in `@wardic/solid` and `@wardic/test` follows them too; converting those packages' existing code is #69's PRs 4 and 5 (ADR-0025, *Amendment (#69)*). Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
 
 ## The two rules
 
@@ -10,7 +10,7 @@ How code in this repo is written: Effect's modules over vanilla TypeScript, and 
    - **Loops:** `Arr`, `Rec` and `Iter` (`map`, `filter`, `reduce`, `findFirst`, …), and `Effect.forEach` / `Effect.all` over Effects. Not `for` or `while`.
    - **Boolean checks:** named `Predicate`s, built with `Predicate`'s combinators and `Num`, `Str` and `Bool`. Not `typeof`, and not hand-written `&&` chains.
    - **Missing values:** `Option`. Not `??`, `!` or `=== undefined`. To read a value that is already `A | undefined` (an option bag's `?:` field, a `Map.get`), `UndefinedOr.match` / `map` is fine: it allocates no `Some`.
-   - **The rest, where they fit:** `Match`; `Schema` wherever values are decoded and encoded (the Interpolators' codecs, ADR-0026; the option bags, #66), never per frame; Services and `Scope`; `Schedule` for policies on wall time. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
+   - **The rest, where they fit:** `Match` (on a path that runs per element or per key, a matcher built once with `Match.type` at module level: `Match.value(x).pipe(…)` builds it again on every call; #69's PR 2 measured 136 ns a call against 46); `Schema` wherever values are decoded and encoded (the Interpolators' codecs, ADR-0026; the option bags, #66), never per frame; Services and `Scope`; `Schedule` for policies on wall time. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
 2. **No ternary operators.** Use `Boolean.match`, `Option.match` or `Match`.
 
 Parameter and destructuring defaults (`options = {}`, `{ from = "first" }`) are declarations, not checks. They stay.
@@ -41,6 +41,17 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 - a Key rule's `KeyBlend` (ADR-0035): the DOM's in `@wardic/dom`'s `key-rules.ts`;
 - `Scalar.ts` and `Point.ts`;
 - `Box.ts` and `Projection.ts` (dom's projection pass calls them per node, per frame);
+- dom's per-frame files (ADR-0025, *Amendment (#69)*, decision 2), all under `packages/dom/src/internal/`:
+  - `projection.ts`: the projection pass, the coordinator's step and its write per node;
+  - `measure.ts`: the Measure pass's reads per node;
+  - `gate.ts`: the gate's `write` and flush;
+  - `renderer.ts`: the Renderer's `project`;
+  - `svg.ts`: the SVG split inside a flush;
+  - `scale-correction.ts`: the scale correctors;
+  - `key-rules.ts`: the Key rules' `KeyBlend`s (above).
+
+  Their cold code (registration, `layoutId` matching, the scale correctors' parsers) follows the full rules;
+- solid's run sinks (`Machine.run((frame) => gate.write(…))`, presence's `commitFrame`, drag's `tapFrame`): one-line closures, in no listed file;
 - `Velocity.between`, and the samplers `Wave.ts` returns;
 - the Frame loop's tick (`internal/frameLoop.ts`, ADR-0027): plain calls only, in its one `Stream.map` call per tick. A run's sink is typed `(frame) => undefined`, so an Effect can't be returned from it.
 
@@ -102,7 +113,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 
 ## Checks
 
-- **`bun run lint`** holds what can be held mechanically on `packages/core/src` (`eslint.config.js`):
+- **`bun run lint`** holds what can be held mechanically on `packages/core/src` and `packages/dom/src` (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do):
   - ternaries;
   - `switch`, and `if … else`;
   - `??`, `??=` and `?.`;

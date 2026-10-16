@@ -10,6 +10,7 @@
  * Solid's style objects and the Renderer's `setProperty`. Motion writes them over the
  * user's style; a binding layers them under it, so an app can override one.
  */
+import * as Match from "effect/Match"
 
 /** A drag element's default style for its axis. */
 export type DragDefaultStyle = Readonly<Record<string, string>>
@@ -32,15 +33,21 @@ const Y = styleFor("pan-x")
  * for an `x` drag and `pan-x` for a `y` drag, with no text selection or iOS callout.
  * One frozen object per axis.
  */
-export const dragDefaultStyle = (axis: boolean | "x" | "y"): DragDefaultStyle =>
-  axis === "x" ? X : axis === "y" ? Y : FREE
+export const dragDefaultStyle: (axis: boolean | "x" | "y") => DragDefaultStyle = Match.type<boolean | "x" | "y">().pipe(
+  Match.when("x", () => X),
+  Match.when("y", () => Y),
+  Match.orElse(() => FREE),
+)
 
 /**
  * A **Reorder group** item's `touch-action` for the group's axis: a `y` list keeps
  * horizontal panning, an `x` row vertical panning, and a grid none.
  */
-export const reorderTouchAction = (axis: "x" | "y" | "xy"): string =>
-  axis === "y" ? "pan-x" : axis === "x" ? "pan-y" : "none"
+export const reorderTouchAction: (axis: "x" | "y" | "xy") => string = Match.type<"x" | "y" | "xy">().pipe(
+  Match.when("y", () => "pan-x"),
+  Match.when("x", () => "pan-y"),
+  Match.orElse(() => "none"),
+)
 
 /** The attribute every drag element gets: no native drag of the element or its content. */
 export const DRAG_DEFAULT_ATTRIBUTES = Object.freeze({ draggable: "false" } as const)
