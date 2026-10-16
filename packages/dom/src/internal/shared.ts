@@ -33,12 +33,17 @@
 import type { Duration } from "effect"
 import * as Effect from "effect/Effect"
 import * as Equal from "effect/Equal"
+import { identity } from "effect/Function"
 import * as Hash from "effect/Hash"
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as PubSub from "effect/PubSub"
 import * as RcMap from "effect/RcMap"
 import * as RcRef from "effect/RcRef"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 /** Options shared by both helpers. */
 export interface SharedOptions {
@@ -108,6 +113,16 @@ class TargetKey implements Equal.Equal {
  * Stream.runForEach(pointer(el), onHover)
  * Stream.runForEach(pointer(el), onPress)
  */
+/** The target a key addresses: a {@link TargetKey}'s own, else the key itself (a non-object target). */
+const targetOf: (key: unknown) => unknown = Match.type<unknown>().pipe(
+  Match.when(Match.instanceOf(TargetKey), (key) => key.target),
+  Match.orElse(identity),
+)
+
+/** The cache's `idleTimeToLive`, when the options give one. */
+const idleOf = (options: SharedOptions = {}): { readonly idleTimeToLive?: Duration.Input } =>
+  UndefinedOr.match(options.idleTimeToLive, { onUndefined: () => ({}), onDefined: (idleTimeToLive) => ({ idleTimeToLive }) })
+
 export const makeSharedByTarget = <A>(
   lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
   options?: SharedOptions,
@@ -118,18 +133,19 @@ export const makeSharedByTarget = <A>(
     // cached weakly so the key — and the RcMap entry it addresses — share the
     // target's lifetime; non-object targets (rare) hash safely on their own.
     const keys = new WeakMap<object, TargetKey>()
-    const keyFor = (target: unknown): unknown => {
-      if (typeof target !== "object" || target === null) return target
-      let key = keys.get(target)
-      if (key === undefined) {
-        key = new TargetKey(target)
-        keys.set(target, key)
-      }
-      return key
-    }
+    const keyFor = (target: unknown): unknown =>
+      Option.match(Option.liftPredicate(target, Predicate.isObjectOrArray), {
+        onNone: () => target,
+        onSome: (object) =>
+          Option.getOrElse(Option.fromUndefinedOr(keys.get(object)), () => {
+            const key = new TargetKey(object)
+            keys.set(object, key)
+            return key
+          }),
+      })
     const map = yield* RcMap.make({
-      lookup: (key: unknown) => fanIn(lookup(key instanceof TargetKey ? key.target : key)),
-      ...(options?.idleTimeToLive !== undefined ? { idleTimeToLive: options.idleTimeToLive } : {}),
+      lookup: (key: unknown) => fanIn(lookup(targetOf(key))),
+      ...idleOf(options),
     })
     return (target: unknown): Stream.Stream<A> =>
       Stream.unwrap(
@@ -160,7 +176,7 @@ export const makeSharedGlobal = <A>(
     yield* Effect.logDebug("wardic.dom.shared.global: create")
     const ref = yield* RcRef.make({
       acquire: fanIn(acquire),
-      ...(options?.idleTimeToLive !== undefined ? { idleTimeToLive: options.idleTimeToLive } : {}),
+      ...idleOf(options),
     })
     return Stream.unwrap(
       Effect.gen(function* () {

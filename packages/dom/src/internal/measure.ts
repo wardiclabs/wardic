@@ -263,10 +263,11 @@ export const releaseTransforms = (holds: ReadonlyArray<TransformHold>): void => 
  * root. SSR-safe (returns origin when there is no document).
  */
 export const measureDocumentScroll = (): Point.Point => {
-  if (typeof document === "undefined") return { x: 0, y: 0 }
-  const doc = document.documentElement
-  return {
-    x: doc.scrollLeft || document.body?.scrollLeft || 0,
-    y: doc.scrollTop || document.body?.scrollTop || 0,
-  }
+  const page = (globalThis as { readonly document?: Document }).document
+  if (Predicate.isUndefined(page)) return { x: 0, y: 0 }
+  const doc = page.documentElement
+  // In quirks mode the body scrolls, and `documentElement` reads 0. Per pass: plain reads.
+  const body = page.body as HTMLElement | null
+  if (Predicate.isNull(body)) return { x: doc.scrollLeft, y: doc.scrollTop }
+  return { x: doc.scrollLeft || body.scrollLeft, y: doc.scrollTop || body.scrollTop }
 }

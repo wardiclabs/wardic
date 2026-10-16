@@ -17,8 +17,10 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { dual } from "effect/Function"
 import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { project } from "./renderer.ts"
 import { dashCase, type SplitPatch, splitPatchForTag } from "./svg.ts"
@@ -28,16 +30,14 @@ import { dashCase, type SplitPatch, splitPatchForTag } from "./svg.ts"
  * properties included). `undefined` and anything else drop out, so the engine never sees
  * them.
  */
-export const toValues = (v: object | undefined): Values.Values => {
-  const out: Record<string, number | string> = {}
-  if (v) {
-    for (const k in v) {
-      const val = (v as Record<string, unknown>)[k]
-      if (val !== undefined && (typeof val === "number" || typeof val === "string")) out[k] = val
-    }
-  }
-  return out
-}
+export const toValues = (v: object | undefined): Values.Values =>
+  UndefinedOr.match(v, {
+    onUndefined: (): Values.Values => ({}),
+    onDefined: (values) => Rec.filter(values as Readonly<Record<string, unknown>>, isAnimatable),
+  })
+
+/** Whether a value is one an animation can take: a number or a string. */
+const isAnimatable = Predicate.or(Predicate.isNumber, Predicate.isString)
 
 /**
  * The part of an element's config its Starting style is resolved from. Values maps are
@@ -55,11 +55,12 @@ export interface InitialConfig {
 }
 
 /** A values map, or the `variants` entry a name names (an unknown name is empty), or nothing. */
-const entryOf = (entry: object | string | undefined, variants: InitialConfig["variants"]): Values.Values => {
-  if (entry === undefined) return {}
-  if (typeof entry === "string") return toValues(variants?.[entry])
-  return toValues(entry)
-}
+const entryOf = (entry: object | string | undefined, variants: InitialConfig["variants"]): Values.Values =>
+  Match.value(entry).pipe(
+    Match.when(Predicate.isUndefined, (): Values.Values => ({})),
+    Match.when(Predicate.isString, (name) => toValues(UndefinedOr.map(variants, (byName) => byName[name]))),
+    Match.orElse(toValues),
+  )
 
 /**
  * The values an element starts from: its `initial` map, or the `variants` entry its
@@ -68,11 +69,11 @@ const entryOf = (entry: object | string | undefined, variants: InitialConfig["va
  * mount (#134, Motion's). Read once, at setup: the Starting style is a seed, never a
  * live target.
  */
-export const resolveInitial = (config: InitialConfig): Values.Values => {
-  const initial = config.initial
-  if (initial === false) return entryOf(config.animate, config.variants)
-  return entryOf(initial, config.variants)
-}
+export const resolveInitial = (config: InitialConfig): Values.Values =>
+  Match.value(config.initial).pipe(
+    Match.when(false, () => entryOf(config.animate, config.variants)),
+    Match.orElse((initial) => entryOf(initial, config.variants)),
+  )
 
 /**
  * A CSS declaration list (`"color: red; background: url(a;b)"`) as `{ property: value }`.
@@ -81,10 +82,7 @@ export const resolveInitial = (config: InitialConfig): Values.Values => {
  */
 export const parseCssText = (text: string): Record<string, string> => {
   const out: Record<string, string> = {}
-  let depth = 0
-  let quote: string | undefined
-  let start = 0
-  const take = (end: number): void => {
+  const take = (start: number, end: number): void => {
     const declaration = text.slice(start, end)
     const colon = declaration.indexOf(":")
     if (colon > 0) {
@@ -92,21 +90,51 @@ export const parseCssText = (text: string): Record<string, string> => {
       const value = declaration.slice(colon + 1).trim()
       if (key !== "" && value !== "") out[key] = value
     }
-    start = end + 1
   }
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]
-    if (quote !== undefined) {
-      if (c === "\\") i++
-      else if (c === quote) quote = undefined
-    } else if (c === '"' || c === "'") quote = c
-    else if (c === "(") depth++
-    else if (c === ")") depth = Math.max(0, depth - 1)
-    else if (c === ";" && depth === 0) take(i)
-  }
-  take(text.length)
+  // Character by character (UTF-16 units, as `slice` counts): a `;` outside parentheses and
+  // quotes ends a declaration.
+  const scanned = Arr.reduce(Str.split(text, ""), SCAN_START, (scan, c, i) =>
+    Bool.match(scan.escaped, {
+      onTrue: (): CssScan => ({ ...scan, escaped: false }),
+      onFalse: () =>
+        Option.match(scan.quote, {
+          onNone: () =>
+            Match.value(c).pipe(
+              Match.when(isQuote, (quote): CssScan => ({ ...scan, quote: Option.some(quote) })),
+              Match.when("(", (): CssScan => ({ ...scan, depth: scan.depth + 1 })),
+              Match.when(")", (): CssScan => ({ ...scan, depth: Math.max(0, scan.depth - 1) })),
+              Match.when(
+                () => c === ";" && scan.depth === 0,
+                (): CssScan => {
+                  take(scan.start, i)
+                  return { ...scan, start: i + 1 }
+                },
+              ),
+              Match.orElse(() => scan),
+            ),
+          onSome: (quote) =>
+            Match.value(c).pipe(
+              Match.when("\\", (): CssScan => ({ ...scan, escaped: true })),
+              Match.when(quote, (): CssScan => ({ ...scan, quote: Option.none() })),
+              Match.orElse(() => scan),
+            ),
+        }),
+    }))
+  take(scanned.start, text.length)
   return out
 }
+
+/** Where {@link parseCssText} is: the parentheses open, the string's quote, a backslash just read in it, the declaration's start. */
+interface CssScan {
+  readonly depth: number
+  readonly quote: Option.Option<string>
+  readonly escaped: boolean
+  readonly start: number
+}
+
+const SCAN_START: CssScan = { depth: 0, quote: Option.none(), escaped: false, start: 0 }
+
+const isQuote = (c: string): boolean => c === '"' || c === "'"
 
 /**
  * A style as a binding hands it over: a record of CSS properties, CSS text (`"color: red"`, which
