@@ -193,7 +193,7 @@ Every root name on `74fb80b` and its home now:
 ## Implementation in #132's PR 1: modules and the root
 
 - **The moves:**
-  - 24 implementation files moved to `packages/dom/src/internal/` unchanged, `culori.d.ts` with them;
+  - 25 implementation files moved to `packages/dom/src/internal/` unchanged, `culori.d.ts` with them;
   - 17 module files re-export their members;
   - the root became 17 namespaces plus `DomLive` and `VERSION`;
   - `package.json`'s `exports` gained `"./*"` and `"./internal/*": null`, as core's has.
