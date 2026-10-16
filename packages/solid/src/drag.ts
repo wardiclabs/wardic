@@ -322,7 +322,7 @@ const isGrab: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
  */
 const isPressEnd: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
   (e: InputSource.PointerLikeEvent) =>
-    Bool.some([e.type === "up", e.type === "cancel", Bool.and(e.type === "move", e.buttons === 0)]),
+    Bool.some([e.type === "up", e.type === "cancel", Bool.and(e.type === "move", Bool.not(e.pressed))]),
   InputSource.isPrimaryPointer,
 )
 

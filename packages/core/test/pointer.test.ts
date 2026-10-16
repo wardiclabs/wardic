@@ -12,21 +12,21 @@ import * as Option from "effect/Option"
 type PointerType = InputSource.PointerLikeEvent["type"]
 
 describe("makePointerLikeEvent", () => {
-  it("C1: fills mouse defaults per type, and an override wins", () => {
+  it("C1: fills mouse defaults per type, in core's words, and an override wins", () => {
     // Every type, with no fields but `type`.
     const types: ReadonlyArray<PointerType> = ["down", "move", "up", "cancel", "enter", "leave"]
     const built = types.map((type) => InputSource.makePointerLikeEvent({ type }))
-    // Shared defaults, then `button` and `buttons` per type.
+    // Shared defaults, then `button` and `pressed` per type.
     for (const event of built) {
       expect(event.pointerId).toBe(1)
       expect(event.x).toBe(0)
       expect(event.y).toBe(0)
       expect(event.timeStamp).toBe(0)
-      expect(event.pointerType).toBe("mouse")
-      expect(event.isPrimary).toBe(true)
+      expect(event.kind).toBe("mouse")
+      expect(event.primary).toBe(true)
     }
-    expect(built.map((event) => event.button)).toEqual([0, -1, 0, -1, -1, -1])
-    expect(built.map((event) => event.buttons)).toEqual([1, 1, 0, 0, 0, 0])
+    expect(built.map((event) => event.button)).toEqual(["main", "none", "main", "none", "none", "none"])
+    expect(built.map((event) => event.pressed)).toEqual([true, true, false, false, false, false])
     // An override beats the default it replaces.
     const overridden = InputSource.makePointerLikeEvent({
       type: "down",
@@ -34,10 +34,10 @@ describe("makePointerLikeEvent", () => {
       x: 3,
       y: 4,
       timeStamp: 9,
-      pointerType: "touch",
-      button: 2,
-      buttons: 0,
-      isPrimary: false,
+      kind: "touch",
+      button: "secondary",
+      pressed: false,
+      primary: false,
     })
     expect(overridden).toEqual({
       type: "down",
@@ -45,43 +45,38 @@ describe("makePointerLikeEvent", () => {
       x: 3,
       y: 4,
       timeStamp: 9,
-      pointerType: "touch",
-      button: 2,
-      buttons: 0,
-      isPrimary: false,
+      kind: "touch",
+      button: "secondary",
+      pressed: false,
+      primary: false,
     })
   })
 })
 
 describe("isPrimaryPointer", () => {
-  // Motion's rule: a mouse event is primary when `button <= 0`; anything else follows `isPrimary`.
-  const table: ReadonlyArray<{
-    readonly name: string
-    readonly pointerType: string
-    readonly button: number
-    readonly isPrimary: boolean
-    readonly expected: boolean
-  }> = [
-    { name: "mouse, no button change", pointerType: "mouse", button: -1, isPrimary: true, expected: true },
-    { name: "mouse, left button", pointerType: "mouse", button: 0, isPrimary: true, expected: true },
-    { name: "mouse, middle button", pointerType: "mouse", button: 1, isPrimary: true, expected: false },
-    { name: "mouse, right button", pointerType: "mouse", button: 2, isPrimary: true, expected: false },
-    { name: "touch, primary", pointerType: "touch", button: 0, isPrimary: true, expected: true },
-    { name: "pen, primary", pointerType: "pen", button: 0, isPrimary: true, expected: true },
-    { name: "touch, not primary", pointerType: "touch", button: 0, isPrimary: false, expected: false },
-    { name: "pen, not primary", pointerType: "pen", button: 0, isPrimary: false, expected: false },
-  ]
+  // Motion's rule over core's fields (ADR-0036, *Amendment (#189)*): a mouse event counts with its
+  // main button or no button change, whatever `primary` says; any other kind follows `primary`,
+  // whatever its button.
+  const KINDS: ReadonlyArray<InputSource.PointerKind> = ["mouse", "pen", "touch", "other"]
+  const BUTTONS: ReadonlyArray<InputSource.PointerButton> = ["main", "middle", "secondary", "other", "none"]
+  const expected = (kind: InputSource.PointerKind, button: InputSource.PointerButton, primary: boolean): boolean => {
+    if (kind === "mouse") return button === "main" || button === "none"
+    return primary
+  }
 
-  it("C2: mouse follows its button, touch and pen follow isPrimary", () => {
-    for (const row of table) {
-      const event = InputSource.makePointerLikeEvent({
-        type: "down",
-        pointerType: row.pointerType,
-        button: row.button,
-        isPrimary: row.isPrimary,
-      })
-      expect(InputSource.isPrimaryPointer(event), row.name).toBe(row.expected)
-    }
+  it("C2: every kind, button and primary: a mouse follows its button, every other kind follows primary", () => {
+    let rows = 0
+    for (const kind of KINDS)
+      for (const button of BUTTONS)
+        for (const primary of [true, false]) {
+          const event = InputSource.makePointerLikeEvent({ type: "down", kind, button, primary })
+          expect(InputSource.isPrimaryPointer(event), `${kind}, ${button}, primary ${primary}`).toBe(expected(kind, button, primary))
+          rows++
+        }
+    expect(rows).toBe(40)
+    // The named cases the rule exists for.
+    expect(InputSource.isPrimaryPointer(InputSource.makePointerLikeEvent({ type: "down", button: "secondary" })), "a right-click doesn't count").toBe(false)
+    expect(InputSource.isPrimaryPointer(InputSource.makePointerLikeEvent({ type: "down", kind: "touch", primary: false })), "a second finger doesn't").toBe(false)
   })
 })
 

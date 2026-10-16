@@ -1,7 +1,7 @@
 /**
  * `InputDomLive` — the browser realization of `InputSource`, mapping raw DOM
  * events onto the engine's environment-agnostic Like-event shapes
- * (`PointerLikeEvent`/`KeyboardLikeEvent`/`WheelLikeEvent`/`FocusLikeEvent`).
+ * (`PointerLikeEvent`/`KeyboardLikeEvent`/`FocusLikeEvent`).
  *
  * Every accessor is built on the shared-source helpers (CONTEXT.md's **Shared
  * source** contract): per-target streams go through {@link makeSharedByTarget}
@@ -71,16 +71,39 @@ const POINTER_EVENTS = Object.keys(POINTER_TYPE)
  */
 const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel", "pointerdown"]
 
-const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent): InputSource.PointerLikeEvent => ({
+/** A `PointerEvent.pointerType` as a **Pointer kind** (ADR-0036, *Amendment (#189)*): the DOM's three, else `"other"`. */
+export const kindOf = (pointerType: string): InputSource.PointerKind =>
+  Match.value(pointerType).pipe(
+    Match.when("mouse", (): InputSource.PointerKind => "mouse"),
+    Match.when("pen", (): InputSource.PointerKind => "pen"),
+    Match.when("touch", (): InputSource.PointerKind => "touch"),
+    Match.orElse((): InputSource.PointerKind => "other"),
+  )
+
+/**
+ * A `PointerEvent.button` in core's names (ADR-0036, *Amendment (#189)*): 0 the main button, 1 the
+ * middle, 2 the secondary, -1 none (a move), and the rest (back, forward, a pen's eraser) other.
+ */
+export const buttonOf = (button: number): InputSource.PointerButton =>
+  Match.value(button).pipe(
+    Match.when(0, (): InputSource.PointerButton => "main"),
+    Match.when(1, (): InputSource.PointerButton => "middle"),
+    Match.when(2, (): InputSource.PointerButton => "secondary"),
+    Match.when(-1, (): InputSource.PointerButton => "none"),
+    Match.orElse((): InputSource.PointerButton => "other"),
+  )
+
+/** A DOM `PointerEvent` as core's pointer event, in core's names (ADR-0036, *Amendment (#189)*). */
+export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent): InputSource.PointerLikeEvent => ({
   type,
   pointerId: ev.pointerId ?? 1,
   x: ev.clientX,
   y: ev.clientY,
-  buttons: ev.buttons,
+  pressed: ev.buttons !== 0,
   timeStamp: ev.timeStamp,
-  pointerType: ev.pointerType,
-  button: ev.button,
-  isPrimary: ev.isPrimary,
+  kind: kindOf(ev.pointerType),
+  button: buttonOf(ev.button),
+  primary: ev.isPrimary,
 })
 
 /**
@@ -176,13 +199,6 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
 const toFocus = (type: InputSource.FocusLikeEvent["type"]) =>
   (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp })
 
-const toWheel = (ev: WheelEvent): InputSource.WheelLikeEvent => ({
-  deltaX: ev.deltaX,
-  deltaY: ev.deltaY,
-  deltaZ: ev.deltaZ,
-  timeStamp: ev.timeStamp,
-})
-
 /** A `KeyboardEvent.key` in core's names (ADR-0037): the keys core acts on, else `"other"`. */
 export const keyOf = (key: string): InputSource.Key =>
   Match.value(key).pipe(
@@ -274,20 +290,11 @@ const make = Effect.gen(function* () {
     )
   )
 
-  const wheel = yield* makeSharedByTarget((target) =>
-    Effect.succeed(
-      Stream.fromEventListener<WheelEvent>(target as Stream.EventListener<WheelEvent>, "wheel", {
-        passive: true,
-      }).pipe(Stream.map(toWheel)),
-    )
-  )
-
   const keyboard = yield* makeSharedByTarget((target) => Effect.succeed(keyboardOf(target)))
 
   return InputSource.InputSource.of({
     pointer,
     focus,
-    wheel,
     keyboard,
   })
 })

@@ -114,7 +114,7 @@ const ofType =
     event.type === type
 
 /** A move with no button pressed: the release was lost (ADR-0019). */
-const isUnpressedMove: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(ofType("move"), (event) => event.buttons === 0)
+const isUnpressedMove: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(ofType("move"), (event) => Bool.not(event.pressed))
 
 /** Whether `event` ends a held pointer's press: its release, its cancel, or a move with no button pressed. */
 const endsPress: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
@@ -134,7 +134,7 @@ const hoverFold = (activity: DragActivity.Shape): Fold<HoverState, InputSource.P
   active: (s) => Bool.or(s.inside, s.deferred),
   step: (s, e) =>
     Match.value(e).pipe(
-      Match.when({ pointerType: "touch" }, () => s),
+      Match.when({ kind: "touch" }, () => s),
       Match.when({ type: "enter" }, () =>
         Bool.match(activity.isDragActive(), { onTrue: () => s, onFalse: () => ({ ...s, inside: true, deferred: false }) }),
       ),
@@ -455,7 +455,7 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
 const onOwner = (state: DragState, event: InputSource.PointerLikeEvent): Step =>
   Match.value(event).pipe(
     // Rule A: the owner moved with no button pressed, so its release was lost.
-    Match.when({ type: "move", buttons: 0 }, (e): Step => [initState, staleEnd(state, "unpressed move", e.timeStamp)]),
+    Match.when({ type: "move", pressed: false }, (e): Step => [initState, staleEnd(state, "unpressed move", e.timeStamp)]),
     // Release / cancel from the owner: emit final "end", reset.
     Match.when({ type: Match.is("up", "cancel") }, (e) => onRelease(state, e)),
     // Movement from the owner.

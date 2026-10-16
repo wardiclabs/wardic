@@ -13,7 +13,7 @@ const ev = (
   t = 0,
   pointerId = 1,
 ): InputSource.PointerLikeEvent =>
-  InputSource.makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" || type === "leave" ? 0 : 1, timeStamp: t })
+  InputSource.makePointerLikeEvent({ type, pointerId, x, y, pressed: type !== "up" && type !== "cancel" && type !== "leave", timeStamp: t })
 
 /** Build a FocusLikeEvent. */
 const focusEvent = (type: InputSource.FocusLikeEvent["type"], t = 0): InputSource.FocusLikeEvent => ({ type, timeStamp: t })

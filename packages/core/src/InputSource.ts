@@ -7,7 +7,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { constVoid } from "effect/Function"
+import { constFalse, constTrue, constVoid } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
@@ -29,31 +29,39 @@ export interface PointerLikeEvent {
   readonly x: number
   readonly y: number
   /**
-   * Bitmask of currently-pressed buttons (DOM `buttons` convention). A pressed
-   * pointer's moves carry `buttons >= 1`, so a move with `buttons === 0` from a
-   * pointer still pressed on a target means its release was lost (a **Stale
+   * Whether any button is down during this event. A pressed pointer's moves are pressed, so an
+   * unpressed move from a pointer still held on a target means its release was lost (a **Stale
    * gesture**, ADR-0019).
    */
-  readonly buttons: number
+  readonly pressed: boolean
   readonly timeStamp: number
+  /** Its **Pointer kind** (#189). */
+  readonly kind: PointerKind
+  /** The button whose state this event changed, `"none"` when none did, as on a move (#189). */
+  readonly button: PointerButton
   /**
-   * The kind of input (DOM `pointerType` convention): `"mouse"`, `"pen"` or `"touch"`.
-   * An Environment with other input kinds names its own.
+   * Whether it's its kind's first contact on the page: the mouse always is; a second finger
+   * isn't. Not the **Primary pointer** itself, which `isPrimaryPointer` decides from it (#189).
    */
-  readonly pointerType: string
-  /**
-   * The button whose state changed on this event (DOM `button` convention: `0` the
-   * main button, `1` the middle, `2` the secondary), `-1` when none did, as on a move.
-   */
-  readonly button: number
-  /** Whether this is the primary pointer of its type (DOM `isPrimary`): the mouse, or the first touch or pen contact. */
-  readonly isPrimary: boolean
+  readonly primary: boolean
 }
 
 /**
+ * A **Pointer kind**, in core's own words (ADR-0036, *Amendment (#189)*): `"other"` for one core
+ * has no rule about. Each Environment maps its platform's kinds onto these.
+ */
+export type PointerKind = "mouse" | "pen" | "touch" | "other"
+
+/**
+ * A pointer button, in core's own words (ADR-0036, *Amendment (#189)*): `"none"` when an event
+ * changed no button, `"other"` for a button core has no rule about.
+ */
+export type PointerButton = "main" | "middle" | "secondary" | "other" | "none"
+
+/**
  * Build a {@link PointerLikeEvent} with a mouse's defaults: pointer 1 at `(0, 0)` and
- * time 0, `pointerType` `"mouse"`, primary, `button` 0 on a down or up and -1 otherwise,
- * and `buttons` 1 on a down or move and 0 otherwise. Any field given wins.
+ * time 0, kind `"mouse"`, primary, `button` `"main"` on a down or up and `"none"` otherwise,
+ * and pressed on a down or move. Any field given wins.
  *
  * Tier 2 (ADR-0008): for test scripts and mouse-only Environments (ADR-0019).
  */
@@ -64,32 +72,33 @@ export const makePointerLikeEvent = (
   x: 0,
   y: 0,
   timeStamp: 0,
-  pointerType: "mouse",
-  isPrimary: true,
+  kind: "mouse",
+  primary: true,
   button: Match.value(init.type).pipe(
-    Match.when(Match.is("down", "up"), () => 0),
-    Match.orElse(() => -1),
+    Match.when(Match.is("down", "up"), (): PointerButton => "main"),
+    Match.orElse((): PointerButton => "none"),
   ),
-  buttons: Match.value(init.type).pipe(
-    Match.when(Match.is("down", "move"), () => 1),
-    Match.orElse(() => 0),
+  pressed: Match.value(init.type).pipe(
+    Match.when(Match.is("down", "move"), constTrue),
+    Match.orElse(constFalse),
   ),
   ...init,
 })
 
 /**
  * Whether `event` comes from a **Primary pointer**, the only one `drag` and `press`
- * listen to: a mouse event with the main button or no button change (`button <= 0`),
- * or any other pointer that is `isPrimary`. A right-click doesn't drag, and a second
- * finger neither presses nor moves a drag. Motion's `isPrimaryPointer`
- * (`motion-dom/src/gestures/utils/is-primary-pointer.ts` @ `16c6122`).
+ * listen to: a mouse event with its main button or no button change, or any other
+ * pointer that is `primary`. A right-click doesn't drag, and a second finger neither
+ * presses nor moves a drag. Motion's `isPrimaryPointer`
+ * (`motion-dom/src/gestures/utils/is-primary-pointer.ts` @ `16c6122`), over core's own
+ * fields (ADR-0036, *Amendment (#189)*).
  *
  * Tier 2 (ADR-0008): for custom recognizers (ADR-0019).
  */
 export const isPrimaryPointer = (event: PointerLikeEvent): boolean =>
   Match.value(event).pipe(
-    Match.when({ pointerType: "mouse" }, (mouse) => mouse.button <= 0),
-    Match.orElse((other) => other.isPrimary),
+    Match.when({ kind: "mouse" }, (mouse) => Bool.or(mouse.button === "main", mouse.button === "none")),
+    Match.orElse((other) => other.primary),
   )
 
 /**
@@ -116,13 +125,6 @@ export interface KeyboardLikeEvent {
   readonly handle: () => void
 }
 
-export interface WheelLikeEvent {
-  readonly deltaX: number
-  readonly deltaY: number
-  readonly deltaZ: number
-  readonly timeStamp: number
-}
-
 export interface FocusLikeEvent {
   readonly type: "focus" | "blur"
   readonly timeStamp: number
@@ -146,7 +148,8 @@ export class InputSource extends Context.Service<InputSource, {
    * the key and can still take it itself.
    */
   readonly keyboard: (target: unknown) => Stream.Stream<KeyboardLikeEvent>
-  readonly wheel: (target: unknown) => Stream.Stream<WheelLikeEvent>
+  // No wheel until a recognizer needs one, which then defines it and its units (ADR-0036,
+  // *Amendment (#189)*).
   /**
    * Focus/blur transitions for a target. Like `pointer`, this is a Shared
    * (environment-agnostic) source: every subscriber sees the same script of
@@ -257,7 +260,7 @@ const ofType =
     event.type === type
 
 /** A move with no button pressed: the release was lost (ADR-0019). */
-const isUnpressedMove: Predicate.Predicate<PointerLikeEvent> = Predicate.and(ofType("move"), (event) => event.buttons === 0)
+const isUnpressedMove: Predicate.Predicate<PointerLikeEvent> = Predicate.and(ofType("move"), (event) => Bool.not(event.pressed))
 
 /** Whether `event` ends its pointer's hold: its release, its cancel, or a move with no button pressed. */
 const endsHold: Predicate.Predicate<PointerLikeEvent> = Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
@@ -269,7 +272,7 @@ const endsHold: Predicate.Predicate<PointerLikeEvent> = Predicate.some([ofType("
 const supersedes = (down: PointerLikeEvent, held: PointerLikeEvent): boolean =>
   Bool.or(
     down.pointerId === held.pointerId,
-    Bool.every([down.isPrimary, held.isPrimary, down.pointerType === held.pointerType]),
+    Bool.every([down.primary, held.primary, down.kind === held.kind]),
   )
 
 /** A feed's stop function, while the feed is subscribed. */
@@ -352,7 +355,7 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
                 h.dy += dy
                 // Until it has moved since its down, a scroll emits nothing for it.
                 if (h.moved) {
-                  const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, button: -1, timeStamp }
+                  const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, button: "none", timeStamp }
                   h.last = moved
                   Queue.offerUnsafe(queue, moved)
                 }
@@ -365,7 +368,7 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
             Match.when({ type: "down" }, (down) =>
               Iter.forEach(Arr.fromIterable(held), ([pointerId, h]) => {
                 if (supersedes(down, h.last)) {
-                  Queue.offerUnsafe(queue, { ...h.last, type: "move", buttons: 0, button: -1, timeStamp: down.timeStamp })
+                  Queue.offerUnsafe(queue, { ...h.last, type: "move", pressed: false, button: "none", timeStamp: down.timeStamp })
                   unhold(pointerId)
                 }
               }),

@@ -150,12 +150,16 @@ _Avoid_: inertia (the Primitive it runs), throw, momentum (name the mechanism �
 A released **Projection node**'s distance from its slot, per axis, springing to zero on its own, on the **Drag transition**, from the drag's release velocity (none with `dragMomentum={false}`), on top of the node's layout animation. A slot that moves during the release animates underneath it and leaves the offset's motion as it was, as Motion's `dragSnapToOrigin` release does (ADR-0016).
 _Avoid_: release FLIP, flight back.
 
+**Pointer kind**:
+What kind of pointer an event comes from, in core's words: a mouse, a pen, a touch, or another kind. Each Environment maps its platform's names onto these (#189).
+_Avoid_: pointer type (the DOM's `pointerType`), device.
+
 **Primary pointer**:
-The pointer `drag` and `press` listen to: a mouse event with the left button or no button change, or the first touch or pen contact on the page (`isPrimary`). A right-click doesn't drag, and a second finger neither presses nor moves a drag. Motion's `isPrimaryPointer` (ADR-0019).
+The pointer `drag` and `press` listen to: a mouse event with its main button or no button change, or any other **Pointer kind**'s first contact on the page (an event's `primary`). A right-click doesn't drag, and a second finger neither presses nor moves a drag. Motion's `isPrimaryPointer`, kept in core over core's own fields (ADR-0019, #189).
 _Avoid_: main pointer, first pointer.
 
 **Stale gesture**:
-A gesture whose release was lost, e.g. swallowed by another listener or released outside the window. It ends as a cancel, at its last pressed point with no velocity, at the owning pointer's first move with no button pressed, at its next down, or at the next press anywhere by it or by a new primary pointer of its type (ADR-0019).
+A gesture whose release was lost, e.g. swallowed by another listener or released outside the window. It ends as a cancel, at its last pressed point with no velocity, at the owning pointer's first move with no button pressed, at its next down, or at the next press anywhere by it or by a new primary pointer of its kind (ADR-0019).
 _Avoid_: stuck drag.
 
 **Drag activity**:
@@ -266,12 +270,12 @@ A complete set of Layer implementations of the core services (Clock, `RefreshFra
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:
-A contract property of *every* Stream an Environment hands out — `Clock.ticks`, `InputSource.pointer`/`keyboard`/`wheel`/`focus`, `Probe.observeResize`/`observeIntersection`: it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, plus one page-wide set while a pointer that went down on it is held, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
+A contract property of *every* Stream an Environment hands out — `Clock.ticks`, `InputSource.pointer`/`keyboard`/`focus`, `Probe.observeResize`/`observeIntersection`: it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, plus one page-wide set while a pointer that went down on it is held, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
 The Clock's loop ends at the first Refresh frame after its last subscriber leaves, not at the unsubscribe itself (see **Cold start**).
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Held pointer**:
-A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its type. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its kind. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:

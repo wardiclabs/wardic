@@ -15,7 +15,7 @@ const ev = (
   t: number,
   pointerId = 1,
 ): InputSource.PointerLikeEvent =>
-  InputSource.makePointerLikeEvent({ type, pointerId, x, y, buttons: type === "up" || type === "cancel" ? 0 : 1, timeStamp: t })
+  InputSource.makePointerLikeEvent({ type, pointerId, x, y, pressed: type !== "up" && type !== "cancel", timeStamp: t })
 
 const collect = (events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
   Stream.runCollect(Recognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
