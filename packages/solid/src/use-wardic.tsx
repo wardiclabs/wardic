@@ -537,7 +537,7 @@ export interface RunSpineOptions {
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
   /** The provider-owned flush gate (ADR-0006). */
-  readonly gate: FlushGate.FlushGate
+  readonly gate: FlushGate.Shape
   /** SSR/hydration-stable gate id for this element's entry. */
   readonly id: string
   /** The element accessor; the spine is gated on it (started once defined). */
