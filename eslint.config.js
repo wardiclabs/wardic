@@ -75,6 +75,19 @@ const SPANS = [
   ),
 ]
 
+/**
+ * Core names no Environment's event fields (#189, ADR-0036 *Amendment (#189)*): an Environment maps
+ * its platform's events onto core's own words, a pointer's `kind`, `pressed`, `button` and
+ * `primary`, a key's `handled` and `handle()`. The DOM's names for them, as an identifier or a
+ * string, don't belong in core's source.
+ */
+const DOM_EVENT_NAMES = "pointerType|buttons|isPrimary|deltaX|deltaY|deltaZ|deltaMode|preventDefault|defaultPrevented"
+const EVENT_NAMES = [`Identifier[name=/^(${DOM_EVENT_NAMES})$/]`, `Literal[value=/^(${DOM_EVENT_NAMES})$/]`].map((selector) => ({
+  selector,
+  message:
+    "Core names no Environment's event fields: use core's own (a pointer's kind, pressed, button and primary; a key's handled and handle()) (ADR-0036, Amendment (#189)).",
+}))
+
 /** Rule 1: missing values and boolean checks. */
 const CHECKS = [
   restrict("LogicalExpression[operator='??']", "A missing value is an Option, not ??"),
@@ -133,13 +146,13 @@ export default defineConfig([
     rules: {
       "no-ternary": "error",
       "@typescript-eslint/no-non-null-assertion": "error",
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...SPANS],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...SPANS, ...EVENT_NAMES],
     },
   },
   {
     files: PER_FRAME_LOOPS,
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS, ...EVENT_NAMES],
     },
   },
   {
@@ -158,7 +171,7 @@ export default defineConfig([
   {
     files: ["packages/core/src/index.ts"],
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT, ...SPANS],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT, ...SPANS, ...EVENT_NAMES],
     },
   },
   {

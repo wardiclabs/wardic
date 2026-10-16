@@ -23,7 +23,7 @@ import * as Stream from "effect/Stream"
 
 interface EventOptions {
   readonly pointerId?: number
-  readonly buttons?: number
+  readonly pressed?: boolean
 }
 
 /** A primary mouse (`makePointerLikeEvent`): pressed on a down or move, released otherwise. */
@@ -91,7 +91,7 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
     yield* hb.push(ev("down", 0, 0, 0))
     yield* hb.push(dragTo(10, 10))
     expect(b.isDragActive()).toBe(true)
-    yield* hb.push(ev("move", 50, 0, 20, { buttons: 0 }))
+    yield* hb.push(ev("move", 50, 0, 20, { pressed: false }))
     expect(b.isDragActive()).toBe(false)
 
     // (c) rule B: a new down from the owner releases, the new gesture's start claims again
@@ -160,17 +160,17 @@ it.effect("A5: hover ignores an enter while claimed; a leave while claimed still
     const busy = DragActivity.make()
     const release = busy.count()
     const ha = yield* rig(busy, [Recognizer.hover(undefined)])
-    yield* ha.push(ev("enter", 0, 0, 0, { buttons: 0 }))
+    yield* ha.push(ev("enter", 0, 0, 0, { pressed: false }))
     expect(yield* ha.seen).toEqual([])
     // after the release, an enter hovers
     release()
-    yield* ha.push(ev("enter", 0, 0, 10, { buttons: 0 }))
+    yield* ha.push(ev("enter", 0, 0, 10, { pressed: false }))
     expect(yield* ha.seen).toEqual([true])
 
     // (b) hover already on when a drag claims: the leave still ends it
     const activity = DragActivity.make()
     const hb = yield* rig(activity, [Recognizer.hover(undefined)])
-    yield* hb.push(ev("enter", 0, 0, 0, { buttons: 0 }))
+    yield* hb.push(ev("enter", 0, 0, 0, { pressed: false }))
     const claim = activity.count()
     yield* hb.push(ev("leave", 200, 0, 10))
     expect(yield* hb.seen).toEqual([true, false])
@@ -382,7 +382,7 @@ it.effect("A13: a Stale gesture's end releases the claim (rule A)", () =>
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(ev("move", 10, 0, 10))
     // The release is lost: the owner moves with no button pressed.
-    yield* h.push(ev("move", 40, 0, 20, { buttons: 0 }))
+    yield* h.push(ev("move", 40, 0, 20, { pressed: false }))
     expect(phases(h.seen.inner!)).toBe("start end")
     expect(phases(h.seen.outer!)).toBe("")
     expect(activity.isDragActive()).toBe(false)

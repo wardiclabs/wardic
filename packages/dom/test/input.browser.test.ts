@@ -51,7 +51,7 @@ const spyTarget = <T extends EventTarget>(target: T) => {
 // shared RcMaps key distinct entries — no cross-test interference even though
 // the layer is shared.
 layer(InputDomLive)("InputDomLive", (it) => {
-  it.effect("pointer maps down/move/up: type, coords, buttons, pointerId", () =>
+  it.effect("pointer maps down/move/up: type, coords, pressed, pointerId", () =>
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
@@ -62,10 +62,10 @@ layer(InputDomLive)("InputDomLive", (it) => {
       el.dispatchEvent(new PointerEvent("pointerup", { clientX: 9, clientY: 10, buttons: 0, pointerId: 2 }))
 
       const events = yield* sub.collect(3)
-      expect(events.map((e) => ({ type: e.type, x: e.x, y: e.y, buttons: e.buttons, pointerId: e.pointerId }))).toEqual([
-        { type: "down", x: 5, y: 6, buttons: 1, pointerId: 2 },
-        { type: "move", x: 7, y: 8, buttons: 1, pointerId: 2 },
-        { type: "up", x: 9, y: 10, buttons: 0, pointerId: 2 },
+      expect(events.map((e) => ({ type: e.type, x: e.x, y: e.y, pressed: e.pressed, pointerId: e.pointerId }))).toEqual([
+        { type: "down", x: 5, y: 6, pressed: true, pointerId: 2 },
+        { type: "move", x: 7, y: 8, pressed: true, pointerId: 2 },
+        { type: "up", x: 9, y: 10, pressed: false, pointerId: 2 },
       ])
       yield* sub.close
     }))
@@ -94,21 +94,6 @@ layer(InputDomLive)("InputDomLive", (it) => {
       el.dispatchEvent(new FocusEvent("blur"))
 
       expect((yield* sub.collect(2)).map((e) => e.type)).toEqual(["focus", "blur"])
-      yield* sub.close
-    }))
-
-  it.effect("wheel maps deltaX/deltaY/deltaZ", () =>
-    Effect.gen(function* () {
-      const input = yield* InputSource.InputSource
-      const el = document.createElement("div")
-      const sub = yield* subscribeIn(input.wheel(el))
-
-      el.dispatchEvent(new WheelEvent("wheel", { deltaX: 1, deltaY: 2, deltaZ: 3 }))
-
-      const events = yield* sub.collect(1)
-      expect(events.map((e) => ({ deltaX: e.deltaX, deltaY: e.deltaY, deltaZ: e.deltaZ }))).toEqual([
-        { deltaX: 1, deltaY: 2, deltaZ: 3 },
-      ])
       yield* sub.close
     }))
 
@@ -360,7 +345,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       }
     }).pipe(Effect.scoped))
 
-  it.effect("I7: pointerType, button and isPrimary are mapped from the DOM event", () =>
+  it.effect("I7: a real pointer's kind, button and primary are mapped from the DOM event, in core's names (#189)", () =>
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
@@ -368,9 +353,9 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       el.dispatchEvent(pointerEvent("pointerdown", { pointerType: "pen", isPrimary: false, button: 2, buttons: 2 }))
       el.dispatchEvent(pointerEvent("pointerup", { pointerType: "pen", isPrimary: false, button: 2, buttons: 0 }))
       const events = yield* sub.collect(2)
-      expect(events.map((e) => ({ type: e.type, pointerType: e.pointerType, button: e.button, isPrimary: e.isPrimary }))).toEqual([
-        { type: "down", pointerType: "pen", button: 2, isPrimary: false },
-        { type: "up", pointerType: "pen", button: 2, isPrimary: false },
+      expect(events.map((e) => ({ type: e.type, kind: e.kind, button: e.button, primary: e.primary, pressed: e.pressed }))).toEqual([
+        { type: "down", kind: "pen", button: "secondary", primary: false, pressed: true },
+        { type: "up", kind: "pen", button: "secondary", primary: false, pressed: false },
       ])
       yield* sub.close
     }).pipe(Effect.scoped))
@@ -401,7 +386,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       // Later it presses the target itself.
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, buttons: 1 }))
       const events = yield* sub.collect(4)
-      expect(events.map((e) => `${e.type}@${e.x}/${e.buttons}`)).toEqual(["down@0/1", "move@40/1", "move@40/0", "down@5/1"])
+      expect(events.map((e) => `${e.type}@${e.x}/${e.pressed}`)).toEqual(["down@0/true", "move@40/true", "move@40/false", "down@5/true"])
       yield* sub.close
     }).pipe(Effect.scoped))
 
@@ -508,7 +493,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       yield* nextFrame
       const events = yield* sub.collect(3)
       expect(events.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["down@5,6", "move@5,6", "move@5,66"])
-      expect(events[2]!.buttons).toBe(1)
+      expect(events[2]!.pressed).toBe(true)
       yield* sub.close
     }).pipe(Effect.scoped))
 

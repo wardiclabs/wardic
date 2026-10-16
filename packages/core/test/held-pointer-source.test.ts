@@ -107,7 +107,7 @@ describe("InputSource.heldPointer", () => {
       target.push(ev({ type: "enter", x: 1 }))
       target.push(ev({ type: "down", x: 2 }))
       target.push(ev({ type: "move", x: 3 }))
-      target.push(ev({ type: "up", x: 4, buttons: 0 }))
+      target.push(ev({ type: "up", x: 4, pressed: false }))
       target.push(ev({ type: "leave", x: 5 }))
       yield* settle
       expect(seen.map(key)).toEqual(["enter1@1", "down1@2", "move1@3", "up1@4", "leave1@5"])
@@ -157,7 +157,7 @@ describe("InputSource.heldPointer", () => {
       target.push(ev({ type: "down", pointerId: 1 }))
       // Pointer 2 moves page-wide, then pointer 1 does.
       global.push(ev({ type: "move", pointerId: 2, x: 5 }), {})
-      global.push(ev({ type: "up", pointerId: 2, x: 6, buttons: 0 }), {})
+      global.push(ev({ type: "up", pointerId: 2, x: 6, pressed: false }), {})
       global.push(ev({ type: "move", pointerId: 1, x: 7 }), {})
       yield* settle
       // Only the held pointer's event; pointer 2's up didn't release pointer 1.
@@ -168,9 +168,9 @@ describe("InputSource.heldPointer", () => {
 
   describe("C9: the held pointer ends", () => {
     const ends: ReadonlyArray<{ readonly name: string; readonly end: () => InputSource.PointerLikeEvent }> = [
-      { name: "at its up", end: () => ev({ type: "up", x: 9, buttons: 0 }) },
-      { name: "at its cancel", end: () => ev({ type: "cancel", x: 9, buttons: 0 }) },
-      { name: "at a move with buttons 0", end: () => ev({ type: "move", x: 9, buttons: 0 }) },
+      { name: "at its up", end: () => ev({ type: "up", x: 9, pressed: false }) },
+      { name: "at its cancel", end: () => ev({ type: "cancel", x: 9, pressed: false }) },
+      { name: "at an unpressed move", end: () => ev({ type: "move", x: 9, pressed: false }) },
     ]
     for (const { name, end: makeEnd } of ends) {
       it.effect(`C9: ${name}, delivered, with global unsubscribed synchronously`, () =>
@@ -181,7 +181,7 @@ describe("InputSource.heldPointer", () => {
           const { seen, fiber } = yield* start(target, global)
           target.push(ev({ type: "down" }))
           // A move that still has a button pressed doesn't end it.
-          global.push(ev({ type: "move", x: 8, buttons: 1 }), {})
+          global.push(ev({ type: "move", x: 8, pressed: true }), {})
           expect(global.unsubscribes()).toBe(0)
           global.push(end, {})
           // Released with no yield in between.
@@ -205,12 +205,12 @@ describe("InputSource.heldPointer", () => {
       // One page-wide subscription.
       expect(global.subscribes()).toBe(1)
       // The first ends.
-      global.push(ev({ type: "up", pointerId: 1, x: 1, buttons: 0 }), {})
+      global.push(ev({ type: "up", pointerId: 1, x: 1, pressed: false }), {})
       // Still subscribed for the second, which still flows.
       expect(global.unsubscribes()).toBe(0)
       global.push(ev({ type: "move", pointerId: 2, x: 2 }), {})
       // The second ends.
-      global.push(ev({ type: "up", pointerId: 2, x: 3, buttons: 0 }), {})
+      global.push(ev({ type: "up", pointerId: 2, x: 3, pressed: false }), {})
       // Gone now, and never re-subscribed.
       expect(global.unsubscribes()).toBe(1)
       expect(global.subscribes()).toBe(1)
@@ -233,7 +233,7 @@ describe("InputSource.heldPointer", () => {
       expect(global.unsubscribes()).toBe(0)
       global.push(ev({ type: "move", x: 3 }), {})
       // A single release now ends the (once-counted) hold.
-      global.push(ev({ type: "up", x: 4, buttons: 0 }), {})
+      global.push(ev({ type: "up", x: 4, pressed: false }), {})
       expect(global.unsubscribes()).toBe(1)
       yield* settle
       expect(seen.map(key)).toEqual(["down1@1", "down1@2", "move1@3", "up1@4"])
@@ -255,7 +255,7 @@ describe("InputSource.heldPointer", () => {
       yield* settle
       expect(seen.map(key)).toEqual(["down1@1", "move1@40", "move1@40"])
       const ended = seen[2]!
-      expect(ended.buttons).toBe(0)
+      expect(ended.pressed).toBe(false)
       expect(ended.timeStamp).toBe(50)
       // A later down on the target itself holds it again (the page-wide feed is off by then).
       target.push(ev({ type: "down", x: 60 }))
@@ -270,12 +270,12 @@ describe("InputSource.heldPointer", () => {
       const target = makeFeed()
       const global = makeFeed()
       const { seen, fiber } = yield* start(target, global)
-      const touch = (init: Omit<Parameters<typeof InputSource.makePointerLikeEvent>[0], "pointerType">) =>
-        ev({ pointerType: "touch", ...init })
+      const touch = (init: Omit<Parameters<typeof InputSource.makePointerLikeEvent>[0], "kind">) =>
+        ev({ kind: "touch", ...init })
       target.push(touch({ type: "down", pointerId: 1, x: 1 }))
       global.push(touch({ type: "move", pointerId: 1, x: 30 }), {})
       // A second finger (not primary) and a mouse (another type) don't end it.
-      global.push(touch({ type: "down", pointerId: 2, x: 90, isPrimary: false }), {})
+      global.push(touch({ type: "down", pointerId: 2, x: 90, primary: false }), {})
       global.push(ev({ type: "down", pointerId: 7, x: 90 }), {})
       expect(global.unsubscribes()).toBe(0)
       // A new primary touch means the first finger lifted: its hold ends.
@@ -283,8 +283,8 @@ describe("InputSource.heldPointer", () => {
       expect(global.unsubscribes()).toBe(1)
       yield* settle
       expect(seen.map(key)).toEqual(["down1@1", "move1@30", "move1@30"])
-      expect(seen[2]!.buttons).toBe(0)
-      expect(seen[2]!.pointerType).toBe("touch")
+      expect(seen[2]!.pressed).toBe(false)
+      expect(seen[2]!.kind).toBe("touch")
       yield* Fiber.interrupt(fiber)
     }))
 
@@ -340,10 +340,10 @@ describe("InputSource.heldPointer", () => {
         yield* settle
         expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80"])
         const moved = seen[2]!
-        expect(moved.buttons).toBe(1)
-        expect(moved.button).toBe(-1)
-        expect(moved.pointerType).toBe("mouse")
-        expect(moved.isPrimary).toBe(true)
+        expect(moved.pressed).toBe(true)
+        expect(moved.button).toBe("none")
+        expect(moved.kind).toBe("mouse")
+        expect(moved.primary).toBe(true)
         expect(moved.timeStamp).toBe(40)
         yield* Fiber.interrupt(fiber)
       }))
@@ -359,7 +359,7 @@ describe("InputSource.heldPointer", () => {
         scroll.scrollTo(list, 0, 60, 40)
         target.push(ev({ type: "move", x: 12, y: 22 }))
         global.push(ev({ type: "move", x: 14, y: 24 }), {})
-        global.push(ev({ type: "up", x: 15, y: 25, buttons: 0 }), {})
+        global.push(ev({ type: "up", x: 15, y: 25, pressed: false }), {})
         yield* settle
         expect(seen.map(at)).toEqual(["down1@10,20", "move1@11,21", "move1@11,81", "move1@12,82", "move1@14,84", "up1@15,85"])
         yield* Fiber.interrupt(fiber)
@@ -392,7 +392,7 @@ describe("InputSource.heldPointer", () => {
         target.push(ev({ type: "down", x: 10, y: 20 }))
         target.push(ev({ type: "move", x: 10, y: 20 }))
         scroll.scrollTo(list, 0, 60, 30)
-        global.push(ev({ type: "up", x: 10, y: 20, buttons: 0 }), {})
+        global.push(ev({ type: "up", x: 10, y: 20, pressed: false }), {})
         expect(scroll.unsubscribes()).toBe(1)
         // Scrolled again while nothing is held: not reported, and not a shift later.
         scroll.scrollTo(list, 0, 200, 50)
@@ -445,15 +445,15 @@ describe("InputSource.heldPointer", () => {
         global.push(ev({ type: "down", x: 300, y: 300, timeStamp: 50 }), {})
         yield* settle
         expect(seen.map(at)).toEqual(["down1@10,20", "move1@10,20", "move1@10,80", "move1@10,80"])
-        expect(seen[3]!.buttons).toBe(0)
+        expect(seen[3]!.pressed).toBe(false)
         // Rule A's end, an unpressed move from the feed, arrives shifted too.
         target.push(ev({ type: "down", x: 10, y: 20 }))
         target.push(ev({ type: "move", x: 10, y: 20 }))
         scroll.scrollTo(list, 0, 100, 60)
-        global.push(ev({ type: "move", x: 12, y: 22, buttons: 0 }), {})
+        global.push(ev({ type: "move", x: 12, y: 22, pressed: false }), {})
         yield* settle
         expect(seen.map(at).slice(4)).toEqual(["down1@10,20", "move1@10,20", "move1@10,60", "move1@12,62"])
-        expect(seen.at(-1)!.buttons).toBe(0)
+        expect(seen.at(-1)!.pressed).toBe(false)
         yield* Fiber.interrupt(fiber)
       }))
 
@@ -491,7 +491,7 @@ describe("InputSource.heldPointer", () => {
         const { seen, fiber } = yield* start(target)
         const down = ev({ type: "down", x: 1 })
         const move = ev({ type: "move", x: 2 })
-        const up = ev({ type: "up", x: 3, buttons: 0 })
+        const up = ev({ type: "up", x: 3, pressed: false })
         target.push(down)
         target.push(move)
         target.push(up)
@@ -564,7 +564,7 @@ describe("InputSource.heldPointer", () => {
     it("C25: a target event reaches a waiting consumer inside its emit", async () => {
       const target = makeFeed()
       const h = await startOnTimers(target)
-      target.push(ev({ type: "move", x: 1, buttons: 0 }))
+      target.push(ev({ type: "move", x: 1, pressed: false }))
       expect(h.seen).toEqual(["move1@1"])
       target.push(ev({ type: "down", x: 2 }))
       target.push(ev({ type: "move", x: 3 }))
@@ -598,7 +598,7 @@ describe("InputSource.heldPointer", () => {
         atDelivery.push(`${event.type}: global ${global.subscribed() ? "on" : "off"}`)
       })
       target.push(ev({ type: "down" }))
-      global.push(ev({ type: "up", buttons: 0 }))
+      global.push(ev({ type: "up", pressed: false }))
       expect(atDelivery).toEqual(["down: global on", "up: global off"])
       await h.stop()
     })
@@ -609,12 +609,12 @@ describe("InputSource.heldPointer", () => {
       const h = await startOnTimers(target, undefined, undefined, (event) => {
         if (nested && event.x === 1) {
           nested = false
-          target.push(ev({ type: "move", x: 2, buttons: 0 }))
+          target.push(ev({ type: "move", x: 2, pressed: false }))
           // Not yet: the consumer is still handling the first.
           expect(h.seen).toEqual(["move1@1"])
         }
       })
-      target.push(ev({ type: "move", x: 1, buttons: 0 }))
+      target.push(ev({ type: "move", x: 1, pressed: false }))
       expect(h.seen).toEqual(["move1@1", "move1@2"])
       await h.stop()
     })
