@@ -31,6 +31,8 @@ declare module "vitest/browser" {
   interface BrowserCommands {
     /** Real Playwright keyboard input to whatever has focus: a press, or a key held (`down`, a second `down` repeats) and let go. */
     realKey: (type: "press" | "down" | "up", key: string) => Promise<void>
+    /** One line to the test runner's stdout, so a browser test can leave numbers in a CI log (#206). */
+    report: (line: string) => Promise<void>
     /** Real Playwright mouse input at a client point in the test iframe. */
     realMouse: (type: "move" | "down" | "up", x: number, y: number, options?: RealMouseOptions) => Promise<void>
     /**

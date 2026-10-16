@@ -38,6 +38,11 @@ const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, redu
   await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
 }
 
+/** One line to the test runner's stdout, so a browser test can leave numbers in a CI log (#206). */
+const report: BrowserCommand<[line: string]> = (_ctx, line) => {
+  process.stdout.write(`[report] ${line}\n`)
+}
+
 const realMouse: BrowserCommand<[
   type: "move" | "down" | "up",
   x: number,
@@ -153,7 +158,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { emulateReducedMotion, realKey, realMouse, realTouch },
+      commands: { emulateReducedMotion, realKey, realMouse, realTouch, report },
     },
   },
 })
