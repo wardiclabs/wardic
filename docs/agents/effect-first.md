@@ -96,7 +96,8 @@ For a single function, a named import is fine: `import { identity } from "effect
 
 - **Core is Effect-native; the bindings hide Effect** (ADR-0025, decision 7, amending ADR-0008). Core's functions use `Option` for a missing value, in their returns and in the callbacks a binding passes in.
 - **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types. Core reads their `?:` fields through `Option.fromUndefinedOr` / `UndefinedOr`.
-- **dom, solid and a future react unwrap at their own boundary.**
+- **dom's surface is Effect-native too** (ADR-0025, *Amendment (#69)*): `Option` for a missing value in its returns and in the callbacks a binding passes in, for its binding authors.
+- **solid and a future react unwrap at their own boundary,** for an app.
 - **The API's shape** (a module per data type, `Pipeable` data types, `dual` operations) is [`pipeable.md`](pipeable.md) (ADR-0028).
 
 ## Checks

@@ -9,6 +9,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -36,7 +37,7 @@ const makeBox = (parent: HTMLElement, left: number, top: number, width: number, 
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
 const register = (e: Engine, id: string, element: HTMLElement, spring: object = {}, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring", ...spring }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring", ...spring }), ...opts })
 
 /** Where `chain`'s last node paints: its layout position (the stage's frame) plus every translate down the chain. */
 const painted = (sk: Sink, chain: Chain): { x: number; y: number } => {

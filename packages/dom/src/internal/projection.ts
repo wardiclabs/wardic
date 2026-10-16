@@ -71,6 +71,7 @@ import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
 import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import { constFalse, constTrue, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
@@ -661,27 +662,29 @@ export interface RegisterNodeOptions {
   readonly element: HTMLElement
   /**
    * The node's layout transition, read at each layout animation's (re)start (ADR-0009 *Amendment
-   * (#171)*): a spring or a tween, or `undefined` for Motion's default,
+   * (#171)*): a spring or a tween, or `None` for Motion's default,
    * {@link DEFAULT_LAYOUT_TRANSITION}.
    */
-  readonly transition: () => LayoutTransition | undefined
+  readonly transition: () => Option.Option<LayoutTransition>
   /**
    * The app's `onLayoutAnimationStart` (#191, ADR-0039), read when it fires: at the frame where a
    * layout animation of this node takes its first step, once per animation (restarts in one task
-   * are one). Not for a node that is a **Follower**: a handover is its Lead's.
+   * are one). Not for a node that is a **Follower**: a handover is its Lead's. `None` when the app
+   * has none.
    */
-  readonly onLayoutAnimationStart?: () => (() => void) | undefined
+  readonly onLayoutAnimationStart?: () => Option.Option<() => void>
   /**
    * The app's `onLayoutAnimationComplete` (#191, ADR-0039), read when it fires: at the frame where
    * a layout animation of this node lands on its own. Not for one interrupted by a restart, finished
-   * early by a window resize, or cut off by an unmount; not for a Follower.
+   * early by a window resize, or cut off by an unmount; not for a Follower. `None` when the app has
+   * none.
    */
-  readonly onLayoutAnimationComplete?: () => (() => void) | undefined
+  readonly onLayoutAnimationComplete?: () => Option.Option<() => void>
   /**
    * The node's drag transition, read at each release (ADR-0016, *Amendment (#140)*): what its Release
-   * offset runs on, or `undefined` for Motion's, {@link DEFAULT_DRAG_TRANSITION}.
+   * offset runs on, or `None` for Motion's, {@link DEFAULT_DRAG_TRANSITION}.
    */
-  readonly dragTransition?: () => DragTransition | undefined
+  readonly dragTransition?: () => Option.Option<DragTransition>
   /**
    * Whether the node's layout animations honour reduced motion (ADR-0029), read at each
    * (re)start: `false` animates them whatever the system's `reducedMotion` says (a binding's
@@ -793,7 +796,7 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
    * Measure pass; `undefined` before the first (ADR-0016, *Amendment (Reorder)*). A
    * plain read: no layout read.
    */
-  readonly layoutBox: () => Box.Box | undefined
+  readonly layoutBox: () => Option.Option<Box.Box>
   /**
    * How far the node paints from its slot while dragged (the drag target minus the
    * slot, per axis, leaving out a layout animation the grab left running); `{ x: 0, y: 0 }`
@@ -868,9 +871,9 @@ export interface ProjectionSystem {
    * Hand back the twins inside a leaving element that isn't a twin (ADR-0010 *Amendment (#181)*), for
    * a presence child {@link handleLeave} declined: each crossfades onto its other twin, following the
    * leaver's own exit. `onDone` once every handover has ended; the returned call drops them at once.
-   * `undefined` when it held none, so presence runs its exit alone.
+   * `None` when it held none, so presence runs its exit alone.
    */
-  readonly handBackWithin: (el: HTMLElement, onDone: () => void) => (() => void) | undefined
+  readonly handBackWithin: (el: HTMLElement, onDone: () => void) => Option.Option<() => void>
   /**
    * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
    * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
@@ -892,10 +895,10 @@ export interface AnimateLayoutOptions {
 interface NodeState {
   readonly id: string
   readonly element: HTMLElement
-  readonly transition: () => LayoutTransition | undefined
+  readonly transition: () => Option.Option<LayoutTransition>
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
-  readonly onLayoutAnimationStart: () => (() => void) | undefined
-  readonly onLayoutAnimationComplete: () => (() => void) | undefined
+  readonly onLayoutAnimationStart: () => Option.Option<() => void>
+  readonly onLayoutAnimationComplete: () => Option.Option<() => void>
   /**
    * The value last written to the sink (#27): the coordinator's tick doesn't write one that draws the
    * same again, unless scale corrections go with it. `undefined` before the first write.
@@ -1150,7 +1153,7 @@ const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
 const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
 /** No drag transition of its own: a node releases on Motion's, {@link DEFAULT_DRAG_TRANSITION} (ADR-0016, *Amendment (#140)*). */
-const NO_DRAG_TRANSITION = (): DragTransition | undefined => undefined
+const NO_DRAG_TRANSITION = (): Option.Option<DragTransition> => Option.none()
 /** What the shared ResizeObserver watches: the border box, which the engine measures (#21). */
 const BORDER_BOX: ResizeObserverOptions = { box: "border-box" }
 
@@ -1158,7 +1161,7 @@ const BORDER_BOX: ResizeObserverOptions = { box: "border-box" }
 const SIZE_EPSILON = 0.01
 
 /** No layout animation callback: a node the binding gives none (#191). */
-const NO_CALLBACK = (): (() => void) | undefined => undefined
+const NO_CALLBACK = (): Option.Option<() => void> => Option.none()
 /** A call with no options. */
 const NO_ANIMATE_LAYOUT_OPTIONS: AnimateLayoutOptions = {}
 
@@ -1245,7 +1248,7 @@ export const makeProjectionSystem = (
     Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), {
       onTrue: (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false }),
       onFalse: (): Flight => {
-        const timing = timingOf(UndefinedOr.match(node.transition(), { onUndefined: () => DEFAULT_LAYOUT_TRANSITION, onDefined: identity }))
+        const timing = timingOf(Option.getOrElse(node.transition(), () => DEFAULT_LAYOUT_TRANSITION))
         return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false }
       },
     })
@@ -3182,13 +3185,17 @@ export const makeProjectionSystem = (
   }
 
   /** Call an app's `callback` (#191): one that throws is reported, and the engine goes on. */
-  const callApp = (callback: (() => void) | undefined, name: string): void => {
-    if (Predicate.isUndefined(callback)) return
+  const callApp = (callback: () => void, name: string): void => {
     try {
       callback()
     } catch (defect) {
       runtime.runFork(reportFailure(`wardic.projection: ${name} failed`, Cause.die(defect)))
     }
+  }
+
+  /** The app's callback, if it gave one: called as {@link callApp} calls it. */
+  const callAppIfAny = (callback: Option.Option<() => void>, name: string): void => {
+    if (Option.isSome(callback)) callApp(callback.value, name)
   }
 
   /** Whether `flight` still runs on `node`: not landed, not replaced by a restart, not cut short, not unmounted. */
@@ -3235,10 +3242,10 @@ export const makeProjectionSystem = (
    */
   const afterTick = (): undefined => {
     if (Arr.isArrayNonEmpty(flightStarts)) {
-      for (const node of flightStarts.splice(0)) callApp(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
+      for (const node of flightStarts.splice(0)) callAppIfAny(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
     }
     if (Arr.isArrayNonEmpty(flightLands)) {
-      for (const node of flightLands.splice(0)) callApp(node.onLayoutAnimationComplete(), "onLayoutAnimationComplete")
+      for (const node of flightLands.splice(0)) callAppIfAny(node.onLayoutAnimationComplete(), "onLayoutAnimationComplete")
     }
     checkSettlings()
     return undefined
@@ -3853,7 +3860,7 @@ export const makeProjectionSystem = (
   ): NodeState => ({
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
-    transition: () => undefined,
+    transition: Option.none,
     // A Follower's callbacks never fire: a handover is its Lead's (#191).
     onLayoutAnimationStart: NO_CALLBACK,
     onLayoutAnimationComplete: NO_CALLBACK,
@@ -4097,7 +4104,7 @@ export const makeProjectionSystem = (
 
   const handBackWithin: ProjectionSystem["handBackWithin"] = (el, onDone) =>
     runtime.runSync(
-      Effect.sync(() => doHandBackWithin(el, onDone)).pipe(
+      Effect.sync(() => Option.fromUndefinedOr(doHandBackWithin(el, onDone))).pipe(
         Effect.withSpan("wardic.projection.handBackWithin", undefined, { captureStackTrace: false }),
       ),
     )
@@ -4241,7 +4248,7 @@ export const makeProjectionSystem = (
     return {
       notify: scheduleMeasure,
       // --- geometry (ADR-0016 *Amendment (Reorder)*): plain reads ------------------
-      layoutBox: () => node.layoutBox ?? node.retained,
+      layoutBox: () => Option.orElse(Option.fromUndefinedOr(node.layoutBox), () => Option.fromUndefinedOr(node.retained)),
       dragOffset: () => {
         if (!node.dragging || node.grabBox === undefined) return ZERO_POINT
         const slot = node.layoutBox ?? node.grabBox
@@ -4325,7 +4332,7 @@ export const makeProjectionSystem = (
           if (active.size === 0) stopTicking()
           return
         }
-        node.release = releaseFrom(offset, velocity, UndefinedOr.match(dragTransition(), { onUndefined: () => DEFAULT_DRAG_TRANSITION, onDefined: identity }))
+        node.release = releaseFrom(offset, velocity, Option.getOrElse(dragTransition(), () => DEFAULT_DRAG_TRANSITION))
         node.releasing = true
         active.add(node)
         ensureRunning()

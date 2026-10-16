@@ -11,6 +11,7 @@ import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { boxShadowCorrector } from "../src/internal/scale-correction.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -22,7 +23,7 @@ afterEach(() => {
 type Engine = ReturnType<typeof makeEngine>
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...opts })
 
 describe("a Follower keeps its own shadow (#6)", () => {
   it("FS1: twins of different sizes and shadows: each writes its own shadow, corrected for its own scale", async () => {

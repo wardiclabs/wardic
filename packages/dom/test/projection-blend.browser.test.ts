@@ -18,6 +18,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -30,7 +31,7 @@ type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...opts })
 
 const makeBox = (parent: HTMLElement, left: number, width: number, extra = ""): HTMLElement =>
   el(parent, `position:absolute;left:${left}px;top:40px;width:${width}px;height:${width / 2}px;${extra}`)

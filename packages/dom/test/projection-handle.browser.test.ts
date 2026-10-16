@@ -12,6 +12,7 @@ import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach, vi } from "vitest"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 afterEach(() => {
@@ -26,16 +27,16 @@ const IDENTITY: Projection.Delta = {
 }
 
 describe("the projection handle's getters and the raise (ADR-0016, Amendment (Reorder))", () => {
-  it("PH1: layoutBox() is undefined before the first pass, then the slot in the Scroll-stable frame", async () => {
+  it("PH1: layoutBox() is None before the first pass, then the slot in the Scroll-stable frame", async () => {
     const e = makeEngine(makeSink().sink)
     const root = stage("position:relative;width:400px;height:3000px")
     const box = el(root, "position:absolute;left:10px;top:200px;width:100px;height:50px")
     window.scrollTo(0, 100)
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }) })
-    expect(h.layoutBox()).toBeUndefined()
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }) })
+    expect(h.layoutBox()).toEqual(Option.none())
     await endOfTask()
     const r = box.getBoundingClientRect()
-    const b = h.layoutBox()!
+    const b = Option.getOrThrow(h.layoutBox())
     // The viewport box plus the page's scroll.
     expect(b.x.min).toBeCloseTo(r.left, 1)
     expect(b.y.min).toBeCloseTo(r.top + 100, 1)
@@ -47,7 +48,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
   it("PH2: layoutVersion() is 0 until measured and rises with every pass that measures the node, a drag-blocked one included", async () => {
     const e = makeEngine(makeSink().sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }) })
     expect(h.layoutVersion()).toBe(0)
     await endOfTask()
     expect(h.layoutVersion()).toBe(1)
@@ -64,7 +65,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
   it("PH3: dragOffset() is 0 at rest, and while dragged the painted box minus the latest slot", async () => {
     const e = makeEngine(makeSink().sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }) })
     await endOfTask()
     fireFrame()
     expect(h.dragOffset()).toEqual({ x: 0, y: 0 })
@@ -84,7 +85,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
   it("PH4: dragOffset() is 0 again once released, during the flight back", async () => {
     const e = makeEngine(makeSink().sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }) })
     await endOfTask()
     fireFrame()
     h.dragStart()
@@ -99,7 +100,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }), raiseWhileDragged: true })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }), raiseWhileDragged: true })
     await endOfTask()
     fireFrame()
     const from = sk.of("a").length
@@ -141,7 +142,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }) })
     await endOfTask()
     fireFrame()
     h.dragStart()
@@ -157,7 +158,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }), raiseWhileDragged: true })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }), raiseWhileDragged: true })
     await endOfTask()
     fireFrame()
     h.dragStart()
@@ -173,7 +174,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }), raiseWhileDragged: true, layoutRoot: true })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }), raiseWhileDragged: true, layoutRoot: true })
     await endOfTask()
     fireFrame()
     h.dragStart()
@@ -204,7 +205,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
   it("PH9: the getters are plain reads: no layout read, no pass", async () => {
     const e = makeEngine(makeSink().sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }) })
     await endOfTask()
     h.dragStart()
     h.dragMove({ x: 10, y: 0 })
@@ -229,7 +230,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-    const h = e.system.register({ id: "a", element: box, transition: () => ({ type: "spring" }), raiseWhileDragged: true })
+    const h = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "spring" }), raiseWhileDragged: true })
     await endOfTask()
     fireFrame()
     // At rest, the lift is one write now, raised.

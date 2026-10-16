@@ -27,6 +27,7 @@ import { DomLive } from "@wardic/dom"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as ReorderController from "@wardic/dom/ReorderController"
+import * as Option from "effect/Option"
 
 const stages: Array<HTMLElement> = []
 afterEach(() => {
@@ -53,7 +54,7 @@ const runtimeOf = () =>
     ProjectionSystem.layer().pipe(Layer.provideMerge(FlushGate.layer({ batch: (apply) => apply() })), Layer.provideMerge(DomLive)),
   )
 
-const SPRING = () => ({ type: "tween" as const, duration: 0.2 })
+const SPRING = () => Option.some({ type: "tween" as const, duration: 0.2 })
 
 describe("the gate and the projection system as services (#132)", () => {
   it("DS1: one runtime builds each once, and the engine writes through that gate", async () => {
@@ -156,7 +157,7 @@ describe("the gate and the projection system as services (#132)", () => {
   })
 
   it("DS7: ReorderController.inert does nothing", () => {
-    const item = ReorderController.inert.item(undefined as never, () => undefined)
+    const item = ReorderController.inert.item(undefined as never, Option.none)
     expect(() => {
       ReorderController.inert.attach(box("width:10px"))
       ReorderController.inert.move(undefined as never, 1)
@@ -206,7 +207,7 @@ const mountGroup = async () => {
     const element = document.createElement("div")
     element.style.cssText = "flex:none;width:80px;height:40px"
     container.append(element)
-    controller.item(value, () => element).register(engine.register({ id: value, element, transition: SPRING }))
+    controller.item(value, () => Option.some(element)).register(engine.register({ id: value, element, transition: SPRING }))
   }
   await frames(3)
   // What the first pass detected (a column, "y", the default, reports nothing), and logged.

@@ -16,6 +16,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -38,7 +39,7 @@ const paintedX = (box: HTMLElement, sk: Sink, id: string): number => box.offsetL
 const pageX = (box: HTMLElement): number => box.getBoundingClientRect().left - box.parentElement!.getBoundingClientRect().left
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...opts })
 
 /** `n` frames, each followed by `read`, collected. */
 const frames = <A>(n: number, read: () => A): Array<A> =>

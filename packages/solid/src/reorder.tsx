@@ -149,11 +149,11 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     ReorderController.make<V>({
       values: () => untrack(cfg).values,
       onReorder: (values) => untrack(cfg).onReorder(values),
-      axis: () => untrack(cfg).axis,
+      axis: () => Option.fromUndefinedOr(untrack(cfg).axis),
       onAxis: setDetected,
       keyedWith: "<For>",
       keyboard: () => untrack(cfg).keyboard !== false,
-      announcements: () => untrack(cfg).announcements,
+      announcements: () => Option.fromUndefinedOr(untrack(cfg).announcements),
     }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
   )
   onCleanup(() => runtime.runSync(Scope.close(scope, Exit.void)))
@@ -235,7 +235,7 @@ const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderCo
 const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime): SpineInternals => {
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
   const [lifted, setLifted] = createSignal(false)
-  const driver = group.controller.item(value, element, setLifted)
+  const driver = group.controller.item(value, () => Option.fromUndefinedOr(element()), setLifted)
   // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture (and a lift).
   onCleanup(driver.dispose)
   createEffect(

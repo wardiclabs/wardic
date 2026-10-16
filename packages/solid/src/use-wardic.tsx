@@ -703,9 +703,9 @@ export function runSpine(opts: RunSpineOptions): void {
       const linksFor = (like: number | string) => ({
         style: (key: string) =>
           Option.flatMap(Option.fromUndefinedOr(styleOf), (of) =>
-            Option.fromUndefinedOr(OwnValues.valueLike(OwnValues.styleValueOf(untrack(of), key), like)),
+            Option.flatMap(OwnValues.styleValueOf(untrack(of), key), (raw) => OwnValues.valueLike(raw, like)),
           ),
-        own: (key: string) => Option.fromUndefinedOr(OwnValues.valueLike(ownValue(key), like)),
+        own: (key: string) => Option.flatMap(ownValue(key), (raw) => OwnValues.valueLike(raw, like)),
       })
       const startOf = (key: string, like: number | string) => Option.getOrUndefined(BaseValue.start(key, linksFor(like)))
 
@@ -762,8 +762,7 @@ export function runSpine(opts: RunSpineOptions): void {
           const style = untrack(styleOf)
           restore = {}
           for (const key of handedBack) {
-            const value = OwnValues.styleValueOf(style, key)
-            restore[key] = value !== undefined ? String(value) : ""
+            restore[key] = Option.match(OwnValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })
           }
         }
         gate.release(id, handedBack, restore)
@@ -1007,7 +1006,7 @@ export function runSpine(opts: RunSpineOptions): void {
             for (const key in t) {
               const like = t[key]!
               const current = snapshot.values[key]
-              const coerced = current !== undefined ? OwnValues.valueLike(current, like) : undefined
+              const coerced = Option.getOrUndefined(OwnValues.valueLike(current, like))
               if (coerced !== undefined) {
                 snapshot.values[key] = coerced
                 continue

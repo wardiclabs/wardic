@@ -23,6 +23,7 @@ import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -42,7 +43,7 @@ const makeBox = (parent: HTMLElement, left: number, top: number, width: number, 
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...opts })
 
 /** An element's box as the page lays it out (the fake sink paints nothing). */
 const layoutOf = (e: Element): Box.Box => {

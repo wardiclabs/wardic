@@ -26,6 +26,7 @@ import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { onPassEnd } from "../src/internal/projection.ts"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(() => {
   stubFrames()
@@ -43,7 +44,7 @@ const LINEAR: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.2
 
 /** Register `elements` (as `n0`, `n1`…) on `transition` and run their first pass. */
 const mount = async (e: Engine, elements: ReadonlyArray<HTMLElement>, transition: ProjectionSystem.LayoutTransition = SPRING): Promise<Array<ProjectionSystem.NodeHandle>> => {
-  const handles = elements.map((element, i) => e.system.register({ id: `n${i}`, element, transition: () => transition }))
+  const handles = elements.map((element, i) => e.system.register({ id: `n${i}`, element, transition: () => Option.some(transition) }))
   await endOfTask()
   fireFrame()
   return handles

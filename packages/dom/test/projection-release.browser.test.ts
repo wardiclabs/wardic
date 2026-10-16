@@ -19,6 +19,7 @@ import * as Machine from "@wardic/core/Machine"
 import { afterEach, beforeEach } from "vitest"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -59,7 +60,7 @@ const frames = <A>(n: number, read: () => A): Array<A> =>
 const steps = (xs: ReadonlyArray<number>): Array<number> => xs.slice(1).map((x, k) => x - xs[k]!)
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...opts })
 
 describe("a layout node's release is a Release offset on its layout animation (ADR-0016, Amendment (velocity family))", () => {
   it("RL1: a release with no velocity springs back from rest on the drag transition, core's inertia frame for frame (#140)", async () => {
@@ -159,7 +160,7 @@ describe("a layout node's release is a Release offset on its layout animation (A
     const pEl = makeBox(root, 60, 60, 160, 120)
     const mEl = makeBox(pEl, 10, 40, 30, 30)
     const p = register(e, "p", pEl)
-    const m = register(e, "m", mEl, { transition: () => ({ type: "spring", stiffness: 40, damping: 15 }) })
+    const m = register(e, "m", mEl, { transition: () => Option.some({ type: "spring", stiffness: 40, damping: 15 }) })
     await endOfTask()
     fireFrame()
     // M starts a slow FLIP across P on x, then P is dragged on y while it runs.
@@ -540,7 +541,7 @@ describe("a layout node's release is a Release offset on its layout animation (A
     const root = stage()
     const wall = { ...ProjectionSystem.DEFAULT_DRAG_TRANSITION, bounceStiffness: 1e6, bounceDamping: 1e7 }
     const a = register(e, "a", makeBox(root, 0, 0, 100, 50))
-    const w = register(e, "w", makeBox(root, 0, 100, 100, 50), { dragTransition: () => wall })
+    const w = register(e, "w", makeBox(root, 0, 100, 100, 50), { dragTransition: () => Option.some(wall) })
     await endOfTask()
     fireFrame()
     for (const h of [a, w]) {

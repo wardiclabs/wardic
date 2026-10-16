@@ -24,6 +24,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, identity } from "effect/Function"
 import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
@@ -63,8 +64,8 @@ const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransit
  * The element's layout transition (ADR-0009 *Amendment (#171)*): Motion's `layout` key, else its
  * whole `transition`; `undefined`, with neither, for the engine's default, Motion's 0.45 s tween.
  */
-const toLayoutTransition = (t: WardicTransition | undefined): ProjectionSystem.LayoutTransition | undefined =>
-  UndefinedOr.map(t, (element) => asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: identity })))
+const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<ProjectionSystem.LayoutTransition> =>
+  Option.map(Option.fromUndefinedOr(t), (element) => asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: identity })))
 
 /** Options for {@link useLayoutMember}. */
 export interface UseLayoutMemberOptions {
@@ -145,13 +146,19 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.
     ...(layoutRoot === true ? { layoutRoot: true } : {}),
     ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
     ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
-    ...UndefinedOr.match(dragTransition, { onUndefined: () => ({}), onDefined: (release) => ({ dragTransition: release }) }),
+    ...UndefinedOr.match(dragTransition, { onUndefined: () => ({}), onDefined: (release) => ({ dragTransition: () => Option.some(release()) }) }),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
     ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),
     ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
-    ...UndefinedOr.match(onLayoutAnimationStart, { onUndefined: () => ({}), onDefined: (start) => ({ onLayoutAnimationStart: start }) }),
-    ...UndefinedOr.match(onLayoutAnimationComplete, { onUndefined: () => ({}), onDefined: (complete) => ({ onLayoutAnimationComplete: complete }) }),
+    ...UndefinedOr.match(onLayoutAnimationStart, {
+      onUndefined: () => ({}),
+      onDefined: (start) => ({ onLayoutAnimationStart: () => Option.fromUndefinedOr(start()) }),
+    }),
+    ...UndefinedOr.match(onLayoutAnimationComplete, {
+      onUndefined: () => ({}),
+      onDefined: (complete) => ({ onLayoutAnimationComplete: () => Option.fromUndefinedOr(complete()) }),
+    }),
   })
   onCleanup(handle.dispose)
   createEffect(on(() => layoutDependency(), () => handle.notify(), { defer: true }))
