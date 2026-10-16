@@ -66,10 +66,10 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import type * as Fiber from "effect/Fiber"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
-import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Match from "effect/Match"
 import { constFalse, constTrue, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -112,13 +112,21 @@ export interface ProjectionSink {
 const MAX_ROUNDS = 5
 
 /**
- * The runtime flavour the engine needs: a `ManagedRuntime` that can run the
- * coordinator on the Environment's {@link FrameLoop} (ADR-0027, #75) AND resolve the
- * `Renderer` (to drive a presence-retained leaving Follower whose gate registration
- * was torn down on owner disposal — ADR-0010). A binding's wider runtime (e.g. one
- * providing the full `WardicServices`) is assignable here.
+ * What the engine needs from its Environment: the {@link FrameLoop} it runs the coordinator on
+ * (ADR-0027, #75), and the `Renderer` (to drive a presence-retained leaving Follower whose gate
+ * registration was torn down on owner disposal — ADR-0010).
  */
-export type ProjectionRuntime = ManagedRuntime.ManagedRuntime<FrameLoop.FrameLoop | Renderer.Renderer, never>
+export type ProjectionServices = FrameLoop.FrameLoop | Renderer.Renderer
+
+/**
+ * How the engine runs its Effects: synchronously, and forked. `ProjectionSystem.make` builds one
+ * from its Layer's context, forking into its Scope (#132, ADR-0041); a test's `ManagedRuntime`
+ * is one too.
+ */
+export interface ProjectionRuntime {
+  readonly runSync: <A, E>(effect: Effect.Effect<A, E, ProjectionServices>) => A
+  readonly runFork: <A, E>(effect: Effect.Effect<A, E, ProjectionServices>) => Fiber.Fiber<A, E>
+}
 
 /**
  * The coordinator's Frames on the Frame loop (#75). It carries no value, since its writes
@@ -1182,7 +1190,7 @@ const ROOT_FOLD: Fold = { containers: [], x: 0, y: 0, root: true }
 const NO_FOLD: Fold = { containers: [], x: 0, y: 0, root: false }
 
 /** Each system's pass-end listeners ({@link onPassEnd}). */
-const passEnds = new WeakMap<ProjectionSystem, Set<() => void>>()
+const passEnds = new WeakMap<Omit<ProjectionSystem, "dispose">, Set<() => void>>()
 
 /**
  * Run `listener` at the end of every Measure pass of `system`: once per pass, after
@@ -1193,7 +1201,7 @@ const passEnds = new WeakMap<ProjectionSystem, Set<() => void>>()
  * @internal for the Reorder controller (ADR-0020): not exported from `@wardic/dom`, so
  * there is no public push hook (ADR-0020 decision 2).
  */
-export const onPassEnd = (system: ProjectionSystem, listener: () => void): (() => void) => {
+export const onPassEnd = (system: Omit<ProjectionSystem, "dispose">, listener: () => void): (() => void) => {
   const listeners = passEnds.get(system)
   if (listeners === undefined) return () => {}
   listeners.add(listener)

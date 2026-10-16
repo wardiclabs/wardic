@@ -1,13 +1,68 @@
 /**
- * The **Flush gate**: the accumulator a binding writes each element's values into, committed once per Refresh frame (ADR-0006, ADR-0031, ADR-0033, ADR-0034). A server render gets `inert`, which does nothing (ADR-0021).
+ * The **Flush gate**: the accumulator a binding writes each element's values into, committed once
+ * per Refresh frame (ADR-0006, ADR-0031, ADR-0033, ADR-0034). `@wardic/dom/FlushGate` (#132,
+ * ADR-0041).
  *
- * `@wardic/dom/FlushGate` (#132, ADR-0041).
+ * It's a service built by a Layer (`layer`) and ended by that Layer's Scope: closing it takes the
+ * gate's hook off the Frame loop, cancels a pending frame and clears what it held. Its members
+ * are plain functions, called per element and per frame. `make` is the scoped constructor, for a
+ * binding that wires it itself.
+ *
+ * A server render gets `inert`, which does nothing (ADR-0021, decision 9): a value for a binding
+ * whose server builds no runtime, or `layerInert` for one whose server runs an Effect program.
  */
-export {
-  makeFlushGate as make,
-  INERT_GATE as inert,
-  type FlushGate,
-  type FlushSink as Sink,
-  type FlushGateOptions as Options,
-  type FlushGateRuntime as Runtime,
-} from "./internal/gate.ts"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as FiberSet from "effect/FiberSet"
+import * as Layer from "effect/Layer"
+import type * as Scope from "effect/Scope"
+import * as internal from "./internal/gate.ts"
+
+/** The gate: what a binding registers its elements with and writes their values into. */
+export type Shape = Omit<internal.FlushGate, "dispose">
+
+/** An element's commit target and hooks, given to `register`. */
+export type Sink = internal.FlushSink
+
+/** What a binding hands its gate: the `batch` a frame's Starting-style switches run in. */
+export type Options = internal.FlushGateOptions
+
+/** The services a gate needs from its Environment. */
+export type Services = internal.FlushGateServices
+
+/** The Environment's Flush gate. */
+export class FlushGate extends Context.Service<FlushGate, Shape>()("@wardic/dom/FlushGate") {}
+
+/**
+ * Build a gate over the context's Renderer, Frame loop and Refresh frame source, in the current
+ * Scope: what it forks runs in that Scope, and closing it ends the gate.
+ */
+export const make = (options: Options): Effect.Effect<Shape, never, Services | Scope.Scope> =>
+  Effect.gen(function* () {
+    const context = yield* Effect.context<Services>()
+    const runFork = yield* FiberSet.makeRuntime<Services>()
+    // The gate itself, typed without `dispose`: the Scope ends it.
+    const gate = internal.makeFlushGate({ runSync: Effect.runSyncWith(context), runFork }, options)
+    yield* Effect.addFinalizer(() => Effect.sync(gate.dispose))
+    return gate
+  })
+
+/** The gate as a Layer: built by `make`, ended by the Layer's Scope. */
+export const layer = (options: Options): Layer.Layer<FlushGate, never, Services> => Layer.effect(FlushGate)(make(options))
+
+const noop = (): void => {}
+
+/**
+ * The gate a server render gets (ADR-0021, decision 9): it flushes nothing, so `register` returns a
+ * no-op unregister and the rest do nothing. Code that grabs the gate at setup and uses it after
+ * mount keeps working on a server.
+ */
+export const inert: Shape = Object.freeze({
+  register: () => noop,
+  write: noop,
+  flushPass: noop,
+  release: noop,
+})
+
+/** `inert` as a Layer, for a binding whose server render runs an Effect program. */
+export const layerInert: Layer.Layer<FlushGate> = Layer.succeed(FlushGate, inert)

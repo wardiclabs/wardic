@@ -54,7 +54,7 @@ export interface ReorderControllerOptions<V> {
   /** The runtime the controller logs through (the projection system's). */
   readonly runtime: ProjectionRuntime
   /** The projection system the items are nodes of. */
-  readonly projection: ProjectionSystem
+  readonly projection: Omit<ProjectionSystem, "dispose">
   /** The app's values, in order. */
   readonly values: () => ReadonlyArray<V>
   /** Receives a new order; the app sets `values` from it. */
