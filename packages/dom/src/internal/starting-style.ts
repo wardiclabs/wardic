@@ -14,7 +14,12 @@
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import { dual } from "effect/Function"
+import * as Match from "effect/Match"
+import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { DragDefaultStyle } from "./drag-defaults.ts"
 import { project } from "./renderer.ts"
 import { dashCase, type SplitPatch, splitPatchForTag } from "./svg.ts"
@@ -156,7 +161,7 @@ export const fallbackStyle = (
  * (`style` as {@link mergeStyle} merges it, keyed by CSS property). Most changes touch none, and
  * a binding then leaves its `style` alone (ADR-0034).
  */
-export const heldTouches = (
+export const heldTouchesPositional = (
   prev: ReadonlyArray<string>,
   next: ReadonlyArray<string>,
   style: Readonly<Record<string, unknown>>,
@@ -166,6 +171,109 @@ export const heldTouches = (
     Arr.some(from, (key) => !Arr.contains(to, key) && sets(key))
   return leftBehind(prev, next) || leftBehind(next, prev)
 }
+
+/**
+ * A style as a binding hands it over: a record of CSS properties, CSS text (`"color: red"`, which
+ * JSX allows), or none.
+ */
+export type StyleInput = object | string | undefined
+
+/** A style record: CSS properties to their values. */
+export type StyleRecord = Readonly<Record<string, unknown>>
+
+/** A style given as CSS text, parsed; a record as it is. */
+const recordOf: (input: object | string) => StyleRecord = Match.type<object | string>().pipe(
+  Match.when(Predicate.isString, parseCssText),
+  Match.orElse((record) => record as StyleRecord),
+)
+
+/** A style given as CSS text, parsed; a record as it is; none, an empty record. */
+const recordOfInput = (input: StyleInput): StyleRecord =>
+  UndefinedOr.match(input, { onUndefined: (): StyleRecord => ({}), onDefined: recordOf })
+
+const setsKey =
+  (key: string): Predicate.Predicate<StyleRecord> =>
+  (style) =>
+    Predicate.isNotUndefined(style[key])
+
+/**
+ * Whether a style sets `user-select` and not `-webkit-user-select`, and the reverse. Chromium has
+ * one property under both names, so a value set under one is the value for both.
+ */
+const setsOnlyUserSelect = Predicate.and(setsKey("user-select"), Predicate.not(setsKey("-webkit-user-select")))
+const setsOnlyWebkitUserSelect = Predicate.and(setsKey("-webkit-user-select"), Predicate.not(setsKey("user-select")))
+
+/** `self` laid over `that`: both present. */
+const layered = (self: StyleRecord, that: StyleRecord): StyleRecord => {
+  const merged: Record<string, unknown> = { ...that, ...self }
+  // `self`'s value for either name is the value for both, or `that`'s left on the other wins.
+  if (setsOnlyUserSelect(self)) merged["-webkit-user-select"] = self["user-select"]
+  if (setsOnlyWebkitUserSelect(self)) merged["user-select"] = self["-webkit-user-select"]
+  return merged
+}
+
+/**
+ * `self` laid over `that`: `self`'s keys win, and `that`'s others stay (ADR-0041, decision 5). A
+ * chain reads from the top layer down:
+ *
+ * ```ts
+ * // before the first commit: the Starting style over the user's, over a base and a drag element's defaults
+ * pipe(starting, Style.over(user), Style.over(base), Style.over(defaults))
+ * ```
+ *
+ * A side given as CSS text is parsed, so a framework never writes `cssText` over the keys the
+ * flush gate holds. A side that's `undefined` leaves the other as it is, the same object. Whatever
+ * `self` sets for `user-select` or `-webkit-user-select` it sets for both, over `that`: one
+ * property in Chromium.
+ */
+export const over: {
+  (that: StyleInput): (self: StyleInput) => StyleRecord
+  (self: StyleInput, that: StyleInput): StyleRecord
+} = dual(2, (self: StyleInput, that: StyleInput): StyleRecord =>
+  UndefinedOr.match(that, {
+    onUndefined: () => recordOfInput(self),
+    onDefined: (below) =>
+      UndefinedOr.match(self, {
+        onUndefined: () => recordOf(below),
+        onDefined: (above) => layered(recordOf(above), recordOf(below)),
+      }),
+  }),
+)
+
+/** Whether `key`, a CSS property, is one of the gate's held patch keys: by its name, or its name dash-cased. */
+const isHeld = (held: ReadonlyArray<string>, key: string): boolean =>
+  Arr.some(held, (patchKey) => Arr.contains([patchKey, dashCase(patchKey)], key))
+
+/**
+ * `self` without the keys the flush gate holds on the element (`held`, by patch key, matched by
+ * CSS property): the style once its first frame is committed (ADR-0034). Wardic writes those
+ * while it drives them, and `style` is their fallback, so a key the gate lets go of comes back.
+ *
+ * ```ts
+ * pipe(user, Style.over(base), Style.over(defaults), Style.without(held))
+ * ```
+ */
+export const without: {
+  (held: ReadonlyArray<string>): (self: StyleInput) => StyleRecord
+  (self: StyleInput, held: ReadonlyArray<string>): StyleRecord
+} = dual(2, (self: StyleInput, held: ReadonlyArray<string>): StyleRecord =>
+  Rec.filter(recordOfInput(self), (_, key) => Bool.not(isHeld(held, key))),
+)
+
+/**
+ * Whether the keys the flush gate holds, changing from `prev` to `next`, change `self`'s
+ * {@link without}: whether a key that was taken or let go of is one `self` sets, by its name or
+ * its name dash-cased. Most changes touch none, and a binding then leaves its `style` alone
+ * (ADR-0034).
+ */
+export const heldTouches: {
+  (prev: ReadonlyArray<string>, next: ReadonlyArray<string>): (self: StyleRecord) => boolean
+  (self: StyleRecord, prev: ReadonlyArray<string>, next: ReadonlyArray<string>): boolean
+} = dual(3, (self: StyleRecord, prev: ReadonlyArray<string>, next: ReadonlyArray<string>): boolean =>
+  Arr.some([...Arr.difference(prev, next), ...Arr.difference(next, prev)], (key) =>
+    Arr.some([key, dashCase(key)], (name) => Object.hasOwn(self, name)),
+  ),
+)
 
 /**
  * The Starting style of a `tag` element starting from `values`, projected with the DOM's

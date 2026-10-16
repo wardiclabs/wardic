@@ -8,9 +8,13 @@ export {
   resolveInitial,
   type InitialConfig,
   toValues,
+  type StyleInput as Input,
+  type StyleRecord as Style,
+  over,
+  without,
+  heldTouches,
   mergeStyle as merge,
   fallbackStyle as fallback,
-  heldTouches,
 } from "./internal/starting-style.ts"
 export {
   dragDefaultStyle as dragDefaults,

@@ -61,7 +61,7 @@ export const createElementStyle = (options: ElementStyleOptions): ElementStyle =
     const prev = held
     held = next
     if (!untrack(committed)) return
-    if (Style.heldTouches(prev, next, Style.merge(untrack(userStyle), {}, defaults, untrack(base)))) markHeldChanged()
+    if (Style.heldTouches(Style.merge(untrack(userStyle), {}, defaults, untrack(base)), prev, next)) markHeldChanged()
   }
 
   return { style, hooks: { beforeFirstCommit: () => setCommitted(true), onHeld } }

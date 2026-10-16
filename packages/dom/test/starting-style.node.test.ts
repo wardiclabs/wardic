@@ -157,17 +157,17 @@ describe("The fallback style (ADR-0034)", () => {
 
   it("FS6: heldTouches is true only when a key taken or let go of is one the style sets", () => {
     const style = { opacity: "0.5", "background-color": "red" }
-    expect(Style.heldTouches([], ["transform"], style)).toBe(false)
-    expect(Style.heldTouches([], ["transform", "opacity"], style)).toBe(true)
-    expect(Style.heldTouches(["opacity"], [], style)).toBe(true)
-    expect(Style.heldTouches(["opacity"], ["opacity", "transform"], style)).toBe(false)
-    expect(Style.heldTouches([], ["backgroundColor"], style)).toBe(true)
+    expect(Style.heldTouches(style, [], ["transform"])).toBe(false)
+    expect(Style.heldTouches(style, [], ["transform", "opacity"])).toBe(true)
+    expect(Style.heldTouches(style, ["opacity"], [])).toBe(true)
+    expect(Style.heldTouches(style, ["opacity"], ["opacity", "transform"])).toBe(false)
+    expect(Style.heldTouches(style, [], ["backgroundColor"])).toBe(true)
   })
 
   it("FS7 (#151): a held custom property matches only its own name: a separate `--brand-color` stays", () => {
     expect(Style.fallback({ "--brand-color": "red", "--brandColor": "blue" }, ["--brandColor"])).toEqual({ "--brand-color": "red" })
-    expect(Style.heldTouches([], ["--brandColor"], { "--brand-color": "red" })).toBe(false)
-    expect(Style.heldTouches([], ["--brandColor"], { "--brandColor": "blue" })).toBe(true)
+    expect(Style.heldTouches({ "--brand-color": "red" }, [], ["--brandColor"])).toBe(false)
+    expect(Style.heldTouches({ "--brandColor": "blue" }, [], ["--brandColor"])).toBe(true)
   })
 
   it("FS8 (#151): a server routes an svg-inner tag's custom property to style", () => {
