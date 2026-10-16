@@ -190,6 +190,7 @@ Every root name on `74fb80b` and its home now:
 - **Solid, the lab, `@wardic/test` and dom's tests import the subpaths,** as `import * as FlushGate from "@wardic/dom/FlushGate"`, and dom's tests reach `internal/` relatively. Solid's own public API keeps its names (`FlushGate`, `FlushSink`, `measureLayoutBox`), re-exported from the new subpaths: renaming it is #193's.
 - **Lint** (`SUBPATHS` in `eslint.config.js`) rejects a non-root name or a namespace imported from `@wardic/dom` itself, and any import of `@wardic/dom/internal/…`.
 - **The glossary** has **Projection system**, which replaces "projection engine".
+- **A missing value at dom's surface is an `Option`,** in its returns and in the callbacks a binding passes in, as core's is (ADR-0025, *Amendment (#69)*, decision 1).
 
 ## Implementation in #132's PR 1: modules and the root
 
