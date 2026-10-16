@@ -299,3 +299,33 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
   - keyboard reorder announced;
   - real-mouse drags 0.00 px, 0 frames behind.
 - **Gates:** typecheck, lint, unit (963), browser (1008), the lab's tsc and vitest (208). No "optimized dependencies changed" in the browser log.
+
+## Implementation in #69's PR 3: `projection.ts`
+
+- **Lint** holds the rules on all of dom's source (main `6d1287e` flagged 165 places in `projection.ts`, all converted).
+- **The node state keeps `undefined`.** It's read per node per frame, so it's checked with `Predicate` in early returns (decision 2's per-frame forms): 102 `=== undefined` checks became `Predicate.isUndefined` / `isNotUndefined`.
+  - **Ternaries, `??` and `?.`** became small per-frame helpers with early returns (`definedOr`, `offsetUnlessZero`, `projectionPatchOf`, `layoutAnchorOf`, `rootShareOf`, `containerScrollOf`, the fold's `foldAt` / `withScroll` / `readScrollOf`), the existing `boxOf`, or `Math.min`.
+  - **`if … else`** became early returns, or `continue` in a loop.
+  - **The cold paths** (`debug`, a leaver's hold, `handleLeave`) use `UndefinedOr.match`, `Bool.match` and `Option`.
+- **The Resize block's 250 ms** (decision 4) is `Effect.sleep(RESIZE_BLOCK)` in a `FiberHandle` in the engine's Scope. A later width change restarts it (`FiberHandle.setUnsafe`), and a pass clears it.
+- **The round cap's next-task pass** is `nextTask`: a 0 ms timer in an `Effect.callback`, cleared on interruption, forked into the engine's task fibers.
+  - **Re-grilled** (A): the first draft's `Effect.sleep(Duration.zero)` is a yield, which resumed in the same task, and the round-cap test read 6 passes where the cap allows 5. Decision 4 above is corrected.
+  - **The Scope ends both waits.** The `clearTimeout`s in `dispose` are gone.
+- **New test RB12:** a burst of width changes longer than the block (five, about 100 ms apart) ends in one blocked pass, because each change restarts the wait. It checks its own spacing: no gap reaches 250 ms, and the burst outlasts it. Five runs in a row passed.
+- **Mutations** on the waits, 6:
+  - **Caught (5):** no restart (RB12, written for it), no wait (RB1, RB8, RB10), a wait that never runs the pass (RB2, RB3, RB6), the round cap's hop as a yield, and no next-task pass (the round-cap test).
+  - **Survives (1):** a pass leaving the wait uncleared. The wait runs a pass only while the block is set, and a pass clears the block.
+- **Timing** against main `6d1287e` (PR 2 included), each paired with main against itself (A/A):
+  - **The gate's flush per frame:** transform +1.5% (A/A −0.5%), mixed −0.4% (0.0%), flip −2.5% (−3.2%), styled −1.0% (+2.1%), partial −0.0% (+0.3%).
+  - **The projection pass per frame:** glued +1% (A/A −3%), delay 0% (+2%), flip +2% (0%), scaled −3% (−1%).
+  - **`bench:solid`**, two runs, warm: mount −1.4% / −1.0%, Retarget −0.9% / +0.3%, at rest +4.7% / −0.8%, unmount −0.8% / +1.5%. The A/A read −2.0%, 0.0%, −0.9% and −5.3%. Exit 0.
+- **Lab** (5173, restarted on this branch):
+  - smoke 0 errors;
+  - crossfade board 54 runs, 0 fails;
+  - held 30 runs, 0 off;
+  - scenario 15, 14 runs clean;
+  - scenario 7 `passes 1 (1 seeding)`;
+  - scenario 17 as main;
+  - keyboard reorder announced;
+  - real-mouse drags 0.00 px, 0 frames behind.
+- **Gates:** typecheck, lint, unit (963), browser (1009), the lab's tsc and vitest (208).
