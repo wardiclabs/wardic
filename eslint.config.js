@@ -1,7 +1,6 @@
 // The Effect-first rules (#63, ADR-0025, docs/agents/effect-first.md), held on @wardic/core's
-// source, and on @wardic/dom's as #69 converts it (ADR-0025, *Amendment (#69)*): its PR 2 takes
-// dom's source but `internal/projection.ts`, which its PR 3 converts. solid and test follow the
-// rules for new code until their own PRs. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
+// source, and on @wardic/dom's (#69, ADR-0025, *Amendment (#69)*). solid and test follow the
+// rules for new code until #69's PRs 4 and 5. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
 // "fits": those stay with review.
 //
 // And the pipeable API's shape (#95, ADR-0028 decision 10, docs/agents/pipeable.md): the root
@@ -227,9 +226,8 @@ export default defineConfig([
     },
   },
   {
-    // dom's source takes the Effect-first rules (#69's PR 2); `projection.ts` with PR 3.
+    // dom's source takes the Effect-first rules (ADR-0025, *Amendment (#69)*).
     files: ["packages/dom/src/**/*.ts"],
-    ignores: ["packages/dom/src/internal/projection.ts"],
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
       "no-ternary": "error",
@@ -240,7 +238,6 @@ export default defineConfig([
   {
     // Its per-frame files keep a `for` and plain index reads (ADR-0025, *Amendment (#69)*, decision 2).
     files: DOM_PER_FRAME,
-    ignores: ["packages/dom/src/internal/projection.ts"],
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS, ...BRANCHES, ...CHECKS, ...ALIASES],
       "no-restricted-properties": [

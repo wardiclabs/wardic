@@ -201,7 +201,9 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
    - Rejected: tests unlinted, as before; the full rules in tests.
 4. **One-shot delays are `Effect.sleep` in a fiber, not a `Schedule` (Q4).** `Schedule` describes repetition. These are delays that restart or cancel. This refines *Amendment (#109)*: wall time is still Effect's.
    - **The Resize block's 250 ms** (ADR-0018, *Amendment (#39)*) and **Reorder's held-arrow thinning, 150 ms** (ADR-0037) become `Effect.sleep(<Duration>)`, then their action, in a `FiberHandle` in the owner's Scope. Running the handle again restarts the delay; clearing it cancels.
-   - **The Measure pass's `leftover`,** the next task's pass after the round cap, becomes `Effect.sleep(Duration.zero)`. Effect's Clock sleeps with `setTimeout` whatever Scheduler is installed, so it stays a next-task hop under a microtask Scheduler (Foldkit's, #208), which `Effect.yieldNow` wouldn't.
+   - **The Measure pass's `leftover`,** the next task's pass after the round cap, becomes `nextTask`: a 0 ms timer as an Effect (`Effect.callback` around `setTimeout(0)`, cleared on interruption). It's a next-task hop under any Scheduler, a microtask one included (Foldkit's, #208).
+     - **Corrected in PR 3** (re-grilled, A): this first said `Effect.sleep(Duration.zero)`, on the belief that Effect's Clock always sleeps on a timer. For zero it doesn't: `sleepMillis(0)` returns `yieldNow`, and in dom's browser tests that resumed in the same task, so the round-cap test read 6 passes where the cap allows 5.
+     - Rejected then: `Effect.sleep(Duration.millis(1))`, a 1 ms timer that the test's own 0 ms wait can beat; keeping `Duration.zero`.
    - **The Scope ends them,** in place of `clearTimeout` in a `dispose`.
    - Rejected: a `Schedule` for each, which here only wraps `Effect.sleep` in a repeat that never repeats; keeping `setTimeout` with a written exemption.
 5. **Five PRs, each switching lint on for what it converts (Q5):**
