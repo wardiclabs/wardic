@@ -20,7 +20,6 @@ export const layer = (
   Layer.succeed(InputSource.InputSource, {
     pointer: () => Stream.fromIterable(pointerEvents),
     keyboard: () => Stream.empty,
-    wheel: () => Stream.empty,
     focus: () => Stream.fromIterable(focusEvents),
   })
 
@@ -66,7 +65,6 @@ export const pushable = (): Effect.Effect<{
       layer: Layer.succeed(InputSource.InputSource, {
         pointer: () => Stream.fromPubSub(pubsub),
         keyboard: () => Stream.empty,
-        wheel: () => Stream.empty,
         focus: () => Stream.fromPubSub(focusPubsub),
       }),
       push: (event: InputSource.PointerLikeEvent) => PubSub.publish(pubsub, event).pipe(Effect.asVoid),
