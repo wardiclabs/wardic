@@ -23,6 +23,8 @@ import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { dashCase, isSvgInner, setSvgAttrs, splitPatch } from "./svg.ts"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 /**
  * CSS transform functions in their canonical emission order: translate group,
@@ -55,7 +57,7 @@ const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string
   // skew group
   { key: "skewX", fn: "skewX" },
   { key: "skewY", fn: "skewY" },
-].map((f) => ({ ...f, identity: BaseValue.TRANSFORM_IDENTITY[f.key]! }))
+].map((f) => ({ ...f, identity: UndefinedOr.getOrThrow(BaseValue.TRANSFORM_IDENTITY[f.key]) }))
 
 /**
  * Whether a transform value is at its identity (ADR-0023), Motion's test
@@ -64,8 +66,16 @@ const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string
  * `"0deg"`; never `"calc(0px)"` or `"var(--x)"`). Exact: a settled spring lands on
  * its target, and a value next to the identity mid-flight is still written.
  */
-const isIdentity = (value: unknown, identity: number): boolean =>
-  typeof value === "number" ? value === identity : typeof value === "string" && Number.parseFloat(value) === identity
+const isIdentity = (value: unknown, identity: number): boolean => {
+  if (Predicate.isNumber(value)) return value === identity
+  return Predicate.isString(value) && Number.parseFloat(value) === identity
+}
+
+/** `value` when it's a number, else `fallback`. Per frame: an early return, no Option. */
+const numberOr = (value: unknown, fallback: number): number => {
+  if (Predicate.isNumber(value)) return value
+  return fallback
+}
 
 /** Default unit appended to a bare numeric transform value, by transform key. */
 type TransformUnit = "px" | "deg" | ""
@@ -144,9 +154,16 @@ const LENGTH_KEYS: ReadonlySet<string> = new Set([
  * verbatim (explicit units respected); numbers get the key's default unit.
  */
 const formatTransformValue = (key: string, value: unknown): string => {
-  if (typeof value === "string") return value
-  if (typeof value === "number") return `${value}${TRANSFORM_UNITS[key] ?? ""}`
+  if (Predicate.isString(value)) return value
+  if (Predicate.isNumber(value)) return `${value}${unitOf(key)}`
   return String(value)
+}
+
+/** A transform key's default unit; none for a key the table doesn't name. */
+const unitOf = (key: string): TransformUnit => {
+  const unit: TransformUnit | undefined = TRANSFORM_UNITS[key]
+  if (Predicate.isUndefined(unit)) return ""
+  return unit
 }
 
 /**
@@ -154,7 +171,7 @@ const formatTransformValue = (key: string, value: unknown): string => {
  * known length key get `px`; every other number stays raw (unitless).
  */
 const formatStyleValue = (key: string, value: unknown): unknown => {
-  if (typeof value === "number" && LENGTH_KEYS.has(key)) return `${value}px`
+  if (Predicate.isNumber(value) && LENGTH_KEYS.has(key)) return `${value}px`
   return value
 }
 
@@ -187,11 +204,8 @@ const PROJECTION_WOVEN: ReadonlyArray<{ readonly key: string; readonly fn: strin
  * leaves the translate alone (delta-apply.ts:18-30). So a `whileDrag: { scale }` on a
  * `layout` element shows, and its children scale with it through CSS, as in Motion.
  */
-const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY"): number => {
-  const both = latest.scale
-  const axis = latest[axisKey]
-  return (typeof both === "number" ? both : 1) * (typeof axis === "number" ? axis : 1)
-}
+const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY"): number =>
+  numberOr(latest.scale, 1) * numberOr(latest[axisKey], 1)
 
 /**
  * An element's own scale per axis, from its value-map: what the renderer draws on top of its
@@ -210,22 +224,14 @@ export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
  * (`ownRotate`), so a handover blends from a twin's rotation into its own (ADR-0010 *Amendment
  * (#166)*). Tier 2, for binding authors.
  */
-export const ownRotateOf = (values: Record<string, unknown>): number => {
-  const rotate = values.rotate
-  if (typeof rotate === "number") return rotate
-  return 0
-}
+export const ownRotateOf = (values: Record<string, unknown>): number => numberOr(values.rotate, 0)
 
 /**
  * An element's own opacity, from its value-map: what the renderer draws, 1 for an absent or
  * non-numeric value. A binding hands it to its projection node (`ownOpacity`), so a Switch blends
  * from the leaver's opacity into it (ADR-0010 *Amendment (#166)*). Tier 2, for binding authors.
  */
-export const ownOpacityOf = (values: Record<string, unknown>): number => {
-  const opacity = values.opacity
-  if (typeof opacity === "number") return opacity
-  return 1
-}
+export const ownOpacityOf = (values: Record<string, unknown>): number => numberOr(values.opacity, 1)
 
 /**
  * Assemble a projection transform string (ADR-0009), ported from Motion's
@@ -246,9 +252,8 @@ const buildProjectionTransform = (
   const tx = delta.x.translate / treeScale.x
   const ty = delta.y.translate / treeScale.y
   const z = latest["z"]
-  if (tx !== 0 || ty !== 0 || (z !== undefined && !isIdentity(z, 0))) {
-    const zArg = z === undefined ? "0px" : formatTransformValue("z", z)
-    funcs.push(`translate3d(${tx}px, ${ty}px, ${zArg})`)
+  if (tx !== 0 || ty !== 0 || (Predicate.isNotUndefined(z) && !isIdentity(z, 0))) {
+    funcs.push(`translate3d(${tx}px, ${ty}px, ${zArgOf(z)})`)
   }
 
   if (treeScale.x !== 1 || treeScale.y !== 1) {
@@ -257,7 +262,7 @@ const buildProjectionTransform = (
 
   for (const { key, fn } of PROJECTION_WOVEN) {
     // A handover's blended rotation stands in for the element's own (ADR-0010, *Amendment (#166)*).
-    if (key === "rotate" && rotate !== undefined) {
+    if (key === "rotate" && Predicate.isNotUndefined(rotate)) {
       if (rotate !== 0) funcs.push(`rotate(${formatTransformValue(key, rotate)})`)
       continue
     }
@@ -268,7 +273,25 @@ const buildProjectionTransform = (
   const sy = delta.y.scale * treeScale.y * ownScale(latest, "scaleY")
   if (sx !== 1 || sy !== 1) funcs.push(`scale(${sx}, ${sy})`)
 
-  return funcs.length > 0 ? funcs.join(" ") : "none"
+  if (funcs.length === 0) return "none"
+  return funcs.join(" ")
+}
+
+/** `translate3d`'s z argument: the element's own `z`, else none. */
+const zArgOf = (z: unknown): string => {
+  if (Predicate.isUndefined(z)) return "0px"
+  return formatTransformValue("z", z)
+}
+
+/**
+ * The opacity a projection draws, or `undefined` to leave the user's own (ADR-0010): a Switch's
+ * blended opacity as it is (*Amendment (#166)*), else the crossfade factor times the user's
+ * opacity. Per frame: early returns.
+ */
+const projectedOpacity = (projection: Projection.Value, values: Record<string, unknown>): number | undefined => {
+  if (Predicate.isNotUndefined(projection.blendOpacity)) return projection.blendOpacity
+  if (Predicate.isUndefined(projection.opacity)) return undefined
+  return numberOr(values.opacity, 1) * projection.opacity
 }
 
 /**
@@ -296,7 +319,7 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
   const patch: Renderer.Patch = {}
 
   const projection = values[Projection.KEY] as Projection.Value | undefined
-  if (projection !== undefined) {
+  if (Predicate.isNotUndefined(projection)) {
     // Projection owns the transform; weave this element's rotate/skew from `values`.
     patch.transform = buildProjectionTransform(projection.delta, projection.treeScale, values, projection.rotate)
     // Copy non-transform style keys (transform keys are consumed by the weave /
@@ -309,15 +332,11 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
     // user's opacity — `finalOpacity = (userOpacity ?? 1) × factor`. Pure: both
     // values are already in the value-map (like buildProjectionTransform above).
     // A Switch's blended opacity is drawn as it is (ADR-0010, *Amendment (#166)*).
-    if (projection.blendOpacity !== undefined) {
-      patch.opacity = projection.blendOpacity
-    } else if (projection.opacity !== undefined) {
-      const user = typeof values.opacity === "number" ? values.opacity : 1
-      patch.opacity = user * projection.opacity
-    }
+    const opacity = projectedOpacity(projection, values)
+    if (Predicate.isNotUndefined(opacity)) patch.opacity = opacity
     // A dragged node's raise (ADR-0016 *Amendment (Reorder)*): kebab-case, as the
     // scale correctors' keys are, so the commit's `setProperty` takes it.
-    if (projection.raise !== undefined) patch["z-index"] = projection.raise
+    if (Predicate.isNotUndefined(projection.raise)) patch["z-index"] = projection.raise
     // A Follower takes no pointer input (ADR-0010, *Amendment (#165)*; Motion's): a Lead's
     // write leaves the key out, and the gate gives the element its own value back.
     if (projection.passesPointer === true) patch["pointer-events"] = "none"

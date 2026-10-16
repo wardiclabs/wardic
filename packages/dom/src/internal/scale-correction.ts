@@ -16,6 +16,7 @@
  * same fraction of each scaled dimension, so it passes through). Reading resolved
  * values therefore gives full-grammar parity.
  */
+import * as Predicate from "effect/Predicate"
 
 /** A registered scale corrector — owns reading its base + emitting the corrected value. */
 export interface ScaleCorrector {
@@ -53,9 +54,11 @@ const CORNER_PROPS = [
 
 /** Parse a computed longhand (`"H V"` or `"H"`) into its H + V components. */
 const parseCorner = (computed: string): CornerRadius => {
+  // `split` gives at least one part. A single value is circular (H === V).
   const parts = computed.trim().split(/\s+/)
-  const h = parts[0] ?? "0px"
-  return { h, v: parts[1] ?? h } // a single value is circular (H === V)
+  const h = parts[0]
+  if (parts.length < 2) return { h, v: h }
+  return { h, v: parts[1] }
 }
 
 /** Whether every corner is zero (nothing to correct). */
@@ -82,7 +85,8 @@ export const borderRadiusCorrector: ScaleCorrector = {
   read: (el) => {
     const cs = getComputedStyle(el)
     const base = CORNER_PROPS.map((p) => parseCorner((cs[p] as string) || "0px")) as unknown as RadiusBase
-    return isZeroRadius(base) ? undefined : base
+    if (isZeroRadius(base)) return undefined
+    return base
   },
   correct: (base, sx, sy) => {
     const corners = base as RadiusBase
@@ -99,7 +103,7 @@ export const ZERO_RADIUS: unknown = [ZERO_CORNER, ZERO_CORNER, ZERO_CORNER, ZERO
 
 /** A radius, or {@link ZERO_RADIUS} for none. */
 const orZero = (radius: unknown): RadiusBase => {
-  if (radius === undefined) return ZERO_RADIUS as RadiusBase
+  if (Predicate.isUndefined(radius)) return ZERO_RADIUS as RadiusBase
   return radius as RadiusBase
 }
 
@@ -131,7 +135,7 @@ export const blendRadius = (from: unknown, to: unknown, progress: number): unkno
 
 /** One corner between `from` and `to` at `progress`, axis by axis. Per frame. */
 const blendCorner = (from: CornerRadius, to: CornerRadius | undefined, progress: number): CornerRadius => {
-  if (to === undefined) return from
+  if (Predicate.isUndefined(to)) return from
   return { h: blendComponent(from.h, to.h, progress), v: blendComponent(from.v, to.v, progress) }
 }
 
@@ -140,7 +144,7 @@ const blendCorner = (from: CornerRadius, to: CornerRadius | undefined, progress:
  * scaled, its `%` ones as they are (a fraction of the scaled box already). Per frame.
  */
 export const scaleRadius = (radius: unknown, sx: number, sy: number): unknown => {
-  if (radius === undefined) return undefined
+  if (Predicate.isUndefined(radius)) return undefined
   if (sx === 1 && sy === 1) return radius
   return (radius as RadiusBase).map((corner) => ({ h: scaleComponent(corner.h, sx), v: scaleComponent(corner.v, sy) }))
 }
@@ -173,8 +177,8 @@ const splitLayers = (value: string): Array<string> => {
   for (let i = 0; i < value.length; i++) {
     const ch = value[i]
     if (ch === "(") depth++
-    else if (ch === ")") depth--
-    else if (ch === "," && depth === 0) {
+    if (ch === ")") depth--
+    if (ch === "," && depth === 0) {
       layers.push(value.slice(start, i))
       start = i + 1
     }
@@ -190,11 +194,13 @@ const tokenizeLayer = (layer: string): Array<string> => {
   let cur = ""
   for (const ch of layer.trim()) {
     if (ch === "(") depth++
-    else if (ch === ")") depth--
+    if (ch === ")") depth--
     if (/\s/.test(ch) && depth === 0) {
       if (cur !== "") tokens.push(cur)
       cur = ""
-    } else cur += ch
+      continue
+    }
+    cur += ch
   }
   if (cur !== "") tokens.push(cur)
   return tokens
@@ -209,20 +215,32 @@ const parseLayer = (layer: string): ShadowLayer | undefined => {
   const lengths: Array<number> = []
   let color = ""
   for (const t of tokens) {
-    if (t === "inset") inset = true
-    else if (isLength(t)) lengths.push(Number.parseFloat(t))
-    else color = t // a non-length, non-inset token is the color (verbatim)
+    if (t === "inset") {
+      inset = true
+      continue
+    }
+    if (isLength(t)) {
+      lengths.push(Number.parseFloat(t))
+      continue
+    }
+    color = t // a non-length, non-inset token is the color (verbatim)
   }
   if (lengths.length < 2) return undefined // offsetX + offsetY are required
   return {
     color,
-    offsetX: lengths[0]!,
-    offsetY: lengths[1]!,
-    blur: lengths[2] ?? 0,
-    spread: lengths[3] ?? 0,
+    offsetX: lengths[0],
+    offsetY: lengths[1],
+    blur: lengthAt(lengths, 2),
+    spread: lengthAt(lengths, 3),
     inset,
     lengthCount: lengths.length,
   }
+}
+
+/** A shadow's `i`th length, 0 when it wasn't authored. */
+const lengthAt = (lengths: ReadonlyArray<number>, i: number): number => {
+  if (i >= lengths.length) return 0
+  return lengths[i]
 }
 
 const formatLayer = (l: ShadowLayer, sx: number, sy: number): string => {
@@ -246,8 +264,9 @@ export const boxShadowCorrector: ScaleCorrector = {
     if (value === "" || value === "none") return undefined
     const layers = splitLayers(value)
       .map(parseLayer)
-      .filter((l): l is ShadowLayer => l !== undefined)
-    return layers.length > 0 ? layers : undefined
+      .filter(Predicate.isNotUndefined)
+    if (layers.length === 0) return undefined
+    return layers
   },
   correct: (base, sx, sy) => (base as Array<ShadowLayer>).map((l) => formatLayer(l, sx, sy)).join(", "),
 }

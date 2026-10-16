@@ -105,8 +105,12 @@ interface Entry {
 }
 
 /** The element's own inline value for a patch key (`""` for none, or a target with no style). */
-const inlineValueOf = (target: unknown, key: string): string =>
-  (target as { readonly style?: CSSStyleDeclaration } | undefined)?.style?.getPropertyValue(dashCase(key)) ?? ""
+const inlineValueOf = (target: unknown, key: string): string => {
+  if (Predicate.isNullish(target)) return ""
+  const style = (target as { readonly style?: CSSStyleDeclaration }).style
+  if (Predicate.isUndefined(style)) return ""
+  return style.getPropertyValue(dashCase(key))
+}
 
 /** The provider-owned flush gate (one per `WardicProvider`). */
 export interface FlushGate {
@@ -234,7 +238,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     if (kept < before) {
       for (const [key, own] of committed) {
         if (key in patch) continue
-        ;(restore ??= {})[key] = own
+        if (Predicate.isUndefined(restore)) restore = {}
+        restore[key] = own
         committed.delete(key)
       }
     }
@@ -254,9 +259,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const runFirstCommits = (): void => {
     for (const id of firstCommits) {
       const entry = accumulator.get(id)
-      if (entry === undefined || !entry.dirty) continue
+      if (Predicate.isUndefined(entry) || !entry.dirty) continue
       firstCommits.delete(id)
-      entry.sink.beforeFirstCommit?.()
+      const hook = entry.sink.beforeFirstCommit
+      if (Predicate.isNotUndefined(hook)) hook()
     }
   }
 
@@ -291,7 +297,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
 
   const register: FlushGate["register"] = (id, sink) => {
     accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map() })
-    if (sink.beforeFirstCommit !== undefined) firstCommits.add(id)
+    if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {
       accumulator.delete(id)
       firstCommits.delete(id)
@@ -300,10 +306,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
 
   const write: FlushGate["write"] = (id, partial) => {
     const entry = accumulator.get(id)
-    if (entry === undefined) return
+    if (Predicate.isUndefined(entry)) return
     Object.assign(entry.values, partial)
     entry.dirty = true
-    recording?.add(id)
+    if (Predicate.isNotUndefined(recording)) recording.add(id)
     scheduleFlush()
   }
 
@@ -321,21 +327,22 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     // flush (a frame later for an element mounted inside a frame). The frame flush switches.
     for (const id of written) {
       const entry = accumulator.get(id)
-      if (entry !== undefined && entry.dirty) apply(entry)
+      if (Predicate.isNotUndefined(entry) && entry.dirty) apply(entry)
     }
   }
 
   const release: FlushGate["release"] = (id, keys, restore) => {
     const entry = accumulator.get(id)
-    if (entry === undefined) return
+    if (Predicate.isUndefined(entry)) return
     let released = false
     for (const key of keys) {
       if (!Object.hasOwn(entry.values, key)) continue
       delete entry.values[key]
       released = true
       // The drop-out path in `apply` writes the saved value back: make it the one handed in.
-      const value = restore?.[key]
-      if (value !== undefined && entry.committed.has(key)) entry.committed.set(key, value)
+      if (Predicate.isUndefined(restore)) continue
+      const value: string | undefined = restore[key]
+      if (Predicate.isNotUndefined(value) && entry.committed.has(key)) entry.committed.set(key, value)
     }
     if (!released) return
     entry.dirty = true
