@@ -103,3 +103,41 @@ Comments and examples that name CSS describe the DOM Environment's use, not core
   - a kind's token encoding as its value's string;
   - an empty end's colours not turning.
 
+## Amendment (#189, 2026-10-16): the pointer events in core's words, the wheel removed, and a lint guard
+
+#43 moved the keyboard event to core's own names (ADR-0037). Its review found the pointer and wheel events still copying the DOM's fields, by their own doc comments: "DOM `buttons` convention", "DOM `pointerType` convention", "DOM `button` convention", "DOM `isPrimary`". So #189 was filed. Core read them in five places, plus solid's `drag.ts`, for three things:
+- which pointer counts (`isPrimaryPointer`);
+- who hovers (hover's fold ignored `pointerType === "touch"`);
+- when a hold went stale (`buttons === 0` on a move, and `supersedes`).
+
+Nothing read the wheel.
+
+**Decisions (grilled 2026-10-16, all A):**
+1. **A pointer's kind is a core union** (Q1): `kind: InputSource.PointerKind`, which is `"mouse" | "pen" | "touch" | "other"`, replacing `pointerType: string`. An Environment maps its platform's kinds onto it, and an unknown one becomes `"other"`, as an unknown key becomes `Key`'s `"other"`. The glossary has **Pointer kind**.
+   - Rejected: capabilities instead of a kind (`hovers`, `usesButtons`), since `supersedes` still compares kinds and Motion's rules are written about mice and touches; keeping an opaque `pointerType` string.
+2. **`pressed: boolean` replaces the `buttons` bitmask** (Q2). It says whether any button is down during the event. That's the only question core and solid's `drag.ts` asked (`buttons === 0`). A pressed pointer's moves are pressed, and an unpressed move from a held pointer is a lost release (a **Stale gesture**, ADR-0019).
+   - Rejected: a bitmask with core's own bit meanings, which no one reads; dropping it, which reopens ADR-0019's Stale-gesture rule.
+3. **Core keeps the Primary pointer rule, over neutral fields** (Q3). The fields:
+   - `button: InputSource.PointerButton`, which is `"main" | "middle" | "secondary" | "other" | "none"`: the button the event changed, `"none"` on a move;
+   - `primary: boolean`: the event is its kind's first contact on the page, and a mouse always is.
+
+   `isPrimaryPointer` is still Motion's: a mouse event counts with its main button or none, and any other kind follows `primary`. The rule stays in one place for every Environment, and stays available to a custom recognizer (ADR-0019's Tier 2).
+   - Rejected: each Environment deciding primary-ness, which repeats Motion's mouse rule in every Environment and hides the button; `button` as a boolean shaped around one rule.
+4. **The wheel is gone until a recognizer needs it** (Q4). `wheel(target)` and `WheelLikeEvent` leave `InputSource`, along with dom's wheel stream and the test Environment's stubs. Nothing read it and nothing planned to. Its fields copied `WheelEvent`'s, and dom dropped `deltaMode`, so a line-mode wheel (Firefox, some mice) would have arrived in lines with core none the wiser. The recognizer that first needs a wheel defines it in core's words, and its units, against a real use.
+   - Rejected: keeping it in pixels with dom converting lines and pages, which decides a line's height with nothing to test it against; passing the DOM's `deltaMode` through as a unit.
+5. **Checked at each tier, and held by lint** (Q5).
+   - core: `isPrimaryPointer` over every kind, button and `primary` (C2, 40 rows), and the builder's defaults in core's words (C1). The existing held-pointer, recognizer, drag-activity and pointer-rules tests moved to the new fields, unchanged in meaning.
+   - dom: `pointer-names.node.test.ts` PN1–PN3 maps each `pointerType` (an unknown one to `"other"`), each `button` (0/1/2/-1 and the rest), `buttons` to `pressed` (any bit), and `isPrimary` to `primary`; the browser tier's I7 maps a real pen.
+   - **The guard:** core's lint (`EVENT_NAMES` in `eslint.config.js`) rejects the DOM's event names in core's source, as an identifier or a string: `pointerType`, `buttons`, `isPrimary`, `deltaX`/`Y`/`Z`, `deltaMode`, `preventDefault`, `defaultPrevented`.
+6. **This amendment** (Q6). ADR-0019 points here where it names the DOM's fields, and so does ADR-0037's key names.
+
+**Default stated:** `makePointerLikeEvent` keeps a mouse's defaults in core's words: kind `"mouse"`, primary, `button` `"main"` on a down or up and `"none"` otherwise, and pressed on a down or move. `@wardic/test`'s scripts follow it.
+
+**What changes for an Environment:**
+- It maps four fields where it mapped four: `kind`, `pressed`, `button` and `primary`. dom's `kindOf` and `buttonOf` are its own.
+- It provides no `wheel`.
+
+Behaviour is unchanged. The browser tests and the layout lab's drives read the same, since every DOM value maps to what it meant before.
+
+**Found on the way:** a test's options type that still declared `buttons` passed it to the builder by spread, where TypeScript doesn't check excess properties, so a lost release silently stayed pressed until the tests ran (drag-activity A2, A13). The test tier now declares only core's names; only a DOM-event helper (solid's `drag-hops`) keeps the DOM's.
+
