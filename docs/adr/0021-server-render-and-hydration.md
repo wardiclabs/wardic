@@ -117,6 +117,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - an effect's `compute` half runs on a server, and so do both halves of a render effect;
   - every owner and element key draws from its parent's child counter, so decision 4's rule becomes "the same owners in the same order";
   - `ssrSource: "client"` is Solid 2's own client-only marker.
+- **Since #132** the server's stand-ins are `FlushGate.inert` and `ReorderController.inert` in dom's modules, with an inert Layer for a server that runs an Effect program (ADR-0041).
 - **Deferred:**
   - server-live resume (ADR-0003's resumability option, #48);
   - the wrapper's own cost, and moving `wardic.div` onto the commit path (#49);
