@@ -246,3 +246,54 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
 
     One scenario-17 line, "Untriggered, then Shuffle, triggered (expect wrong-origin)", reads `clean` here and on main (`.tmp/4/drive17.ts`'s label is stale).
   - **Gates:** typecheck, lint, unit (963), browser (1007), the lab's tsc and vitest (208). No "optimized dependencies changed" in the browser log.
+
+## Implementation in #69's PR 2: dom's internals outside `projection.ts`
+
+- **Lint** holds the rules on dom's source, but `internal/projection.ts` until PR 3. The per-frame files (decision 2) keep a `for` and plain index reads. On main `e1e86c9` that flagged 224 places in 16 files, all converted.
+- **The per-frame files** (`renderer.ts`, `svg.ts`, `scale-correction.ts`, `gate.ts` and `measure.ts`) take the per-frame forms:
+  - statement `if`s with an early return, and `Predicate` checks in place of `typeof` and `=== undefined`;
+  - no `Option` or `Match` per call;
+  - a value that may be missing is still `undefined` there, checked in an early return.
+- **The cold code** (announcer, input, probe, shared sources, Starting style, own values, Auto-scroll, the Reorder controller) takes the full rules: `Option` for a missing value, `Match` / `Bool.match` for a branch, `Arr` for a loop, `MutableRef` for the controller's mutable state.
+  - **The CSS-text scanner** (`parseCssText`) is an `Arr.reduce` over the text's UTF-16 units. On 20,016 inputs, hand-picked and random (quotes, escapes, nested parentheses, non-ASCII), it gives what main's did.
+- **PR 1's two shims are gone:** the Own-value reader and a Reorder item's element are `Option` inside too.
+- **Reorder's held-arrow thinning** (decision 4) is `Effect.sleep(REPEAT_ANNOUNCE)` (150 ms), then the announcement, in a `FiberHandle`. The handle lives in a Scope of the controller's own, which `dispose` closes. An announcement spoken at once clears the handle.
+- **The start path's matchers are built once.** The first draft wrote `valueLike`, `entryOf` and `resolveInitial` with `Match.value(x).pipe(…)`, which builds its matcher on every call. `bench:solid`'s Retarget failed its gate on it, +7.7% [+6.6, +9.5].
+  - **The profile** (`.tmp/87/prof.ts`, main built from a worktree) showed it as `pipeArguments`, Effect's matcher builder and their garbage.
+  - **The fix:** module-level `Match.type` matchers over the call's inputs. `valueLike` went from 136 ns a call to 46, main's 30 (Node).
+  - **`effect-first.md`** now says so under `Match`.
+- **Tests:**
+  - **KB12:** an announcement spoken at once cancels a held arrow's waiting one, so a drop right after it is all that's said.
+  - **The existing tests pass unchanged,** dom's RC tests on the controller's factory (now with a two-method runner).
+- **Mutations** on the timer, 4:
+  - **Caught:** a repeat that doesn't restart the wait (KB8), no wait (KB8, KB11), and an announcement at once leaving the wait (KB12, written for it).
+  - **Survives:** `dispose` leaving the controller's own Scope open. Under `ReorderController.make` the runner forks into the controller's Scope, which ends the wait anyway.
+- **`effect/Duration`** joins the three browser configs' `optimizeDeps`.
+- **Timing** against main, each paired with main against itself (A/A):
+  - **`bench:solid`** (11 paired reps, warm), after the matchers' fix: it passes its gate on both runs.
+
+    | Task | Run 1 | Run 2 | A/A |
+    |---|---|---|---|
+    | mount | +3.0% | +4.2% | −0.8% |
+    | Retarget | +0.0% | +1.9% | +0.0% |
+    | at rest | +3.0% | +1.5% | −2.4% |
+    | unmount | −3.2% | −15.7% | −0.5% |
+
+  - **The gate's flush per frame** (`.tmp/132-flush`, whole-frame JS, 11 reps): transform +1.0% (A/A −0.5%), mixed −0.4% (−1.4%), flip +1.8% (+0.9%), styled +2.6% (+0.3%), partial +5.2% [+2.6, +5.5] (+0.3%).
+  - **The projection pass per frame** (`.tmp/132-proj`, 9 reps, 1,000 nodes): glued −1% (A/A −1%), delay −3% (+4%), flip +4% (+3%), scaled +6% (+1%).
+  - **What's unexplained:** partial, styled and scaled read 2–6% over their A/A, consistently across runs.
+    - **No function I changed costs more in isolation:** the Renderer's `project`, minified in Chromium, is 120–271 ns a call on main and on this branch alike, on both its paths (`.tmp/69-pr2/project-micro*`).
+    - **The SVG check** costs the same in each form (14–16 ns).
+    - **The style writes per frame are identical** (116,000 `setProperty` calls per key either way).
+    - **A bisect** with one file reverted to main's at a time read partial +0.6% with main's `renderer.ts`, +3.4% with main's `svg.ts` and +2.2% with main's `gate.ts`, against the branch's +3.1%. Styled read +2.3% to +3.6% for each, so no single file.
+    - **A profile of partial** spreads it thin over `apply`, `project`, `write` and `setProperty`.
+- **Lab** (5173, restarted on this branch):
+  - smoke 0 errors;
+  - crossfade board 54 runs, 0 fails;
+  - held 30 runs, 0 off;
+  - scenario 15, 14 runs clean;
+  - scenario 7 `passes 1 (1 seeding)`;
+  - scenario 17's lines as main's;
+  - keyboard reorder announced;
+  - real-mouse drags 0.00 px, 0 frames behind.
+- **Gates:** typecheck, lint, unit (963), browser (1008), the lab's tsc and vitest (208). No "optimized dependencies changed" in the browser log.
