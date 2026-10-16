@@ -54,13 +54,21 @@ export interface InitialConfig {
   readonly variants?: Readonly<Record<string, object | undefined>> | undefined
 }
 
-/** A values map, or the `variants` entry a name names (an unknown name is empty), or nothing. */
-const entryOf = (entry: object | string | undefined, variants: InitialConfig["variants"]): Values.Values =>
-  Match.value(entry).pipe(
-    Match.when(Predicate.isUndefined, (): Values.Values => ({})),
-    Match.when(Predicate.isString, (name) => toValues(UndefinedOr.map(variants, (byName) => byName[name]))),
-    Match.orElse(toValues),
-  )
+/** One values entry and the variants a name in it would name. */
+interface Entry {
+  readonly entry: object | string | undefined
+  readonly variants: InitialConfig["variants"]
+}
+
+/**
+ * A values map, or the `variants` entry a name names (an unknown name is empty), or nothing.
+ * Built once, at module load: every element reads its own at setup (#69).
+ */
+const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
+  Match.when({ entry: Match.undefined }, (): Values.Values => ({})),
+  Match.when({ entry: Match.string }, ({ entry, variants }) => toValues(UndefinedOr.map(variants, (byName) => byName[entry]))),
+  Match.orElse(({ entry }) => toValues(entry as object)),
+)
 
 /**
  * The values an element starts from: its `initial` map, or the `variants` entry its
@@ -69,11 +77,10 @@ const entryOf = (entry: object | string | undefined, variants: InitialConfig["va
  * mount (#134, Motion's). Read once, at setup: the Starting style is a seed, never a
  * live target.
  */
-export const resolveInitial = (config: InitialConfig): Values.Values =>
-  Match.value(config.initial).pipe(
-    Match.when(false, () => entryOf(config.animate, config.variants)),
-    Match.orElse((initial) => entryOf(initial, config.variants)),
-  )
+export const resolveInitial: (config: InitialConfig) => Values.Values = Match.type<InitialConfig>().pipe(
+  Match.when({ initial: false }, (config) => entryOf({ entry: config.animate, variants: config.variants })),
+  Match.orElse((config) => entryOf({ entry: config.initial as object | string | undefined, variants: config.variants })),
+)
 
 /**
  * A CSS declaration list (`"color: red; background: url(a;b)"`) as `{ property: value }`.

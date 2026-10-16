@@ -115,31 +115,38 @@ const NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?(px)?\s*$/i
  *   in another unit than the target's (`"120px"` for `"0%"`): the unit interpolator dies on
  *   that pair, so it misses, as a numeric target misses `50%`.
  */
-export const valueLike = (raw: unknown, like: number | string): Option.Option<number | string> =>
-  Match.value(like).pipe(
-    Match.when(Predicate.isNumber, (): Option.Option<number | string> => numericLike(raw)),
-    Match.orElse((target) => stringLike(raw, target)),
-  )
+export const valueLike = (raw: unknown, like: number | string): Option.Option<number | string> => valueLikeOf({ raw, like })
 
-/** `raw` for a numeric target: a finite number, or a plain-number or `px` string, parsed. */
-const numericLike = (raw: unknown): Option.Option<number> =>
-  Match.value(raw).pipe(
-    Match.when(Predicate.isNumber, (n) => Option.liftPredicate(n, Number.isFinite)),
-    Match.when(isNumericString, (s) => Option.some(Number.parseFloat(s))),
-    Match.orElse(() => Option.none()),
-  )
-
-/** Whether `raw` is a plain-number or `px` string. */
+// The matchers are built once, at module load, not per call: a start reads every key's (#69).
+/** A plain number, or a number in `px`, as a numeric target takes it. */
 const isNumericString = (raw: unknown): raw is string => Predicate.isString(raw) && NUMERIC.test(raw)
 
+/** `raw` for a numeric target: a finite number, or a plain-number or `px` string, parsed. */
+const numericLike: (raw: unknown) => Option.Option<number> = Match.type<unknown>().pipe(
+  Match.when(Match.number, (n) => Option.liftPredicate(n, Number.isFinite)),
+  Match.when(isNumericString, (s) => Option.some(Number.parseFloat(s))),
+  Match.orElse(() => Option.none()),
+)
+
 /** `raw` for a string target `like`: a string as is unless its unit clashes with the target's, or a finite number as a string. */
-const stringLike = (raw: unknown, like: string): Option.Option<string> =>
-  Match.value(raw).pipe(
-    Match.when(Predicate.isString, (s) => Option.liftPredicate(s, (given: string) => Bool.not(unitsClash(like, given)))),
-    Match.when(Predicate.isNumber, (n) => Option.map(Option.liftPredicate(n, Number.isFinite), String)),
-    Match.orElse(() => Option.none()),
-  )
+const stringLike: (pair: { readonly raw: unknown; readonly like: string }) => Option.Option<string> = Match.type<{
+  readonly raw: unknown
+  readonly like: string
+}>().pipe(
+  Match.when({ raw: Match.string }, ({ raw, like }) => Option.liftPredicate(raw, (given: string) => Bool.not(unitsClash(like, given)))),
+  Match.when({ raw: Match.number }, ({ raw }) => Option.map(Option.liftPredicate(raw, Number.isFinite), String)),
+  Match.orElse(() => Option.none()),
+)
+
+const valueLikeOf: (pair: { readonly raw: unknown; readonly like: number | string }) => Option.Option<number | string> = Match.type<{
+  readonly raw: unknown
+  readonly like: number | string
+}>().pipe(
+  Match.when({ like: Match.number }, ({ raw }): Option.Option<number | string> => numericLike(raw)),
+  // The rest have a string target.
+  Match.orElse((pair): Option.Option<number | string> => stringLike(pair as { readonly raw: unknown; readonly like: string })),
+)
 
 /** Whether `raw` is a length in another unit than `like`'s (both have a unit, and they differ). */
 const unitsClash = (like: string, raw: string): boolean =>
-  Option.exists(Option.all([Interpolator.unitOf(like), Interpolator.unitOf(raw)]), ([want, got]) => want !== "" && got !== "" && got !== want)
+  Option.exists(Interpolator.unitOf(like), (want) => want !== "" && Option.exists(Interpolator.unitOf(raw), (got) => got !== "" && got !== want))
