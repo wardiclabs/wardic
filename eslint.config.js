@@ -1,6 +1,6 @@
 // The Effect-first rules (#63, ADR-0025, docs/agents/effect-first.md), held on @wardic/core's
-// source, and on @wardic/dom's (#69, ADR-0025, *Amendment (#69)*). solid and test follow the
-// rules for new code until #69's PRs 4 and 5. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
+// source, and on @wardic/dom's and @wardic/solid's (#69, ADR-0025, *Amendment (#69)*). test follows
+// the rules for new code until #69's PR 5. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
 // "fits": those stay with review.
 //
 // And the pipeable API's shape (#95, ADR-0028 decision 10, docs/agents/pipeable.md): the root
@@ -226,8 +226,9 @@ export default defineConfig([
     },
   },
   {
-    // dom's source takes the Effect-first rules (ADR-0025, *Amendment (#69)*).
-    files: ["packages/dom/src/**/*.ts"],
+    // dom's and solid's source take the Effect-first rules (ADR-0025, *Amendment (#69)*). solid has no
+    // per-frame file: its run sinks are one-line closures (decision 2).
+    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}"],
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
       "no-ternary": "error",
