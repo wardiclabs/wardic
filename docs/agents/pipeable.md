@@ -49,8 +49,8 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 - **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomKeyRules`.
 - **dom's own concepts** take the glossary's names: `FlushGate`, `ProjectionSystem`, `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `OwnValues`, `Report`. No dom module repeats a core module's name.
 - **A member drops its module's noun:** `FlushGate.make`, `FlushGate.inert`, `Style.starting`.
-- **Long-lived parts are services built by Layers,** ended by their Scope, with plain functions per frame. A server's stand-ins are values (`FlushGate.inert`), plus a Layer for an Effect-run server.
-- **Pure helpers are `dual` functions over plain records,** read left to right: `pipe(user, Style.over(defaults))`.
+- **Long-lived parts are services built by Layers,** ended by their Scope, with plain functions per frame. A part made per use, such as a Reorder group's controller, is a scoped constructor over the context (`ReorderController.make`). A server's stand-ins are values (`FlushGate.inert`), plus a Layer for an Effect-run server.
+- **Pure helpers are `dual` functions over plain records,** read left to right, the top layer first: `pipe(user, Style.over(defaults))` lays the user's style over the defaults.
 
 ## Checks
 
