@@ -17,13 +17,15 @@
 // - KB8: a held arrow moves one place per repeat and announces only the last place.
 // - KB9: in a scroll container, End moves the item to the last place and scrolls it into view.
 // - KB10: keys during a pointer drag are left alone.
+// - KB11: a group unmounted while a held arrow's last place waits to be spoken never speaks it: the
+//   group's Scope ends its controller (#132's PR 3).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { createReorderGroup, createReorderItem, Reorder, WardicProvider } from "@wardic/solid"
-import { createSignal, For } from "solid-js"
+import { type Accessor, createSignal, For, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
@@ -54,6 +56,8 @@ interface MountOptions {
   readonly container?: number
   /** A page this tall, px, so it scrolls. */
   readonly page?: number
+  /** Whether the group is mounted, under a provider that stays. */
+  readonly shown?: Accessor<boolean>
 }
 
 /** A column of items (a to e by default), keyed with `<For>`; each scales to 1.05 while dragged or lifted. */
@@ -88,7 +92,7 @@ const mount = async (options: MountOptions = {}) => {
     <WardicProvider env={DomLive}>
       <div style={{ height: options.page === undefined ? "auto" : `${options.page}px`, padding: "8px" }}>
         {options.container === undefined ? (
-          list()
+          <Show when={options.shown?.() ?? true}>{list()}</Show>
         ) : (
           <div data-scroller style={{ height: `${options.container}px`, overflow: "auto", position: "relative" }}>
             {list()}
@@ -378,4 +382,24 @@ it("KB10: keys during a pointer drag are left alone", async () => {
   expect(announced()).not.toContain("Picked up")
   await commands.realMouse("up", box.left + 20, box.top + 36)
   await frames(30)
+})
+
+it("KB11: a group unmounted while a held arrow's last place waits to be spoken never speaks it", async () => {
+  const [shown, setShown] = createSignal(true)
+  const m = await mount({ initial: ["a", "b", "c", "d", "e"], shown })
+  m.item("a").focus()
+  await commands.realKey("press", "Space")
+  await frames(2)
+  await commands.realKey("down", "ArrowDown")
+  await frames(3)
+  const record = recordAnnouncements()
+  // A repeat, as a held key's: its place waits to be spoken until the repeats stop.
+  await commands.realKey("down", "ArrowDown")
+  // Unmounted at once, well inside that wait: the group's Scope ends its controller (#132's PR 3).
+  setShown(false)
+  await new Promise((r) => setTimeout(r, 300))
+  record.stop()
+  await commands.realKey("up", "ArrowDown")
+  expect(m.container.querySelector("[data-value]"), "the group is gone").toBeNull()
+  expect(record.texts, "nothing spoken after the unmount").toEqual([])
 })

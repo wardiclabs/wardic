@@ -38,6 +38,7 @@ import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
+import { pipe } from "effect/Function"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { createElementStyle } from "./element-style.ts"
@@ -502,7 +503,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   const dragDefaults = axis !== undefined ? Style.dragDefaults(axis) : undefined
   const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
   override(out, {
-    style: Style.merge(props.style as JSX.CSSProperties | string | undefined, Style.starting(undefined, initial).style, dragDefaults),
+    style: pipe(Style.starting(undefined, initial).style, Style.over(props.style as JSX.CSSProperties | string | undefined), Style.over(dragDefaults)),
     ...(dragDefaults !== undefined ? { draggable: Style.DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
     ...(props.ref !== undefined ? { ref: props.ref } : {}),
     component: Wrapped,

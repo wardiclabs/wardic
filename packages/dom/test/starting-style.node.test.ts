@@ -1,6 +1,6 @@
 // The Starting style's helpers (ADR-0021): the framework-free half every binding uses to
 // render an element before its first Frame, on a server and on the client alike.
-// `toValues`, `resolveInitial` and `mergeStyle` move here from @wardic/solid's
+// `toValues`, `resolveInitial` and the merge `Style.over` does moved here from @wardic/solid's
 // use-wardic.tsx with their behaviour unchanged; `startingStyle` projects with the DOM's
 // pure `project` and routes an SVG element's keys by its tag (ADR-0014), since a server
 // has no element to test.
@@ -12,6 +12,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import { describe, expect, it } from "vitest"
 
 const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
@@ -41,18 +42,19 @@ describe("Starting style helpers (ADR-0021)", () => {
     expect(Style.resolveInitial({ initial: "hidden" })).toEqual({})
   })
 
-  it("ST5: mergeStyle with no user style returns the animated patch", () => {
+  it("ST5: over with no user style returns the animated patch", () => {
     const animated = { opacity: 0 }
-    expect(Style.merge(undefined, animated)).toBe(animated)
+    expect(pipe(animated, Style.over(undefined))).toBe(animated)
   })
 
-  it("ST6: mergeStyle puts the animated keys over the user's and keeps the user's others", () => {
-    expect(Style.merge({ color: "red", opacity: 0.5 }, { opacity: 0 })).toEqual({ color: "red", opacity: 0 })
+  it("ST6: over puts the animated keys over the user's and keeps the user's others", () => {
+    expect(pipe({ opacity: 0 }, Style.over({ color: "red", opacity: 0.5 }))).toEqual({ color: "red", opacity: 0 })
   })
 
-  it("ST7: mergeStyle layers drag defaults < base < user < animated", () => {
+  it("ST7: over layers drag defaults < base < user < animated", () => {
     const defaults = Style.dragDefaults("x")
-    const merged = Style.merge({ "touch-action": "auto", margin: "2px" }, { opacity: 0 }, defaults, { margin: "1px", padding: "3px" })
+    const user = { "touch-action": "auto", margin: "2px" }
+    const merged = pipe({ opacity: 0 }, Style.over(user), Style.over({ margin: "1px", padding: "3px" }), Style.over(defaults))
     expect(merged["touch-action"]).toBe("auto")
     expect(merged.margin).toBe("2px")
     expect(merged.padding).toBe("3px")
@@ -62,19 +64,19 @@ describe("Starting style helpers (ADR-0021)", () => {
 
   it("ST8: a user's user-select or -webkit-user-select sets the other (one property in Chromium)", () => {
     const defaults = Style.dragDefaults("x")
-    expect(Style.merge({ "user-select": "text" }, {}, defaults)["-webkit-user-select"]).toBe("text")
-    expect(Style.merge({ "-webkit-user-select": "text" }, {}, defaults)["user-select"]).toBe("text")
+    expect(pipe({ "user-select": "text" }, Style.over(defaults))["-webkit-user-select"]).toBe("text")
+    expect(pipe({ "-webkit-user-select": "text" }, Style.over(defaults))["user-select"]).toBe("text")
   })
 
   it("ST14: a string user style is parsed into its declarations (custom properties and parentheses kept)", () => {
-    expect(Style.merge("color: red; background: url(a;b); --x: 1px", { opacity: 0 })).toEqual({
+    expect(pipe({ opacity: 0 }, Style.over("color: red; background: url(a;b); --x: 1px"))).toEqual({
       color: "red",
       background: "url(a;b)",
       "--x": "1px",
       opacity: 0,
     })
-    expect(Style.merge("", { opacity: 0 })).toEqual({ opacity: 0 })
-    expect(Style.merge("user-select: text", {}, Style.dragDefaults("x"))["-webkit-user-select"]).toBe("text")
+    expect(pipe({ opacity: 0 }, Style.over(""))).toEqual({ opacity: 0 })
+    expect(pipe("user-select: text", Style.over(Style.dragDefaults("x")))["-webkit-user-select"]).toBe("text")
   })
 
   it("ST9: an HTML element's Starting style is all style", () => {
@@ -128,28 +130,29 @@ describe("Starting style helpers (ADR-0021)", () => {
   })
 })
 
-// The style after the first frame (ADR-0034): the user's, as `mergeStyle` merges it, without the
+// The style after the first frame (ADR-0034): the user's, as `Style.over` merges it, without the
 // keys the flush gate holds on the element. Wardic writes those; `style` is their fallback.
 describe("The fallback style (ADR-0034)", () => {
   it("FS1: leaves out the keys the gate holds and keeps the user's others", () => {
-    expect(Style.fallback({ opacity: 0.5, color: "red" }, ["opacity", "transform"])).toEqual({ color: "red" })
+    expect(pipe({ opacity: 0.5, color: "red" }, Style.without(["opacity", "transform"]))).toEqual({ color: "red" })
   })
 
   it("FS2: matches a held patch key by its CSS property, dash-cased", () => {
-    expect(Style.fallback({ "background-color": "red", width: "4px" }, ["backgroundColor"])).toEqual({ width: "4px" })
+    expect(pipe({ "background-color": "red", width: "4px" }, Style.without(["backgroundColor"]))).toEqual({ width: "4px" })
   })
 
   it("FS3: parses a user style given as CSS text, so it's never written as cssText", () => {
-    expect(Style.fallback("color: red; opacity: 0.5", ["opacity"])).toEqual({ color: "red" })
+    expect(pipe("color: red; opacity: 0.5", Style.without(["opacity"]))).toEqual({ color: "red" })
   })
 
   it("FS4: an element with no user style gets an empty style, never undefined", () => {
-    expect(Style.fallback(undefined, ["opacity"])).toEqual({})
+    expect(pipe(undefined, Style.without(["opacity"]))).toEqual({})
   })
 
   it("FS5: leaves out a held key from a drag element's defaults and a base style too", () => {
     const defaults = Style.dragDefaults(true)
-    const out = Style.fallback({ color: "red" }, ["touch-action", "z-index"], defaults, { "z-index": "0", position: "relative" })
+    const base = { "z-index": "0", position: "relative" }
+    const out = pipe({ color: "red" }, Style.over(base), Style.over(defaults), Style.without(["touch-action", "z-index"]))
     expect("touch-action" in out).toBe(false)
     expect("z-index" in out).toBe(false)
     expect(out).toMatchObject({ color: "red", position: "relative" })
@@ -157,17 +160,17 @@ describe("The fallback style (ADR-0034)", () => {
 
   it("FS6: heldTouches is true only when a key taken or let go of is one the style sets", () => {
     const style = { opacity: "0.5", "background-color": "red" }
-    expect(Style.heldTouches([], ["transform"], style)).toBe(false)
-    expect(Style.heldTouches([], ["transform", "opacity"], style)).toBe(true)
-    expect(Style.heldTouches(["opacity"], [], style)).toBe(true)
-    expect(Style.heldTouches(["opacity"], ["opacity", "transform"], style)).toBe(false)
-    expect(Style.heldTouches([], ["backgroundColor"], style)).toBe(true)
+    expect(Style.heldTouches(style, [], ["transform"])).toBe(false)
+    expect(Style.heldTouches(style, [], ["transform", "opacity"])).toBe(true)
+    expect(Style.heldTouches(style, ["opacity"], [])).toBe(true)
+    expect(Style.heldTouches(style, ["opacity"], ["opacity", "transform"])).toBe(false)
+    expect(Style.heldTouches(style, [], ["backgroundColor"])).toBe(true)
   })
 
   it("FS7 (#151): a held custom property matches only its own name: a separate `--brand-color` stays", () => {
-    expect(Style.fallback({ "--brand-color": "red", "--brandColor": "blue" }, ["--brandColor"])).toEqual({ "--brand-color": "red" })
-    expect(Style.heldTouches([], ["--brandColor"], { "--brand-color": "red" })).toBe(false)
-    expect(Style.heldTouches([], ["--brandColor"], { "--brandColor": "blue" })).toBe(true)
+    expect(pipe({ "--brand-color": "red", "--brandColor": "blue" }, Style.without(["--brandColor"]))).toEqual({ "--brand-color": "red" })
+    expect(Style.heldTouches({ "--brand-color": "red" }, [], ["--brandColor"])).toBe(false)
+    expect(Style.heldTouches({ "--brandColor": "blue" }, [], ["--brandColor"])).toBe(true)
   })
 
   it("FS8 (#151): a server routes an svg-inner tag's custom property to style", () => {

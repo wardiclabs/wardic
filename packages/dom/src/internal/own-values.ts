@@ -59,7 +59,7 @@ export const ownValues = (element: Element): OwnValue => {
 
 /**
  * The user's `style` value for `key`, the `style` link of its Base value: an object style by
- * the key, then by the key dash-cased; a CSS-text style parsed as `mergeStyle` parses it.
+ * the key, then by the key dash-cased; a CSS-text style parsed as `Style.over` parses it.
  * `undefined`, `null` and an empty string are misses. A transform key has no `style` link:
  * in a DOM style, `scale`, `translate` and `rotate` are CSS properties of their own, which
  * compose with the element's transform rather than seed it.

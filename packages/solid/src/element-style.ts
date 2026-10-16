@@ -16,7 +16,7 @@ import type * as Renderer from "@wardic/core/Renderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
-import { constUndefined } from "effect/Function"
+import { constUndefined, pipe } from "effect/Function"
 import { createSignal, type JSX, untrack } from "solid-js"
 
 /** What {@link createElementStyle} reads. */
@@ -50,10 +50,10 @@ export const createElementStyle = (options: ElementStyleOptions): ElementStyle =
 
   const style = (user: object | string | undefined): JSX.CSSProperties =>
     Bool.match(committed(), {
-      onFalse: () => Style.merge(user, starting, defaults, base()) as JSX.CSSProperties,
+      onFalse: () => pipe(starting, Style.over(user), Style.over(base()), Style.over(defaults)) as JSX.CSSProperties,
       onTrue: () => {
         heldChanged()
-        return Style.fallback(user, held, defaults, base()) as JSX.CSSProperties
+        return pipe(user, Style.over(base()), Style.over(defaults), Style.without(held)) as JSX.CSSProperties
       },
     })
 
@@ -61,7 +61,8 @@ export const createElementStyle = (options: ElementStyleOptions): ElementStyle =
     const prev = held
     held = next
     if (!untrack(committed)) return
-    if (Style.heldTouches(prev, next, Style.merge(untrack(userStyle), {}, defaults, untrack(base)))) markHeldChanged()
+    const style = pipe(untrack(userStyle), Style.over(untrack(base)), Style.over(defaults))
+    if (Style.heldTouches(style, prev, next)) markHeldChanged()
   }
 
   return { style, hooks: { beforeFirstCommit: () => setCommitted(true), onHeld } }

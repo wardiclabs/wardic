@@ -50,7 +50,8 @@ It lands in three PRs, the shape first, and #69 then converts the internals insi
    - **The root** re-exports each one as a namespace, and keeps `DomLive` and `VERSION` for an app.
    - **Repo code** imports the subpaths. `internal/` isn't exported (`package.json`), and lint holds both.
    - Rejected: subpaths only, with a bare root; regrouped files under a flat root.
-5. **Pure helpers become `dual` functions over plain records** (Q5), as Effect's `Record` module does, read left to right on cold paths. For example, `mergeStyle` becomes `pipe(user, Style.over(animated), Style.over(defaults), Style.over(base))`. That's PR 3.
+5. **Pure helpers become `dual` functions over plain records** (Q5), as Effect's `Record` module does, read left to right on cold paths. For example, `mergeStyle(user, animated, defaults, base)` becomes `pipe(animated, Style.over(user), Style.over(base), Style.over(defaults))`, read from the top layer down. That's PR 3.
+   - **Corrected in PR 3:** the example as first written, `pipe(user, Style.over(animated), Style.over(defaults), Style.over(base))`, listed the layers in `mergeStyle`'s argument order, not their precedence (defaults < base < user < animated), so it was wrong under either reading of `over`. PR 3's Q1 settled what `over` means (*Implementation in #132's PR 3*).
    - **No wrapper type:** a style stays a plain object.
    - **Per-frame helpers stay positional,** such as `project` and the SVG split inside a flush.
    - Rejected: a `Pipeable` `Style` data type, which adds a wrapper and an unwrap at every binding edge; keeping them positional.
@@ -119,11 +120,11 @@ Every root name on `74fb80b` and its home now:
 | `FlushGate` | `FlushGate` | `FlushGate.FlushGate` |
 | `FlushGate` | `FlushSink` | `FlushGate.Sink` |
 | `FlushGate` | `FlushGateOptions` | `FlushGate.Options` |
-| `FlushGate` | `FlushGateRuntime` | `FlushGate.Runtime` |
+| `FlushGate` | `FlushGateRuntime` | none since PR 2: the gate takes `FlushGate.Services` from its context |
 | `ProjectionSystem` | `makeProjectionSystem` | `ProjectionSystem.make` |
 | `ProjectionSystem` | `ProjectionSystem` | `ProjectionSystem.ProjectionSystem` |
 | `ProjectionSystem` | `ProjectionSystemOptions` | `ProjectionSystem.Options` |
-| `ProjectionSystem` | `ProjectionRuntime` | `ProjectionSystem.Runtime` |
+| `ProjectionSystem` | `ProjectionRuntime` | none since PR 2: the engine takes `ProjectionSystem.Services` from its context |
 | `ProjectionSystem` | `ProjectionSink` | `ProjectionSystem.Sink` |
 | `ProjectionSystem` | `RegisterNodeOptions` | `ProjectionSystem.RegisterNodeOptions` |
 | `ProjectionSystem` | `ProjectionNodeHandle` | `ProjectionSystem.NodeHandle` |
@@ -134,10 +135,10 @@ Every root name on `74fb80b` and its home now:
 | `ProjectionSystem` | `DEFAULT_LAYOUT_TRANSITION` | `ProjectionSystem.DEFAULT_LAYOUT_TRANSITION` |
 | `ProjectionSystem` | `DEFAULT_DRAG_TRANSITION` | `ProjectionSystem.DEFAULT_DRAG_TRANSITION` |
 | `ProjectionSystem` | `measureLayoutBox` | `ProjectionSystem.measureLayoutBox` |
-| `ReorderController` | `makeReorderController` | `ReorderController.make` |
+| `ReorderController` | `makeReorderController` | `ReorderController.make`, a scoped constructor since PR 3 |
 | `ReorderController` | `INERT_REORDER_CONTROLLER` | `ReorderController.inert` |
 | `ReorderController` | `ReorderController` | `ReorderController.ReorderController` |
-| `ReorderController` | `ReorderControllerOptions` | `ReorderController.Options` |
+| `ReorderController` | `ReorderControllerOptions` | `ReorderController.Options`, without `runtime`, `projection` and `announce` since PR 3 |
 | `ReorderController` | `ReorderItemDriver` | `ReorderController.ItemDriver` |
 | `ReorderController` | `DEFAULT_REORDER_INSTRUCTIONS` | `ReorderController.DEFAULT_INSTRUCTIONS` |
 | `ReorderController` | `REORDER_GROUP_STYLE` | `ReorderController.GROUP_STYLE` |
@@ -145,9 +146,9 @@ Every root name on `74fb80b` and its home now:
 | `Style` | `resolveInitial` | `Style.resolveInitial` |
 | `Style` | `InitialConfig` | `Style.InitialConfig` |
 | `Style` | `toValues` | `Style.toValues` |
-| `Style` | `mergeStyle` | `Style.merge` |
-| `Style` | `fallbackStyle` | `Style.fallback` |
-| `Style` | `heldTouches` | `Style.heldTouches` |
+| `Style` | `mergeStyle` | `Style.over` since PR 3: `pipe(animated, Style.over(user), Style.over(base), Style.over(defaults))` |
+| `Style` | `fallbackStyle` | `Style.over` and `Style.without` since PR 3: `pipe(user, Style.over(base), Style.over(defaults), Style.without(held))` |
+| `Style` | `heldTouches` | `Style.heldTouches`, the style first since PR 3 |
 | `Style` | `dragDefaultStyle` | `Style.dragDefaults` |
 | `Style` | `DragDefaultStyle` | `Style.DragDefaults` |
 | `Style` | `DRAG_DEFAULT_ATTRIBUTES` | `Style.DRAG_DEFAULT_ATTRIBUTES` |
@@ -215,7 +216,7 @@ Every root name on `74fb80b` and its home now:
   - **`layer(options)`:** takes the Environment's `FlushGate` as its sink. Built after the gate, it ends before it.
 - **The internals keep their factories** (`internal/gate.ts`' `makeFlushGate`, `internal/projection.ts`' `makeProjectionSystem`), now over a two-method runtime, `{ runSync, runFork }`, in place of a `ManagedRuntime` type. `make` builds that runtime from its Layer's context:
   - `Effect.runSyncWith(context)`;
-  - `FiberSet.makeRuntime()`, whose forks end with the Scope, as a `ManagedRuntime`'s ended with its `dispose`;
+  - a fork into a `FiberSet` in the Scope, so its forks end with the Scope, as a `ManagedRuntime`'s ended with its `dispose` (`makeRunner`, below);
   - and it registers the factory's `dispose` as the Scope's finalizer.
 
   dom's own tests build the engine and the gate with the factories, on a test `ManagedRuntime`, as before.
@@ -263,3 +264,76 @@ Every root name on `74fb80b` and its home now:
     | scaled | 2.33 | 2.20 (−5%) | 2.23 (−4%) |
 
     The per-frame members are the same plain functions, so this is what was expected.
+
+## Implementation in #132's PR 3: Style's `dual` helpers and the Reorder controller
+
+Grilled 2026-10-16, both A.
+
+**Q1. What `Style.over` means, and which helpers are `dual`.**
+- **`Style.over(self, that)` lays `self` over `that`:** `self`'s keys win and `that`'s others stay. A chain reads from the top layer down:
+  - before the first commit, `pipe(starting, Style.over(user), Style.over(base), Style.over(defaults))` (was `mergeStyle(user, starting, defaults, base)`);
+  - after it, `pipe(user, Style.over(base), Style.over(defaults), Style.without(held))` (was `fallbackStyle(user, held, defaults, base)`).
+- **Its inputs:** a side given as CSS text is parsed. A side that's `undefined` leaves the other as it is, the same object, which was `mergeStyle`'s fast path.
+- **The `user-select` pairing moved into `over`:** whatever `self` sets for `user-select` or `-webkit-user-select` it sets for both, whenever there's a `that` to override (one property in Chromium). That's where `mergeStyle` applied it, so the result is key for key what `mergeStyle` gave, in the same key order.
+- **`Style.without(self, held)`** drops the keys the flush gate holds, matched by CSS property.
+- **`Style.heldTouches` takes the style first:** `pipe(style, Style.heldTouches(prev, next))`.
+- **Types:** `Style.Input` (a record, CSS text or nothing) and `Style.Style` (a record).
+- **The constructors keep their shape:** `starting(tag, values)`, `toValues`, `resolveInitial`, `dragDefaults` and `reorderTouchAction`. Like Effect's `Record.fromEntries`, they make a record rather than transform one, and `starting`'s optional tag would leave `dual` unable to tell its two forms apart by argument count.
+- **Solid's Reorder group** lays the user's style over `ReorderController.GROUP_STYLE` with `over`, where it spread the two.
+- Rejected: `Style.under`, read from the bottom layer up; `dual` constructors.
+
+**Q2. The Reorder controller is a scoped constructor**, like `FlushGate.make`:
+```ts
+ReorderController.make(options): Effect<ReorderController<V>, never, ProjectionSystem | Announcer | Scope>
+```
+- **It takes what it needs from its context:** the projection system and the Environment's `Announcer`. The `runtime`, `projection` and `announce` options are gone.
+- **Its logs** (`wardic.reorder:`) go through the context's Logger, forked into its Scope by dom's runner (`internal/runner.ts`, PR 2's).
+- **Closing its Scope ends it:** it stops listening to Measure passes, resets its Auto-scroll and clears a pending announcement. `dispose` is gone from `ReorderController.ReorderController<V>`.
+- **No Layer:** there's one per group, not one per Environment.
+- **Its items' drivers stay plain,** each with its own `dispose`, as the gate's `register` returns its unregister: there's one per element, on the mount path.
+- **`inert` stays a value** for a server render.
+- **Each binding:**
+  - Solid's `<Reorder>` builds it in a Scope of its own and closes it on cleanup. The provider's runtime is typed by the app's Environment, without the projection system, so the group provides the one it reads from context (`useWardicProjection()`) with `Effect.provideService`.
+  - A Foldkit binding would run it in a Mount action's Scope.
+- **The internals keep their factory** (`internal/reorder.ts`' `makeReorderController(wiring, options)`), with what the controller runs on (its runner, the projection system, `announce`) apart from what a binding hands its group. dom's RC tests drive the factory.
+- Rejected: a plain factory minus `runtime`, with a `log` hook and `dispose`; leaving it as PR 1 left it.
+
+**Checks:**
+- **The table** (`test/style-dual.node.test.ts`, SD1–SD5): 19 merges, 11 fallbacks and 9 held checks. Each case's result was recorded from `mergeStyle`, `fallbackStyle` and the positional `heldTouches` on main `4c22cfb`, key for key and in key order. The first commit (`cb40fd0`) checked old and new against it; the next removed the old.
+- **New tests:**
+  - `services.browser.test.ts` DS5–DS7, on the real `DomLive`:
+    - DS5: `make` speaks a move through the context's Announcer and logs an axis change through its Logger;
+    - DS6: closing its Scope ends it, with no axis reported or logged after;
+    - DS7: `inert` does nothing.
+  - solid's `element-style.browser.test.tsx` ES1–ES3, a Reorder item's layering:
+    - ES1: before the first commit, the user's `touch-action` over the base's, the base's over the drag defaults';
+    - ES2: after it, the fallback without the held keys and the Starting style;
+    - ES3: a held-keys change re-runs `style` when it touches a key the base or the defaults set, not only the user's.
+  - KB11: a group unmounted while a held arrow's last place waits to be spoken never speaks it.
+- **Mutations:** 12. The first run caught 9, and the three survivors were in solid: the base laid over the user's style before the first commit, the held check without the base, and a group whose Scope never closes. ES1, ES3 and KB11 catch them, so all 12 are caught.
+- **`bench:solid`** against main `4c22cfb`, 11 paired reps, warm medians [p25 – p75]. It passes its gate on every run. Unmount reads 2–3% slower, though, while main against itself reads −0.7%:
+
+  | Run | mount | Retarget | at rest | unmount | control |
+  |---|---|---|---|---|---|
+  | main against main (A/A) | +1.4% | +0.7% | | −0.7% [−3.1, −0.6] | +0.3% |
+  | this PR | +1.3% | +0.5% | −0.6% | +2.6% [+0.9, +5.0] | |
+  | this PR, again | +0.9% | +0.6% | | +2.3% [+1.0, +2.7] | +1.7% |
+  | `cb40fd0` (helpers added, call sites not switched) | +1.8% | +1.9% | −0.4% | −1.0% [−3.3, −0.3] | too noisy |
+  | `edd6667` (solid's call sites on `over` / `without`) | +0.2% | −0.5% | −4.0% | +4.2% [+1.7, +5.4] | too noisy |
+  | `a6f5cdd` (the controller) | +0.4% | −0.7% | +1.9% | +2.5% [+2.1, +2.6] | +2.2% |
+
+  - **The cause isn't found.** The unmount difference arrives with the call-site switch (`edd6667`), but none of what that changes runs during an unmount: the client's `over` / `without` run at render and at the first commit, and an instrumented run counted 0 `onHeld` calls in a 1,000-element unmount (1,000 in the first frames, where the gate first holds each element's keys).
+  - **The new held check is slower per call:** 120 ns against the positional one's 54 ns (`.tmp/132-pr3/held-micro.ts`), about 66 µs across 1,000 elements' first commits, in frames `bench:solid` doesn't time.
+  - **A variant of `over` with statement `if`s** in place of `UndefinedOr.match` and `Match` read unmount +0.5% [−11.9, +1.5] and then +1.9% [+0.2, +3.4]. That's no clear fix, so the rules' form stays.
+  - About 0.5 ms across 1,000 elements' unmount, 0.5 µs each, within the gate.
+- **A Reorder group's mount and unmount** (`.tmp/132-reorder`, `bench:solid`'s runner over 200 `Reorder.Group`s of two items each, 11 paired reps): mount +1.4% [−0.5, +4.7], about 7 µs a group at the median, the Scope and the `runSync`s; unmount −1.2% [−2.9, −0.3]. The control read −0.5%.
+- **Lab** (5173, restarted on this branch):
+  - smoke 0 errors;
+  - crossfade board 54 runs, 0 fails;
+  - held 30 runs, 0 off;
+  - scenario 15's gestures clean;
+  - scenario 7 `passes 1 (1 seeding)`;
+  - scenario 17 clean;
+  - keyboard reorder announced;
+  - real-mouse drags 0.00 px, 0 frames behind.
+- **Gates:** typecheck, lint, unit (963), browser (1007), the lab's tsc and vitest (208).

@@ -25,17 +25,20 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
-import * as Announcer from "@wardic/core/Announcer"
 import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import {
@@ -139,21 +142,21 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   }
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
   const runtime = useWardicRuntime()
-  // The Environment's channel to assistive technology (ADR-0037).
-  const announcer = runtime.runSync(Announcer.Announcer)
-  const controller = ReorderController.make<V>({
-    runtime,
-    projection: useWardicProjection(),
-    values: () => untrack(cfg).values,
-    onReorder: (values) => untrack(cfg).onReorder(values),
-    axis: () => untrack(cfg).axis,
-    onAxis: setDetected,
-    keyedWith: "<For>",
-    keyboard: () => untrack(cfg).keyboard !== false,
-    announcements: () => untrack(cfg).announcements,
-    announce: announcer.announce,
-  })
-  onCleanup(controller.dispose)
+  // The group's controller, over the provider's projection system and the Environment's channel to
+  // assistive technology (ADR-0037), in a Scope of the group's own, closed on unmount (#132's PR 3).
+  const scope = runtime.runSync(Scope.make())
+  const controller = runtime.runSync(
+    ReorderController.make<V>({
+      values: () => untrack(cfg).values,
+      onReorder: (values) => untrack(cfg).onReorder(values),
+      axis: () => untrack(cfg).axis,
+      onAxis: setDetected,
+      keyedWith: "<For>",
+      keyboard: () => untrack(cfg).keyboard !== false,
+      announcements: () => untrack(cfg).announcements,
+    }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
+  )
+  onCleanup(() => runtime.runSync(Scope.close(scope, Exit.void)))
   const axis: Accessor<CoreReorder.Axis> = () => cfg().axis ?? detected()
 
   // A `values` change re-measures, so the items animate to their new slots whoever
@@ -173,7 +176,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
     ref: mergeRefs(userProps?.ref, (el: HTMLElement) => controller.attach(el)),
     get style() {
-      return { ...ReorderController.GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties
+      return pipe(userProps?.style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties
     },
   })
 
@@ -341,7 +344,7 @@ const noop = (): void => {}
 const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> => {
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
     ref: userProps?.ref ?? noop,
-    style: { ...ReorderController.GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
+    style: pipe(userProps?.style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties,
   })
   const controller = ReorderController.inert as unknown as ReorderController.ReorderController<V>
   const axis = (): CoreReorder.Axis => UndefinedOr.match(cfg().axis, { onUndefined: () => "y" as const, onDefined: (a: CoreReorder.Axis) => a })

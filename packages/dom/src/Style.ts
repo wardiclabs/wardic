@@ -8,8 +8,10 @@ export {
   resolveInitial,
   type InitialConfig,
   toValues,
-  mergeStyle as merge,
-  fallbackStyle as fallback,
+  type StyleInput as Input,
+  type StyleRecord as Style,
+  over,
+  without,
   heldTouches,
 } from "./internal/starting-style.ts"
 export {
