@@ -221,3 +221,28 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
    Rejected: one PR per package; one PR.
 6. **This amendment (Q6).** Each PR adds an *Implementation in #69's PR n* below. `effect-first.md` gets the scope, the per-frame code by name and the test rule as they land, and ADR-0041 points here for dom's `Option` surface.
    - Rejected: a new ADR; no ADR.
+
+## Implementation in #69's PR 1: dom's surface on `Option`
+
+- **The members:**
+  - **`ProjectionSystem`:** `NodeHandle.layoutBox()` and `handBackWithin(…)` return `Option`. `RegisterNodeOptions`' `transition`, `dragTransition`, `onLayoutAnimationStart` and `onLayoutAnimationComplete` return `Option` (`None` for Motion's default, or no callback).
+  - **`OwnValues`:** the reader (`OwnValue`), `styleValueOf` and `valueLike` return `Option`.
+  - **`ReorderController`:** `Options`' `axis` and `announcements`, and an item's `element`, return `Option`.
+- **The internals** keep `undefined` behind the surface, wrapped at it (`Option.fromUndefinedOr`), until PRs 2 and 3. The engine reads a callback's `Option` where it reads it: `Option.getOrElse` for a transition, `callAppIfAny` for a layout animation callback.
+- **Solid** wraps its Tier 1 options into `Option` where it registers a node (`useLayoutMember`), its Reorder group and items, and unwraps what it reads (presence's hand-back, the spine's style and own links). Tier 1 is unchanged.
+- **The tests** construct and read the new types; a syntax-aware rewrite took `transition: () => (…)` to `transition: () => Option.some(…)`.
+- **`effect/Option`** joins the three browser configs' `optimizeDeps`, where it wasn't listed.
+- **Checks:**
+  - **`bench:solid`** against main `300c431`, 11 paired reps, warm: mount +0.6%, Retarget +0.2%, at rest −0.6%, unmount +0.4%. Main against itself read +2.6%, +0.4%, +0.2% and −0.8%. Exit 0.
+  - **Lab** (5173, restarted on this branch):
+    - smoke 0 errors;
+    - crossfade board 54 runs, 0 fails;
+    - held 30 runs, 0 off;
+    - scenario 15, 14 runs clean;
+    - scenario 7 `passes 1 (1 seeding)`;
+    - scenario 17's lines as main's;
+    - keyboard reorder announced;
+    - real-mouse drags 0.00 px, 0 frames behind.
+
+    One scenario-17 line, "Untriggered, then Shuffle, triggered (expect wrong-origin)", reads `clean` here and on main (`.tmp/4/drive17.ts`'s label is stale).
+  - **Gates:** typecheck, lint, unit (963), browser (1007), the lab's tsc and vitest (208). No "optimized dependencies changed" in the browser log.
