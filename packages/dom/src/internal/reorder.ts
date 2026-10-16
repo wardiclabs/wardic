@@ -39,8 +39,9 @@ import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import { onPassEnd, type ProjectionNodeHandle, type ProjectionRuntime, type ProjectionSystem } from "./projection.ts"
+import { onPassEnd, type ProjectionNodeHandle, type ProjectionSystem } from "./projection.ts"
 import { revealLayoutOf } from "./reveal.ts"
+import type { Runner } from "./runner.ts"
 
 /**
  * The group element's style: no scroll anchoring, so the browser doesn't shift the
@@ -49,12 +50,22 @@ import { revealLayoutOf } from "./reveal.ts"
  */
 export const REORDER_GROUP_STYLE = Object.freeze({ "overflow-anchor": "none" } as const)
 
-/** {@link makeReorderController}'s options. */
-export interface ReorderControllerOptions<V> {
-  /** The runtime the controller logs through (the projection system's). */
-  readonly runtime: ProjectionRuntime
+/**
+ * What {@link makeReorderController} runs on: the runner it logs through, the projection system the
+ * items are nodes of, and the Environment's `Announcer`. `ReorderController.make` takes them from
+ * its context (#132's PR 3, ADR-0041).
+ */
+export interface ReorderControllerWiring {
+  /** The runner the controller logs through. */
+  readonly runtime: Pick<Runner<never>, "runFork">
   /** The projection system the items are nodes of. */
   readonly projection: Omit<ProjectionSystem, "dispose">
+  /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */
+  readonly announce?: ((message: string) => void) | undefined
+}
+
+/** {@link makeReorderController}'s options: what a binding hands its group. */
+export interface ReorderControllerOptions<V> {
   /** The app's values, in order. */
   readonly values: () => ReadonlyArray<V>
   /** Receives a new order; the app sets `values` from it. */
@@ -74,8 +85,6 @@ export interface ReorderControllerOptions<V> {
   readonly keyboard?: (() => boolean) | undefined
   /** The group's announcements over the defaults (ADR-0037), read at each announcement. */
   readonly announcements?: (() => Partial<Reorder.Announcements<V>> | undefined) | undefined
-  /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */
-  readonly announce?: ((message: string) => void) | undefined
 }
 
 /** One item of a {@link ReorderController}: its binding feeds it the item's handle, drag samples, keys, focus and presses. */
@@ -138,9 +147,9 @@ export interface ReorderController<V> {
   readonly dispose: () => void
 }
 
-/** Build a {@link ReorderController}: a **Reorder group** over `options.projection`'s nodes. */
-export const makeReorderController = <V>(options: ReorderControllerOptions<V>): ReorderController<V> => {
-  const { runtime } = options
+/** Build a {@link ReorderController}: a **Reorder group** over `wiring.projection`'s nodes. */
+export const makeReorderController = <V>(wiring: ReorderControllerWiring, options: ReorderControllerOptions<V>): ReorderController<V> => {
+  const { runtime, projection, announce } = wiring
   const debug = (event: string, annotations: Record<string, unknown>): void => {
     runtime.runFork(Effect.logDebug(`wardic.reorder: ${event}`).pipe(Effect.annotateLogs(annotations)))
   }
@@ -186,14 +195,14 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
   const announceNow = (message: string): void => {
     if (pendingAnnouncement !== undefined) clearTimeout(pendingAnnouncement)
     pendingAnnouncement = undefined
-    options.announce?.(message)
+    announce?.(message)
   }
   /** A held arrow's step: spoken once the repeats stop for {@link REPEAT_ANNOUNCE_MS}, only the last. */
   const announceLater = (message: string): void => {
     if (pendingAnnouncement !== undefined) clearTimeout(pendingAnnouncement)
     pendingAnnouncement = setTimeout(() => {
       pendingAnnouncement = undefined
-      options.announce?.(message)
+      announce?.(message)
     }, REPEAT_ANNOUNCE_MS)
   }
   const wording = (): Reorder.Announcements<V> => ({ ...(Reorder.defaultAnnouncements as Reorder.Announcements<V>), ...options.announcements?.() })
@@ -298,7 +307,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
 
   // Every Measure pass measures every node, so its end is when the boxes are fresh, and when a
   // stepped item's new place is laid out.
-  const stopPassEnd = onPassEnd(options.projection, () => {
+  const stopPassEnd = onPassEnd(projection, () => {
     resolve()
     const stepped = reveal
     reveal = undefined
@@ -389,7 +398,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
       element = el
       autoScroller = makeAutoScroller(el, debug)
       // The live region has to be in the page before the first lift (ADR-0037, Q7).
-      if (options.keyboard?.() !== false && options.announce !== undefined) prepareAnnouncer(documentOf(el))
+      if (options.keyboard?.() !== false && announce !== undefined) prepareAnnouncer(documentOf(el))
     },
     item,
     move: (value, toIndex) =>
@@ -403,7 +412,7 @@ export const makeReorderController = <V>(options: ReorderControllerOptions<V>): 
     valuesChanged: () => {
       // The app changed `values` itself while an item is lifted: it's dropped at its new place.
       if (Option.isSome(Reorder.liftedValue(group)) && options.values() !== asked) dropLifted()
-      options.projection.notify()
+      projection.notify()
     },
     dispose: () => {
       stopPassEnd()

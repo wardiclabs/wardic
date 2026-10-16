@@ -7,15 +7,26 @@
 //   goes before the gate's pending frame is cancelled, and nothing is written after.
 // - DS3: `ProjectionSystem.make` over a binding's own sink ends with its own Scope.
 // - DS4: `FlushGate.inert` does nothing, and `FlushGate.layerInert` provides it.
+//
+// The Reorder controller's scoped constructor (#132's PR 3):
+// - DS5: `ReorderController.make` runs over its context: a move is spoken through the context's
+//   Announcer, and a change of axis is logged through the context's Logger.
+// - DS6: closing its Scope ends it: no Measure pass reports an axis after, and nothing is logged.
+// - DS7: `ReorderController.inert` does nothing.
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as ManagedRuntime from "effect/ManagedRuntime"
+import * as References from "effect/References"
 import * as Scope from "effect/Scope"
+import * as Announcer from "@wardic/core/Announcer"
+import type * as Reorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as ReorderController from "@wardic/dom/ReorderController"
 
 const stages: Array<HTMLElement> = []
 afterEach(() => {
@@ -121,4 +132,98 @@ describe("the gate and the projection system as services (#132)", () => {
     expect(runtime.runSync(FlushGate.FlushGate)).toBe(FlushGate.inert)
     void Effect.runPromise(runtime.disposeEffect)
   })
+
+  it("DS5: ReorderController.make speaks through the context's Announcer and logs through its Logger", async () => {
+    const group = await mountGroup()
+    group.controller.move("a", 2)
+    expect(group.order(), "the move reorders").toEqual(["b", "c", "a"])
+    expect(group.said, "spoken through the context's Announcer").toHaveLength(1)
+    group.row()
+    await frames(3)
+    expect(group.axes, "the pass detects the row").toEqual(["x"])
+    expect(group.logs(), "the axis change logged through the context's Logger").toContain("wardic.reorder: axis")
+    await group.dispose()
+  })
+
+  it("DS6: closing its Scope ends it: no pass reports an axis after, and nothing is logged", async () => {
+    const group = await mountGroup()
+    group.close()
+    group.row()
+    await frames(3)
+    expect(group.axes, "no axis after its Scope closed").toEqual([])
+    expect(group.logs(), "nothing logged after").toEqual([])
+    await group.dispose()
+  })
+
+  it("DS7: ReorderController.inert does nothing", () => {
+    const item = ReorderController.inert.item(undefined as never, () => undefined)
+    expect(() => {
+      ReorderController.inert.attach(box("width:10px"))
+      ReorderController.inert.move(undefined as never, 1)
+      ReorderController.inert.resolve()
+      ReorderController.inert.valuesChanged()
+      item.register({} as ProjectionSystem.NodeHandle)()
+      item.dispose()
+    }).not.toThrow()
+    expect(ReorderController.inert.axis()).toBe("y")
+  })
 })
+
+/**
+ * A column of three items under a Reorder controller built by its scoped constructor, over a
+ * runtime with the gate, the engine and a Logger over DomLive, as a binding builds one, and a
+ * recording Announcer.
+ */
+const mountGroup = async () => {
+  const logs: Array<string> = []
+  const logger = Logger.make(({ message }) => {
+    const text = String(Array.isArray(message) ? message[0] : message)
+    if (text.startsWith("wardic.reorder:")) logs.push(text)
+  })
+  const runtime = ManagedRuntime.make(
+    ProjectionSystem.layer().pipe(
+      Layer.provideMerge(FlushGate.layer({ batch: (apply) => apply() })),
+      Layer.provideMerge(Layer.mergeAll(DomLive, Logger.layer([logger]), Layer.succeed(References.MinimumLogLevel, "Debug"))),
+    ),
+  )
+  const engine = runtime.runSync(ProjectionSystem.ProjectionSystem)
+  const said: Array<string> = []
+  const axes: Array<Reorder.Axis> = []
+  let order: ReadonlyArray<string> = ["a", "b", "c"]
+  const scope = Scope.makeUnsafe()
+  const controller = runtime.runSync(
+    ReorderController.make<string>({
+      values: () => order,
+      onReorder: (next) => {
+        order = next
+      },
+      onAxis: (axis) => axes.push(axis),
+    }).pipe(Effect.provideService(Announcer.Announcer, { announce: (message) => said.push(message) }), Scope.provide(scope)),
+  )
+  const container = box("display:flex;flex-direction:column;gap:10px;width:200px")
+  controller.attach(container)
+  for (const value of order) {
+    const element = document.createElement("div")
+    element.style.cssText = "flex:none;width:80px;height:40px"
+    container.append(element)
+    controller.item(value, () => element).register(engine.register({ id: value, element, transition: SPRING }))
+  }
+  await frames(3)
+  // What the first pass detected (a column, "y", the default, reports nothing), and logged.
+  axes.length = 0
+  logs.length = 0
+  return {
+    controller,
+    said,
+    axes,
+    order: () => order,
+    logs: () => [...logs],
+    /** Lay the items out as a row, and re-measure. */
+    row: (): void => {
+      container.style.flexDirection = "row"
+      engine.notify()
+    },
+    close: (): void => runtime.runSync(Scope.close(scope, Exit.void)),
+    dispose: (): Promise<void> => runtime.dispose(),
+  }
+}

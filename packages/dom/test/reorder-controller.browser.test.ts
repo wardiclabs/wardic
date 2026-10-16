@@ -14,7 +14,8 @@ import * as Reorder from "@wardic/core/Reorder"
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import * as ReorderController from "@wardic/dom/ReorderController"
+import type * as ReorderController from "@wardic/dom/ReorderController"
+import * as internalReorder from "../src/internal/reorder.ts"
 import { clearStages, el, endOfTask, type Engine, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -38,12 +39,12 @@ const ITEM: Record<Kind, string> = {
 interface Item {
   readonly element: HTMLElement
   readonly handle: ProjectionSystem.NodeHandle
-  readonly driver: ReturnType<ReorderController.ReorderController<string>["item"]>
+  readonly driver: ReturnType<internalReorder.ReorderController<string>["item"]>
   readonly unregister: () => void
 }
 
 interface List {
-  readonly c: ReorderController.ReorderController<string>
+  readonly c: internalReorder.ReorderController<string>
   readonly items: Map<string, Item>
   readonly container: HTMLElement
   readonly reorders: Array<ReadonlyArray<string>>
@@ -71,9 +72,9 @@ const mountList = async (
   const reorders: Array<ReadonlyArray<string>> = []
   const axes: Array<Reorder.Axis> = []
   const container = el(o.parent ?? stage(), CONTAINER[kind])
-  const c = ReorderController.make<string>({
-    runtime: e.runtime,
-    projection: e.system,
+  // The factory itself, over the harness's engine; `ReorderController.make`, its scoped
+  // constructor, is services.browser.test.ts's (DS5-DS7).
+  const c = internalReorder.makeReorderController<string>({ runtime: e.runtime, projection: e.system }, {
     values: () => order,
     onReorder: (next) => {
       reorders.push(next)
