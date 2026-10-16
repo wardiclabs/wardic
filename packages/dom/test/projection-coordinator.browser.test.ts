@@ -39,6 +39,7 @@ import * as DomProbe from "@wardic/dom/DomProbe"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
+import * as internalProjection from "../src/internal/projection.ts"
 
 type ClockShape = Context.Service.Shape<typeof Clock.Clock>
 type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
@@ -171,7 +172,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))]),
     ),
   )
-  const system = ProjectionSystem.make(runtime, sink)
+  const system = internalProjection.makeProjectionSystem(runtime, sink)
   engines.push({ system, runtime })
   return {
     system,

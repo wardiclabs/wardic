@@ -58,7 +58,7 @@ describe("a client WardicProvider builds on first need (#51)", () => {
 
   it("LZ2: the first Wardic element builds it during its render; one gate however often it's read; it animates", async () => {
     let runtime: WardicRuntime | undefined
-    const gates: Array<FlushGate.FlushGate> = []
+    const gates: Array<FlushGate.Shape> = []
     const ReadsGate = () => {
       gates.push(useWardicGate(), useWardicGate())
       return null

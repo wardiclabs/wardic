@@ -53,8 +53,8 @@ const fireFrame = (t = 0): void => {
 }
 
 /** The gate a `WardicProvider` on `env` builds, as `useWardicGate` returns it. */
-const providerGate = (env: WardicEnv): FlushGate.FlushGate => {
-  let gate: FlushGate.FlushGate | undefined
+const providerGate = (env: WardicEnv): FlushGate.Shape => {
+  let gate: FlushGate.Shape | undefined
   function Probe() {
     gate = useWardicGate()
     return null

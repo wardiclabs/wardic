@@ -13,6 +13,7 @@ import * as Tracer from "effect/Tracer"
 import { vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as internalProjection from "../src/internal/projection.ts"
 
 type FrameCallback = (t: number) => void
 
@@ -127,7 +128,7 @@ export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: 
       Layer.succeed(References.MinimumLogLevel, "Debug"),
     ),
   )
-  const system = ProjectionSystem.make(runtime, sink, options)
+  const system = internalProjection.makeProjectionSystem(runtime, sink, options)
   return {
     system,
     runtime,
