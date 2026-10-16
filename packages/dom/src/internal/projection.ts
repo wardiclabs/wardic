@@ -65,6 +65,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import * as Exit from "effect/Exit"
@@ -201,6 +202,39 @@ const fadeOutAt = (p: number): number => {
 
 /** A `@projection` value under construction: its optional fields set only when present. */
 type ValueDraft = { -readonly [K in keyof Projection.Value]: Projection.Value[K] }
+
+/**
+ * How long a window width change blocks the next Measure pass (ADR-0018, *Amendment (#39)*): Motion lifts
+ * its block at 250 ms. A pass that runs sooner takes the block; with none, the engine runs one then.
+ */
+const RESIZE_BLOCK: Duration.Duration = Duration.millis(250)
+
+/**
+ * The next task: a 0 ms timer as an Effect, interrupted by clearing it (ADR-0025, *Amendment (#69)*,
+ * decision 4). `Effect.sleep(0)` is only a yield, which a Scheduler may resume in this same task.
+ */
+const nextTask: Effect.Effect<void> = Effect.callback<void>((resume) => {
+  const handle = setTimeout(() => resume(Effect.void), 0)
+  return Effect.sync(() => clearTimeout(handle))
+})
+
+/** `value`, or `fallback` when it's `undefined`: `??` in its per-frame form, an early return. */
+const definedOr = <A>(value: A | undefined, fallback: A): A => {
+  if (Predicate.isUndefined(value)) return fallback
+  return value
+}
+
+/** `box` moved by `by`, or `box` itself when `by` is the zero point. Per pass: no copy for the usual case. */
+const offsetUnlessZero = (box: Box.Box, by: Point.Point): Box.Box => {
+  if (by === ZERO_POINT) return box
+  return offsetBox(box, by)
+}
+
+/** The patch a node's projection writes: its value, with its scale corrections when it has any. Per frame: an early return. */
+const projectionPatchOf = (value: Projection.Value, corrected: Record<string, string> | undefined): Record<string, unknown> => {
+  if (Predicate.isUndefined(corrected)) return { [Projection.KEY]: value }
+  return { [Projection.KEY]: value, ...corrected }
+}
 
 /**
  * A node's `@projection` value, with the crossfade factor (ADR-0010), a handover's blended opacity and
@@ -1206,7 +1240,7 @@ const passEnds = new WeakMap<Omit<ProjectionSystem, "dispose">, Set<() => void>>
  */
 export const onPassEnd = (system: Omit<ProjectionSystem, "dispose">, listener: () => void): (() => void) => {
   const listeners = passEnds.get(system)
-  if (listeners === undefined) return () => {}
+  if (Predicate.isUndefined(listeners)) return () => {}
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
@@ -1291,7 +1325,6 @@ export const makeProjectionSystem = (
   let passQueued = false
   let inPass = false
   let triggeredDuringPass = false
-  let leftover: ReturnType<typeof setTimeout> | undefined
   // Whether a **Declared layout change** in this task has taken its Measurements (#4): the end-of-task
   // pass, which animates from them, clears it.
   let declared = false
@@ -1305,11 +1338,12 @@ export const makeProjectionSystem = (
   let settlings: ReadonlyArray<Settling> = []
   let disposed = false
   // The Resize block (ADR-0018 *Amendment (#39)*): the window width last seen, whether
-  // the next Measure pass is blocked, and the timer that runs it if nothing else does.
+  // the next Measure pass is blocked, and the wait that runs it if nothing else does: a fiber
+  // in the engine's Scope (ADR-0025, *Amendment (#69)*, decision 4).
   let resizeListening = false
   let lastWidth = 0
   let resizeBlocked = false
-  let resizeTimer: ReturnType<typeof setTimeout> | undefined
+  const resizeWait = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
@@ -1327,11 +1361,8 @@ export const makeProjectionSystem = (
    * logs on lifecycle; the per-frame derive/step hot path stays SILENT).
    */
   const debug = (event: string, annotations?: Record<string, unknown>): void => {
-    runtime.runFork(
-      annotations !== undefined
-        ? Effect.logDebug(`wardic.projection: ${event}`).pipe(Effect.annotateLogs(annotations))
-        : Effect.logDebug(`wardic.projection: ${event}`),
-    )
+    const log = Effect.logDebug(`wardic.projection: ${event}`)
+    runtime.runFork(UndefinedOr.match(annotations, { onUndefined: () => log, onDefined: (a) => log.pipe(Effect.annotateLogs(a)) }))
   }
 
   /**
@@ -1413,14 +1444,15 @@ export const makeProjectionSystem = (
     // end. A Measure pass or a drag's move always writes (ADR-0018, decision 12: a seed is applied with
     // its running ancestor), and so does a scale-corrected node, whose correction can change alone.
     const last = node.lastWritten
-    if (inStep && corrected === undefined && !node.leaving && last !== undefined && drawsSame(last, value)) return
+    if (inStep && Predicate.isUndefined(corrected) && !node.leaving && Predicate.isNotUndefined(last) && drawsSame(last, value)) return
     node.lastWritten = value
-    const patch = corrected !== undefined ? { [Projection.KEY]: value, ...corrected } : { [Projection.KEY]: value }
+    const patch = projectionPatchOf(value, corrected)
+    // A leaving Follower is driven directly: its gate registration is gone.
     if (node.leaving) {
       renderer.commit(node.element, renderer.project(patch))
-    } else {
-      sink.write(node.id, patch)
+      return
     }
+    sink.write(node.id, patch)
   }
 
   /** Read this element's non-trivial scale-correction bases (ADR-0011), measure phase. */
@@ -1428,7 +1460,7 @@ export const makeProjectionSystem = (
     const out: Array<{ corrector: ScaleCorrector; base: unknown }> = []
     for (const corrector of SCALE_CORRECTORS) {
       const base = corrector.read(el)
-      if (base !== undefined) out.push({ corrector, base })
+      if (Predicate.isNotUndefined(base)) out.push({ corrector, base })
     }
     return out
   }
@@ -1458,7 +1490,7 @@ export const makeProjectionSystem = (
   /** The scale-corrected style keys for `node`'s own bases (ADR-0011), as {@link correctionsFor}. Per frame. */
   const plainCorrectionsFor = (node: NodeState, sx: number, sy: number): Record<string, string> | undefined => {
     const bases = node.correctorBases
-    if (bases === undefined || bases.length === 0) return undefined
+    if (Predicate.isUndefined(bases) || bases.length === 0) return undefined
     if (isUnitScale(sx, sy)) {
       if (!node.corrected) return undefined
       node.corrected = false
@@ -1475,21 +1507,23 @@ export const makeProjectionSystem = (
   /** The Lead of `layoutId` — the newest live node in its stack — or undefined. */
   const leadOf = (layoutId: string): NodeState | undefined => {
     const stack = stacks.get(layoutId)
-    return stack !== undefined && stack.length > 0 ? stack[stack.length - 1] : undefined
+    if (Predicate.isUndefined(stack) || stack.length === 0) return undefined
+    return stack[stack.length - 1]
   }
 
   /** The node directly below `node` in its stack (the prior Lead it crossfades from), or undefined. */
   const priorLeadOf = (node: NodeState): NodeState | undefined => {
-    if (node.layoutId === undefined) return undefined
+    if (Predicate.isUndefined(node.layoutId)) return undefined
     const stack = stacks.get(node.layoutId)
-    if (stack === undefined) return undefined
+    if (Predicate.isUndefined(stack)) return undefined
     const i = stack.indexOf(node)
-    return i > 0 ? stack[i - 1] : undefined
+    if (i <= 0) return undefined
+    return stack[i - 1]
   }
 
   /** Whether `node` is a Follower: in a `layoutId` stack but NOT its (newest-live) Lead. */
   const isFollower = (node: NodeState): boolean =>
-    node.layoutId !== undefined && leadOf(node.layoutId) !== node
+    Predicate.isNotUndefined(node.layoutId) && leadOf(node.layoutId) !== node
 
   /**
    * Whether `lead`'s handover crossfades (#5): one runs, and it doesn't only move. The first frame
@@ -1513,10 +1547,10 @@ export const makeProjectionSystem = (
    */
   const hasCrossfadingAncestor = (node: NodeState): boolean => {
     let p = node.parent
-    while (p !== undefined) {
-      if (p.layoutId !== undefined) {
+    while (Predicate.isNotUndefined(p)) {
+      if (Predicate.isNotUndefined(p.layoutId)) {
         const lead = leadOf(p.layoutId)
-        if (lead !== undefined && crossfading(lead)) return true
+        if (Predicate.isNotUndefined(lead) && crossfading(lead)) return true
       }
       p = p.parent
     }
@@ -1540,9 +1574,9 @@ export const makeProjectionSystem = (
 
   /** The crossfade factor for a LEAD ({@link fadeOf}) — only when it has Followers; else undefined. Per frame. */
   const leadOpacity = (node: NodeState): number | undefined => {
-    if (node.layoutId === undefined) return undefined
+    if (Predicate.isUndefined(node.layoutId)) return undefined
     const stack = stacks.get(node.layoutId)
-    if (stack === undefined || stack.length < 2 || stack[stack.length - 1] !== node) return undefined
+    if (Predicate.isUndefined(stack) || stack.length < 2 || stack[stack.length - 1] !== node) return undefined
     crossfading(node) // decides, on its first frame, whether its handover only moves
     return fadeOf(node)
   }
@@ -1570,9 +1604,9 @@ export const makeProjectionSystem = (
 
   /** Each Follower of `lead` fades out from where it is now (#5): set as a handover begins or a crossfade is interrupted. */
   const captureExits = (lead: NodeState): void => {
-    if (lead.layoutId === undefined) return
+    if (Predicate.isUndefined(lead.layoutId)) return
     const stack = stacks.get(lead.layoutId)
-    if (stack === undefined) return
+    if (Predicate.isUndefined(stack)) return
     for (const f of stack) if (f !== lead) f.exitFrom = UndefinedOr.match(f.fade, { onUndefined: () => 1, onDefined: identity })
   }
 
@@ -1700,7 +1734,9 @@ export const makeProjectionSystem = (
   const switchOpacityOf = (node: NodeState, factor: number | undefined, follower: boolean): number | undefined => {
     if (follower) return undefined
     if (Predicate.isNotUndefined(factor)) return undefined
-    const from = node.blend?.opacity
+    const blend = node.blend
+    if (Predicate.isUndefined(blend)) return undefined
+    const from = blend.opacity
     if (Predicate.isUndefined(from)) return undefined
     const mixed = from + (node.ownOpacity() - from) * blendProgressOf(node)
     return Math.min(1, Math.max(0, mixed))
@@ -1737,7 +1773,7 @@ export const makeProjectionSystem = (
   const ancestorDeltas = (node: NodeState): Array<Projection.Delta> => {
     const chain: Array<Projection.Delta> = []
     let p = node.parent
-    while (p !== undefined) {
+    while (Predicate.isNotUndefined(p)) {
       chain.push(p.lastDelta)
       p = p.parent
     }
@@ -1758,7 +1794,7 @@ export const makeProjectionSystem = (
    */
   const hasActiveAncestor = (node: NodeState): boolean => {
     let p = node.parent
-    while (p !== undefined) {
+    while (Predicate.isNotUndefined(p)) {
       if (active.has(p) && (!p.dragging || p.animating || node.layoutRoot)) return true
       if (p.layoutRoot) return false // boundary (ADR-0013): ancestors above a layoutRoot don't carry this node
       p = p.parent
@@ -1779,14 +1815,14 @@ export const makeProjectionSystem = (
 
   /** The Lead of `node`'s stack, or undefined for a node with no `layoutId`. Per frame. */
   const stackLeadOf = (node: NodeState): NodeState | undefined => {
-    if (node.layoutId === undefined) return undefined
+    if (Predicate.isUndefined(node.layoutId)) return undefined
     return leadOf(node.layoutId)
   }
 
   /** Whether `node` is a Follower whose Lead is moving: derived every frame, locked onto it (#169). Per frame. */
   const isMovingFollower = (node: NodeState): boolean => {
     const lead = stackLeadOf(node)
-    return lead !== undefined && lead !== node && active.has(lead)
+    return Predicate.isNotUndefined(lead) && lead !== node && active.has(lead)
   }
 
   /**
@@ -1796,7 +1832,7 @@ export const makeProjectionSystem = (
    */
   const movingFollowerAbove = (node: NodeState): NodeState | undefined => {
     let p = node.parent
-    while (p !== undefined) {
+    while (Predicate.isNotUndefined(p)) {
       if (isMovingFollower(p)) return p
       if (p.layoutRoot) return undefined
       p = p.parent
@@ -1817,21 +1853,20 @@ export const makeProjectionSystem = (
    * *Amendment (#26)*).
    */
   const relativeParentOf = (node: NodeState): NodeState | undefined => {
-    let p = node.parent
-    while (p !== undefined) {
-      if ((p.dragging || p.releasing) && p.layoutBox !== undefined) return p
+    for (let p = node.parent; Predicate.isNotUndefined(p); p = p.parent) {
+      if ((p.dragging || p.releasing) && Predicate.isNotUndefined(p.layoutBox)) return p
       if (node.layoutAnchor === false) {
         // Opted out (Motion's layoutAnchor !== false gate): only a dragged ancestor,
         // below the next layoutRoot boundary, anchors it.
         if (p.layoutRoot) return undefined
-      } else {
-        // A layoutRoot is a persistent relative anchor AND the boundary — stop here.
-        if (p.layoutRoot) return p.layoutBox !== undefined ? p : undefined
-        // A Follower locked onto its Lead carries what's inside it, placed in its lock (#169).
-        if (isMovingFollower(p) && Predicate.isNotUndefined(boxOf(p))) return p
-        if (active.has(p) && p.animating && p.origin !== undefined && p.layoutBox !== undefined) return p
+        continue
       }
-      p = p.parent
+      // A layoutRoot is a persistent relative anchor AND the boundary — stop here.
+      if (p.layoutRoot && Predicate.isNotUndefined(p.layoutBox)) return p
+      if (p.layoutRoot) return undefined
+      // A Follower locked onto its Lead carries what's inside it, placed in its lock (#169).
+      if (isMovingFollower(p) && Predicate.isNotUndefined(boxOf(p))) return p
+      if (active.has(p) && p.animating && Predicate.isNotUndefined(p.origin) && Predicate.isNotUndefined(p.layoutBox)) return p
     }
     return undefined
   }
@@ -1923,15 +1958,15 @@ export const makeProjectionSystem = (
    * correction, and `delta = calcBoxDelta(layoutCorrected, targetBox)`.
    */
   const derive = (node: NodeState): void => {
-    const box = node.layoutBox ?? node.retained
-    if (box === undefined) return
+    const box = boxOf(node)
+    if (Predicate.isUndefined(box)) return
 
     // DRAGGING (ADR-0016): the target is the pointer's visual position — the grab-time
     // slot translated by the live pointer delta. Anchored at `grabBox` (not the current
     // `layoutBox`), so a mid-drag reorder that moves the slot keeps the item under the
     // pointer (the delta just recomputes against the new layoutBox). A layout animation the
     // grab left running carries the anchor until it lands (*Amendment (velocity family)*).
-    if (node.dragging && node.grabBox !== undefined) {
+    if (node.dragging && Predicate.isNotUndefined(node.grabBox)) {
       const targetBox = dragPaintedOf(node, box)
       const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
       const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
@@ -1969,32 +2004,35 @@ export const makeProjectionSystem = (
     if (node.layoutRoot) return offsetBox(box, carryOf(node))
     const rp = relativeParentOf(node)
     const rpBox = boxOf(rp)
-    let targetBox: Box.Box
-    if (rp !== undefined && rpBox !== undefined && rp.lastTarget !== undefined) {
+    if (Predicate.isNotUndefined(rp) && Predicate.isNotUndefined(rpBox) && Predicate.isNotUndefined(rp.lastTarget)) {
       // RELATIVE: track the relativeParent (any scale, ADR-0013) at the node's
       // `layoutAnchor` (default top-left). Use the node's OWN progress while it
       // animates; once settled — or for a carried child — it sits at its final
       // relative offset and KEEPS tracking the parent (a fast child doesn't detach
       // from a slow one). For a static `layoutRoot` relativeParent (no own
       // animation), the parent's "from" box is just its layout box.
-      const anchor = node.layoutAnchor !== false && node.layoutAnchor !== undefined ? node.layoutAnchor : ZERO_ANCHOR
+      const anchor = layoutAnchorOf(node)
       let rpFromBox = rpBox
-      if (rp.origin !== undefined) rpFromBox = rp.origin
+      if (Predicate.isNotUndefined(rp.origin)) rpFromBox = rp.origin
       const progress = progressOf(node)
       const relTo = Projection.calcRelativeBox(box, rpBox, anchor)
       let relFrom = relTo
-      if (node.origin !== undefined) relFrom = Projection.calcRelativeBox(node.origin, rpFromBox, anchor)
+      if (Predicate.isNotUndefined(node.origin)) relFrom = Projection.calcRelativeBox(node.origin, rpFromBox, anchor)
       const relTarget = Box.mix(relFrom, relTo, progress)
-      targetBox = Projection.placeRelativeBox(relTarget, rp.lastTarget, anchor)
-    } else if (flying(node)) {
-      // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
-      targetBox = Box.mix(UndefinedOr.getOrThrow(node.origin), box, progressOf(node))
-    } else {
-      // CARRIED under a SCALED ancestor / at rest: target the real box — applyTreeDeltas
-      // supplies the counter-transform.
-      targetBox = box
+      return Projection.placeRelativeBox(relTarget, rp.lastTarget, anchor)
     }
-    return targetBox
+    // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
+    if (flying(node)) return Box.mix(UndefinedOr.getOrThrow(node.origin), box, progressOf(node))
+    // CARRIED under a SCALED ancestor / at rest: target the real box — applyTreeDeltas
+    // supplies the counter-transform.
+    return box
+  }
+
+  /** The point of a node's box its relativeParent tracks: its `layoutAnchor`, top-left by default. Per frame. */
+  const layoutAnchorOf = (node: NodeState): Point.Point => {
+    const anchor = node.layoutAnchor
+    if (anchor === false || Predicate.isUndefined(anchor)) return ZERO_ANCHOR
+    return anchor
   }
 
   /**
@@ -2005,18 +2043,18 @@ export const makeProjectionSystem = (
    * the ancestor correction still apply to the follower's OWN box.
    */
   const deriveFollower = (node: NodeState): void => {
-    if (node.layoutId === undefined) return
+    if (Predicate.isUndefined(node.layoutId)) return
     const lead = leadOf(node.layoutId)
-    if (lead === undefined || lead === node || lead.lastTarget === undefined) return
-    const box = node.layoutBox ?? node.retained
-    if (box === undefined) return
+    if (Predicate.isUndefined(lead) || lead === node || Predicate.isUndefined(lead.lastTarget)) return
+    const box = boxOf(node)
+    if (Predicate.isUndefined(box)) return
     const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
     // Lock onto the lead's box, where it paints (#136): the two may sit under different transforms.
     let target = between(lead, node, lead.lastTarget)
     // A Follower whose mode animates position only keeps its own size, at its Lead's top-left
     // (ADR-0009, *Amendment (#42)*; Motion's applyTransformsToTarget). Plain calls: per frame.
     const leadBox = lead.layoutBox
-    if (leadBox !== undefined && Projection.animatesPositionOnly(node.layoutMode(), box, leadBox)) target = Projection.withSizeOf(target, box)
+    if (Predicate.isNotUndefined(leadBox) && Projection.animatesPositionOnly(node.layoutMode(), box, leadBox)) target = Projection.withSizeOf(target, box)
     // Drawn where its Lead is drawn (ADR-0010 *Amendment (#8)*, Motion's `lead.latestValues`): at
     // the Lead's own scale, its own divided out, so the two overlap exactly.
     const leadOwn = lead.ownScale()
@@ -2043,11 +2081,13 @@ export const makeProjectionSystem = (
     for (const n of nodes) {
       if (isFollower(n)) {
         if (isMovingFollower(n)) followers.push(n)
-      } else if (Predicate.isNotUndefined(movingFollowerAbove(n))) {
-        followers.push(n)
-      } else if (active.has(n) || hasActiveAncestor(n)) {
-        leads.push(n)
+        continue
       }
+      if (Predicate.isNotUndefined(movingFollowerAbove(n))) {
+        followers.push(n)
+        continue
+      }
+      if (active.has(n) || hasActiveAncestor(n)) leads.push(n)
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
@@ -2061,8 +2101,11 @@ export const makeProjectionSystem = (
   const deriveCarried = (followers: Array<NodeState>): void => {
     followers.sort((a, b) => a.depth - b.depth)
     for (const node of followers) {
-      if (isFollower(node)) deriveFollower(node)
-      else derive(node)
+      if (isFollower(node)) {
+        deriveFollower(node)
+        continue
+      }
+      derive(node)
     }
   }
 
@@ -2072,19 +2115,19 @@ export const makeProjectionSystem = (
    * `isTreeAnimationBlocked`, create-projection-node.ts:633-639 at 16c6122).
    */
   const inDraggedTree = (node: NodeState): boolean => {
-    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) if (p.dragging) return true
+    for (let p: NodeState | undefined = node; Predicate.isNotUndefined(p); p = p.parent) if (p.dragging) return true
     return false
   }
 
   /** Whether `node` is a descendant of `ancestor`. */
   const isDescendantOf = (node: NodeState, ancestor: NodeState): boolean => {
-    for (let p = node.parent; p !== undefined; p = p.parent) if (p === ancestor) return true
+    for (let p = node.parent; Predicate.isNotUndefined(p); p = p.parent) if (p === ancestor) return true
     return false
   }
 
   /** Whether an ancestor of `node` (up to and including a `layoutRoot` boundary) is in `changed`. */
   const hasChangedAncestor = (node: NodeState, changed: ReadonlySet<NodeState>): boolean => {
-    for (let p = node.parent; p !== undefined; p = p.parent) {
+    for (let p = node.parent; Predicate.isNotUndefined(p); p = p.parent) {
       if (changed.has(p)) return true
       if (p.layoutRoot) return false
     }
@@ -2107,11 +2150,11 @@ export const makeProjectionSystem = (
     const roots = new Set<NodeState>()
     for (const node of changed) {
       let root = node
-      for (let p = node.parent; p !== undefined; p = p.parent) if (active.has(p)) root = p
+      for (let p = node.parent; Predicate.isNotUndefined(p); p = p.parent) if (active.has(p)) root = p
       roots.add(root)
     }
     for (const node of nodes) {
-      for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) {
+      for (let p: NodeState | undefined = node; Predicate.isNotUndefined(p); p = p.parent) {
         if (roots.has(p)) {
           group.add(node)
           break
@@ -2128,17 +2171,17 @@ export const makeProjectionSystem = (
     const followers: Array<NodeState> = []
     for (const n of nodes) {
       if (isFollower(n)) {
-        const lead = n.layoutId !== undefined ? leadOf(n.layoutId) : undefined
-        if (lead !== undefined && active.has(lead) && group.has(lead)) followers.push(n)
+        const lead = stackLeadOf(n)
+        if (Predicate.isNotUndefined(lead) && active.has(lead) && group.has(lead)) followers.push(n)
         continue
       }
       const carrier = movingFollowerAbove(n)
       if (Predicate.isNotUndefined(carrier)) {
         const lead = stackLeadOf(carrier)
-        if (group.has(n) || (lead !== undefined && group.has(lead))) followers.push(n)
-      } else if (group.has(n) && (active.has(n) || hasActiveAncestor(n))) {
-        leads.push(n)
+        if (group.has(n) || (Predicate.isNotUndefined(lead) && group.has(lead))) followers.push(n)
+        continue
       }
+      if (group.has(n) && (active.has(n) || hasActiveAncestor(n))) leads.push(n)
     }
     leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
@@ -2152,7 +2195,7 @@ export const makeProjectionSystem = (
       let parent: NodeState | undefined
       while (el !== null) {
         const candidate = elementToNode.get(el)
-        if (candidate !== undefined) {
+        if (Predicate.isNotUndefined(candidate)) {
           parent = candidate
           break
         }
@@ -2163,7 +2206,7 @@ export const makeProjectionSystem = (
     for (const node of nodes) {
       let depth = 0
       let p = node.parent
-      while (p !== undefined) {
+      while (Predicate.isNotUndefined(p)) {
         depth++
         p = p.parent
       }
@@ -2180,7 +2223,7 @@ export const makeProjectionSystem = (
   const scrollStyles = new WeakMap<Element, ScrollStyle>()
   const scrollStyleOf = (el: Element): ScrollStyle => {
     let style = scrollStyles.get(el)
-    if (style === undefined) {
+    if (Predicate.isUndefined(style)) {
       style = scrollStyleFrom(computedOf(el))
       scrollStyles.set(el, style)
     }
@@ -2334,24 +2377,36 @@ export const makeProjectionSystem = (
     const doc = el.ownerDocument
     if (el === doc.body || el === doc.documentElement) return ROOT_FOLD
     const hit = memo.get(el)
-    if (hit !== undefined) return hit
+    if (Predicate.isNotUndefined(hit)) return hit
     const node = elementToNode.get(el)
-    let scroll: Point.Point | undefined
-    let stop: boolean
-    if (node?.isScroll === true) {
-      scroll = node.scroll
-      stop = node.isScrollRoot
-    } else {
-      scroll = undefined
-      if (scrollStyleOf(el).scrollable) scroll = measureScroll(el)
-      stop = isFixedNow(el)
-    }
-    const above = stop ? NO_FOLD : foldFrom(el.parentElement, memo)
-    const fold: Fold = scroll === undefined
-      ? above
-      : { containers: [{ element: el, scroll }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
+    // A `layoutScroll` node holds its own scroll and whether it's a scroll root; any other element is read.
+    if (Predicate.isNotUndefined(node) && node.isScroll) return foldAt(el, memo, node.scroll, node.isScrollRoot)
+    return foldAt(el, memo, readScrollOf(el), isFixedNow(el))
+  }
+
+  /** `el`'s fold, kept in `memo`: its scroll, if it scrolls, on top of the fold above it, unless it stops the walk. */
+  const foldAt = (el: HTMLElement, memo: Map<Element, Fold>, scroll: Point.Point | undefined, stop: boolean): Fold => {
+    const fold = withScroll(el, scroll, foldAbove(el, memo, stop))
     memo.set(el, fold)
     return fold
+  }
+
+  /** The fold above `el`: none past a scroll root. */
+  const foldAbove = (el: HTMLElement, memo: Map<Element, Fold>, stop: boolean): Fold => {
+    if (stop) return NO_FOLD
+    return foldFrom(el.parentElement, memo)
+  }
+
+  /** `above`, with `el`'s scroll added when it has one. */
+  const withScroll = (el: HTMLElement, scroll: Point.Point | undefined, above: Fold): Fold => {
+    if (Predicate.isUndefined(scroll)) return above
+    return { containers: [{ element: el, scroll }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
+  }
+
+  /** An element's scroll, read, when its style lets it scroll. */
+  const readScrollOf = (el: HTMLElement): Point.Point | undefined => {
+    if (scrollStyleOf(el).scrollable) return measureScroll(el)
+    return undefined
   }
 
   /**
@@ -2382,8 +2437,9 @@ export const makeProjectionSystem = (
   const carriesTransform = (el: Holdable, holds: Array<readonly [Holdable, TransformStyle]>): boolean => {
     const style = transformStyleFrom(computedOf(el))
     if (Arr.isReadonlyArrayEmpty(style.moved)) return false
-    if (Bool.not(transitionRunning(el))) holds.push([el, style])
-    else passUnheld.add(el)
+    const running = transitionRunning(el)
+    if (Bool.not(running)) holds.push([el, style])
+    if (running) passUnheld.add(el)
     return true
   }
 
@@ -2479,9 +2535,17 @@ export const makeProjectionSystem = (
    */
   const scrollOffset = (node: NodeState, rootScroll: Point.Point): Point.Point => {
     const fold = node.fold
-    const dx = fold.x + (fold.root ? rootScroll.x : 0)
-    const dy = fold.y + (fold.root ? rootScroll.y : 0)
-    return dx === 0 && dy === 0 ? ZERO_POINT : { x: dx, y: dy }
+    const root = rootShareOf(fold, rootScroll)
+    const dx = fold.x + root.x
+    const dy = fold.y + root.y
+    if (dx === 0 && dy === 0) return ZERO_POINT
+    return { x: dx, y: dy }
+  }
+
+  /** The root scroll a fold takes: all of it, unless a scroll root is on the way. Per frame. */
+  const rootShareOf = (fold: Fold, rootScroll: Point.Point): Point.Point => {
+    if (fold.root) return rootScroll
+    return ZERO_POINT
   }
 
   /**
@@ -2492,8 +2556,9 @@ export const makeProjectionSystem = (
    */
   const foldScroll = (node: NodeState, box: Box.Box, rootScroll: Point.Point): Box.Box => {
     const fold = node.fold
-    const dx = fold.x + (fold.root ? rootScroll.x : 0)
-    const dy = fold.y + (fold.root ? rootScroll.y : 0)
+    const root = rootShareOf(fold, rootScroll)
+    const dx = fold.x + root.x
+    const dy = fold.y + root.y
     if (dx === 0 && dy === 0) return box
     const fresh = box as { readonly x: { min: number; max: number }; readonly y: { min: number; max: number } }
     fresh.x.min += dx
@@ -2512,7 +2577,8 @@ export const makeProjectionSystem = (
    * window.
    */
   const isRootAt = (el: HTMLElement): boolean => {
-    if (elementToNode.get(el)?.isScroll === true) return isScrollRoot(el)
+    const node = elementToNode.get(el)
+    if (Predicate.isNotUndefined(node) && node.isScroll) return isScrollRoot(el)
     return isFixedNow(el)
   }
   const rootScrollApplies = (node: NodeState): boolean => {
@@ -2544,7 +2610,8 @@ export const makeProjectionSystem = (
       // As painted, its own projection included (#170): a twin disposed mid-flight seeds from
       // where it was seen, as Motion's `measuredBox` does.
       const viewport = Box.fromBounds(readLayoutBox(el))
-      return rootScrollApplies(node) ? offsetBox(viewport, measureDocumentScroll()) : viewport
+      if (rootScrollApplies(node)) return offsetBox(viewport, measureDocumentScroll())
+      return viewport
     }
     // As drawn, its own scale included (ADR-0010 *Amendment (#8)*).
     const stored = UndefinedOr.map(paintedNowOf(node), (box) => drawnOf(node, box))
@@ -2554,11 +2621,18 @@ export const makeProjectionSystem = (
     let dx = 0
     let dy = 0
     for (const container of node.fold.containers) {
-      const scroll = container.element.isConnected ? measureScroll(container.element) : container.scroll
+      const scroll = containerScrollOf(container)
       dx += scroll.x
       dy += scroll.y
     }
-    return dx === 0 && dy === 0 ? stable : offsetBox(stable, { x: -dx, y: -dy })
+    if (dx === 0 && dy === 0) return stable
+    return offsetBox(stable, { x: -dx, y: -dy })
+  }
+
+  /** A scroll container's scroll: read live while it's in the document, else as last read. */
+  const containerScrollOf = (container: Fold["containers"][number]): Point.Point => {
+    if (container.element.isConnected) return measureScroll(container.element)
+    return container.scroll
   }
 
   /**
@@ -2569,10 +2643,10 @@ export const makeProjectionSystem = (
    */
   const pendingTwinOf = (node: NodeState, layoutId: string): NodeState | undefined => {
     const stack = stacks.get(layoutId)
-    if (stack === undefined) return undefined
+    if (Predicate.isUndefined(stack)) return undefined
     for (let i = stack.length - 1; i >= 0; i--) {
       const twin = stack[i]
-      if (twin !== node && !twin.leaving && twin.retained === undefined) return twin
+      if (twin !== node && !twin.leaving && Predicate.isUndefined(twin.retained)) return twin
     }
     return undefined
   }
@@ -2613,7 +2687,7 @@ export const makeProjectionSystem = (
    * task and annotates what became of them.
    */
   const holdLeaver = (node: NodeState, layoutId: string): void => {
-    const box = node.layoutBox ?? node.retained
+    const box = boxOf(node)
     const recent = UndefinedOr.map(box, (stored): RecentLeaver => ({
       layoutId,
       box: stored,
@@ -2623,7 +2697,7 @@ export const makeProjectionSystem = (
       shift: scrollOffset(node, measureDocumentScroll()),
       reintroduced: false,
     }))
-    if (recent !== undefined) recentLeavers.set(node.element, recent)
+    if (Predicate.isNotUndefined(recent)) recentLeavers.set(node.element, recent)
 
     const seedBox = rootFrameBox(node)
     // Its look as drawn as it goes (ADR-0010 *Amendment (#166)*): what a twin taking over blends from.
@@ -2631,35 +2705,44 @@ export const makeProjectionSystem = (
     node.leftLook = look
     let handedOff = false
     let held: HeldSeed | undefined
-    if (seedBox !== undefined) {
+    if (Predicate.isNotUndefined(seedBox)) {
       const twin = pendingTwinOf(node, layoutId)
-      if (twin !== undefined) {
+      if (Predicate.isNotUndefined(twin)) {
         twin.seed = seedBox
         twin.seedBlend = look
         handedOff = true
-      } else {
+      }
+      if (Predicate.isUndefined(twin)) {
         held = { box: seedBox, blend: look, consumed: false }
         heldSeeds.set(layoutId, held)
       }
     }
-    if (recent === undefined && seedBox === undefined) return
+    if (Predicate.isUndefined(recent) && Predicate.isUndefined(seedBox)) return
 
     endOfTask("wardic.projection.leaverHold", { layoutId }, () => {
-      if (recent !== undefined && recentLeavers.get(node.element) === recent) recentLeavers.delete(node.element)
-      let seed = handedOff ? "handed-off" : "none"
-      if (held !== undefined) {
-        if (held.consumed) {
-          seed = "consumed"
-        } else if (heldSeeds.get(layoutId) === held) {
-          heldSeeds.delete(layoutId)
-          seed = "expired"
-        } else {
-          seed = "replaced" // a later leaver with the same layoutId took the slot
-        }
-      }
-      return { seed, reintroduced: recent?.reintroduced ?? false }
+      if (Predicate.isNotUndefined(recent) && recentLeavers.get(node.element) === recent) recentLeavers.delete(node.element)
+      const seed = UndefinedOr.match(held, {
+        onUndefined: () => Bool.match(handedOff, { onTrue: () => "handed-off", onFalse: () => "none" }),
+        onDefined: (h) => heldOutcomeOf(h, layoutId),
+      })
+      return { seed, reintroduced: Predicate.isNotUndefined(recent) && recent.reintroduced }
     })
   }
+
+  /** What became of a leaver's held Switch seed by the end of its task: consumed, expired (dropped now), or replaced. */
+  const heldOutcomeOf = (held: HeldSeed, layoutId: string): string =>
+    Bool.match(held.consumed, {
+      onTrue: () => "consumed",
+      onFalse: () =>
+        Bool.match(heldSeeds.get(layoutId) === held, {
+          onTrue: () => {
+            heldSeeds.delete(layoutId)
+            return "expired"
+          },
+          // A later leaver with the same layoutId took the slot.
+          onFalse: () => "replaced",
+        }),
+    })
 
   // --- One round of the Measure pass (reads, then FLIP seeds), run inside the ---
   // sink's `flushPass`, which applies what it writes before returning. The
@@ -2693,14 +2776,14 @@ export const makeProjectionSystem = (
    * re-derived and flushed with its group.
    */
   const slotOnly = (node: NodeState, prev: Box.Box | undefined, newBox: Box.Box): boolean => {
-    if (prev === undefined) {
+    if (Predicate.isUndefined(prev)) {
       node.lastDelta = IDENTITY_DELTA
       writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
       return false
     }
     if (boxesEqual(prev, newBox)) return false
-    if (!node.dragging && node.animating && node.origin !== undefined) {
-      const from = centreOf(node.layoutBox ?? prev)
+    if (!node.dragging && node.animating && Predicate.isNotUndefined(node.origin)) {
+      const from = centreOf(definedOr(node.layoutBox, prev))
       const to = centreOf(newBox)
       node.origin = offsetBox(node.origin, { x: to.x - from.x, y: to.y - from.y })
     }
@@ -2782,7 +2865,7 @@ export const makeProjectionSystem = (
         // OWN corrected inline value (inline overrides the stylesheet) and compound the
         // radius/shadow each frame. (A node's authored radius changing mid-life is the
         // documented v0.1 limit.)
-        if (node.correctorBases === undefined) node.correctorBases = readBases(node.element)
+        if (Predicate.isUndefined(node.correctorBases)) node.correctorBases = readBases(node.element)
       }
       // Each node's fold (ADR-0012, *Amendment (Reorder)*), now every `layoutScroll`
       // sample is in: every container that can scroll, read once this pass.
@@ -2931,7 +3014,7 @@ export const makeProjectionSystem = (
       // layout animation, carried by its drag or Release offset). A dragged layoutRoot follows
       // the pointer instead: it takes the drag-blocked update below, like any dragged node.
       if (node.layoutRoot && !node.dragging) {
-        if (prev !== undefined && !boxesEqual(prev, newBox)) {
+        if (Predicate.isNotUndefined(prev) && !boxesEqual(prev, newBox)) {
           changed.add(node)
           if (inDraggedTree(node)) dragBlocked.add(node)
         }
@@ -2980,7 +3063,7 @@ export const makeProjectionSystem = (
         continue
       }
 
-      if (prev === undefined) {
+      if (Predicate.isUndefined(prev)) {
         // First measure — detection priority (ADR-0010):
         // (1) CROSSFADE: a LIVE prior twin already in this node's stack → animate
         //     FROM the prior lead's box (the prior twins become Followers locked
@@ -2998,7 +3081,7 @@ export const makeProjectionSystem = (
             }),
             (box) => undrawnFor(node, between(lead, node, drawnOf(lead, box))),
           ))
-        if (priorBox !== undefined) {
+        if (Predicate.isNotUndefined(priorBox)) {
           // It blends from the prior Lead's look as drawn, and the prior Lead's own blend ends: it
           // follows this one now (ADR-0010 *Amendment (#166)*).
           UndefinedOr.map(priorLeadOf(node), (prior) => {
@@ -3023,10 +3106,10 @@ export const makeProjectionSystem = (
         //     pass) and taking out what its ancestors' transforms paint (#136), then
         //     FLIP from it to the measured box (a move, no crossfade — the leaver is
         //     gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
-        if (seed !== undefined) {
+        if (Predicate.isNotUndefined(seed)) {
           const containers = scrollOffset(node, ZERO_POINT)
           // Drawn there on its first frame, its own scale divided out (ADR-0010 *Amendment (#8)*).
-          const origin = undrawnFor(node, unpaintedOf(node, containers === ZERO_POINT ? seed : offsetBox(seed, containers)))
+          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(seed, containers)))
           // It blends from the leaver's look as drawn (ADR-0010 *Amendment (#166)*), so a Switch at an
           // equal box animates too when the two look different (Motion's: any `resumeFrom` animates).
           const differs = UndefinedOr.match(seedBlend, { onUndefined: constFalse, onDefined: (look) => looksOtherThan(node, look) })
@@ -3117,10 +3200,7 @@ export const makeProjectionSystem = (
     // The Resize block: this pass takes it and clears it.
     const blocked = resizeBlocked
     resizeBlocked = false
-    if (resizeTimer !== undefined) {
-      clearTimeout(resizeTimer)
-      resizeTimer = undefined
-    }
+    runtime.runFork(FiberHandle.clear(resizeWait))
     let rounds = 0
     inPass = true
     try {
@@ -3144,10 +3224,8 @@ export const makeProjectionSystem = (
     if (triggeredDuringPass && !disposed) {
       triggeredDuringPass = false
       debug("measure round cap", { rounds })
-      leftover = setTimeout(() => {
-        leftover = undefined
-        scheduleMeasure()
-      }, 0)
+      // The next task's pass: a real timer, whatever Scheduler is installed.
+      FiberSet.addUnsafe(taskFibers, runtime.runFork(nextTask.pipe(Effect.andThen(Effect.sync(scheduleMeasure)))))
     }
     return Effect.annotateCurrentSpan({
       nodes: nodes.size,
@@ -3366,7 +3444,7 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(box)) return undefined
     if (restsAtPass(node)) return box
     const chain: Array<Projection.Delta> = []
-    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) chain.push(p.passDelta)
+    for (let p: NodeState | undefined = node; Predicate.isNotUndefined(p); p = p.parent) chain.push(p.passDelta)
     chain.reverse()
     return Projection.applyTreeDeltas(box, chain).box
   }
@@ -3379,17 +3457,17 @@ export const makeProjectionSystem = (
    * seed); one inside a pass reads {@link paintedAtPass}. `undefined` with no box.
    */
   const paintedNowOf = (node: NodeState): Box.Box | undefined => {
-    const box = node.layoutBox ?? node.retained
+    const box = boxOf(node)
     if (Predicate.isUndefined(box)) return undefined
     const chain: Array<Projection.Delta> = []
-    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) chain.push(p.lastDelta)
+    for (let p: NodeState | undefined = node; Predicate.isNotUndefined(p); p = p.parent) chain.push(p.lastDelta)
     chain.reverse()
     return Projection.applyTreeDeltas(box, chain).box
   }
 
   /** Whether `node`'s pass delta and every ancestor's are the identity: nothing moved where it paints. */
   const restsAtPass = (node: NodeState): boolean => {
-    for (let p: NodeState | undefined = node; p !== undefined; p = p.parent) if (Bool.not(isIdentityDelta(p.passDelta))) return false
+    for (let p: NodeState | undefined = node; Predicate.isNotUndefined(p); p = p.parent) if (Bool.not(isIdentityDelta(p.passDelta))) return false
     return true
   }
 
@@ -3465,7 +3543,7 @@ export const makeProjectionSystem = (
 
   // --- The coordinator (writes), one tick of the Clock. -----------------------
   const step = (dtRaw: number): void => {
-    const dt = dtRaw > Machine.MAX_DT ? Machine.MAX_DT : dtRaw
+    const dt = Math.min(dtRaw, Machine.MAX_DT)
     const settled: Array<NodeState> = []
     // 1) Step every active node's springs (no derive yet — the tree-aware derive needs
     //    ALL springs advanced before computing parent-first): its layout animation's
@@ -3564,16 +3642,16 @@ export const makeProjectionSystem = (
     // A settled Lead's live Followers come to rest hidden, one write each (#5): a handover that only
     // moved held them at their own opacity until now.
     for (const node of settled) {
-      if (node.layoutId === undefined || leadOf(node.layoutId) !== node) continue
+      if (Predicate.isUndefined(node.layoutId) || leadOf(node.layoutId) !== node) continue
       const stack = stacks.get(node.layoutId)
-      if (stack !== undefined) for (const f of stack) if (f !== node && !f.leaving) deriveFollower(f)
+      if (Predicate.isNotUndefined(stack)) for (const f of stack) if (f !== node && !f.leaving) deriveFollower(f)
     }
     // 3b) A leaving Follower whose Lead just settled is done crossfading → remove it
     //     (fires onDone → presence removes the retained DOM node).
     for (const node of settled) {
-      if (node.layoutId !== undefined && leadOf(node.layoutId) === node) {
+      if (Predicate.isNotUndefined(node.layoutId) && leadOf(node.layoutId) === node) {
         const stack = stacks.get(node.layoutId)
-        if (stack !== undefined) for (const f of [...stack]) if (f.leaving) finishLeaver(f)
+        if (Predicate.isNotUndefined(stack)) for (const f of [...stack]) if (f.leaving) finishLeaver(f)
       }
     }
     if (active.size === 0) stopTicking()
@@ -3679,11 +3757,19 @@ export const makeProjectionSystem = (
       checkSettlings()
     }
     resizeBlocked = true
-    if (resizeTimer !== undefined) clearTimeout(resizeTimer)
-    resizeTimer = setTimeout(() => {
-      resizeTimer = undefined
-      if (resizeBlocked) scheduleMeasure()
-    }, 250)
+    // A later change restarts the wait.
+    FiberHandle.setUnsafe(
+      resizeWait,
+      runtime.runFork(
+        Effect.sleep(RESIZE_BLOCK).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              if (resizeBlocked) scheduleMeasure()
+            }),
+          ),
+        ),
+      ),
+    )
   }
 
   /** Run a pending blocked pass now, synchronously (its rounds run before the fiber's first async step). */
@@ -3824,11 +3910,11 @@ export const makeProjectionSystem = (
     const cb = node.onLeaveDone
     node.onLeaveDone = undefined
     node.leaving = false
-    ro?.unobserve(node.element)
+    if (Predicate.isNotUndefined(ro)) ro.unobserve(node.element)
     elementToNode.delete(node.element)
-    if (node.layoutId !== undefined) {
+    if (Predicate.isNotUndefined(node.layoutId)) {
       const stack = stacks.get(node.layoutId)
-      if (stack !== undefined) {
+      if (Predicate.isNotUndefined(stack)) {
         const i = stack.indexOf(node)
         if (i >= 0) stack.splice(i, 1)
         if (stack.length === 0) stacks.delete(node.layoutId)
@@ -3841,7 +3927,7 @@ export const makeProjectionSystem = (
     const within: Array<NodeState> = []
     for (const n of nodes) if (n.leaving && node.element.contains(n.element)) within.push(n)
     for (const n of within) if (n.leaving) finishLeaver(n)
-    cb?.()
+    if (Predicate.isNotUndefined(cb)) cb()
   }
 
   /**
@@ -3923,17 +4009,21 @@ export const makeProjectionSystem = (
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
     const live = elementToNode.get(el)
     const recent = recentLeavers.get(el)
-    const layoutId = live?.layoutId ?? recent?.layoutId
-    if (layoutId === undefined) return false
-    debug("handleLeave", { layoutId, branch: live !== undefined ? "live" : "reintroduce" })
+    // A live node's layoutId, else the one a recent leaver held.
+    const layoutId = Option.getOrUndefined(
+      Option.orElse(Option.flatMap(Option.fromUndefinedOr(live), (n) => Option.fromUndefinedOr(n.layoutId)), () =>
+        Option.map(Option.fromUndefinedOr(recent), (r) => r.layoutId)),
+    )
+    if (Predicate.isUndefined(layoutId)) return false
+    debug("handleLeave", { layoutId, branch: Bool.match(Predicate.isNotUndefined(live), { onTrue: () => "live", onFalse: () => "reintroduce" }) })
 
     // (A) handleLeave BEFORE dispose — el's node is still live. Mark it leaving (its
     // later dispose then SKIPS removal), demote it to a Follower, and promote the twin.
-    if (live !== undefined) {
+    if (Predicate.isNotUndefined(live)) {
       const stack = stacks.get(layoutId)
       const isLead = leadOf(layoutId) === live
-      const twin = isLead ? priorLeadOf(live) : leadOf(layoutId)
-      if (twin === undefined || twin === live || stack === undefined) return false // lone leave
+      const twin = Bool.match(isLead, { onTrue: () => priorLeadOf(live), onFalse: () => leadOf(layoutId) })
+      if (Predicate.isUndefined(twin) || twin === live || Predicate.isUndefined(stack)) return false // lone leave
       live.leaving = true
       live.onLeaveDone = onDone
       if (isLead) {
@@ -3945,17 +4035,20 @@ export const makeProjectionSystem = (
       }
       // After a possible swap, re-read the (new) Lead — never assert it exists.
       const newLead = leadOf(layoutId)
-      if (newLead !== undefined && active.has(newLead)) deriveAll()
-      else finishLeaver(live) // no animating lead to ride → finish promptly (already hidden)
+      if (Predicate.isNotUndefined(newLead) && active.has(newLead)) {
+        deriveAll()
+        return true
+      }
+      finishLeaver(live) // no animating lead to ride → finish promptly (already hidden)
       return true
     }
 
     // (B) dispose BEFORE handleLeave — el's node is gone; re-introduce it as a
     // transient leaving Follower from the recorded box (the re-introduce model).
     const lead = leadOf(layoutId)
-    if (lead === undefined || lead.element === el || recent === undefined) return false
+    if (Predicate.isUndefined(lead) || lead.element === el || Predicate.isUndefined(recent)) return false
     const stack = stacks.get(layoutId)
-    if (stack === undefined) return false
+    if (Predicate.isUndefined(stack)) return false
     const follower = makeLeavingNode(el, layoutId, recent, onDone, undefined, undefined)
     recent.reintroduced = true
     nodes.add(follower)
@@ -3963,8 +4056,11 @@ export const makeProjectionSystem = (
     stack.splice(stack.length - 1, 0, follower) // insert below the Lead
     reintroduceWithin(el)
     computeTree()
-    if (active.has(lead)) deriveAll()
-    else finishLeaver(follower)
+    if (active.has(lead)) {
+      deriveAll()
+      return true
+    }
+    finishLeaver(follower)
     return true
   }
 
@@ -4217,31 +4313,33 @@ export const makeProjectionSystem = (
     })
     // Enrol in the per-`layoutId` stack: newest → Lead; prior entries are relegated
     // to Followers (the crossfade is detected from the stack at first measure).
-    if (node.layoutId !== undefined) {
+    if (Predicate.isNotUndefined(node.layoutId)) {
       let stack = stacks.get(node.layoutId)
-      if (stack === undefined) {
+      if (Predicate.isUndefined(stack)) {
         stack = []
         stacks.set(node.layoutId, stack)
       }
       stack.push(node)
       // Take the Switch seed a twin disposed earlier in this task left behind.
       const held = heldSeeds.get(node.layoutId)
-      if (held !== undefined) {
+      if (Predicate.isNotUndefined(held)) {
         node.seed = held.box
         node.seedBlend = held.blend
         held.consumed = true
         heldSeeds.delete(node.layoutId)
       }
     }
-    if (ro === undefined && typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(onObserved)
+    // No observer, and no window, on a server.
+    const Observer = (globalThis as { readonly ResizeObserver?: typeof ResizeObserver }).ResizeObserver
+    if (Predicate.isUndefined(ro) && Predicate.isNotUndefined(Observer)) {
+      ro = new Observer(onObserved)
     }
-    if (!resizeListening && typeof window !== "undefined") {
+    if (!resizeListening && Predicate.isNotUndefined((globalThis as { readonly window?: Window }).window)) {
       resizeListening = true
       lastWidth = window.innerWidth
       window.addEventListener("resize", onResize)
     }
-    ro?.observe(node.element, BORDER_BOX)
+    if (Predicate.isNotUndefined(ro)) ro.observe(node.element, BORDER_BOX)
     // Seed retained + write the identity projection on the next frame.
     scheduleMeasure()
 
@@ -4250,8 +4348,8 @@ export const makeProjectionSystem = (
       // --- geometry (ADR-0016 *Amendment (Reorder)*): plain reads ------------------
       layoutBox: () => Option.orElse(Option.fromUndefinedOr(node.layoutBox), () => Option.fromUndefinedOr(node.retained)),
       dragOffset: () => {
-        if (!node.dragging || node.grabBox === undefined) return ZERO_POINT
-        const slot = node.layoutBox ?? node.grabBox
+        if (!node.dragging || Predicate.isUndefined(node.grabBox)) return ZERO_POINT
+        const slot = definedOr(node.layoutBox, node.grabBox)
         const target = dragTargetOf(node, slot)
         return { x: target.x.min - slot.x.min, y: target.y.min - slot.y.min }
       },
@@ -4263,8 +4361,8 @@ export const makeProjectionSystem = (
         // first, so the grab anchors at the slot the node has now (#39).
         runBlockedPass()
         // Anchor at the grab-time slot; the node then tracks `grabBox + dragDelta`.
-        node.grabBox = node.layoutBox ?? node.retained
-        if (node.grabBox === undefined) return // not measured yet — nothing to anchor
+        node.grabBox = boxOf(node)
+        if (Predicate.isUndefined(node.grabBox)) return // not measured yet — nothing to anchor
         debug("dragStart", { id: node.id })
         // A release the grab stopped hands the drag where it left the node, so it doesn't jump
         // (ADR-0016, *Amendment (velocity family)*, decision 4).
@@ -4299,9 +4397,9 @@ export const makeProjectionSystem = (
         deriveGroup(groupOf(new Set([node])))
       },
       dragEnd: (velocity = ZERO_POINT) => {
-        if (!node.dragging || node.grabBox === undefined) return
+        if (!node.dragging || Predicate.isUndefined(node.grabBox)) return
         debug("dragEnd", { id: node.id })
-        const slot = node.layoutBox ?? node.grabBox
+        const slot = definedOr(node.layoutBox, node.grabBox)
         const painted = dragPaintedOf(node, slot)
         // A layout animation the grab left running goes on, toward the slot now: it moves by
         // the anchor's distance to the slot, with the running descendants placed in its frame.
@@ -4371,23 +4469,23 @@ export const makeProjectionSystem = (
         // Hold the leaver's end-of-task records before it leaves the stack: the box
         // a presence handleLeave arriving AFTER this dispose re-introduces, and its
         // Switch seed for a twin (ADR-0010 *Amendment (#13)*).
-        if (node.layoutId !== undefined) holdLeaver(node, node.layoutId)
-        else holdNode(node)
-        ro?.unobserve(node.element)
+        if (Predicate.isNotUndefined(node.layoutId)) holdLeaver(node, node.layoutId)
+        if (Predicate.isUndefined(node.layoutId)) holdNode(node)
+        if (Predicate.isNotUndefined(ro)) ro.unobserve(node.element)
         elementToNode.delete(node.element)
         active.delete(node)
         nodes.delete(node)
         painted.delete(node)
         // Stack relegation / promotion (ADR-0010): a leaving Lead promotes the new
         // newest node, animating it FROM the leaver's box (un-hide + move home).
-        if (node.layoutId !== undefined) {
+        if (Predicate.isNotUndefined(node.layoutId)) {
           const stack = stacks.get(node.layoutId)
-          if (stack !== undefined) {
+          if (Predicate.isNotUndefined(stack)) {
             const wasLead = stack[stack.length - 1] === node
             const i = stack.indexOf(node)
             if (i >= 0) stack.splice(i, 1)
             if (stack.length === 0) stacks.delete(node.layoutId)
-            else if (wasLead) promoteFrom(stack[stack.length - 1]!, node)
+            if (stack.length > 0 && wasLead) promoteFrom(stack[stack.length - 1], node)
           }
         }
         if (active.size === 0) stopTicking()
@@ -4401,14 +4499,6 @@ export const makeProjectionSystem = (
     debug("dispose system", { nodes: nodes.size })
     disposed = true
     passQueued = false
-    if (leftover !== undefined) {
-      clearTimeout(leftover)
-      leftover = undefined
-    }
-    if (resizeTimer !== undefined) {
-      clearTimeout(resizeTimer)
-      resizeTimer = undefined
-    }
     if (resizeListening) {
       resizeListening = false
       window.removeEventListener("resize", onResize)
@@ -4419,7 +4509,7 @@ export const makeProjectionSystem = (
     heldSeeds.clear()
     recentLeavers.clear()
     recentNodes.clear()
-    ro?.disconnect()
+    if (Predicate.isNotUndefined(ro)) ro.disconnect()
     ro = undefined
     active.clear()
     nodes.clear()

@@ -2,7 +2,7 @@
 
 How code in this repo is written: Effect's modules over vanilla TypeScript, and no ternary operators. Set in #63 and recorded, with the reasons and measurements, in [ADR-0025](../adr/0025-effect-first-core.md).
 
-**Scope.** `packages/core/src` and `packages/dom/src` follow these rules (dom's `internal/projection.ts` from #69's PR 3). New code in `@wardic/solid` and `@wardic/test` follows them too; converting those packages' existing code is #69's PRs 4 and 5 (ADR-0025, *Amendment (#69)*). Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
+**Scope.** `packages/core/src` and `packages/dom/src` follow these rules. New code in `@wardic/solid` and `@wardic/test` follows them too; converting those packages' existing code is #69's PRs 4 and 5 (ADR-0025, *Amendment (#69)*). Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
 
 ## The two rules
 

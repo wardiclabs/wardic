@@ -8,6 +8,8 @@
 // drag that starts while boxes are stale runs it first. A height-only change does
 // nothing, and a Declared layout change in the block animates nothing (#4, RB10). The flights a
 // width change finishes fire no complete, and settle a Declared layout change waiting on them (#191, RB11).
+// A burst of width changes ends in one blocked pass, however long it lasts: each change restarts the
+// block's wait (RB8, RB12).
 // Before, nothing re-measured on a resize, so the next pass animated every node from
 // its box before the resize (#39).
 import { describe, expect, it } from "@effect/vitest"
@@ -214,6 +216,27 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     await wait(350)
     const own = e.spans.slice(before)
     expect(own).toHaveLength(1)
+    expect(own[0]?.blocked).toBe(true)
+    e.dispose()
+  })
+
+  it("RB12: a burst longer than the block still ends in one blocked pass: each change restarts the wait (#69)", async () => {
+    const e = makeEngine(makeSink().sink)
+    await mount(e, centredColumn(5))
+    const before = e.spans.length
+    // Five changes about 100 ms apart, so the burst outlasts 250 ms while no gap reaches it.
+    const at: Array<number> = []
+    for (let k = 0; k < 5; k++) {
+      await resizeTo(width - 40 * (k + 1), height)
+      at.push(performance.now())
+      if (k < 4) await wait(100)
+    }
+    const gaps = at.slice(1).map((t, i) => t - at[i]!)
+    expect(Math.max(...gaps), "no gap reaches the block's 250 ms (a slow step would split the burst)").toBeLessThan(250)
+    expect(at[4]! - at[0]!, "the burst outlasts one block").toBeGreaterThan(250)
+    await wait(350)
+    const own = e.spans.slice(before)
+    expect(own, "one pass, 250 ms after the last change").toHaveLength(1)
     expect(own[0]?.blocked).toBe(true)
     e.dispose()
   })
