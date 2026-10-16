@@ -35,7 +35,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
 - **The binding knows it's on a server (decision 3).**
   - One `isServer` check, from `solid-js/web` (`@solidjs/web` in Solid 2). It reports what Solid is doing (rendering to a string), not which globals exist.
   - On a server the provider builds no gate and no projection system, and holds an unbuilt runtime (`ManagedRuntime.make`, 0.92 µs).
-  - The client builds exactly when it did before; ADR-0017's Priming tick and ADR-0018's end-of-task pass are timed against that.
+  - The client builds exactly when it did before; ADR-0017's Priming tick and ADR-0018's end-of-task pass are timed against that. Since #51 it builds on first need: *Amendment (#51)*.
   - The server work the check calls is framework-free in `@wardic/dom`, so another binding gets it for free: the Starting style, the style merge and the drag defaults.
 - **A lean server path (decision 4).**
   - On a server, `useWardic` and the `wardic.*` wrapper skip the spine and Solid's `splitProps` and `mergeProps`. They build the same markup from the helpers the client uses: 30.4 µs per element → about 9 µs (8.4–10 across runs).
@@ -121,7 +121,7 @@ This amends ADR-0003 (the hold), ADR-0006 (a component wrap's `style` until moun
   - server-live resume (ADR-0003's resumability option, #48);
   - the wrapper's own cost, and moving `wardic.div` onto the commit path (#49);
   - inheriting a parent's `initial` variant (ADR-0007, #50);
-  - building the runtime lazily on the client (#51);
+  - building the runtime lazily on the client (#51; done, *Amendment (#51)*);
   - the gate's frames through the Environment (#52).
 - **Pinned by:**
   - `@wardic/dom`, node tier: `server-guard.node.test.ts` (G1–G8: each Layer's client-only error, `project` exported, nothing read at import) and `starting-style.node.test.ts` (ST1–ST14); `svg.browser.test.ts`'s SVG-T1 (the split by tag equals the split by element);
@@ -159,3 +159,43 @@ ADR-0007's *Amendment (#50)* sets the rule: every Wardic element hands its child
 - **The Hydration hold is unchanged.** The client's first render resolves the same names to the same Starting style, and holds it until the first commit (the hydrate project's F18: a variant list entering from its `initial` name).
 - **The keys fixture changed in one place** (SV15, re-recorded): the `wardic.span` with `variants` under `Spread`'s `ward.Provider` now renders its own Provider. Every other key is still 9531ff4's.
 - **Rejected: a Provider on every element** (the grill's first answer, before measuring). It cost about 1.2 µs per plain element on a server, +37% of a `wardic.div`'s server render (1,000 elements, 9 alternating pairs: 3.09 → 4.25 ms), for nothing a child could read.
+
+## Amendment (#51, 2026-10-15): the client builds on first need
+
+Decision 3's client bullet changes. A client `WardicProvider` used to build its runtime, flush gate and projection system as it rendered, even with nothing animated under it. Now it builds on first need:
+- **The runtime** builds itself on its first run. Making it builds nothing; it's Effect's `ManagedRuntime`.
+- **The gate, the projection system and the reduced-motion inputs** (the Probe's preference, the Positional keys) build together, the first time a Wardic element or hook reads any of them from context. That's during the first element's render.
+
+A provider with nothing from Wardic under it, say at an app's root over a route that doesn't animate, builds nothing.
+
+- **Measured** on the bench server: a Vite production build, a fresh page per rep, 15 reps. The render task of a provider over a plain `div`, against the `div` alone (`.tmp/51/`):
+
+  | | Chromium 147 | Firefox 148 |
+  |---|---|---|
+  | plain `div` | 0.39 ms | 0.18 ms |
+  | provider + `div`, before | 4.28 ms | 2.12 ms |
+  | provider + `div`, after | 0.76 ms | 0.26 ms |
+
+  - **The build itself,** inside the first element's render now: the runtime 2.7 ms in Chromium and 1.7 in Firefox, and the projection system 0.85 and 0.12.
+  - **What an idle provider no longer sets up:** the Probe's `prefers-reduced-motion` media query, its window `resize` listener and its media-query `change` listener. It set no frames before either: the Clock idles.
+  - #51's 165 µs was Bun with the globals stubbed.
+- **Why decision 3's timing reason no longer holds:**
+  - **The Priming tick is gone** (ADR-0033).
+  - **The end-of-task Measure pass is ordered as before:** the build happens at the first read, in the first element's render, before any element registers with the gate or the projection system. `measure-pass-timing` and `clock-cold-start` pass unchanged.
+  - **The build is inline:** a `ManagedRuntime`'s first run builds its Layer before it returns (checked with DomLive in Chromium), so the first element's synchronous `runSync`s and forks keep working.
+- **The *Considered option* rejected above,** "building the runtime lazily with no server check", stays rejected. The server check stays, and the server path is unchanged (SV1–SV18). The client's build moves into the first element's render, not into a mount effect.
+- **Grilled 2026-10-15, all A:**
+  - **The first read builds it** (Q1). Rejected: building at the first use, which would need stand-ins for the gate and projection on calls the gate makes every frame; keeping the eager build.
+  - **The pieces build together** (Q2). Every `useWardic` element registers its values with the projection system at mount, so per-piece laziness would save nothing. Reading the runtime alone builds none of them.
+  - **Checks** (Q3) and **this amendment** (Q4).
+- **Defaults stated:**
+  - **A build failure surfaces at the first element.** An `env` that fails to build now fails at the first element's render, caught by the nearest error boundary there, not at the provider.
+  - **Teardown:** a provider that never built disposes only its unbuilt runtime.
+- **Pinned by** `packages/solid/test/provider-lazy.browser.test.tsx`:
+  - LZ1: a provider with nothing from Wardic under it builds nothing over several frames;
+  - LZ2: the first element builds it during its render, with one gate however often it's read, and animates;
+  - LZ3: a never-built provider unmounts cleanly and builds nothing on its way out;
+  - LZ4: one that built disposes what it built, its projection system's `resize` listener included. That's main's teardown too, unpinned until now.
+
+  LZ1 and LZ3 fail on main. Five single-point mutations of the provider are all caught: an eager build, no memo, a build in teardown, no teardown, and a build on reading the runtime.
+

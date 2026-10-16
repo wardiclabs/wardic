@@ -89,10 +89,16 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
 /**
  * Provides a single Effect runtime (built once from `env`) to its subtree.
  *
- * Builds `ManagedRuntime.make(env)` exactly once for the lifetime of the
+ * Makes `ManagedRuntime.make(env)` exactly once for the lifetime of the
  * component, exposes it through context, and disposes it on unmount
  * (fire-and-forget — `dispose` returns a `Promise`). `env` is required; pass
  * `DomLive` (browser) or `TestLive` (tests).
+ *
+ * It builds on first need (#51, ADR-0021 *Amendment (#51)*): the runtime on its first run, and
+ * the flush gate, the projection system and the reduced-motion inputs the first time a Wardic
+ * element or hook under it reads one, during that element's render. So a provider with nothing
+ * from Wardic under it builds nothing, and an `env` that fails to build fails there, at the
+ * first element.
  *
  * The runtime is client-only (ADR-0021). During a server render the provider builds
  * nothing: it holds an unbuilt runtime, an inert gate and no projection system, and its
@@ -131,51 +137,86 @@ export function WardicProvider(props: {
     )
   }
 
-  // Built ONCE — props.env is read a single time at construction. The runtime
-  // owns the Layer's scope for the component's lifetime.
+  // Made ONCE — props.env is read a single time at construction. The runtime owns the
+  // Layer's scope for the component's lifetime, and builds itself on its first run (it's
+  // Effect's `ManagedRuntime`): making it builds nothing.
   const runtime = ManagedRuntime.make(props.env)
-  // The flush gate is a provider-owned singleton (one per WardicProvider),
-  // built atop the runtime (ADR-0006). It's dom's, framework-free, and commits each
-  // frame onto the elements; a frame's Starting-style switches run in Solid's `batch()`
-  // (ADR-0034). It resolves the Renderer and the Environment's Refresh frame source
-  // once at construction (ADR-0031).
-  const gate = makeFlushGate(runtime, { batch })
 
-  // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
-  // never Retargets, and the user's preference through the Probe's atom. Read when each animation
-  // starts, so a change applies from the next one.
-  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
-  const probe = runtime.runSync(Probe.Probe)
-  const reducedMotion = (): boolean =>
-    ReducedMotion.applies(
-      Option.getOrElse(Option.fromUndefinedOr(untrack(() => props.reducedMotion)), () => "user" as const),
-      registry.get(probe.prefersReducedMotion),
-    )
-  // Which keys reduced motion Snaps: the Environment's Positional keys (ADR-0036), read once, as
-  // the Probe is.
-  const positionalKeys = runtime.runSync(ReducedMotion.PositionalKeys)
+  // The rest is built on first need (#51, ADR-0021 *Amendment (#51)*): together, the first time
+  // a Wardic element or hook reads any of it from context, which is during the first element's
+  // render. A provider with no Wardic element under it builds nothing. Reading the runtime alone
+  // builds none of it.
+  let built: Built | undefined
+  const build = (): Built => {
+    if (Predicate.isNotUndefined(built)) return built
+    // The flush gate is a provider-owned singleton (one per WardicProvider),
+    // built atop the runtime (ADR-0006). It's dom's, framework-free, and commits each
+    // frame onto the elements; a frame's Starting-style switches run in Solid's `batch()`
+    // (ADR-0034). It resolves the Renderer and the Environment's Refresh frame source
+    // once at construction (ADR-0031), which builds the runtime.
+    const gate = makeFlushGate(runtime, { batch })
 
-  // The box-based projection system (ADR-0009) — provider-owned like the gate.
-  // It holds the projection nodes + the coordinator (a run on the Frame loop); standalone
-  // `layout` elements register with it (a future <LayoutGroup> uses the tree too).
-  // It also owns `layoutId` matching end to end — the lead/follow stack AND the
-  // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
-  // `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
-  const projection = makeProjectionSystem(runtime, gate, { reducedMotion })
+    // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
+    // never Retargets, and the user's preference through the Probe's atom. Read when each animation
+    // starts, so a change applies from the next one.
+    const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+    const probe = runtime.runSync(Probe.Probe)
+    const reducedMotion = (): boolean =>
+      ReducedMotion.applies(
+        Option.getOrElse(Option.fromUndefinedOr(untrack(() => props.reducedMotion)), () => "user" as const),
+        registry.get(probe.prefersReducedMotion),
+      )
+    // Which keys reduced motion Snaps: the Environment's Positional keys (ADR-0036), read once, as
+    // the Probe is.
+    const positionalKeys = runtime.runSync(ReducedMotion.PositionalKeys)
+
+    // The box-based projection system (ADR-0009) — provider-owned like the gate.
+    // It holds the projection nodes + the coordinator (a run on the Frame loop); standalone
+    // `layout` elements register with it (a future <LayoutGroup> uses the tree too).
+    // It also owns `layoutId` matching end to end — the lead/follow stack AND the
+    // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
+    // `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
+    const projection = makeProjectionSystem(runtime, gate, { reducedMotion })
+    built = { gate, projection, reducedMotion, positionalKeys }
+    return built
+  }
 
   onCleanup(() => {
     // Stop the projection coordinator's run + drop its observer first, then cancel
     // any pending frame and clear the gate, before tearing down the runtime the
-    // gate resolved its Renderer from.
-    projection.dispose()
-    gate.dispose()
+    // gate resolved its Renderer from. A provider that never built has none of them.
+    UndefinedOr.map(built, ({ gate, projection }) => {
+      projection.dispose()
+      gate.dispose()
+    })
     // dispose() returns a Promise; fire-and-forget on unmount.
     void runtime.dispose()
   })
 
-  return (
-    <WardicContext.Provider value={{ runtime, gate, projection, reducedMotion, positionalKeys }}>{props.children}</WardicContext.Provider>
-  )
+  const value: WardicContextValue = {
+    runtime,
+    get gate() {
+      return build().gate
+    },
+    get projection() {
+      return build().projection
+    },
+    get reducedMotion() {
+      return build().reducedMotion
+    },
+    get positionalKeys() {
+      return build().positionalKeys
+    },
+  }
+  return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
+}
+
+/** What a client provider builds on first need (#51): everything in its context but the runtime. */
+interface Built {
+  readonly gate: FlushGate
+  readonly projection: ProjectionSystem
+  readonly reducedMotion: () => boolean
+  readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
 }
 
 /**
