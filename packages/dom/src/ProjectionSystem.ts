@@ -14,11 +14,11 @@
  */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as FiberSet from "effect/FiberSet"
 import * as Layer from "effect/Layer"
 import type * as Scope from "effect/Scope"
 import * as FlushGate from "./FlushGate.ts"
 import * as internal from "./internal/projection.ts"
+import { makeRunner } from "./internal/runner.ts"
 
 export {
   type RegisterNodeOptions,
@@ -53,11 +53,10 @@ export class ProjectionSystem extends Context.Service<ProjectionSystem, Shape>()
  */
 export const make = (sink: Sink, options: Options = {}): Effect.Effect<Shape, never, Services | Scope.Scope> =>
   Effect.gen(function* () {
-    const context = yield* Effect.context<Services>()
-    const runFork = yield* FiberSet.makeRuntime<Services>()
     // The same object the engine's own lookups key on (`onPassEnd`), typed without `dispose`:
-    // the Scope ends it.
-    const system = internal.makeProjectionSystem({ runSync: Effect.runSyncWith(context), runFork }, sink, options)
+    // the Scope ends it. Its runner forks on Effect's default scheduler, whatever call built the
+    // Layer (`internal/runner.ts`).
+    const system = internal.makeProjectionSystem(yield* makeRunner<Services>(), sink, options)
     yield* Effect.addFinalizer(() => Effect.sync(system.dispose))
     return system
   })

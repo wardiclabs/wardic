@@ -13,10 +13,10 @@
  */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as FiberSet from "effect/FiberSet"
 import * as Layer from "effect/Layer"
 import type * as Scope from "effect/Scope"
 import * as internal from "./internal/gate.ts"
+import { makeRunner } from "./internal/runner.ts"
 
 /** The gate: what a binding registers its elements with and writes their values into. */
 export type Shape = Omit<internal.FlushGate, "dispose">
@@ -39,10 +39,9 @@ export class FlushGate extends Context.Service<FlushGate, Shape>()("@wardic/dom/
  */
 export const make = (options: Options): Effect.Effect<Shape, never, Services | Scope.Scope> =>
   Effect.gen(function* () {
-    const context = yield* Effect.context<Services>()
-    const runFork = yield* FiberSet.makeRuntime<Services>()
-    // The gate itself, typed without `dispose`: the Scope ends it.
-    const gate = internal.makeFlushGate({ runSync: Effect.runSyncWith(context), runFork }, options)
+    // The gate itself, typed without `dispose`: the Scope ends it. Its runner forks on Effect's
+    // default scheduler, whatever call built the Layer (`internal/runner.ts`).
+    const gate = internal.makeFlushGate(yield* makeRunner<Services>(), options)
     yield* Effect.addFinalizer(() => Effect.sync(gate.dispose))
     return gate
   })

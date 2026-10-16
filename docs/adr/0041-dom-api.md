@@ -219,6 +219,12 @@ Every root name on `74fb80b` and its home now:
   - and it registers the factory's `dispose` as the Scope's finalizer.
 
   dom's own tests build the engine and the gate with the factories, on a test `ManagedRuntime`, as before.
+- **The runner drops the building call's scheduler** (`internal/runner.ts`, found through DR1 in CI). A binding's first read builds the Layers inside a `ManagedRuntime.runSync`, whose fiber carries a sync `MixedScheduler`. The first draft captured the build's context, scheduler and all, through `FiberSet.makeRuntime`, so every later fork by the gate and the engine resumed its yields on a microtask, where a `ManagedRuntime`'s forks resume on a macrotask (ADR-0027, decision 6).
+  - **`Context.omit(Scheduler.Scheduler)` alone wasn't enough:** `FiberSet.runtime` reads `Effect.context()` again in the current fiber, and `Effect.provideContext` merges into that context instead of replacing it.
+  - **The fix:** `makeRunner` forks with the trimmed context itself (`Effect.runForkWith`) and adds each fiber to a `FiberSet` in the Layer's Scope.
+  - **Pinned by** `test/runner.node.test.ts`:
+    - RN1: built inside a `runSync`, a fork resumes on a macrotask; it fails on the first draft;
+    - RN2: a fork still running when the Scope closes is interrupted.
 - **`make` returns the factory's object, not a copy.** The engine's `onPassEnd` keys its listeners on the system object in a WeakMap. A first draft returned `{ ...system }` without `dispose`, which would have silently dropped the Reorder controller's pass-end hook. The type check that caught it (`onPassEnd` wanted the full type) is why `make` returns the object itself, typed as the `Shape`. Mutation M8 pins it (KB9, RO15).
 - **Solid's provider** makes one runtime from `ProjectionSystem.layer(…)`, `FlushGate.layer({ batch })` and `env`.
   - **The first context read builds it** (ADR-0021, *Amendment (#51)*): `runtime.runSync(FlushGate.FlushGate)` builds the Environment, the gate and the engine together.
@@ -234,7 +240,7 @@ Every root name on `74fb80b` and its home now:
     - `inert` and `layerInert`.
   - **The existing tests** pass unchanged, LZ1–LZ4 included. SV13 calls `release` on the inert gate in place of the gone `dispose`.
   - **Mutations:** 8, of which 6 are caught: either Scope finalizer gone, `layerInert` a different object, the provider's teardown gone, the engine on the inert gate, and a copied system (M8).
-  - **Two survive:** forking outside the Scope's `FiberSet` (M3, M4). That's defense in depth: the engine already ends its long-lived fibers (its end-of-task holds, the coordinator) through its own internal Scope. What the outer `FiberSet` adds is that the short-lived forks, a debug log or a failure report, end with the Scope, as a `ManagedRuntime`'s did.
+  - **Two survive at the module level:** forking outside the Scope's `FiberSet` (M3, M4). The engine ends its long-lived fibers (its end-of-task holds, the coordinator) through its own internal Scope anyway. The runner's own test, RN2, now pins what the `FiberSet` adds: a fork still running ends with the Scope.
   - **`bench:solid`** (11 paired reps against `272f427`): mount +1.7%, mid-flight Retarget +2.0%, at rest −1.3%, unmount −1.7%. The control read +4.3%. Exit 0.
   - **The gate's flush, per Refresh frame** (`.tmp/132-flush`, #79's probe ported). The whole frame's JS, flush included, against main, with main against itself as the A/A, 11 reps. Every difference is within the A/A's spread:
 
