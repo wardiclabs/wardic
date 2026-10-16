@@ -5,7 +5,7 @@
 import * as Announcer from "@wardic/core/Announcer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { ANNOUNCER_ATTRIBUTE, AnnouncerDomLive, announceIn, instructionsId, prepareAnnouncer } from "../src/announcer.ts"
+import { ANNOUNCER_ATTRIBUTE, AnnouncerDomLive, announceIn, instructionsId, prepareAnnouncer } from "../src/internal/announcer.ts"
 
 const regions = (): Array<Element> => Array.from(document.querySelectorAll(`[${ANNOUNCER_ATTRIBUTE}]`))
 

@@ -17,7 +17,8 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Tracer from "effect/Tracer"
 import { afterEach, beforeEach, vi } from "vitest"
-import { DomLive, makeProjectionSystem, type ProjectionNodeHandle } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 
 type FrameCallback = (t: number) => void
 
@@ -92,7 +93,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
   })
   const runtime = ManagedRuntime.make(Layer.merge(DomLive, Layer.succeed(Tracer.Tracer, tracer)))
-  const system = makeProjectionSystem(runtime, sink)
+  const system = ProjectionSystem.make(runtime, sink)
   return {
     system,
     spans,
@@ -136,7 +137,7 @@ const registerAll = (
   system: ReturnType<typeof makeEngine>["system"],
   els: ReadonlyArray<HTMLElement>,
   prefix = "n",
-): Array<ProjectionNodeHandle> => els.map((element, i) => system.register({ id: `${prefix}${i}`, element, transition: () => ({ type: "spring" }) }))
+): Array<ProjectionSystem.NodeHandle> => els.map((element, i) => system.register({ id: `${prefix}${i}`, element, transition: () => ({ type: "spring" }) }))
 
 /** Register, let the first Measure pass run, and settle into a frame. */
 const mount = async (system: ReturnType<typeof makeEngine>["system"], els: ReadonlyArray<HTMLElement>) => {
@@ -147,7 +148,7 @@ const mount = async (system: ReturnType<typeof makeEngine>["system"], els: Reado
 }
 
 /** Run one Measure pass with nothing changed, and return its span's attributes. */
-const unrelatedPass = async (e: ReturnType<typeof makeEngine>, handle: ProjectionNodeHandle) => {
+const unrelatedPass = async (e: ReturnType<typeof makeEngine>, handle: ProjectionSystem.NodeHandle) => {
   const before = e.spans.length
   handle.notify()
   await endOfTask()

@@ -5,7 +5,7 @@
 // pointer is within 50 px of its visible edge, moving toward it.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, vi } from "vitest"
-import { makeAutoScroller } from "../src/index.ts"
+import { makeAutoScroller } from "../src/internal/auto-scroll.ts"
 
 afterEach(() => {
   document.body.querySelectorAll("[data-ax]").forEach((el) => el.remove())

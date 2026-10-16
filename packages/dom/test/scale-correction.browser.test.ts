@@ -2,7 +2,7 @@
 // border-radius / box-shadow (browser-resolved to px/%), then assert the corrected
 // CSS string for a given per-axis visual scale.
 import { afterEach, expect, it } from "@effect/vitest"
-import { borderRadiusCorrector, boxShadowCorrector } from "@wardic/dom"
+import { borderRadiusCorrector, boxShadowCorrector } from "../src/internal/scale-correction.ts"
 
 let els: Array<HTMLElement> = []
 const mk = (css: string): HTMLElement => {

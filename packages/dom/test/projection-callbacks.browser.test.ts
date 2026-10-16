@@ -20,7 +20,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
-import type { LayoutTransition, ProjectionNodeHandle } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(() => {
@@ -33,7 +33,7 @@ afterEach(() => {
 })
 
 /** A 0.1 s linear tween: frame k has run k/60 s, so it lands at frame 6. */
-const TWEEN: LayoutTransition = { type: "tween", duration: 0.1, easing: Easing.linear }
+const TWEEN: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.1, easing: Easing.linear }
 
 /** What each node's callbacks were called with, in order: `start n0`, `complete n0`, `settled`. */
 const calls: Array<string> = []
@@ -43,7 +43,7 @@ const mount = async (
   e: Engine,
   elements: ReadonlyArray<HTMLElement>,
   extra: (i: number) => Record<string, unknown> = () => ({}),
-): Promise<Array<ProjectionNodeHandle>> => {
+): Promise<Array<ProjectionSystem.NodeHandle>> => {
   calls.length = 0
   const handles = elements.map((element, i) =>
     e.system.register({
@@ -67,7 +67,7 @@ const absolute = (parent: HTMLElement, top: number): HTMLElement => el(parent, `
 const STAGE = "position:relative;width:400px;height:600px"
 
 /** Move `element` to `top` and notify its node: a flight is seeded at the end of the task. */
-const moveTo = (element: HTMLElement, handle: ProjectionNodeHandle, top: number): void => {
+const moveTo = (element: HTMLElement, handle: ProjectionSystem.NodeHandle, top: number): void => {
   element.style.top = `${top}px`
   handle.notify()
 }
@@ -197,7 +197,7 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
   it("LC5b: a Lead relegated before its flight's first step, or in flight, fires nothing more: the handover is the new Lead's", async () => {
     const e = makeEngine(makeSink().sink)
     const s = stage(STAGE)
-    const register = (id: string, element: HTMLElement): ProjectionNodeHandle =>
+    const register = (id: string, element: HTMLElement): ProjectionSystem.NodeHandle =>
       e.system.register({
         id,
         element,

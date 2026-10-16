@@ -3,7 +3,8 @@
 // `getVariableValue`), and `variableValues(element)` is the Key rule a binding binds to the element.
 import * as Interpolator from "@wardic/core/Interpolator"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import { InterpolatorRegistryDomLive, isVariableValue, resolveVariable, variableValues } from "@wardic/dom"
+import * as DomInterpolators from "@wardic/dom/DomInterpolators"
+import * as Variables from "@wardic/dom/Variables"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { afterEach, describe, expect, it } from "vitest"
@@ -33,38 +34,38 @@ const ruleBlend = (el: Element, key: string, from: number | string, to: number |
       if (Option.isNone(rule)) return Option.none<readonly [unknown, unknown, unknown]>()
       const blend = yield* rule.value
       return Option.some([blend(0, false), blend(0.5, false), blend(0.5, true)] as const)
-    }).pipe(InterpolatorRegistry.withKeyRules([variableValues(el)]), Effect.provide(InterpolatorRegistryDomLive)),
+    }).pipe(InterpolatorRegistry.withKeyRules([Variables.values(el)]), Effect.provide(DomInterpolators.layer)),
   )
 
 describe("Variable values (#55)", () => {
   it("RV1: a Variable value is wholly a var(), with or without a fallback; a var() inside a larger value isn't one", () => {
-    expect(isVariableValue("var(--brand)")).toBe(true)
-    expect(isVariableValue(" var(--brand, #000) ")).toBe(true)
-    expect(isVariableValue("var(--a, var(--b))")).toBe(true)
-    expect(isVariableValue("0px 0px 4px var(--c)")).toBe(false)
-    expect(isVariableValue("calc(var(--x) * 2)")).toBe(false)
-    expect(isVariableValue("var(--a, 1px) var(--b)"), "two values side by side").toBe(false)
-    expect(isVariableValue("var(--a, var(--b, var(--c, var(--d, var(--e)))))"), "nested at any depth").toBe(true)
-    expect(isVariableValue(4)).toBe(false)
+    expect(Variables.isValue("var(--brand)")).toBe(true)
+    expect(Variables.isValue(" var(--brand, #000) ")).toBe(true)
+    expect(Variables.isValue("var(--a, var(--b))")).toBe(true)
+    expect(Variables.isValue("0px 0px 4px var(--c)")).toBe(false)
+    expect(Variables.isValue("calc(var(--x) * 2)")).toBe(false)
+    expect(Variables.isValue("var(--a, 1px) var(--b)"), "two values side by side").toBe(false)
+    expect(Variables.isValue("var(--a, var(--b, var(--c, var(--d, var(--e)))))"), "nested at any depth").toBe(true)
+    expect(Variables.isValue(4)).toBe(false)
   })
 
   it("RV2: resolves the custom property on the element, inherited from its parent", () => {
     const el = childOf({ "--brand": "#0000ff" })
-    expect(resolveVariable(el, "var(--brand)")).toEqual(Option.some("#0000ff"))
+    expect(Variables.resolve(el, "var(--brand)")).toEqual(Option.some("#0000ff"))
   })
 
   it("RV3: follows the fallback, and a fallback that is itself a var(), up to 4 deep", () => {
     const el = childOf({ "--brand": "#0000ff" })
-    expect(resolveVariable(el, "var(--missing, #00ff00)")).toEqual(Option.some("#00ff00"))
-    expect(resolveVariable(el, "var(--missing, var(--brand))")).toEqual(Option.some("#0000ff"))
-    expect(resolveVariable(el, "var(--a, var(--b, var(--c, var(--brand))))")).toEqual(Option.some("#0000ff"))
-    expect(resolveVariable(el, "var(--a, var(--b, var(--c, var(--d, var(--brand)))))"), "past 4 deep").toEqual(Option.none())
+    expect(Variables.resolve(el, "var(--missing, #00ff00)")).toEqual(Option.some("#00ff00"))
+    expect(Variables.resolve(el, "var(--missing, var(--brand))")).toEqual(Option.some("#0000ff"))
+    expect(Variables.resolve(el, "var(--a, var(--b, var(--c, var(--brand))))")).toEqual(Option.some("#0000ff"))
+    expect(Variables.resolve(el, "var(--a, var(--b, var(--c, var(--d, var(--brand)))))"), "past 4 deep").toEqual(Option.none())
   })
 
   it("RV4: a numeric value is a number; one that doesn't resolve is None", () => {
     const el = childOf({ "--o": "0.4" })
-    expect(resolveVariable(el, "var(--o)")).toEqual(Option.some(0.4))
-    expect(resolveVariable(el, "var(--missing)")).toEqual(Option.none())
+    expect(Variables.resolve(el, "var(--o)")).toEqual(Option.some(0.4))
+    expect(Variables.resolve(el, "var(--missing)")).toEqual(Option.none())
   })
 
   it("RV5: the rule blends what both ends resolve to, and lands on the target as written", () => {

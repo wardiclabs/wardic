@@ -1,7 +1,8 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
-import { DomLive, type FlushGate } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Layer from "effect/Layer"
 import { createEffect, createRoot, createSignal, on } from "solid-js"
 import { useWardicGate, WardicProvider, type WardicEnv } from "../src/provider.tsx"
@@ -52,8 +53,8 @@ const fireFrame = (t = 0): void => {
 }
 
 /** The gate a `WardicProvider` on `env` builds, as `useWardicGate` returns it. */
-const providerGate = (env: WardicEnv): FlushGate => {
-  let gate: FlushGate | undefined
+const providerGate = (env: WardicEnv): FlushGate.FlushGate => {
+  let gate: FlushGate.FlushGate | undefined
   function Probe() {
     gate = useWardicGate()
     return null

@@ -5,7 +5,8 @@
 // numbers: `var(--gray-500)` → `var(--gray-600)` blended through `var(--gray-550)`, an undefined
 // variable, so the property painted its fallback mid-leg (SK18 in solid's `string-keys.browser.test.tsx`).
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import { cssComplex, InterpolatorRegistryDomLive, interpolators } from "@wardic/dom"
+import * as DomInterpolators from "@wardic/dom/DomInterpolators"
+import { cssComplex } from "../src/internal/complex.ts"
 import { expect, layer } from "@effect/vitest"
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
@@ -15,7 +16,7 @@ import * as Interpolator from "@wardic/core/Interpolator"
 
 const at = (fn: (t: number) => unknown) => ({ start: fn(0), first: fn(0.01), half: fn(0.5), end: fn(1) })
 
-layer(InterpolatorRegistryDomLive)("the DOM's Interpolators (#158)", (it) => {
+layer(DomInterpolators.layer)("the DOM's Interpolators (#158)", (it) => {
   const resolved = (from: unknown, to: unknown) =>
     Effect.gen(function* () {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
@@ -47,7 +48,7 @@ layer(InterpolatorRegistryDomLive)("the DOM's Interpolators (#158)", (it) => {
   it.effect("CV3 (guard): the other tiers are core's, in core's order, with the DOM's colours before unit (#160)", () =>
     Effect.gen(function* () {
       expect(Arr.map(Interpolator.defaults, (entry) => entry.name)).toEqual(["number", "array", "unit", "complex"])
-      expect(Arr.map(interpolators, (entry) => entry.name)).toEqual(["number", "array", "color(rgb)", "unit", "complex"])
+      expect(Arr.map(DomInterpolators.all, (entry) => entry.name)).toEqual(["number", "array", "color(rgb)", "unit", "complex"])
       expect((yield* resolved("#000000", "#ffffff")).end).toBe("rgb(255, 255, 255)")
       expect((yield* resolved("10px", "20px")).half).toBe("15px")
       expect((yield* resolved("M0,0 L10,10", "M0,0 L20,20")).half).toBe("M0,0 L15,15")
@@ -55,7 +56,7 @@ layer(InterpolatorRegistryDomLive)("the DOM's Interpolators (#158)", (it) => {
   )
 })
 
-layer(InterpolatorRegistryDomLive)("the DOM's complex codec (#158)", (it) => {
+layer(DomInterpolators.layer)("the DOM's complex codec (#158)", (it) => {
   it("CV4: keeps a var() as text, and a lone var() isn't a complex value", () => {
     const decode = Schema.decodeUnknownOption(cssComplex.codec)
     expect(decode("var(--gray-500)")).toEqual(Option.none())

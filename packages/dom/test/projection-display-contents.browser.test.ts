@@ -13,7 +13,7 @@ import { describe, expect, it } from "@effect/vitest"
 import type * as Box from "@wardic/core/Box"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -27,7 +27,7 @@ afterEach(() => {
 type Sink = ReturnType<typeof makeSink>
 type Engine = ReturnType<typeof makeEngine>
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const layoutOf = (e: Element): Box.Box => {

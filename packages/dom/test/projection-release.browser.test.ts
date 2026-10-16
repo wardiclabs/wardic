@@ -17,7 +17,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Machine from "@wardic/core/Machine"
 import { afterEach, beforeEach } from "vitest"
-import { DEFAULT_DRAG_TRANSITION, type ProjectionNodeHandle, type RegisterNodeOptions } from "../src/index.ts"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -58,7 +58,7 @@ const frames = <A>(n: number, read: () => A): Array<A> =>
 
 const steps = (xs: ReadonlyArray<number>): Array<number> => xs.slice(1).map((x, k) => x - xs[k]!)
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 describe("a layout node's release is a Release offset on its layout animation (ADR-0016, Amendment (velocity family))", () => {
@@ -76,10 +76,10 @@ describe("a layout node's release is a Release offset on its layout animation (A
     await endOfTask()
     const as = frames(90, () => t(sk, "a").x)
     // Motion's drag transition (framer-motion 13.4.0, `startAnimation`, with its default `dragElastic`).
-    expect(DEFAULT_DRAG_TRANSITION).toEqual({ power: 0.8, timeConstant: 0.75, bounceStiffness: 200, bounceDamping: 40, restDelta: 1, restSpeed: 10 })
+    expect(ProjectionSystem.DEFAULT_DRAG_TRANSITION).toEqual({ power: 0.8, timeConstant: 0.75, bounceStiffness: 200, bounceDamping: 40, restDelta: 1, restSpeed: 10 })
     // Motion's `dragSnapToOrigin` release: an inertia from 80 px with both edges at the slot, on Motion's
     // drag transition, so it starts past them and springs back on the 200 / 40 bounce.
-    const step = Machine.inertia(80, 0, { ...DEFAULT_DRAG_TRANSITION, min: 0, max: 0 }).start()
+    const step = Machine.inertia(80, 0, { ...ProjectionSystem.DEFAULT_DRAG_TRANSITION, min: 0, max: 0 }).start()
     const expected = as.map(() => step(1 / 60))
     const settles = expected.findIndex((f) => f.done)
     expect(settles, "it settles within the run").toBeGreaterThan(10)
@@ -538,7 +538,7 @@ describe("a layout node's release is a Release offset on its layout animation (A
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const root = stage()
-    const wall = { ...DEFAULT_DRAG_TRANSITION, bounceStiffness: 1e6, bounceDamping: 1e7 }
+    const wall = { ...ProjectionSystem.DEFAULT_DRAG_TRANSITION, bounceStiffness: 1e6, bounceDamping: 1e7 }
     const a = register(e, "a", makeBox(root, 0, 0, 100, 50))
     const w = register(e, "w", makeBox(root, 0, 100, 100, 50), { dragTransition: () => wall })
     await endOfTask()
@@ -552,7 +552,7 @@ describe("a layout node's release is a Release offset on its layout animation (A
     await endOfTask()
     const run = frames(90, () => [t(sk, "a"), t(sk, "w")] as const)
     // Motion's: an inertia per axis from the offset at the release velocity, both edges at the slot.
-    const edges = { ...DEFAULT_DRAG_TRANSITION, min: 0, max: 0 }
+    const edges = { ...ProjectionSystem.DEFAULT_DRAG_TRANSITION, min: 0, max: 0 }
     const x = Machine.inertia(60, 500, edges).start()
     const y = Machine.inertia(-30, 200, edges).start()
     const expected = run.map(() => ({ x: x(1 / 60), y: y(1 / 60) }))

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
-import { InputDomLive, keyOf } from "../src/input.ts"
+import { InputDomLive, keyOf } from "../src/internal/input.ts"
 
 /** Hand the scheduler a fixed budget of turns so async steps settle. */
 const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })

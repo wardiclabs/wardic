@@ -12,7 +12,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
-import type { FlushGate } from "@wardic/dom"
+import type * as FlushGate from "@wardic/dom/FlushGate"
 import { useWardicGate, useWardicRuntime, wardic, WardicProvider, type WardicRuntime } from "@wardic/solid"
 import { raf, until } from "./browser-helpers.ts"
 
@@ -58,7 +58,7 @@ describe("a client WardicProvider builds on first need (#51)", () => {
 
   it("LZ2: the first Wardic element builds it during its render; one gate however often it's read; it animates", async () => {
     let runtime: WardicRuntime | undefined
-    const gates: Array<FlushGate> = []
+    const gates: Array<FlushGate.FlushGate> = []
     const ReadsGate = () => {
       gates.push(useWardicGate(), useWardicGate())
       return null

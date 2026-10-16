@@ -13,7 +13,9 @@ import type * as Frame from "@wardic/core/Frame"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
-import { color, ColorString, cssColor, cssComplex, InterpolatorRegistryDomLive } from "@wardic/dom"
+import * as Color from "@wardic/dom/Color"
+import * as DomInterpolators from "@wardic/dom/DomInterpolators"
+import { cssComplex } from "../src/internal/complex.ts"
 import { formatRgb, interpolate, parse } from "culori"
 import { TestClock, testLayer } from "@wardic/test"
 import { describe, expect, it, layer } from "@effect/vitest"
@@ -24,7 +26,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 
-const decodeColor = Schema.decodeUnknownOption(ColorString)
+const decodeColor = Schema.decodeUnknownOption(Color.FromString)
 const decodeComplex = Schema.decodeUnknownOption(cssComplex.codec)
 
 /** Schema's decode, then Schema's encode. */
@@ -63,28 +65,28 @@ describe("ColorString", () => {
   })
 
   it("CL4: encodes as rgb() / rgba(), so a round trip canonicalises", () => {
-    expect(roundTrip(ColorString)("#000")).toBe("rgb(0, 0, 0)")
-    expect(roundTrip(ColorString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
-    expect(roundTrip(ColorString)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
-    expect(roundTrip(ColorString)("rebeccapurple")).toBe("rgb(102, 51, 153)")
+    expect(roundTrip(Color.FromString)("#000")).toBe("rgb(0, 0, 0)")
+    expect(roundTrip(Color.FromString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
+    expect(roundTrip(Color.FromString)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
+    expect(roundTrip(Color.FromString)("rebeccapurple")).toBe("rgb(102, 51, 153)")
   })
 
   it("CL5: is idempotent once canonical", () => {
     const inputs = ["#000", " #fff ", "rgba(10, 20, 30, 0.25)", "hsl(120 50% 50%)", "transparent", "rebeccapurple"]
-    const once = Arr.map(inputs, roundTrip(ColorString))
-    expect(Arr.map(once, roundTrip(ColorString))).toEqual(once)
+    const once = Arr.map(inputs, roundTrip(Color.FromString))
+    expect(Arr.map(once, roundTrip(Color.FromString))).toEqual(once)
   })
 })
 
 it("CL6: the colour Interpolator decodes '#fff', 'rgb(0,0,0)' and 'rebeccapurple' through culori's parse, not 'auto'", () => {
-  const decodes = (value: string): boolean => Option.isSome(Schema.decodeUnknownOption(cssColor.codec)(value))
+  const decodes = (value: string): boolean => Option.isSome(Schema.decodeUnknownOption(Color.css.codec)(value))
   expect(Arr.map(["#fff", "rgb(0,0,0)", "rebeccapurple", "auto"], decodes)).toEqual([true, true, true, false])
 })
 
 /** A pair's blend at the start, just past it, half-way, and at the end. */
 const at = (fn: (t: number) => unknown) => ({ start: fn(0), first: fn(0.01), half: fn(0.5), end: fn(1) })
 
-layer(InterpolatorRegistryDomLive)("the DOM's colours through its registry", (it) => {
+layer(DomInterpolators.layer)("the DOM's colours through its registry", (it) => {
   const resolved = (from: unknown, to: unknown) =>
     Effect.gen(function* () {
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
@@ -193,7 +195,7 @@ describe("a spring's colour (ADR-0024, decision 5)", () => {
   /** `springBlend`'s frames over the Test Environment, with the DOM's registry. */
   const blend = (from: Values.Values, to: Values.Values, options?: Machine.SpringOptions) =>
     Stream.runCollect(Machine.springBlend(from, to, options).pipe(Effect.map(Machine.toStream), Stream.unwrap)).pipe(
-      Effect.provide(InterpolatorRegistryDomLive),
+      Effect.provide(DomInterpolators.layer),
       Effect.provide(testLayer(ticks)),
       Effect.map((frames) => Array.from(frames) as ReadonlyArray<Frame.Frame<Values.Values>>),
     )
@@ -249,9 +251,9 @@ describe("a spring's colour (ADR-0024, decision 5)", () => {
 })
 
 describe("Wardic's own sRGB blend (#156): culori's strings, without a colour object per frame", () => {
-  const decode = Schema.decodeUnknownSync(ColorString)
+  const decode = Schema.decodeUnknownSync(Color.FromString)
   /** `entry`'s blend of two colour strings. */
-  const blendWith = (entry: typeof cssColor, from: string, to: string) => Option.getOrThrow(entry.blend(decode(from), decode(to)))
+  const blendWith = (entry: typeof Color.css, from: string, to: string) => Option.getOrThrow(entry.blend(decode(from), decode(to)))
   /** culori's own: `formatRgb(interpolate([from, to], mode)(t))`. */
   const culoriAt = (from: string, to: string, mode = "rgb") => {
     const at = interpolate([parse(from)!, parse(to)!], mode)
@@ -285,36 +287,36 @@ describe("Wardic's own sRGB blend (#156): culori's strings, without a colour obj
     Arr.makeBy(500, () => notation()).forEach((c) => pairs.push([c, c], [c, formatRgb(parse(c)!)]))
     const differ: Array<string> = []
     for (const [from, to] of pairs) {
-      const ours = blendWith(cssColor, from, to)
+      const ours = blendWith(Color.css, from, to)
       const theirs = culoriAt(from, to)
       for (const t of [...TS, next()]) if (ours(t) !== theirs(t)) differ.push(`${from} → ${to} at ${t}: ${ours(t)}, culori ${theirs(t)}`)
     }
     expect(differ.slice(0, 5)).toEqual([])
     // Another mode still blends through culori, as it did.
-    const lab = blendWith(color("oklch"), "#ff0000", "#0000ff")
+    const lab = blendWith(Color.interpolator("oklch"), "#ff0000", "#0000ff")
     expect(Arr.map(TS, lab)).toEqual(Arr.map(TS, culoriAt("#ff0000", "#0000ff", "oklch")))
   })
 
   it("CL20: keeps culori's quirks: rgba(…, 1) just under 1, the start as written at t ≤ 0, and t clamped", () => {
     // Alpha 0.999 isn't exactly 1, so it's an rgba(), with its alpha rounded to 1.
-    expect(blendWith(cssColor, "rgba(0, 0, 0, 0.999)", "rgba(255, 0, 0, 0.999)")(0.5)).toBe("rgba(128, 0, 0, 1)")
+    expect(blendWith(Color.css, "rgba(0, 0, 0, 0.999)", "rgba(255, 0, 0, 0.999)")(0.5)).toBe("rgba(128, 0, 0, 1)")
     // A `none` channel is 0 in the start as written, and the other end's once the leg moves.
-    const none = blendWith(cssColor, "rgb(none 10 20)", "rgb(40 30 20)")
+    const none = blendWith(Color.css, "rgb(none 10 20)", "rgb(40 30 20)")
     expect([none(-0.5), none(0), none(0.5), none(1)]).toEqual(["rgb(0, 10, 20)", "rgb(0, 10, 20)", "rgb(40, 20, 20)", "rgb(40, 30, 20)"])
     // Past 1 a colour holds at its target (ADR-0024, decision 5).
-    const fade = blendWith(cssColor, "#000", "#fff")
+    const fade = blendWith(Color.css, "#000", "#fff")
     expect([fade(1), fade(1.3)]).toEqual(["rgb(255, 255, 255)", "rgb(255, 255, 255)"])
     // A NaN channel is written 0, as culori writes it. No colour string converts to one; only a
     // colour built by hand does, as the Key rules build theirs (`{ ...color, alpha: 0 }`).
     const built = { mode: "rgb", r: Number.NaN, g: 0.5, b: 0, alpha: Number.NaN }
-    const nan = Option.getOrThrow(cssColor.blend(built, { mode: "rgb", r: 1, g: 0.5, b: 0 }))
+    const nan = Option.getOrThrow(Color.css.blend(built, { mode: "rgb", r: 1, g: 0.5, b: 0 }))
     const culoriNan = interpolate([built, { mode: "rgb", r: 1, g: 0.5, b: 0 }], "rgb")
     expect([nan(0.5), nan(1)]).toEqual([formatRgb(culoriNan(0.5)), formatRgb(culoriNan(1))])
     expect(nan(0.5)).toBe("rgba(0, 128, 0, 0)")
   })
 
   it("CL21: two ends of one colour write it on every frame past 0, the start as written at 0", () => {
-    const same = blendWith(cssColor, "rgb(none 10 20)", "rgb(30 10 20)")
+    const same = blendWith(Color.css, "rgb(none 10 20)", "rgb(30 10 20)")
     expect([same(0), same(0.01), same(0.5), same(1.2)]).toEqual(["rgb(0, 10, 20)", "rgb(30, 10, 20)", "rgb(30, 10, 20)", "rgb(30, 10, 20)"])
     // A shadow that grows at one colour: the colour token holds while the lengths blend.
     const decodeComplex = Schema.decodeUnknownSync(cssComplex.codec)

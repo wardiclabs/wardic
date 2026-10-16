@@ -15,7 +15,7 @@
 //
 // Expected styles come from @wardic/dom's own Renderer (RendererDomLive), not hard-coded.
 import * as Renderer from "@wardic/core/Renderer"
-import { RendererDomLive } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
   AnimatePresence,
   createDrag,
@@ -50,7 +50,7 @@ import { describe, expect, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr-helpers.ts"
 
 /** The DOM's projection, from the Renderer DomLive provides. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive)).project
+const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
 
 /** `tag`'s inline style carries every key of the DOM's projection of `values`, as the server writes it. */
 const expectStartingStyle = (tag: Tag | undefined, values: Record<string, unknown>): void => {

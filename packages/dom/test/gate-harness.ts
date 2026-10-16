@@ -18,7 +18,8 @@ import * as Renderer from "@wardic/core/Renderer"
 import { TestClock } from "@wardic/test"
 import * as Layer from "effect/Layer"
 import { vi } from "vitest"
-import { type FlushGateOptions, type FlushSink, project } from "../src/index.ts"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import type * as FlushGate from "@wardic/dom/FlushGate"
 
 type FrameCallback = (t: number) => void
 
@@ -61,7 +62,7 @@ export const fireFrame = (t = 0): void => {
 }
 
 /** A binding whose sinks need no batching: `batch` runs the flush as it is. */
-export const NO_BATCH: FlushGateOptions = { batch: (apply) => apply() }
+export const NO_BATCH: FlushGate.Options = { batch: (apply) => apply() }
 
 /** A node-tier sink target: it hears each patch the gate commits onto it. */
 interface HeardTarget {
@@ -69,7 +70,7 @@ interface HeardTarget {
 }
 
 /** A sink whose target hears each committed patch, with the binding's hooks, if any. */
-export const sinkOf = (heard: (patch: Renderer.Patch) => void, hooks: Omit<FlushSink, "target"> = {}): FlushSink => ({
+export const sinkOf = (heard: (patch: Renderer.Patch) => void, hooks: Omit<FlushGate.Sink, "target"> = {}): FlushGate.Sink => ({
   target: { heard } satisfies HeardTarget,
   ...hooks,
 })
@@ -80,4 +81,4 @@ const hear = (target: unknown, patch: Renderer.Patch): void => (target as HeardT
 export const HEARD: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project: (values) => values, commit: hear })
 
 /** The same, with the DOM's `project`. */
-export const HEARD_DOM: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project, commit: hear })
+export const HEARD_DOM: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project: DomRenderer.project, commit: hear })

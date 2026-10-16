@@ -21,7 +21,7 @@
  */
 import * as Stagger from "@wardic/core/Stagger"
 import type * as Values from "@wardic/core/Values"
-import { resolveInitial } from "@wardic/dom"
+import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -114,7 +114,7 @@ export const startingValuesOf = (
   inherited: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
 ): Values.Values =>
-  resolveInitial({
+  Style.resolveInitial({
     initial: Bool.match(startsAtAnimate(config, inherited, presenceBlocks), {
       onTrue: () => false as const,
       onFalse: () => initialOf(config, inherited),

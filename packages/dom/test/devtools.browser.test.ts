@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import { Socket } from "effect/socket"
 import { describe, expect, it } from "vitest"
-import { DomLive } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
 
 /**
  * Effect's devtools on Wardic's Environment (ADR-0030, decision 6; #113): `DevTools.layer` merged

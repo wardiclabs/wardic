@@ -4,7 +4,7 @@
 // 16c61222c4166bbef5ff6ab0051192faa79fa8c8, which every motion element takes: its
 // `isProjecting` check is never called); an svg-inner attribute key reads its attribute;
 // anything else the computed style. Real Chromium (and Firefox through the local config).
-import { ownValues } from "@wardic/dom"
+import * as OwnValues from "@wardic/dom/OwnValues"
 import { afterEach, describe, expect, it } from "vitest"
 
 const SVGNS = "http://www.w3.org/2000/svg"
@@ -58,19 +58,19 @@ afterEach(() => {
 
 describe("ownValues: an element's own value for a key (ADR-0022)", () => {
   it("OV1: an inline style value", () => {
-    expect(ownValues(div("", "opacity: 0.5"))("opacity")).toBe("0.5")
+    expect(OwnValues.of(div("", "opacity: 0.5"))("opacity")).toBe("0.5")
   })
 
   it("OV2: a value from a stylesheet (the computed style)", () => {
-    expect(ownValues(div("half"))("opacity")).toBe("0.5")
+    expect(OwnValues.of(div("half"))("opacity")).toBe("0.5")
   })
 
   it("OV3: a key nothing sets reads its computed default", () => {
-    expect(ownValues(div())("opacity")).toBe("1")
+    expect(OwnValues.of(div())("opacity")).toBe("1")
   })
 
   it("OV4: a transform key takes its identity, whatever the element's CSS transform (Motion's C5)", () => {
-    const own = ownValues(div("shrunk"))
+    const own = OwnValues.of(div("shrunk"))
     expect(own("scale")).toBe(1)
     expect(own("scaleX")).toBe(1)
     expect(own("x")).toBe(0)
@@ -78,59 +78,59 @@ describe("ownValues: an element's own value for a key (ADR-0022)", () => {
   })
 
   it("OV5: a transform key never reads the element", () => {
-    const own = ownValues(div("shrunk"))
+    const own = OwnValues.of(div("shrunk"))
     const { reads } = countReads(() => [own("scale"), own("y"), own("skewX")])
     expect(reads).toBe(0)
   })
 
   it("OV6: a key is read once per reader; a new reader reads again", () => {
     const el = div("half")
-    const own = ownValues(el)
+    const own = OwnValues.of(el)
     expect(own("opacity")).toBe("0.5")
     el.className = "third"
     const { result, reads } = countReads(() => own("opacity"))
     expect(result).toBe("0.5")
     expect(reads).toBe(0)
-    expect(ownValues(el)("opacity")).toBe("0.3")
+    expect(OwnValues.of(el)("opacity")).toBe("0.3")
   })
 
   it("OV7: creating a reader reads nothing", () => {
     const el = div("half")
-    const { reads } = countReads(() => ownValues(el))
+    const { reads } = countReads(() => OwnValues.of(el))
     expect(reads).toBe(0)
   })
 
   it("OV8: an svg-inner element's attribute key reads its attribute", () => {
     const circle = svgInner("circle", { cx: "50", r: "30" })
-    const own = ownValues(circle)
+    const own = OwnValues.of(circle)
     expect(own("cx")).toBe("50")
     expect(own("r")).toBe("30")
   })
 
   it("OV9: an svg-inner attribute alias reads the attribute it writes (attrX → x)", () => {
     const rect = svgInner("rect", { x: "12", width: "10", height: "10" })
-    expect(ownValues(rect)("attrX")).toBe("12")
+    expect(OwnValues.of(rect)("attrX")).toBe("12")
   })
 
   it("OV10: an svg-inner key with no attribute falls back to the computed style (a class's fill)", () => {
     const circle = svgInner("circle", { class: "blue", r: "10" })
-    expect(ownValues(circle)("fill")).toBe("rgb(0, 0, 255)")
+    expect(OwnValues.of(circle)("fill")).toBe("rgb(0, 0, 255)")
   })
 
   it("OV11: a custom property keeps its name (no dash-casing)", () => {
     const el = div("", "--brandColor: 3")
-    expect(ownValues(el)("--brandColor")).toBe("3")
+    expect(OwnValues.of(el)("--brandColor")).toBe("3")
   })
 
   it("OV14 (#151): an svg-inner custom property reads the computed style by its own name, never an attribute", () => {
     // Attributes the old routing could write, under either name: neither is the custom property.
     const circle = svgInner("circle", { style: "--brandColor: 3", "--brand-color": "9", "--brandColor": "8", r: "10" })
-    expect(ownValues(circle)("--brandColor")).toBe("3")
+    expect(OwnValues.of(circle)("--brandColor")).toBe("3")
   })
 
   it("OV12: a miss is remembered as a miss", () => {
     const el = div()
-    const own = ownValues(el)
+    const own = OwnValues.of(el)
     expect(own("--unset")).toBeUndefined()
     const { result, reads } = countReads(() => own("--unset"))
     expect(result).toBeUndefined()
@@ -140,7 +140,7 @@ describe("ownValues: an element's own value for a key (ADR-0022)", () => {
   it("OV13: a read from an element not in the document isn't kept: once it's in, the key is read again", () => {
     const el = document.createElement("div")
     el.className = "half"
-    const own = ownValues(el)
+    const own = OwnValues.of(el)
     expect(own("opacity"), "a disconnected element has no computed style").toBeUndefined()
     mount(el)
     expect(own("opacity")).toBe("0.5")

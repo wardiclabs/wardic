@@ -1,7 +1,14 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import { ClockDomLive, DomLive, InputDomLive, AnnouncerDomLive, PositionalKeysDomLive, ProbeDomLive, RendererDomLive, reportFailure } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
+import * as DomClock from "@wardic/dom/DomClock"
+import * as DomInput from "@wardic/dom/DomInput"
+import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
+import * as DomProbe from "@wardic/dom/DomProbe"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as Report from "@wardic/dom/Report"
 import { AnimatePresence, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import type * as Context from "effect/Context"
 import { DevTools } from "effect/devtools"
@@ -54,15 +61,15 @@ const breaking = (registry: RegistryShape): RegistryShape => ({
  */
 const envWith = (options: { readonly logs: Array<Logged>; readonly reports: Array<string>; readonly checkFrames?: boolean }): WardicEnv => {
   const services = Layer.mergeAll(
-    ClockDomLive,
+    DomClock.layer,
     Layer.effect(InterpolatorRegistry.InterpolatorRegistry)(InterpolatorRegistry.InterpolatorRegistry.useSync(breaking)).pipe(
       Layer.provide(InterpolatorRegistry.layer),
     ),
-    RendererDomLive,
-    InputDomLive,
-    ProbeDomLive,
-    PositionalKeysDomLive,
-    AnnouncerDomLive,
+    DomRenderer.layer,
+    DomInput.layer,
+    DomProbe.layer,
+    DomPositionalKeys.layer,
+    DomAnnouncer.layer,
   )
   const environment = FrameLoop.layer.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer))
   return Layer.mergeAll(
@@ -217,7 +224,7 @@ describe("what isn't a failure, and what reports once", () => {
     const reports: Array<string> = []
     const Twice = () => {
       useWardicFiber(() =>
-        Effect.die(new Error("reported twice")).pipe(Effect.tapCause((cause) => reportFailure("test.inner: failed", cause))),
+        Effect.die(new Error("reported twice")).pipe(Effect.tapCause((cause) => Report.failure("test.inner: failed", cause))),
       )
       return <div />
     }

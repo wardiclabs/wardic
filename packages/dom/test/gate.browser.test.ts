@@ -5,7 +5,8 @@
 import * as Projection from "@wardic/core/Projection"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import { beforeEach, describe, expect, it } from "vitest"
-import { DomLive, makeFlushGate } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
+import * as FlushGate from "@wardic/dom/FlushGate"
 import { fireFrame, NO_BATCH, resetFrames, withFrames } from "./gate-harness.ts"
 
 beforeEach(resetFrames)
@@ -15,7 +16,7 @@ describe("makeFlushGate — commits onto an element", () => {
     // DomLive so project groups transforms / applies units and commit writes style.
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       gate.register("el", { target: el })
 
@@ -36,7 +37,7 @@ describe("makeFlushGate — commits onto an element", () => {
   it("flushPass commits an entry the pass wrote through the Renderer", () => {
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       gate.register("el", { target: el })
 
@@ -63,7 +64,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
   it("GK1: the gate removes z-index once the projection stops carrying the raise", () => {
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       gate.register("el", { target: el })
       gate.write("el", raised)
@@ -81,7 +82,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
   it("GK2: the gate restores the element's own inline value it overwrote", () => {
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       el.style.setProperty("z-index", "5")
       gate.register("el", { target: el })
@@ -102,7 +103,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   it("GR2: the gate writes the value it's handed for a released key", () => {
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       el.style.setProperty("opacity", "0.3")
       gate.register("el", { target: el })
@@ -121,7 +122,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   it("GR3: without one, the gate restores the inline value it overwrote", () => {
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       el.style.setProperty("opacity", "0.3")
       gate.register("el", { target: el })
@@ -140,7 +141,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   it("GR5: a write after a release brings the key back", () => {
     const runtime = ManagedRuntime.make(withFrames(DomLive))
     try {
-      const gate = makeFlushGate(runtime, NO_BATCH)
+      const gate = FlushGate.make(runtime, NO_BATCH)
       const el = document.createElement("div")
       gate.register("el", { target: el })
       gate.write("el", { opacity: 0.5 })

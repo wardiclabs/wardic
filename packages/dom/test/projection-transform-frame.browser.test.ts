@@ -18,7 +18,8 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Tracer from "effect/Tracer"
 import { afterEach, beforeEach, vi } from "vitest"
-import { DomLive, makeProjectionSystem, type ProjectionNodeHandle } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 
 type FrameCallback = (t: number) => void
 
@@ -95,7 +96,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
   })
   const runtime = ManagedRuntime.make(Layer.merge(DomLive, Layer.succeed(Tracer.Tracer, tracer)))
-  const system = makeProjectionSystem(runtime, sink)
+  const system = ProjectionSystem.make(runtime, sink)
   return {
     system,
     spans,
@@ -129,7 +130,7 @@ const sheet = (parent: HTMLElement, css: string): void => {
 }
 
 /** Register, let the first Measure pass run, and settle into a frame. */
-const mount = async (e: ReturnType<typeof makeEngine>, element: HTMLElement, id = "n", layoutId?: string): Promise<ProjectionNodeHandle> => {
+const mount = async (e: ReturnType<typeof makeEngine>, element: HTMLElement, id = "n", layoutId?: string): Promise<ProjectionSystem.NodeHandle> => {
   const handle = e.system.register({ id, element, transition: () => ({ type: "spring" }), ...(layoutId !== undefined ? { layoutId } : {}) })
   await endOfTask()
   fireFrame()
@@ -137,7 +138,7 @@ const mount = async (e: ReturnType<typeof makeEngine>, element: HTMLElement, id 
 }
 
 /** Run one Measure pass and return its span's attributes. */
-const pass = async (e: ReturnType<typeof makeEngine>, handle: ProjectionNodeHandle) => {
+const pass = async (e: ReturnType<typeof makeEngine>, handle: ProjectionSystem.NodeHandle) => {
   const before = e.spans.length
   handle.notify()
   await endOfTask()
@@ -324,7 +325,7 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
    * scale out, put back where it painted. The enterer, 150x120 on the page, starts on that
    * painted box. Read the first write's left edge and width in the page's px.
    */
-  const switchOut = async (e: ReturnType<typeof makeEngine>, sk: ReturnType<typeof makeSink>, root: HTMLElement, modal: HTMLElement, leaver: ProjectionNodeHandle) => {
+  const switchOut = async (e: ReturnType<typeof makeEngine>, sk: ReturnType<typeof makeSink>, root: HTMLElement, modal: HTMLElement, leaver: ProjectionSystem.NodeHandle) => {
     modal.remove()
     leaver.dispose()
     const enterEl = div(root, "position:absolute;left:40px;top:400px;width:150px;height:120px")

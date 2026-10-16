@@ -7,7 +7,7 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
 import { AtomRegistry } from "effect/reactivity"
-import { ClockDomLive } from "../src/clock.ts"
+import { ClockDomLive } from "../src/internal/clock.ts"
 
 /**
  * `ClockDomLive` is core's `Clock.layer` over the browser's REAL

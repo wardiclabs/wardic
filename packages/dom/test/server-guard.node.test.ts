@@ -13,7 +13,11 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import { AtomRegistry } from "effect/reactivity"
 import { vi } from "vitest"
-import { ClockDomLive, DomLive, InputDomLive, ProbeDomLive, project, RendererDomLive } from "@wardic/dom"
+import { DomLive } from "@wardic/dom"
+import * as DomClock from "@wardic/dom/DomClock"
+import * as DomInput from "@wardic/dom/DomInput"
+import * as DomProbe from "@wardic/dom/DomProbe"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 
 /** ADR-0021 decision 7's message for `layer`, missing `global`. */
 const guardMessage = (layer: string, global: string): string =>
@@ -32,29 +36,29 @@ const failureMessage = (exit: Exit.Exit<unknown, unknown>): string => {
 }
 
 /** The Renderer RendererDomLive provides. */
-const domRenderer = () => Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), RendererDomLive))
+const domRenderer = () => Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer))
 
 describe("DomLive on a server (ADR-0021, decision 7)", () => {
   it("G1: building ClockDomLive fails with the guard's message (no requestAnimationFrame)", () => {
-    const exit = buildExit(ClockDomLive)
+    const exit = buildExit(DomClock.layer)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(failureMessage(exit)).toBe(guardMessage("ClockDomLive", "requestAnimationFrame"))
   })
 
   it("G2: building InputDomLive fails with the guard's message (no document)", () => {
-    const exit = buildExit(InputDomLive)
+    const exit = buildExit(DomInput.layer)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(failureMessage(exit)).toBe(guardMessage("InputDomLive", "document"))
   })
 
   it("G3: building ProbeDomLive fails with the guard's message (no window)", () => {
-    const exit = buildExit(ProbeDomLive)
+    const exit = buildExit(DomProbe.layer)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(failureMessage(exit)).toBe(guardMessage("ProbeDomLive", "window"))
   })
 
   it("G4 (guard): RendererDomLive builds, and its project groups the transform", () => {
-    expect(Exit.isSuccess(buildExit(RendererDomLive))).toBe(true)
+    expect(Exit.isSuccess(buildExit(DomRenderer.layer))).toBe(true)
     const patch = domRenderer().project({ opacity: 0, x: 10 })
     expect(String(patch.transform)).toContain("translateX(10px)")
     expect(patch.opacity).toBe(0)
@@ -104,15 +108,15 @@ describe("DomLive on a server (ADR-0021, decision 7)", () => {
   })
 
   it("G7: @wardic/dom exports the pure project RendererDomLive provides", () => {
-    expect(typeof project).toBe("function")
-    expect(project).toBe(domRenderer().project)
+    expect(typeof DomRenderer.project).toBe("function")
+    expect(DomRenderer.project).toBe(domRenderer().project)
   })
 
   it("G8 (guard): the guard reads its global when the Layer builds, not at import", () => {
     vi.stubGlobal("requestAnimationFrame", () => 0)
     vi.stubGlobal("cancelAnimationFrame", () => {})
     try {
-      expect(Exit.isSuccess(buildExit(ClockDomLive))).toBe(true)
+      expect(Exit.isSuccess(buildExit(DomClock.layer))).toBe(true)
     } finally {
       vi.unstubAllGlobals()
     }

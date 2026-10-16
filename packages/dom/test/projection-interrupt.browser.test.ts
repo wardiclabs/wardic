@@ -7,7 +7,7 @@
 // summed down the tree.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -35,7 +35,7 @@ const t = (sk: Sink, id: string): { readonly x: number; readonly y: number } => 
 const makeBox = (parent: HTMLElement, left: number, top: number, width: number, height: number): HTMLElement =>
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px`)
 
-const register = (e: Engine, id: string, element: HTMLElement, spring: object = {}, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, spring: object = {}, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring", ...spring }), ...opts })
 
 /** Where `chain`'s last node paints: its layout position (the stage's frame) plus every translate down the chain. */
@@ -65,7 +65,7 @@ const frames = <A>(n: number, read: () => A): Array<A> =>
  * after `interruptAt` frames back up, a second pass that interrupts its flight. C's offset from P
  * every frame from the first pass on, the interrupt's frame included.
  */
-const interrupted = async (pSpring: object, cSpring: object, interruptAt: number, cOpts: Partial<RegisterNodeOptions> = {}) => {
+const interrupted = async (pSpring: object, cSpring: object, interruptAt: number, cOpts: Partial<ProjectionSystem.RegisterNodeOptions> = {}) => {
   const sk = makeSink()
   const e = makeEngine(sk.sink)
   const root = stage()

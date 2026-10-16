@@ -33,15 +33,11 @@ import { AtomRegistry } from "effect/reactivity"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
 import { afterEach, beforeEach, vi } from "vitest"
-import {
-  ClockDomLive,
-  InputDomLive,
-  type LayoutTransition,
-  makeProjectionSystem,
-  type ProjectionNodeHandle,
-  ProbeDomLive,
-  RendererDomLive,
-} from "../src/index.ts"
+import * as DomClock from "@wardic/dom/DomClock"
+import * as DomInput from "@wardic/dom/DomInput"
+import * as DomProbe from "@wardic/dom/DomProbe"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
 
 type ClockShape = Context.Service.Shape<typeof Clock.Clock>
@@ -151,10 +147,10 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   // What the app's ErrorReporters would get (ADR-0030, decision 4): each reported error's message.
   const reports: Array<string> = []
   const services = Layer.mergeAll(
-    Layer.effect(Clock.Clock)(Clock.Clock.useSync(countTicks)).pipe(Layer.provide(ClockDomLive)),
-    RendererDomLive,
-    InputDomLive,
-    ProbeDomLive,
+    Layer.effect(Clock.Clock)(Clock.Clock.useSync(countTicks)).pipe(Layer.provide(DomClock.layer)),
+    DomRenderer.layer,
+    DomInput.layer,
+    DomProbe.layer,
     InterpolatorRegistry.layer,
   )
   const env = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync(recordRuns)).pipe(
@@ -175,7 +171,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))]),
     ),
   )
-  const system = makeProjectionSystem(runtime, sink)
+  const system = ProjectionSystem.make(runtime, sink)
   engines.push({ system, runtime })
   return {
     system,
@@ -216,8 +212,8 @@ const register = async (
   e: Engine,
   id: string,
   element: HTMLElement,
-  transition: () => LayoutTransition | undefined = () => ({ type: "spring" }),
-): Promise<ProjectionNodeHandle> => {
+  transition: () => ProjectionSystem.LayoutTransition | undefined = () => ({ type: "spring" }),
+): Promise<ProjectionSystem.NodeHandle> => {
   const handle = e.system.register({ id, element, transition })
   await endOfTask()
   return handle

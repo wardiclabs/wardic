@@ -8,7 +8,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import { page } from "vitest/browser"
-import { onPassEnd } from "../src/projection.ts"
+import { onPassEnd } from "../src/internal/projection.ts"
 import * as Dom from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames, wait } from "./projection-harness.ts"
 

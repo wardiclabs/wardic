@@ -19,7 +19,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach, vi } from "vitest"
-import type { ProjectionNodeHandle, RegisterNodeOptions } from "../src/index.ts"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 
 beforeEach(stubFrames)
@@ -45,7 +45,7 @@ const layoutOf = (e: Element) => {
 const deltaOf = (sk: Sink, id: string): Projection.Delta =>
   (sk.of(id).at(-1)?.value.delta as Projection.Delta | undefined) ?? { x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }, y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 } }
 
-const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<RegisterNodeOptions> = {}): ProjectionNodeHandle =>
+const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
   e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
 
 const frames = <A>(n: number, read: () => A): Array<A> =>

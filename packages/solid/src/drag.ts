@@ -43,7 +43,8 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
-import type { DragProjectionHandle, DragTransition, FlushGate } from "@wardic/dom"
+import type * as FlushGate from "@wardic/dom/FlushGate"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
@@ -90,7 +91,7 @@ export interface DragTrackConfig {
   /** Spring back to the origin on release: both edges at 0. */
   readonly snapToOrigin?: boolean | undefined
   /** What the release runs on: the element's drag transition, resolved ({@link dragTransitionOf}). */
-  readonly transition: DragTransition
+  readonly transition: ProjectionSystem.DragTransition
 }
 
 /** Motion's `dragElastic` default (`defaultElastic`, ADR-0016 *Amendment (#140)*). */
@@ -113,7 +114,7 @@ const RIGID_BOUNCE = { bounceStiffness: 1e6, bounceDamping: 1e7 } as const
  * `timeConstant` from milliseconds to seconds. What every release runs on: a Fling, a snap back to the
  * origin, and a projection node's Release offset.
  */
-export const dragTransitionOf = (elastic: number | undefined, own: WardicDragTransition | undefined): DragTransition => ({
+export const dragTransitionOf = (elastic: number | undefined, own: WardicDragTransition | undefined): ProjectionSystem.DragTransition => ({
   ...MOTION_RELEASE,
   ...Bool.match(elasticOf(elastic) !== 0, { onTrue: () => ELASTIC_BOUNCE, onFalse: () => RIGID_BOUNCE }),
   ...UndefinedOr.match(own, {
@@ -130,7 +131,7 @@ export interface RunDragTrackOptions {
   /** The provider runtime the track's single fiber is forked on. */
   readonly runtime: WardicRuntime
   /** The provider-owned flush gate (ADR-0006); the drag writes `x`/`y` into `id`. */
-  readonly gate: FlushGate
+  readonly gate: FlushGate.FlushGate
   /** The element's gate id (shared with the spine, so writes merge). */
   readonly id: string
   /** The live element the drag recognizer attaches to. */
@@ -150,7 +151,7 @@ export interface RunDragTrackOptions {
    * `dragEnd(velocity)` (its Release offset — the free tail is skipped), a press →
    * `stopRelease`, a press that ends with no drag → `resumeRelease`. Absent ⇒ free drag.
    */
-  readonly projection?: DragProjectionHandle | undefined
+  readonly projection?: ProjectionSystem.DragHandle | undefined
   /**
    * The gesture's axis, read at each gesture's "start" and held until its "end"
    * (`true` = free), in place of `config.axis`: the axis it moves on and claims
@@ -241,7 +242,7 @@ const within = (v: number, range: Drag.AxisRange | undefined): boolean => Drag.c
  * `modifyTarget` to move it, and within its edges on each axis it moves. Motion's inertia is done on
  * its first frame then; Wardic commits it at once.
  */
-const restsWhereDropped = (position: Point.Point, velocity: Point.Point, axis: Drag.Axis, edges: Drag.Bounds, transition: DragTransition): boolean =>
+const restsWhereDropped = (position: Point.Point, velocity: Point.Point, axis: Drag.Axis, edges: Drag.Bounds, transition: ProjectionSystem.DragTransition): boolean =>
   Bool.every([
     velocity.x === 0,
     velocity.y === 0,

@@ -35,7 +35,8 @@
 import { mergeRefs } from "@solid-primitives/refs"
 import type * as Drag from "@wardic/core/Drag"
 import * as Renderer from "@wardic/core/Renderer"
-import { DRAG_DEFAULT_ATTRIBUTES, dragDefaultStyle, mergeStyle, project as domProject, startingStyle } from "@wardic/dom"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
@@ -350,10 +351,10 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       const initialValues = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
       const projected = runtime.runSync(Renderer.Renderer).project(initialValues)
       const hydrating = isHydrating()
-      const starting = hydrating ? domProject(initialValues) : projected
+      const starting = hydrating ? DomRenderer.project(initialValues) : projected
       if (hydrating) flagStartingStyle(runtime, id, starting, projected)
       const axis = dragAxisOf(config, undefined)
-      const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
+      const dragDefaults = axis !== undefined ? Style.dragDefaults(axis) : undefined
       const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
       const elementStyle = createElementStyle({ userStyle, starting, defaults: dragDefaults })
 
@@ -404,7 +405,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
           {...rest}
           ref={mergeRefs(userRef, setEl)}
           style={style()}
-          draggable={dragDefaults !== undefined ? DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
+          draggable={dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
         />
       )
       // A wrap that changes what the component's children read renders its variant context's
@@ -498,11 +499,11 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   // The same variant context the client provides, read once (#50).
   const node = serverVariantNode(config, useVariantContext())
   const axis = dragAxisOf(config, undefined)
-  const dragDefaults = axis !== undefined ? dragDefaultStyle(axis) : undefined
+  const dragDefaults = axis !== undefined ? Style.dragDefaults(axis) : undefined
   const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
   override(out, {
-    style: mergeStyle(props.style as JSX.CSSProperties | string | undefined, startingStyle(undefined, initial).style, dragDefaults),
-    ...(dragDefaults !== undefined ? { draggable: DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
+    style: Style.merge(props.style as JSX.CSSProperties | string | undefined, Style.starting(undefined, initial).style, dragDefaults),
+    ...(dragDefaults !== undefined ? { draggable: Style.DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
     ...(props.ref !== undefined ? { ref: props.ref } : {}),
     component: Wrapped,
   })

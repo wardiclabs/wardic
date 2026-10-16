@@ -19,7 +19,8 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Tracer from "effect/Tracer"
 import { afterEach, beforeEach, vi } from "vitest"
-import { DomLive, makeProjectionSystem, type ProjectionNodeHandle } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 
 type FrameCallback = (t: number) => void
 
@@ -111,7 +112,7 @@ const makeMeasureSpans = () => {
 const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   const measures = makeMeasureSpans()
   const runtime = ManagedRuntime.make(Layer.merge(DomLive, measures.layer))
-  const system = makeProjectionSystem(runtime, sink)
+  const system = ProjectionSystem.make(runtime, sink)
   const dispose = (): void => {
     system.dispose()
     void runtime.dispose()
@@ -169,9 +170,9 @@ const mountScene = async (system: ReturnType<typeof makeEngine>["system"]) => {
   const dEl = makeBox(0, 0, 160, 80)
   const cEl = makeBox(10, 10, 20, 20, dEl)
   const sEl = makeBox(400, 0, 50, 50)
-  const d: ProjectionNodeHandle = system.register({ id: "d", element: dEl, transition: () => ({ type: "spring" }) })
-  const c: ProjectionNodeHandle = system.register({ id: "c", element: cEl, transition: () => ({ type: "spring" }) })
-  const s: ProjectionNodeHandle = system.register({ id: "s", element: sEl, transition: () => ({ type: "spring" }) })
+  const d: ProjectionSystem.NodeHandle = system.register({ id: "d", element: dEl, transition: () => ({ type: "spring" }) })
+  const c: ProjectionSystem.NodeHandle = system.register({ id: "c", element: cEl, transition: () => ({ type: "spring" }) })
+  const s: ProjectionSystem.NodeHandle = system.register({ id: "s", element: sEl, transition: () => ({ type: "spring" }) })
   await endOfTask()
   fireFrame()
   return { dEl, cEl, sEl, d, c, s }

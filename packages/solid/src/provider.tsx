@@ -32,7 +32,9 @@ import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
-import { type AnimateLayoutOptions, type FlushGate, INERT_GATE, makeFlushGate, makeProjectionSystem, type ProjectionSystem, reportFailure } from "@wardic/dom"
+import * as FlushGate from "@wardic/dom/FlushGate"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as Report from "@wardic/dom/Report"
 import { isHydrating, isServer } from "./server.ts"
 
 /**
@@ -70,9 +72,9 @@ export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
  */
 interface WardicContextValue {
   readonly runtime: WardicRuntime
-  readonly gate: FlushGate
+  readonly gate: FlushGate.FlushGate
   /** `undefined` during a server render, which builds no projection system (ADR-0021). */
-  readonly projection: ProjectionSystem | undefined
+  readonly projection: ProjectionSystem.ProjectionSystem | undefined
   /** Whether reduced motion applies now (ADR-0029): read when each animation starts. */
   readonly reducedMotion: () => boolean
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
@@ -130,7 +132,7 @@ export function WardicProvider(props: {
     onCleanup(() => void runtime.dispose())
     return (
       <WardicContext.Provider
-        value={{ runtime, gate: INERT_GATE, projection: undefined, reducedMotion: constFalse, positionalKeys: SERVER_POSITIONAL_KEYS }}
+        value={{ runtime, gate: FlushGate.inert, projection: undefined, reducedMotion: constFalse, positionalKeys: SERVER_POSITIONAL_KEYS }}
       >
         {props.children}
       </WardicContext.Provider>
@@ -154,7 +156,7 @@ export function WardicProvider(props: {
     // frame onto the elements; a frame's Starting-style switches run in Solid's `batch()`
     // (ADR-0034). It resolves the Renderer and the Environment's Refresh frame source
     // once at construction (ADR-0031), which builds the runtime.
-    const gate = makeFlushGate(runtime, { batch })
+    const gate = FlushGate.make(runtime, { batch })
 
     // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
     // never Retargets, and the user's preference through the Probe's atom. Read when each animation
@@ -176,7 +178,7 @@ export function WardicProvider(props: {
     // It also owns `layoutId` matching end to end — the lead/follow stack AND the
     // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
     // `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
-    const projection = makeProjectionSystem(runtime, gate, { reducedMotion })
+    const projection = ProjectionSystem.make(runtime, gate, { reducedMotion })
     built = { gate, projection, reducedMotion, positionalKeys }
     return built
   }
@@ -213,8 +215,8 @@ export function WardicProvider(props: {
 
 /** What a client provider builds on first need (#51): everything in its context but the runtime. */
 interface Built {
-  readonly gate: FlushGate
-  readonly projection: ProjectionSystem
+  readonly gate: FlushGate.FlushGate
+  readonly projection: ProjectionSystem.ProjectionSystem
   readonly reducedMotion: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
 }
@@ -246,7 +248,7 @@ export function useWardicRuntime(): WardicRuntime {
  * body / `createRoot`). During a server render it's an inert gate that does nothing
  * (ADR-0021, decision 9).
  */
-export function useWardicGate(): FlushGate {
+export function useWardicGate(): FlushGate.FlushGate {
   const value = useContext(WardicContext)
   if (value === undefined) {
     throw new Error("useWardicGate must be used within a <WardicProvider>")
@@ -286,7 +288,7 @@ export function useWardicReducedMotion(): () => boolean {
  * engine). Throws a clear, named error outside a `WardicProvider`. Must be called
  * within a Solid owner.
  */
-export function useWardicProjection(): ProjectionSystem {
+export function useWardicProjection(): ProjectionSystem.ProjectionSystem {
   const value = useContext(WardicContext)
   if (value === undefined) {
     throw new Error("useWardicProjection must be used within a <WardicProvider>")
@@ -301,7 +303,7 @@ export function useWardicProjection(): ProjectionSystem {
  * A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s
  * result. `onSettled` is called once the change has settled (#191, ADR-0039).
  */
-export type AnimateLayout = <A>(fn: () => A, options?: AnimateLayoutOptions) => A
+export type AnimateLayout = <A>(fn: () => A, options?: ProjectionSystem.AnimateLayoutOptions) => A
 
 /** During a server render nothing is measured: `fn` just runs, and with nothing to animate it has settled (ADR-0021). */
 const runOnly: AnimateLayout = (fn, options = NO_OPTIONS) => {
@@ -309,7 +311,7 @@ const runOnly: AnimateLayout = (fn, options = NO_OPTIONS) => {
   UndefinedOr.map(options.onSettled, (onSettled) => onSettled())
   return result
 }
-const NO_OPTIONS: AnimateLayoutOptions = {}
+const NO_OPTIONS: ProjectionSystem.AnimateLayoutOptions = {}
 
 /**
  * The provider's `animateLayout` (#4, ADR-0038): run `fn`, and animate the layout change it makes
@@ -361,7 +363,7 @@ export function runScoped<A, E>(
   // A server render starts nothing (ADR-0021, decision 9): a fiber already ended by
   // interruption, so joining it never hangs, and the runtime stays unbuilt.
   if (isServer) return interrupted<A, E>()
-  const reported = effect.pipe(Effect.tapCause((cause) => reportFailure("wardic.runScoped: a fiber failed", cause)))
+  const reported = effect.pipe(Effect.tapCause((cause) => Report.failure("wardic.runScoped: a fiber failed", cause)))
   if (isHydrating()) {
     // Hydration hold: a real fiber now, whose effect starts at mount (once the latch
     // opens), so nothing it writes can change what the hydration render shows.

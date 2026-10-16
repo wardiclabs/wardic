@@ -12,7 +12,7 @@ import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/reactivity"
-import { ProbeDomLive } from "../src/probe.ts"
+import { ProbeDomLive } from "../src/internal/probe.ts"
 
 const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
 

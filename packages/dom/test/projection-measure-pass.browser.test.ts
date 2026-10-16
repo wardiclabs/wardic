@@ -20,7 +20,8 @@ import * as Effect from "effect/Effect"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
 import { afterEach, beforeEach, vi } from "vitest"
-import { DomLive, makeProjectionSystem, type ProjectionSystem } from "../src/index.ts"
+import { DomLive } from "@wardic/dom"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 
 type FrameCallback = (t: number) => void
 
@@ -119,7 +120,7 @@ const makeBox = (left: number, top = 0): HTMLElement => {
 /** Build the engine over `sink` with a DomLive runtime (rAF already stubbed). */
 const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   const runtime = ManagedRuntime.make(DomLive)
-  const system: ProjectionSystem = makeProjectionSystem(runtime, sink)
+  const system: ProjectionSystem.ProjectionSystem = ProjectionSystem.make(runtime, sink)
   const dispose = (): void => {
     system.dispose()
     void runtime.dispose()
@@ -160,7 +161,7 @@ const writesFor = (entries: ReadonlyArray<LogEntry>, id: string) =>
   entries.filter((e): e is Extract<LogEntry, { kind: "write" }> => e.kind === "write" && e.id === id)
 
 /** Register a box as a node and let its first Measure pass run. */
-const registerAt = async (system: ProjectionSystem, id: string, left: number, top = 0) => {
+const registerAt = async (system: ProjectionSystem.ProjectionSystem, id: string, left: number, top = 0) => {
   const element = makeBox(left, top)
   const handle = system.register({ id, element, transition: () => ({ type: "spring" }) })
   await endOfTask()

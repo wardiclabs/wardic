@@ -49,7 +49,8 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Predicate from "effect/Predicate"
-import { reportFailure, variableValues } from "@wardic/dom"
+import * as Report from "@wardic/dom/Report"
+import * as Variables from "@wardic/dom/Variables"
 import { constFalse } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
@@ -308,7 +309,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     if (hasStrings) {
       runs.push(
         Machine.springBlend(Values.pick(from, stringTo), stringTo).pipe(
-          InterpolatorRegistry.withKeyRules([variableValues(el)]),
+          InterpolatorRegistry.withKeyRules([Variables.values(el)]),
           Effect.flatMap(Machine.run(commitFrame)),
         ),
       )
@@ -320,7 +321,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // is logged and reported (ADR-0030, decision 4); the node is removed either way.
     const fiber = runtime.runFork(
       Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
-        Effect.tapCause((cause) => reportFailure("wardic.presence: an exit failed", cause)),
+        Effect.tapCause((cause) => Report.failure("wardic.presence: an exit failed", cause)),
         Effect.ensuring(Effect.sync(() => partDone(el))),
         Effect.withSpan(
           "wardic.presence.exit",
