@@ -32,11 +32,18 @@ import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Reorder from "@wardic/core/Reorder"
 import * as Bool from "effect/Boolean"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import { constVoid } from "effect/Function"
+import * as Exit from "effect/Exit"
+import * as FiberHandle from "effect/FiberHandle"
+import { constTrue, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Scope from "effect/Scope"
+import * as Str from "effect/String"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
 import { onPassEnd, type ProjectionNodeHandle, type ProjectionSystem } from "./projection.ts"
@@ -56,8 +63,8 @@ export const REORDER_GROUP_STYLE = Object.freeze({ "overflow-anchor": "none" } a
  * its context (#132's PR 3, ADR-0041).
  */
 export interface ReorderControllerWiring {
-  /** The runner the controller logs through. */
-  readonly runtime: Pick<Runner<never>, "runFork">
+  /** The runner the controller logs through and waits in. */
+  readonly runtime: Runner<never>
   /** The projection system the items are nodes of. */
   readonly projection: Omit<ProjectionSystem, "dispose">
   /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */
@@ -105,8 +112,8 @@ export interface ReorderItemDriver {
   readonly dispose: () => void
 }
 
-/** How long a held arrow's announcements wait for the next repeat, in ms: only the last is spoken (ADR-0037, Q4). */
-export const REPEAT_ANNOUNCE_MS = 150
+/** How long a held arrow's announcements wait for the next repeat: only the last is spoken (ADR-0037, Q4). */
+export const REPEAT_ANNOUNCE: Duration.Duration = Duration.millis(150)
 
 /**
  * A Reorder item's default instructions on the web (ADR-0037, the NVDA pass): core's keys, and
@@ -116,13 +123,17 @@ export const REPEAT_ANNOUNCE_MS = 150
 export const DEFAULT_REORDER_INSTRUCTIONS = `${Reorder.DEFAULT_INSTRUCTIONS} Some screen readers need focus mode for these keys.`
 
 /** How an item is spoken: its `aria-label`, else its text with its whitespace collapsed, else its value. */
-const labelOf = (element: Element | undefined, value: unknown): string => {
-  const aria = element?.getAttribute("aria-label")?.trim()
-  if (aria !== undefined && aria !== "") return aria
-  const text = element?.textContent?.replace(/\s+/g, " ").trim()
-  if (text !== undefined && text !== "") return text
-  return String(value)
-}
+const labelOf = (element: Option.Option<Element>, value: unknown): string =>
+  Option.getOrElse(
+    Option.orElse(
+      Option.flatMap(element, (el) => nonEmpty(Option.map(Option.fromNullOr(el.getAttribute("aria-label")), Str.trim))),
+      () => Option.flatMap(element, (el) => nonEmpty(Option.map(Option.fromNullOr(el.textContent), (text) => text.replace(/\s+/g, " ").trim()))),
+    ),
+    () => String(value),
+  )
+
+/** A text, `None` when it's empty. */
+const nonEmpty = (text: Option.Option<string>): Option.Option<string> => Option.filter(text, Str.isNonEmpty)
 
 /** A **Reorder group** on the DOM (ADR-0020). */
 export interface ReorderController<V> {
@@ -153,8 +164,16 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   const debug = (event: string, annotations: Record<string, unknown>): void => {
     runtime.runFork(Effect.logDebug(`wardic.reorder: ${event}`).pipe(Effect.annotateLogs(annotations)))
   }
-  let element: Element | undefined
-  let autoScroller: AutoScroller | undefined
+  // Speak an Announcement, or nothing without an `announce`.
+  const speak = UndefinedOr.match(announce, { onUndefined: () => constVoid, onDefined: identity })
+  const keyboardOn = (): boolean => UndefinedOr.match(options.keyboard, { onUndefined: constTrue, onDefined: (on) => on() })
+  // The group's element and its Auto-scroll, once it's attached.
+  const element = MutableRef.make(Option.none<Element>())
+  const autoScroller = MutableRef.make(Option.none<AutoScroller>())
+  const resetAutoScroll = (): void => {
+    const scroller = MutableRef.get(autoScroller)
+    if (Option.isSome(scroller)) scroller.value.reset()
+  }
   // The order the group last asked for: a `values` change to anything else is the app's own (ADR-0037).
   let asked: ReadonlyArray<V> | undefined
   /** The app's axis, if it sets one. */
@@ -167,7 +186,11 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     },
     axis: () => appAxis(),
     // Read once per drag start (Motion reads it on every sample, Group.tsx:142-147 at 16c6122).
-    direction: () => (element !== undefined && getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr"),
+    direction: () =>
+      Bool.match(Option.exists(MutableRef.get(element), (el) => getComputedStyle(el).direction === "rtl"), {
+        onTrue: () => "rtl" as const,
+        onFalse: () => "ltr" as const,
+      }),
     debug,
   })
 
@@ -179,46 +202,45 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     if (detected === reported) return
     reported = detected
     debug("axis", { axis: detected })
-    options.onAxis?.(detected)
+    if (Predicate.isNotUndefined(options.onAxis)) options.onAxis(detected)
   }
   // --- The keyboard reorder (ADR-0037) ---------------------------------------
   /** The lifted item's element, its handle and its `onLift`, by value, while it's registered. */
   interface Keyed {
-    readonly element: () => Element | undefined
-    handle: ProjectionNodeHandle | undefined
+    readonly element: () => Option.Option<Element>
+    handle: Option.Option<ProjectionNodeHandle>
     readonly onLift: (lifted: boolean) => void
   }
   const keyed = new Map<V, Keyed>()
+  const elementOf = (value: V): Option.Option<Element> => Option.flatMap(Option.fromUndefinedOr(keyed.get(value)), (k) => k.element())
   // The item whose new place the next Measure pass lays out, to scroll into view then.
-  let reveal: V | undefined
-  // A held arrow's latest announcement, waiting for the next repeat.
-  let pendingAnnouncement: ReturnType<typeof setTimeout> | undefined
+  const reveal = MutableRef.make(Option.none<V>())
+  // A held arrow's latest announcement, waiting for the next repeat (ADR-0025, *Amendment (#69)*): a
+  // fiber in the controller's own Scope, which `dispose` closes.
+  const scope = Scope.makeUnsafe()
+  const pending = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
 
   const announceNow = (message: string): void => {
-    if (pendingAnnouncement !== undefined) clearTimeout(pendingAnnouncement)
-    pendingAnnouncement = undefined
-    announce?.(message)
+    runtime.runFork(FiberHandle.clear(pending))
+    speak(message)
   }
-  /** A held arrow's step: spoken once the repeats stop for {@link REPEAT_ANNOUNCE_MS}, only the last. */
+  /** A held arrow's step: spoken once the repeats stop for {@link REPEAT_ANNOUNCE}, only the last. */
   const announceLater = (message: string): void => {
-    if (pendingAnnouncement !== undefined) clearTimeout(pendingAnnouncement)
-    pendingAnnouncement = setTimeout(() => {
-      pendingAnnouncement = undefined
-      announce?.(message)
-    }, REPEAT_ANNOUNCE_MS)
+    FiberHandle.setUnsafe(pending, runtime.runFork(Effect.sleep(REPEAT_ANNOUNCE).pipe(Effect.andThen(Effect.sync(() => speak(message))))))
   }
   const wording = (): Reorder.Announcements<V> => ({
     ...(Reorder.defaultAnnouncements as Reorder.Announcements<V>),
     ...Option.getOrUndefined(Option.flatMap(Option.fromUndefinedOr(options.announcements), (announcements) => announcements())),
   })
   const say = (kind: keyof Reorder.Announcements<V>, value: V, placement: Reorder.Placement): string =>
-    wording()[kind]({ value, label: labelOf(keyed.get(value)?.element(), value), position: placement.position, count: placement.count })
+    wording()[kind]({ value, label: labelOf(elementOf(value), value), position: placement.position, count: placement.count })
 
   /** Raise the lifted item (or lower it) and tell its binding (its `whileDrag`). */
   const setLifted = (value: V, lifted: boolean): void => {
     const k = keyed.get(value)
-    k?.handle?.lift(lifted)
-    k?.onLift(lifted)
+    if (Predicate.isUndefined(k)) return
+    if (Option.isSome(k.handle)) k.handle.value.lift(lifted)
+    k.onLift(lifted)
   }
   /** Drop the lifted item where it is and announce it: a drop key, or an interruption. */
   const dropLifted = (): void =>
@@ -230,21 +252,17 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
       },
     })
   /** Focus back on the lifted item, if a reorder took it (moving a focused node can blur it), without scrolling. */
-  const keepFocus = (value: V): void => {
-    const el = keyed.get(value)?.element()
-    if (el === undefined || el.ownerDocument.activeElement === el) return
-    const focusable = el as HTMLElement
-    focusable.focus({ preventScroll: true })
-  }
+  const keepFocus = (value: V): void =>
+    Option.match(Option.filter(elementOf(value), (el) => el.ownerDocument.activeElement !== el), {
+      onNone: constVoid,
+      onSome: (el) => (el as HTMLElement).focus({ preventScroll: true }),
+    })
   /** Whether focus is on `value`'s element. */
-  const focused = (value: V): boolean => {
-    const el = keyed.get(value)?.element()
-    return el !== undefined && el.ownerDocument.activeElement === el
-  }
+  const focused = (value: V): boolean => Option.exists(elementOf(value), (el) => el.ownerDocument.activeElement === el)
 
   const onKeyOf = (value: V) => (event: InputSource.KeyboardLikeEvent): void => {
     if (event.type !== "down") return
-    if (options.keyboard?.() === false) return
+    if (Bool.not(keyboardOn())) return
     // A key the page took, or one from inside the item (a text field), isn't the reorder's.
     if (event.handled) return
     if (Bool.not(event.fromTarget)) return
@@ -277,7 +295,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
               onSome: (placement) => {
                 setLifted(value, false)
                 keepFocus(value)
-                if (placement.moved) reveal = value
+                if (placement.moved) MutableRef.set(reveal, Option.some(value))
                 announceNow(say("cancel", value, placement))
               },
             })
@@ -300,12 +318,11 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
         // A repeat before the last step's Measure pass moved nothing: nothing to say.
         if (placement.waiting) return
         if (placement.moved) {
-          reveal = value
+          MutableRef.set(reveal, Option.some(value))
           keepFocus(value)
         }
         const message = say("step", value, placement)
-        if (event.repeat) announceLater(message)
-        else announceNow(message)
+        Bool.match(event.repeat, { onTrue: () => announceLater(message), onFalse: () => announceNow(message) })
       },
     })
   }
@@ -314,13 +331,13 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   // stepped item's new place is laid out.
   const stopPassEnd = onPassEnd(projection, () => {
     resolve()
-    const stepped = reveal
-    reveal = undefined
-    if (stepped === undefined) return
-    const el = keyed.get(stepped)?.element()
-    if (el !== undefined && el.isConnected) revealLayoutOf(el)
+    const stepped = MutableRef.get(reveal)
+    MutableRef.set(reveal, Option.none())
+    const el = Option.filter(Option.flatMap(stepped, elementOf), (e) => e.isConnected)
+    if (Option.isSome(el)) revealLayoutOf(el.value)
   })
 
+  const keyedWith = UndefinedOr.match(options.keyedWith, { onUndefined: () => "their value", onDefined: identity })
   // Values whose item unregistered in this task, and whether a remount was warned of.
   const unregisteredThisTask = new Set<V>()
   let remountReported = false
@@ -329,13 +346,12 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     // The gesture's axis (core's, fixed at its start), for Auto-scroll's axis.
     let gestureAxis: Reorder.Axis = "y"
     let inGesture = false
-    // The element as the controller's internals read it, until #69's PR 2 moves them onto Option.
-    const k: Keyed = { element: () => Option.getOrUndefined(itemElement()), handle: undefined, onLift }
+    const k: Keyed = { element: itemElement, handle: Option.none(), onLift }
     keyed.set(value, k)
     const end = (): void => {
       inGesture = false
       Reorder.dragEnd(group, value)
-      autoScroller?.reset()
+      resetAutoScroll()
     }
     return {
       register: (handle) => {
@@ -343,7 +359,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           remountReported = true
           runtime.runFork(
             Effect.logWarning(
-              `wardic.reorder: an item remounted with the same value in one task (key items with ${options.keyedWith ?? "their value"})`,
+              `wardic.reorder: an item remounted with the same value in one task (key items with ${keyedWith})`,
             ).pipe(Effect.annotateLogs({ value: String(value) })),
           )
         }
@@ -352,10 +368,10 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           dragOffset: handle.dragOffset,
           layoutVersion: handle.layoutVersion,
         })
-        k.handle = handle
+        k.handle = Option.some(handle)
         keyed.set(value, k)
         return () => {
-          if (k.handle === handle) k.handle = undefined
+          if (Option.contains(k.handle, handle)) k.handle = Option.none()
           unregister()
           if (unregisteredThisTask.size === 0) queueMicrotask(() => unregisteredThisTask.clear())
           unregisteredThisTask.add(value)
@@ -370,9 +386,10 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
         }
         if (sample.phase === "move") {
           const velocity = Reorder.dragMove(group, value, sample.velocity)
-          if (autoScroller !== undefined) {
+          const scroller = MutableRef.get(autoScroller)
+          if (Option.isSome(scroller)) {
             const on = AutoScroll.axis(gestureAxis, velocity)
-            autoScroller.update(sample.point, on, velocity[on], k.element())
+            scroller.value.update(sample.point, on, velocity[on], Option.getOrUndefined(k.element()))
           }
           return
         }
@@ -401,10 +418,10 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     group,
     axis: () => Option.getOrElse(appAxis(), () => detected),
     attach: (el) => {
-      element = el
-      autoScroller = makeAutoScroller(el, debug)
+      MutableRef.set(element, Option.some(el))
+      MutableRef.set(autoScroller, Option.some(makeAutoScroller(el, debug)))
       // The live region has to be in the page before the first lift (ADR-0037, Q7).
-      if (options.keyboard?.() !== false && announce !== undefined) prepareAnnouncer(documentOf(el))
+      if (keyboardOn() && Predicate.isNotUndefined(announce)) prepareAnnouncer(documentOf(el))
     },
     item,
     move: (value, toIndex) =>
@@ -422,8 +439,8 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     },
     dispose: () => {
       stopPassEnd()
-      autoScroller?.reset()
-      if (pendingAnnouncement !== undefined) clearTimeout(pendingAnnouncement)
+      resetAutoScroll()
+      runtime.runFork(Scope.close(scope, Exit.void))
     },
   }
 }

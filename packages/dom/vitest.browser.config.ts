@@ -27,6 +27,7 @@ export default defineConfig({
       "effect/Data",
       "effect/Deferred",
       "effect/devtools",
+      "effect/Duration",
       "effect/Equivalence",
       "effect/ErrorReporter",
       "effect/Exit",
