@@ -1,6 +1,7 @@
 // The Effect-first rules (#63, ADR-0025, docs/agents/effect-first.md), held on @wardic/core's
-// source. dom, solid and test follow the rules for new code; their conversion (#69) extends
-// `files` here. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
+// source, and on @wardic/dom's as #69 converts it (ADR-0025, *Amendment (#69)*): its PR 2 takes
+// dom's source but `internal/projection.ts`, which its PR 3 converts. solid and test follow the
+// rules for new code until their own PRs. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
 // "fits": those stay with review.
 //
 // And the pipeable API's shape (#95, ADR-0028 decision 10, docs/agents/pipeable.md): the root
@@ -152,6 +153,22 @@ const PER_FRAME_LOOPS = [
  */
 const PER_FRAME_READS = [...PER_FRAME_LOOPS, "packages/core/src/Easing.ts"]
 
+/**
+ * dom's per-frame files (ADR-0025, *Amendment (#69)*, decision 2), by core's file-level rule: the
+ * projection pass and the Measure pass's reads per node, the gate's `write` and flush, the
+ * Renderer's `project`, the SVG split in a flush, the scale correctors and the Key rules'
+ * `KeyBlend`s. Their cold code follows the full rules by review, as `Machine.ts`'s does.
+ */
+const DOM_PER_FRAME = [
+  "packages/dom/src/internal/projection.ts",
+  "packages/dom/src/internal/gate.ts",
+  "packages/dom/src/internal/renderer.ts",
+  "packages/dom/src/internal/svg.ts",
+  "packages/dom/src/internal/scale-correction.ts",
+  "packages/dom/src/internal/key-rules.ts",
+  "packages/dom/src/internal/measure.ts",
+]
+
 export default defineConfig([
   { ignores: ["**/dist/**"] },
   {
@@ -207,6 +224,33 @@ export default defineConfig([
     files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS],
+    },
+  },
+  {
+    // dom's source takes the Effect-first rules (#69's PR 2); `projection.ts` with PR 3.
+    files: ["packages/dom/src/**/*.ts"],
+    ignores: ["packages/dom/src/internal/projection.ts"],
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: {
+      "no-ternary": "error",
+      "@typescript-eslint/no-non-null-assertion": "error",
+      "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS, ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES],
+    },
+  },
+  {
+    // Its per-frame files keep a `for` and plain index reads (ADR-0025, *Amendment (#69)*, decision 2).
+    files: DOM_PER_FRAME,
+    ignores: ["packages/dom/src/internal/projection.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS, ...BRANCHES, ...CHECKS, ...ALIASES],
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "Arr",
+          property: "getUnsafe",
+          message: `An index in range on the per-frame path is a plain read, xs[i], not Arr.getUnsafe (${PAGE}).`,
+        },
+      ],
     },
   },
   {
