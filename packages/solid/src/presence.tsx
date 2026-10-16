@@ -45,6 +45,7 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -52,7 +53,8 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
-import { constFalse } from "effect/Function"
+import { constFalse, constUndefined, identity } from "effect/Function"
+import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
 import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
@@ -112,9 +114,18 @@ export const PresenceContext = createContext<PresenceContextValue | undefined>(u
 export const usePresenceContext = (): PresenceContextValue | undefined => useContext(PresenceContext)
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
-const isEmpty = (values: Values.Values): boolean => {
-  for (const _ in values) return false
-  return true
+const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
+
+/** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
+const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
+
+/** Put a retained node back into the parent it left: before its old next sibling while that's still there, else at the end. */
+const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): void => {
+  if (Predicate.isNotUndefined(next) && next.parentNode === parent) {
+    parent.insertBefore(el, next)
+    return
+  }
+  parent.appendChild(el)
 }
 
 /** {@link AnimatePresence}'s props. */
@@ -152,11 +163,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
    * the wrong one — is diagnosable. The per-frame commit stays silent.
    */
   const debug = (event: string, annotations?: Record<string, unknown>): void => {
-    runtime.runFork(
-      annotations !== undefined
-        ? Effect.logDebug(`wardic.presence: ${event}`).pipe(Effect.annotateLogs(annotations))
-        : Effect.logDebug(`wardic.presence: ${event}`),
-    )
+    const log = Effect.logDebug(`wardic.presence: ${event}`)
+    runtime.runFork(UndefinedOr.match(annotations, { onUndefined: () => log, onDefined: (a) => log.pipe(Effect.annotateLogs(a)) }))
   }
 
   // The registry of live child records, keyed by their DOM element. Filled by
@@ -229,7 +237,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // retained node, the twins it handed back dropped with it. Idempotent.
   const interruptExit = (el: HTMLElement): void => {
     const fiber = exiting.get(el)
-    if (fiber !== undefined) {
+    if (Predicate.isNotUndefined(fiber)) {
       debug("exit: interrupt")
       runtime.runFork(Fiber.interrupt(fiber))
     }
@@ -269,11 +277,15 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // exit departs continuously. An exit key the
     // child never animated starts from its Base value's start links (ADR-0022), else at
     // its target.
-    const from: Values.Values = { ...rec.snapshot.current }
-    for (const key in exit) {
-      if (from[key] !== undefined) continue
-      const start = rec.startOf?.(key, exit[key]!)
-      from[key] = start ?? exit[key]!
+    const snapshot = rec.snapshot.current
+    const startOf = (key: string, target: number | string): number | string =>
+      UndefinedOr.match(UndefinedOr.match(rec.startOf, { onUndefined: constUndefined, onDefined: (of) => of(key, target) }), {
+        onUndefined: () => target,
+        onDefined: identity,
+      })
+    const from: Values.Values = {
+      ...snapshot,
+      ...Rec.map(Rec.filter(exit, (_, key) => Predicate.isUndefined(snapshot[key])), (target, key) => startOf(key, target)),
     }
     // Reduced motion (ADR-0029), read now: the exit's positional keys snap to their target on its
     // first tick, and the rest animate.
@@ -354,25 +366,19 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
 
     createEffect(() => {
       const current = resolved()
-      const currentEl = current instanceof HTMLElement ? current : undefined
+      const currentEl = Option.getOrUndefined(Option.liftPredicate(current, isHTMLElement))
 
       // present -> absent: the child left. If we hold a registration for the node
       // that JUST left, retain it (re-attach if Solid already detached it) and
       // drive its exit.
-      if (prevEl !== undefined && currentEl !== prevEl) {
+      if (Predicate.isNotUndefined(prevEl) && currentEl !== prevEl) {
         const rec = registry.get(prevEl)
-        if (rec !== undefined && !exiting.has(prevEl)) {
+        if (Predicate.isNotUndefined(rec) && !exiting.has(prevEl)) {
           // RE-INSERT: Solid's <Show> branch disposal may have already removed
           // the node. Re-append it (at its prior sibling position when available)
           // into the parent it lived in, so the parent-driven exit has a mounted
           // node to animate. Without this the node would simply vanish.
-          if (prevEl.parentNode === null && prevParent !== undefined) {
-            if (prevNext !== undefined && prevNext.parentNode === prevParent) {
-              prevParent.insertBefore(prevEl, prevNext)
-            } else {
-              prevParent.appendChild(prevEl)
-            }
-          }
+          if (prevEl.parentNode === null && Predicate.isNotUndefined(prevParent)) reinsert(prevEl, prevParent, prevNext)
           // Shared-element crossfade (ADR-0010): if the projection has a live twin
           // (Lead) to crossfade toward, defer to it — it drives the retained node as
           // a leaving Follower and calls onDone (-> finishExit) on the lead's settle.
@@ -380,26 +386,25 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
           const leavingEl = prevEl // narrowed const (prevEl is a reassigned `let`)
           const crossfaded = projection.handleLeave(leavingEl, () => finishExit(leavingEl))
           if (crossfaded) debug("leave: crossfade (deferred to projection)")
-          else leave(rec)
+          if (Bool.not(crossfaded)) leave(rec)
         }
       }
 
       // A fresh child re-entered while an OLD node (different element) is still
       // exiting -> interrupt every stale exit (v0.1: clean interrupt, no reuse).
       // One hosting the handovers of twins it handed back finishes beside the new one (#181).
-      if (currentEl !== undefined) {
-        for (const el of [...exiting.keys()]) {
-          if (el === currentEl) continue
-          if (handovers.has(el)) continue
+      if (Predicate.isNotUndefined(currentEl)) {
+        Arr.forEach(Arr.fromIterable(exiting.keys()), (el) => {
+          if (el === currentEl || handovers.has(el)) return
           interruptExit(el)
-        }
+        })
       }
 
       // Record the present node + its DOM position for the next diff/retention.
       prevEl = currentEl
-      if (currentEl !== undefined) {
-        prevParent = currentEl.parentNode ?? undefined
-        prevNext = currentEl.nextSibling ?? undefined
+      if (Predicate.isNotUndefined(currentEl)) {
+        prevParent = Option.getOrUndefined(Option.fromNullOr(currentEl.parentNode))
+        prevNext = Option.getOrUndefined(Option.fromNullOr(currentEl.nextSibling))
       }
     })
 
@@ -410,7 +415,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // dropped with them (no leaks). Every child running its own exit is in `pending`.
   onCleanup(() => {
     debug("teardown", { inflight: exiting.size, retained: pending.size })
-    for (const el of [...pending.keys()]) interruptExit(el)
+    Arr.forEach(Arr.fromIterable(pending.keys()), (el) => interruptExit(el))
   })
 
   return (

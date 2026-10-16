@@ -258,8 +258,14 @@ const restsWhereDropped = (position: Point.Point, velocity: Point.Point, axis: D
  */
 const snapshotPos = (snapshot: DragSnapshot): Point.Point => {
   const { x, y } = snapshot.values
-  return { x: typeof x === "number" ? x : 0, y: typeof y === "number" ? y : 0 }
+  return { x: numberOrZero(x), y: numberOrZero(y) }
 }
+
+/** A value that's a number, else 0. Built once, at module load. */
+const numberOrZero: (value: unknown) => number = Match.type<unknown>().pipe(
+  Match.when(Match.number, (n) => n),
+  Match.orElse(() => 0),
+)
 
 /**
  * Direct-set `x`/`y` onto the element + the shared snapshot for one drag frame.
@@ -272,7 +278,7 @@ const directSet = (opts: RunDragTrackOptions, p: Point.Point): void => {
   // the renderer ignores a projected element's raw x/y, so writing them is moot.
   // The snapshot x/y stays 0 (projection owns position), so `base` stays 0 and
   // `position` is the pure pointer offset, which IS the dragDelta.
-  if (opts.projection !== undefined) {
+  if (Predicate.isNotUndefined(opts.projection)) {
     opts.projection.dragMove({ x: p.x, y: p.y })
     return
   }

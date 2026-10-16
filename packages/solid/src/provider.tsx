@@ -232,7 +232,7 @@ interface Built {
  */
 export function useWardicRuntime(): WardicRuntime {
   const value = useContext(WardicContext)
-  if (value === undefined) {
+  if (Predicate.isUndefined(value)) {
     throw new Error("useWardicRuntime must be used within a <WardicProvider>")
   }
   return value.runtime
@@ -248,7 +248,7 @@ export function useWardicRuntime(): WardicRuntime {
  */
 export function useWardicGate(): FlushGate.Shape {
   const value = useContext(WardicContext)
-  if (value === undefined) {
+  if (Predicate.isUndefined(value)) {
     throw new Error("useWardicGate must be used within a <WardicProvider>")
   }
   return value.gate
@@ -261,7 +261,7 @@ export function useWardicGate(): FlushGate.Shape {
  */
 export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
   const value = useContext(WardicContext)
-  if (value === undefined) {
+  if (Predicate.isUndefined(value)) {
     throw new Error("useWardicPositionalKeys must be used within a <WardicProvider>")
   }
   return value.positionalKeys
@@ -275,7 +275,7 @@ export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service
  */
 export function useWardicReducedMotion(): () => boolean {
   const value = useContext(WardicContext)
-  if (value === undefined) {
+  if (Predicate.isUndefined(value)) {
     throw new Error("useWardicReducedMotion must be used within a <WardicProvider>")
   }
   return value.reducedMotion
@@ -288,10 +288,10 @@ export function useWardicReducedMotion(): () => boolean {
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
   const value = useContext(WardicContext)
-  if (value === undefined) {
+  if (Predicate.isUndefined(value)) {
     throw new Error("useWardicProjection must be used within a <WardicProvider>")
   }
-  if (value.projection === undefined) {
+  if (Predicate.isUndefined(value.projection)) {
     throw new Error("useWardicProjection: there is no projection system during a server render (ADR-0021)")
   }
   return value.projection
