@@ -40,6 +40,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeSink, stage, stubFrames, unstubFrames, type Write } from "./projection-harness.ts"
 import * as internalProjection from "../src/internal/projection.ts"
+import * as Option from "effect/Option"
 
 type ClockShape = Context.Service.Shape<typeof Clock.Clock>
 type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
@@ -213,7 +214,7 @@ const register = async (
   e: Engine,
   id: string,
   element: HTMLElement,
-  transition: () => ProjectionSystem.LayoutTransition | undefined = () => ({ type: "spring" }),
+  transition: () => Option.Option<ProjectionSystem.LayoutTransition> = () => Option.some({ type: "spring" }),
 ): Promise<ProjectionSystem.NodeHandle> => {
   const handle = e.system.register({ id, element, transition })
   await endOfTask()
@@ -577,14 +578,16 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     let failing = false
     const element = box(0)
     // A tween's easing, called each step (ADR-0009 *Amendment (#171)*): it throws once failing.
-    const a = await register(e, "a", element, () => ({
-      type: "tween",
-      duration: 1,
-      easing: (t) => {
-        if (failing) throw new Error("easing failed")
-        return t
-      },
-    }))
+    const a = await register(e, "a", element, () =>
+      Option.some({
+        type: "tween",
+        duration: 1,
+        easing: (t) => {
+          if (failing) throw new Error("easing failed")
+          return t
+        },
+      }),
+    )
     fireFrame()
     element.style.left = "200px"
     a.notify()

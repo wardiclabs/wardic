@@ -16,8 +16,8 @@ import * as Option from "effect/Option"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
 
-/** An element's Own value for a key: the raw value read (a string), a transform key's identity, or `undefined`. */
-export type OwnValue = (key: string) => number | string | undefined
+/** An element's Own value for a key: the raw value read (a string), a transform key's identity, or `None`. */
+export type OwnValue = (key: string) => Option.Option<number | string>
 
 /**
  * A reader of `element`'s Own values, each read once, at the key's first need, and kept
@@ -47,7 +47,7 @@ export const ownValues = (element: Element): OwnValue => {
     const value = computed.getPropertyValue(dashCase(key)).trim()
     return value === "" ? undefined : value
   }
-  return (key) => {
+  const lookup = (key: string): number | string | undefined => {
     if (cache.has(key)) return cache.get(key)
     const value = read(key)
     // An element not in the document has an empty computed style: that miss isn't the
@@ -55,16 +55,21 @@ export const ownValues = (element: Element): OwnValue => {
     if (element.isConnected) cache.set(key, value)
     return value
   }
+  // `None` at dom's surface (ADR-0025, *Amendment (#69)*); the internals move with #69's PR 2.
+  return (key) => Option.fromUndefinedOr(lookup(key))
 }
 
 /**
  * The user's `style` value for `key`, the `style` link of its Base value: an object style by
  * the key, then by the key dash-cased; a CSS-text style parsed as `Style.over` parses it.
- * `undefined`, `null` and an empty string are misses. A transform key has no `style` link:
+ * `undefined`, `null` and an empty string are misses, `None`. A transform key has no `style` link:
  * in a DOM style, `scale`, `translate` and `rotate` are CSS properties of their own, which
  * compose with the element's transform rather than seed it.
  */
-export const styleValueOf = (style: object | string | undefined, key: string): unknown => {
+export const styleValueOf = (style: object | string | undefined, key: string): Option.Option<unknown> =>
+  Option.fromUndefinedOr(styleValueAt(style, key))
+
+const styleValueAt = (style: object | string | undefined, key: string): unknown => {
   if (style === undefined || style === null || Option.isSome(BaseValue.transformIdentity(key))) return undefined
   const map = (typeof style === "string" ? parseCssText(style) : style) as Readonly<Record<string, unknown>>
   const at = (k: string): unknown => {
@@ -81,7 +86,7 @@ export const styleValueOf = (style: object | string | undefined, key: string): u
 const NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?(px)?\s*$/i
 
 /**
- * `raw` in the shape of a key's target `like`, or `undefined` when it can't be:
+ * `raw` in the shape of a key's target `like`, or `None` when it can't be:
  *
  * - a numeric target takes a finite number, or a plain-number or `px` string, parsed
  *   (`"0.5"` → 0.5, `"120px"` → 120); anything else misses (`auto`, `50%`, `1em`, a colour),
@@ -91,7 +96,10 @@ const NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?(px)?\s*$/i
  *   in another unit than the target's (`"120px"` for `"0%"`): the unit interpolator dies on
  *   that pair, so it misses, as a numeric target misses `50%`.
  */
-export const valueLike = (raw: unknown, like: number | string): number | string | undefined => {
+export const valueLike = (raw: unknown, like: number | string): Option.Option<number | string> =>
+  Option.fromUndefinedOr(valueLikeOrUndefined(raw, like))
+
+const valueLikeOrUndefined = (raw: unknown, like: number | string): number | string | undefined => {
   if (typeof like === "number") {
     if (typeof raw === "number") return Number.isFinite(raw) ? raw : undefined
     return typeof raw === "string" && NUMERIC.test(raw) ? Number.parseFloat(raw) : undefined

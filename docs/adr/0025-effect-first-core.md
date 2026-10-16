@@ -179,3 +179,70 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
 - **Decision 8's `Schedule` bullet** now reads: `Schedule` runs on wall time, as all of Effect's time does; `delay`, `stagger` and the `repeat` legs run on frame time, through the Machine combinators (`Machine.delay`, `holdAfter`, a tween's `duration`).
 - **`Clock.delay` goes,** the one wait in frame time outside the combinators. Its one caller was its own test.
 - **A frame-time `effect/Clock` waits for a caller,** with ADR-0030 decision 1's questions to answer: its reach, what its `currentTime*` report, what `sleep(0)` means, and raw or clamped `dt`.
+
+## Amendment (#69, 2026-10-16): the rules reach dom, solid and test
+
+#69 converts `@wardic/dom`, `@wardic/solid` and `@wardic/test` to these rules (grilled 2026-10-16, Q1–Q6 all A). On main `300c431`, core's rules flagged about 750 places in their source (dom 479, 232 of them in `internal/projection.ts`; solid 266; test 7) and 2,129 in their tests. Since #63 the rules already applied to new code there. Two of the issue's deliverables had landed by then: dom's Shared sources are on `RcMap` / `RcRef` (`internal/shared.ts`), and dom's API shape is ADR-0041's.
+
+1. **dom's surface follows core's (Q1): `Option` for a missing value,** in its returns and in the callbacks a binding passes in (decision 7, *Amendment to ADR-0008*). Option bags keep their `?:` fields, read through `UndefinedOr`, and per-frame members stay plain. The places this changes:
+   - **Returns:** `ProjectionSystem.NodeHandle`'s `layoutBox` and `handBackWithin`; `OwnValues.OwnValue`, `valueLike` and `styleValueOf`.
+   - **Callbacks a binding passes in:** `RegisterNodeOptions`' `transition`, `dragTransition`, `onLayoutAnimationStart` and `onLayoutAnimationComplete`; `ReorderController.Options`' `axis` and `announcements`; a Reorder item's `element`.
+   - **Already `Option`:** `Variables.resolve`.
+
+   Solid unwraps at its boundary, as it does for core's. dom's audience is binding authors, Foldkit among them (ADR-0041).
+   - Rejected: keeping `| undefined` at dom's surface, which leaves it mixed and has an Effect binding wrapping every read; `Option` in returns only.
+2. **dom's per-frame files, by core's file-level rule (Q2).** `projection.ts`, `gate.ts`, `renderer.ts`, `svg.ts`, `scale-correction.ts`, `key-rules.ts` and `measure.ts` (all under `packages/dom/src/internal/`) join lint's per-frame lists: they may keep a `for`, and they read by index with `xs[i]`. Their cold code follows the full rules by review, as `Machine.ts`'s does.
+   - **The per-frame code:**
+     - dom's: the projection pass (the coordinator's step and its write per node), the Measure pass's reads per node, the gate's `write` and flush, the Renderer's `project`, the SVG split in a flush, the scale correctors, and the Key rules' `KeyBlend`s and the colour blend.
+     - solid's: only its run sinks (`Machine.run((frame) => gate.write(…))`, presence's `commitFrame`, drag's `tapFrame`), one-line closures, so no solid file is listed.
+   - **The start path** (per key, at an animation's start: solid's `use-wardic.tsx`) isn't per frame. It keeps the full rules, and `bench:solid` checks their cost.
+   - Rejected: splitting `projection.ts` first, so only its per-frame half is listed; a disable comment on each per-frame loop.
+3. **Tests (Q3):** the existing line holds ("tooling: no ternaries, and the rest where it reads well"), and lint now holds its one hard rule. `no-ternary` covers every package's tests and benches, core's included, which means 164 ternaries to rewrite. Nothing else in test code is converted wholesale: most of the 2,129 are a `!` on a lookup a test just made, or a `for` that fires frames.
+   - Rejected: tests unlinted, as before; the full rules in tests.
+4. **One-shot delays are `Effect.sleep` in a fiber, not a `Schedule` (Q4).** `Schedule` describes repetition. These are delays that restart or cancel. This refines *Amendment (#109)*: wall time is still Effect's.
+   - **The Resize block's 250 ms** (ADR-0018, *Amendment (#39)*) and **Reorder's held-arrow thinning, 150 ms** (ADR-0037) become `Effect.sleep(<Duration>)`, then their action, in a `FiberHandle` in the owner's Scope. Running the handle again restarts the delay; clearing it cancels.
+   - **The Measure pass's `leftover`,** the next task's pass after the round cap, becomes `Effect.sleep(Duration.zero)`. Effect's Clock sleeps with `setTimeout` whatever Scheduler is installed, so it stays a next-task hop under a microtask Scheduler (Foldkit's, #208), which `Effect.yieldNow` wouldn't.
+   - **The Scope ends them,** in place of `clearTimeout` in a `dispose`.
+   - Rejected: a `Schedule` for each, which here only wraps `Effect.sleep` in a repeat that never repeats; keeping `setTimeout` with a written exemption.
+5. **Five PRs, each switching lint on for what it converts (Q5):**
+   1. dom's surface on `Option`, with solid's call sites;
+   2. dom's internals outside `projection.ts`, with lint on for dom's source but `projection.ts`;
+   3. `projection.ts`, with the Resize block's and `leftover`'s timers;
+   4. solid's internals;
+   5. test's source and every package's test ternaries, with `no-ternary` in tests.
+
+   **Checks:**
+   - every PR: the gates, the lab's drives, and the `optimizeDeps` rule (each new `effect/*` import listed in all three browser configs in the same commit, and no "optimized dependencies changed" in a warm-cache `test:browser` log);
+   - PRs 2 and 3: the gate-flush and projection-pass page probes, paired with an A/A;
+   - PRs 1, 3 and 4: `bench:solid` with an A/A;
+   - the timers: mutations on the restart and the cancel;
+   - `bench:core` only if core changes.
+
+   Rejected: one PR per package; one PR.
+6. **This amendment (Q6).** Each PR adds an *Implementation in #69's PR n* below. `effect-first.md` gets the scope, the per-frame code by name and the test rule as they land, and ADR-0041 points here for dom's `Option` surface.
+   - Rejected: a new ADR; no ADR.
+
+## Implementation in #69's PR 1: dom's surface on `Option`
+
+- **The members:**
+  - **`ProjectionSystem`:** `NodeHandle.layoutBox()` and `handBackWithin(…)` return `Option`. `RegisterNodeOptions`' `transition`, `dragTransition`, `onLayoutAnimationStart` and `onLayoutAnimationComplete` return `Option` (`None` for Motion's default, or no callback).
+  - **`OwnValues`:** the reader (`OwnValue`), `styleValueOf` and `valueLike` return `Option`.
+  - **`ReorderController`:** `Options`' `axis` and `announcements`, and an item's `element`, return `Option`.
+- **The internals** keep `undefined` behind the surface, wrapped at it (`Option.fromUndefinedOr`), until PRs 2 and 3. The engine reads a callback's `Option` where it reads it: `Option.getOrElse` for a transition, `callAppIfAny` for a layout animation callback.
+- **Solid** wraps its Tier 1 options into `Option` where it registers a node (`useLayoutMember`), its Reorder group and items, and unwraps what it reads (presence's hand-back, the spine's style and own links). Tier 1 is unchanged.
+- **The tests** construct and read the new types; a syntax-aware rewrite took `transition: () => (…)` to `transition: () => Option.some(…)`.
+- **`effect/Option`** joins the three browser configs' `optimizeDeps`, where it wasn't listed.
+- **Checks:**
+  - **`bench:solid`** against main `300c431`, 11 paired reps, warm: mount +0.6%, Retarget +0.2%, at rest −0.6%, unmount +0.4%. Main against itself read +2.6%, +0.4%, +0.2% and −0.8%. Exit 0.
+  - **Lab** (5173, restarted on this branch):
+    - smoke 0 errors;
+    - crossfade board 54 runs, 0 fails;
+    - held 30 runs, 0 off;
+    - scenario 15, 14 runs clean;
+    - scenario 7 `passes 1 (1 seeding)`;
+    - scenario 17's lines as main's;
+    - keyboard reorder announced;
+    - real-mouse drags 0.00 px, 0 frames behind.
+
+    One scenario-17 line, "Untriggered, then Shuffle, triggered (expect wrong-origin)", reads `clean` here and on main (`.tmp/4/drive17.ts`'s label is stale).
+  - **Gates:** typecheck, lint, unit (963), browser (1007), the lab's tsc and vitest (208). No "optimized dependencies changed" in the browser log.

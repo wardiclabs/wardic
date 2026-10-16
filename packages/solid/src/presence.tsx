@@ -48,6 +48,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
@@ -243,8 +244,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     const el = rec.element
     const drop = projection.handBackWithin(el, () => partDone(el))
     pending.set(el, 1)
-    if (Predicate.isNotUndefined(drop)) {
-      handovers.set(el, drop)
+    if (Option.isSome(drop)) {
+      handovers.set(el, drop.value)
       pending.set(el, 2)
       debug("leave: hands back its twins")
     }

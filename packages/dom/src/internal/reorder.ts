@@ -70,8 +70,8 @@ export interface ReorderControllerOptions<V> {
   readonly values: () => ReadonlyArray<V>
   /** Receives a new order; the app sets `values` from it. */
   readonly onReorder: (values: Array<V>) => void
-  /** The app's axis, overriding detection; `undefined` to detect. */
-  readonly axis?: (() => Reorder.Axis | undefined) | undefined
+  /** The app's axis, overriding detection; `None` to detect. */
+  readonly axis?: (() => Option.Option<Reorder.Axis>) | undefined
   /** Called when the detected axis changes (after a Measure pass, or {@link ReorderController.resolve}). */
   readonly onAxis?: ((axis: Reorder.Axis) => void) | undefined
   /**
@@ -84,7 +84,7 @@ export interface ReorderControllerOptions<V> {
   /** Whether the items reorder by keyboard (ADR-0037), read at each key; `false` turns it off. On when left out. */
   readonly keyboard?: (() => boolean) | undefined
   /** The group's announcements over the defaults (ADR-0037), read at each announcement. */
-  readonly announcements?: (() => Partial<Reorder.Announcements<V>> | undefined) | undefined
+  readonly announcements?: (() => Option.Option<Partial<Reorder.Announcements<V>>>) | undefined
 }
 
 /** One item of a {@link ReorderController}: its binding feeds it the item's handle, drag samples, keys, focus and presses. */
@@ -136,7 +136,7 @@ export interface ReorderController<V> {
    * The driver for the item with `value`; `element` is its element (for Auto-scroll, its label, its
    * focus and its reveal), and `onLift` hears its keyboard lift start and end (the binding's `whileDrag`).
    */
-  readonly item: (value: V, element: () => Element | undefined, onLift?: (lifted: boolean) => void) => ReorderItemDriver
+  readonly item: (value: V, element: () => Option.Option<Element>, onLift?: (lifted: boolean) => void) => ReorderItemDriver
   /** Move `value` to `toIndex` in code (`Reorder.move`), and announce it (ADR-0037). */
   readonly move: (value: V, toIndex: number) => void
   /** Detect the axis now (after the app's axis is cleared). */
@@ -157,13 +157,15 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   let autoScroller: AutoScroller | undefined
   // The order the group last asked for: a `values` change to anything else is the app's own (ADR-0037).
   let asked: ReadonlyArray<V> | undefined
+  /** The app's axis, if it sets one. */
+  const appAxis = (): Option.Option<Reorder.Axis> => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => axis())
   const group = Reorder.make<V>({
     values: options.values,
     onReorder: (values) => {
       asked = values
       options.onReorder(values)
     },
-    axis: () => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => Option.fromUndefinedOr(axis())),
+    axis: () => appAxis(),
     // Read once per drag start (Motion reads it on every sample, Group.tsx:142-147 at 16c6122).
     direction: () => (element !== undefined && getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr"),
     debug,
@@ -172,7 +174,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   let detected: Reorder.Axis = "y"
   let reported: Reorder.Axis | undefined
   const resolve = (): void => {
-    if (options.axis?.() !== undefined) return
+    if (Option.isSome(appAxis())) return
     detected = Reorder.resolveAxis(group)
     if (detected === reported) return
     reported = detected
@@ -205,7 +207,10 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
       announce?.(message)
     }, REPEAT_ANNOUNCE_MS)
   }
-  const wording = (): Reorder.Announcements<V> => ({ ...(Reorder.defaultAnnouncements as Reorder.Announcements<V>), ...options.announcements?.() })
+  const wording = (): Reorder.Announcements<V> => ({
+    ...(Reorder.defaultAnnouncements as Reorder.Announcements<V>),
+    ...Option.getOrUndefined(Option.flatMap(Option.fromUndefinedOr(options.announcements), (announcements) => announcements())),
+  })
   const say = (kind: keyof Reorder.Announcements<V>, value: V, placement: Reorder.Placement): string =>
     wording()[kind]({ value, label: labelOf(keyed.get(value)?.element(), value), position: placement.position, count: placement.count })
 
@@ -320,11 +325,12 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   const unregisteredThisTask = new Set<V>()
   let remountReported = false
 
-  const item = (value: V, itemElement: () => Element | undefined, onLift: (lifted: boolean) => void = constVoid): ReorderItemDriver => {
+  const item = (value: V, itemElement: () => Option.Option<Element>, onLift: (lifted: boolean) => void = constVoid): ReorderItemDriver => {
     // The gesture's axis (core's, fixed at its start), for Auto-scroll's axis.
     let gestureAxis: Reorder.Axis = "y"
     let inGesture = false
-    const k: Keyed = { element: itemElement, handle: undefined, onLift }
+    // The element as the controller's internals read it, until #69's PR 2 moves them onto Option.
+    const k: Keyed = { element: () => Option.getOrUndefined(itemElement()), handle: undefined, onLift }
     keyed.set(value, k)
     const end = (): void => {
       inGesture = false
@@ -342,7 +348,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           )
         }
         const unregister = Reorder.register(group, value, {
-          layoutBox: () => Option.fromUndefinedOr(handle.layoutBox()),
+          layoutBox: handle.layoutBox,
           dragOffset: handle.dragOffset,
           layoutVersion: handle.layoutVersion,
         })
@@ -366,7 +372,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           const velocity = Reorder.dragMove(group, value, sample.velocity)
           if (autoScroller !== undefined) {
             const on = AutoScroll.axis(gestureAxis, velocity)
-            autoScroller.update(sample.point, on, velocity[on], itemElement())
+            autoScroller.update(sample.point, on, velocity[on], k.element())
           }
           return
         }
@@ -393,7 +399,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
 
   return {
     group,
-    axis: () => options.axis?.() ?? detected,
+    axis: () => Option.getOrElse(appAxis(), () => detected),
     attach: (el) => {
       element = el
       autoScroller = makeAutoScroller(el, debug)

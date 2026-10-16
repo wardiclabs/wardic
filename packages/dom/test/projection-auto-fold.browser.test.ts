@@ -20,6 +20,7 @@ import { afterEach, beforeEach, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as internalProjection from "../src/internal/projection.ts"
+import * as Option from "effect/Option"
 
 type FrameCallback = (t: number) => void
 
@@ -138,7 +139,7 @@ const registerAll = (
   system: ReturnType<typeof makeEngine>["system"],
   els: ReadonlyArray<HTMLElement>,
   prefix = "n",
-): Array<ProjectionSystem.NodeHandle> => els.map((element, i) => system.register({ id: `${prefix}${i}`, element, transition: () => ({ type: "spring" }) }))
+): Array<ProjectionSystem.NodeHandle> => els.map((element, i) => system.register({ id: `${prefix}${i}`, element, transition: () => Option.some({ type: "spring" }) }))
 
 /** Register, let the first Measure pass run, and settle into a frame. */
 const mount = async (system: ReturnType<typeof makeEngine>["system"], els: ReadonlyArray<HTMLElement>) => {
@@ -215,7 +216,7 @@ describe("every scrollable ancestor is folded (ADR-0012, Amendment (Reorder))", 
   it("AF5 (guard): a layoutScroll container node still folds its scroll", async () => {
     const e = makeEngine(makeSink().sink)
     const box = scroller(stage(), "width:220px;height:200px;overflow:auto")
-    e.system.register({ id: "scroller", element: box, transition: () => ({ type: "spring" }), layoutScroll: true })
+    e.system.register({ id: "scroller", element: box, transition: () => Option.some({ type: "spring" }), layoutScroll: true })
     const handles = await mount(e.system, column(box, 8))
     box.scrollTop = 60
     expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
@@ -229,7 +230,7 @@ describe("every scrollable ancestor is folded (ADR-0012, Amendment (Reorder))", 
     tall.style.cssText = "height:3000px"
     root.append(tall)
     const fixedRoot = scroller(root, "position:fixed;left:400px;top:0;width:200px;height:200px;overflow:auto")
-    e.system.register({ id: "fixed-root", element: fixedRoot, transition: () => ({ type: "spring" }), layoutScroll: true })
+    e.system.register({ id: "fixed-root", element: fixedRoot, transition: () => Option.some({ type: "spring" }), layoutScroll: true })
     const handles = await mount(e.system, column(fixedRoot, 2))
     window.scrollTo(0, 100)
     expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
@@ -286,7 +287,7 @@ describe("every scrollable ancestor is folded (ADR-0012, Amendment (Reorder))", 
     const b = scroller(root, "position:absolute;left:300px;top:0;width:220px;height:200px;overflow:auto")
     const [aEls, bEls] = [column(a, 8), column(b, 8)]
     const leaverEl = aEls[4]!
-    const leaver = e.system.register({ id: "leaver", element: leaverEl, transition: () => ({ type: "spring" }), layoutId: "t" })
+    const leaver = e.system.register({ id: "leaver", element: leaverEl, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
     await endOfTask()
     fireFrame()
     // A scrolls after the last pass, then the leaver leaves the DOM before its dispose.
@@ -296,7 +297,7 @@ describe("every scrollable ancestor is folded (ADR-0012, Amendment (Reorder))", 
     leaverEl.remove()
     leaver.dispose()
     const enterEl = bEls[2]!
-    e.system.register({ id: "enter", element: enterEl, transition: () => ({ type: "spring" }), layoutId: "t" })
+    e.system.register({ id: "enter", element: enterEl, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
     await endOfTask()
     const to = enterEl.getBoundingClientRect()
     const first = sk.writes.find((w) => w.id === "enter")!

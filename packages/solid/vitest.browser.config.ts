@@ -131,6 +131,7 @@ export default defineConfig({
       "effect/Metric",
       "effect/MutableRef",
       "effect/Number",
+      "effect/Option",
       "effect/Order",
       "effect/Pipeable",
       "effect/Predicate",

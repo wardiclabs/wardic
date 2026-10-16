@@ -22,6 +22,7 @@ import * as Stream from "effect/Stream"
 import { afterEach, beforeEach, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as internalProjection from "../src/internal/projection.ts"
+import * as Option from "effect/Option"
 
 type FrameCallback = (t: number) => void
 
@@ -163,7 +164,7 @@ const writesFor = (entries: ReadonlyArray<LogEntry>, id: string) =>
 /** Register a box as a node and let its first Measure pass run. */
 const registerAt = async (system: internalProjection.ProjectionSystem, id: string, left: number, top = 0) => {
   const element = makeBox(left, top)
-  const handle = system.register({ id, element, transition: () => ({ type: "spring" }) })
+  const handle = system.register({ id, element, transition: () => Option.some({ type: "spring" }) })
   await endOfTask()
   return { element, handle }
 }
@@ -175,9 +176,9 @@ describe("the Measure pass (ADR-0018)", () => {
     const a = makeBox(0)
     const b = makeBox(100)
     const c = makeBox(200)
-    const ha = e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
-    e.system.register({ id: "b", element: b, transition: () => ({ type: "spring" }) })
-    e.system.register({ id: "c", element: c, transition: () => ({ type: "spring" }) })
+    const ha = e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
+    e.system.register({ id: "b", element: b, transition: () => Option.some({ type: "spring" }) })
+    e.system.register({ id: "c", element: c, transition: () => Option.some({ type: "spring" }) })
     ha.notify()
     ha.notify()
     e.system.notify()
@@ -321,8 +322,8 @@ describe("the Measure pass (ADR-0018)", () => {
     const childEl = document.createElement("div")
     childEl.style.cssText = "position:absolute;top:10px;left:10px;width:40px;height:40px"
     parentEl.append(childEl)
-    const parent = e.system.register({ id: "parent", element: parentEl, transition: () => ({ type: "spring" }) })
-    const child = e.system.register({ id: "child", element: childEl, transition: () => ({ type: "spring" }) })
+    const parent = e.system.register({ id: "parent", element: parentEl, transition: () => Option.some({ type: "spring" }) })
+    const child = e.system.register({ id: "child", element: childEl, transition: () => Option.some({ type: "spring" }) })
     const other = await registerAt(e.system, "other", 0, 200)
     await endOfTask()
 
@@ -355,9 +356,9 @@ describe("the Measure pass (ADR-0018)", () => {
     leafEl.style.cssText = "position:absolute;top:10px;left:10px;width:40px;height:40px"
     rootEl.append(leafEl)
     outerEl.append(rootEl)
-    const outer = e.system.register({ id: "outer", element: outerEl, transition: () => ({ type: "spring" }) })
-    e.system.register({ id: "layout-root", element: rootEl, transition: () => ({ type: "spring" }), layoutRoot: true })
-    const leaf = e.system.register({ id: "leaf", element: leafEl, transition: () => ({ type: "spring" }) })
+    const outer = e.system.register({ id: "outer", element: outerEl, transition: () => Option.some({ type: "spring" }) })
+    e.system.register({ id: "layout-root", element: rootEl, transition: () => Option.some({ type: "spring" }), layoutRoot: true })
+    const leaf = e.system.register({ id: "leaf", element: leafEl, transition: () => Option.some({ type: "spring" }) })
     await endOfTask()
 
     outerEl.style.left = "200px"
@@ -380,7 +381,7 @@ describe("the Measure pass (ADR-0018)", () => {
     const s = makeSink()
     const e = makeEngine(s.sink)
     const el = makeBox(0)
-    const h = e.system.register({ id: "n", element: el, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "n", element: el, transition: () => Option.some({ type: "spring" }) })
     h.notify()
     e.dispose()
     await endOfTask()

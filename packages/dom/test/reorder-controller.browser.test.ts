@@ -17,6 +17,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as ReorderController from "@wardic/dom/ReorderController"
 import * as internalReorder from "../src/internal/reorder.ts"
 import { clearStages, el, endOfTask, type Engine, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 afterEach(() => {
@@ -87,8 +88,8 @@ const mountList = async (
   const items = new Map<string, Item>()
   for (const v of values) {
     const element = el(container, ITEM[kind])
-    const handle = e.system.register({ id: v, element, transition: () => ({ type: "spring" }) })
-    const driver = c.item(v, () => element)
+    const handle = e.system.register({ id: v, element, transition: () => Option.some({ type: "spring" }) })
+    const driver = c.item(v, () => Option.some(element))
     items.set(v, { element, handle, driver, unregister: driver.register(handle) })
   }
   await endOfTask()
@@ -174,7 +175,7 @@ describe("the Reorder controller (ADR-0020)", () => {
   it("RC3: while the app sets the axis no pass detects one; resolve() after it's cleared detects at once", async () => {
     const e = makeEngine(makeSink().sink)
     let override: Reorder.Axis | undefined = "x"
-    const list = await mountList(e, "column", { options: { axis: () => override } })
+    const list = await mountList(e, "column", { options: { axis: () => Option.fromUndefinedOr(override) } })
     expect(list.axes).toEqual([])
     expect(list.c.axis()).toBe("x")
     override = undefined
@@ -231,13 +232,13 @@ describe("the Reorder controller (ADR-0020)", () => {
     const reRegister = (value: string): void => {
       const item = list.items.get(value)!
       item.unregister()
-      const handle = e.system.register({ id: `${value}2`, element: item.element, transition: () => ({ type: "spring" }) })
-      list.items.set(value, { ...item, handle, unregister: list.c.item(value, () => item.element).register(handle) })
+      const handle = e.system.register({ id: `${value}2`, element: item.element, transition: () => Option.some({ type: "spring" }) })
+      list.items.set(value, { ...item, handle, unregister: list.c.item(value, () => Option.some(item.element)).register(handle) })
     }
     list.items.get("a")!.unregister()
     await endOfTask()
     const a = list.items.get("a")!
-    list.c.item("a", () => a.element).register(e.system.register({ id: "a2", element: a.element, transition: () => ({ type: "spring" }) }))
+    list.c.item("a", () => Option.some(a.element)).register(e.system.register({ id: "a2", element: a.element, transition: () => Option.some({ type: "spring" }) }))
     expect(remounts()).toEqual([])
     reRegister("b")
     expect(remounts().map((l) => l.annotations.value)).toEqual(["b"])

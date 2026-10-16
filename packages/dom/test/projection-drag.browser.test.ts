@@ -22,6 +22,7 @@ import { afterEach, beforeEach, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as internalProjection from "../src/internal/projection.ts"
+import * as Option from "effect/Option"
 
 type FrameCallback = (t: number) => void
 
@@ -171,9 +172,9 @@ const mountScene = async (system: ReturnType<typeof makeEngine>["system"]) => {
   const dEl = makeBox(0, 0, 160, 80)
   const cEl = makeBox(10, 10, 20, 20, dEl)
   const sEl = makeBox(400, 0, 50, 50)
-  const d: ProjectionSystem.NodeHandle = system.register({ id: "d", element: dEl, transition: () => ({ type: "spring" }) })
-  const c: ProjectionSystem.NodeHandle = system.register({ id: "c", element: cEl, transition: () => ({ type: "spring" }) })
-  const s: ProjectionSystem.NodeHandle = system.register({ id: "s", element: sEl, transition: () => ({ type: "spring" }) })
+  const d: ProjectionSystem.NodeHandle = system.register({ id: "d", element: dEl, transition: () => Option.some({ type: "spring" }) })
+  const c: ProjectionSystem.NodeHandle = system.register({ id: "c", element: cEl, transition: () => Option.some({ type: "spring" }) })
+  const s: ProjectionSystem.NodeHandle = system.register({ id: "s", element: sEl, transition: () => Option.some({ type: "spring" }) })
   await endOfTask()
   fireFrame()
   return { dEl, cEl, sEl, d, c, s }
@@ -213,9 +214,9 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     const dEl = makeBox(0, 0, 200, 80)
     const restEl = makeBox(10, 10, 20, 20, dEl)
     const runEl = makeBox(40, 10, 20, 20, dEl)
-    const d = e.system.register({ id: "d", element: dEl, transition: () => ({ type: "spring" }) })
-    e.system.register({ id: "rest", element: restEl, transition: () => ({ type: "spring" }) })
-    const run = e.system.register({ id: "run", element: runEl, transition: () => ({ type: "spring", stiffness: 20, damping: 10 }) })
+    const d = e.system.register({ id: "d", element: dEl, transition: () => Option.some({ type: "spring" }) })
+    e.system.register({ id: "rest", element: restEl, transition: () => Option.some({ type: "spring" }) })
+    const run = e.system.register({ id: "run", element: runEl, transition: () => Option.some({ type: "spring", stiffness: 20, damping: 10 }) })
     await endOfTask()
     fireFrame()
     runEl.style.left = "140px" // "run" starts a slow FLIP inside D

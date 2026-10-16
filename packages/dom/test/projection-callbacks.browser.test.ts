@@ -22,6 +22,7 @@ import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(() => {
   stubFrames()
@@ -49,9 +50,9 @@ const mount = async (
     e.system.register({
       id: `n${i}`,
       element,
-      transition: () => TWEEN,
-      onLayoutAnimationStart: () => () => calls.push(`start n${i}`),
-      onLayoutAnimationComplete: () => () => calls.push(`complete n${i}`),
+      transition: () => Option.some(TWEEN),
+      onLayoutAnimationStart: () => Option.some(() => calls.push(`start n${i}`)),
+      onLayoutAnimationComplete: () => Option.some(() => calls.push(`complete n${i}`)),
       ...extra(i),
     }),
   )
@@ -184,9 +185,9 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
       id: "lead",
       element: b,
       layoutId: "twin",
-      transition: () => TWEEN,
-      onLayoutAnimationStart: () => () => calls.push("start lead"),
-      onLayoutAnimationComplete: () => () => calls.push("complete lead"),
+      transition: () => Option.some(TWEEN),
+      onLayoutAnimationStart: () => Option.some(() => calls.push("start lead")),
+      onLayoutAnimationComplete: () => Option.some(() => calls.push("complete lead")),
     })
     await endOfTask()
     fireFrames(20)
@@ -202,9 +203,9 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
         id,
         element,
         layoutId: "twin",
-        transition: () => TWEEN,
-        onLayoutAnimationStart: () => () => calls.push(`start ${id}`),
-        onLayoutAnimationComplete: () => () => calls.push(`complete ${id}`),
+        transition: () => Option.some(TWEEN),
+        onLayoutAnimationStart: () => Option.some(() => calls.push(`start ${id}`)),
+        onLayoutAnimationComplete: () => Option.some(() => calls.push(`complete ${id}`)),
       })
     // In flight: started, then relegated two frames in; it never completes.
     const a = absolute(s, 0)
@@ -228,9 +229,9 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
       id: "lead2",
       element: absolute(s2, 300),
       layoutId: "twin",
-      transition: () => TWEEN,
-      onLayoutAnimationStart: () => () => calls.push("start lead2"),
-      onLayoutAnimationComplete: () => () => calls.push("complete lead2"),
+      transition: () => Option.some(TWEEN),
+      onLayoutAnimationStart: () => Option.some(() => calls.push("start lead2")),
+      onLayoutAnimationComplete: () => Option.some(() => calls.push("complete lead2")),
     })
     await endOfTask()
     fireFrames(30)
@@ -261,9 +262,9 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
     const [ha, hb] = await mount(e, [a, b], (i) =>
       i === 0
         ? {
-            onLayoutAnimationStart: () => () => {
+            onLayoutAnimationStart: () => Option.some(() => {
               throw new Error("boom")
-            },
+            }),
           }
         : {},
     )

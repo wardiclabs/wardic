@@ -20,6 +20,7 @@ import type * as Projection from "@wardic/core/Projection"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { drawsSame } from "../src/internal/projection.ts"
 import { clearStages, el, endOfTask, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(() => {
   stubFrames()
@@ -40,8 +41,8 @@ describe("the render gate (#27)", () => {
     const s = stage("position:relative;width:800px;height:400px")
     const parent = el(s, "position:absolute;left:0;top:0;width:200px;height:200px")
     const child = el(parent, "position:absolute;left:20px;top:20px;width:40px;height:40px")
-    const hp = e.system.register({ id: "parent", element: parent, transition: () => TWEEN })
-    e.system.register({ id: "child", element: child, transition: () => TWEEN })
+    const hp = e.system.register({ id: "parent", element: parent, transition: () => Option.some(TWEEN) })
+    e.system.register({ id: "child", element: child, transition: () => Option.some(TWEEN) })
     await endOfTask()
     fireFrame()
     parent.style.left = "300px"
@@ -59,7 +60,7 @@ describe("the render gate (#27)", () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const a = el(stage("position:relative;width:800px;height:200px"), "position:absolute;left:0;top:0;width:50px;height:50px")
-    const h = e.system.register({ id: "a", element: a, transition: () => TWEEN })
+    const h = e.system.register({ id: "a", element: a, transition: () => Option.some(TWEEN) })
     await endOfTask()
     fireFrame()
     a.style.left = "300px"
@@ -75,7 +76,7 @@ describe("the render gate (#27)", () => {
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const a = el(stage("position:relative;width:800px;height:300px"), "position:absolute;left:0;top:50px;width:100px;height:100px")
-    const h = e.system.register({ id: "a", element: a, transition: () => TWEEN })
+    const h = e.system.register({ id: "a", element: a, transition: () => Option.some(TWEEN) })
     await endOfTask()
     fireFrame()
     // The same centre (100), taller: no translate either way, only the y scale eases back to 1.
@@ -97,8 +98,8 @@ describe("the render gate (#27)", () => {
     const s = stage("position:relative;width:800px;height:400px")
     const parent = el(s, "position:absolute;left:0;top:0;width:200px;height:200px")
     const child = el(parent, "position:absolute;left:20px;top:20px;width:40px;height:40px")
-    const hp = e.system.register({ id: "parent", element: parent, transition: () => TWEEN })
-    e.system.register({ id: "child", element: child, transition: () => TWEEN })
+    const hp = e.system.register({ id: "parent", element: parent, transition: () => Option.some(TWEEN) })
+    e.system.register({ id: "child", element: child, transition: () => Option.some(TWEEN) })
     await endOfTask()
     fireFrame()
     parent.style.width = "400px"
@@ -122,12 +123,12 @@ describe("the render gate (#27)", () => {
       const root = stage("position:relative;width:800px;height:200px")
       const box = (extra: string) => el(root, `position:absolute;left:20px;top:40px;width:80px;height:40px;${extra}`)
       const aEl = box(css)
-      const a = e.system.register({ id: "a", element: aEl, transition: () => TWEEN, layoutId: `twin-${what}`, ...look })
+      const a = e.system.register({ id: "a", element: aEl, transition: () => Option.some(TWEEN), layoutId: `twin-${what}`, ...look })
       await endOfTask()
       fireFrame()
       aEl.remove()
       a.dispose()
-      e.system.register({ id: "b", element: box(""), transition: () => TWEEN, layoutId: `twin-${what}` })
+      e.system.register({ id: "b", element: box(""), transition: () => Option.some(TWEEN), layoutId: `twin-${what}` })
       await endOfTask()
       const from = sk.writes.length
       fireFrames(8)

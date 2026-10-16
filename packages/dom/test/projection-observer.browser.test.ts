@@ -17,6 +17,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach } from "vitest"
 import { clearStages, el, endOfTask, type Engine, makeEngine, makeSink, stage, wait } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 afterEach(() => {
   clearStages()
@@ -31,7 +32,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
   it("RS1: a mount runs one pass: the first delivery reports the sizes just measured", async () => {
     const e = makeEngine(makeSink().sink)
     const s = stage("position:relative;width:600px;height:300px")
-    for (let i = 0; i < 3; i++) e.system.register({ id: `n${i}`, element: el(s, `width:${50 + i * 10}px;height:30px`), transition: () => ({ type: "spring" }) })
+    for (let i = 0; i < 3; i++) e.system.register({ id: `n${i}`, element: el(s, `width:${50 + i * 10}px;height:30px`), transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     expect(passesOf(e)).toBe(1)
     e.dispose()
@@ -40,7 +41,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
   it("RS2: a triggered size change runs one pass: the observer's echo of it runs none", async () => {
     const e = makeEngine(makeSink().sink)
     const a = el(stage("position:relative;width:600px;height:300px"), "width:50px;height:30px")
-    const h = e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
+    const h = e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     const before = passesOf(e)
     a.style.width = "120px"
@@ -54,7 +55,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
   it("RS3: a size change between observe() and the first delivery, with no trigger, still runs a pass that animates it; so does a height change", async () => {
     const e = makeEngine(makeSink().sink)
     const a = el(stage("position:relative;width:600px;height:300px"), "width:50px;height:30px")
-    e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
+    e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
     await endOfTask() // the first pass has measured 50 px
     a.style.width = "120px" // before the observer's first delivery
     await wait(SETTLE_MS)
@@ -70,7 +71,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
   it("RS4: an element mounted at 0×0 that then grows, with no trigger, runs a pass", async () => {
     const e = makeEngine(makeSink().sink)
     const a = el(stage("position:relative;width:600px;height:300px"), "width:0px;height:0px")
-    e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
+    e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     const before = passesOf(e)
     a.style.width = "80px"
@@ -83,7 +84,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
   it("RS5: a padding change, with no trigger, runs a pass: the border box the engine measures changed", async () => {
     const e = makeEngine(makeSink().sink)
     const a = el(stage("position:relative;width:600px;height:300px"), "width:50px;height:30px;box-sizing:content-box")
-    e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
+    e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     const before = passesOf(e)
     a.style.padding = "10px"
@@ -96,7 +97,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
   it("RS6: a vertical writing mode falls back to the pass, and so does a resize under a scaling ancestor that isn't a node", async () => {
     const e = makeEngine(makeSink().sink)
     const s = stage("position:relative;width:600px;height:300px")
-    e.system.register({ id: "v", element: el(s, "width:100px;height:40px;writing-mode:vertical-rl"), transition: () => ({ type: "spring" }) })
+    e.system.register({ id: "v", element: el(s, "width:100px;height:40px;writing-mode:vertical-rl"), transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     expect(passesOf(e), "inline is height there: no horizontal match, so the pass runs").toBe(2)
     e.dispose()
@@ -104,7 +105,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
     const e2 = makeEngine(makeSink().sink)
     const scaled = el(stage("position:relative;width:600px;height:300px"), "transform:scale(2);transform-origin:0 0")
     const b = el(scaled, "width:50px;height:30px")
-    e2.system.register({ id: "b", element: b, transition: () => ({ type: "spring" }) })
+    e2.system.register({ id: "b", element: b, transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     const before = passesOf(e2)
     b.style.width = "70px" // no trigger: only the observer sees it
@@ -117,7 +118,7 @@ describe("the shared ResizeObserver runs a pass only for a size the engine hasn'
     const e = makeEngine(makeSink().sink)
     const a = el(stage("position:relative;width:600px;height:300px"), "display:contents")
     el(a, "width:50px;height:30px")
-    e.system.register({ id: "a", element: a, transition: () => ({ type: "spring" }) })
+    e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
     await wait(SETTLE_MS)
     const before = passesOf(e)
     a.style.display = "block"

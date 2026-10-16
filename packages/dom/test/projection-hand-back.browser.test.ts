@@ -21,6 +21,7 @@ import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -59,7 +60,7 @@ const factor = (sk: Sink, id: string): number => {
 const apart = (a: Rect, b: Rect): number => Math.max(Math.abs(a.x.min - b.x.min), Math.abs(a.x.max - b.x.max), Math.abs(a.y.min - b.y.min), Math.abs(a.y.max - b.y.max))
 
 const register = (e: Engine, id: string, element: HTMLElement, opts: Partial<ProjectionSystem.RegisterNodeOptions> = {}): ProjectionSystem.NodeHandle =>
-  e.system.register({ id, element, transition: () => ({ type: "spring" }), ...opts })
+  e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...opts })
 
 const frames = <A>(n: number, read: (i: number) => A): Array<A> =>
   Array.from({ length: n }, (_, i) => {
@@ -90,9 +91,11 @@ const opened = async (e: Engine, inner: (wrap: HTMLElement, big: HTMLElement) =>
 const close = async (e: Engine, wrap: HTMLElement, dispose: ReadonlyArray<ProjectionSystem.NodeHandle>) => {
   const seen = { done: false, drop: undefined as (() => void) | undefined }
   queueMicrotask(() => {
-    seen.drop = e.system.handBackWithin(wrap, () => {
-      seen.done = true
-    })
+    seen.drop = Option.getOrUndefined(
+      e.system.handBackWithin(wrap, () => {
+        seen.done = true
+      }),
+    )
   })
   for (const h of dispose) h.dispose()
   await endOfTask()

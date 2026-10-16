@@ -15,6 +15,7 @@ import { afterEach, beforeEach } from "vitest"
 import { page } from "vitest/browser"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames, wait } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 let width = 0
 let height = 0
@@ -77,7 +78,7 @@ const centredColumn = (n: number): Array<HTMLElement> => {
 
 const mount = async (e: Engine, els: ReadonlyArray<HTMLElement>, extra: { raiseWhileDragged?: boolean } = {}) => {
   const handles: Array<ProjectionSystem.NodeHandle> = els.map((element, i) =>
-    e.system.register({ id: `n${i}`, element, transition: () => ({ type: "spring" }), ...extra }),
+    e.system.register({ id: `n${i}`, element, transition: () => Option.some({ type: "spring" }), ...extra }),
   )
   await endOfTask()
   fireFrame()
@@ -262,9 +263,9 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
       e.system.register({
         id: `c${i}`,
         element,
-        transition: () => ({ type: "spring" }),
-        onLayoutAnimationStart: () => () => calls.push(`start c${i}`),
-        onLayoutAnimationComplete: () => () => calls.push(`complete c${i}`),
+        transition: () => Option.some({ type: "spring" }),
+        onLayoutAnimationStart: () => Option.some(() => calls.push(`start c${i}`)),
+        onLayoutAnimationComplete: () => Option.some(() => calls.push(`complete c${i}`)),
       }),
     )
     await endOfTask()

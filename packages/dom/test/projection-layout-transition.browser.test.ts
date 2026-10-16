@@ -15,6 +15,7 @@ import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
 
@@ -36,7 +37,7 @@ const mount = async (transition: ProjectionSystem.LayoutTransition | undefined, 
   const sk = makeSink()
   const e = makeEngine(sk.sink, options)
   const element = el(stage("position:relative;width:800px;height:100px"), "position:absolute;top:0;left:0px;width:50px;height:50px")
-  const handle: ProjectionSystem.NodeHandle = e.system.register({ id: "a", element, transition: () => transition })
+  const handle: ProjectionSystem.NodeHandle = e.system.register({ id: "a", element, transition: () => Option.fromUndefinedOr(transition) })
   await endOfTask()
   fireFrame()
   /** Move the box to `left`; the FLIP starts at the next frame. */
@@ -120,8 +121,8 @@ describe("a layout animation's transition (#171)", () => {
       e.system.register({
         id: `n${i}`,
         element: el(root, `position:absolute;top:${i * 80}px;left:0px;width:50px;height:50px`),
-        transition: () => node.transition,
-        ...(node.dragTransition === undefined ? {} : { dragTransition: () => node.dragTransition }),
+        transition: () => Option.fromUndefinedOr(node.transition),
+        ...(node.dragTransition === undefined ? {} : { dragTransition: () => Option.fromUndefinedOr(node.dragTransition) }),
       }),
     )
     await endOfTask()
