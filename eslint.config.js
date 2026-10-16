@@ -36,11 +36,26 @@ const ROOT = [
   restrictShape("ExportNamedDeclaration", "The root re-exports namespaces only: an export lives in its module"),
 ]
 
-/** Rule 5: code in the repo imports core's subpaths. */
+/**
+ * Rule 5: code in the repo imports core's subpaths, and dom's (#132, ADR-0041): dom's root keeps
+ * `DomLive` and `VERSION` for an app, and its namespaces are for users.
+ */
 const SUBPATHS = [
   restrictShape(
     "ImportDeclaration[source.value='@wardic/core']",
     'Import the module\'s subpath: import * as X from "@wardic/core/X"; the root\'s namespaces are for users',
+  ),
+  restrictShape(
+    "ImportDeclaration[source.value='@wardic/dom'] > ImportSpecifier[imported.name!=/^(DomLive|VERSION)$/]",
+    'Import dom\'s module by its subpath: import * as X from "@wardic/dom/X"; its root keeps DomLive and VERSION (ADR-0041)',
+  ),
+  restrictShape(
+    "ImportDeclaration[source.value='@wardic/dom'] > ImportNamespaceSpecifier",
+    'Import dom\'s module by its subpath: import * as X from "@wardic/dom/X" (ADR-0041)',
+  ),
+  restrictShape(
+    "ImportDeclaration[source.value=/^@wardic\\/dom\\/internal\\//]",
+    "dom's internal/ is its own: import a public module (ADR-0041)",
   ),
 ]
 
@@ -196,7 +211,7 @@ export default defineConfig([
   },
   {
     files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],
-    ignores: ["packages/dom/src/clock.ts"],
+    ignores: ["packages/dom/src/internal/clock.ts"],
     rules: {
       "no-restricted-globals": ["error", ...FRAME_FUNCTIONS.map((name) => ({ name, message: FRAME_MESSAGE }))],
       "no-restricted-properties": [
