@@ -38,7 +38,7 @@ export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
  * It's `@wardic/dom`'s, built by the provider with Solid's `batch` (ADR-0031), and
  * `useWardicGate` returns it; the types are re-exported here.
  */
-export type { FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGate"
+export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGate"
 
 /**
  * Reactive bridges (ADR-0006): `streamToSignal` (core `Stream` -> Solid signal,

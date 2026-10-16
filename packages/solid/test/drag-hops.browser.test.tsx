@@ -60,7 +60,7 @@ let dispatching = false
 function GateSpy(props: { readonly writes: Array<Write> }) {
   const gate = useWardicGate()
   const write = gate.write
-  ;(gate as { write: FlushGate.FlushGate["write"] }).write = (id, partial) => {
+  ;(gate as { write: FlushGate.Shape["write"] }).write = (id, partial) => {
     const x = partial.x
     props.writes.push({ keys: Object.keys(partial), x: typeof x === "number" ? x : undefined, inDispatch: dispatching })
     write(id, partial)

@@ -56,7 +56,7 @@ import * as Renderer from "@wardic/core/Renderer"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import type * as ManagedRuntime from "effect/ManagedRuntime"
+import type * as Fiber from "effect/Fiber"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import { reportFailure } from "./report.ts"
@@ -148,16 +148,17 @@ export interface FlushGate {
   readonly dispose: () => void
 }
 
+/** What a flush gate needs from its Environment: the `Renderer`, the Frame loop it flushes at the end of each tick of (ADR-0033), and the `RefreshFrameSource` (ADR-0031). */
+export type FlushGateServices = Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop
+
 /**
- * The runtime a flush gate needs: one that provides the `Renderer`, the Frame loop it flushes at
- * the end of each tick of (ADR-0033), and the Environment's
- * `RefreshFrameSource` (ADR-0031). A binding's wider runtime (one providing the full
- * Environment) is assignable here.
+ * How the gate runs its Effects: synchronously, and forked. `FlushGate.make` builds one from its
+ * Layer's context, forking into its Scope (#132, ADR-0041); a test's `ManagedRuntime` is one too.
  */
-export type FlushGateRuntime = ManagedRuntime.ManagedRuntime<
-  Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop,
-  never
->
+export interface FlushGateRuntime {
+  readonly runSync: <A, E>(effect: Effect.Effect<A, E, FlushGateServices>) => A
+  readonly runFork: <A, E>(effect: Effect.Effect<A, E, FlushGateServices>) => Fiber.Fiber<A, E>
+}
 
 /** What a binding hands its flush gate. */
 export interface FlushGateOptions {
@@ -358,18 +359,4 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   return { register, write, flushPass, release, dispose }
 }
 
-const noop = (): void => {}
 
-/**
- * The gate a server render gets (ADR-0021, decision 9): a server builds no runtime and
- * flushes nothing, so `register` returns a no-op unregister and `write` / `flushPass` /
- * `release` / `dispose` do nothing. Code that grabs the gate at setup and uses it after mount keeps
- * working on the server. Every binding's server path hands it down (Tier 2, for binding authors).
- */
-export const INERT_GATE: FlushGate = Object.freeze({
-  register: () => noop,
-  write: noop,
-  flushPass: noop,
-  release: noop,
-  dispose: noop,
-})

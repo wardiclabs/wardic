@@ -24,7 +24,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { constFalse } from "effect/Function"
 import * as Latch from "effect/Latch"
-import type * as Layer from "effect/Layer"
+import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -72,9 +72,9 @@ export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
  */
 interface WardicContextValue {
   readonly runtime: WardicRuntime
-  readonly gate: FlushGate.FlushGate
+  readonly gate: FlushGate.Shape
   /** `undefined` during a server render, which builds no projection system (ADR-0021). */
-  readonly projection: ProjectionSystem.ProjectionSystem | undefined
+  readonly projection: ProjectionSystem.Shape | undefined
   /** Whether reduced motion applies now (ADR-0029): read when each animation starts. */
   readonly reducedMotion: () => boolean
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
@@ -141,8 +141,16 @@ export function WardicProvider(props: {
 
   // Made ONCE — props.env is read a single time at construction. The runtime owns the
   // Layer's scope for the component's lifetime, and builds itself on its first run (it's
-  // Effect's `ManagedRuntime`): making it builds nothing.
-  const runtime = ManagedRuntime.make(props.env)
+  // Effect's `ManagedRuntime`): making it builds nothing. Over the Environment it builds the
+  // flush gate, with Solid's `batch` for a frame's Starting-style switches (ADR-0034), and the
+  // projection system writing through it (#132, ADR-0041): services built by their Layers and
+  // ended by its Scope, the projection system before the gate.
+  const runtime = ManagedRuntime.make(
+    ProjectionSystem.layer({ reducedMotion: () => build().reducedMotion() }).pipe(
+      Layer.provideMerge(FlushGate.layer({ batch })),
+      Layer.provideMerge(props.env),
+    ),
+  )
 
   // The rest is built on first need (#51, ADR-0021 *Amendment (#51)*): together, the first time
   // a Wardic element or hook reads any of it from context, which is during the first element's
@@ -151,12 +159,9 @@ export function WardicProvider(props: {
   let built: Built | undefined
   const build = (): Built => {
     if (Predicate.isNotUndefined(built)) return built
-    // The flush gate is a provider-owned singleton (one per WardicProvider),
-    // built atop the runtime (ADR-0006). It's dom's, framework-free, and commits each
-    // frame onto the elements; a frame's Starting-style switches run in Solid's `batch()`
-    // (ADR-0034). It resolves the Renderer and the Environment's Refresh frame source
-    // once at construction (ADR-0031), which builds the runtime.
-    const gate = FlushGate.make(runtime, { batch })
+    // The flush gate, one per WardicProvider (ADR-0006): reading it builds the runtime, the
+    // Environment, the gate and the projection system together.
+    const gate = runtime.runSync(FlushGate.FlushGate)
 
     // Whether reduced motion applies now (ADR-0029): the app's setting, untracked so a change to it
     // never Retargets, and the user's preference through the Probe's atom. Read when each animation
@@ -178,22 +183,15 @@ export function WardicProvider(props: {
     // It also owns `layoutId` matching end to end — the lead/follow stack AND the
     // Switch seed (ADR-0010 *Amendment (#13)*) — so `layoutId` works with NO
     // `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
-    const projection = ProjectionSystem.make(runtime, gate, { reducedMotion })
+    const projection = runtime.runSync(ProjectionSystem.ProjectionSystem)
     built = { gate, projection, reducedMotion, positionalKeys }
     return built
   }
 
-  onCleanup(() => {
-    // Stop the projection coordinator's run + drop its observer first, then cancel
-    // any pending frame and clear the gate, before tearing down the runtime the
-    // gate resolved its Renderer from. A provider that never built has none of them.
-    UndefinedOr.map(built, ({ gate, projection }) => {
-      projection.dispose()
-      gate.dispose()
-    })
-    // dispose() returns a Promise; fire-and-forget on unmount.
-    void runtime.dispose()
-  })
+  // Disposing the runtime closes its Scope, which ends the projection system, then the gate
+  // (#132): what was built is torn down in reverse, and a provider that never built has nothing
+  // but its runtime. dispose() returns a Promise; fire-and-forget on unmount.
+  onCleanup(() => void runtime.dispose())
 
   const value: WardicContextValue = {
     runtime,
@@ -215,8 +213,8 @@ export function WardicProvider(props: {
 
 /** What a client provider builds on first need (#51): everything in its context but the runtime. */
 interface Built {
-  readonly gate: FlushGate.FlushGate
-  readonly projection: ProjectionSystem.ProjectionSystem
+  readonly gate: FlushGate.Shape
+  readonly projection: ProjectionSystem.Shape
   readonly reducedMotion: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
 }
@@ -248,7 +246,7 @@ export function useWardicRuntime(): WardicRuntime {
  * body / `createRoot`). During a server render it's an inert gate that does nothing
  * (ADR-0021, decision 9).
  */
-export function useWardicGate(): FlushGate.FlushGate {
+export function useWardicGate(): FlushGate.Shape {
   const value = useContext(WardicContext)
   if (value === undefined) {
     throw new Error("useWardicGate must be used within a <WardicProvider>")
@@ -288,7 +286,7 @@ export function useWardicReducedMotion(): () => boolean {
  * engine). Throws a clear, named error outside a `WardicProvider`. Must be called
  * within a Solid owner.
  */
-export function useWardicProjection(): ProjectionSystem.ProjectionSystem {
+export function useWardicProjection(): ProjectionSystem.Shape {
   const value = useContext(WardicContext)
   if (value === undefined) {
     throw new Error("useWardicProjection must be used within a <WardicProvider>")

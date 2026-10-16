@@ -200,3 +200,66 @@ Every root name on `74fb80b` and its home now:
 - **The call sites** moved with a TypeScript-syntax-tree codemod. It rewrites only references to an imported binding, and a shorthand property becomes `key: Module.member`. One test's arrow parameter, `color`, shadowed the import and was restored by hand; a scan of every rewritten file found no other.
 - **The lint exemption for the Clock's `requestAnimationFrame`** follows `clock.ts` into `internal/`.
 - **Gates:** typecheck, lint, unit (920), browser (996), the lab's tsc and vitest (208), and the lab's drives.
+
+## Implementation in #132's PR 2: the gate and the projection system as services
+
+- **`@wardic/dom/FlushGate`:**
+  - **The service:** `FlushGate` (a `Context.Service` keyed `@wardic/dom/FlushGate`) with its `Shape`, the gate without `dispose`.
+  - **`make(options)`:** an `Effect<Shape, never, Services | Scope>`.
+  - **`layer(options)`** wraps `make`.
+  - **`inert` and `layerInert`.**
+  - **`Sink`, `Options` and `Services`.**
+- **`@wardic/dom/ProjectionSystem`:**
+  - **The service:** `ProjectionSystem` with its `Shape`.
+  - **`make(sink, options)`:** over any sink, so a binding, or a test, can hand it its own.
+  - **`layer(options)`:** takes the Environment's `FlushGate` as its sink. Built after the gate, it ends before it.
+- **The internals keep their factories** (`internal/gate.ts`' `makeFlushGate`, `internal/projection.ts`' `makeProjectionSystem`), now over a two-method runtime, `{ runSync, runFork }`, in place of a `ManagedRuntime` type. `make` builds that runtime from its Layer's context:
+  - `Effect.runSyncWith(context)`;
+  - `FiberSet.makeRuntime()`, whose forks end with the Scope, as a `ManagedRuntime`'s ended with its `dispose`;
+  - and it registers the factory's `dispose` as the Scope's finalizer.
+
+  dom's own tests build the engine and the gate with the factories, on a test `ManagedRuntime`, as before.
+- **The runner drops the building call's scheduler** (`internal/runner.ts`, found through DR1 in CI). A binding's first read builds the Layers inside a `ManagedRuntime.runSync`, whose fiber carries a sync `MixedScheduler`. The first draft captured the build's context, scheduler and all, through `FiberSet.makeRuntime`, so every later fork by the gate and the engine resumed its yields on a microtask, where a `ManagedRuntime`'s forks resume on a macrotask (ADR-0027, decision 6).
+  - **`Context.omit(Scheduler.Scheduler)` alone wasn't enough:** `FiberSet.runtime` reads `Effect.context()` again in the current fiber, and `Effect.provideContext` merges into that context instead of replacing it.
+  - **The fix:** `makeRunner` forks with the trimmed context itself (`Effect.runForkWith`) and adds each fiber to a `FiberSet` in the Layer's Scope.
+  - **Pinned by** `test/runner.node.test.ts`:
+    - RN1: built inside a `runSync`, a fork resumes on a macrotask; it fails on the first draft;
+    - RN2: a fork still running when the Scope closes is interrupted.
+- **`make` returns the factory's object, not a copy.** The engine's `onPassEnd` keys its listeners on the system object in a WeakMap. A first draft returned `{ ...system }` without `dispose`, which would have silently dropped the Reorder controller's pass-end hook. The type check that caught it (`onPassEnd` wanted the full type) is why `make` returns the object itself, typed as the `Shape`. Mutation M8 pins it (KB9, RO15).
+- **Solid's provider** makes one runtime from `ProjectionSystem.layer(…)`, `FlushGate.layer({ batch })` and `env`.
+  - **The first context read builds it** (ADR-0021, *Amendment (#51)*): `runtime.runSync(FlushGate.FlushGate)` builds the Environment, the gate and the engine together.
+  - **Unmount is `runtime.dispose()` alone,** whose Scope ends the engine, then the gate.
+  - **The engine's `reducedMotion` option** reads the provider's built inputs, which exist before any layout animation starts.
+  - **The server keeps `FlushGate.inert`.**
+- **The types:** solid's public `FlushGate` type is `FlushGate.Shape`, re-exported under its old name (#193 renames solid's API). The Reorder controller's `projection` option and `onPassEnd` take the `Shape`.
+- **Checks:**
+  - **New tests, `services.browser.test.ts` DS1–DS4,** on the real `DomLive`:
+    - one runtime builds each once, and the engine writes through that gate;
+    - closing the Scope ends the engine (its `resize` listener goes) before the gate (its pending frame is cancelled), and nothing is written after;
+    - `make` over a binding's own sink ends with its own Scope;
+    - `inert` and `layerInert`.
+  - **The existing tests** pass unchanged, LZ1–LZ4 included. SV13 calls `release` on the inert gate in place of the gone `dispose`.
+  - **Mutations:** 8, of which 6 are caught: either Scope finalizer gone, `layerInert` a different object, the provider's teardown gone, the engine on the inert gate, and a copied system (M8).
+  - **Two survive at the module level:** forking outside the Scope's `FiberSet` (M3, M4). The engine ends its long-lived fibers (its end-of-task holds, the coordinator) through its own internal Scope anyway. The runner's own test, RN2, now pins what the `FiberSet` adds: a fork still running ends with the Scope.
+  - **`bench:solid`** (11 paired reps against `272f427`): mount +1.7%, mid-flight Retarget +2.0%, at rest −1.3%, unmount −1.7%. The control read +4.3%. Exit 0.
+  - **The gate's flush, per Refresh frame** (`.tmp/132-flush`, #79's probe ported). The whole frame's JS, flush included, against main, with main against itself as the A/A, 11 reps. Every difference is within the A/A's spread:
+
+    | Workload | Change | A/A |
+    |---|---|---|
+    | transform | −2.1% | −1.0% |
+    | mixed | 0.0% | +0.4% |
+    | flip | +2.6% | 0.0% [−4.8, +8.9] |
+    | styled | +3.3% | +2.6% |
+    | partial | −0.3% | +0.3% |
+
+    The probe's flush-only rows read 0 on all three variants: since ADR-0033 the gate flushes inside the tick and calls `batch` only for Starting-style switches, which the probe's `batch` wrapper no longer sees.
+  - **The projection pass, per frame** (`.tmp/132-proj`, #27's probe ported). The median rAF ms at 1,000 nodes, 9 reps, against main, with main against itself as the A/A. Every change is within the A/A's spread:
+
+    | Workload | main | A/A | This PR |
+    |---|---|---|---|
+    | glued | 1.11 ms | 1.08 (−3%) | 1.07 (−4%) |
+    | delay | 1.73 | 1.72 (−1%) | 1.68 (−3%) |
+    | flip | 1.77 | 1.73 (−2%) | 1.71 (−3%) |
+    | scaled | 2.33 | 2.20 (−5%) | 2.23 (−4%) |
+
+    The per-frame members are the same plain functions, so this is what was expected.

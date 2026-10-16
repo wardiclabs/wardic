@@ -15,7 +15,7 @@ import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { page } from "vitest/browser"
+import { commands, page } from "vitest/browser"
 import { loseNextRelease } from "./browser-helpers.ts"
 import { add, centreOf, glide, mountReorder, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
@@ -66,6 +66,11 @@ describe("a layout drag's release through the drag track (ADR-0016, Amendment (v
       // Back toward the slot fast: 50 px moves 35 ms apart (about 50 ms with each move's ack),
       // let go at once 20 px short of it. A 30 ms window would hold one move and the up, at
       // the same point, and read no velocity.
+      // Each pointer event as the page saw it, for the report (#206).
+      const seen: Array<{ readonly type: string; readonly t: number; readonly x: number }> = []
+      const record = (e: PointerEvent): void => void seen.push({ type: e.type.slice(7), t: e.timeStamp, x: e.clientX })
+      window.addEventListener("pointermove", record, true)
+      window.addEventListener("pointerup", record, true)
       for (let k = 1; k <= 4; k++) {
         await mouse.move(add(g, 220 - 50 * k, 0))
         if (k < 4) await wait(35)
@@ -73,7 +78,20 @@ describe("a layout drag's release through the drag track (ADR-0016, Amendment (v
       const sampling = sampleFrames(() => dxOf(s))
       await mouse.up(add(g, 20, 0))
       await wait(400)
-      lows.push(Math.min(...sampling.stop().map((f) => f.v)))
+      window.removeEventListener("pointermove", record, true)
+      window.removeEventListener("pointerup", record, true)
+      const frames = sampling.stop()
+      lows.push(Math.min(...frames.map((f) => f.v)))
+      // The velocity the release should carry: the last 100 ms of moves, the release point counted.
+      const end = seen.at(-1)
+      const first = seen.find((e) => end !== undefined && end.t - e.t <= 100)
+      const velocity = end !== undefined && first !== undefined && end.t > first.t ? ((end.x - first.x) / (end.t - first.t)) * 1000 : 0
+      const t0 = frames[0]?.frameAt ?? 0
+      await commands.report(
+        `DR1 momentum=${momentum} low=${lows.at(-1)!.toFixed(2)} v100=${velocity.toFixed(0)}px/s ` +
+          `moves=${seen.slice(-6).map((e) => `${e.type}@${e.t.toFixed(1)}:${e.x.toFixed(0)}`).join(",")} ` +
+          `frames=${frames.slice(0, 14).map((f) => `${(f.frameAt - t0).toFixed(0)}:${f.v.toFixed(1)}`).join(",")}`,
+      )
       await wait(600)
       expect(Math.abs(dxOf(s)), "it lands on its slot").toBeLessThan(0.5)
       await resetScene()

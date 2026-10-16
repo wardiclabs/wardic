@@ -20,6 +20,7 @@ import * as Tracer from "effect/Tracer"
 import { afterEach, beforeEach, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as internalProjection from "../src/internal/projection.ts"
 
 type FrameCallback = (t: number) => void
 
@@ -96,7 +97,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
   })
   const runtime = ManagedRuntime.make(Layer.merge(DomLive, Layer.succeed(Tracer.Tracer, tracer)))
-  const system = ProjectionSystem.make(runtime, sink)
+  const system = internalProjection.makeProjectionSystem(runtime, sink)
   return {
     system,
     spans,

@@ -131,7 +131,7 @@ export interface RunDragTrackOptions {
   /** The provider runtime the track's single fiber is forked on. */
   readonly runtime: WardicRuntime
   /** The provider-owned flush gate (ADR-0006); the drag writes `x`/`y` into `id`. */
-  readonly gate: FlushGate.FlushGate
+  readonly gate: FlushGate.Shape
   /** The element's gate id (shared with the spine, so writes merge). */
   readonly id: string
   /** The live element the drag recognizer attaches to. */
