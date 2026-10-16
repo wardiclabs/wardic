@@ -50,7 +50,7 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
-import { constTrue, identity } from "effect/Function"
+import { constTrue, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -1389,7 +1389,7 @@ const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: Spi
   return Object.assign(
     (userProps?: WardUserProps): WardProps => ({
       ref: userProps?.ref ?? noRef,
-      style: Style.merge(userProps?.style, seed.style, dragDefaults, internal?.baseStyle?.()) as JSX.CSSProperties,
+      style: pipe(seed.style, Style.over(userProps?.style), Style.over(internal?.baseStyle?.()), Style.over(dragDefaults)) as JSX.CSSProperties,
       ...seed.attrs,
       ...(dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES : {}),
     }),

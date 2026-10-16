@@ -141,7 +141,7 @@ export {
  * `wardic.create(tag)` HOC + the `wardic.*` motion-element proxy (ADR-0008 Tier
  * 1): `wardic.div` / `wardic.create("div")` build a motion component that wires
  * the element's motion props through `useWardic` and merges the animated style
- * over the user's static style (`mergeStyle`) while preserving the user's ref
+ * over the user's static style (`Style.over`) while preserving the user's ref
  * (`mergeRefs`) and passing all other props through.
  */
 export {

@@ -6,12 +6,12 @@
  *
  * Framework-free, so every binding renders it the same way on a server and on the client
  * (the thin-bindings rule): a binding reads its config, calls these, and casts the style to
- * its own JSX type. `toValues`, `resolveInitial` and `mergeStyle` moved here from
- * @wardic/solid with their behaviour unchanged. Tier 2, for binding authors.
+ * its own JSX type. `toValues`, `resolveInitial` and the merge `over` does moved here from
+ * @wardic/solid with their behaviour unchanged; `over` and `without` are `dual` (#132's PR 3,
+ * ADR-0041 decision 5). Tier 2, for binding authors.
  *
  * Observability: pure and per element, so quiet (no span, no log).
  */
-import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -20,7 +20,6 @@ import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { DragDefaultStyle } from "./drag-defaults.ts"
 import { project } from "./renderer.ts"
 import { dashCase, type SplitPatch, splitPatchForTag } from "./svg.ts"
 
@@ -110,69 +109,6 @@ export const parseCssText = (text: string): Record<string, string> => {
 }
 
 /**
- * An element's style: the user's static style as the base, its animated keys on top, over
- * a drag element's defaults and a component's base style (ADR-0019 *Amendment
- * (Reorder)*): defaults < base < user < animated. With neither defaults nor base, the user's
- * style plus the animated keys, or the animated patch itself when the user has none. A
- * user style given as CSS text (`"color: red"`, which JSX allows) is parsed first.
- */
-export const mergeStyle = (
-  user: object | string | undefined,
-  animated: Renderer.Patch,
-  defaults?: DragDefaultStyle,
-  base?: object,
-): Record<string, unknown> => {
-  const users = (typeof user === "string" ? parseCssText(user) : user) as Readonly<Record<string, unknown>> | undefined
-  if (defaults === undefined && base === undefined) return users !== undefined ? { ...users, ...animated } : animated
-  const merged: Record<string, unknown> = { ...defaults, ...base, ...users, ...animated }
-  // `user-select` and `-webkit-user-select` are one property in Chromium: the user's
-  // value for either is the value for both, or the default left on the other wins.
-  if (users !== undefined) {
-    if (users["user-select"] !== undefined && users["-webkit-user-select"] === undefined) {
-      merged["-webkit-user-select"] = users["user-select"]
-    } else if (users["-webkit-user-select"] !== undefined && users["user-select"] === undefined) {
-      merged["user-select"] = users["-webkit-user-select"]
-    }
-  }
-  return merged
-}
-
-/**
- * An element's style once its first frame is committed (ADR-0034): the user's style over a
- * drag element's defaults and a component's base style, merged as {@link mergeStyle} merges
- * them, without the keys the flush gate holds on the element (`held`, by patch key). Wardic
- * writes those while it drives them, and `style` is their fallback: a key the gate lets go of
- * comes back. A user style given as CSS text is parsed, so a framework never writes `cssText`
- * over the keys the gate holds.
- */
-export const fallbackStyle = (
-  user: object | string | undefined,
-  held: ReadonlyArray<string>,
-  defaults?: DragDefaultStyle,
-  base?: object,
-): Record<string, unknown> => {
-  const merged = mergeStyle(user, {}, defaults, base)
-  return Rec.filter(merged, (_, key) => !Arr.some(held, (patchKey) => patchKey === key || dashCase(patchKey) === key))
-}
-
-/**
- * Whether the keys the flush gate holds, changing from `prev` to `next`, change an element's
- * {@link fallbackStyle}: whether a key that was taken or let go of is one `style` sets
- * (`style` as {@link mergeStyle} merges it, keyed by CSS property). Most changes touch none, and
- * a binding then leaves its `style` alone (ADR-0034).
- */
-export const heldTouchesPositional = (
-  prev: ReadonlyArray<string>,
-  next: ReadonlyArray<string>,
-  style: Readonly<Record<string, unknown>>,
-): boolean => {
-  const sets = (key: string): boolean => Object.hasOwn(style, key) || Object.hasOwn(style, dashCase(key))
-  const leftBehind = (from: ReadonlyArray<string>, to: ReadonlyArray<string>): boolean =>
-    Arr.some(from, (key) => !Arr.contains(to, key) && sets(key))
-  return leftBehind(prev, next) || leftBehind(next, prev)
-}
-
-/**
  * A style as a binding hands it over: a record of CSS properties, CSS text (`"color: red"`, which
  * JSX allows), or none.
  */
@@ -220,6 +156,8 @@ const layered = (self: StyleRecord, that: StyleRecord): StyleRecord => {
  * // before the first commit: the Starting style over the user's, over a base and a drag element's defaults
  * pipe(starting, Style.over(user), Style.over(base), Style.over(defaults))
  * ```
+ *
+ * That's an element's layering: defaults < base < user < animated (ADR-0019 *Amendment (Reorder)*).
  *
  * A side given as CSS text is parsed, so a framework never writes `cssText` over the keys the
  * flush gate holds. A side that's `undefined` leaves the other as it is, the same object. Whatever

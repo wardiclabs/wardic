@@ -13,8 +13,6 @@ export {
   over,
   without,
   heldTouches,
-  mergeStyle as merge,
-  fallbackStyle as fallback,
 } from "./internal/starting-style.ts"
 export {
   dragDefaultStyle as dragDefaults,

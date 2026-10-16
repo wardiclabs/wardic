@@ -34,6 +34,7 @@ import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
@@ -173,7 +174,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
     ref: mergeRefs(userProps?.ref, (el: HTMLElement) => controller.attach(el)),
     get style() {
-      return { ...ReorderController.GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties
+      return pipe(userProps?.style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties
     },
   })
 
@@ -341,7 +342,7 @@ const noop = (): void => {}
 const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> => {
   const ward = (userProps?: WardUserProps): ReorderGroupWardProps => ({
     ref: userProps?.ref ?? noop,
-    style: { ...ReorderController.GROUP_STYLE, ...userProps?.style } as JSX.CSSProperties,
+    style: pipe(userProps?.style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties,
   })
   const controller = ReorderController.inert as unknown as ReorderController.ReorderController<V>
   const axis = (): CoreReorder.Axis => UndefinedOr.match(cfg().axis, { onUndefined: () => "y" as const, onDefined: (a: CoreReorder.Axis) => a })

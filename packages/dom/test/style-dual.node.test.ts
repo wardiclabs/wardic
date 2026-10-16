@@ -1,17 +1,17 @@
 // The Style helpers as `dual` functions over plain records (#132's PR 3, ADR-0041 decision 5):
-// `Style.over`, `Style.without` and `Style.heldTouches` against the positional helpers they replace
+// `Style.over`, `Style.without` and `Style.heldTouches` against the positional helpers they replaced
 // (`mergeStyle`, `fallbackStyle`, `heldTouches` as it was), over a table of cases, key for key and
-// in the same key order.
+// in the same key order. Each case's `expected` was recorded from the positional helper on main
+// `4c22cfb`, and the table checked both before the positional helpers were removed (cb40fd0).
 //
-// - SD1: `pipe(animated, over(user), over(base), over(defaults))` is `mergeStyle(user, animated, defaults, base)`.
-// - SD2: `pipe(user, over(base), over(defaults), without(held))` is `fallbackStyle(user, held, defaults, base)`.
-// - SD3: `pipe(style, heldTouches(prev, next))` is `heldTouches(prev, next, style)` as it was.
+// - SD1: `pipe(animated, over(user), over(base), over(defaults))` gives what `mergeStyle(user, animated, defaults, base)` gave.
+// - SD2: `pipe(user, over(base), over(defaults), without(held))` gives what `fallbackStyle(user, held, defaults, base)` gave.
+// - SD3: `pipe(style, heldTouches(prev, next))` gives what `heldTouches(prev, next, style)` gave.
 // - SD4: a side that's `undefined` leaves the other as it is, the same object (`mergeStyle`'s fast path).
 // - SD5: both forms of each give one type and one result.
 import * as Style from "@wardic/dom/Style"
 import { pipe } from "effect/Function"
 import { describe, expect, expectTypeOf, it } from "vitest"
-import * as positional from "../src/internal/starting-style.ts"
 
 type Input = Style.Input
 const X = Style.dragDefaults("x")
@@ -229,17 +229,14 @@ const TOUCHES: ReadonlyArray<TouchCase> = [
 
 describe("Style's dual helpers equal the positional ones (#132's PR 3)", () => {
   it.each(MERGES)("SD1: over, $name", ({ user, animated, defaults, base, expected }) => {
-    expect(entriesOf(positional.mergeStyle(user, animated, defaults, base)), "mergeStyle, as recorded").toEqual(expected)
     expect(entriesOf(pipe(animated, Style.over(user), Style.over(base), Style.over(defaults)))).toEqual(expected)
   })
 
   it.each(FALLBACKS)("SD2: over then without, $name", ({ user, held, defaults, base, expected }) => {
-    expect(entriesOf(positional.fallbackStyle(user, held, defaults, base)), "fallbackStyle, as recorded").toEqual(expected)
     expect(entriesOf(pipe(user, Style.over(base), Style.over(defaults), Style.without(held)))).toEqual(expected)
   })
 
   it.each(TOUCHES)("SD3: heldTouches, $name", ({ prev, next, style, expected }) => {
-    expect(positional.heldTouchesPositional(prev, next, style), "heldTouches as it was, as recorded").toBe(expected)
     expect(pipe(style, Style.heldTouches(prev, next))).toBe(expected)
   })
 

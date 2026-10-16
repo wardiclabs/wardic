@@ -23,7 +23,7 @@ describe("base values: the DOM's pure helpers (ADR-0022)", () => {
     expect(OwnValues.styleValueOf(undefined, "opacity")).toBeUndefined()
   })
 
-  it("D3: styleValueOf reads a CSS-text style, as mergeStyle parses it", () => {
+  it("D3: styleValueOf reads a CSS-text style, as Style.over parses it", () => {
     expect(OwnValues.styleValueOf("opacity: 0.5; background: url(a;b)", "opacity")).toBe("0.5")
     expect(OwnValues.styleValueOf("opacity: 0.5; background: url(a;b)", "background")).toBe("url(a;b)")
     expect(OwnValues.styleValueOf("color: red", "opacity")).toBeUndefined()
