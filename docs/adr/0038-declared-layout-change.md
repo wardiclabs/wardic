@@ -60,7 +60,7 @@ The engine owns it (`ProjectionSystem.animateLayout`), and Solid hands it to an 
     - the lab's scenario 17;
     - mutations;
     - a hand pass on desktop and phone.
-11. **The name stays `animateLayout`** (Q11). A magic-themed vocabulary for the whole API is one naming pass, #193.
+11. **The name stays `animateLayout`** (Q11). A magic-themed vocabulary for the whole API is one naming pass, #193. *ADR-0042 keeps it: the pass themed nouns, not verbs.*
 12. **This ADR** (Q12), with notes in ADR-0005, ADR-0009 and ADR-0018.
 
 Defaults stated, not asked:

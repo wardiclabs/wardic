@@ -20,7 +20,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import * as Clock from "@wardic/core/Clock"
 import { DomLive } from "@wardic/dom"
-import { useWardic, useWardicGate, useWardicRuntime, wardic, WardicProvider } from "@wardic/solid"
+import { createWard, useWardicGate, useWardicRuntime, wardic, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -245,7 +245,7 @@ it("a layout change from an effect inside the gate's flush paints its origin fir
    * gate runs inside its flush, in the binding's batch() (ADR-0034): it mounts when armed.
    */
   const Driver = () => {
-    const ward = useWardic({ initial: { x: 0 }, animate: { x: 256 } })
+    const ward = createWard({ initial: { x: 0 }, animate: { x: 256 } })
     createEffect(
       on(
         () => ward().style,
@@ -425,14 +425,14 @@ it("an unrelated spring keeps even steps through a Measure pass that runs after 
   }
 })
 
-/** A `useWardic` layout node whose style changes run `onStyle` (inside the gate's apply). */
+/** A `createWard` layout node whose style changes run `onStyle` (inside the gate's apply). */
 const WatchedLayoutNode = (props: {
   readonly atB: Accessor<boolean>
   readonly top: number
   readonly onStyle: () => void
   readonly ref: (el: HTMLElement) => void
 }) => {
-  const ward = useWardic(() => ({ layout: true, layoutDependency: props.atB() }))
+  const ward = createWard(() => ({ layout: true, layoutDependency: props.atB() }))
   createEffect(on(() => ward().style, () => props.onStyle(), { defer: true }))
   return (
     <div

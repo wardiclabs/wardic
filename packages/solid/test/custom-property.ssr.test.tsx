@@ -1,7 +1,7 @@
 // A custom property in a server render (#151, ADR-0014 *Amendment (#151)*, ADR-0021): the
 // Starting style writes it under its own name, and on an svg-inner tag as a style property,
 // never an attribute.
-import { useWardic, wardic, type WardicValues } from "@wardic/solid"
+import { createWard, wardic, type WardicValues } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr-helpers.ts"
@@ -18,9 +18,9 @@ describe("a custom property in a server render (#151)", () => {
     expect(div?.style["--brand-level"]).toBeUndefined()
   })
 
-  it("CS2: a useWardic spread renders it under its own name", () => {
+  it("CS2: a createWard spread renders it under its own name", () => {
     function Spread(): JSX.Element {
-      const ward = useWardic({ initial: START })
+      const ward = createWard({ initial: START })
       return <section {...ward({})} />
     }
     expect(first(serve(() => <Spread />), "section")?.style["--brandLevel"]).toBe("0.4")

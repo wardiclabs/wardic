@@ -8,7 +8,7 @@
 //   largest step the leg before it took.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, createReorderGroup, reorderItem, ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { AnimatePresence, createReorderGroup, reorderItem, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For, type JSX, Show } from "solid-js"
@@ -18,7 +18,7 @@ import { opacityOf, translateXOf } from "./base-values-harness.ts"
 import { centreOf, mouse, resetScene, sampleFrames, settle } from "./reorder-harness.tsx"
 
 // The directives compile to bare calls: the imports must stay.
-void ward
+void wardic
 void reorderItem
 
 const sheet = document.createElement("style")
@@ -183,11 +183,11 @@ describe("the commit sinks (#56)", () => {
     await expectSharedProgress(el, xProgress)
   })
 
-  it("SK8: use:ward: a colour shares an x's progress", async () => {
+  it("SK8: use:wardic: a colour shares an x's progress", async () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <div ref={(n) => (el = n)} style={BOX} use:ward={{ initial: { x: 0, "background-color": "#000" }, animate: { x: 100, "background-color": "#fff" } }} />
+        <div ref={(n) => (el = n)} style={BOX} use:wardic={{ initial: { x: 0, "background-color": "#000" }, animate: { x: 100, "background-color": "#fff" } }} />
       </WardicProvider>
     ))
     await expectSharedProgress(el, xProgress)

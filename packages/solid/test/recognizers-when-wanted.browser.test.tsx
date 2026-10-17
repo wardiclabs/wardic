@@ -15,7 +15,7 @@ import * as Tracer from "effect/Tracer"
 import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal } from "solid-js"
-import { useWardic, type WardicConfig, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { createWard, type WardConfig, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -45,12 +45,12 @@ const reach = async (done: () => boolean, what: string): Promise<void> => {
   expect(done(), what).toBe(true)
 }
 
-/** One element on `useWardic` with the config `config()` reads, in a provider over `env`. */
-const mount = (env: WardicEnv, config: () => WardicConfig): { readonly el: () => HTMLElement | undefined } => {
+/** One element on `createWard` with the config `config()` reads, in a provider over `env`. */
+const mount = (env: WardicEnv, config: () => WardConfig): { readonly el: () => HTMLElement | undefined } => {
   let el: HTMLElement | undefined
   render(() => {
     function C() {
-      const ward = useWardic(config)
+      const ward = createWard(config)
       return <div {...ward({ ref: (node) => (el = node) })} style={{ width: "40px", height: "40px" }} />
     }
     return (

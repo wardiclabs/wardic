@@ -117,7 +117,7 @@ it("Cold start on a setTimeout(0) Effect scheduler (real-browser timing): same f
   expect(dispatches - before).toBe(0) // the Refresh frame loop never touches the scheduler
 })
 
-it("Cold start: a useWardic spring set from a task moves on the 1st painted frame", async () => {
+it("Cold start: a createWard spring set from a task moves on the 1st painted frame", async () => {
   const [go, setGo] = createSignal(false)
   const { container } = render(() => (
     <WardicProvider env={DomLive}>
@@ -136,7 +136,7 @@ it("Cold start: a useWardic spring set from a task moves on the 1st painted fram
   expectMovesOnFirstFrame(await paintedFrames(dot, 2), origin)
 })
 
-it("warm start: a useWardic spring set from a task while another spring runs moves on the 1st painted frame (ADR-0033; was the 2nd)", async () => {
+it("warm start: a createWard spring set from a task while another spring runs moves on the 1st painted frame (ADR-0033; was the 2nd)", async () => {
   const [go, setGo] = createSignal(false)
   const [drive, setDrive] = createSignal(0)
   const { container } = render(() => (
@@ -160,7 +160,7 @@ it("warm start: a useWardic spring set from a task while another spring runs mov
 })
 
 it("retargeting the only running spring mid-motion paints no doubled or frozen step", async () => {
-  // `useWardic` interrupts the old spring before the new one subscribes, so with
+  // `createWard` interrupts the old spring before the new one subscribes, so with
   // nothing else animating the Clock has no subscriber for a moment. It must stay
   // warm through that (its loop ends only at a Refresh frame that finds nobody):
   // restarting cold froze a frame before #14, and after the Priming tick landed it

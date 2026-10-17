@@ -7,15 +7,15 @@
 // selected became a native `dragstart` that cancelled the pointer.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { useWardic, ward, wardic, WardicProvider } from "@wardic/solid"
+import { createWard, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands, server } from "vitest/browser"
 import "./browser-commands.ts"
 import { afterPaint, raf, until } from "./browser-helpers.ts"
 
-// `use:ward` needs the import to stay (the directive compiles to a bare `ward(...)`).
-void ward
+// `use:wardic` needs the import to stay (the directive compiles to a bare `wardic(...)`).
+void wardic
 
 interface Pt {
   readonly x: number
@@ -104,9 +104,9 @@ describe("drag elements get Motion's defaults (#36)", () => {
     expect(el.hasAttribute("draggable")).toBe(false)
   })
 
-  it("E5: useWardic's spread carries them", async () => {
+  it("E5: createWard's spread carries them", async () => {
     function Spread(props: { readonly ref: (el: HTMLElement) => void }) {
-      const w = useWardic({ drag: true })
+      const w = createWard({ drag: true })
       return <div {...w({ ref: props.ref, style: BOX })} />
     }
     const el = await mountOne((ref) => <Spread ref={ref} />)
@@ -114,8 +114,8 @@ describe("drag elements get Motion's defaults (#36)", () => {
     expect(el.getAttribute("draggable")).toBe("false")
   })
 
-  it("E6: use:ward sets them at mount", async () => {
-    const el = await mountOne((ref) => <div ref={ref} use:ward={{ drag: true }} style={BOX} />)
+  it("E6: use:wardic sets them at mount", async () => {
+    const el = await mountOne((ref) => <div ref={ref} use:wardic={{ drag: true }} style={BOX} />)
     await settle()
     expect(el.style.getPropertyValue("touch-action")).toBe("none")
     expect(el.style.getPropertyValue("user-select")).toBe("none")

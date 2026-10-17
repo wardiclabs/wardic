@@ -1,6 +1,6 @@
 /**
  * An element's place in variant orchestration (ADR-0007, #50), shared by every Wardic surface:
- * `useWardic` (so `wardic.*` and `<Reorder.Item>`), `wardic.create(Component)` and the directives.
+ * `createWard` (so `wardic.*` and `<Reorder.Item>`), `wardic.create(Component)` and the directives.
  *
  * Motion's rule (CONTEXT.md, **Variant child**):
  * - An element that names its own `initial` or `animate` hands its children those names, and an
@@ -27,7 +27,7 @@ import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
-import type { WardicTransition } from "./use-wardic.tsx"
+import type { WardicTransition } from "./create-ward.tsx"
 import type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "./variants.ts"
 
 /** The part of an element's config its place in variant orchestration reads. */

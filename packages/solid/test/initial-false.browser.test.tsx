@@ -6,7 +6,7 @@
 // painted value is read after every frame.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, useWardic, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import { AnimatePresence, createWard, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import { createSignal, type JSX, Show } from "solid-js"
@@ -143,10 +143,10 @@ describe("initial={false} (#134)", () => {
     expect(opacityOf(a)).toBeLessThan(0.001)
   })
 
-  it("IF8: through useWardic too", async () => {
+  it("IF8: through createWard too", async () => {
     let el!: HTMLElement
     function Spread(): JSX.Element {
-      const ward = useWardic({ initial: false, animate: { opacity: 0.4 }, transition: TWEEN })
+      const ward = createWard({ initial: false, animate: { opacity: 0.4 }, transition: TWEEN })
       return <div {...ward({ ref: (n: HTMLElement) => (el = n), style: BOX })} />
     }
     render(() => (

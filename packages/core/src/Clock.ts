@@ -30,7 +30,7 @@
  * Motion's frame loop does (ADR-0017, decision 9): the last subscriber leaving
  * does not stop it; the first Refresh frame that finds no subscriber ends it
  * without ticking or requesting another. A subscriber that arrives before that
- * frame — the new animation of a retarget, which `useWardic` starts right after
+ * frame — the new animation of a retarget, which `createWard` starts right after
  * interrupting the old one — joins warm, with a measured dt.
  *
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment

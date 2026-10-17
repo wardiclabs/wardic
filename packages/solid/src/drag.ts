@@ -55,7 +55,7 @@ import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { runScoped, type WardicRuntime } from "./provider.tsx"
-import type { WardicDragTransition } from "./use-wardic.tsx"
+import type { WardicDragTransition } from "./create-ward.tsx"
 
 /**
  * The spine's mutable Snapshot object (the SAME object `runSpine` holds): each

@@ -1,5 +1,5 @@
 /**
- * Scenario 9: a click starts a `useWardic` spring (issue #14's non-layout half).
+ * Scenario 9: a click starts a `createWard` spring (issue #14's non-layout half).
  *
  * The box is a 64x64 `wardic.div` whose `animate` target `x` is 0 or 192px, flipped
  * by each Run, so it springs 192px sideways and back on alternate runs. There is no
@@ -64,14 +64,14 @@ const View: ScenarioDef["View"] = (props) => {
 }
 
 /**
- * Scenario 9, click -> useWardic spring: the Run click handler flips the spring's
+ * Scenario 9, click -> createWard spring: the Run click handler flips the spring's
  * `animate` target. Expected to be safe (no layout change); `held` is the result.
  */
 export const s9: ScenarioDef = {
   id: ID,
   index: 9,
-  title: "click -> useWardic spring",
-  mechanism: "The Run click handler flips a useWardic animate target. No layout change, so no measure pass.",
+  title: "click -> createWard spring",
+  mechanism: "The Run click handler flips a createWard animate target. No layout change, so no measure pass.",
   prediction: "safe",
   heldFramesFrom: "trigger",
   expectedHeld: 0,

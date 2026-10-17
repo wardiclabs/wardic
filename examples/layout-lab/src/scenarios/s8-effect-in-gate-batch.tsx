@@ -4,7 +4,7 @@
  *
  * The stage holds two absolutely positioned elements that cannot move each other:
  * the watched 64x64 `wardic.div` with `layout` at the top (left 32px or 224px, top
- * 24px, 192px apart) and, below it, a 28x28 driver dot driven by `useWardic`. Its
+ * 24px, 192px apart) and, below it, a 28x28 driver dot driven by `createWard`. Its
  * `animate` translates it (`x` 0 or 256px), a transform that reflows nothing. Run
  * arms a one-shot and mounts a new driver, which animates from where the last one
  * ended to the other end. A `createEffect` tracks the driver's `style`, which changes
@@ -15,7 +15,7 @@
  *
  * @module
  */
-import { useWardic, wardic } from "@wardic/solid"
+import { createWard, wardic } from "@wardic/solid"
 import { createEffect, createSignal, For, type JSX, on } from "solid-js"
 import type { ScenarioDef } from "./types.ts"
 
@@ -73,7 +73,7 @@ const View: ScenarioDef["View"] = (props) => {
 
   /** One Run's driver: `x` from the last Run's end to this one's. */
   const Driver = (p: { readonly run: number }): JSX.Element => {
-    const ward = useWardic({ initial: { x: driverX(p.run - 1) }, animate: { x: driverX(p.run) } })
+    const ward = createWard({ initial: { x: driverX(p.run - 1) }, animate: { x: driverX(p.run) } })
     const driver = ward({ style: DRIVER_STYLE })
     // The driver's `style` changes once, when the gate switches its Starting style out
     // just before its first commit, inside the flush's batch() (ADR-0034). Solid runs this

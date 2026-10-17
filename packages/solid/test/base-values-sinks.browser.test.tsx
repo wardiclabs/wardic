@@ -1,11 +1,11 @@
 // Base values on the commit-sink paths and the presence exit (#47, ADR-0022): the same
-// chain as base-values.browser.test.tsx, through `wardic.create(Component)`, `use:ward`,
+// chain as base-values.browser.test.tsx, through `wardic.create(Component)`, `use:wardic`,
 // `use:reorderItem` and `<AnimatePresence>`'s exit. A commit sink has no style prop of its
 // own; `wardic.create(Component)` keeps the user's `style` as its style link, the directives
 // have none, so their base is the element's own value (its inline style included, read once).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, createReorderGroup, reorderItem, ward, wardic, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, createReorderGroup, reorderItem, wardic, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -14,7 +14,7 @@ import { BOX, hoverAndLeave, inlineTransformAtRest, last, max, min, opacityOf, r
 import { centreOf, glide, mouse, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 // The directives compile to bare calls: the imports must stay.
-void ward
+void wardic
 void reorderItem
 
 afterEach(async () => {
@@ -80,11 +80,11 @@ describe("a key with no base value (#47): the commit-sink paths", () => {
     expect(el.style.opacity, "no stale inline 0.5 left behind").toBe("")
   })
 
-  it("K3: use:ward: whileHover scale starts at 1 and returns to 1", async () => {
+  it("K3: use:wardic: whileHover scale starts at 1 and returns to 1", async () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <div ref={(n) => (el = n)} use:ward={{ whileHover: { scale: 1.5 } }} style={BOX} />
+        <div ref={(n) => (el = n)} use:wardic={{ whileHover: { scale: 1.5 } }} style={BOX} />
       </WardicProvider>
     ))
     const frames = await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)
@@ -92,11 +92,11 @@ describe("a key with no base value (#47): the commit-sink paths", () => {
     expect(last(valuesIn(frames, "leave"))).toBeCloseTo(1, 2)
   })
 
-  it("K4: use:ward: the element's inline opacity is its own value, the start and the return", async () => {
+  it("K4: use:wardic: the element's inline opacity is its own value, the start and the return", async () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <div ref={(n) => (el = n)} use:ward={{ whileHover: { opacity: 1 } }} style={{ ...BOX, opacity: 0.5 }} />
+        <div ref={(n) => (el = n)} use:wardic={{ whileHover: { opacity: 1 } }} style={{ ...BOX, opacity: 0.5 }} />
       </WardicProvider>
     ))
     const frames = await hoverAndLeave(el, opacityOf, (v) => v > 0.99, 0.5)
@@ -162,11 +162,11 @@ describe("an identity transform at rest is none (#57, ADR-0023): the commit sink
     expect(await inlineTransformAtRest(el), "none, not scale(1)").toBe("none")
   })
 
-  it("K8: use:ward: a returned whileHover scale rests as none", async () => {
+  it("K8: use:wardic: a returned whileHover scale rests as none", async () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <div ref={(n) => (el = n)} use:ward={{ whileHover: { scale: 1.5 } }} style={BOX} />
+        <div ref={(n) => (el = n)} use:wardic={{ whileHover: { scale: 1.5 } }} style={BOX} />
       </WardicProvider>
     ))
     await hoverAndLeave(el, scaleOf, (v) => v > 1.49, 1)

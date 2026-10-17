@@ -6,7 +6,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal, type JSX } from "solid-js"
-import { create, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import { wardic, WardicProvider, type WardicValues } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { raf, until } from "./browser-helpers.ts"
 
@@ -127,9 +127,10 @@ describe("wardic proxy", () => {
     expect(wardic.div).not.toBe(wardic.span)
   })
 
-  it("exposes create as a callable", () => {
+  it("exposes create as a callable, and is itself callable: the use:wardic directive (ADR-0042)", () => {
     expect(typeof wardic.create).toBe("function")
-    expect(wardic.create).toBe(create)
+    expect(typeof wardic, "called, it's the directive").toBe("function")
+    expect(wardic.div, "a component read off the callable is still cached").toBe(wardic.div)
   })
 
   it("returns undefined for symbol access", () => {
@@ -141,7 +142,7 @@ describe("wardic proxy", () => {
 describe("wardic.create — component arg", () => {
   it("returns a component (no longer throws — see wardic-component.browser.test.tsx)", () => {
     const SomeComponent = (): JSX.Element => null
-    expect(typeof create(SomeComponent)).toBe("function")
+    expect(typeof wardic.create(SomeComponent)).toBe("function")
   })
 })
 

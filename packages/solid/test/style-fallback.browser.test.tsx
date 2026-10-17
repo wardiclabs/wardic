@@ -6,7 +6,7 @@
 // Solid writes as `cssText` over every inline key (F2, F4). No frame re-runs the `style` (F5).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { useWardic, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { createWard, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { type Component, createEffect, createSignal, type JSX, on } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -107,11 +107,11 @@ describe("the user's style is the fallback (ADR-0034)", () => {
     expect(el.style.transform).toBe("translateX(40px)")
   })
 
-  it("F5: a useWardic spread's style re-runs at the first commit, and never for a frame", async () => {
+  it("F5: a createWard spread's style re-runs at the first commit, and never for a frame", async () => {
     let el!: HTMLElement
     let runs = 0
     const Box = () => {
-      const ward = useWardic({ initial: { x: 0, opacity: 1 }, animate: { x: 40, opacity: 0.2 }, transition: TWEEN })
+      const ward = createWard({ initial: { x: 0, opacity: 1 }, animate: { x: 40, opacity: 0.2 }, transition: TWEEN })
       createEffect(on(() => ward().style, () => void runs++, { defer: true }))
       return <div {...ward({ ref: (n) => (el = n), style: { color: "rgb(255, 0, 0)" } })} />
     }
@@ -124,7 +124,7 @@ describe("the user's style is the fallback (ADR-0034)", () => {
     expect(runs).toBe(1)
   })
 
-  it("F6: a useWardic spread onto a component animates the element its ref reaches", async () => {
+  it("F6: a createWard spread onto a component animates the element its ref reaches", async () => {
     let root!: HTMLElement
     let inner!: HTMLElement
     const Split: Component<{ ref?: (el: HTMLElement) => void; style?: JSX.CSSProperties }> = (props) => (
@@ -135,7 +135,7 @@ describe("the user's style is the fallback (ADR-0034)", () => {
       </div>
     )
     const Box = () => {
-      const ward = useWardic({ initial: { opacity: 1 }, animate: { opacity: 0.2 }, transition: TWEEN })
+      const ward = createWard({ initial: { opacity: 1 }, animate: { opacity: 0.2 }, transition: TWEEN })
       return <Split {...ward({ ref: (n) => (root = n) })} />
     }
     render(() => (
@@ -147,11 +147,11 @@ describe("the user's style is the fallback (ADR-0034)", () => {
     expect(inner.style.opacity).toBe("")
   })
 
-  it("F7: a useWardic spread onto a component that forwards its ref only animates that element", async () => {
+  it("F7: a createWard spread onto a component that forwards its ref only animates that element", async () => {
     let root!: HTMLElement
     const RefOnly: Component<{ ref?: (el: HTMLElement) => void }> = (props) => <div ref={props.ref}>x</div>
     const Box = () => {
-      const ward = useWardic({ initial: { opacity: 1 }, animate: { opacity: 0.2 }, transition: TWEEN })
+      const ward = createWard({ initial: { opacity: 1 }, animate: { opacity: 0.2 }, transition: TWEEN })
       return <RefOnly {...ward({ ref: (n) => (root = n) })} />
     }
     render(() => (
@@ -162,7 +162,7 @@ describe("the user's style is the fallback (ADR-0034)", () => {
     await until(() => root.style.opacity === "0.2", 2000)
   })
 
-  it("F8: a useWardic spread onto a component that reads props.style once animates its ref's element", async () => {
+  it("F8: a createWard spread onto a component that reads props.style once animates its ref's element", async () => {
     let root!: HTMLElement
     const ReadsOnce: Component<{ ref?: (el: HTMLElement) => void; style?: JSX.CSSProperties }> = (props) => {
       const style = props.style
@@ -173,7 +173,7 @@ describe("the user's style is the fallback (ADR-0034)", () => {
       )
     }
     const Box = () => {
-      const ward = useWardic({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN })
+      const ward = createWard({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN })
       return <ReadsOnce {...ward({ ref: (n) => (root = n) })} />
     }
     render(() => (

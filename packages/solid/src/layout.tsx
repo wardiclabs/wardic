@@ -30,7 +30,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import { isServer } from "./server.ts"
-import type { WardicTransition } from "./use-wardic.tsx"
+import type { WardicTransition } from "./create-ward.tsx"
 
 /** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */
 const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restVelocity"] as const
@@ -113,7 +113,7 @@ export interface UseLayoutMemberOptions {
 /**
  * Wire an element into layout projection (ADR-0009 + ADR-0010) — exactly ONE
  * projection node per element, whether it has `layout`, `layoutId`, or both. Called
- * from the `useWardic` spine once the element + gate id exist.
+ * from the `createWard` spine once the element + gate id exist.
  *
  * The provider-owned projection system (built by DOM ancestry) owns measurement
  * (one shared `ResizeObserver` + this node's `notify`) and the per-frame box derive;

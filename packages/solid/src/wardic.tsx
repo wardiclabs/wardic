@@ -4,7 +4,7 @@
  *
  * `wardic.create("div")` returns a Solid component that accepts the element's
  * own props PLUS Wardic's motion props (`initial` / `animate` / `whileHover` /
- * ...), wires them through {@link useWardic}, and renders the underlying element
+ * ...), wires them through {@link createWard}, and renders the underlying element
  * with the user's props passed through. The flush gate commits each frame onto the
  * element (ADR-0034).
  *
@@ -12,16 +12,16 @@
  * `wardic.create("<tag>")` — `wardic.div === wardic.div`.
  *
  * Locked merge policy (Option A) — the merge now lives in `ward()`
- * ({@link useWardic}); this HOC just forwards the user's `ref` + `style` into it:
+ * ({@link createWard}); this HOC just forwards the user's `ref` + `style` into it:
  *   - Motion props are split off so none leak to the DOM (even ones not yet
- *     wired by {@link useWardic}).
+ *     wired by {@link createWard}).
  *   - The user's `ref` AND Wardic's ref are both invoked (via `mergeRefs`).
  *   - Wardic's keys win: the Starting style goes over the user's `style` until the first
  *     commit; from then on the user's `style` is the fallback, without the keys the
  *     gate holds, which Wardic writes onto the element (ADR-0034). A reactive user
  *     `style` re-runs the spread's `style`; a frame never does.
  *
- * SSR-correct: {@link useWardic} computes the Starting style synchronously, so the
+ * SSR-correct: {@link createWard} computes the Starting style synchronously, so the
  * `<Dynamic>` renders with the merged initial style on the very first render.
  *
  * REACTIVITY (component props): each motion prop is a plain VALUE, not an
@@ -46,6 +46,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
+import { wardicDirective } from "./directive.ts"
 import { createElementStyle } from "./element-style.ts"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
@@ -53,13 +54,13 @@ import {
   dragAxisOf,
   flagStartingStyle,
   runSpine,
-  useWardicWith,
-  type WardicConfig,
+  createWardWith,
+  type WardConfig,
   type WardicDragTransition,
   type WardicTransition,
   type WardicValues,
   type WardUserProps,
-} from "./use-wardic.tsx"
+} from "./create-ward.tsx"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { changesContext, createVariantNode, serverVariantNode, startingValuesOf } from "./variant-node.ts"
 import { useVariantContext, WardicVariantContext } from "./variants.ts"
@@ -67,7 +68,7 @@ import { useVariantContext, WardicVariantContext } from "./variants.ts"
 /**
  * Every motion prop the HOC consumes off the props object so it never leaks to
  * the DOM. A subset (`initial` / `animate` / `variants` / `whileHover` /
- * `whileTap` / `transition`) is wired into {@link useWardic} today; the rest
+ * `whileTap` / `transition`) is wired into {@link createWard} today; the rest
  * (`whileFocus` / `whileInView` / `exit` / `drag` / `dragConstraints` /
  * `layout` / `layoutId`) are accepted + split now but NOT yet wired (a
  * follow-up) — they are intentionally consumed so they don't render as DOM
@@ -107,7 +108,7 @@ export const MOTION_PROPS = [
  * intrinsic props.
  *
  * REACTIVITY (step 21f): each field is a plain VALUE — the SAME static type as the
- * matching {@link WardicConfig} field, NO `MaybeAccessor`. Reactivity is supplied
+ * matching {@link WardConfig} field, NO `MaybeAccessor`. Reactivity is supplied
  * by Solid's reactive prop getters, not by per-prop accessors: a `wardic.*`
  * element's props are getters, so reading `motion.animate` INSIDE the config
  * accessor {@link motionToConfig} builds tracks whatever signals back the prop.
@@ -219,11 +220,11 @@ export interface WardicMotionProps {
 export type WardicProps<Tag extends keyof JSX.IntrinsicElements> = JSX.IntrinsicElements[Tag] & WardicMotionProps
 
 /**
- * Build a reactive `Accessor<WardicConfig>` from a split-off `motion` props
+ * Build a reactive `Accessor<WardConfig>` from a split-off `motion` props
  * object (step 21f — the reactivity boundary).
  *
  * Each motion prop is a plain VALUE (the same static type as the matching
- * {@link WardicConfig} field). The returned accessor reads each prop DIRECTLY off
+ * {@link WardConfig} field). The returned accessor reads each prop DIRECTLY off
  * the `motion` object inside the accessor body. Because `motion` is a Solid
  * split-props object whose fields are reactive getters, reading `motion.animate`
  * here subscribes to whatever signal backs the prop — so a tracked expression
@@ -232,12 +233,12 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements> = JSX.Intrinsic
  *
  * Keys are only assigned when the value is defined — exactOptionalPropertyTypes
  * forbids an explicit `undefined` on the optional config fields, and an absent key
- * is exactly how the hook reads "no field".
+ * is exactly how a Ward reads "no field".
  */
 export const motionToConfig =
-  (motion: WardicMotionProps): Accessor<WardicConfig> =>
+  (motion: WardicMotionProps): Accessor<WardConfig> =>
   () => {
-    const config: { -readonly [K in keyof WardicConfig]: WardicConfig[K] } = {}
+    const config: { -readonly [K in keyof WardConfig]: WardConfig[K] } = {}
     // Read each (reactive) prop getter inside the accessor so it tracks.
     const initial = motion.initial
     const animate = motion.animate
@@ -303,7 +304,7 @@ export type WardicWrappable = { ref?: (el: HTMLElement) => void }
  *
  * Two paths:
  *   - `create("div")` (element-string): renders `<Dynamic component={tag}>` through
- *     {@link useWardic} — SSR-correct, the Starting style is computed synchronously
+ *     {@link createWard} — SSR-correct, the Starting style is computed synchronously
  *     for the very first render; the gate commits each frame onto the element.
  *   - `create(Component)` (a component function): the wrapped component must
  *     forward `props.ref` to its single root element; that is still the only
@@ -437,7 +438,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
     // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
     // render its Starting style's attribute keys as attributes (ADR-0021).
     const cfg = motionToConfig(motion)
-    const ward = useWardicWith(cfg, { tag })
+    const ward = createWardWith(cfg, { tag })
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the
     // user's ref and ward's internal ref, and gives the element its `style`: the
@@ -533,14 +534,14 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
  * `wardic.<tag>` during a server render (ADR-0021, decision 4): the element with its
  * Starting style and static attributes, built in one pass over the props. Solid's server
  * `splitProps` and `mergeProps` cost most of a wrapped element's server time, and none of
- * their reactivity matters there. The client's `createUniqueId` (inside `useWardicWith`)
+ * their reactivity matters there. The client's `createUniqueId` (inside `createWardWith`)
  * and its `Dynamic` boundary are kept, so every hydration key lands where the client's
  * render puts it.
  */
 const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element => {
   const out = passThrough(props)
   const cfg = motionToConfig(props as WardicMotionProps)
-  const ward = useWardicWith(cfg, { tag })
+  const ward = createWardWith(cfg, { tag })
   override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component: tag })
   // The client's nesting: the element's `ward.Provider` when it changes what its children read
   // (#50), then the element.
@@ -557,18 +558,20 @@ const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element
 }
 
 /**
- * The typed `wardic` proxy: `wardic.create` is the HOC, and `wardic.<tag>` is a
- * motion component for that intrinsic element (cached per tag).
+ * The typed `wardic` proxy: called, it's the `use:wardic` directive; `wardic.create` is the
+ * HOC, and `wardic.<tag>` is a motion component for that intrinsic element (cached per tag).
  */
-export type Wardic = {
+export type Wardic = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
   readonly create: typeof create
 } & {
   readonly [Tag in keyof JSX.IntrinsicElements]: Component<WardicProps<Tag>>
 }
 
 /**
- * `wardic` — the motion-element proxy (ADR-0008 Tier 1).
+ * `wardic` — the motion-element proxy and the `use:wardic` directive (ADR-0008 Tier 1,
+ * ADR-0042): every way to make a **Wardic element** but `createWard`'s spread.
  *
+ *   - `wardic(el, accessor)` -> the directive (`<div use:wardic={config}>` compiles to it).
  *   - `wardic.create(tag)` -> the HOC above.
  *   - `wardic.<tag>` (string key) -> `create(tag)`, CACHED so `wardic.div ===
  *     wardic.div` (stable component identity across reads).
@@ -576,9 +579,9 @@ export type Wardic = {
  */
 const cache = new Map<string, Component<WardicProps<keyof JSX.IntrinsicElements>>>()
 
-export const wardic: Wardic = new Proxy({ create } as Wardic, {
-  get(target, prop) {
-    if (prop === "create") return target.create
+export const wardic: Wardic = new Proxy(wardicDirective, {
+  get(_, prop) {
+    if (prop === "create") return create
     if (Predicate.isString(prop)) {
       return Option.getOrElse(Option.fromUndefinedOr(cache.get(prop)), () => {
         const c = create(prop)
@@ -588,4 +591,4 @@ export const wardic: Wardic = new Proxy({ create } as Wardic, {
     }
     return undefined
   },
-}) as Wardic
+}) as unknown as Wardic

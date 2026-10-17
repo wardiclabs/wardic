@@ -1,8 +1,10 @@
 /**
- * `use:ward` — the Solid directive surface for Wardic motion (ADR-0008 Tier 1).
+ * `use:wardic` — the Solid directive surface for Wardic motion (ADR-0008 Tier 1, ADR-0042):
+ * it puts a **Ward** on the element it's on. It's the `wardic` export itself, called:
+ * `wardic.<tag>` and `wardic.create` are its properties (`wardic.tsx`).
  *
- * Solid's compiler turns `<div use:ward={config}>` into `ward(el, () => config)`,
- * so {@link ward} receives the live element plus a reactive `Accessor<WardicConfig>`
+ * Solid's compiler turns `<div use:wardic={config}>` into `wardic(el, () => config)`,
+ * so {@link wardicDirective} receives the live element plus a reactive `Accessor<WardConfig>`
  * (the compiler always wraps the value in a thunk). The directive drives that GIVEN
  * element through the shared {@link runSpine} — the same path as every Wardic element
  * (ADR-0006, ADR-0034): the gate commits the projected `Patch` onto `el.style` each frame,
@@ -16,29 +18,30 @@
  * `runSpine`'s `createEffect` / `onCleanup` teardown is owner-scoped — the fibers
  * are interrupted and the element is unregistered from the gate on element removal.
  *
- * CLIENT-ONLY (ADR-0003): `use:ward` runs AFTER hydration, so the `initial` style
+ * CLIENT-ONLY (ADR-0003): `use:wardic` runs AFTER hydration, so the `initial` style
  * is NOT applied during SSR / the pre-mount render — the element may flash before
- * the first commit. For an SSR-correct initial (no flash), use {@link useWardic}
+ * the first commit. For an SSR-correct initial (no flash), use `createWard`
  * or `wardic.create` (their `style` carries the Starting style until the first commit).
  *
- * IMPORTANT (use:-import retention): consumers MUST `import { ward } from
- * "@wardic/solid"` for `use:ward` to resolve — Solid's `use:` compiles to a bare
- * `ward(...)` reference, and an unused-looking import would otherwise be
- * tree-shaken away. The import itself retains the symbol; no tree-shaking applies.
+ * `use:wardic` resolves through the `wardic` import (`import { wardic } from
+ * "@wardic/solid"`): Solid's `use:` compiles to a bare `wardic(...)` reference. A
+ * local Ward can't shadow it, since a Ward is named after its element or `ward`
+ * (ADR-0042, the reason the directive isn't `use:wardic`).
  */
 import { createUniqueId, type Accessor } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { runSpine, type WardicConfig } from "./use-wardic.tsx"
+import { runSpine, type WardConfig } from "./create-ward.tsx"
 import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 
 /**
- * `use:ward` directive — drive `el` through Wardic's motion spine.
+ * The `use:wardic` directive — drive `el` through Wardic's motion spine. An arrow
+ * function, so the `wardic` Proxy over it has no non-configurable `prototype` to keep.
  *
  * @param el the directive's host element (supplied by Solid).
- * @param value the reactive config accessor (Solid wraps `use:ward={config}` as `() => config`).
+ * @param value the reactive config accessor (Solid wraps `use:wardic={config}` as `() => config`).
  */
-export function ward(el: HTMLElement, value: Accessor<WardicConfig>): void {
+export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => {
   // The directive runs in a component owner, so it reads the nearest variant context
   // (ADR-0007) and, as a Variant child, joins it (#50). It renders no children, so it
   // provides none.
@@ -61,7 +64,7 @@ declare module "solid-js" {
   // biome-ignore lint/style/useNamingConvention: augmenting Solid's JSX namespace.
   namespace JSX {
     interface Directives {
-      ward: WardicConfig
+      wardic: WardConfig
     }
   }
 }

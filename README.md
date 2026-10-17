@@ -13,13 +13,13 @@ Wardic is a fine-grained reactive animation engine built on [Effect v4](https://
 
 **Environments are services, not parallel packages.** The engine declares its dependencies (Clock, Renderer, InputSource, Probe, InterpolatorRegistry) as Effect services. Environment packages provide Layer implementations. Adding a new environment is writing a Layer, not reimplementing the engine. The same animation code works everywhere a Layer exists.
 
-**SSR-correct by default.** `useWardic` computes initial styles synchronously during render and applies them via spread props. Server-rendered HTML arrives at the client already in the correct initial state. No flash of unanimated content, no hydration mismatch.
+**SSR-correct by default.** `createWard` computes initial styles synchronously during render and applies them via spread props. Server-rendered HTML arrives at the client already in the correct initial state. No flash of unanimated content, no hydration mismatch.
 
 **Variant orchestration as a first-class feature.** Declarative named animation states propagate through the component tree, from every Wardic element to its children. Children inherit the current variant from their parent, with automatic stagger support and configurable ordering. Familiar pattern from Framer Motion, but built on a reactive foundation that scales cleanly to complex trees.
 
 **Built-in observability.** Every animation primitive wraps in `Effect.withSpan`. Hook up OpenTelemetry once at app entry and get hierarchical traces of every animation in your application — performance attribution, causality across the app, replay-from-trace capabilities. Production observability of animation behavior without custom instrumentation.
 
-**Effect is invisible to users.** The Solid bindings expose `useWardic`, `wardic.create()`, and idiomatic `createX` hooks. The Effect machinery underneath is doing structural work — resource scoping, cancellation, dependency injection — that users don't have to think about. Power users who do know Effect can drop down and provide custom Layers for advanced cases.
+**Effect is invisible to users.** The Solid bindings expose `createWard`, `wardic.create()`, and idiomatic `createX` primitives. The Effect machinery underneath is doing structural work — resource scoping, cancellation, dependency injection — that users don't have to think about. Power users who do know Effect can drop down and provide custom Layers for advanced cases.
 
 ---
 
@@ -79,13 +79,13 @@ render(() => <WardicProvider env={env}><App /></WardicProvider>, document.getEle
 
 `effect/ErrorReporter` and `effect/devtools` are marked unstable in Effect 4.0.2.
 
-### Basic animation with `useWardic`
+### Basic animation with `createWard`
 
 ```tsx
-import { useWardic, easeOutCubic } from "@wardic/solid"
+import { createWard, easeOutCubic } from "@wardic/solid"
 
 function Hero() {
-  const ward = useWardic({
+  const ward = createWard({
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
     transition: { duration: 0.3, easing: easeOutCubic },
@@ -95,7 +95,7 @@ function Hero() {
 }
 ```
 
-`ward()` returns a spread containing `ref`, `style`, and any event handlers needed for the animation. The initial styles are serialized into server-rendered HTML, so no flash on hydration. From the first frame on, Wardic writes each frame straight onto the element through `ref`, without re-running your component's JSX, and `style` carries only yours: a key Wardic animates is Wardic's while it drives it, and your `style` is the value it falls back to.
+`createWard` makes a **ward**, one element's motion binding, and `ward()` returns a spread containing `ref`, `style`, and any event handlers needed for the animation. The initial styles are serialized into server-rendered HTML, so no flash on hydration. From the first frame on, Wardic writes each frame straight onto the element through `ref`, without re-running your component's JSX, and `style` carries only yours: a key Wardic animates is Wardic's while it drives it, and your `style` is the value it falls back to.
 
 ### The `wardic.create()` HOC for declarative usage
 
@@ -120,6 +120,31 @@ function App() {
 ```
 
 `wardic.create()` works for HTML element strings or any Solid component that forwards refs.
+
+On an element you don't render through Wardic, the `use:wardic` directive puts a ward on it, client-only (no Starting style on a server render). Import `wardic` for it to resolve:
+
+```tsx
+import { wardic } from "@wardic/solid"
+
+<button use:wardic={{ whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } }}>Press</button>
+```
+
+### Coming from Motion
+
+Wardic keeps Motion's names for everything Motion has:
+- the props: `initial`, `animate`, `exit`, `variants`, `transition`, the `while*` props, `layout`, `layoutId` and the other layout props, `drag` and its options;
+- the components: `<AnimatePresence>`, `<LayoutGroup>`, `<Reorder.Group>` and `<Reorder.Item>`.
+
+What differs is what Wardic names itself: one element's motion binding is a **ward**, and an element with one is a **Wardic element** (ADR-0042).
+
+| Motion | Wardic |
+|---|---|
+| `motion.div` | `wardic.div` |
+| `motion.create(Component)` | `wardic.create(Component)` |
+| solid-motionone's `<Motion.div>` | `wardic.div` |
+| solid-motionone's `createMotion(el, options)` | `createWard(options)`, spread onto the element: `<div {...ward()}>` |
+| solid-motionone's `use:motion` | `use:wardic` |
+| solid-motionone's `<Presence>` | `<AnimatePresence>` |
 
 ### Variant orchestration
 
@@ -148,7 +173,7 @@ function NavMenu(props: { isOpen: boolean }) {
 
 When `isOpen` flips, the nav's variant changes and each item animates to its own entry of the same name, with the stagger applied. A server render gives every item its `closed` style, so the entrance starts from it with no flash.
 
-Only those children join: an element without `variants` takes no stagger slot, an element in between passes the names through, and `inherit={false}` keeps a child out. With `useWardic`, wrap the children in `<ward.Provider>` to pass its variants down.
+Only those children join: an element without `variants` takes no stagger slot, an element in between passes the names through, and `inherit={false}` keeps a child out. With `createWard`, wrap the children in `<ward.Provider>` to pass its variants down.
 
 ### Nested draggables
 
@@ -201,7 +226,7 @@ function DraggableCard() {
 |---------|--------|-------------|
 | `@wardic/core` | Pre-alpha | Engine, services, primitives, interpolators, utilities |
 | `@wardic/dom` | Pre-alpha | Browser environment Layers — rAF driver, DOM renderer, pointer/keyboard input, measurement |
-| `@wardic/solid` | Pre-alpha | Solid framework binding — `useWardic`, `wardic.create()`, hooks, components, directives |
+| `@wardic/solid` | Pre-alpha | Solid framework binding — `createWard`, `wardic.*` and `wardic.create()`, `use:wardic`, primitives, components |
 | `@wardic/test` | Pre-alpha | Headless testing — mock clock, recording renderer, programmatic input |
 
 ### Future roadmap
@@ -242,7 +267,7 @@ Implementation order is roughly:
 
 1. **`@wardic/core` + `@wardic/test`** — engine primitives with frame-level test coverage.
 2. **`@wardic/dom`** — first browser-rendered vertical.
-3. **`@wardic/solid`** — the layered Solid API (low-level `createX` primitives, `useWardic` hook, `wardic.create()` HOC, `use:ward` directive, `<AnimatePresence>` and `<LayoutGroup>` orchestration components).
+3. **`@wardic/solid`** — the layered Solid API (low-level `createX` primitives, `createWard`, the `wardic.create()` HOC, the `use:wardic` directive, `<AnimatePresence>` and `<LayoutGroup>` orchestration components).
 4. **v0.1.0-alpha release.**
 
 See [`plan.md`](./plan.md) for the full architectural design and decisions.

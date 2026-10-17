@@ -1,7 +1,7 @@
 // Base values on the signal-sink surfaces (#47, ADR-0022): a key with no value starts from
 // its Base value and returns to it, as Motion does. Each case is one of the Motion probe's
 // (motion/react 13.5.0, Chromium 147 and Firefox 148; docs/research/base-values.md), on
-// `wardic.div`, a `useWardic` spread and a `Reorder.Item`, with Playwright's real mouse and
+// `wardic.div`, a `createWard` spread and a `Reorder.Item`, with Playwright's real mouse and
 // the painted value read after every frame.
 //
 // The chain (D1): a key no layer sets returns to its `initial` value, else its `style` value,
@@ -11,7 +11,7 @@
 // `isProjecting` uncalled), so a class's `scale(0.5)` doesn't count (C5).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { useWardic, wardic, WardicProvider } from "@wardic/solid"
+import { createWard, wardic, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -282,11 +282,11 @@ describe("a while* key with no base value (#47): wardic.div", () => {
   })
 })
 
-describe("a while* key with no base value (#47): useWardic and Reorder.Item", () => {
-  it("M17: a useWardic spread's style is its style link", async () => {
+describe("a while* key with no base value (#47): createWard and Reorder.Item", () => {
+  it("M17: a createWard spread's style is its style link", async () => {
     let el!: HTMLElement
     function Box() {
-      const w = useWardic({ whileHover: { opacity: 1 } })
+      const w = createWard({ whileHover: { opacity: 1 } })
       return <div {...w({ ref: (n) => (el = n), style: { ...BOX, opacity: 0.5 } })} />
     }
     render(() => (
@@ -381,7 +381,7 @@ describe("a key with no base value (#47): review cases", () => {
     const [o, setO] = createSignal(0.5)
     const [childOpen, setChildOpen] = createSignal(false)
     function Parent() {
-      const w = useWardic(() => ({ whileHover: { opacity: 1 }, transition: { when: "afterChildren" } }))
+      const w = createWard(() => ({ whileHover: { opacity: 1 }, transition: { when: "afterChildren" } }))
       return (
         <div {...w({ ref: (n) => (parentEl = n), style: { ...BOX, opacity: o() } })}>
           <w.Provider>
@@ -391,7 +391,7 @@ describe("a key with no base value (#47): review cases", () => {
       )
     }
     function Child() {
-      const c = useWardic(() => ({ initial: { x: 0 }, animate: { x: Bool.match(childOpen(), { onTrue: () => 20, onFalse: () => 0 }) } }))
+      const c = createWard(() => ({ initial: { x: 0 }, animate: { x: Bool.match(childOpen(), { onTrue: () => 20, onFalse: () => 0 }) } }))
       return <div {...c({ style: { width: "10px", height: "10px" } })} />
     }
     render(() => (

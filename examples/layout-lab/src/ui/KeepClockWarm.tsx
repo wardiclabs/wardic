@@ -1,6 +1,6 @@
 /**
  * The Keep Clock warm panel (issue #14). While it is on, a small dot in the panel
- * runs a slow `useWardic` spring that never settles, so the shared Clock is already
+ * runs a slow `createWard` spring that never settles, so the shared Clock is already
  * ticking when a scenario runs: every run is then a warm start, the way it is in an
  * app where something else is animating. Each run records which kind it was in
  * `clock` (`cold` / `warm`), so the panel is only a way to produce warm runs on

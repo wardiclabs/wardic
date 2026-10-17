@@ -20,6 +20,7 @@ The immediate action is curating `index.ts` (and the per-folder barrels) so Tier
 - The published stability policy must state the Tier 2 caveat explicitly, so consumers know that opting into the Effect-typed surface means tracking Effect's semver: an Effect major is a Tier 2 major (*Amendment (#64)*).
 - Hardening Tier 2 into an `/unstable` (or `/advanced`) subpath later is additive and does not break Tier 1.
 - *Note (#132, 2026-10-16):* `@wardic/dom` is Tier 2 for binding authors (Foldkit, Solid 1, Solid 2), a module per concept under `@wardic/dom/<Module>`, with `DomLive` at its root for apps (ADR-0041).
+- *Note (#193, 2026-10-17):* Tier 1's own names follow ADR-0042: `createWard` (was `useWardic`), `use:wardic` (was `use:ward`), `WardConfig` (was `WardicConfig`).
 - The binding's Effect-free Tier 1 is what most users and the docs lead with; Effect appears only when a consumer deliberately drops into Tier 2.
 
 ## Amendment (#63, 2026-10-07): core is Effect-native, and the bindings hide Effect
