@@ -329,3 +329,43 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
   - keyboard reorder announced;
   - real-mouse drags 0.00 px, 0 frames behind.
 - **Gates:** typecheck, lint, unit (963), browser (1009), the lab's tsc and vitest (208).
+
+## Implementation in #69's PR 4: solid's internals
+
+- **Lint** holds the rules on solid's source: `eslint.config.js`'s dom block now covers `packages/solid/src/**/*.{ts,tsx}`. On main `54fd4bd` it flagged 262 places, all converted:
+  - 200 `no-restricted-syntax`;
+  - 52 ternaries;
+  - 10 `!`.
+- **Patterns:**
+  - `Predicate` for the undefined checks;
+  - `UndefinedOr.match`, `Bool.match` and `Option` for the value picks and the conditional props;
+  - `Arr`, `Rec` and `Iter` for the loops;
+  - module-level `Match.type` matchers on the start path: `resolveEntry`, `dragMovesOf`, the drag snapshot's `numberOrZero`, a Reorder item's `dragAxisFor`;
+  - defaulted parameters (`NO_INTERNALS`, `NO_USER_PROPS`) in place of `internal?.` and `userProps?.`;
+  - `accessorOf` for a config given as a value or an accessor;
+  - `ownOrInherited`, shared by the variant node and the spine.
+- **Tier 1 is unchanged:** the declaration diff against main shows only internal exports.
+- **The start path.** The first conversion failed `bench:solid`: Retarget +5.8% and +9.4%, mount +7.3% and +6.7%. A heap profile found two causes, both now fixed.
+  - **`Arr.fromIterable` copied a Map.** The spine's walk of the keys a Retarget drove did this per element per Retarget: 190 ns, against 9 ns for main's `for … of`. It's `Iter.forEach` over the Map now, at 11 ns.
+  - **Core's `ReducedMotion.applies` built a `Match.value` matcher on every call.** On main, V8 inlined it into the Retarget and dropped the matcher. With the Retarget's own `Arr`, `Rec` and `UndefinedOr` calls added, it stopped inlining it, and every element allocated the matcher: 2 KB per element per round. It's built once now, with `Match.type`.
+  - Both are now pitfalls in `effect-first.md`.
+- **What's left is +2–3%** on the time of a task, and +2.4% in bytes allocated. Without a GC before the task, the Retarget's median followed GC phase rather than cost, so `bench:solid` now times each task after a full GC and gates bytes (grilled, A: ADR-0040, *Amendment (#69)*).
+- **`bench:solid`** in that mode, two runs against main `54fd4bd` (11 reps, 3 for bytes), warm:
+  - mount +4.3% / +2.4%;
+  - Retarget +1.2% / +1.5%;
+  - at rest +0.9% / +3.2%;
+  - unmount +0.6% / +1.9%;
+  - bytes +2.4% / +2.4% (194 against 190 KB per element per round);
+  - exit 0.
+
+  The A/A read 0.0%, +0.6%, −0.1%, −1.4%, and −0.4% for bytes.
+- **Lab** (5173, restarted on this branch):
+  - smoke 0 errors;
+  - crossfade board 54 runs, 0 fails;
+  - held 30 runs, 0 off;
+  - scenario 15, 14 runs clean;
+  - scenario 7 `passes 1 (1 seeding)`;
+  - scenario 17 as main;
+  - keyboard reorder announced;
+  - real-mouse drags 0.00 px, 0 frames behind.
+- **Gates:** typecheck, lint, unit (963), browser (1009), the lab's tsc and vitest (208).
