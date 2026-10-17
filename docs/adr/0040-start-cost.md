@@ -81,7 +81,7 @@ A mount of 1,000 elements falls from 132 ms to 28 ms, a mid-flight Retarget from
      - core's SF1–SF3;
      - the lint rule;
      - the existing whileHover / whileTap, span, defect and check-frames tests, which still hold.
-   - **`bench:solid`:** `packages/solid/bench`, base against head at N = 1,000 in production Chromium, run on the bench server. Its tasks are mount, mid-flight Retarget, at-rest Retarget and unmount. Its gate and noise control follow `bench:core`'s: a task fails at a +5% median with its 25th percentile above 0. The `plain` page is the same code on both sides, so a run whose plain ratio is off by more than ±5% is too noisy to judge.
+   - **`bench:solid`:** `packages/solid/bench`, base against head at N = 1,000 in production Chromium, run on the bench server. Its tasks are mount, mid-flight Retarget, at-rest Retarget and unmount. Its gate and noise control follow `bench:core`'s: a task fails at a +5% median with its 25th percentile above 0. The `plain` page is the same code on both sides, so a run whose plain ratio is off by more than ±5% is too noisy to judge. Since #69, each task is timed after a full GC, and bytes per element per round are gated too (*Amendment (#69)*).
    - Rejected: tests only; a bench that reports without gating.
 7. **This ADR** (Q7).
 
@@ -122,3 +122,27 @@ At N = 100 (prototype), main's 16 / 7.3 / 4.5 / 8.2 ms became 4.5 / 3.5 / 3.2 / 
   - `whileTap` at mount starts press only.
 - **lint:** `eslint.config.js` `SPANS`.
 - **bench:** `bun run bench:solid`.
+
+## Amendment (#69, 2026-10-17): a GC before each timed task, and a bytes gate
+
+#69's PR 4, solid's internals on the Effect-first rules, failed decision 6's gate on the mid-flight Retarget: +10.5% and +8.9% in two runs. With a full GC forced before each task, it read +2%.
+
+Without that GC, a task's time is bimodal: a scavenge lands inside it or it doesn't. Which one a side gets depends on how full its earlier allocation left the young generation, not on what the task costs. A build of PR 4 that allocated less read worse, +12% against +6%. The A/A read flat only because main allocates exactly as main does.
+
+Grilled 2026-10-17 (A):
+- **A full GC before each timed task.** Chromium runs with `--expose-gc`, and the page collects before it starts a task's clock, so a task times its own JS.
+- **A bytes gate.** Paired pages, 3 per side by default (`--alloc-reps`), run the same rounds under V8's sampling heap profiler, with objects freed by either GC counted. The measure is a side's bytes per element per round: its tasks and the frames between them together. It fails as a task does, at a +5% median with its 25th percentile above 0. The GC per task leaves a scavenge's time out of the tasks; this gate holds what causes it.
+- **Rejected:**
+  - Keeping the gate and trimming allocation until the Retarget passes: its median follows GC phase, so even matched allocation might not settle it.
+  - Keeping the gate and accepting the failure.
+
+Times read higher after a full GC. Main's warm mount is 34.5 ms, against 30–31 without it: the task now starts with an empty young generation and pays for its own scavenges.
+
+The first A/A (main `54fd4bd` against itself, 11 reps, 3 for bytes) read:
+- mount 0.0% [−2.0% – +0.5%];
+- Retarget +0.6% [−0.1% – +1.8%];
+- at rest −0.1% [−2.2% – +0.6%];
+- unmount −1.4% [−2.3% – −0.4%];
+- bytes −0.4% [−0.5% – −0.4%], at 190 KB per element per round.
+
+The old mode's A/A read unmount −2.1% [−13.8% – −1.5%].

@@ -13,6 +13,7 @@
  */
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
+import { constFalse, constTrue } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -31,13 +32,24 @@ import type * as Values from "./Values.ts"
 export type Config = "user" | "always" | "never"
 
 /** Whether reduced motion applies under `config`, given the user's `prefers-reduced-motion`. */
-export const applies = (config: Config, prefersReducedMotion: boolean): boolean =>
-  Match.value(config).pipe(
-    Match.when("user", () => prefersReducedMotion),
-    Match.when("always", () => true),
-    Match.when("never", () => false),
-    Match.exhaustive,
-  )
+export const applies = (config: Config, prefersReducedMotion: boolean): boolean => appliesUnder({ config, prefersReducedMotion })
+
+/** A config and the user's preference. */
+interface Setting {
+  readonly config: Config
+  readonly prefersReducedMotion: boolean
+}
+
+/**
+ * {@link applies}' matcher, built once, at module load: a binding reads it as each element's
+ * animation starts (#69's PR 4).
+ */
+const appliesUnder: (setting: Setting) => boolean = Match.type<Setting>().pipe(
+  Match.when({ config: "user" }, ({ prefersReducedMotion }) => prefersReducedMotion),
+  Match.when({ config: "always" }, constTrue),
+  // "never"
+  Match.orElse(constFalse),
+)
 
 /** Whether `key` is a transform (`BaseValue.TRANSFORM_IDENTITY`'s keys): Wardic's own, positional in every Environment. */
 export const isTransform = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))

@@ -17,6 +17,7 @@
  * they register `onCleanup` and read the runtime from context.
  */
 import * as Effect from "effect/Effect"
+import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import { AtomRegistry, type Atom } from "effect/reactivity"
 import { type Accessor, createSignal, from, onCleanup, onMount } from "solid-js"
@@ -73,7 +74,7 @@ export const streamToSignal = <A>(
  */
 export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
-  const held = options !== undefined && "serverValue" in options
+  const held = Predicate.isNotUndefined(options) && "serverValue" in options
   if (held && isServer) {
     const serverValue = options.serverValue as A
     return () => serverValue

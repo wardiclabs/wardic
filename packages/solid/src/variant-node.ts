@@ -23,7 +23,7 @@ import * as Stagger from "@wardic/core/Stagger"
 import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
-import { constTrue, constUndefined, constVoid } from "effect/Function"
+import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
@@ -133,12 +133,20 @@ const handedDown = <A extends string | false>(config: VariantConfig, own: () => 
     onFalse: () => Bool.match(config.inherit === false, { onTrue: constUndefined, onFalse: fromParent }),
   })
 
+/** An element's own transition, else the one it inherits. */
+export const ownOrInherited = (own: WardicTransition | undefined, inherited: WardicVariantContextValue | undefined): WardicTransition | undefined =>
+  UndefinedOr.match(own, { onUndefined: () => UndefinedOr.map(inherited, (context) => context.transition()), onDefined: identity })
+
 /** The stagger config an element's `transition` gives its Variant children. */
-const staggerOf = (transition: WardicTransition | undefined): WardicStaggerConfig => ({
-  amount: transition?.staggerChildren ?? 0,
-  delayChildren: transition?.delayChildren ?? 0,
-  from: transition?.from ?? "first",
-  direction: transition?.staggerDirection ?? 1,
+const staggerOf = (transition: WardicTransition | undefined): WardicStaggerConfig =>
+  UndefinedOr.match(transition, { onUndefined: () => staggerWith({}), onDefined: staggerWith })
+
+/** The stagger config of a transition's stagger keys, each defaulted. */
+const staggerWith = ({ staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1 }: WardicTransition): WardicStaggerConfig => ({
+  amount: staggerChildren,
+  delayChildren,
+  from,
+  direction: staggerDirection,
 })
 
 /** What an element provides when it has no variants of its own: its parent's context, unless `inherit={false}`. */
@@ -204,7 +212,7 @@ const ownOrchestration = (
     const setSettled = (done: boolean): void => {
       if (done === settled) return
       settled = done
-      setUnsettled((k) => k + (done ? -1 : 1))
+      setUnsettled((k) => k + Bool.match(done, { onTrue: () => -1, onFalse: () => 1 }))
     }
     const dispose = (): void => {
       if (!records.delete(record)) return
@@ -214,14 +222,14 @@ const ownOrchestration = (
   }
 
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(cfg().transition))
-  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => cfg().transition?.when
+  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(cfg().transition, (t) => t.when)
 
   // The names handed down. `animate`'s is reactive; `initial`'s is read once.
   const variant: Accessor<string | undefined> = createMemo(() => {
     const c = cfg()
-    return handedDown(c, () => nameOf(c.animate), () => parent?.variant())
+    return handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
   })
-  const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => parent?.initial)
+  const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // Snapshot-at-trigger (ADR-0007): each child's index and total are recomputed only when this
   // element's variant changes, so a mount, unmount or reorder mid-transition doesn't reshuffle
@@ -232,7 +240,7 @@ const ownOrchestration = (
       const direction = untrack(stagger).direction
       Array.from(records).forEach((record, i) => {
         record.setTotal(n)
-        record.setIndex(direction === -1 ? n - 1 - i : i)
+        record.setIndex(Bool.match(direction === -1, { onTrue: () => n - 1 - i, onFalse: () => i }))
       })
       setOwnSettled(false)
     }),
@@ -241,7 +249,7 @@ const ownOrchestration = (
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || ownSettled()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
-  const transition: Accessor<WardicTransition | undefined> = createMemo(() => cfg().transition ?? inherited?.transition())
+  const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited))
 
   return {
     context: { variant, initial, transition, register, stagger, when, childrenMayStart, allChildrenSettled },
@@ -312,16 +320,16 @@ export interface ServerVariantNode {
 export const serverVariantNode = (config: VariantConfig, parent: WardicVariantContextValue | undefined): ServerVariantNode => {
   const inherited = inheritedContext(config, parent)
   const own = (): WardicVariantContextValue => {
-    const variant = handedDown(config, () => nameOf(config.animate), () => parent?.variant())
-    const transition = config.transition ?? inherited?.transition()
+    const variant = handedDown(config, () => nameOf(config.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
+    const transition = ownOrInherited(config.transition, inherited)
     const stagger = staggerOf(config.transition)
     return {
       variant: () => variant,
-      initial: handedDown<string | false>(config, () => initialNameOf(config.initial), () => parent?.initial),
+      initial: handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial)),
       transition: () => transition,
       register: () => INERT_REGISTRATION,
       stagger: () => stagger,
-      when: () => config.transition?.when,
+      when: () => UndefinedOr.map(config.transition, (t) => t.when),
       childrenMayStart: constTrue,
       allChildrenSettled: constTrue,
     }

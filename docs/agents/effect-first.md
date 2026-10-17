@@ -2,7 +2,7 @@
 
 How code in this repo is written: Effect's modules over vanilla TypeScript, and no ternary operators. Set in #63 and recorded, with the reasons and measurements, in [ADR-0025](../adr/0025-effect-first-core.md).
 
-**Scope.** `packages/core/src` and `packages/dom/src` follow these rules. New code in `@wardic/solid` and `@wardic/test` follows them too; converting those packages' existing code is #69's PRs 4 and 5 (ADR-0025, *Amendment (#69)*). Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
+**Scope.** `packages/core/src`, `packages/dom/src` and `packages/solid/src` follow these rules; solid's Tier 1 stays Effect-free, unwrapping at its edge. New code in `@wardic/test` follows them too; converting its existing code is #69's PR 5 (ADR-0025, *Amendment (#69)*). Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
 
 ## The two rules
 
@@ -113,7 +113,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 
 ## Checks
 
-- **`bun run lint`** holds what can be held mechanically on `packages/core/src` and `packages/dom/src` (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do):
+- **`bun run lint`** holds what can be held mechanically on `packages/core/src`, `packages/dom/src` and `packages/solid/src` (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do):
   - ternaries;
   - `switch`, and `if … else`;
   - `??`, `??=` and `?.`;
@@ -125,12 +125,15 @@ For a single function, a named import is fine: `import { identity } from "effect
 
   It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match`, `Schema` or `Scope` fits, stay with review.
 - **`bun run bench:core --base main`** checks a change on the per-frame path (above).
+- **`bun run bench:solid --base main`** checks a change on the binding's start path: a mount, two Retargets and an unmount of 1,000 elements, each timed after a full GC, and the bytes they allocate per element per round (ADR-0040, *Amendment (#69)*).
 
 ## Pitfalls
 
 - **`Predicate.Tuple` infers a `Refinement`** when any element is one, and `Option.liftPredicate` then types the other positions as `unknown`. Annotate it as `Predicate.Predicate<T>` (see `hides` in `primitives/multi.ts`).
 - **`Boolean.match` and `Option.match` allocate their options object and closures on each call,** and `Rec.map` spreads the record, then reassigns every key. Neither belongs on the per-frame path.
 - **A shared Effect function called per frame is a call, and a new hot caller slows the old ones.** `Arr.getUnsafe` measured ×5.7–6.0 against `xs[i]` on a number loop in every engine, and ×2.2–2.9 on an object loop. Adding a hot caller with number arrays made Node's unchanged `animateComplex/loop` 48% slower, through the tick's own `getUnsafe` (ADR-0030). Measure an Effect function before it goes on the per-frame path, as a combinator layer is measured (ADR-0028, *Implementation in #94*).
+- **`Arr.fromIterable` copies.** `Arr.forEach(Arr.fromIterable(map), f)` copies a `Map` or `Set` into an array before it walks it: 190 ns a call on a two-entry Map, against 11 ns for `Iter.forEach(map, f)` and 9 for a `for … of` (#69's PR 4). Walk a collection with `Iter.forEach`. Deleting the entry being visited is safe in a `Map`'s or `Set`'s own iteration.
+- **More calls in a hot function can cost its callees their inlining.** V8 inlines callees into an optimized function up to a budget, and escape analysis then drops what they allocate. Core's `ReducedMotion.applies` built a `Match.value` matcher on every call, at no cost on main, inlined into solid's Retarget. Once the Retarget made its own `Arr`, `Rec` and `UndefinedOr` calls, `applies` wasn't inlined, and every element allocated its matcher: 2 KB per element per round (#69's PR 4). Build a matcher with `Match.type` wherever it runs per element, and read a change's allocation as well as its time (`bench:solid`'s bytes gate).
 - **`Effect.forever` and `Effect.repeat` yield to the scheduler on every iteration** (`yieldNow`). A loop that must not touch the scheduler uses `Effect.whileLoop` (ADR-0017, decision 3).
 - **On an input path, nothing waits for the scheduler between an event and its writes** (ADR-0032), and in a browser each hop is a `setTimeout(0)`, after the frame's paint:
   - a `Stream.callback` queue releases its consumer in a task unless the producer calls `Queue.flushUnsafe` after offering (`InputSource.heldPointer` does, once per feed callback);

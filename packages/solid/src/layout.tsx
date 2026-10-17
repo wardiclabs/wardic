@@ -141,11 +141,11 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.
     // The transition's reduced-motion opt-out (ADR-0029), read at each layout animation's start.
     respectReducedMotion: () =>
       UndefinedOr.match(transition(), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
-    ...(layoutId !== undefined ? { layoutId } : {}),
-    ...(layoutScroll === true ? { layoutScroll: true } : {}),
-    ...(layoutRoot === true ? { layoutRoot: true } : {}),
-    ...(layoutAnchor !== undefined ? { layoutAnchor } : {}),
-    ...(raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
+    ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
+    ...Bool.match(layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
+    ...Bool.match(layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
+    ...UndefinedOr.match(layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),
+    ...Bool.match(raiseWhileDragged === true, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
     ...UndefinedOr.match(dragTransition, { onUndefined: () => ({}), onDefined: (release) => ({ dragTransition: () => Option.some(release()) }) }),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
     ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),

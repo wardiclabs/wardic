@@ -11,6 +11,10 @@
  *   colours read their target: a colour rounds to its target while its spring's tail still runs,
  *   which made #76's "at rest" a mid-flight one.
  * - **unmount:** `setShown(false)` mid-flight, 2N interrupts.
+ *
+ * A full GC runs before each task starts its clock (ADR-0040, *Amendment (#69)*), so a scavenge never
+ * lands inside one: the runner starts Chromium with `--expose-gc`. What a side allocates is held by
+ * the runner's bytes gate instead.
  */
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
@@ -71,7 +75,11 @@ const frames = (k: number): Promise<void> =>
     realRaf(f)
   })
 const afterPaint = (): Promise<void> => new Promise((resolve) => realRaf(() => setTimeout(resolve, 0)))
+const exposedGc = (globalThis as { gc?: () => void }).gc
+if (exposedGc === undefined) throw new Error("bench:solid: the page needs Chromium's --js-flags=--expose-gc")
+const gc: () => void = exposedGc
 const timed = (f: () => void): number => {
+  gc()
   const t0 = performance.now()
   f()
   return performance.now() - t0

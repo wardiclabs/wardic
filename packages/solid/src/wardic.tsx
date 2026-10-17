@@ -37,8 +37,13 @@ import type * as Drag from "@wardic/core/Drag"
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Style from "@wardic/dom/Style"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { createElementStyle } from "./element-style.ts"
@@ -258,30 +263,30 @@ export const motionToConfig =
     const layoutAnchor = motion.layoutAnchor
     const onLayoutAnimationStart = motion.onLayoutAnimationStart
     const onLayoutAnimationComplete = motion.onLayoutAnimationComplete
-    if (initial !== undefined) config.initial = initial
-    if (animate !== undefined) config.animate = animate
-    if (whileHover !== undefined) config.whileHover = whileHover
-    if (whileTap !== undefined) config.whileTap = whileTap
-    if (transition !== undefined) config.transition = transition
-    if (variants !== undefined) config.variants = variants
-    if (inherit !== undefined) config.inherit = inherit
-    if (exit !== undefined) config.exit = exit
-    if (drag !== undefined) config.drag = drag
-    if (whileDrag !== undefined) config.whileDrag = whileDrag
-    if (dragConstraints !== undefined) config.dragConstraints = dragConstraints
-    if (dragElastic !== undefined) config.dragElastic = dragElastic
-    if (dragMomentum !== undefined) config.dragMomentum = dragMomentum
-    if (dragSnapToOrigin !== undefined) config.dragSnapToOrigin = dragSnapToOrigin
-    if (dragTransition !== undefined) config.dragTransition = dragTransition
-    if (dragPropagation !== undefined) config.dragPropagation = dragPropagation
-    if (layout !== undefined) config.layout = layout
-    if (layoutDependency !== undefined) config.layoutDependency = layoutDependency
-    if (layoutId !== undefined) config.layoutId = layoutId
-    if (layoutScroll !== undefined) config.layoutScroll = layoutScroll
-    if (layoutRoot !== undefined) config.layoutRoot = layoutRoot
-    if (layoutAnchor !== undefined) config.layoutAnchor = layoutAnchor
-    if (onLayoutAnimationStart !== undefined) config.onLayoutAnimationStart = onLayoutAnimationStart
-    if (onLayoutAnimationComplete !== undefined) config.onLayoutAnimationComplete = onLayoutAnimationComplete
+    if (Predicate.isNotUndefined(initial)) config.initial = initial
+    if (Predicate.isNotUndefined(animate)) config.animate = animate
+    if (Predicate.isNotUndefined(whileHover)) config.whileHover = whileHover
+    if (Predicate.isNotUndefined(whileTap)) config.whileTap = whileTap
+    if (Predicate.isNotUndefined(transition)) config.transition = transition
+    if (Predicate.isNotUndefined(variants)) config.variants = variants
+    if (Predicate.isNotUndefined(inherit)) config.inherit = inherit
+    if (Predicate.isNotUndefined(exit)) config.exit = exit
+    if (Predicate.isNotUndefined(drag)) config.drag = drag
+    if (Predicate.isNotUndefined(whileDrag)) config.whileDrag = whileDrag
+    if (Predicate.isNotUndefined(dragConstraints)) config.dragConstraints = dragConstraints
+    if (Predicate.isNotUndefined(dragElastic)) config.dragElastic = dragElastic
+    if (Predicate.isNotUndefined(dragMomentum)) config.dragMomentum = dragMomentum
+    if (Predicate.isNotUndefined(dragSnapToOrigin)) config.dragSnapToOrigin = dragSnapToOrigin
+    if (Predicate.isNotUndefined(dragTransition)) config.dragTransition = dragTransition
+    if (Predicate.isNotUndefined(dragPropagation)) config.dragPropagation = dragPropagation
+    if (Predicate.isNotUndefined(layout)) config.layout = layout
+    if (Predicate.isNotUndefined(layoutDependency)) config.layoutDependency = layoutDependency
+    if (Predicate.isNotUndefined(layoutId)) config.layoutId = layoutId
+    if (Predicate.isNotUndefined(layoutScroll)) config.layoutScroll = layoutScroll
+    if (Predicate.isNotUndefined(layoutRoot)) config.layoutRoot = layoutRoot
+    if (Predicate.isNotUndefined(layoutAnchor)) config.layoutAnchor = layoutAnchor
+    if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart
+    if (Predicate.isNotUndefined(onLayoutAnimationComplete)) config.onLayoutAnimationComplete = onLayoutAnimationComplete
     return config
   }
 
@@ -321,7 +326,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
   // sink (ADR-0008 + ADR-0006). The wrapped component owns its root JSX; the gate
   // commits the projected Patch onto the element it forwards its `ref` to. Until
   // the first commit, `style` carries the Starting style (ADR-0021, decision 6).
-  if (typeof arg !== "string") {
+  if (!Predicate.isString(arg)) {
     const Wrapped = arg
     return (props) => {
       // A server render takes the lean path (ADR-0021).
@@ -352,10 +357,10 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       const initialValues = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
       const projected = runtime.runSync(Renderer.Renderer).project(initialValues)
       const hydrating = isHydrating()
-      const starting = hydrating ? DomRenderer.project(initialValues) : projected
+      const starting = Bool.match(hydrating, { onTrue: () => DomRenderer.project(initialValues), onFalse: () => projected })
       if (hydrating) flagStartingStyle(runtime, id, starting, projected)
       const axis = dragAxisOf(config, undefined)
-      const dragDefaults = axis !== undefined ? Style.dragDefaults(axis) : undefined
+      const dragDefaults = UndefinedOr.map(axis, Style.dragDefaults)
       const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
       const elementStyle = createElementStyle({ userStyle, starting, defaults: dragDefaults })
 
@@ -382,7 +387,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // ADR-0008 ref-forwarding contract: if the component never forwarded its
       // ref, the spine has no element to drive. Fail loudly + actionably.
       onMount(() => {
-        if (el() === undefined) {
+        if (Predicate.isUndefined(el())) {
           const name = Wrapped.name || "anonymous component"
           throw new Error(
             `wardic.create(${name}): the wrapped component did not forward its ref. ` +
@@ -406,7 +411,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
           {...rest}
           ref={mergeRefs(userRef, setEl)}
           style={style()}
-          draggable={dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES.draggable : undefined}
+          draggable={UndefinedOr.map(dragDefaults, () => Style.DRAG_DEFAULT_ATTRIBUTES.draggable)}
         />
       )
       // A wrap that changes what the component's children read renders its variant context's
@@ -447,7 +452,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
     // once at mount (refs don't change), so it stays a one-time read.
     const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
     const userProps: WardUserProps = {
-      ...(userRef !== undefined ? { ref: userRef } : {}),
+      ...UndefinedOr.match(userRef, { onUndefined: () => ({}), onDefined: (ref) => ({ ref }) }),
       get style() {
         return (refStyle as { style?: JSX.CSSProperties }).style
       },
@@ -471,18 +476,19 @@ const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)
  * may be a getter (a reactive prop like `cx={cx()}`), which an assignment can't overwrite;
  * Wardic's value wins, as `mergeProps` makes it on the client.
  */
-const override = (out: Record<string, unknown>, values: Record<string, unknown>): void => {
-  for (const key in values) Object.defineProperty(out, key, { value: values[key], enumerable: true, configurable: true, writable: true })
-}
+const override = (out: Record<string, unknown>, values: Record<string, unknown>): void =>
+  Arr.forEach(Rec.keys(values), (key) => {
+    Object.defineProperty(out, key, { value: values[key], enumerable: true, configurable: true, writable: true })
+  })
 
 /** Everything in `props` but the motion props, `ref` and `style`, in one pass; getters stay getters. */
 const passThrough = (props: Record<string, unknown>): Record<string, unknown> => {
   const descriptors = Object.getOwnPropertyDescriptors(props)
   const out: Record<string, unknown> = {}
-  for (const key in descriptors) {
-    if (MOTION_KEYS.has(key) || key === "ref" || key === "style") continue
-    Object.defineProperty(out, key, descriptors[key]!)
-  }
+  Arr.forEach(Rec.keys(descriptors), (key) => {
+    if (MOTION_KEYS.has(key) || key === "ref" || key === "style") return
+    Object.defineProperty(out, key, UndefinedOr.getOrThrow(descriptors[key]))
+  })
   return out
 }
 
@@ -500,12 +506,12 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   // The same variant context the client provides, read once (#50).
   const node = serverVariantNode(config, useVariantContext())
   const axis = dragAxisOf(config, undefined)
-  const dragDefaults = axis !== undefined ? Style.dragDefaults(axis) : undefined
+  const dragDefaults = UndefinedOr.map(axis, Style.dragDefaults)
   const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
   override(out, {
     style: pipe(Style.starting(undefined, initial).style, Style.over(props.style as JSX.CSSProperties | string | undefined), Style.over(dragDefaults)),
-    ...(dragDefaults !== undefined ? { draggable: Style.DRAG_DEFAULT_ATTRIBUTES.draggable } : {}),
-    ...(props.ref !== undefined ? { ref: props.ref } : {}),
+    ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => ({ draggable: Style.DRAG_DEFAULT_ATTRIBUTES.draggable }) }),
+    ...UndefinedOr.match(props.ref, { onUndefined: () => ({}), onDefined: (ref) => ({ ref }) }),
     component: Wrapped,
   })
   // The client's nesting: the variant context's Provider when the wrap changes what its
@@ -573,13 +579,12 @@ const cache = new Map<string, Component<WardicProps<keyof JSX.IntrinsicElements>
 export const wardic: Wardic = new Proxy({ create } as Wardic, {
   get(target, prop) {
     if (prop === "create") return target.create
-    if (typeof prop === "string") {
-      let c = cache.get(prop)
-      if (c === undefined) {
-        c = create(prop)
+    if (Predicate.isString(prop)) {
+      return Option.getOrElse(Option.fromUndefinedOr(cache.get(prop)), () => {
+        const c = create(prop)
         cache.set(prop, c)
-      }
-      return c
+        return c
+      })
     }
     return undefined
   },

@@ -46,11 +46,14 @@ import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import * as Variables from "@wardic/dom/Variables"
 import { mergeRefs } from "@solid-primitives/refs"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
-import { constTrue, identity, pipe } from "effect/Function"
+import { constTrue, constUndefined, identity, pipe } from "effect/Function"
+import * as Iter from "effect/Iterable"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -70,7 +73,7 @@ import {
 } from "solid-js"
 import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
-import { createVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
+import { createVariantNode, ownOrInherited, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress, createWhenWanted } from "./sensors.ts"
@@ -480,14 +483,45 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
 const resolveValues = (
   entry: WardicValues | string | undefined,
   variants: Record<string, WardicValues> | undefined,
-): Values.Values => {
-  if (entry === undefined) return {}
-  if (typeof entry === "string") return Style.toValues(variants?.[entry])
-  return Style.toValues(entry)
-}
+): Values.Values => resolveEntry({ entry, variants })
+
+// Built once, at module load: a Retarget resolves its target per element (#69).
+const resolveEntry: (input: {
+  readonly entry: WardicValues | string | undefined
+  readonly variants: Record<string, WardicValues> | undefined
+}) => Values.Values = Match.type<{ readonly entry: WardicValues | string | undefined; readonly variants: Record<string, WardicValues> | undefined }>().pipe(
+  Match.when({ entry: Match.undefined }, (): Values.Values => ({})),
+  Match.when({ entry: Match.string }, ({ entry, variants }) => Style.toValues(UndefinedOr.map(variants, (byName) => byName[entry]))),
+  Match.orElse(({ entry }) => Style.toValues(entry as WardicValues)),
+)
+
+/** A `<Reorder>` item's additions when there are none: a plain element's. */
+const NO_INTERNALS: SpineInternals = {}
+
+/** A `ward()` call's user props when it's given none. */
+const NO_USER_PROPS: WardUserProps = {}
+
+/** A config given as a value or as an accessor, as an accessor. A config is always an object, so a function is the accessor. */
+export const accessorOf = <A extends object>(config: A | Accessor<A>): Accessor<A> =>
+  Bool.match(Predicate.isFunction(config), { onTrue: () => config as Accessor<A>, onFalse: () => () => config as A })
+
+/** A transition's `delay`, 0 without one. */
+const delayOf = (transition: WardicTransition | undefined): number =>
+  UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: ({ delay = 0 }) => delay })
+
+/** The keys a drag of `axis` moves directly. Built once, at module load. */
+const dragMovesOf: (axis: boolean | "x" | "y") => ReadonlyArray<string> = Match.type<boolean | "x" | "y">().pipe(
+  Match.when("x", (): ReadonlyArray<string> => ["x"]),
+  Match.when("y", (): ReadonlyArray<string> => ["y"]),
+  Match.orElse((): ReadonlyArray<string> => ["x", "y"]),
+)
+
+/** Whether a start link's value takes its target's shape: both numbers, or both strings. */
+const isSameKind = (value: number | string, like: number | string): boolean => Predicate.isNumber(value) === Predicate.isNumber(like)
 
 /** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
 const TRANSLATE_KEYS: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY"])
+const TRANSLATE_KEY_LIST: ReadonlyArray<string> = Arr.fromIterable(TRANSLATE_KEYS)
 
 /** Whether a value map has any key. */
 const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
@@ -615,7 +649,7 @@ export interface RunSpineOptions {
  * Must be called within a Solid owner (it registers `createEffect` / `onCleanup`).
  */
 export function runSpine(opts: RunSpineOptions): void {
-  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal, makeSink, onFrame, parent, runtime, styleOf } = opts
+  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal = NO_INTERNALS, makeSink, onFrame, parent, runtime, styleOf } = opts
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -658,7 +692,7 @@ export function runSpine(opts: RunSpineOptions): void {
   // on unmount.
   createEffect(
     on(el, (element) => {
-      if (element === undefined) return
+      if (Predicate.isUndefined(element)) return
 
       // Register the element with the caller-supplied sink (ADR-0006): each
       // flushed frame's Patch is committed onto it (ADR-0034).
@@ -669,15 +703,16 @@ export function runSpine(opts: RunSpineOptions): void {
       // (Reorder)*): set each one the element's inline style doesn't already, and the
       // attribute unless it has one, once at mount.
       if (defaultsInProps !== true) {
-        const base = internal?.baseStyle
-        if (base !== undefined) {
+        const base = internal.baseStyle
+        if (Predicate.isNotUndefined(base)) {
           // The base style goes under the user's: a key the element's own inline style
           // sets at mount is the user's, and is never written.
-          const own = new Set<string>()
-          for (let i = 0; i < element.style.length; i++) own.add(element.style.item(i))
+          const own = new Set<string>(element.style)
           const write = (style: Record<string, unknown> | undefined): void => {
-            if (style === undefined) return
-            for (const key in style) if (!own.has(key)) element.style.setProperty(key, String(style[key]))
+            if (Predicate.isUndefined(style)) return
+            Arr.forEach(Rec.keys(style), (key) => {
+              if (Bool.not(own.has(key))) element.style.setProperty(key, String(style[key]))
+            })
           }
           // Written now, then on each change. Now, not in the effect's first run: that runs
           // just before this element's spine effect, whose first Retarget may read the
@@ -687,7 +722,7 @@ export function runSpine(opts: RunSpineOptions): void {
           createEffect(on(base, (style) => write(style as Record<string, unknown> | undefined), { defer: true }))
         }
         const dragAxis = dragAxisOf(untrack(cfg), internal)
-        if (dragAxis !== undefined) applyDragDefaults(element, Style.dragDefaults(dragAxis))
+        if (Predicate.isNotUndefined(dragAxis)) applyDragDefaults(element, Style.dragDefaults(dragAxis))
       }
 
       // --- Base values (ADR-0022) ---------------------------------------------
@@ -707,7 +742,7 @@ export function runSpine(opts: RunSpineOptions): void {
           ),
         own: (key: string) => Option.flatMap(ownValue(key), (raw) => OwnValues.valueLike(raw, like)),
       })
-      const startOf = (key: string, like: number | string) => Option.getOrUndefined(BaseValue.start(key, linksFor(like)))
+      const startLinkOf = (key: string, like: number | string) => BaseValue.start(key, linksFor(like))
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
@@ -719,19 +754,20 @@ export function runSpine(opts: RunSpineOptions): void {
       // NOT call the disposer on its own onCleanup — <AnimatePresence> removes the
       // registration after the exit settles.
       let presenceRec: PresenceRecord | undefined
-      if (presence !== undefined) {
-        presenceRec = {
+      if (Predicate.isNotUndefined(presence)) {
+        const rec: PresenceRecord = {
           element,
           snapshot: { current: { ...initialValues } },
           exit: { current: Style.toValues(untrack(cfg).exit) },
           // An exit key with no value starts from its Base value's start links (ADR-0022),
           // read from the retained node at the exit.
-          startOf: (key, like) => startOf(key, like)?.value,
+          startOf: (key, like) => Option.getOrUndefined(Option.map(startLinkOf(key, like), (start) => start.value)),
         }
-        presence.register(presenceRec)
+        presenceRec = rec
+        presence.register(rec)
         // Keep exit.current current while the child is alive.
         createEffect(() => {
-          presenceRec!.exit.current = Style.toValues(cfg().exit)
+          rec.exit.current = Style.toValues(cfg().exit)
         })
       }
 
@@ -739,7 +775,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // without a presence). The accumulator mirrors what the gate accumulates,
       // so the exit departs from the element's actual resting value-map.
       const recordFrame = (value: Values.Values): void => {
-        if (presenceRec !== undefined) Object.assign(presenceRec.snapshot.current, value)
+        if (Predicate.isNotUndefined(presenceRec)) Object.assign(presenceRec.snapshot.current, value)
       }
 
       // A Retarget's returns have settled (ADR-0022, D4). A key back at its `style` value is
@@ -747,30 +783,28 @@ export function runSpine(opts: RunSpineOptions): void {
       // next gesture starts from it; any other key rests inline at its Base value and leaves
       // the target. A key a later Retarget took over is left alone.
       const settleReturns = (returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): void => {
-        const handedBack: Array<string> = []
-        for (const [key, source] of returns) {
-          if (returning.get(key) !== source) continue
+        // The returns still this Retarget's: a later one took over the rest.
+        const settled = Arr.filter(returns, ([key, source]) => returning.get(key) === source)
+        Arr.forEach(settled, ([key]) => {
           returning.delete(key)
           driven.delete(key)
-          if (source === "style") handedBack.push(key)
-        }
-        if (handedBack.length === 0) return
-        let restore: Record<string, string> | undefined
-        if (styleOf !== undefined) {
-          // The gate writes the user's current value back, as the element's `style` would
-          // (ADR-0034). A key gone from the user's style by now is cleared, not restored stale.
-          const style = untrack(styleOf)
-          restore = {}
-          for (const key of handedBack) {
-            restore[key] = Option.match(OwnValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })
-          }
-        }
+        })
+        const handedBack = Arr.map(Arr.filter(settled, ([, source]) => source === "style"), ([key]) => key)
+        if (Arr.isReadonlyArrayEmpty(handedBack)) return
+        // The gate writes the user's current value back, as the element's `style` would
+        // (ADR-0034). A key gone from the user's style by now is cleared, not restored stale.
+        const restore = UndefinedOr.map(styleOf, (of) => {
+          const style = untrack(of)
+          return Object.fromEntries(
+            Arr.map(handedBack, (key) => [key, Option.match(OwnValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })]),
+          ) as Record<string, string>
+        })
         gate.release(id, handedBack, restore)
-        for (const key of handedBack) {
+        Arr.forEach(handedBack, (key) => {
           delete snapshot.values[key]
           delete snapshot.velocities[key]
-          if (presenceRec !== undefined) delete presenceRec.snapshot.current[key]
-        }
+          if (Predicate.isNotUndefined(presenceRec)) delete presenceRec.snapshot.current[key]
+        })
       }
 
       // Cold path: once per Retarget that started a key from its Base value or returned one,
@@ -802,12 +836,12 @@ export function runSpine(opts: RunSpineOptions): void {
       let layoutHandle: ProjectionSystem.NodeHandle | undefined
       // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
-      if (c0.layout === true || Predicate.isString(c0.layout) || layoutId !== undefined || c0.layoutScroll === true || c0.layoutRoot === true) {
+      if (c0.layout === true || Predicate.isString(c0.layout) || Predicate.isNotUndefined(layoutId) || c0.layoutScroll === true || c0.layoutRoot === true) {
         layoutHandle = useLayoutMember({
           id,
           element,
           layoutDependency: () => cfg().layoutDependency,
-          transition: () => cfg().transition ?? parent?.transition(),
+          transition: () => ownOrInherited(cfg().transition, parent),
           dragTransition: () => dragTransition,
           // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
           layoutMode: () => layoutModeOf(cfg().layout),
@@ -819,13 +853,13 @@ export function runSpine(opts: RunSpineOptions): void {
           // The app's layout animation callbacks, read when they fire (#191, ADR-0039).
           onLayoutAnimationStart: () => cfg().onLayoutAnimationStart,
           onLayoutAnimationComplete: () => cfg().onLayoutAnimationComplete,
-          ...(layoutId !== undefined ? { layoutId } : {}),
-          ...(c0.layoutScroll === true ? { layoutScroll: true } : {}),
-          ...(c0.layoutRoot === true ? { layoutRoot: true } : {}),
-          ...(c0.layoutAnchor !== undefined ? { layoutAnchor: c0.layoutAnchor } : {}),
-          ...(internal?.raiseWhileDragged === true ? { raiseWhileDragged: true } : {}),
+          ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
+          ...Bool.match(c0.layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
+          ...Bool.match(c0.layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
+          ...UndefinedOr.match(c0.layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),
+          ...Bool.match(internal.raiseWhileDragged === true, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
         })
-        internal?.onLayoutHandle?.(layoutHandle)
+        if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
 
       // --- Drag track (ADR-0004) ----------------------------------------------
@@ -837,7 +871,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // document. The track's single fiber is scoped to this owner's onCleanup.
       const dragCfg = dragAxisOf(untrack(cfg), internal)
       const [dragging, setDragging] = createSignal(false)
-      if (dragCfg !== undefined) {
+      if (Predicate.isNotUndefined(dragCfg)) {
         const c0d = untrack(cfg)
         const trackConfig: DragTrackConfig = {
           axis: dragCfg,
@@ -860,9 +894,9 @@ export function runSpine(opts: RunSpineOptions): void {
           // ADR-0016: a drag on a LAYOUT node feeds the projection (the renderer
           // ignores a projected element's raw x/y), so the dragged item follows the
           // pointer and FLIPs to its slot on release. Free drag (no handle) is unchanged.
-          ...(layoutHandle !== undefined ? { projection: layoutHandle } : {}),
-          ...(internal?.dragAxis !== undefined ? { axisAt: internal.dragAxis } : {}),
-          ...(internal?.onDragSample !== undefined ? { onSample: internal.onDragSample } : {}),
+          ...UndefinedOr.match(layoutHandle, { onUndefined: () => ({}), onDefined: (projection) => ({ projection }) }),
+          ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
+          ...UndefinedOr.match(internal.onDragSample, { onUndefined: () => ({}), onDefined: (onSample) => ({ onSample }) }),
         })
       }
 
@@ -888,9 +922,11 @@ export function runSpine(opts: RunSpineOptions): void {
       // it dropped them (C9) until a layer sets them again.
       const driven = new Map<string, number | string>()
       let returning = new Map<string, BaseValue.BaseSource>()
-      const projected = layoutHandle !== undefined
-      const dragMoves: ReadonlyArray<string> =
-        projected || dragCfg === undefined ? [] : dragCfg === "x" ? ["x"] : dragCfg === "y" ? ["y"] : ["x", "y"]
+      const projected = Predicate.isNotUndefined(layoutHandle)
+      const dragMoves: ReadonlyArray<string> = Bool.match(projected, {
+        onTrue: (): ReadonlyArray<string> => [],
+        onFalse: () => UndefinedOr.match(dragCfg, { onUndefined: (): ReadonlyArray<string> => [], onDefined: dragMovesOf }),
+      })
 
       // Override stack (ascending priority): base (animate, or initial when no
       // animate) -> whileHover -> whileTap. Override.resolve picks the last
@@ -913,13 +949,14 @@ export function runSpine(opts: RunSpineOptions): void {
         //       sibling's "open"); read parent.variant() here so a parent flip
         //       recomputes this memo and retargets;
         //   (3) else the SSR-seeded `initial`.
-        const inheritedName = parent?.variant()
-        const base =
-          animate !== undefined
-            ? resolveValues(animate, variants)
-            : inheritedName !== undefined
-              ? resolveValues(inheritedName, variants)
-              : initialLink
+        const base = UndefinedOr.match(animate, {
+          onDefined: (own) => resolveValues(own, variants),
+          onUndefined: () =>
+            UndefinedOr.match(
+              UndefinedOr.map(parent, (p) => p.variant()),
+              { onDefined: (inheritedName) => resolveValues(inheritedName, variants), onUndefined: () => initialLink },
+            ),
+        })
         const resolved = Override.resolve([
           { active: true, values: base },
           { active: hovered(), values: Style.toValues(c.whileHover) },
@@ -928,7 +965,7 @@ export function runSpine(opts: RunSpineOptions): void {
           // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
           // after release. Read dragging() so a flip recomputes this memo; a keyboard
           // lift turns it on too (ADR-0037).
-          { active: Bool.or(dragging(), internal?.lifted?.() === true), values: Style.toValues(c.whileDrag) },
+          { active: Bool.or(dragging(), Predicate.isNotUndefined(internal.lifted) && internal.lifted()), values: Style.toValues(c.whileDrag) },
         ])
         return { resolved, base, dragging: dragging() }
       })
@@ -956,7 +993,7 @@ export function runSpine(opts: RunSpineOptions): void {
           () => {
             const t = target()
             // Track the gate so its flips re-run this effect (value unused).
-            canStart?.()
+            if (Predicate.isNotUndefined(canStart)) canStart()
             return t
           },
           ({ resolved, base, dragging: held }) => {
@@ -965,70 +1002,82 @@ export function runSpine(opts: RunSpineOptions): void {
             // `when` start-gate (ADR-0007): when canStart() is false, freeze at the
             // snapshot (the previous legs are already interrupted) and bail; the
             // effect re-runs once the gate flips true (tracked above).
-            if (canStart !== undefined && !canStart()) {
+            if (Predicate.isNotUndefined(canStart) && !canStart()) {
               // Report NOT settled: a gated child sits at its snapshot, still
               // owing an animation, so it must not count as settled (afterChildren).
-              onFrame?.(false)
+              if (Predicate.isNotUndefined(onFrame)) onFrame(false)
               return
             }
 
             // A key a Retarget drove and no layer sets now returns to its Base value
             // (ADR-0022); with none, it stays where it is (as before #47).
             const t: Values.Values = { ...resolved }
-            for (const key in resolved) if (!(projected && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key]!)
-            if (held) for (const key of dragMoves) driven.delete(key)
+            Arr.forEach(Rec.keys(resolved), (key) => {
+              if (Bool.not(projected && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key])
+            })
+            if (held) Arr.forEach(dragMoves, (key) => driven.delete(key))
             returning = new Map()
-            for (const [key, like] of driven) {
+            // Over the Map itself: copying it into an array first costs ~20 times the walk, per element
+            // per Retarget (#69's PR 4). Deleting the entry being visited is safe in a Map's iteration.
+            Iter.forEach(driven, ([key, like]) => {
               // A translate key the strip below holds back returns once the drag lets go.
-              if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) continue
-              const r = Option.getOrUndefined(BaseValue.of(key, { base, initial: initialLink, started: startedLink, ...linksFor(like) }))
-              if (r === undefined) driven.delete(key)
-              else {
-                t[key] = r.value
-                returning.set(key, r.source)
-              }
-            }
+              if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) return
+              Option.match(BaseValue.of(key, { base, initial: initialLink, started: startedLink, ...linksFor(like) }), {
+                onNone: () => {
+                  driven.delete(key)
+                },
+                onSome: (r) => {
+                  t[key] = r.value
+                  returning.set(key, r.source)
+                },
+              })
+            })
             // MULTI-OWNER strip (ADR-0004): while dragging, x/y are DIRECT-SET by the
             // drag track, so strip the translate keys from the spring's target — the
             // spring must never fight the direct-set. Once dragging() is false the
             // keys re-enter normally (post-drag handoff: the spring continues x/y only
             // if `animate` sets them, from the snapshot's rested position).
-            if (held) for (const key of TRANSLATE_KEYS) delete t[key]
+            if (held) Arr.forEach(TRANSLATE_KEY_LIST, (key) => delete t[key])
             // Every key's Own value is read at its first need, before anything writes it, so a
             // return later finds the element's value, not Wardic's (ADR-0022, D3). The read is
             // kept: a later need is a lookup. A transform key reads nothing.
-            for (const key in t) if (!Object.hasOwn(initialValues, key)) ownValue(key)
+            Arr.forEach(Rec.keys(t), (key) => {
+              if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
+            })
             // Each key starts from its Snapshot value, coerced to its target's shape (ADR-0024,
             // D1). A key with no value yet, or one whose value can't take that shape, starts
             // from its Base value's start links, read here at its first need (ADR-0022, D3);
             // with none, it starts at its target (no motion).
             const started: Record<string, string> = {}
-            for (const key in t) {
-              const like = t[key]!
-              const current = snapshot.values[key]
-              const coerced = Option.getOrUndefined(OwnValues.valueLike(current, like))
-              if (coerced !== undefined) {
-                snapshot.values[key] = coerced
-                continue
+            Arr.forEach(Rec.keys(t), (key) => {
+              const like = t[key]
+              const coerced = OwnValues.valueLike(snapshot.values[key], like)
+              if (Option.isSome(coerced)) {
+                snapshot.values[key] = coerced.value
+                return
               }
-              const s = startOf(key, like)
-              if (s !== undefined && typeof s.value === typeof like) {
-                snapshot.values[key] = s.value
-                started[key] = s.source
-              } else {
-                snapshot.values[key] = like
-                started[key] = "target"
-              }
-            }
-            const from: Values.Values = {}
-            for (const key in t) from[key] = snapshot.values[key]!
+              Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
+                onSome: (s) => {
+                  snapshot.values[key] = s.value
+                  started[key] = s.source
+                },
+                onNone: () => {
+                  snapshot.values[key] = like
+                  started[key] = "target"
+                },
+              })
+            })
+            const from: Values.Values = Rec.map(t, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
             // The keys this Retarget returns; once every leg settles, a key back at its
             // `style` value is handed back to the element's style (D4) and the rest rest inline.
             const returns = [...returning]
             // Each leg: the base-value log at the head of the first, and, once the leg's run
             // settles, a count toward settling the returns, so the per-frame handlers stay as
             // they were.
-            let pendingLog = returns.length > 0 || Object.keys(started).length > 0 ? baseLog(started, returns) : undefined
+            let pendingLog = Bool.match(returns.length > 0 || Bool.not(Rec.isEmptyRecord(started)), {
+              onTrue: (): Effect.Effect<void> | undefined => baseLog(started, returns),
+              onFalse: constUndefined,
+            })
             let legs = 0
             const legDone = Effect.sync(() => {
               if (--legs === 0) settleReturns(returns)
@@ -1048,7 +1097,7 @@ export function runSpine(opts: RunSpineOptions): void {
             let settled = 0
             const report = (done: boolean): void => {
               if (done) settled++
-              onFrame?.(settled === reporting)
+              if (Predicate.isNotUndefined(onFrame)) onFrame(settled === reporting)
             }
             const leg = <R,>(program: Effect.Effect<unknown, never, R>): Effect.Effect<void, never, R> => {
               legs++
@@ -1070,16 +1119,16 @@ export function runSpine(opts: RunSpineOptions): void {
             // apply to the next retarget. (Read inside this effect run; the effect
             // is gated on `target`, which already depends on cfg().) A child with
             // no local transition inherits the parent context's (ADR-0007).
-            const baseTransition = cfg().transition ?? parent?.transition()
+            const baseTransition = ownOrInherited(cfg().transition, parent)
             // Fold the per-child stagger delay (ADR-0007) into the effective
             // transition.delay = base.delay + computedDelay. extraDelay() is read
             // at Retarget time so a re-snapshot before this start is reflected.
-            const extra = extraDelay?.() ?? 0
-            const transition =
-              extra !== 0
-                ? ({ ...(baseTransition ?? {}), delay: (baseTransition?.delay ?? 0) + extra } as WardicTransition)
-                : baseTransition
-            const useTween = transition?.type === "tween"
+            const extra = UndefinedOr.match(extraDelay, { onUndefined: () => 0, onDefined: (delay) => delay() })
+            const transition = Bool.match(extra !== 0, {
+              onTrue: (): WardicTransition | undefined => ({ ...baseTransition, delay: delayOf(baseTransition) + extra }) as WardicTransition,
+              onFalse: () => baseTransition,
+            })
+            const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
 
             // Reduced motion (ADR-0029), read now for this Retarget's legs: the positional keys
             // snap to where their leg would end, holding through the delay it would hold, and the
@@ -1145,11 +1194,13 @@ export function runSpine(opts: RunSpineOptions): void {
                   ),
                 )
               }
-            } else {
+              return
+            }
+            {
               // Spring (default): numeric keys via springValues (velocity-carrying
               // retarget); any string/color keys via springBlend, the same spring on a
               // 0→100 progress (ADR-0024, D5), into the same gate id.
-              const springOpts = (transition ?? {}) as Machine.SpringOptions
+              const springOpts = UndefinedOr.match(transition, { onUndefined: () => ({}), onDefined: identity }) as Machine.SpringOptions
               // Of the keys that animate: both halves write into the same gate id, so they
               // collapse into one projected `Patch`.
               const { numbers: numeric, strings } = Values.split(rest)
@@ -1159,8 +1210,7 @@ export function runSpine(opts: RunSpineOptions): void {
               // A spring settles at its target: the snap lands there.
               if (snapping) runSnap(positional, secondsOf(springOpts.delay))
               if (hasNumeric) {
-                const fromNumeric: Record<string, number> = {}
-                for (const key in numeric) fromNumeric[key] = from[key] as number
+                const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
                 runLeg(
                   Machine.springValues(numeric, springOpts, fromNumeric, snapshot.velocities).pipe(
                     Machine.run((frame) => {
@@ -1180,8 +1230,7 @@ export function runSpine(opts: RunSpineOptions): void {
                 )
               }
               if (hasStrings) {
-                const fromStrings: Values.Values = {}
-                for (const key in strings) fromStrings[key] = from[key]!
+                const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))
                 runLeg(
                   Machine.springBlend(fromStrings, strings, springOpts).pipe(
                     InterpolatorRegistry.withKeyRules(elementRules),
@@ -1227,7 +1276,7 @@ export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
  * {@link useWardic} with a `<Reorder>` item's additions (internal, ADR-0020; not
  * exported from the package).
  */
-export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals | undefined): Ward {
+export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals = NO_INTERNALS): Ward {
   const runtime = useWardicRuntime()
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
@@ -1238,7 +1287,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
 
   // Normalize to an Accessor<WardicConfig>. A WardicConfig is always an object,
   // so `typeof config === "function"` is a safe discriminant for the accessor.
-  const cfg: Accessor<WardicConfig> = typeof config === "function" ? config : () => config
+  const cfg: Accessor<WardicConfig> = accessorOf(config)
 
   // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
   // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
@@ -1264,22 +1313,22 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // (cold path).
   const projected = project(initialValues)
   const hydrating = isHydrating()
-  const startingPatch = hydrating ? DomRenderer.project(initialValues) : projected
+  const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(initialValues), onFalse: () => projected })
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
-  const seed = Svg.splitPatchForTag(internal?.tag, startingPatch)
+  const seed = Svg.splitPatchForTag(internal.tag, startingPatch)
 
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
   const dragAxis = dragAxisOf(untrack(cfg), internal)
-  const dragDefaults = dragAxis !== undefined ? Style.dragDefaults(dragAxis) : undefined
-  const baseStyle = internal?.baseStyle
+  const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
+  const baseStyle = internal.baseStyle
 
   // The props `ward(userProps)` was last called with: their `style` is this element's style
   // link (ADR-0022), read untracked at need (the live getter on `wardic.*`), and its
   // fallback once the gate commits (ADR-0034).
-  let lastUserProps: WardUserProps | undefined
+  let lastUserProps: WardUserProps = NO_USER_PROPS
   const elementStyle = createElementStyle({
-    userStyle: () => lastUserProps?.style,
+    userStyle: () => lastUserProps.style,
     starting: seed.style,
     defaults: dragDefaults,
     base: baseStyle,
@@ -1303,7 +1352,7 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
     canStart: node.canStart,
     onFrame: node.onFrame,
     internal,
-    styleOf: () => lastUserProps?.style,
+    styleOf: () => lastUserProps.style,
     // The gate commits onto the element (an svg-inner element's attribute keys as
     // attributes, ADR-0014); the hooks switch the spread's `style` (ADR-0034).
     makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
@@ -1321,20 +1370,20 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // callable's merge API (ward() / ward({ ref, style })) intact while attaching
   // Provider as a property, and the cast aligns it with the `Ward` type.
   const ward: Ward = Object.assign(
-    (userProps?: WardUserProps): WardProps => {
+    (userProps: WardUserProps = NO_USER_PROPS): WardProps => {
       lastUserProps = userProps
       return {
         // Merge the user's ref (if any) with ward's internal element setter so BOTH
         // are invoked with the live element on mount (Option A).
-        ref: mergeRefs(userProps?.ref, setEl),
+        ref: mergeRefs(userProps.ref, setEl),
         // Getter so spreading {...ward()} stays reactive (Solid tracks the access): the
         // Starting style over the user's until the first commit, then the user's without the
         // keys the gate holds (ADR-0034). It never changes per frame.
         get style() {
-          return elementStyle.style(userProps?.style)
+          return elementStyle.style(userProps.style)
         },
         ...seed.attrs,
-        ...(dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES : {}),
+        ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
       }
     },
     { Provider },
@@ -1349,10 +1398,11 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
  * Hydration only, once per element. Internal.
  */
 export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Renderer.Patch, client: Renderer.Patch): void => {
-  const keys: Array<string> = []
-  for (const key in server) if (String(server[key]) !== String(client[key])) keys.push(key)
-  for (const key in client) if (!(key in server)) keys.push(key)
-  if (keys.length === 0) return
+  const keys = Arr.appendAll(
+    Arr.filter(Rec.keys(server), (key) => String(server[key]) !== String(client[key])),
+    Arr.filter(Rec.keys(client), (key) => Bool.not(key in server)),
+  )
+  if (Arr.isReadonlyArrayEmpty(keys)) return
   const pick = (patch: Renderer.Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
   runtime.runFork(
     Effect.logDebug(
@@ -1372,25 +1422,30 @@ export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Re
  * renders the same component nesting, with a variant context that carries the names and
  * transitions but no orchestration.
  */
-const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals | undefined): Ward => {
+const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
-  const c = typeof config === "function" ? config() : config
+  const c = accessorOf(config)()
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())
-  const seed = Style.starting(internal?.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
+  const seed = Style.starting(internal.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
   const dragAxis = dragAxisOf(c, internal)
-  const dragDefaults = dragAxis !== undefined ? Style.dragDefaults(dragAxis) : undefined
+  const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
   )
   return Object.assign(
-    (userProps?: WardUserProps): WardProps => ({
-      ref: userProps?.ref ?? noRef,
-      style: pipe(seed.style, Style.over(userProps?.style), Style.over(internal?.baseStyle?.()), Style.over(dragDefaults)) as JSX.CSSProperties,
+    (userProps: WardUserProps = NO_USER_PROPS): WardProps => ({
+      ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
+      style: pipe(
+        seed.style,
+        Style.over(userProps.style),
+        Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
+        Style.over(dragDefaults),
+      ) as JSX.CSSProperties,
       ...seed.attrs,
-      ...(dragDefaults !== undefined ? Style.DRAG_DEFAULT_ATTRIBUTES : {}),
+      ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
     }),
     { Provider },
   )
@@ -1403,16 +1458,19 @@ const noRef = (): void => {}
  * The drag axis a spine runs with: its static `drag` config, else `true` for a
  * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
  */
-export const dragAxisOf = (config: WardicConfig, internal: SpineInternals | undefined): boolean | "x" | "y" | undefined =>
-  config.drag !== undefined && config.drag !== false ? config.drag : internal?.dragAxis !== undefined ? true : undefined
+export const dragAxisOf = (config: WardicConfig, internal: SpineInternals = NO_INTERNALS): boolean | "x" | "y" | undefined =>
+  Option.getOrUndefined(
+    Option.orElse(Option.filter(Option.fromUndefinedOr(config.drag), (drag) => drag !== false), () =>
+      Option.map(Option.fromUndefinedOr(internal.dragAxis), (): true => true)),
+  )
 
 /**
  * Set each of a drag element's defaults its inline style doesn't already set, and
  * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
  */
 const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
-  for (const key in defaults) {
-    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, defaults[key]!)
-  }
+  Arr.forEach(Rec.keys(defaults), (key) => {
+    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, UndefinedOr.getOrThrow(defaults[key]))
+  })
   if (!element.hasAttribute("draggable")) element.setAttribute("draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
 }
