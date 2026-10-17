@@ -1,6 +1,6 @@
 /// <reference types="node" />
 /**
- * `bun run bench:solid [--base <ref>] [--head <ref>] [--reps 11] [--n 1000] [--rounds 4]`
+ * `bun run bench:solid [--base <ref>] [--head <ref>] [--reps 11] [--n 1000] [--rounds 4] [--alloc-reps 3]`
  *
  * The binding's start-cost bench (#87, ADR-0040, decision 6): `--head`'s core, dom and solid
  * (default: the working tree) against `--base`'s (default: `main`), at N `wardic.div`s in
@@ -19,6 +19,14 @@
  * - **Time gate,** warm only: a task fails when its median ratio passes +5% and its 25th
  *   percentile is above 0%, so at least three pairs in four ran slower (`bench:core`'s gate). Cold
  *   is reported, not gated.
+ * - **A full GC before each timed task** (ADR-0040, *Amendment (#69)*): Chromium runs with
+ *   `--expose-gc`, and the page collects before it starts a task's clock, so a task times its own JS.
+ *   Without it a task's time was bimodal, with a scavenge inside it or not, and a side's share of
+ *   scavenges moved with where its allocation left the young generation, not with its cost.
+ * - **Bytes gate:** `--alloc-reps` paired pages per side run the same rounds under V8's sampling
+ *   heap profiler, objects freed by either GC counted: what a side allocates per element per round,
+ *   its tasks and the frames between them together. It fails as a task does (+5% median, 25th
+ *   percentile above 0), so what the GC per task leaves out of the times is still held.
  *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
  * when one fails, and 2 when the run is too noisy.
@@ -27,13 +35,15 @@ import { execSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { chromium } from "playwright"
+import { chromium, type Page } from "playwright"
 import { build, type Plugin } from "vite"
 import solid from "vite-plugin-solid"
 import type { Round } from "./page.tsx"
 
 const GATE = 1.05
 const NOISE = 0.05
+/** The heap profiler's mean sampling interval, in bytes: a page's rounds take about 170,000 samples. */
+const ALLOC_INTERVAL = 4096
 const PACKAGES = ["core", "dom", "solid"] as const
 
 const BENCH = dirname(fileURLToPath(import.meta.url))
@@ -51,6 +61,7 @@ const headRef = arg("head", "")
 const reps = Number(arg("reps", "11"))
 const n = Number(arg("n", "1000"))
 const rounds = Number(arg("rounds", "4"))
+const allocReps = Number(arg("alloc-reps", "3"))
 
 type Side = "base" | "head"
 type Kind = "wardic" | "plain"
@@ -147,9 +158,9 @@ const scripts: Record<Side, string> = {
   head: await bundle("head", headCommit, headDeps),
 }
 
-const browser = await chromium.launch()
-/** One page of `side`'s build: `rounds` rounds of `kind`. */
-const runPage = async (side: Side, kind: Kind): Promise<ReadonlyArray<Round>> => {
+const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] })
+/** A page of `side`'s build for `kind`, its script loaded, and the errors it throws. */
+const openPage = async (side: Side, kind: Kind): Promise<{ readonly page: Page; readonly errors: Array<string> }> => {
   const page = await browser.newPage()
   const errors: Array<string> = []
   page.on("pageerror", (e) => errors.push(String(e)))
@@ -168,22 +179,67 @@ const runPage = async (side: Side, kind: Kind): Promise<ReadonlyArray<Round>> =>
   await page.goto(`http://localhost:4174/?n=${n}&kind=${kind}`)
   if (!(await page.evaluate(() => crossOriginIsolated))) throw new Error("bench:solid: page not cross-origin isolated")
   await page.addScriptTag({ url: "http://localhost:4174/page.js" })
-  const out = await page.evaluate((k) => (globalThis as unknown as { __wardicBenchSolid: (k: number) => Promise<ReadonlyArray<Round>> }).__wardicBenchSolid(k), rounds)
+  return { page, errors }
+}
+
+/** The page's `rounds` rounds. */
+const runRounds = (page: Page): Promise<ReadonlyArray<Round>> =>
+  page.evaluate((k) => (globalThis as unknown as { __wardicBenchSolid: (k: number) => Promise<ReadonlyArray<Round>> }).__wardicBenchSolid(k), rounds)
+
+/** One page of `side`'s build: `rounds` rounds of `kind`. */
+const runPage = async (side: Side, kind: Kind): Promise<ReadonlyArray<Round>> => {
+  const { page, errors } = await openPage(side, kind)
+  const out = await runRounds(page)
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} ${kind}: ${errors.join("; ")}`)
   return out
 }
 
+/** A heap profile's node: what was allocated in its function, and its callees. */
+interface HeapNode {
+  readonly selfSize: number
+  readonly children: ReadonlyArray<HeapNode>
+}
+const bytesOf = (node: HeapNode): number => node.children.reduce((sum, child) => sum + bytesOf(child), node.selfSize)
+
+/** What one `wardic` page of `side`'s build allocates over its rounds, in bytes per element per round. */
+const allocatedPage = async (side: Side): Promise<number> => {
+  const { page, errors } = await openPage(side, "wardic")
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("HeapProfiler.enable")
+  await cdp.send("HeapProfiler.startSampling", {
+    samplingInterval: ALLOC_INTERVAL,
+    includeObjectsCollectedByMajorGC: true,
+    includeObjectsCollectedByMinorGC: true,
+  })
+  await runRounds(page)
+  const { profile } = await cdp.send("HeapProfiler.stopSampling")
+  await page.close()
+  if (errors.length > 0) throw new Error(`bench:solid: ${side} allocation: ${errors.join("; ")}`)
+  return bytesOf(profile.head as HeapNode) / (rounds * n)
+}
+
 console.log(`bench:solid: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}`)
 if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
 if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
-console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps\n`)
+console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes\n`)
 
+/** Rep `r`'s order: base first on even reps, head first on odd ones. */
+const orderOf = (r: number): ReadonlyArray<Side> => {
+  if (r % 2 === 0) return ["base", "head"]
+  return ["head", "base"]
+}
 const runs: Record<Kind, Record<Side, Array<ReadonlyArray<Round>>>> = { wardic: { base: [], head: [] }, plain: { base: [], head: [] } }
 for (let r = 0; r < reps; r++) {
-  const order: ReadonlyArray<Side> = r % 2 === 0 ? ["base", "head"] : ["head", "base"]
+  const order = orderOf(r)
   for (const kind of ["wardic", "plain"] as const) for (const side of order) runs[kind][side].push(await runPage(side, kind))
   process.stderr.write(`rep ${r + 1}/${reps}\r`)
+}
+const allocated: Record<Side, Array<number>> = { base: [], head: [] }
+for (let r = 0; r < allocReps; r++) {
+  const order = orderOf(r)
+  for (const side of order) allocated[side].push(await allocatedPage(side))
+  process.stderr.write(`bytes ${r + 1}/${allocReps}\r`)
 }
 await browser.close()
 
@@ -212,6 +268,16 @@ for (const [label, pick, gated] of [["warm", warm, true], ["cold", cold, false]]
   }
   console.log("")
 }
+
+const allocRatios = allocated.head.map((bytes, r) => bytes / allocated.base[r]!)
+const allocFails = quantile(allocRatios, 0.5) > GATE && quantile(allocRatios, 0.25) > 1
+failed ||= allocFails
+console.log("allocated (KB per element per round, tasks and frames; head / base paired per rep: median [p25 – p75])")
+console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
+console.log(
+  `  ${"bytes".padEnd(14)}${(median(allocated.base) / 1024).toFixed(1).padEnd(10)}${(median(allocated.head) / 1024).toFixed(1).padEnd(10)}` +
+    `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${allocFails ? "  FAIL" : ""}\n`,
+)
 
 if (noisy) process.exit(2)
 process.exit(failed ? 1 : 0)
