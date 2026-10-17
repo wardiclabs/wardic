@@ -20,6 +20,7 @@ import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 import { render } from "solid-js/web"
+import * as Bool from "effect/Boolean"
 
 const realRaf = window.requestAnimationFrame.bind(window)
 const WHITE = "rgb(255, 255, 255)"
@@ -63,7 +64,7 @@ const Plain = () => (
     <For each={items}>{() => <div class="b" style={{ opacity: String(target().o), "background-color": target().c }} />}</For>
   </Show>
 )
-render(() => (kind === "plain" ? <Plain /> : <Wardic />), host)
+render(() => Bool.match(kind === "plain", { onTrue: () => <Plain />, onFalse: () => <Wardic /> }), host)
 
 const frames = (k: number): Promise<void> =>
   new Promise((resolve) => {

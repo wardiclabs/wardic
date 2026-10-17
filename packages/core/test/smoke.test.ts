@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest"
+// eslint-disable-next-line no-restricted-syntax -- this test is of the root itself
 import * as Core from "@wardic/core"
 import { readFileSync } from "node:fs"
 

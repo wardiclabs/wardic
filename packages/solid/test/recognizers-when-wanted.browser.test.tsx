@@ -9,6 +9,7 @@
 //   the element, not with the computation that started it). Press is never started.
 // - WW3: `whileTap` at mount starts press only, which drives the tap target.
 import { cleanup, render } from "@solidjs/testing-library"
+import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import * as Tracer from "effect/Tracer"
 import { afterEach, describe, expect, it } from "vitest"
@@ -79,7 +80,7 @@ describe("State recognizers start when wanted (#87)", () => {
     const { el } = mount(env, () => ({
       initial: { opacity: 0.2 },
       animate: { opacity: 0.2 },
-      ...(hoverable() ? { whileHover: { opacity: 1 } } : {}),
+      ...Bool.match(hoverable(), { onTrue: () => ({ whileHover: { opacity: 1 } }), onFalse: () => ({}) }),
     }))
     await reach(() => Math.abs(opacityOf(el()) - 0.2) < 0.01, "settles at its base")
     expect(count("wardic.hover"), "not wanted yet").toBe(0)

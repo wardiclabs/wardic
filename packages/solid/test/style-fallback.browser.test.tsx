@@ -7,6 +7,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { useWardic, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { type Component, createEffect, createSignal, type JSX, on } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -38,7 +39,7 @@ describe("the user's style is the fallback (ADR-0034)", () => {
       <WardicProvider env={DomLive}>
         <wardic.div
           ref={el}
-          style={{ opacity: dim() ? 0.5 : 1, color: tone() }}
+          style={{ opacity: Bool.match(dim(), { onTrue: () => 0.5, onFalse: () => 1 }), color: tone() }}
           initial={{ opacity: 1 }}
           animate={{ opacity: 0.2 }}
           transition={TWEEN}

@@ -13,6 +13,7 @@
 // ResizeObserver is a no-op, so every Measure pass here comes from `notify`.
 import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -22,6 +23,7 @@ import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as internalProjection from "../src/internal/projection.ts"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 type FrameCallback = (t: number) => void
 
@@ -95,7 +97,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   }
   const tracer = Tracer.make({
     span: (options) =>
-      options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
+      Bool.match(options.name === "wardic.projection.measure", { onTrue: () => new MeasureSpan(options), onFalse: () => new Tracer.NativeSpan(options) }),
   })
   const runtime = ManagedRuntime.make(Layer.merge(DomLive, Layer.succeed(Tracer.Tracer, tracer)))
   const system = internalProjection.makeProjectionSystem(runtime, sink)
@@ -133,7 +135,7 @@ const sheet = (parent: HTMLElement, css: string): void => {
 
 /** Register, let the first Measure pass run, and settle into a frame. */
 const mount = async (e: ReturnType<typeof makeEngine>, element: HTMLElement, id = "n", layoutId?: string): Promise<ProjectionSystem.NodeHandle> => {
-  const handle = e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...(layoutId !== undefined ? { layoutId } : {}) })
+  const handle = e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (layoutId) => ({ layoutId }) }) })
   await endOfTask()
   fireFrame()
   return handle

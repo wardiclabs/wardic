@@ -10,6 +10,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { type AnimateLayout, Reorder, useAnimateLayout, useWardic, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -33,7 +34,7 @@ it("LCS1: on a wardic.div, start once its first step is painted and complete onc
           transition={TWEEN}
           onLayoutAnimationStart={() => calls.push(`start ${el.style.transform}`)}
           onLayoutAnimationComplete={() => calls.push(`complete ${el.style.transform}`)}
-          style={{ ...BOX, left: moved() ? "200px" : "0px" }}
+          style={{ ...BOX, left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }) }}
         />
       </div>
     </WardicProvider>
@@ -59,7 +60,7 @@ it("LCS2: through useWardic, start and complete", async () => {
       onLayoutAnimationStart: () => calls.push("start"),
       onLayoutAnimationComplete: () => calls.push("complete"),
     }))
-    return <div {...ward({ style: { ...BOX, left: moved() ? "200px" : "0px" } })} />
+    return <div {...ward({ style: { ...BOX, left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }) } })} />
   }
   render(() => (
     <WardicProvider env={DomLive}>

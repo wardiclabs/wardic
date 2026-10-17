@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal } from "solid-js"
 import { useWardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -27,7 +28,7 @@ describe("variant propagation — inheritance by name", () => {
         setOpen = setOpenSig
         const parent = useWardic(() => ({
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-          animate: open() ? "open" : "closed",
+          animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         }))
         function Child() {
           const child = useWardic({
@@ -75,7 +76,7 @@ describe("variant propagation — inheritance by name", () => {
         setOpen = setOpenSig
         const parent = useWardic(() => ({
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-          animate: open() ? "open" : "closed",
+          animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         }))
         function Child() {
           const child = useWardic({
@@ -119,7 +120,7 @@ describe("variant propagation — inheritance by name", () => {
         setOpen = setOpenSig
         const parent = useWardic(() => ({
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-          animate: open() ? "open" : "closed",
+          animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         }))
         function ChildA() {
           const child = useWardic({

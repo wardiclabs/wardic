@@ -13,6 +13,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -80,7 +81,7 @@ for (const [n, exit] of [
   [1, { opacity: 0 }],
   [2, undefined],
 ] as const) {
-  it(`PH${n}: ${exit === undefined ? "a wrapper with no exit" : "an opacity exit"}: its twin crossfades back onto the thumbnail, and it stays until the handover ends`, async () => {
+  it(`PH${n}: ${UndefinedOr.match(exit, { onUndefined: () => "a wrapper with no exit", onDefined: () => "an opacity exit" })}: its twin crossfades back onto the thumbnail, and it stays until the handover ends`, async () => {
     const m = mount(exit)
     await raf()
     m.open(true)
@@ -147,7 +148,7 @@ it("PH4: a reopen mid-close: the closing wrapper isn't cut short, its twin follo
       const newBig = bigs.find((b) => b !== oldBig)
       return {
         oldPresent: oldWrap.isConnected,
-        oldOff: newBig === undefined ? 0 : apart(rectOf(oldBig), rectOf(newBig)),
+        oldOff: UndefinedOr.match(newBig, { onUndefined: () => 0, onDefined: (big) => apart(rectOf(oldBig), rectOf(big)) }),
         oldShows: Number(getComputedStyle(oldBig).opacity),
         covers: 1 - [m.thumb, ...bigs].reduce((hidden, e) => hidden * (1 - shown(e)), 1),
       }

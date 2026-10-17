@@ -12,21 +12,22 @@ import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
+import * as Option from "effect/Option"
 import { retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
 const translateXOf = (el: HTMLElement): number => {
   const m = /translateX\(([-\d.]+)px\)/.exec(el.style.transform)
-  return m ? Number(m[1]) : 0
+  return Option.match(Option.fromNullOr(m), { onNone: () => 0, onSome: (match) => Number(match[1]) })
 }
 const translateYOf = (el: HTMLElement): number => {
   const m = /translateY\(([-\d.]+)px\)/.exec(el.style.transform)
-  return m ? Number(m[1]) : 0
+  return Option.match(Option.fromNullOr(m), { onNone: () => 0, onSome: (match) => Number(match[1]) })
 }
 const scaleOf = (el: HTMLElement): number => {
   const m = /scale\(([-\d.]+)\)/.exec(el.style.transform)
-  return m ? Number(m[1]) : 1
+  return Option.match(Option.fromNullOr(m), { onNone: () => 1, onSome: (match) => Number(match[1]) })
 }
 
 const down = (x: number, y: number): PointerEvent =>

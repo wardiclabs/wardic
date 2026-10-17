@@ -11,6 +11,8 @@ import { cleanup, render } from "@solidjs/testing-library"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
 import { Reorder, type WardicValues, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createSignal, For, type JSX } from "solid-js"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
@@ -165,17 +167,23 @@ export const groupCss = (o: SceneOptions): JSX.CSSProperties => {
   const layout = o.layout ?? "y"
   const inContainer = o.container !== undefined
   return {
-    ...(o.rtl === true ? { direction: "rtl" } : {}),
-    position: inContainer ? "relative" : "absolute",
-    left: inContainer ? "0px" : o.centred === true ? "calc(50% - 100px)" : "40px",
-    top: inContainer ? "0px" : "40px",
+    ...Bool.match(o.rtl === true, { onTrue: () => ({ direction: "rtl" }), onFalse: () => ({}) }),
+    position: Bool.match(inContainer, { onTrue: () => "relative", onFalse: () => "absolute" }),
+    left: Bool.match(inContainer, {
+      onTrue: () => "0px",
+      onFalse: () => Bool.match(o.centred === true, { onTrue: () => "calc(50% - 100px)", onFalse: () => "40px" }),
+    }),
+    top: Bool.match(inContainer, { onTrue: () => "0px", onFalse: () => "40px" }),
     display: "flex",
     gap: "10px",
     margin: "0",
     padding: "0",
     ...LAYOUTS[layout].group,
-    ...(inContainer && layout !== "y" ? { width: "max-content" } : {}),
-    ...(o.reverse === true ? { "flex-direction": layout === "y" ? "column-reverse" : "row-reverse" } : {}),
+    ...Bool.match(inContainer && layout !== "y", { onTrue: () => ({ width: "max-content" }), onFalse: () => ({}) }),
+    ...Bool.match(o.reverse === true, {
+      onTrue: () => ({ "flex-direction": Bool.match(layout === "y", { onTrue: () => "column-reverse", onFalse: () => "row-reverse" }) }),
+      onFalse: () => ({}),
+    }),
   }
 }
 
@@ -189,7 +197,7 @@ export const itemCss = (o: SceneOptions): JSX.CSSProperties => {
     background: "#9cf",
     "list-style": "none",
     "font-family": "monospace",
-    ...(o.text === true ? { "font-size": "20px", "white-space": "nowrap", overflow: "hidden" } : {}),
+    ...Bool.match(o.text === true, { onTrue: () => ({ "font-size": "20px", "white-space": "nowrap", overflow: "hidden" }), onFalse: () => ({}) }),
   }
 }
 
@@ -211,7 +219,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
       values={order()}
       onReorder={onReorder}
       axis={o.axis?.()}
-      {...(o.groupAs !== undefined ? { as: o.groupAs } : {})}
+      {...UndefinedOr.match(o.groupAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
       style={{ ...groupCss(o), ...o.groupStyle?.() }}
     >
       <For each={order()}>
@@ -219,12 +227,12 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
           <Reorder.Item
             value={value}
             data-value={value}
-            {...(o.itemAs !== undefined ? { as: o.itemAs } : {})}
-            {...(o.whileDrag !== undefined ? { whileDrag: o.whileDrag } : {})}
-            {...(o.dragElastic !== undefined ? { dragElastic: o.dragElastic } : {})}
+            {...UndefinedOr.match(o.itemAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
+            {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
+            {...UndefinedOr.match(o.dragElastic, { onUndefined: () => ({}), onDefined: (dragElastic) => ({ dragElastic }) })}
             style={{ ...itemCss(o), ...o.itemStyle?.() }}
           >
-            {o.text === true ? `item ${value} text` : value}
+            {Bool.match(o.text === true, { onTrue: () => `item ${value} text`, onFalse: () => value })}
           </Reorder.Item>
         )}
       </For>
@@ -232,18 +240,21 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   )
   render(() => (
     <WardicProvider env={DomLive}>
-      {o.container !== undefined ? (
-        <div
-          ref={(el: HTMLElement) => setScroller(el)}
-          style={{ position: "absolute", left: "40px", top: "40px", width: "230px", height: `${o.container}px`, overflow: "auto" }}
-        >
-          {group()}
-        </div>
-      ) : o.tall === true ? (
-        <div style={{ height: "3000px" }}>{group()}</div>
-      ) : (
-        group()
-      )}
+      {UndefinedOr.match(o.container, {
+        onDefined: (height) => (
+          <div
+            ref={(el: HTMLElement) => setScroller(el)}
+            style={{ position: "absolute", left: "40px", top: "40px", width: "230px", height: `${height}px`, overflow: "auto" }}
+          >
+            {group()}
+          </div>
+        ),
+        onUndefined: () =>
+          Bool.match(o.tall === true, {
+            onTrue: () => <div style={{ height: "3000px" }}>{group()}</div>,
+            onFalse: () => group(),
+          }),
+      })}
     </WardicProvider>
   ))
   await settle()

@@ -11,6 +11,8 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createReorderGroup, createReorderItem, type ReorderGroupWard, reorderItem, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
@@ -79,18 +81,22 @@ const mountHeadless = async (o: HeadlessOptions = {}): Promise<Headless> => {
       },
     }))
     groupWard = group
-    const visible = (): ReadonlyArray<string> => (o.rendered !== undefined ? order().filter(o.rendered) : order())
+    const visible = (): ReadonlyArray<string> => UndefinedOr.match(o.rendered, { onUndefined: () => order(), onDefined: (rendered) => order().filter(rendered) })
     const item = (value: string): JSX.Element =>
-      o.items === "directive" ? (
-        <li use:reorderItem={{ group, value }} data-value={value} style={ITEM}>
-          {value}
-        </li>
-      ) : (
-        <Item group={group} value={value} />
-      )
+      Bool.match(o.items === "directive", {
+        onTrue: () => (
+          <li use:reorderItem={{ group, value }} data-value={value} style={ITEM}>
+            {value}
+          </li>
+        ),
+        onFalse: () => <Item group={group} value={value} />,
+      })
     return (
       <ul {...group({ ref: (el: HTMLElement) => (groupEl = el), style: GROUP })}>
-        {o.items === "map" ? visible().map((value) => item(value)) : <For each={visible()}>{(value) => item(value)}</For>}
+        {Bool.match(o.items === "map", {
+          onTrue: () => visible().map((value) => item(value)),
+          onFalse: () => <For each={visible()}>{(value) => item(value)}</For>,
+        })}
       </ul>
     )
   }

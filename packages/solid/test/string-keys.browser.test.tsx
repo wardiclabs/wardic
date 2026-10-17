@@ -9,6 +9,8 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createReorderGroup, reorderItem, ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -74,7 +76,7 @@ describe("a string key follows its transition (#56, ADR-0024)", () => {
           style={BOX}
           initial={{ x: 0, "background-color": "#000" }}
           animate={{ x: 100, "background-color": "#fff" }}
-          {...(transition !== undefined ? { transition } : {})}
+          {...UndefinedOr.match(transition, { onUndefined: () => ({}), onDefined: (defined) => ({ transition: defined }) })}
         />
       </WardicProvider>
     ))
@@ -237,7 +239,7 @@ describe("the presence exit (#56)", () => {
     const el = document.querySelector<HTMLElement>("[data-exit]")!
     await settle()
     let phase = "rest"
-    const s = sampleFrames(() => ({ phase, c: el.isConnected ? bgOf(el) : undefined }))
+    const s = sampleFrames(() => ({ phase, c: Bool.match(el.isConnected, { onTrue: () => bgOf(el), onFalse: () => undefined }) }))
     phase = "hover"
     await mouse.move(centreOf(el))
     await until(() => bgOf(el)[0] > 60, 3000)

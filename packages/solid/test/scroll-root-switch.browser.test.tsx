@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -33,7 +34,7 @@ const afterEachPaint = <A,>(read: () => A, n: number): Promise<Array<A>> =>
 const topOf = (el: Element): number => el.getBoundingClientRect().top
 
 for (const startsFixed of [false, true]) {
-  it(`RS1: a layoutScroll container switching ${startsFixed ? "back from" : "to"} fixed in place, page scrolled: nothing moves (#7)`, async () => {
+  it(`RS1: a layoutScroll container switching ${Bool.match(startsFixed, { onTrue: () => "back from", onFalse: () => "to" })} fixed in place, page scrolled: nothing moves (#7)`, async () => {
     const [fixed, setFixed] = createSignal(startsFixed)
     const { container } = render(() => (
       <WardicProvider env={DomLive}>
@@ -42,7 +43,7 @@ for (const startsFixed of [false, true]) {
             data-box
             layoutScroll
             layoutDependency={fixed()}
-            style={{ position: fixed() ? "fixed" : "absolute", top: fixed() ? "0px" : "300px", left: "40px", width: "200px", height: "100px", overflow: "auto" }}
+            style={{ position: Bool.match(fixed(), { onTrue: () => "fixed", onFalse: () => "absolute" }), top: Bool.match(fixed(), { onTrue: () => "0px", onFalse: () => "300px" }), left: "40px", width: "200px", height: "100px", overflow: "auto" }}
           >
             <wardic.div data-c layout layoutDependency={fixed()} style={{ position: "absolute", top: "20px", left: "20px", width: "60px", height: "40px" }} />
           </wardic.div>
@@ -70,7 +71,7 @@ it("RS2: a nav bar goes fixed, the page scrolls on, and its indicator moves to t
     <WardicProvider env={DomLive}>
       <div style={{ height: "3000px", position: "relative" }}>
         {/* A plain bar, not a node: its `position` used to be read once. */}
-        <div data-bar style={{ position: fixed() ? "fixed" : "absolute", top: fixed() ? "0px" : "300px", left: "0px", width: "400px", height: "48px" }}>
+        <div data-bar style={{ position: Bool.match(fixed(), { onTrue: () => "fixed", onFalse: () => "absolute" }), top: Bool.match(fixed(), { onTrue: () => "0px", onFalse: () => "300px" }), left: "0px", width: "400px", height: "48px" }}>
           <wardic.div
             data-indicator
             layout

@@ -19,6 +19,7 @@ import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Match from "effect/Match"
 import * as References from "effect/References"
 import * as Scope from "effect/Scope"
 import * as Announcer from "@wardic/core/Announcer"
@@ -178,7 +179,7 @@ describe("the gate and the projection system as services (#132)", () => {
 const mountGroup = async () => {
   const logs: Array<string> = []
   const logger = Logger.make(({ message }) => {
-    const text = String(Array.isArray(message) ? message[0] : message)
+    const text = String(Match.value(message).pipe(Match.when(Array.isArray, (parts) => parts[0]), Match.orElse((one) => one)))
     if (text.startsWith("wardic.reorder:")) logs.push(text)
   })
   const runtime = ManagedRuntime.make(

@@ -25,7 +25,9 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { LayoutGroup, wardic, WardicProvider } from "@wardic/solid"
-import { createSignal, For } from "solid-js"
+import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
+import { createSignal, For, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
@@ -154,8 +156,11 @@ const mountScene = async (opts: SceneOptions = {}) => {
   let c1: HTMLElement | undefined
   let c2: HTMLElement | undefined
   let g: HTMLElement | undefined
-  const childProps =
-    opts.child === "anchor-false" ? { layoutAnchor: false as const } : opts.child === "layout-root" ? { layoutRoot: true } : {}
+  const childProps = Match.value(opts.child).pipe(
+    Match.when("anchor-false", () => ({ layoutAnchor: false as const })),
+    Match.when("layout-root", () => ({ layoutRoot: true })),
+    Match.orElse(() => ({})),
+  )
   render(() => (
     <WardicProvider env={DomLive}>
       <div style={{ position: "absolute", top: "40px", left: "40px", width: "400px" }}>
@@ -181,12 +186,14 @@ const mountScene = async (opts: SceneOptions = {}) => {
           </wardic.div>
           {/* eslint-disable-next-line solid/reactivity */}
           <div ref={(n: HTMLDivElement) => (c2 = n)} style={{ position: "absolute", left: `${C2_AT.x}px`, top: `${C2_AT.y}px`, width: "30px", height: "30px" }} />
-          {opts.indicator === true &&
-            (tab() === 0 ? (
+          {opts.indicator === true && (
+            <Show
+              when={tab() === 0}
+              fallback={<wardic.div layoutId="ind" data-ind style={{ position: "absolute", left: "130px", top: "60px", width: "30px", height: "6px" }} />}
+            >
               <wardic.div layoutId="ind" data-ind style={{ position: "absolute", left: "100px", top: "60px", width: "30px", height: "6px" }} />
-            ) : (
-              <wardic.div layoutId="ind" data-ind style={{ position: "absolute", left: "130px", top: "60px", width: "30px", height: "6px" }} />
-            ))}
+            </Show>
+          )}
         </wardic.div>
       </div>
     </WardicProvider>
@@ -273,17 +280,18 @@ it("T4: a reorder mid-drag (a <LayoutGroup layoutDependency> pass, from a task) 
         <LayoutGroup layoutDependency={order()}>
           <For each={order()}>
             {(key) =>
-              key === "s" ? (
-                <wardic.div layout style={{ width: "200px", height: "40px" }} />
-              ) : (
-                // eslint-disable-next-line solid/reactivity
-                <wardic.div layout drag ref={(n: HTMLElement) => (d = n)} style={{ position: "relative", width: "160px", height: "80px" }}>
-                  {/* eslint-disable-next-line solid/reactivity */}
-                  <wardic.div layout ref={(n: HTMLElement) => (c1 = n)} style={{ position: "absolute", left: "10px", top: "10px", width: "30px", height: "30px" }} />
-                  {/* eslint-disable-next-line solid/reactivity */}
-                  <div ref={(n: HTMLDivElement) => (c2 = n)} style={{ position: "absolute", left: "60px", top: "10px", width: "30px", height: "30px" }} />
-                </wardic.div>
-              )
+              Bool.match(key === "s", {
+                onTrue: () => <wardic.div layout style={{ width: "200px", height: "40px" }} />,
+                onFalse: () => (
+                  // eslint-disable-next-line solid/reactivity
+                  <wardic.div layout drag ref={(n: HTMLElement) => (d = n)} style={{ position: "relative", width: "160px", height: "80px" }}>
+                    {/* eslint-disable-next-line solid/reactivity */}
+                    <wardic.div layout ref={(n: HTMLElement) => (c1 = n)} style={{ position: "absolute", left: "10px", top: "10px", width: "30px", height: "30px" }} />
+                    {/* eslint-disable-next-line solid/reactivity */}
+                    <div ref={(n: HTMLDivElement) => (c2 = n)} style={{ position: "absolute", left: "60px", top: "10px", width: "30px", height: "30px" }} />
+                  </wardic.div>
+                ),
+              })
             }
           </For>
         </LayoutGroup>
@@ -593,7 +601,7 @@ it("T15: grabbing a node during its own scale FLIP leaves no stale projection on
           layoutDependency={wide()}
           // eslint-disable-next-line solid/reactivity
           ref={(n: HTMLElement) => (d = n)}
-          style={{ position: "relative", width: wide() ? "320px" : "160px", height: "80px" }}
+          style={{ position: "relative", width: Bool.match(wide(), { onTrue: () => "320px", onFalse: () => "160px" }), height: "80px" }}
         >
           {/* eslint-disable-next-line solid/reactivity */}
           <wardic.div layout ref={(n: HTMLElement) => (c1 = n)} style={{ position: "absolute", left: "10px", top: "10px", width: "30px", height: "30px" }} />
@@ -684,13 +692,14 @@ it("T17: a running descendant keeps its animation, without a jump, through a mid
           <wardic.div layout style={{ width: "200px", height: `${sibling()}px` }} />
           {/* eslint-disable-next-line solid/reactivity */}
           <wardic.div layout drag ref={(n: HTMLElement) => (d = n)} style={{ position: "relative", width: "200px", height: "80px" }}>
-            {under === "d" ? (
-              <Runner />
-            ) : (
-              <wardic.div layoutRoot style={{ position: "absolute", left: "0px", top: "0px", width: "200px", height: "80px" }}>
-                <Runner />
-              </wardic.div>
-            )}
+            {Bool.match(under === "d", {
+              onTrue: () => <Runner />,
+              onFalse: () => (
+                <wardic.div layoutRoot style={{ position: "absolute", left: "0px", top: "0px", width: "200px", height: "80px" }}>
+                  <Runner />
+                </wardic.div>
+              ),
+            })}
           </wardic.div>
         </div>
       </WardicProvider>

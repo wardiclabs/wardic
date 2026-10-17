@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 
@@ -49,7 +50,7 @@ it("VB1: a wardic.ul's Variant children start from its initial name and enter st
   const [shown, setShown] = createSignal(false)
   render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.ul initial="hidden" animate={shown() ? "shown" : "hidden"} variants={VARIANTS} transition={{ ...TWEEN, staggerChildren: 0.12 }}>
+      <wardic.ul initial="hidden" animate={Bool.match(shown(), { onTrue: () => "shown", onFalse: () => "hidden" })} variants={VARIANTS} transition={{ ...TWEEN, staggerChildren: 0.12 }}>
         <For each={[0, 1, 2]}>{(i) => <wardic.li ref={(el: HTMLElement) => (items[i] = el)} variants={VARIANTS} />}</For>
       </wardic.ul>
     </WardicProvider>
@@ -73,7 +74,7 @@ it("VB2: an element without variants takes no stagger slot: the first Variant ch
   const [shown, setShown] = createSignal(false)
   render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.ul initial="hidden" animate={shown() ? "shown" : "hidden"} variants={VARIANTS} transition={{ ...TWEEN, staggerChildren: 0.4 }}>
+      <wardic.ul initial="hidden" animate={Bool.match(shown(), { onTrue: () => "shown", onFalse: () => "hidden" })} variants={VARIANTS} transition={{ ...TWEEN, staggerChildren: 0.4 }}>
         <wardic.span animate={{ x: 0 }} />
         <For each={[0, 1]}>{(i) => <wardic.li ref={(el: HTMLElement) => (items[i] = el)} variants={VARIANTS} />}</For>
       </wardic.ul>
@@ -95,7 +96,7 @@ it("VB3: inherit={false} keeps a Variant child still when its ancestor's variant
   const [shown, setShown] = createSignal(false)
   render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.ul initial="hidden" animate={shown() ? "shown" : "hidden"} variants={VARIANTS} transition={TWEEN}>
+      <wardic.ul initial="hidden" animate={Bool.match(shown(), { onTrue: () => "shown", onFalse: () => "hidden" })} variants={VARIANTS} transition={TWEEN}>
         <wardic.li ref={(el: HTMLElement) => (item = el)} variants={VARIANTS} inherit={false} />
         <wardic.li ref={(el: HTMLElement) => (sibling = el)} variants={VARIANTS} />
       </wardic.ul>
@@ -113,7 +114,7 @@ it("VB4: Variant children follow their ancestor back and forth", async () => {
   const [shown, setShown] = createSignal(false)
   render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.ul initial="hidden" animate={shown() ? "shown" : "hidden"} variants={VARIANTS} transition={TWEEN}>
+      <wardic.ul initial="hidden" animate={Bool.match(shown(), { onTrue: () => "shown", onFalse: () => "hidden" })} variants={VARIANTS} transition={TWEEN}>
         <For each={[0, 1]}>{(i) => <wardic.li ref={(el: HTMLElement) => (items[i] = el)} variants={VARIANTS} />}</For>
       </wardic.ul>
     </WardicProvider>
@@ -132,7 +133,7 @@ it("VB5: a plain wardic element in between passes the names through to a Variant
   const [shown, setShown] = createSignal(false)
   render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.ul initial="hidden" animate={shown() ? "shown" : "hidden"} variants={VARIANTS} transition={TWEEN}>
+      <wardic.ul initial="hidden" animate={Bool.match(shown(), { onTrue: () => "shown", onFalse: () => "hidden" })} variants={VARIANTS} transition={TWEEN}>
         <wardic.div animate={{ x: 0 }}>
           <wardic.li ref={(el: HTMLElement) => (item = el)} variants={VARIANTS} />
         </wardic.div>

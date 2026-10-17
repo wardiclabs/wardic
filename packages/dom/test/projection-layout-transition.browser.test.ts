@@ -16,6 +16,7 @@ import { afterEach, beforeEach } from "vitest"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 beforeEach(stubFrames)
 
@@ -122,7 +123,7 @@ describe("a layout animation's transition (#171)", () => {
         id: `n${i}`,
         element: el(root, `position:absolute;top:${i * 80}px;left:0px;width:50px;height:50px`),
         transition: () => Option.fromUndefinedOr(node.transition),
-        ...(node.dragTransition === undefined ? {} : { dragTransition: () => Option.fromUndefinedOr(node.dragTransition) }),
+        ...UndefinedOr.match(node.dragTransition, { onUndefined: () => ({}), onDefined: (dragTransition) => ({ dragTransition: () => Option.some(dragTransition) }) }),
       }),
     )
     await endOfTask()

@@ -5,6 +5,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { useWardic, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { opacityOf, raf, until } from "./browser-helpers.ts"
@@ -18,7 +19,7 @@ const mountFade = async (transition: WardicTransition) => {
   const [on, setOn] = createSignal(false)
   const { container } = render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.div data-box initial={{ opacity: 0 }} animate={{ opacity: on() ? 1 : 0 }} transition={transition} />
+      <wardic.div data-box initial={{ opacity: 0 }} animate={{ opacity: Bool.match(on(), { onTrue: () => 1, onFalse: () => 0 }) }} transition={transition} />
     </WardicProvider>
   ))
   const box = container.querySelector("[data-box]") as HTMLElement
@@ -64,7 +65,7 @@ describe("a tween transition with no duration keeps its other options (#107)", (
     function App() {
       const parent = useWardic(() => ({
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-        animate: open() ? "open" : "closed",
+        animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { type: "tween", staggerChildren: 0.25 },
       }))
       const Child = (p: { readonly i: number }) => {

@@ -4,6 +4,7 @@
 // Measure pass comes from `notify` (or the engine's own resize handling). Call
 // `stubFrames()` in a `beforeEach` and `unstubFrames()` in an `afterEach`.
 import * as Projection from "@wardic/core/Projection"
+import * as Bool from "effect/Boolean"
 import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -115,7 +116,7 @@ export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: 
   }
   const tracer = Tracer.make({
     span: (options) =>
-      options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
+      Bool.match(options.name === "wardic.projection.measure", { onTrue: () => new MeasureSpan(options), onFalse: () => new Tracer.NativeSpan(options) }),
   })
   const logger = Logger.map(Logger.formatStructured, (structured) => {
     logs.push({ message: String(structured.message), annotations: structured.annotations })

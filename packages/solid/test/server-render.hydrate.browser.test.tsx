@@ -29,11 +29,13 @@ import { DomLive } from "@wardic/dom"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardicEnv } from "@wardic/solid"
 import { type JSX, sharedConfig } from "solid-js"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { commands } from "vitest/browser"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { EXPECTED, FIXTURES, type FixtureName, HOLD_RM, HOLD_STREAM, LOG, LOG_CARD, seen, setLogEnv } from "./hydrate-fixtures.tsx"
@@ -72,7 +74,7 @@ const runFixture = async (name: FixtureName): Promise<Run> => {
   // The server's markup: the attributes captured before hydration (the nodes are live, and
   // hydration and the end-of-task Measure pass write to them).
   const startEl = hydrated.before.find((e) => hydrated.serverAttributes.get(e)?.["data-k"] === expected.startK)
-  const startAttrs = (startEl !== undefined ? hydrated.serverAttributes.get(startEl) : undefined) ?? {}
+  const startAttrs = UndefinedOr.map(startEl, (el) => hydrated.serverAttributes.get(el)) ?? {}
   const serverStyle = styleOf(startAttrs.style)
   const serverAttrs = Object.fromEntries(Object.keys(expected.startingAttrs ?? {}).map((a) => [a, startAttrs[a] ?? "(missing)"]))
   const structure = structureOf(host)
@@ -87,7 +89,7 @@ const runFixture = async (name: FixtureName): Promise<Run> => {
     style: startNow(),
   }))
   const tracks: Array<number> = []
-  for (const t of expected.tracks) tracks.push(await settle(() => t.read(host), t.to, t.label === "cx" ? 0.5 : 0.02))
+  for (const t of expected.tracks) tracks.push(await settle(() => t.read(host), t.to, Bool.match(t.label === "cx", { onTrue: () => 0.5, onFalse: () => 0.02 })))
   if (expected.tracks.length === 0) await new Promise((r) => setTimeout(r, 300))
   const settled = { tracks, texts: (expected.texts ?? []).map((t) => textOf(host, t.k)), style: startNow() }
   const errors = hydrated.stopErrors()
@@ -140,7 +142,7 @@ for (const name of Object.keys(FIXTURES) as Array<FixtureName>) {
 
     it(`HY5 ${name}: it settles at its target`, () => {
       expected.tracks.forEach((t, i) => {
-        expect(Math.abs(run.settled.tracks[i]! - t.to), `${t.label} settled at ${run.settled.tracks[i]}`).toBeLessThanOrEqual(t.label === "cx" ? 0.5 : 0.02)
+        expect(Math.abs(run.settled.tracks[i]! - t.to), `${t.label} settled at ${run.settled.tracks[i]}`).toBeLessThanOrEqual(Bool.match(t.label === "cx", { onTrue: () => 0.5, onFalse: () => 0.02 }))
       })
       ;(expected.texts ?? []).forEach((t, i) => expect(run.settled.texts[i], `${t.k} after mount`).toBe(t.settled))
       if (expected.tracks.length === 0 && (expected.texts ?? []).length === 0) {

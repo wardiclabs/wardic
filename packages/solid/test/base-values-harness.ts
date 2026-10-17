@@ -1,5 +1,6 @@
 // Shared by the base-value browser tests (#47, ADR-0022): painted-value reads, a per-frame
 // recorder tagged by phase, and a hover-then-leave gesture with Playwright's real mouse.
+import * as Bool from "effect/Boolean"
 import type { JSX } from "solid-js"
 import "./browser-commands.ts"
 import { until } from "./browser-helpers.ts"
@@ -33,14 +34,14 @@ export const translateXOf = (el: Element): number => {
   const t = getComputedStyle(el).transform
   if (t === "" || t === "none") return 0
   const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
-  return t.startsWith("matrix3d") ? v[12]! : v[4]!
+  return Bool.match(t.startsWith("matrix3d"), { onTrue: () => v[12]!, onFalse: () => v[4]! })
 }
 /** The painted translateY (the computed matrix's f). */
 export const translateYOf = (el: Element): number => {
   const t = getComputedStyle(el).transform
   if (t === "" || t === "none") return 0
   const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
-  return t.startsWith("matrix3d") ? v[13]! : v[5]!
+  return Bool.match(t.startsWith("matrix3d"), { onTrue: () => v[13]!, onFalse: () => v[5]! })
 }
 
 /** Sample `read(el)` after every painted frame, tagged with the phase current at that frame. */

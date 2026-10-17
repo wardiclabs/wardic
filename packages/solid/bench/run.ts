@@ -38,6 +38,9 @@ import { fileURLToPath } from "node:url"
 import { chromium, type Page } from "playwright"
 import { build, type Plugin } from "vite"
 import solid from "vite-plugin-solid"
+import * as Bool from "effect/Boolean"
+import { constUndefined } from "effect/Function"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { Round } from "./page.tsx"
 
 const GATE = 1.05
@@ -112,7 +115,7 @@ const sideResolver = (root: string, deps: string): Plugin => ({
     const wardic = /^@wardic\/(core|dom|solid)(?:\/(.+))?$/.exec(source)
     if (wardic !== null) {
       const [, pkg, sub] = wardic
-      return join(root, "packages", pkg!, "src", sub === undefined ? "index.ts" : `${sub}.ts`)
+      return join(root, "packages", pkg!, "src", UndefinedOr.match(sub, { onUndefined: () => "index.ts", onDefined: (name) => `${name}.ts` }))
     }
     if (importer === undefined || !importer.startsWith(root)) return null
     if (source.startsWith(".") || source.startsWith("/") || source.startsWith("\0")) return null
@@ -144,15 +147,20 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
 
 const quantile = (xs: ReadonlyArray<number>, p: number): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) * p)]!
 const median = (xs: ReadonlyArray<number>): number => quantile(xs, 0.5)
-const percent = (ratio: number): string => `${ratio < 1 ? "" : "+"}${((ratio - 1) * 100).toFixed(1)}%`
+/** `text` when `cond` holds, else nothing: a report line's optional part. */
+const when = (cond: boolean, text: string): string => Bool.match(cond, { onTrue: () => text, onFalse: () => "" })
+const percent = (ratio: number): string => `${when(ratio >= 1, "+")}${((ratio - 1) * 100).toFixed(1)}%`
 
 const baseCommit = commitOf(base)
-const headCommit = headRef.length > 0 ? commitOf(headRef) : undefined
+const headCommit = Bool.match(headRef.length > 0, { onTrue: (): string | undefined => commitOf(headRef), onFalse: constUndefined })
 const baseDeps = depsOf(baseCommit)
-const headDeps = headCommit === undefined ? REPO : depsOf(headCommit)
+const headDeps = UndefinedOr.match(headCommit, { onUndefined: () => REPO, onDefined: depsOf })
 const dirty =
   execSync(`git status --porcelain -- ${PACKAGES.map((pkg) => `packages/${pkg}/src`).join(" ")}`, { cwd: REPO }).toString().trim().length > 0
-const headLabel = headCommit === undefined ? `the working tree${dirty ? " (modified)" : ""}` : `${headRef} (${headCommit.slice(0, 7)})`
+const headLabel = UndefinedOr.match(headCommit, {
+  onUndefined: () => `the working tree${when(dirty, " (modified)")}`,
+  onDefined: (commit) => `${headRef} (${commit.slice(0, 7)})`,
+})
 const scripts: Record<Side, string> = {
   base: await bundle("base", baseCommit, baseDeps),
   head: await bundle("head", headCommit, headDeps),
@@ -250,11 +258,11 @@ const total = (page: ReadonlyArray<Round>): number => TASKS.reduce((sum, task) =
 const controlRatios = runs.plain.head.map((page, r) => total(page) / total(runs.plain.base[r]!))
 const control = median(controlRatios)
 const noisy = Math.abs(control - 1) > NOISE
-console.log(`control (plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${noisy ? "  too noisy: rerun on a quiet host" : ""}\n`)
+console.log(`control (plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${when(noisy, "  too noisy: rerun on a quiet host")}\n`)
 
 let failed = false
 for (const [label, pick, gated] of [["warm", warm, true], ["cold", cold, false]] as const) {
-  console.log(`${label} (ms, median across reps; head / base paired per rep: median [p25 – p75])${gated ? "" : ", not gated"}`)
+  console.log(`${label} (ms, median across reps; head / base paired per rep: median [p25 – p75])${when(!gated, ", not gated")}`)
   console.log(`  ${"task".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
   for (const task of TASKS) {
     const ratios = runs.wardic.head.map((page, r) => pick(page, task) / pick(runs.wardic.base[r]!, task))
@@ -263,7 +271,7 @@ for (const [label, pick, gated] of [["warm", warm, true], ["cold", cold, false]]
     console.log(
       `  ${task.padEnd(14)}${median(runs.wardic.base.map((page) => pick(page, task))).toFixed(1).padEnd(10)}` +
         `${median(runs.wardic.head.map((page) => pick(page, task))).toFixed(1).padEnd(10)}` +
-        `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${fails ? "  FAIL" : ""}`,
+        `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
     )
   }
   console.log("")
@@ -276,8 +284,8 @@ console.log("allocated (KB per element per round, tasks and frames; head / base 
 console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
 console.log(
   `  ${"bytes".padEnd(14)}${(median(allocated.base) / 1024).toFixed(1).padEnd(10)}${(median(allocated.head) / 1024).toFixed(1).padEnd(10)}` +
-    `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${allocFails ? "  FAIL" : ""}\n`,
+    `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${when(allocFails, "  FAIL")}\n`,
 )
 
 if (noisy) process.exit(2)
-process.exit(failed ? 1 : 0)
+process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))

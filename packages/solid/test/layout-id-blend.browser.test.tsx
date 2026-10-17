@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, type JSX, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -20,7 +21,7 @@ type Look = { readonly radius: number; readonly rotate: number; readonly opacity
 /** `el`'s top-left radius as painted (its computed px times its x scale), rotation in degrees, and opacity. */
 const lookOf = (el: HTMLElement): Look => {
   const cs = getComputedStyle(el)
-  const m = new DOMMatrix(cs.transform === "none" ? undefined : cs.transform)
+  const m = new DOMMatrix(Bool.match(cs.transform === "none", { onTrue: () => undefined, onFalse: () => cs.transform }))
   return { radius: Number.parseFloat(cs.borderTopLeftRadius) * Math.hypot(m.a, m.b), rotate: (Math.atan2(m.b, m.a) * 180) / Math.PI, opacity: Number(cs.opacity) }
 }
 const atRest = async (): Promise<void> => {

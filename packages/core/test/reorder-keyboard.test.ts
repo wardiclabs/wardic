@@ -2,6 +2,7 @@ import type * as Box from "@wardic/core/Box"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Reorder from "@wardic/core/Reorder"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { describe, expect, it } from "@effect/vitest"
 
 // The keyboard reorder (#43, ADR-0037): core's model, against fake item sources as in
@@ -37,7 +38,7 @@ const harness = <V,>(initial: ReadonlyArray<V>, options: { readonly slotOf?: (i:
       state.calls.push(next)
       state.values = next
     },
-    ...(options.direction !== undefined ? { direction: () => options.direction ?? "ltr" } : {}),
+    ...UndefinedOr.match(options.direction, { onUndefined: () => ({}), onDefined: (direction) => ({ direction: () => direction }) }),
   })
   initial.forEach((v, i) => {
     const s: FakeSource = { layout: slotOf(i), version: 1, layoutBox: () => Option.some(s.layout), dragOffset: () => ({ x: 0, y: 0 }), layoutVersion: () => s.version }

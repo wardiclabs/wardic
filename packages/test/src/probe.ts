@@ -6,6 +6,7 @@ import * as Stream from "effect/Stream"
 import { Atom } from "effect/reactivity"
 
 const ZERO_BOUNDS: Probe.Bounds = { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
+const VIEWPORT = { width: 1024, height: 768 }
 
 /** Options for the static test Probe. */
 export interface TestProbeOptions {
@@ -25,14 +26,18 @@ export interface TestProbeOptions {
  * optional `intersection` script via `Stream.fromIterable` (empty by default, so
  * it emits nothing); `observeResize` stays empty.
  */
-export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> =>
-  Layer.succeed(Probe.Probe, {
-    measure: () => Effect.sync(() => options.bounds ?? ZERO_BOUNDS),
-    viewport: Atom.make(options.viewport ?? { width: 1024, height: 768 }),
-    prefersReducedMotion: Atom.make(options.prefersReducedMotion ?? false),
-    observeResize: () => Stream.empty,
-    observeIntersection: () => Stream.fromIterable(options.intersection ?? []),
-  })
+export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> => {
+  const { intersection = [] } = options
+  return Layer.succeed(Probe.Probe, { ...fixed(options), observeIntersection: () => Stream.fromIterable(intersection) })
+}
+
+/** Both Probes' fixed part: the bounds, the viewport and the preference, each defaulted, and no resizes. */
+const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion = false }: TestProbeOptions) => ({
+  measure: () => Effect.sync(() => bounds),
+  viewport: Atom.make(viewport),
+  prefersReducedMotion: Atom.make(prefersReducedMotion),
+  observeResize: () => Stream.empty,
+})
 
 /**
  * A push-based Probe for tests that need to interleave intersection
@@ -51,13 +56,7 @@ export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<boolean>()
     return {
-      layer: Layer.succeed(Probe.Probe, {
-        measure: () => Effect.sync(() => options.bounds ?? ZERO_BOUNDS),
-        viewport: Atom.make(options.viewport ?? { width: 1024, height: 768 }),
-        prefersReducedMotion: Atom.make(options.prefersReducedMotion ?? false),
-        observeResize: () => Stream.empty,
-        observeIntersection: () => Stream.fromPubSub(pubsub),
-      }),
+      layer: Layer.succeed(Probe.Probe, { ...fixed(options), observeIntersection: () => Stream.fromPubSub(pubsub) }),
       pushIntersection: (inView: boolean) =>
         PubSub.publish(pubsub, inView).pipe(Effect.asVoid),
     }

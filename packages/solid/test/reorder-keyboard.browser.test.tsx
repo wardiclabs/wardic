@@ -27,6 +27,8 @@ import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { createReorderGroup, createReorderItem, Reorder, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createSignal, For, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { commands } from "vitest/browser"
@@ -69,9 +71,9 @@ const mount = async (options: MountOptions = {}) => {
     <Reorder.Group
       values={values()}
       onReorder={setValues}
-      {...(options.keyboard !== undefined ? { keyboard: options.keyboard } : {})}
-      {...(options.announcements !== undefined ? { announcements: options.announcements } : {})}
-      {...(options.instructions !== undefined ? { instructions: options.instructions } : {})}
+      {...UndefinedOr.match(options.keyboard, { onUndefined: () => ({}), onDefined: (keyboard) => ({ keyboard }) })}
+      {...UndefinedOr.match(options.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
+      {...UndefinedOr.match(options.instructions, { onUndefined: () => ({}), onDefined: (instructions) => ({ instructions }) })}
       style={{ position: "relative", "list-style": "none", margin: "0", padding: "0", width: "200px" }}
     >
       <For each={values()}>
@@ -84,7 +86,7 @@ const mount = async (options: MountOptions = {}) => {
             style={{ height: "40px", "margin-bottom": "8px", background: "#9cf" }}
           >
             {value}
-            {options.field === true ? <input data-field={value} /> : null}
+            {Bool.match(options.field === true, { onTrue: () => <input data-field={value} />, onFalse: () => null })}
           </Reorder.Item>
         )}
       </For>
@@ -92,14 +94,15 @@ const mount = async (options: MountOptions = {}) => {
   )
   const { container } = render(() => (
     <WardicProvider env={DomLive}>
-      <div style={{ height: options.page === undefined ? "auto" : `${options.page}px`, padding: "8px" }}>
-        {options.container === undefined ? (
-          <Show when={options.shown?.() ?? true}>{list()}</Show>
-        ) : (
-          <div data-scroller style={{ height: `${options.container}px`, overflow: "auto", position: "relative" }}>
-            {list()}
-          </div>
-        )}
+      <div style={{ height: UndefinedOr.match(options.page, { onUndefined: () => "auto", onDefined: (page) => `${page}px` }), padding: "8px" }}>
+        {UndefinedOr.match(options.container, {
+          onUndefined: () => <Show when={options.shown?.() ?? true}>{list()}</Show>,
+          onDefined: (height) => (
+            <div data-scroller style={{ height: `${height}px`, overflow: "auto", position: "relative" }}>
+              {list()}
+            </div>
+          ),
+        })}
       </div>
     </WardicProvider>
   ))
@@ -307,7 +310,7 @@ it("KB6: keyboard={false}: no tab stop, no instructions, keys do nothing; move()
 
 it("KB7: tab stops with the instructions after the app's own ids; the app's tabIndex wins; a group's own wording", async () => {
   const m = await mount({
-    itemProps: (value) => ({ ...(value === "a" ? { tabIndex: -1 } : {}), "aria-describedby": `hint-${value}` }),
+    itemProps: (value) => ({ ...Bool.match(value === "a", { onTrue: () => ({ tabIndex: -1 }), onFalse: () => ({}) }), "aria-describedby": `hint-${value}` }),
     instructions: "Space to grab.",
     announcements: { lift: ({ label, position }) => `Grabbed ${label} (${position}).` },
   })

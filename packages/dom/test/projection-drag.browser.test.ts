@@ -14,6 +14,7 @@
 // ResizeObserver is stubbed to a no-op, so every Measure pass here comes from `notify`.
 import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -105,7 +106,7 @@ const makeMeasureSpans = () => {
   }
   const tracer = Tracer.make({
     span: (options) =>
-      options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
+      Bool.match(options.name === "wardic.projection.measure", { onTrue: () => new MeasureSpan(options), onFalse: () => new Tracer.NativeSpan(options) }),
   })
   return { layer: Layer.succeed(Tracer.Tracer, tracer), spans }
 }
@@ -152,7 +153,7 @@ const insideLastFlush = (log: ReadonlyArray<LogEntry>): ReadonlyArray<LogEntry> 
     if (e.kind === "flushPass:start") start = k
     if (e.kind === "flushPass:end") end = k
   })
-  return start < 0 || end < 0 ? [] : log.slice(start + 1, end)
+  return Bool.match(start < 0 || end < 0, { onTrue: () => [], onFalse: () => log.slice(start + 1, end) })
 }
 
 /** The log entries after the last `flushPass:end`. */

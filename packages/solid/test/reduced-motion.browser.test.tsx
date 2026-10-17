@@ -9,6 +9,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import { DomLive } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import { createSignal, Show } from "solid-js"
@@ -65,7 +66,7 @@ const mountMover = async (config: ReducedMotion.Config | undefined, transition: 
           data-box
           style={BOX}
           initial={{ x: 0, opacity: 0 }}
-          animate={on() ? { x: 200, opacity: 1 } : { x: 0, opacity: 0 }}
+          animate={Bool.match(on(), { onTrue: () => ({ x: 200, opacity: 1 }), onFalse: () => ({ x: 0, opacity: 0 }) })}
           transition={transition}
         />
       </div>
@@ -106,7 +107,7 @@ const mountGrower = async (env: typeof DomLive) => {
         data-box
         style={{ position: "absolute", left: "0px", top: "0px", height: "50px" }}
         initial={{ width: "50px", opacity: 0 }}
-        animate={on() ? { width: "250px", opacity: 1 } : { width: "50px", opacity: 0 }}
+        animate={Bool.match(on(), { onTrue: () => ({ width: "250px", opacity: 1 }), onFalse: () => ({ width: "50px", opacity: 0 }) })}
         transition={{ type: "tween", duration: 0.4 }}
       />
     </WardicProvider>

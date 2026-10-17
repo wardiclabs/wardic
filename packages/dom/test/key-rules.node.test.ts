@@ -23,8 +23,10 @@ import type * as Values from "@wardic/core/Values"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import { TestClock, testLayer } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 const quarter = [0.25, 0.25, 0.25, 0.25]
 
@@ -41,7 +43,7 @@ const framesOf = <F extends Frame.Frame<Values.Values>>(
 
 /** The values one key takes over a 1 s linear tween, frame by frame. */
 const run = (from: Values.Values, to: Values.Values, ticks: ReadonlyArray<number> = quarter, delay?: number) =>
-  framesOf(Machine.animateValues(from, to, { duration: 1, easing: Easing.linear, ...(delay !== undefined ? { delay } : {}) }), ticks)
+  framesOf(Machine.animateValues(from, to, { duration: 1, easing: Easing.linear, ...UndefinedOr.match(delay, { onUndefined: () => ({}), onDefined: (delay) => ({ delay }) }) }), ticks)
 const of = (frames: ReadonlyArray<Frame.Frame<Values.Values>>, key: string) => frames.map((f) => f.value[key])
 const keyOf = (to: Values.Values): string => Object.keys(to)[0]!
 /** One key's values over the tween: at 0.25, 0.5, 0.75 and its last frame. */
@@ -300,7 +302,7 @@ it.effect("AN13: under a bouncy spring, a shadow going to none writes none once,
       Machine.springBlend({ boxShadow: "0px 0px 10px rgb(255, 0, 0)" }, { boxShadow: "none" }, { stiffness: 100, damping: 5 }),
       TestClock.frames(600, 1 / 60),
     )
-    const nones = fs.flatMap((f, i) => (f.value.boxShadow === "none" ? [i] : []))
+    const nones = fs.flatMap((f, i) => Bool.match(f.value.boxShadow === "none", { onTrue: () => [i], onFalse: () => [] }))
     expect(nones, "none on the settle frame only").toEqual([fs.length - 1])
     expect(fs.at(-1)?.done).toBe(true)
     expect(fs.filter((f) => String(f.value.boxShadow).includes("rgba")).length, "frames on the way").toBeGreaterThan(10)

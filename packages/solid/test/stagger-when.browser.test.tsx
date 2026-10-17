@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { useWardic, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import { afterEach, expect, it } from "vitest"
 import { createSignal } from "solid-js"
 
@@ -57,7 +58,7 @@ const renderStagger = (
       setOpen = s
       const parent = useWardic(() => ({
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-        animate: open() ? "open" : "closed",
+        animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: parentTransition,
       }))
       const Child = (p: { readonly i: number }) => {
@@ -114,7 +115,7 @@ it("(c) when:beforeChildren — child is GATED at 0 while the parent rises, rele
       const parent = useWardic(() => ({
         initial: { opacity: 0 },
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-        animate: open() ? "open" : "closed",
+        animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { when: "beforeChildren" as const },
       }))
       const Child = () => {
@@ -157,7 +158,7 @@ it("(d) when:afterChildren — parent is GATED at 0 while the child rises, relea
       const parent = useWardic(() => ({
         initial: { opacity: 0 },
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-        animate: open() ? "open" : "closed",
+        animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { when: "afterChildren" as const },
       }))
       const Child = () => {
@@ -197,7 +198,7 @@ it("(e) a child WITHOUT a parent Provider is unaffected (no stagger/gating)", as
       const lone = useWardic(() => ({
         initial: { opacity: 0 },
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-        animate: open() ? "open" : "closed",
+        animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { when: "beforeChildren" as const, staggerChildren: 0.5 },
       }))
       return <div {...lone({ ref: (n: HTMLElement) => (loneEl = n) })}>lone</div>

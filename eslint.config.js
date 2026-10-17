@@ -1,6 +1,7 @@
 // The Effect-first rules (#63, ADR-0025, docs/agents/effect-first.md), held on @wardic/core's
-// source, and on @wardic/dom's and @wardic/solid's (#69, ADR-0025, *Amendment (#69)*). test follows
-// the rules for new code until #69's PR 5. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
+// source, and on @wardic/dom's, @wardic/solid's and @wardic/test's (#69, ADR-0025, *Amendment (#69)*).
+// Every package's tests and benches are tooling: they take no ternaries (decision 3), and the rest
+// where it reads well. Lint can't judge whether a Predicate is *named*, or whether Match or Scope
 // "fits": those stay with review.
 //
 // And the pipeable API's shape (#95, ADR-0028 decision 10, docs/agents/pipeable.md): the root
@@ -206,8 +207,8 @@ export default defineConfig([
     },
   },
   {
-    // Only this rule here: the Effect-first rules reach dom, solid and test with #69.
-    files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
+    // The pipeable API's subpaths, for every package's code but core's source (which has its own block).
+    files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     // solid's code carries eslint-plugin-solid's `solid/reactivity` directives, for an editor
     // that runs the plugin; this lint doesn't, so the rule is named here, doing nothing, and its
@@ -226,9 +227,9 @@ export default defineConfig([
     },
   },
   {
-    // dom's and solid's source take the Effect-first rules (ADR-0025, *Amendment (#69)*). solid has no
-    // per-frame file: its run sinks are one-line closures (decision 2).
-    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}"],
+    // dom's, solid's and test's source take the Effect-first rules (ADR-0025, *Amendment (#69)*). solid
+    // and test have no per-frame file: solid's run sinks are one-line closures (decision 2).
+    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}", "packages/test/src/**/*.ts"],
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
       "no-ternary": "error",
@@ -250,6 +251,11 @@ export default defineConfig([
         },
       ],
     },
+  },
+  {
+    // Every package's tests and benches: no ternaries (ADR-0025, *Amendment (#69)*, decision 3).
+    files: ["packages/*/{test,bench}/**/*.{ts,tsx}"],
+    rules: { "no-ternary": "error" },
   },
   {
     files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],

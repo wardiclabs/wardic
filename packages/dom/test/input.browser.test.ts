@@ -2,6 +2,7 @@ import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Match from "effect/Match"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import { InputDomLive, keyOf } from "../src/internal/input.ts"
@@ -294,7 +295,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
         document.body.dispatchEvent(pointerEvent(ending, { clientX: 100, buttons: 0 }))
         document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 200, buttons: 0 }))
         const events = yield* sub.collect(2)
-        const kind = ending === "pointerup" ? "up" : ending === "pointercancel" ? "cancel" : "move"
+        const kind = Match.value(ending).pipe(Match.when("pointerup", () => "up"), Match.when("pointercancel", () => "cancel"), Match.orElse(() => "move"))
         expect(events.map((e) => `${e.type}@${e.x}`), `ended by a ${ending}`).toEqual(["down@0", `${kind}@100`])
         yield* sub.close
       }

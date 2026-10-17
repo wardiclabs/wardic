@@ -5,6 +5,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -42,7 +43,7 @@ it("SC1: under a display: contents layout node, the page scrolled, a child moves
             data-c
             layout
             layoutDependency={moved()}
-            style={{ position: "absolute", top: "600px", left: moved() ? "200px" : "20px", width: "60px", height: "40px", background: "teal" }}
+            style={{ position: "absolute", top: "600px", left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "20px" }), width: "60px", height: "40px", background: "teal" }}
           />
         </wardic.div>
       </div>

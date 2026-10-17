@@ -20,6 +20,9 @@ import { cleanup, render } from "@solidjs/testing-library"
 import type * as Drag from "@wardic/core/Drag"
 import { DomLive } from "@wardic/dom"
 import { createDrag, createHover, createPress, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createEffect, createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands, server } from "vitest/browser"
@@ -130,7 +133,7 @@ const mountDrag = async (
             width: "120px",
             height: "80px",
             background: "#f88",
-            ...(touchAction !== undefined ? { "touch-action": touchAction } : {}),
+            ...UndefinedOr.match(touchAction, { onUndefined: () => ({}), onDefined: (action) => ({ "touch-action": action }) }),
           }}
         />
       </div>
@@ -171,12 +174,12 @@ const phases = (samples: ReadonlyArray<Drag.Sample>, from: number): string => {
       n++
       continue
     }
-    if (last !== "") out.push(n > 1 ? `${last}×${n}` : last)
+    if (last !== "") out.push(Bool.match(n > 1, { onTrue: () => `${last}×${n}`, onFalse: () => last }))
     last = s.phase
     n = 1
   }
-  if (last !== "") out.push(n > 1 ? `${last}×${n}` : last)
-  return out.length === 0 ? "none" : out.join(" ")
+  if (last !== "") out.push(Bool.match(n > 1, { onTrue: () => `${last}×${n}`, onFalse: () => last }))
+  return Bool.match(out.length === 0, { onTrue: () => "none", onFalse: () => out.join(" ") })
 }
 
 /** The x offset of the last sample since `from`. */
@@ -220,7 +223,7 @@ const loseRelease = async (s: DragScene): Promise<{ readonly at: Pt; readonly he
 }
 
 describe.each(["layout", "free"] as const)("%s drag", (mode) => {
-  const rest = (dx: number): number => (mode === "layout" ? 0 : dx)
+  const rest = (dx: number): number => Bool.match(mode === "layout", { onTrue: () => 0, onFalse: () => dx })
 
   it("P0: moves that stay on D and a release on D", async () => {
     const s = await mountDrag(mode)
@@ -637,7 +640,7 @@ const mountState = async (): Promise<StateScene> => {
     pressed: () => pressedNow(),
     look: () => {
       const m = /scale\(([-\d.]+)\)/.exec(target.style.transform)
-      return { opacity: r2(Number(getComputedStyle(target).opacity)), scale: r2(m ? Number(m[1]) : 1) }
+      return { opacity: r2(Number(getComputedStyle(target).opacity)), scale: r2(Option.match(Option.fromNullOr(m), { onNone: () => 1, onSome: (match) => Number(match[1]) })) }
     },
   }
 }

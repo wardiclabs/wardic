@@ -1,5 +1,6 @@
 import * as InputSource from "@wardic/core/InputSource"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { MixedScheduler } from "effect/Scheduler"
@@ -595,7 +596,7 @@ describe("InputSource.heldPointer", () => {
       const global = makeFeed()
       const atDelivery: Array<string> = []
       const h = await startOnTimers(target, global, undefined, (event) => {
-        atDelivery.push(`${event.type}: global ${global.subscribed() ? "on" : "off"}`)
+        atDelivery.push(`${event.type}: global ${Bool.match(global.subscribed(), { onTrue: () => "on", onFalse: () => "off" })}`)
       })
       target.push(ev({ type: "down" }))
       global.push(ev({ type: "up", pressed: false }))

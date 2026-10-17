@@ -53,7 +53,7 @@ for (const [layout, busy] of [
 ] as const) {
   const n = 1 + Number(layout) + 2 * Number(busy)
   const busyText = Bool.match(busy, { onTrue: () => ", the projection already running", onFalse: () => "" })
-  it(`MS${n}: a twin crossfades into a ${layout ? "layout " : ""}modal scaling in from 0.8${busyText}: it starts on its twin, the Follower on it every frame (#137)`, async () => {
+  it(`MS${n}: a twin crossfades into a ${Bool.match(layout, { onTrue: () => "layout ", onFalse: () => "" })}modal scaling in from 0.8${busyText}: it starts on its twin, the Follower on it every frame (#137)`, async () => {
     const [open, setOpen] = createSignal(false)
     const [moved, setMoved] = createSignal(false)
     const { container } = render(() => (
@@ -63,7 +63,7 @@ for (const [layout, busy] of [
             layout
             layoutDependency={moved()}
             transition={{ type: "spring", stiffness: 40, damping: 20 }}
-            style={{ position: "absolute", left: moved() ? "400px" : "0px", top: "460px", width: "20px", height: "20px", background: "gray" }}
+            style={{ position: "absolute", left: Bool.match(moved(), { onTrue: () => "400px", onFalse: () => "0px" }), top: "460px", width: "20px", height: "20px", background: "gray" }}
           />
           <wardic.div data-thumb layoutId="ms" style={{ position: "absolute", left: "20px", top: "300px", width: "60px", height: "40px", background: "teal" }} />
           <Show when={open()}>

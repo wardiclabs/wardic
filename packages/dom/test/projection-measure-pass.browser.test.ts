@@ -16,6 +16,7 @@
 import * as Clock from "@wardic/core/Clock"
 import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
@@ -155,7 +156,7 @@ const insideLastFlush = (log: ReadonlyArray<LogEntry>): ReadonlyArray<LogEntry> 
     if (e.kind === "flushPass:start") start = k
     if (e.kind === "flushPass:end") end = k
   })
-  return start < 0 || end < 0 ? [] : log.slice(start + 1, end)
+  return Bool.match(start < 0 || end < 0, { onTrue: () => [], onFalse: () => log.slice(start + 1, end) })
 }
 
 const writesFor = (entries: ReadonlyArray<LogEntry>, id: string) =>

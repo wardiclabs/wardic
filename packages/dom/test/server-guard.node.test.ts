@@ -32,7 +32,8 @@ const buildExit = <ROut, E>(layer: Layer.Layer<ROut, E, AtomRegistry.AtomRegistr
 const failureMessage = (exit: Exit.Exit<unknown, unknown>): string => {
   if (Exit.isSuccess(exit)) return ""
   const squashed = Cause.squash(exit.cause)
-  return squashed instanceof Error ? squashed.message : String(squashed)
+  if (squashed instanceof Error) return squashed.message
+  return String(squashed)
 }
 
 /** The Renderer RendererDomLive provides. */

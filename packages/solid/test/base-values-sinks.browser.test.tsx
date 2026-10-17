@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createReorderGroup, reorderItem, ward, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -176,7 +177,7 @@ describe("an identity transform at rest is none (#57, ADR-0023): the commit sink
 describe("a key with no base value (#47): the presence exit", () => {
   const exitFrames = async (node: () => HTMLElement, hide: () => void, read: (el: Element) => number): Promise<Array<number>> => {
     const leaving = node()
-    const s = sampleFrames(() => (leaving.isConnected ? read(leaving) : Number.NaN))
+    const s = sampleFrames(() => Bool.match(leaving.isConnected, { onTrue: () => read(leaving), onFalse: () => Number.NaN }))
     hide()
     await until(() => !leaving.isConnected, 3000)
     return s.stop().map((f) => f.v).filter((v) => !Number.isNaN(v))

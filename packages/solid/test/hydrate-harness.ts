@@ -2,6 +2,8 @@
 // (the `serverRender` command), put its markup on the page, hydrate it, and record what a
 // user would see. Solid 1.9.13 claims a server node by its hydration key whatever its tag,
 // and patches a different style silently, so the tests compare markup and nodes directly.
+import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
 import { sharedConfig, type JSX } from "solid-js"
 import { hydrate, render } from "solid-js/web"
 import { commands } from "vitest/browser"
@@ -121,7 +123,7 @@ export const structureOf = (root: Element): string => {
       .filter((a) => a.name !== "style" && a.name !== "data-hk")
       .map((a) => `${a.name}="${a.value}"`)
       .sort()
-    out.push(`${"  ".repeat(depth)}<${el.tagName.toLowerCase()}${attrs.length > 0 ? ` ${attrs.join(" ")}` : ""}>`)
+    out.push(`${"  ".repeat(depth)}<${el.tagName.toLowerCase()}${Bool.match(attrs.length > 0, { onTrue: () => ` ${attrs.join(" ")}`, onFalse: () => "" })}>`)
     for (const child of el.childNodes) walk(child, depth + 1)
   }
   for (const child of root.childNodes) walk(child, 0)
@@ -131,7 +133,7 @@ export const structureOf = (root: Element): string => {
 /** An element's inline style attribute (or a `style` string), parsed into `{ property: value }`. */
 export const styleOf = (el: Element | string | null | undefined): Readonly<Record<string, string>> =>
   Object.fromEntries(
-    ((typeof el === "string" ? el : el?.getAttribute("style")) ?? "")
+    (Match.value(el).pipe(Match.when(Match.string, (style) => style), Match.orElse((node) => node?.getAttribute("style"))) ?? "")
       .split(";")
       .map((d) => d.trim())
       .filter((d) => d !== "")

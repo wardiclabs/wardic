@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -52,7 +53,7 @@ const mountToggle = (off: WardicValues, on: WardicValues, children?: JSX.Element
   const [shown, setShown] = createSignal(false)
   render(() => (
     <WardicProvider env={DomLive}>
-      <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={off} animate={shown() ? on : off} transition={TWEEN}>
+      <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={off} animate={Bool.match(shown(), { onTrue: () => on, onFalse: () => off })} transition={TWEEN}>
         {children}
       </wardic.div>
     </WardicProvider>
@@ -109,7 +110,7 @@ describe("the Animatable none with real paint (#61)", () => {
             cy={50}
             r={40}
             initial={{ fill: "none" } as WardicValues}
-            animate={(shown() ? { fill: "#ff0000" } : { fill: "none" }) as WardicValues}
+            animate={Bool.match(shown(), { onTrue: () => ({ fill: "#ff0000" }), onFalse: () => ({ fill: "none" }) }) as WardicValues}
             transition={TWEEN}
           />
         </svg>
@@ -136,7 +137,7 @@ describe("the Animatable none with real paint (#61)", () => {
             ref={(n: HTMLElement) => (el = n)}
             class="an-card"
             style={BOX}
-            animate={(on() ? { boxShadow: "0px 8px 24px rgba(0, 0, 0, 0.3)" } : {}) as WardicValues}
+            animate={Bool.match(on(), { onTrue: () => ({ boxShadow: "0px 8px 24px rgba(0, 0, 0, 0.3)" }), onFalse: () => ({}) }) as WardicValues}
             transition={TWEEN}
           />
         </WardicProvider>

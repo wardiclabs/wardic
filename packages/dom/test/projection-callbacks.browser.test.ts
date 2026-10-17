@@ -22,6 +22,7 @@ import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 
 beforeEach(() => {
@@ -160,7 +161,7 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
     const s = stage(STAGE)
     const root = absolute(s, 0)
     const dragged = absolute(s, 200)
-    const [hr, hd] = await mount(e, [root, dragged], (i) => (i === 0 ? { layoutRoot: true } : {}))
+    const [hr, hd] = await mount(e, [root, dragged], (i) => Bool.match(i === 0, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }))
     moveTo(root, hr!, 100)
     await endOfTask()
     fireFrames(10)
@@ -260,13 +261,14 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
     const a = absolute(s, 0)
     const b = absolute(s, 300)
     const [ha, hb] = await mount(e, [a, b], (i) =>
-      i === 0
-        ? {
-            onLayoutAnimationStart: () => Option.some(() => {
-              throw new Error("boom")
-            }),
-          }
-        : {},
+      Bool.match(i === 0, {
+        onTrue: () => ({
+          onLayoutAnimationStart: () => Option.some(() => {
+            throw new Error("boom")
+          }),
+        }),
+        onFalse: () => ({}),
+      }),
     )
     moveTo(a, ha!, 100)
     moveTo(b, hb!, 400)
