@@ -60,7 +60,7 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 **The allowed forms on the per-frame path:**
 - **Instead of a ternary:** a statement `if` with an early return, or `Math.min` / `Math.max`. A `Boolean.match` is fine only when its handlers are hoisted to module level and capture nothing.
 - **No `Option`, `Match`, `Num.clamp`, `Rec.map` or `Boolean.match` with inline closures on each call,** and no Effect round trip (`Effect.runSync`, a service access) per frame.
-- **Options are resolved once, when the machine is built** (`Spring.resolve`, and the tween's and decay's resolvers in `internal/stepper.ts`), and the frame reads plain fields. The resolvers use the early-return form below, not `Option`, because a caller that steps by hand resolves per frame: dom's projection pass calls `Spring.step(state, dt, 1, Spring.resolve(options))` per node.
+- **Options are resolved once, when the machine is built or started,** and the frame reads plain fields. Each resolver (`Spring.resolve`, `Machine.resolveTween`, the decay's in `internal/stepper.ts`, `Inertia.resolve`) decodes its bag through a Schema, cached by the bag's identity (ADR-0025, *Amendment (#66)*). No caller resolves per frame: dom's projection pass resolves a flight's transition at its start, and a release's at the release.
 - **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
 - **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `Spring.step`'s substeps, `blendAt`, `Interpolator.complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
@@ -106,7 +106,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 ## Core's surface
 
 - **Core is Effect-native; the bindings hide Effect** (ADR-0025, decision 7, amending ADR-0008). Core's functions use `Option` for a missing value, in their returns and in the callbacks a binding passes in.
-- **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types. Core reads their `?:` fields through `Option.fromUndefinedOr` / `UndefinedOr`.
+- **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types. An option bag is its Schema's encoded side: core decodes it, filling in its defaults and rejecting a value no animation can take (ADR-0025, *Amendment (#66)*). A `?:` field read anywhere else goes through `Option.fromUndefinedOr` / `UndefinedOr`.
 - **dom's surface is Effect-native too** (ADR-0025, *Amendment (#69)*): `Option` for a missing value in its returns and in the callbacks a binding passes in, for its binding authors.
 - **solid and a future react unwrap at their own boundary,** for an app.
 - **The API's shape** (a module per data type, `Pipeable` data types, `dual` operations) is [`pipeable.md`](pipeable.md) (ADR-0028).
