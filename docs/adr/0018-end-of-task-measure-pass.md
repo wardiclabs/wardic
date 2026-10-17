@@ -61,7 +61,7 @@ A window resize moved every node's layout, and nothing re-measured, so each node
 
 What changes:
 
-- **The engine listens for window resize itself**, as it owns its `ResizeObserver`. Only a change of `window.innerWidth` counts; a height-only change, such as a mobile URL bar, doesn't. That's Motion's filter ([create-projection-node.ts:459-487](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L459-L487)).
+- **The engine listens for window resize itself**, as it owns its `ResizeObserver` (since #45 it reads the width from the Environment's `Probe.viewport`: *Amendment (#45)*). Only a change of `window.innerWidth` counts; a height-only change, such as a mobile URL bar, doesn't. That's Motion's filter ([create-projection-node.ts:459-487](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/projection/node/create-projection-node.ts#L459-L487)).
 - **A width change finishes running layout animations**, if any ran since the last one. A node flying back from a release snaps to its slot. A dragged node keeps following the pointer.
 - **The next Measure pass after a width change, within 250 ms, is blocked.**
   - Every node takes the Drag block's slot-only update: a fresh `retained` and `layoutBox`, nothing seeded or primed.
@@ -143,3 +143,29 @@ Pinned by:
   - a `display: contents` node, which has no Measurement, runs one when it takes a box (RS7).
 - Mutations: 6 single-point mutations of the check, 5 caught. The survivor turns "an element that is no node any more asks for nothing" into "runs a pass", which can't happen: disposing a node unobserves it.
 - The layout lab: scenario 7 reads `passes 1 (1 seeding)`, and every scenario's held count is as before (30 runs, 0 off).
+
+## Amendment (#45, 2026-10-17): the width comes from the Environment's viewport
+
+The Resize block took the window's width from the platform: its own `window` `resize` listener, and `window.innerWidth`. The DOM Environment already tracks the viewport: `Probe.viewport` is an Atom fed by the same event. So the block sat outside the portability seam, and a non-DOM Environment couldn't drive it. The block's timers had already become fibers in #69's PR 3 (#213, ADR-0025 *Implementation in #69's PR 3*), which narrowed #45 to the width.
+
+Grilled 2026-10-17 (A, A):
+- **The engine reads `Probe.viewport` through the Environment's `AtomRegistry`.**
+  - Its services grow: `ProjectionServices` is `FrameLoop | Renderer | Probe | AtomRegistry`. Every binding's Environment provides both new ones; `DomLive` does.
+  - At its first registered node it seeds the last width with `registry.get(probe.viewport)`, and subscribes with `registry.subscribe`, whose callback runs inside the write. At dispose it unsubscribes.
+  - The engine has no `window` reference left for the block.
+- **dom's Probe writes `viewport` inside the `resize` event,** from a plain listener in its Layer's Scope.
+  - **Why it must:** the old forked `Stream.runForEach` consumer wrote it a scheduler hop later, which in a browser is a task after the event. The event fires in the frame's rendering steps, before the animation-frame callbacks, so a block set a task late misses that frame's Measure pass, and the reflow animates.
+  - **Who benefits:** the block, and every other reader of `Probe.viewport`, which is now current at the event.
+  - Rejected:
+    - a Probe Stream of viewport changes, a Shared source whose producer flushes, which is the same result with more machinery;
+    - a width source the binding hands the engine, which every binding would have to wire.
+- **It lands on its own,** before #16 lifts the engine's DOM-free half into core, which can now take the block as it is.
+
+**Pinned by:**
+- `test/projection-resize-block.browser.test.ts` RB13. The engine runs on a browser's `setTimeout(0)` scheduler, because the test tier's polyfill makes a hop a microtask that could land between two listeners. Inside the `resize` event's own dispatch, a Declared layout change with a pass due runs no pass at the call (RB10's rule), and the next pass is the blocked one.
+- `test/probe.browser.test.ts`: a subscriber to `viewport` runs before a synthetic `resize`'s `dispatchEvent` returns.
+
+Both fail with the old forked writer, and RB1–RB12 don't, because the polyfill hid the hop from them. The RB tests and PE3 keep passing.
+
+`test/services.browser.test.ts`'s DS2 and DS3 (#132) watched the engine's teardown through `window.removeEventListener("resize")`. They now watch its viewport subscription stop: the engine before the gate, and with its own Scope. A mutation that skips the unsubscribe fails both.
+

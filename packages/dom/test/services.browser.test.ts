@@ -3,9 +3,11 @@
 //
 // - DS1: one runtime builds each once: the same gate and engine however often they're read, and
 //   the engine writes through that gate (its node's element gets its projection).
-// - DS2: closing the runtime's Scope ends the engine, then the gate: the engine's resize listener
-//   goes before the gate's pending frame is cancelled, and nothing is written after.
-// - DS3: `ProjectionSystem.make` over a binding's own sink ends with its own Scope.
+// - DS2: closing the runtime's Scope ends the engine, then the gate: the engine's watch on the
+//   Environment's viewport (#45) stops before the gate's pending frame is cancelled, and nothing is
+//   written after.
+// - DS3: `ProjectionSystem.make` over a binding's own sink ends with its own Scope: its viewport
+//   watch stops when that Scope closes.
 // - DS4: `FlushGate.inert` does nothing, and `FlushGate.layerInert` provides it.
 //
 // The Reorder controller's scoped constructor (#132's PR 3):
@@ -23,12 +25,14 @@ import * as Match from "effect/Match"
 import * as References from "effect/References"
 import * as Scope from "effect/Scope"
 import * as Announcer from "@wardic/core/Announcer"
+import * as Probe from "@wardic/core/Probe"
 import type * as Reorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Option from "effect/Option"
+import { AtomRegistry } from "effect/reactivity"
 
 const stages: Array<HTMLElement> = []
 afterEach(() => {
@@ -50,6 +54,24 @@ const box = (css: string): HTMLElement => {
 }
 
 /** One runtime with the gate and the engine over DomLive, as a binding's provider builds it. */
+/**
+ * Call `f` when a watch on `runtime`'s `Probe.viewport` stops: the engine's, the only one (#45). It
+ * wraps the registry's `subscribe`, so it must run before the engine's first node registers.
+ */
+const onViewportWatchStopped = (runtime: ManagedRuntime.ManagedRuntime<Probe.Probe | AtomRegistry.AtomRegistry, never>, f: () => void): void => {
+  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+  const viewport = runtime.runSync(Probe.Probe).viewport
+  const subscribe = registry.subscribe.bind(registry)
+  vi.spyOn(registry, "subscribe").mockImplementation((atom, listener, options) => {
+    const stop = subscribe(atom, listener, options)
+    if (atom !== viewport) return stop
+    return () => {
+      f()
+      stop()
+    }
+  })
+}
+
 const runtimeOf = () =>
   ManagedRuntime.make(
     ProjectionSystem.layer().pipe(Layer.provideMerge(FlushGate.layer({ batch: (apply) => apply() })), Layer.provideMerge(DomLive)),
@@ -81,17 +103,13 @@ describe("the gate and the projection system as services (#132)", () => {
 
   it("DS2: closing the Scope ends the engine, then the gate; nothing is written after", async () => {
     const order: Array<string> = []
-    const removeListener = window.removeEventListener.bind(window)
-    vi.spyOn(window, "removeEventListener").mockImplementation((type: string, ...rest: Array<unknown>) => {
-      if (type === "resize") order.push("engine: resize listener removed")
-      return removeListener(type, ...(rest as [EventListenerOrEventListenerObject]))
-    })
     const cancel = window.cancelAnimationFrame.bind(window)
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation((handle: number) => {
       order.push("gate: frame cancelled")
       return cancel(handle)
     })
     const runtime = runtimeOf()
+    onViewportWatchStopped(runtime, () => order.push("engine: viewport watch stopped"))
     const gate = runtime.runSync(FlushGate.FlushGate)
     const engine = runtime.runSync(ProjectionSystem.ProjectionSystem)
     const el = box("position:absolute;left:0;top:0;width:40px;height:40px")
@@ -102,23 +120,24 @@ describe("the gate and the projection system as services (#132)", () => {
     // A write outside a tick requests the gate's own frame: pending when the Scope closes.
     gate.write("w", { opacity: 0.5 })
     await runtime.dispose()
-    expect(order[0], "the engine first").toBe("engine: resize listener removed")
+    expect(order[0], "the engine first").toBe("engine: viewport watch stopped")
     expect(order, "then the gate's pending frame").toContain("gate: frame cancelled")
     await frames(3)
     expect(target.style.opacity, "nothing written after").toBe("")
   })
 
   it("DS3: ProjectionSystem.make over a binding's own sink ends with its own Scope", async () => {
-    const remove = vi.spyOn(window, "removeEventListener")
     const runtime = ManagedRuntime.make(DomLive)
+    let stopped = 0
+    onViewportWatchStopped(runtime, () => stopped++)
     const sink = { write: () => {}, flushPass: (pass: () => void) => pass() }
     const scope = Scope.makeUnsafe()
     const engine = runtime.runSync(ProjectionSystem.make(sink).pipe(Scope.provide(scope)))
     engine.register({ id: "n", element: box("width:40px;height:40px"), transition: SPRING })
     await frames(2)
-    expect(remove.mock.calls.filter(([type]) => type === "resize")).toHaveLength(0)
+    expect(stopped).toBe(0)
     runtime.runSync(Scope.close(scope, Exit.void))
-    expect(remove.mock.calls.filter(([type]) => type === "resize"), "its resize listener goes with its Scope").toHaveLength(1)
+    expect(stopped, "its viewport watch goes with its Scope").toBe(1)
     await runtime.dispose()
   })
 
