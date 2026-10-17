@@ -5,6 +5,10 @@
  * a self-resetting single-element read for a lone caller. No framework or Effect dependency — pure DOM — so
  * this lives in `@wardic/dom` alongside the projection engine that consumes it (a
  * binding imports it from here).
+ *
+ * It's the surface of the port the engine would move into `@wardic/core` behind (#16, parked
+ * until a non-DOM Environment exists): a DOM read the engine newly needs is added here, named,
+ * rather than written inline in `projection.ts`.
  */
 import type * as Point from "@wardic/core/Point"
 import type * as Probe from "@wardic/core/Probe"

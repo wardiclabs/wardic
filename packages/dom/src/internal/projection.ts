@@ -50,6 +50,13 @@
  * animating ancestor uses RELATIVE projection (`relativeParentOf` + `derive`): it
  * re-anchors to its `relativeParent`'s CURRENT target each frame, so it stays
  * glued even when parent and child run DIFFERENT transitions ("not left behind").
+ *
+ * DOM ACCESS (#16, parked until a second Environment): the engine is meant to move into
+ * `@wardic/core` behind a port its Environment implements, once a non-DOM Environment (canvas,
+ * native) gives that port a second implementation to be shaped against. Until then, NEW DOM
+ * access goes through a named read function in `measure.ts`, never inline here (no new
+ * `getComputedStyle`, `getBoundingClientRect`, `parentElement` walk or `contains` in this file):
+ * `measure.ts` is the port's surface, and #16 maps what this file still does inline.
  */
 import * as Box from "@wardic/core/Box"
 import * as Easing from "@wardic/core/Easing"
