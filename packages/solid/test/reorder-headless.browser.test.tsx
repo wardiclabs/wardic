@@ -10,7 +10,7 @@
 // every sample (Group.tsx:138-144); the group here reads it once per drag start.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { createReorderGroup, createReorderItem, type ReorderGroupWard, reorderItem, WardicProvider } from "@wardic/solid"
+import { createReorderGroup, createReorderItem, type ReorderGroup, reorderItem, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For, type JSX } from "solid-js"
@@ -44,7 +44,7 @@ interface Headless {
   readonly order: () => ReadonlyArray<string>
   readonly setOrder: (values: ReadonlyArray<string>) => void
   readonly reorders: ReadonlyArray<string>
-  readonly group: () => ReorderGroupWard<string>
+  readonly group: () => ReorderGroup<string>
   readonly groupEl: () => HTMLElement
   readonly item: (value: string) => HTMLElement
 }
@@ -61,9 +61,9 @@ interface HeadlessOptions {
 const mountHeadless = async (o: HeadlessOptions = {}): Promise<Headless> => {
   const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES.slice(0, o.n ?? 5))
   const reorders: Array<string> = []
-  let groupWard: ReorderGroupWard<string> | undefined
+  let groupWard: ReorderGroup<string> | undefined
   let groupEl: HTMLElement | undefined
-  function Item(props: { readonly group: ReorderGroupWard<string>; readonly value: string }): JSX.Element {
+  function Item(props: { readonly group: ReorderGroup<string>; readonly value: string }): JSX.Element {
     // eslint-disable-next-line solid/reactivity -- the value is static (read once at mount)
     const item = createReorderItem(props.group, { value: props.value })
     return (
@@ -228,7 +228,7 @@ describe("the headless Reorder API", () => {
   it("RH8: createReorderItem returns a Ward: callable with the user's ref and style, and it has .Provider", async () => {
     let userEl: HTMLElement | undefined
     let ward: ReturnType<typeof createReorderItem> | undefined
-    function Probe(props: { readonly group: ReorderGroupWard<string> }): JSX.Element {
+    function Probe(props: { readonly group: ReorderGroup<string> }): JSX.Element {
       // eslint-disable-next-line solid/reactivity
       ward = createReorderItem(props.group, { value: "a" })
       return <li {...ward({ ref: (el: HTMLElement) => (userEl = el), style: { ...ITEM, color: "rgb(1, 2, 3)" } })} data-value="a" />
@@ -255,7 +255,7 @@ describe("the headless Reorder API", () => {
   it("RH10: createReorderItem's user style may be a live getter, and stays reactive", async () => {
     const [color, setColor] = createSignal("rgb(1, 2, 3)")
     let li: HTMLElement | undefined
-    function Probe(props: { readonly group: ReorderGroupWard<string> }): JSX.Element {
+    function Probe(props: { readonly group: ReorderGroup<string> }): JSX.Element {
       // eslint-disable-next-line solid/reactivity
       const item = createReorderItem(props.group, { value: "a" })
       // Called once, outside the JSX (as Reorder.Item does): only the getter carries the change.

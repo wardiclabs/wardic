@@ -60,7 +60,7 @@ import {
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { runScoped, useWardicGate, useWardicProjection, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
-import { accessorOf, runSpine, type SpineInternals, useWardicWith, type Ward, type WardicConfig, type WardProps, type WardUserProps } from "./use-wardic.tsx"
+import { accessorOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardConfig, type WardProps, type WardUserProps } from "./create-ward.tsx"
 import { isServer } from "./server.ts"
 import { changesContext, createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
@@ -83,8 +83,14 @@ export interface ReorderGroupConfig<V> {
   readonly instructions?: string
 }
 
-/** The spreadable props a {@link ReorderGroupWard} returns. */
-export interface ReorderGroupWardProps {
+/** What a group's spread takes from the app: its `ref` and its `style`, which may be a live getter. */
+export interface ReorderGroupUserProps {
+  readonly ref?: (el: HTMLElement) => void
+  readonly style?: JSX.CSSProperties | undefined
+}
+
+/** The spreadable props a {@link ReorderGroup} returns. */
+export interface ReorderGroupSpread {
   readonly ref: (el: HTMLElement) => void
   readonly style: JSX.CSSProperties
 }
@@ -94,7 +100,7 @@ export interface ReorderGroupWardProps {
  * (with the user's ref and style merged), and read `group` (core's Reorder group),
  * `axis` (the resolved axis) and `move(value, toIndex)` (move a value in code).
  */
-export type ReorderGroupWard<V> = ((userProps?: WardUserProps) => ReorderGroupWardProps) & {
+export type ReorderGroup<V> = ((userProps?: ReorderGroupUserProps) => ReorderGroupSpread) & {
   readonly group: CoreReorder.Group<V>
   readonly axis: Accessor<CoreReorder.Axis>
   /** Move a value in code, and announce it (ADR-0037). */
@@ -117,7 +123,7 @@ export type ReorderItemLayout = true | "position"
  * A `<Reorder>` item's config: its `value`, its `layout` mode ({@link ReorderItemLayout}), plus
  * any motion config but `layoutId` and `drag`.
  */
-export type ReorderItemConfig<V> = { readonly value: V; readonly layout?: ReorderItemLayout } & Omit<WardicConfig, "layout" | "layoutId" | "drag">
+export type ReorderItemConfig<V> = { readonly value: V; readonly layout?: ReorderItemLayout } & Omit<WardConfig, "layout" | "layoutId" | "drag">
 
 /** An item's `layout` as its Layout mode: `"position"`, else `true` (ADR-0009, *Amendment (#42)*). */
 const itemLayoutOf = (layout: unknown): ReorderItemLayout =>
@@ -136,7 +142,7 @@ const itemLayoutOf = (layout: unknown): ReorderItemLayout =>
  * Client and server: on a server it renders the element's style and nothing else (no
  * controller, no runtime; its `group`, `move` and `controller` do nothing; ADR-0021).
  */
-export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> {
+export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<ReorderGroupConfig<V>>): ReorderGroup<V> {
   const cfg: Accessor<ReorderGroupConfig<V>> = accessorOf(config)
   if (isServer) {
     useWardicRuntime()
@@ -175,7 +181,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     ),
   )
 
-  const ward = (userProps: WardUserProps = NO_USER_PROPS): ReorderGroupWardProps => ({
+  const spread = (userProps: ReorderGroupUserProps = NO_GROUP_PROPS): ReorderGroupSpread => ({
     ref: mergeRefs(userProps.ref, (el: HTMLElement) => controller.attach(el)),
     get style() {
       return pipe(userProps.style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties
@@ -183,7 +189,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   })
 
   const move = (value: V, toIndex: number): void => controller.move(value, toIndex)
-  return Object.assign(ward, { group: controller.group, axis, move, controller, ...keyboardOf(cfg) })
+  return Object.assign(spread, { group: controller.group, axis, move, controller, ...keyboardOf(cfg) })
 }
 
 /** A group's keyboard reorder settings, as accessors (ADR-0037). */
@@ -200,7 +206,7 @@ const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
  */
 /**
  * What an item reads from its group: its controller's driver for the item, and the group's
- * axis. Any {@link ReorderGroupWard} is one. Its value type appears only in `item`'s
+ * axis. Any {@link ReorderGroup} is one. Its value type appears only in `item`'s
  * parameters, so `ItemGroup<never>` accepts a group of any value type.
  */
 type ItemGroup<V> = {
@@ -294,14 +300,14 @@ export type ReorderItemWard = ((userProps?: ReorderItemUserProps) => ReorderItem
 
 /**
  * Create a `<Reorder>` item in `group` (ADR-0020): spread the result onto the item's
- * element (`<li {...item()}>`), as with `useWardic`. `value` is the item's value in the
+ * element (`<li {...item()}>`), as with `createWard`. `value` is the item's value in the
  * group's `values` (static, read once); the rest is ordinary motion config, except
  * `layout` (the item is one), `layoutId` and `drag` (the group decides the axis).
  * The element gets the drag defaults, with the group's axis's `touch-action`
  * (overridable by its style), and the keyboard reorder's tab stop and instructions
  * (ADR-0037; pass the app's own `tabIndex` and `aria-describedby` through the spread's props).
  */
-export function createReorderItem<V>(group: ReorderGroupWard<V>, config: ReorderItemConfig<V> | Accessor<ReorderItemConfig<V>>): ReorderItemWard {
+export function createReorderItem<V>(group: ReorderGroup<V>, config: ReorderItemConfig<V> | Accessor<ReorderItemConfig<V>>): ReorderItemWard {
   const cfg: Accessor<ReorderItemConfig<V>> = accessorOf(config)
   const value = untrack(cfg).value
   const [element, setElement] = createSignal<HTMLElement>()
@@ -311,7 +317,7 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
     onTrue: (): SpineInternals => ({ dragAxis: () => true, baseStyle: () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }) }),
     onFalse: () => itemInternals(group, value, element, useWardicRuntime()),
   })
-  const ward = useWardicWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
+  const ward = createWardWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
   // The instructions element exists on the client only, so `aria-describedby` waits for the mount.
   const [describedBy, setDescribedBy] = createSignal<string>()
   if (!isServer) {
@@ -338,8 +344,8 @@ export function createReorderItem<V>(group: ReorderGroupWard<V>, config: Reorder
 
 const noop = (): void => {}
 
-/** A spread's user props when it's given none. */
-const NO_USER_PROPS: WardUserProps = {}
+/** A group's spread's user props when it's given none. */
+const NO_GROUP_PROPS: ReorderGroupUserProps = {}
 const NO_ITEM_PROPS: ReorderItemUserProps = {}
 
 /** A Reorder item's drag axis for its gesture's axis: a grid's `xy` is a free drag. Built once, at module load. */
@@ -353,17 +359,17 @@ const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<Cor
  * (`overflow-anchor: none` under the user's) and the app's axis, else `"y"`; its `group`,
  * `move` and `controller` do nothing.
  */
-const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGroupWard<V> => {
-  const ward = (userProps: WardUserProps = NO_USER_PROPS): ReorderGroupWardProps => ({
+const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGroup<V> => {
+  const spread = (userProps: ReorderGroupUserProps = NO_GROUP_PROPS): ReorderGroupSpread => ({
     ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noop, onDefined: identity }),
     style: pipe(userProps.style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties,
   })
   const controller = ReorderController.inert as unknown as ReorderController.ReorderController<V>
   const axis = (): CoreReorder.Axis => UndefinedOr.match(cfg().axis, { onUndefined: () => "y" as const, onDefined: (a: CoreReorder.Axis) => a })
-  return Object.assign(ward, { group: controller.group, axis, move: noop, controller, ...keyboardOf(cfg) })
+  return Object.assign(spread, { group: controller.group, axis, move: noop, controller, ...keyboardOf(cfg) })
 }
 
-const withoutValue = <V,>(config: ReorderItemConfig<V>): WardicConfig => {
+const withoutValue = <V,>(config: ReorderItemConfig<V>): WardConfig => {
   const { value: _value, ...rest } = config
   return rest
 }
@@ -376,10 +382,10 @@ export type ReorderItemDirectiveValue = {
   readonly group: ItemGroup<never>
   readonly value: unknown
   readonly layout?: ReorderItemLayout
-} & Omit<WardicConfig, "layout" | "layoutId" | "drag">
+} & Omit<WardConfig, "layout" | "layoutId" | "drag">
 
 /**
- * `use:reorderItem` — make an element a `<Reorder>` item (like `use:ward`):
+ * `use:reorderItem` — make an element a `<Reorder>` item (like `use:wardic`):
  * `<li use:reorderItem={{ group, value }}>`. CLIENT-ONLY (ADR-0003): its drag
  * defaults and `touch-action` are set at mount, not in server markup; use
  * {@link createReorderItem} or `Reorder.Item` for server-rendered items.
@@ -389,11 +395,11 @@ export type ReorderItemDirectiveValue = {
  */
 export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiveValue>): void {
   const first = untrack(value)
-  const cfg = (): WardicConfig => {
+  const cfg = (): WardConfig => {
     const { group: _group, value: _value, ...rest } = value()
     return { ...rest, layout: itemLayoutOf(rest.layout) }
   }
-  // As `use:ward`: a Variant child joins the nearest variant context; it provides none (#50).
+  // As `use:wardic`: a Variant child joins the nearest variant context; it provides none (#50).
   const node = createVariantNode(cfg, useVariantContext())
   const runtime = useWardicRuntime()
   const group = first.group as ItemGroup<unknown>
@@ -432,7 +438,7 @@ declare module "solid-js" {
 
 // --- Components (ADR-0020, D8: built on the headless API) --------------------------
 
-const GroupContext = createContext<ReorderGroupWard<unknown>>()
+const GroupContext = createContext<ReorderGroup<unknown>>()
 
 /** An element tag a `<Reorder>` group or item can render. */
 export type ReorderElementTag = keyof JSX.IntrinsicElements
@@ -502,7 +508,7 @@ interface ItemLocal<V> {
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>
   UndefinedOr.getOrThrow((wardic as unknown as Record<string, Component<Record<string, unknown>> | undefined>)[tag])
 
-export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps<V, Tag>): JSX.Element {
+function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps<V, Tag>): JSX.Element {
   const [local, rest] = splitProps(props as unknown as GroupLocal<V> & Record<string, unknown>, [
     "values",
     "onReorder",
@@ -532,7 +538,7 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
     },
   })
   return (
-    <GroupContext.Provider value={group as ReorderGroupWard<unknown>}>
+    <GroupContext.Provider value={group as ReorderGroup<unknown>}>
       <Tag {...rest} {...spread}>
         {local.children}
       </Tag>
@@ -544,8 +550,8 @@ export function ReorderGroup<V, Tag extends ReorderElementTag = "ul">(props: Reo
  * `Reorder.Item` (ADR-0020): a {@link createReorderItem} on the nearest `Reorder.Group`,
  * rendered as `as` (`"li"` by default). Outside a group it throws, as Motion's does.
  */
-export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V, Tag>): JSX.Element {
-  const group = useContext(GroupContext) as ReorderGroupWard<V> | undefined
+function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V, Tag>): JSX.Element {
+  const group = useContext(GroupContext) as ReorderGroup<V> | undefined
   if (Predicate.isUndefined(group)) throw new Error("Reorder.Item must be a child of Reorder.Group")
   // The item consumes every motion prop name (layoutId / drag included, though its type
   // omits them), so none reaches the DOM.
@@ -584,4 +590,4 @@ export function ReorderItem<V, Tag extends ReorderElementTag = "li">(props: Reor
 }
 
 /** `<Reorder>`: `Reorder.Group` and `Reorder.Item` (ADR-0020), as Motion's `Reorder`. */
-export const Reorder = { Group: ReorderGroup, Item: ReorderItem } as const
+export const Reorder = { Group, Item } as const

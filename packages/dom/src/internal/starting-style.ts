@@ -251,7 +251,7 @@ export const heldTouches: {
 /**
  * The Starting style of a `tag` element starting from `values`, projected with the DOM's
  * pure `project` and routed by tag (ADR-0014): an svg-inner element's keys become
- * attributes, everything else is style. `undefined` is an HTML element (a `useWardic`
+ * attributes, everything else is style. `undefined` is an HTML element (a `createWard`
  * spread, which doesn't know its tag).
  */
 export const startingStyle = (tag: string | undefined, values: Values.Values): SplitPatch =>

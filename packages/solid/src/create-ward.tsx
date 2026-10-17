@@ -1,5 +1,5 @@
 /**
- * `useWardic` — the primary motion spine of the Solid binding (ADR-0005).
+ * `createWard` — the primary motion spine of the Solid binding (ADR-0005).
  *
  * This is the fixed orchestration spine the binding contract prescribes:
  *
@@ -8,7 +8,7 @@
  *   `transition.type: "tween"`) -> per-frame `gate.write(id, values)` -> the
  *   gate projects the `Patch` and commits it onto the element (ADR-0034).
  *
- * The hook returns a callable `ward`: `<div {...ward()}>` spreads `ref` (wires
+ * `createWard` returns a **Ward**, a callable: `<div {...ward()}>` spreads `ref` (wires
  * the element on mount, where the gate commits) and a reactive `style` getter: the
  * Starting style until the first commit, then the user's style without the keys the
  * gate holds (ADR-0034). No frame goes through Solid.
@@ -18,8 +18,8 @@
  * That one resolved value is the `style` until the first commit (so the server /
  * pre-mount render emits it with no flash) AND the spring's `from` Snapshot (so frame 1
  * flows continuously out of the seed). `initial` is a static map / variant name
- * (SSR-serializable) at the hook boundary; the component layer unwraps an
- * accessor `initial` once before passing it in (see {@link WardicConfig.initial}).
+ * (SSR-serializable) at `createWard`'s boundary; the component layer unwraps an
+ * accessor `initial` once before passing it in (see {@link WardConfig.initial}).
  *
  * Scope (v0.1, this step): `initial` / `animate` / `whileHover` / `whileTap`.
  * NO variant-tree propagation, NO drag, NO exit/layout. Mixed numeric+string
@@ -230,16 +230,16 @@ export interface WardicDragTransition {
 }
 
 /**
- * Config accepted by {@link useWardic}.
+ * Config accepted by {@link createWard}.
  *
- * REACTIVITY LAYERING (step 21e): every field here is a STATIC value. The hook's
- * reactivity is solely via the WHOLE-CONFIG accessor: `useWardic(() => ({ ... }))`
+ * REACTIVITY LAYERING (step 21e): every field here is a STATIC value. A Ward's
+ * reactivity is solely via the WHOLE-CONFIG accessor: `createWard(() => ({ ... }))`
  * re-reads the config when a signal it touches changes, recomputing `target()`
  * and driving a Retarget. Per-field accessor unwrapping is the COMPONENT layer's
- * job ({@link "./wardic.tsx"} `MotionProps`), not the hook's — at the hook
+ * job ({@link "./wardic.tsx"} `MotionProps`), not `createWard`'s — at its
  * boundary a config field is always a plain value.
  */
-export interface WardicConfig {
+export interface WardConfig {
   /**
    * The per-mount seed — the *entry-from* state the animation departs from.
    *
@@ -416,11 +416,11 @@ export interface WardicConfig {
  * The Layout mode a `layout` prop names (ADR-0009, *Amendment (#42)*): a mode's name, else
  * `true` (`layout`, or a node a `layoutId`, `layoutScroll` or `layoutRoot` gives).
  */
-const layoutModeOf = (layout: WardicConfig["layout"]): Projection.LayoutMode =>
+const layoutModeOf = (layout: WardConfig["layout"]): Projection.LayoutMode =>
   Option.getOrElse(Option.liftPredicate(layout, isModeName), (): Projection.LayoutMode => true)
 
 /** Whether a `layout` prop names a Layout mode (a string), not `true` / `false`. */
-const isModeName = (layout: WardicConfig["layout"]): layout is Exclude<WardicConfig["layout"], boolean | undefined> => Predicate.isString(layout)
+const isModeName = (layout: WardConfig["layout"]): layout is Exclude<WardConfig["layout"], boolean | undefined> => Predicate.isString(layout)
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -438,7 +438,7 @@ export interface WardUserProps {
   readonly style?: JSX.CSSProperties | undefined
 }
 
-/** Spreadable props the {@link useWardic} `ward` callable returns. */
+/** Spreadable props the {@link createWard} `ward` callable returns. */
 export interface WardProps {
   /**
    * Ref callback — wires the element into the spine on mount (merging any
@@ -456,14 +456,14 @@ export interface WardProps {
 }
 
 /**
- * The callable returned by {@link useWardic}. Called with no args it returns
+ * The callable returned by {@link createWard}. Called with no args it returns
  * ward's own ref + animated style (back-compat); called with {@link WardUserProps}
  * it returns the MERGED spreadable (user ref + ward ref; user style with ward's
  * animated style on top).
  *
  * It also carries a `Provider` property (ADR-0007): `<ward.Provider>{children}</ward.Provider>`
  * publishes THIS instance's current variant NAME + transition down the tree, so
- * descendant `useWardic` calls inherit the variant by name (resolving it against
+ * descendant `createWard` calls inherit the variant by name (resolving it against
  * their own `variants` map).
  */
 export type Ward = ((userProps?: WardUserProps) => WardProps) & {
@@ -542,7 +542,7 @@ interface Resolution {
 /** Options for the internal {@link runSpine} helper. */
 /**
  * What a `<Reorder>` item adds to the spine (ADR-0020; internal, D9: nothing in
- * {@link WardicConfig}):
+ * {@link WardConfig}):
  *
  * - `dragAxis`: the gesture's axis, read at each drag's start and held until its end
  *   (`true` = free); it makes the element draggable without a `drag` config.
@@ -554,7 +554,7 @@ interface Resolution {
  * - `baseStyle`: style under the user's, above the drag defaults (the item's
  *   `touch-action`), read reactively.
  * - `tag`: the element's tag, set by `wardic.create(tag)`, so an svg-inner element's
- *   Starting style renders its attribute keys as attributes (ADR-0021; a `useWardic`
+ *   Starting style renders its attribute keys as attributes (ADR-0021; a `createWard`
  *   spread doesn't know its tag and stays all style).
  */
 export interface SpineInternals {
@@ -577,7 +577,7 @@ export interface RunSpineOptions {
   /** The element accessor; the spine is gated on it (started once defined). */
   readonly el: Accessor<HTMLElement | undefined>
   /** Reactive config accessor (animate / whileHover / whileTap / transition read reactively). */
-  readonly cfg: Accessor<WardicConfig>
+  readonly cfg: Accessor<WardConfig>
   /**
    * The variant context this element inherits from (ADR-0007): its nearest ancestor's with
    * variants, for a Variant child (#50, `variant-node.ts`'s `inherited`), else `undefined`.
@@ -613,7 +613,7 @@ export interface RunSpineOptions {
   readonly internal?: SpineInternals | undefined
   /**
    * The surface's live user style, the `style` link of a key's Base value (ADR-0022): a
-   * `useWardic` spread's (the style last given to `ward(userProps)`, which is the live getter
+   * `createWard` spread's (the style last given to `ward(userProps)`, which is the live getter
    * on `wardic.*`), or `wardic.create(Component)`'s. Read untracked, at need: a style change
    * never Retargets on its own. Omitted on the directives, whose base is the element's own
    * value (its inline style included, read once).
@@ -621,12 +621,12 @@ export interface RunSpineOptions {
   readonly styleOf?: (() => object | string | undefined) | undefined
   /**
    * Builds the {@link FlushSink} for the registered element: the element itself, plus, for a
-   * surface whose `style` prop reaches it (`useWardic`, `wardic.create(Component)`), the hooks
+   * surface whose `style` prop reaches it (`createWard`, `wardic.create(Component)`), the hooks
    * that switch that `style` (ADR-0034). The spine itself never reads the sink's hooks.
    */
   readonly makeSink: (el: HTMLElement) => FlushGate.Sink
   /**
-   * Whether the element's drag defaults and base style reach it with its props: a `useWardic`
+   * Whether the element's drag defaults and base style reach it with its props: a `createWard`
    * spread's `style` and attributes. Otherwise the spine sets them on the element at mount (the
    * directives, and a `wardic.create(Component)` wrap, in case its component doesn't pass them
    * on).
@@ -1255,28 +1255,30 @@ export function runSpine(opts: RunSpineOptions): void {
 }
 
 /**
- * Drive a Solid element through Wardic's motion spine.
+ * Create a **Ward**, one element's motion binding (ADR-0042): spread it onto the element
+ * (`<div {...ward()}>`) to drive it through Wardic's motion spine. Solid's `create*`
+ * convention: it owns computations under the current owner, as `createDrag` does.
  *
- * `config` may be a plain {@link WardicConfig} (back-compat) OR an
- * `Accessor<WardicConfig>` for reactive config: when the accessor reads signals,
+ * `config` may be a plain {@link WardConfig} (back-compat) OR an
+ * `Accessor<WardConfig>` for reactive config: when the accessor reads signals,
  * a change recomputes the override-stack `target()` and drives a
  * velocity-preserving Retarget through the existing Snapshot wiring. `animate` /
  * `whileHover` / `whileTap` / `transition` / `variants` are read reactively
  * through `cfg()`; `initial` is read EXACTLY ONCE at setup (`untrack`) — it is
  * the SSR/first-frame seed and must never re-seed after mount (ADR-0003).
  *
- * @param config initial/animate/whileHover/whileTap + transition (see {@link WardicConfig}), or an accessor of it.
- * @returns a callable `ward` to spread onto a JSX element.
+ * @param config initial/animate/whileHover/whileTap + transition (see {@link WardConfig}), or an accessor of it.
+ * @returns the Ward: call it to spread onto a JSX element.
  */
-export function useWardic(config: WardicConfig | Accessor<WardicConfig>): Ward {
-  return useWardicWith(config, undefined)
+export function createWard(config: WardConfig | Accessor<WardConfig>): Ward {
+  return createWardWith(config, undefined)
 }
 
 /**
- * {@link useWardic} with a `<Reorder>` item's additions (internal, ADR-0020; not
+ * {@link createWard} with a `<Reorder>` item's additions (internal, ADR-0020; not
  * exported from the package).
  */
-export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals = NO_INTERNALS): Ward {
+export function createWardWith(config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward {
   const runtime = useWardicRuntime()
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
@@ -1285,9 +1287,9 @@ export function useWardicWith(config: WardicConfig | Accessor<WardicConfig>, int
   // (Solid's createUniqueId, not a module counter — see ADR note / no global state).
   const id = createUniqueId()
 
-  // Normalize to an Accessor<WardicConfig>. A WardicConfig is always an object,
+  // Normalize to an Accessor<WardConfig>. A WardConfig is always an object,
   // so `typeof config === "function"` is a safe discriminant for the accessor.
-  const cfg: Accessor<WardicConfig> = accessorOf(config)
+  const cfg: Accessor<WardConfig> = accessorOf(config)
 
   // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
   // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
@@ -1415,14 +1417,14 @@ export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Re
 }
 
 /**
- * {@link useWardicWith} during a server render (ADR-0021, decisions 1 and 4): the element's
+ * {@link createWardWith} during a server render (ADR-0021, decisions 1 and 4): the element's
  * Starting style and static attributes, computed purely, and nothing else: no runtime, no
  * spine, no signals. Hydration keys must land where the client's render puts them, so it
  * makes the client's one `createUniqueId` call in the same place, and its `.Provider`
  * renders the same component nesting, with a variant context that carries the names and
  * transitions but no orchestration.
  */
-const serverWard = (config: WardicConfig | Accessor<WardicConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
+const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
   const c = accessorOf(config)()
@@ -1458,7 +1460,7 @@ const noRef = (): void => {}
  * The drag axis a spine runs with: its static `drag` config, else `true` for a
  * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
  */
-export const dragAxisOf = (config: WardicConfig, internal: SpineInternals = NO_INTERNALS): boolean | "x" | "y" | undefined =>
+export const dragAxisOf = (config: WardConfig, internal: SpineInternals = NO_INTERNALS): boolean | "x" | "y" | undefined =>
   Option.getOrUndefined(
     Option.orElse(Option.filter(Option.fromUndefinedOr(config.drag), (drag) => drag !== false), () =>
       Option.map(Option.fromUndefinedOr(internal.dragAxis), (): true => true)),

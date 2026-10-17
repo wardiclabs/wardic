@@ -20,7 +20,7 @@ import {
   streamToSignal,
   LayoutGroup,
   Reorder,
-  useWardic,
+  createWard,
   wardic,
   type WardicEnv,
   WardicProvider,
@@ -93,7 +93,7 @@ export const F1 = live(() => (
 ))
 
 function Spread(): JSX.Element {
-  const ward = useWardic({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN })
+  const ward = createWard({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN })
   return (
     <section data-k="f2" {...ward()}>
       f2

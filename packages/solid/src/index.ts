@@ -1,13 +1,10 @@
 /**
- * @wardic/solid — the Solid framework binding (the v0.1 user surface).
- *
- * Will provide the layered API from docs/plans/v0.1.md: `WardicProvider`, the primary
- * `useWardic` hook, variant orchestration (`ward.Provider`), the `wardic.create()` HOC,
- * the `use:ward` directive, `<AnimatePresence>` / `<LayoutGroup>`, and the low-level
- * `createX` primitives. Built directly on `effect`'s in-core reactivity
- * (`effect/reactivity`) — there is no `@effect-atom/atom-solid` dependency.
- *
- * Only a placeholder provider exists today — see implementation order steps 10–15.
+ * @wardic/solid — the Solid framework binding: `WardicProvider`; `createWard`, a **Ward** to
+ * spread onto an element, with variant orchestration through `ward.Provider`; `wardic.*`,
+ * `wardic.create()` and the `use:wardic` directive; `<AnimatePresence>`, `<LayoutGroup>` and
+ * `<Reorder>`; and the low-level `createX` primitives (ADR-0008, ADR-0042). Built directly on
+ * `effect`'s in-core reactivity (`effect/reactivity`) — there is no `@effect-atom/atom-solid`
+ * dependency.
  */
 export const VERSION = "0.1.0-alpha.0"
 
@@ -64,14 +61,14 @@ export {
 } from "./sensors.ts"
 
 /**
- * `useWardic` — the primary motion spine (ADR-0005): recognizers -> Override
- * stack -> spring/tween Retarget -> the gate, which commits each frame onto the
- * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable `ward` to
- * spread onto a JSX element (`<div {...ward()}>`).
+ * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->
+ * Override stack -> spring/tween Retarget -> the gate, which commits each frame onto the
+ * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable
+ * `Ward` to spread onto a JSX element (`<div {...ward()}>`).
  */
 export {
   type Ward,
-  type WardicConfig,
+  type WardConfig,
   type WardicDragTransition,
   type WardicReducedMotion,
   type WardicTransformShorthands,
@@ -79,13 +76,13 @@ export {
   type WardicValues,
   type WardProps,
   type WardUserProps,
-  useWardic,
-} from "./use-wardic.tsx"
+  createWard,
+} from "./create-ward.tsx"
 
 /**
- * `<Reorder>` (ADR-0020, ADR-0008 Tier 1): `Reorder.Group` / `Reorder.Item` (also
- * named `ReorderGroup` / `ReorderItem`), built on the headless API: `createReorderGroup`
- * and `createReorderItem` spread onto any elements, and the `use:reorderItem` directive
+ * `<Reorder>` (ADR-0020, ADR-0008 Tier 1): `Reorder.Group` / `Reorder.Item`, built on the
+ * headless API: `createReorderGroup` (a `ReorderGroup`) and `createReorderItem` (a
+ * `ReorderItemWard`) spread onto any elements, and the `use:reorderItem` directive
  * (client-only). The app owns `values`, sets them from `onReorder`, and keys its items
  * with `<For>`.
  */
@@ -94,13 +91,12 @@ export {
   createReorderItem,
   Reorder,
   type ReorderElementTag,
-  ReorderGroup,
+  type ReorderGroup,
   type ReorderGroupProps,
-  ReorderItem,
   type ReorderItemProps,
   type ReorderGroupConfig,
-  type ReorderGroupWard,
-  type ReorderGroupWardProps,
+  type ReorderGroupSpread,
+  type ReorderGroupUserProps,
   type ReorderItemConfig,
   type ReorderItemSpread,
   type ReorderItemUserProps,
@@ -112,7 +108,7 @@ export {
 
 /**
  * `runDragTrack` (ADR-0004): the binding-orchestrated drag track shared by both
- * the `useWardic` signal-sink path and the `wardic.create(Component)` commit-sink
+ * the `createWard` signal-sink path and the `wardic.create(Component)` commit-sink
  * path (it lives in `runSpine`, which both share). The pointer DIRECT-SETS `x`/`y`
  * while the spring drives every other key + `whileDrag`; the release is pluggable
  * (decay momentum / snapToOrigin / rest-in-place).
@@ -128,7 +124,7 @@ export {
  * Variant orchestration context (ADR-0007): the `WardicVariantContext` that
  * carries the parent's current variant NAME + inherited transition down the
  * tree, and the `useVariantContext` reader. `ward.Provider` (a property on the
- * `useWardic` callable) publishes into it; inheriting children resolve the name
+ * `createWard` callable) publishes into it; inheriting children resolve the name
  * against their own `variants` map.
  */
 export {
@@ -138,14 +134,14 @@ export {
 } from "./variants.ts"
 
 /**
- * `wardic.create(tag)` HOC + the `wardic.*` motion-element proxy (ADR-0008 Tier
- * 1): `wardic.div` / `wardic.create("div")` build a motion component that wires
- * the element's motion props through `useWardic` and merges the animated style
- * over the user's static style (`Style.over`) while preserving the user's ref
- * (`mergeRefs`) and passing all other props through.
+ * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` motion-element proxy, `wardic.create(tag)`
+ * HOC, and, called, the `use:wardic` directive. `wardic.div` / `wardic.create("div")` build a
+ * motion component that puts a Ward on its element and merges the animated style over the
+ * user's static style (`Style.over`) while preserving the user's ref (`mergeRefs`) and passing
+ * all other props through. `<div use:wardic={config}>` puts one on any element, client-only:
+ * import `wardic` for it to resolve.
  */
 export {
-  create,
   type Wardic,
   type WardicMotionProps,
   type WardicProps,
@@ -180,15 +176,3 @@ export {
  */
 export { type UseLayoutMemberOptions, LayoutGroup, useLayoutMember } from "./layout.tsx"
 export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
-
-/**
- * `use:ward` — the directive surface (ADR-0008 Tier 1). `<div use:ward={config}>`
- * drives the host element through the shared spine (the same path as every Wardic
- * element). CLIENT-ONLY (post-hydration, no SSR initial —
- * may flash; use `useWardic` / `wardic.create` for SSR-correct initial, ADR-0003).
- *
- * IMPORTANT: consumers MUST `import { ward } from "@wardic/solid"` for `use:ward`
- * to resolve — Solid's `use:` compiles to a bare `ward(...)` reference, so the
- * import retains the symbol (no tree-shake).
- */
-export { ward } from "./directive.ts"

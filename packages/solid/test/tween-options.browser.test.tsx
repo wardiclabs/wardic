@@ -4,7 +4,7 @@
 // check reads well inside its window.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { useWardic, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { createWard, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -63,13 +63,13 @@ describe("a tween transition with no duration keeps its other options (#107)", (
     const els: Array<HTMLElement> = []
     const [open, setOpen] = createSignal(false)
     function App() {
-      const parent = useWardic(() => ({
+      const parent = createWard(() => ({
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
         animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { type: "tween", staggerChildren: 0.25 },
       }))
       const Child = (p: { readonly i: number }) => {
-        const child = useWardic({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
+        const child = createWard({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
         return <div {...child({ ref: (node: HTMLElement) => (els[p.i] = node) })}>c</div>
       }
       return (

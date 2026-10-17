@@ -4,12 +4,12 @@
 //
 // - LCS1: on a `wardic.div`: start once its first step is painted (the element has moved off its
 //   origin by then), complete once it has landed.
-// - LCS2: through `useWardic`, the same.
+// - LCS2: through `createWard`, the same.
 // - LCS3: on `Reorder.Item`s the app reorders: each moved item starts and completes.
 // - LCS4: `animateLayout(fn, { onSettled })` settles after the last complete.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { type AnimateLayout, Reorder, useAnimateLayout, useWardic, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { type AnimateLayout, Reorder, useAnimateLayout, createWard, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
@@ -49,11 +49,11 @@ it("LCS1: on a wardic.div, start once its first step is painted and complete onc
   expect(complete, "landed: no transform left").toBe("complete none")
 })
 
-it("LCS2: through useWardic, start and complete", async () => {
+it("LCS2: through createWard, start and complete", async () => {
   const [moved, setMoved] = createSignal(false)
   const calls: Array<string> = []
   const Box = () => {
-    const ward = useWardic(() => ({
+    const ward = createWard(() => ({
       layout: true,
       layoutDependency: moved(),
       transition: TWEEN,

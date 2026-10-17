@@ -6,7 +6,7 @@
 // opacity stayed at 1.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { useWardic, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import { createWard, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import { createSignal, type JSX } from "solid-js"
@@ -56,10 +56,10 @@ describe("a custom property keeps its name (#151)", () => {
     expectHalf(el)
   })
 
-  it("CP2: through a useWardic spread", async () => {
+  it("CP2: through a createWard spread", async () => {
     let el!: HTMLElement
     function Spread(): JSX.Element {
-      const ward = useWardic({ animate: HALF, transition: TWEEN })
+      const ward = createWard({ animate: HALF, transition: TWEEN })
       return <div {...ward({ ref: (n: HTMLElement) => (el = n), style: LEVEL })} />
     }
     render(() => (

@@ -4,7 +4,7 @@
 // variant ancestor's `initial` name as its Starting style. Only names pass down, read once.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import { useWardic, wardic } from "@wardic/solid"
+import { createWard, wardic } from "@wardic/solid"
 import * as Effect from "effect/Effect"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -42,9 +42,9 @@ describe("variant inheritance in a server render (#50)", () => {
     expectStartingStyle(first(html, "li"), VARIANTS.hidden)
   })
 
-  it("VI2: through useWardic's ward.Provider too", () => {
+  it("VI2: through createWard's ward.Provider too", () => {
     function List(): JSX.Element {
-      const ward = useWardic({ initial: "hidden", animate: "shown", variants: VARIANTS })
+      const ward = createWard({ initial: "hidden", animate: "shown", variants: VARIANTS })
       return (
         <ul {...ward()}>
           <ward.Provider>

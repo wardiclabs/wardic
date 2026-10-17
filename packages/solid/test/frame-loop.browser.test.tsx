@@ -17,7 +17,7 @@ import * as DomInput from "@wardic/dom/DomInput"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as DomProbe from "@wardic/dom/DomProbe"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import { AnimatePresence, useWardic, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, createWard, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
@@ -519,14 +519,14 @@ describe("a tween with a fractional repeat settles on its last segment (ADR-0027
       function App() {
         const [open, set] = createSignal(false)
         setOpen = set
-        const parent = useWardic(() => ({
+        const parent = createWard(() => ({
           initial: { opacity: 0 },
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
           animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
           transition: { when: "afterChildren" as const },
         }))
         const Child = () => {
-          const child = useWardic({
+          const child = createWard({
             initial: { opacity: 0 },
             variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
             transition: { type: "tween", duration: 0.1, repeat: 1.5 },

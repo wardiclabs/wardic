@@ -10,7 +10,7 @@ import {
   createReducedMotion,
   LayoutGroup,
   Reorder,
-  useWardic,
+  createWard,
   wardic,
   WardicProvider,
   type WardicTransition,
@@ -54,10 +54,10 @@ const CardRef = wardic.create(RefOnly)
 const CardInner = wardic.create(StyleInner)
 
 function Spread(): JSX.Element {
-  const ward = useWardic({ initial: FADED, animate: REST, transition: EASE })
+  const ward = createWard({ initial: FADED, animate: REST, transition: EASE })
   return (
     <section data-ssr-k="spread" {...ward({ style: cardStyle })}>
-      useWardic spread on a section
+      createWard spread on a section
     </section>
   )
 }

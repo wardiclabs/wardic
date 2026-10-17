@@ -11,7 +11,7 @@
  *
  * This file owns only the context plumbing. `variant-node.ts` decides what each element
  * provides and whether it joins its ancestor (CONTEXT.md, **Variant child**); every
- * `wardic.*` element, component wrap and `<Reorder.Item>` provides it, and a `useWardic`
+ * `wardic.*` element, component wrap and `<Reorder.Item>` provides it, and a `createWard`
  * spread publishes it through `ward.Provider` (#50).
  *
  * Extensibility (ADR-0007, step 21b): the context value is intentionally an
@@ -21,7 +21,7 @@
  */
 import type * as Stagger from "@wardic/core/Stagger"
 import { type Accessor, createContext, useContext } from "solid-js"
-import type { WardicTransition } from "./use-wardic.tsx"
+import type { WardicTransition } from "./create-ward.tsx"
 
 /**
  * The handle a child receives from {@link WardicVariantContextValue.register}
@@ -117,7 +117,7 @@ export const WardicVariantContext = createContext<WardicVariantContextValue | un
 
 /**
  * Reads the nearest {@link WardicVariantContext} value, or `undefined` when no
- * `ward.Provider` is in scope. `useWardic` uses this to apply the ADR-0007
+ * `ward.Provider` is in scope. `createWard` uses this to apply the ADR-0007
  * resolution priority (local `animate` > inherited variant name > `initial`).
  */
 export const useVariantContext = (): WardicVariantContextValue | undefined => useContext(WardicVariantContext)

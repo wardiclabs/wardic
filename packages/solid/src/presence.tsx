@@ -5,7 +5,7 @@
  * reactive owner (and would remove its DOM node) the instant the `<Show>` (or
  * other control flow) that renders it flips false. So exit is PARENT-DRIVEN:
  *
- *   1. While a child is alive, its `useWardic` spine REGISTERS a record with the
+ *   1. While a child is alive, its `createWard` spine REGISTERS a record with the
  *      nearest `<AnimatePresence>` via {@link PresenceContext}. The record holds
  *      two LIVE mutable refs: `snapshot.current` (the latest emitted value-map,
  *      updated each frame by the spine) and `exit.current` (the exit target,
@@ -81,7 +81,7 @@ export interface PresenceRecord {
   readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
 }
 
-/** The value `<AnimatePresence>` publishes to descendant `useWardic` spines. */
+/** The value `<AnimatePresence>` publishes to descendant `createWard` spines. */
 export interface PresenceContextValue {
   /**
    * Register a child's live record. Returns a disposer the registrant MAY call,
@@ -106,7 +106,7 @@ export const presenceBlocksInitial = (presence: PresenceContextValue | undefined
 
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
- * there is no presence in scope — `useWardic` then skips exit registration.
+ * there is no presence in scope — `createWard` then skips exit registration.
  */
 export const PresenceContext = createContext<PresenceContextValue | undefined>(undefined)
 
@@ -143,7 +143,7 @@ export interface AnimatePresenceProps {
  * `<AnimatePresence>` — wraps a single (optionally conditional) child and
  * animates its exit before unmount. Must be used inside a `<WardicProvider>`
  * (it drives the exit on the provider runtime) and may wrap any control flow
- * (e.g. `<Show>`); the leaving child must be a `wardic.*` element / `useWardic`
+ * (e.g. `<Show>`); the leaving child must be a `wardic.*` element / `createWard`
  * spine under this presence so it registers an exit record.
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
@@ -356,7 +356,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
 
   // Inner tracker: resolved + the tracking effect MUST run UNDER the
   // PresenceContext.Provider, so the children's reactive owners are created
-  // within the context and their `useWardic` spines see `usePresenceContext()`.
+  // within the context and their `createWard` spines see `usePresenceContext()`.
   // (Resolving children() in the outer body would put their owners ABOVE the
   // provider and they'd never register an exit record.)
   const Tracker = (): JSX.Element => {

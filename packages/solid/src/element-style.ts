@@ -1,5 +1,5 @@
 /**
- * The `style` a Wardic element is rendered with, for a `useWardic` spread and a
+ * The `style` a Wardic element is rendered with, for a `createWard` spread and a
  * `wardic.create(Component)` wrap (ADR-0021 decision 6, ADR-0034). The flush gate commits every
  * frame onto the element, so `style` carries Wardic's values only until the first commit:
  *

@@ -30,7 +30,7 @@ import {
   runScoped,
   streamToSignal,
   useAnimateLayout,
-  useWardic,
+  createWard,
   useWardicFiber,
   useWardicGate,
   useWardicRuntime,
@@ -102,9 +102,9 @@ const RefOnly = (p: { readonly ref?: (el: HTMLElement) => void; readonly childre
 )
 const WRefOnly = wardic.create(RefOnly)
 
-/** A `useWardic` spread whose ward.Provider passes its variant down. */
+/** A `createWard` spread whose ward.Provider passes its variant down. */
 function Spread(): JSX.Element {
-  const ward = useWardic({ initial: "hidden", animate: "shown", variants: VARIANTS })
+  const ward = createWard({ initial: "hidden", animate: "shown", variants: VARIANTS })
   return (
     <section {...ward()}>
       <ward.Provider>
@@ -220,9 +220,9 @@ describe("a server render on DomLive (ADR-0021)", () => {
     expect(drag?.attrs.draggable).toBe("false")
   })
 
-  it("SV5: a useWardic spread renders the Starting style", () => {
+  it("SV5: a createWard spread renders the Starting style", () => {
     function Section(): JSX.Element {
-      const ward = useWardic({ initial: { opacity: 0, y: 4 } })
+      const ward = createWard({ initial: { opacity: 0, y: 4 } })
       return <section {...ward()}>s</section>
     }
     const [section] = tagsOf(serve(() => <Section />))

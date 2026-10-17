@@ -4,7 +4,7 @@
 // frames: crossing-time ORDERING for stagger, GATING WINDOWS for `when`, and
 // eventual SETTLE. Real rAF + real Effect scheduling; no stubbed clock.
 import { cleanup, render } from "@solidjs/testing-library"
-import { useWardic, WardicProvider } from "@wardic/solid"
+import { createWard, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import { afterEach, expect, it } from "vitest"
@@ -56,13 +56,13 @@ const renderStagger = (
     function App() {
       const [open, s] = createSignal(false)
       setOpen = s
-      const parent = useWardic(() => ({
+      const parent = createWard(() => ({
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
         animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: parentTransition,
       }))
       const Child = (p: { readonly i: number }) => {
-        const child = useWardic({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
+        const child = createWard({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
         return <div {...child({ ref: (node: HTMLElement) => (els[p.i] = node) })}>c</div>
       }
       return (
@@ -112,14 +112,14 @@ it("(c) when:beforeChildren — child is GATED at 0 while the parent rises, rele
     function App() {
       const [open, s] = createSignal(false)
       setOpen = s
-      const parent = useWardic(() => ({
+      const parent = createWard(() => ({
         initial: { opacity: 0 },
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
         animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { when: "beforeChildren" as const },
       }))
       const Child = () => {
-        const child = useWardic({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
+        const child = createWard({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
         return <div {...child({ ref: (n: HTMLElement) => (childEl = n) })}>c</div>
       }
       return (
@@ -155,14 +155,14 @@ it("(d) when:afterChildren — parent is GATED at 0 while the child rises, relea
     function App() {
       const [open, s] = createSignal(false)
       setOpen = s
-      const parent = useWardic(() => ({
+      const parent = createWard(() => ({
         initial: { opacity: 0 },
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
         animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         transition: { when: "afterChildren" as const },
       }))
       const Child = () => {
-        const child = useWardic({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
+        const child = createWard({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, closed: { opacity: 0 } } })
         return <div {...child({ ref: (n: HTMLElement) => (childEl = n) })}>c</div>
       }
       return (
@@ -195,7 +195,7 @@ it("(e) a child WITHOUT a parent Provider is unaffected (no stagger/gating)", as
     function App() {
       const [open, s] = createSignal(false)
       setOpen = s
-      const lone = useWardic(() => ({
+      const lone = createWard(() => ({
         initial: { opacity: 0 },
         variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
         animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),

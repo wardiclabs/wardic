@@ -309,7 +309,7 @@ The accumulator every binding writes an element's values into. It merges each el
 _Avoid_: batcher, scheduler (Effect's), coordinator (the **Frame loop**'s old name).
 
 **Imperative path**:
-How a Frame stream renders outside a binding (canvas, native, tests): pushed through Project→Commit by the `applyTo` combinator, one Commit per Frame, with no **Flush gate**. A binding's elements, `wardic.*`, `useWardic` and `use:ward` alike, are committed by the gate (#79).
+How a Frame stream renders outside a binding (canvas, native, tests): pushed through Project→Commit by the `applyTo` combinator, one Commit per Frame, with no **Flush gate**. A binding's elements, `wardic.*`, `createWard` and `use:wardic` alike, are committed by the gate (#79).
 _Avoid_: manual path; reactive path (gone with #79: no Frame reaches an element through JSX).
 
 **Starting style**:
@@ -327,6 +327,16 @@ _Avoid_: default (a transform key's Identity, which is one kind of Own value), f
 **Own value**:
 An element's value for a key before Wardic writes it. For a transform key it's the key's **Identity**, pure and in core. For any other key, the element's Environment reads it from the element (in the DOM, the computed style or an SVG attribute), once, when the key first needs it, on the client after mount. It's never read on a server (ADR-0021).
 _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
+
+### Binding
+
+**Ward**:
+One element's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive.
+_Avoid_: motion component (Motion's), controller, spine (the code that runs it).
+
+**Wardic element**:
+An element with a **Ward** on it.
+_Avoid_: motion element, animated element.
 
 ## Relationships
 

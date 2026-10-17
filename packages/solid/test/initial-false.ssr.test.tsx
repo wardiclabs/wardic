@@ -4,7 +4,7 @@
 // and `<AnimatePresence initial={false}>` starts the child it renders at its `animate`.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import { AnimatePresence, useWardic, wardic } from "@wardic/solid"
+import { AnimatePresence, createWard, wardic } from "@wardic/solid"
 import * as Effect from "effect/Effect"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -43,9 +43,9 @@ describe("initial={false} in a server render (#134)", () => {
     expectStartingStyle(first(html, "div"), VARIANTS.shown)
   })
 
-  it("IS3: through useWardic and a component wrap too", () => {
+  it("IS3: through createWard and a component wrap too", () => {
     function Spread(): JSX.Element {
-      const ward = useWardic({ initial: false, animate: { opacity: 0.4 } })
+      const ward = createWard({ initial: false, animate: { opacity: 0.4 } })
       return <section {...ward()} />
     }
     expectStartingStyle(first(serve(() => <Spread />), "section"), { opacity: 0.4 })

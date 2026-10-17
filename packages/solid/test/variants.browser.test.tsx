@@ -7,7 +7,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal } from "solid-js"
-import { useWardic, WardicProvider } from "@wardic/solid"
+import { createWard, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { until } from "./browser-helpers.ts"
 
@@ -26,12 +26,12 @@ describe("variant propagation — inheritance by name", () => {
       function App() {
         const [open, setOpenSig] = createSignal(false)
         setOpen = setOpenSig
-        const parent = useWardic(() => ({
+        const parent = createWard(() => ({
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
           animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         }))
         function Child() {
-          const child = useWardic({
+          const child = createWard({
             initial: { opacity: 0.3 },
             variants: { open: { opacity: 1 }, closed: { opacity: 0.3 } },
           })
@@ -74,12 +74,12 @@ describe("variant propagation — inheritance by name", () => {
       function App() {
         const [open, setOpenSig] = createSignal(false)
         setOpen = setOpenSig
-        const parent = useWardic(() => ({
+        const parent = createWard(() => ({
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
           animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         }))
         function Child() {
-          const child = useWardic({
+          const child = createWard({
             initial: { opacity: 0.5 },
             animate: { opacity: 0.5 },
             variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
@@ -118,19 +118,19 @@ describe("variant propagation — inheritance by name", () => {
       function App() {
         const [open, setOpenSig] = createSignal(false)
         setOpen = setOpenSig
-        const parent = useWardic(() => ({
+        const parent = createWard(() => ({
           variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
           animate: Bool.match(open(), { onTrue: () => "open", onFalse: () => "closed" }),
         }))
         function ChildA() {
-          const child = useWardic({
+          const child = createWard({
             initial: { opacity: 0.2 },
             variants: { open: { opacity: 0.8 }, closed: { opacity: 0.2 } },
           })
           return <div {...child({ ref: (node) => (aEl = node) })}>a</div>
         }
         function ChildB() {
-          const child = useWardic({
+          const child = createWard({
             initial: { opacity: 0.1 },
             variants: { open: { opacity: 0.6 }, closed: { opacity: 0.1 } },
           })
