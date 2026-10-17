@@ -10,6 +10,8 @@
 // width change finishes fire no complete, and settle a Declared layout change waiting on them (#191, RB11).
 // A burst of width changes ends in one blocked pass, however long it lasts: each change restarts the
 // block's wait (RB8, RB12).
+// The width comes from the Environment's `Probe.viewport`, written inside the resize event, so the
+// block is set in the event's own dispatch, before any scheduler hop (#45, RB13).
 // Before, nothing re-measured on a resize, so the next pass animated every node from
 // its box before the resize (#39).
 import { describe, expect, it } from "@effect/vitest"
@@ -18,6 +20,7 @@ import { page } from "vitest/browser"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames, wait } from "./projection-harness.ts"
 import * as Option from "effect/Option"
+import * as Scheduler from "effect/Scheduler"
 
 let width = 0
 let height = 0
@@ -306,6 +309,40 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     expect(calls, "finished early: no complete, and settled").toEqual(["start c0", "start c1", "start c2", "settled"])
     fireFrames(30)
     expect(calls.filter((c) => c.startsWith("complete"))).toEqual([])
+    e.dispose()
+  })
+
+  it("RB13: the block is set inside the resize event's own dispatch, before any scheduler hop (#45)", async () => {
+    // A browser's setTimeout(0) scheduler: a hop is a task after the event, not the microtask the
+    // test tier's polyfill makes it, which could land between two listeners of one dispatch.
+    const scheduler = new Scheduler.MixedScheduler("async", (task) => {
+      const timer = setTimeout(task, 0)
+      return () => clearTimeout(timer)
+    })
+    const e = makeEngine(makeSink().sink, undefined, scheduler)
+    const els = centredColumn(5)
+    const handles = await mount(e, els)
+    // RB10's rule, in the event: with the block set, a pass due isn't run at a Declared layout
+    // change's call. Set a scheduler hop later, it would run there, unblocked.
+    let atCall = -1
+    const inTheEvent = (): void => {
+      handles[0]!.notify()
+      const before = e.spans.length
+      e.system.animateLayout(() => {
+        els[1]!.parentElement!.insertBefore(els[2]!, els[1]!)
+      })
+      atCall = e.spans.length - before
+    }
+    window.addEventListener("resize", inTheEvent)
+    try {
+      await narrow()
+    } finally {
+      window.removeEventListener("resize", inTheEvent)
+    }
+    expect(atCall, "no pass at the call: the block was already set in this dispatch").toBe(0)
+    await endOfTask()
+    expect(e.spans.at(-1)?.blocked).toBe(true)
+    expect(e.spans.at(-1)?.seeded).toBe(0)
     e.dispose()
   })
 })

@@ -58,6 +58,7 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Inertia from "@wardic/core/Inertia"
 import * as Microtask from "@wardic/core/Microtask"
 import type * as Point from "@wardic/core/Point"
+import * as Probe from "@wardic/core/Probe"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Spring from "@wardic/core/Spring"
@@ -73,11 +74,12 @@ import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
-import { constFalse, constTrue, identity } from "effect/Function"
+import { constFalse, constTrue, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { AtomRegistry } from "effect/reactivity"
 import {
   type Holdable,
   holdTransform,
@@ -115,10 +117,11 @@ const MAX_ROUNDS = 5
 
 /**
  * What the engine needs from its Environment: the {@link FrameLoop} it runs the coordinator on
- * (ADR-0027, #75), and the `Renderer` (to drive a presence-retained leaving Follower whose gate
- * registration was torn down on owner disposal — ADR-0010).
+ * (ADR-0027, #75), the `Renderer` (to drive a presence-retained leaving Follower whose gate
+ * registration was torn down on owner disposal — ADR-0010), and the `Probe`'s viewport, read
+ * through the Environment's `AtomRegistry`, for the Resize block (ADR-0018, *Amendment (#45)*).
  */
-export type ProjectionServices = FrameLoop.FrameLoop | Renderer.Renderer
+export type ProjectionServices = FrameLoop.FrameLoop | Renderer.Renderer | Probe.Probe | AtomRegistry.AtomRegistry
 
 /**
  * How the engine runs its Effects: synchronously, and forked. `ProjectionSystem.make` builds one
@@ -1337,10 +1340,12 @@ export const makeProjectionSystem = (
   let settleCallbacks: Array<() => void> = []
   let settlings: ReadonlyArray<Settling> = []
   let disposed = false
-  // The Resize block (ADR-0018 *Amendment (#39)*): the window width last seen, whether
+  // The Resize block (ADR-0018 *Amendment (#39)*): the viewport width last seen (the
+  // Environment's `Probe.viewport`, *Amendment (#45)*) and how to stop watching it, whether
   // the next Measure pass is blocked, and the wait that runs it if nothing else does: a fiber
   // in the engine's Scope (ADR-0025, *Amendment (#69)*, decision 4).
   let resizeListening = false
+  let stopViewport: () => void = constVoid
   let lastWidth = 0
   let resizeBlocked = false
   const resizeWait = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
@@ -3725,7 +3730,7 @@ export const makeProjectionSystem = (
   }
 
   /**
-   * A window resize (ADR-0018 *Amendment (#39)*; Motion's resize listener,
+   * A viewport resize (ADR-0018 *Amendment (#39)*; Motion's resize listener,
    * create-projection-node.ts:459-487 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
    * Only a width change counts, as Motion's: it finishes every running layout
    * animation but a dragged node's (which keeps following the pointer), and blocks the
@@ -3734,9 +3739,8 @@ export const makeProjectionSystem = (
    * here the timer runs the blocked pass itself if none ran, so the boxes are fresh
    * for the next trigger (and a drag start runs it at once, see `dragStart`).
    */
-  const onResize = (): void => {
+  const onResize = (width: number): void => {
     if (disposed) return
-    const width = window.innerWidth
     if (width === lastWidth) return
     lastWidth = width
     const finished: Array<NodeState> = []
@@ -4329,15 +4333,20 @@ export const makeProjectionSystem = (
         heldSeeds.delete(node.layoutId)
       }
     }
-    // No observer, and no window, on a server.
+    // No observer on a server.
     const Observer = (globalThis as { readonly ResizeObserver?: typeof ResizeObserver }).ResizeObserver
     if (Predicate.isUndefined(ro) && Predicate.isNotUndefined(Observer)) {
       ro = new Observer(onObserved)
     }
-    if (!resizeListening && Predicate.isNotUndefined((globalThis as { readonly window?: Window }).window)) {
+    if (!resizeListening) {
+      // The Environment's viewport (ADR-0018, *Amendment (#45)*): its Probe writes it inside the
+      // resize event, and the registry calls this back inside that write, so the block is set
+      // before the frame's Measure pass.
       resizeListening = true
-      lastWidth = window.innerWidth
-      window.addEventListener("resize", onResize)
+      const probe = runtime.runSync(Probe.Probe)
+      const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+      lastWidth = registry.get(probe.viewport).width
+      stopViewport = registry.subscribe(probe.viewport, (viewport) => onResize(viewport.width))
     }
     if (Predicate.isNotUndefined(ro)) ro.observe(node.element, BORDER_BOX)
     // Seed retained + write the identity projection on the next frame.
@@ -4501,7 +4510,7 @@ export const makeProjectionSystem = (
     passQueued = false
     if (resizeListening) {
       resizeListening = false
-      window.removeEventListener("resize", onResize)
+      stopViewport()
     }
     stopTicking()
     // Interrupt any end-of-task hold still pending, then drop what they held.

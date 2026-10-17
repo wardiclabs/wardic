@@ -47,9 +47,9 @@ const toBounds = (r: DOMRect): Probe.Bounds => ({
 })
 
 /**
- * Captures the Environment's {@link AtomRegistry} and forks the `resize` /
- * media-query `change` listeners into the layer scope; both are the sole writers
- * of their respective Atoms.
+ * Captures the Environment's {@link AtomRegistry} and adds the window's `resize` listener and
+ * the media query's `change` listener in the layer scope; each is the sole writer of its Atom.
+ * The `resize` listener writes `viewport` inside the event (ADR-0018, *Amendment (#45)*).
  * `Layer.effect` runs `make` in the layer's own scope (it `Exclude`s `Scope`),
  * which the shared helpers' `RcMap`s and the forked listeners need.
  */
@@ -66,12 +66,14 @@ const make = Effect.gen(function* () {
   const viewport = Atom.keepAlive(
     Atom.make<Probe.Viewport>({ width: window.innerWidth, height: window.innerHeight }),
   )
-  // A forked window "resize" listener is the only writer of `viewport`.
-  yield* Effect.forkScoped(
-    Stream.runForEach(
-      Stream.fromEventListener<Event>(window as unknown as Stream.EventListener<Event>, "resize"),
-      () => Effect.sync(() => registry.set(viewport, { width: window.innerWidth, height: window.innerHeight })),
-    ),
+  // The window's "resize" listener is the only writer of `viewport`, and it writes inside the
+  // event (ADR-0018, *Amendment (#45)*): a reader, the projection system's Resize block among
+  // them, sees the new size within the dispatch, not a scheduler hop later, before the frame's
+  // Measure pass. A forked Stream consumer would land a task after the event.
+  const writeViewport = (): void => registry.set(viewport, { width: window.innerWidth, height: window.innerHeight })
+  yield* Effect.acquireRelease(
+    Effect.sync(() => window.addEventListener("resize", writeViewport)),
+    () => Effect.sync(() => window.removeEventListener("resize", writeViewport)),
   )
 
   // --- prefersReducedMotion ----------------------------------------------

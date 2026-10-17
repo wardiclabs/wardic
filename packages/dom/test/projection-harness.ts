@@ -10,7 +10,9 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as References from "effect/References"
+import * as Scheduler from "effect/Scheduler"
 import * as Tracer from "effect/Tracer"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -105,7 +107,12 @@ export const makeSink = () => {
 }
 
 /** Build the engine over `sink` with a DomLive runtime that records measure spans and debug logs. */
-export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: ProjectionSystem.Options) => {
+/**
+ * An engine over `sink`, on DomLive, with its spans and logs recorded. With `scheduler`, every fiber
+ * its runtime runs, DomLive's own included, runs on it (a browser's `setTimeout(0)` one, so a
+ * scheduler hop isn't a microtask as the test tier's `setImmediate` polyfill makes it).
+ */
+export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: ProjectionSystem.Options, scheduler?: Scheduler.Scheduler) => {
   const spans: Array<Record<string, unknown>> = []
   const logs: Array<{ readonly message: string; readonly annotations: Record<string, unknown> }> = []
   class MeasureSpan extends Tracer.NativeSpan {
@@ -121,9 +128,13 @@ export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: 
   const logger = Logger.map(Logger.formatStructured, (structured) => {
     logs.push({ message: String(structured.message), annotations: structured.annotations })
   })
+  const env = UndefinedOr.match(scheduler, {
+    onUndefined: () => DomLive,
+    onDefined: (on) => DomLive.pipe(Layer.provideMerge(Layer.succeed(Scheduler.Scheduler, on))),
+  })
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
-      DomLive,
+      env,
       Layer.succeed(Tracer.Tracer, tracer),
       Logger.layer([logger]),
       Layer.succeed(References.MinimumLogLevel, "Debug"),

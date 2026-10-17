@@ -41,6 +41,19 @@ layer(TestLayer)("ProbeDomLive", (it) => {
       expect(after).toEqual({ width: window.innerWidth, height: window.innerHeight })
     }))
 
+  it.effect("viewport is written inside the resize event: a subscriber runs before dispatchEvent returns (ADR-0018, Amendment (#45))", () =>
+    Effect.gen(function* () {
+      const probe = yield* Probe.Probe
+      const registry = yield* AtomRegistry.AtomRegistry
+      let calls = 0
+      const stop = registry.subscribe(probe.viewport, () => calls++)
+      // A synthetic dispatch runs its listeners synchronously, with no microtask between them: only
+      // a write inside the event reaches the subscriber before `dispatchEvent` returns.
+      window.dispatchEvent(new Event("resize"))
+      expect(calls, "written inside the event, not a scheduler hop later").toBe(1)
+      stop()
+    }))
+
   // --- prefersReducedMotion ----------------------------------------------
   it.effect("prefersReducedMotion reads a boolean from REAL matchMedia", () =>
     Effect.gen(function* () {
