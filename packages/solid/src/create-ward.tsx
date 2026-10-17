@@ -34,6 +34,7 @@ import * as Override from "@wardic/core/Override"
 import type * as Projection from "@wardic/core/Projection"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
+import * as Spring from "@wardic/core/Spring"
 import * as Stagger from "@wardic/core/Stagger"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
@@ -526,8 +527,8 @@ const TRANSLATE_KEY_LIST: ReadonlyArray<string> = Arr.fromIterable(TRANSLATE_KEY
 /** Whether a value map has any key. */
 const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
 
-/** A transition's `delay` in seconds: 0 when it has none. */
-const secondsOf = (delay: number | undefined): number => UndefinedOr.match(delay, { onUndefined: () => 0, onDefined: identity })
+/** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
+const NO_TRANSITION: Machine.SpringOptions = {}
 
 /** The Override stack resolved: the spine effect's input. */
 interface Resolution {
@@ -685,6 +686,22 @@ export function runSpine(opts: RunSpineOptions): void {
     values: { ...initialValues },
     velocities: {},
   }
+
+  // The staggered transition last built (ADR-0007): kept while its base and its extra delay
+  // stay the same, so core decodes it once (#66), as it does the element's own `transition`.
+  let staggered: { readonly base: WardicTransition | undefined; readonly extra: number; readonly bag: WardicTransition } | undefined
+  const staggeredOf = (base: WardicTransition | undefined, extra: number): WardicTransition =>
+    Option.fromUndefinedOr(staggered).pipe(
+      Option.filter((last) => Bool.and(last.base === base, last.extra === extra)),
+      Option.match({
+        onSome: (last) => last.bag,
+        onNone: () => {
+          const bag = { ...base, delay: delayOf(base) + extra } as WardicTransition
+          staggered = { base, extra, bag }
+          return bag
+        },
+      }),
+    )
 
   // Start everything once the element mounts. createEffect(on(el, ...)) re-runs
   // only when the element identity changes; the spine inner-effect lives under
@@ -1125,7 +1142,7 @@ export function runSpine(opts: RunSpineOptions): void {
             // at Retarget time so a re-snapshot before this start is reflected.
             const extra = UndefinedOr.match(extraDelay, { onUndefined: () => 0, onDefined: (delay) => delay() })
             const transition = Bool.match(extra !== 0, {
-              onTrue: (): WardicTransition | undefined => ({ ...baseTransition, delay: delayOf(baseTransition) + extra }) as WardicTransition,
+              onTrue: (): WardicTransition | undefined => staggeredOf(baseTransition, extra),
               onFalse: () => baseTransition,
             })
             const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
@@ -1142,20 +1159,25 @@ export function runSpine(opts: RunSpineOptions): void {
               onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: t }),
             })
             const snapping = hasKeys(positional)
-            // The snap's leg: the positional keys, from where they are to `to`, after `delay`. A
-            // snapped key comes to rest, so a later spring starts it at rest.
-            const runSnap = (to: Values.Values, delay: number): void => {
+            // Every leg is built inside its own fiber: a transition core rejects (#66, ADR-0025
+            // *Amendment (#66)*) throws as it's built, a defect that fails that leg alone, reported
+            // as any leg's failure is, while the element's other legs run on.
+            // The snap's leg: the positional keys, from where they are to `to`, after the delay its
+            // transition gives, decoded as the other legs decode it. A snapped key comes to rest, so a
+            // later spring starts it at rest.
+            const runSnap = (to: Values.Values, delayOf: () => number): void => {
               snapshot.velocities = { ...snapshot.velocities, ...Rec.map(positional, () => 0) }
               runLeg(
-                ReducedMotion.snap(Values.pick(from, positional), to, { delay }).pipe(
-                  Machine.run((frame) => {
-                    snapshot.values = { ...snapshot.values, ...frame.value }
-                    gate.write(id, frame.value)
-                    recordFrame(frame.value)
-                    report(frame.done)
-                    return undefined
-                  }),
-                ),
+                Effect.suspend(() =>
+                  ReducedMotion.snap(Values.pick(from, positional), to, { delay: delayOf() }).pipe(
+                    Machine.run((frame) => {
+                      snapshot.values = { ...snapshot.values, ...frame.value }
+                      gate.write(id, frame.value)
+                      recordFrame(frame.value)
+                      report(frame.done)
+                      return undefined
+                    }),
+                  )),
               )
             }
 
@@ -1171,12 +1193,12 @@ export function runSpine(opts: RunSpineOptions): void {
               if (snapping) {
                 runSnap(
                   Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)),
-                  secondsOf(options.delay),
+                  () => Machine.resolveTween(options).delay,
                 )
               }
               if (tweening) {
                 runLeg(
-                  Machine.animateValues(Values.pick(from, rest), rest, options).pipe(
+                  Effect.suspend(() => Machine.animateValues(Values.pick(from, rest), rest, options)).pipe(
                     InterpolatorRegistry.withKeyRules(elementRules),
                     Effect.flatMap(
                       Machine.run((frame) => {
@@ -1200,7 +1222,7 @@ export function runSpine(opts: RunSpineOptions): void {
               // Spring (default): numeric keys via springValues (velocity-carrying
               // retarget); any string/color keys via springBlend, the same spring on a
               // 0→100 progress (ADR-0024, D5), into the same gate id.
-              const springOpts = UndefinedOr.match(transition, { onUndefined: () => ({}), onDefined: identity }) as Machine.SpringOptions
+              const springOpts = UndefinedOr.match(transition, { onUndefined: () => NO_TRANSITION, onDefined: identity }) as Machine.SpringOptions
               // Of the keys that animate: both halves write into the same gate id, so they
               // collapse into one projected `Patch`.
               const { numbers: numeric, strings } = Values.split(rest)
@@ -1208,31 +1230,33 @@ export function runSpine(opts: RunSpineOptions): void {
               const hasStrings = Object.keys(strings).length > 0
               reporting = Number(snapping) + Number(hasNumeric) + Number(hasStrings)
               // A spring settles at its target: the snap lands there.
-              if (snapping) runSnap(positional, secondsOf(springOpts.delay))
+              if (snapping) runSnap(positional, () => Spring.resolve(springOpts).delay)
               if (hasNumeric) {
                 const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
+                const velocities = snapshot.velocities
                 runLeg(
-                  Machine.springValues(numeric, springOpts, fromNumeric, snapshot.velocities).pipe(
-                    Machine.run((frame) => {
-                      // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
-                      // into the snapshot rather than replacing it, so the
-                      // drag's direct-set x/y survive alongside the spring's
-                      // keys (drag owns x/y, spring owns the rest) and the
-                      // post-drag handoff continues from the rested position.
-                      snapshot.values = { ...snapshot.values, ...frame.value }
-                      snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
-                      gate.write(id, frame.value)
-                      recordFrame(frame.value)
-                      report(frame.done)
-                      return undefined
-                    }),
-                  ),
+                  Effect.suspend(() =>
+                    Machine.springValues(numeric, springOpts, fromNumeric, velocities).pipe(
+                      Machine.run((frame) => {
+                        // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
+                        // into the snapshot rather than replacing it, so the
+                        // drag's direct-set x/y survive alongside the spring's
+                        // keys (drag owns x/y, spring owns the rest) and the
+                        // post-drag handoff continues from the rested position.
+                        snapshot.values = { ...snapshot.values, ...frame.value }
+                        snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
+                        gate.write(id, frame.value)
+                        recordFrame(frame.value)
+                        report(frame.done)
+                        return undefined
+                      }),
+                    )),
                 )
               }
               if (hasStrings) {
                 const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))
                 runLeg(
-                  Machine.springBlend(fromStrings, strings, springOpts).pipe(
+                  Effect.suspend(() => Machine.springBlend(fromStrings, strings, springOpts)).pipe(
                     InterpolatorRegistry.withKeyRules(elementRules),
                     Effect.flatMap(
                       Machine.run((frame) => {

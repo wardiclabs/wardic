@@ -45,7 +45,9 @@ import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as Report from "@wardic/dom/Report"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import { constVoid, identity } from "effect/Function"
@@ -371,6 +373,10 @@ const follow = (sample: Drag.Sample, state: TrackState, opts: RunDragTrackOption
  * `setDragging(false)` hands ownership of `x`/`y` back to the spring. The inertia runs on the
  * Frame loop (ADR-0027); interrupting the release removes its run from the loop at once,
  * before the next handler touches the state.
+ *
+ * A release that dies, on a drag transition core rejects (#66, ADR-0025 *Amendment (#66)*) or a
+ * throw in its frames, fails alone: reported, the element rests where it was dropped, and the track
+ * goes on to the next drag.
  */
 const release = (
   opts: RunDragTrackOptions,
@@ -406,6 +412,8 @@ const release = (
     Match.when("y", () =>
       Machine.inertia(position.y, v.y, { ...transition, ...edges.y }).pipe(Machine.run((frame) => tapFrame({ x: position.x, y: frame.value })))),
     Match.orElse(() => Machine.inertiaVec(position, v, { ...transition, ...edges }).pipe(Machine.run((frame) => tapFrame(frame.value)))),
+    Effect.catchDefect((defect) =>
+      Report.failure("wardic.drag: a release failed", Cause.die(defect)).pipe(Effect.andThen(Effect.sync(() => tapFrame(position))))),
     Effect.andThen(done),
   )
 }
@@ -505,7 +513,7 @@ export const runDragTrack = (opts: RunDragTrackOptions): void => {
 
       // Started inline, in this order, so the samples subscribe before the grabs. Once both
       // inputs end (a test's script), the track ends when its release does; a failure of
-      // either input, or of a release (`FiberHandle.join`), fails the track.
+      // either input fails the track (a release reports its own, #66).
       const inputs = Effect.all([Stream.runForEach(samples, onSample), Stream.runForEach(presses, onPress)], {
         concurrency: "unbounded",
         discard: true,

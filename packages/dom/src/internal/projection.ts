@@ -423,13 +423,11 @@ export const DEFAULT_DRAG_TRANSITION: DragTransition = {
   restSpeed: 10,
 }
 
-/** A tween's duration and easing when its transition gives none: the tween's own defaults (#107). */
-const TWEEN_DURATION = 0.3
-
-/** A flight's transition, resolved at its start: a spring's options (its delay among them), or a tween's timing. */
-type FlightTiming =
-  | { readonly kind: "spring"; readonly options: Spring.Resolved }
-  | { readonly kind: "tween"; readonly duration: number; readonly easing: Easing.Easing; readonly delay: number }
+/**
+ * A flight's transition, resolved at its start: a spring's options (its delay among them), or a
+ * tween's timing, with the tween's own defaults where its transition gives none (#107).
+ */
+type FlightTiming = { readonly kind: "spring"; readonly options: Spring.Resolved } | ({ readonly kind: "tween" } & Machine.ResolvedTween)
 
 /**
  * A layout animation's progress, 0 → 1 (ADR-0009 *Amendment (#171)*), on the transition resolved at its
@@ -457,22 +455,23 @@ interface Settling {
   readonly callbacks: ReadonlyArray<() => void>
 }
 
-/** A transition's timing for a flight. Once per (re)start. */
+/**
+ * A transition's timing for a flight. Once per (re)start; core decodes its bag once (#66), and one
+ * it rejects throws its `SchemaError`.
+ */
 const timingOf = (transition: LayoutTransition): FlightTiming =>
   Match.value(transition).pipe(
     Match.discriminatorsExhaustive("type")({
       spring: (spring): FlightTiming => ({ kind: "spring", options: Spring.resolve(spring) }),
-      tween: (tween): FlightTiming => ({
-        kind: "tween",
-        duration: Math.max(Number.EPSILON, UndefinedOr.match(tween.duration, { onUndefined: () => TWEEN_DURATION, onDefined: identity })),
-        easing: UndefinedOr.match(tween.easing, { onUndefined: () => Easing.linear, onDefined: identity }),
-        delay: UndefinedOr.match(tween.delay, { onUndefined: () => 0, onDefined: identity }),
-      }),
+      tween: (tween): FlightTiming => ({ kind: "tween", ...Machine.resolveTween(tween) }),
     }),
   )
 
 /** A flight already landed: what reduced motion starts (ADR-0029), at 1 with no delay, settling on its first step. */
 const LANDED: FlightTiming = { kind: "spring", options: Spring.resolve({}) }
+
+/** A flight at 1 on {@link LANDED}: it ends on its first step, the node on its new box. */
+const landedFlight = (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false })
 
 
 /**
@@ -1298,12 +1297,31 @@ export const makeProjectionSystem = (
    */
   const startFlight = (node: NodeState): Flight =>
     Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), {
-      onTrue: (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false }),
+      onTrue: landedFlight,
       onFalse: (): Flight => {
-        const timing = timingOf(Option.getOrElse(node.transition(), () => DEFAULT_LAYOUT_TRANSITION))
-        return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false }
+        // A transition core rejects (#66, ADR-0025 *Amendment (#66)*) is the app's defect, in
+        // this one animation: reported, and the node lands, as reduced motion lands it.
+        try {
+          const timing = timingOf(Option.getOrElse(node.transition(), () => DEFAULT_LAYOUT_TRANSITION))
+          return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false }
+        } catch (defect) {
+          runtime.runFork(reportFailure("wardic.projection: layout transition rejected", Cause.die(defect)))
+          return landedFlight()
+        }
       },
     })
+  /**
+   * A drag's Release offset (ADR-0016, *Amendment (#140)*) on its drag transition. One core rejects
+   * (#66) is reported, and the release starts at rest on the slot: the node lands there.
+   */
+  const releaseOrLanded = (offset: Point.Point, velocity: Point.Point, transition: DragTransition): Release => {
+    try {
+      return releaseFrom(offset, velocity, transition)
+    } catch (defect) {
+      runtime.runFork(reportFailure("wardic.projection: drag transition rejected", Cause.die(defect)))
+      return releaseFrom(ZERO_POINT, ZERO_POINT, DEFAULT_DRAG_TRANSITION)
+    }
+  }
   // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
   const passEndListeners = new Set<() => void>()
   const nodes = new Set<NodeState>()
@@ -4484,7 +4502,7 @@ export const makeProjectionSystem = (
           if (active.size === 0) stopTicking()
           return
         }
-        node.release = releaseFrom(offset, velocity, Option.getOrElse(dragTransition(), () => DEFAULT_DRAG_TRANSITION))
+        node.release = releaseOrLanded(offset, velocity, Option.getOrElse(dragTransition(), () => DEFAULT_DRAG_TRANSITION))
         node.releasing = true
         active.add(node)
         ensureRunning()

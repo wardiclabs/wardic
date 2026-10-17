@@ -299,7 +299,6 @@ describe("the composites against their Streams before #94", () => {
     ["repeat Infinity", { duration: 0.2, repeat: Infinity }],
     ["repeat Infinity, yoyo", { duration: 0.2, repeat: Infinity, yoyo: true }],
     ["repeat Infinity, yoyo, a delay held once (#77)", { duration: 0.2, repeat: Infinity, yoyo: true, delay: 0.05 }],
-    ["a fractional repeat, which settles on its last segment", { duration: 0.2, repeat: 1.5, yoyo: true }],
     ["a delay of 0.3, past the 0.25 s stall", { duration: 0.4, delay: 0.3 }],
   ] as const
   for (const [name, options] of animateCases) {
@@ -410,7 +409,6 @@ describe("every constructor through both drivers", () => {
     ],
     ["animate, repeat 2, yoyo, a delay", () => Effect.succeed(Machine.animate(-5, 20, OPTIONS))],
     ["animate, repeat Infinity", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity }))],
-    ["animate, a fractional repeat", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: 1.5, yoyo: true }))],
     [
       "animate, repeat 3, yoyo, a repeatDelay and a delay",
       () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: 3, yoyo: true, repeatDelay: 0.07, delay: 0.05 })),

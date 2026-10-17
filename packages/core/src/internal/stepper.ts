@@ -9,9 +9,11 @@
  * with the resolved form, which reads plain fields.
  */
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import * as Easing from "../Easing.ts"
 import type { DecayOptions, TweenOptions } from "../Machine.ts"
 import * as Scalar from "../Scalar.ts"
+import { cachedResolver, Fn, NonNegative, Positive, withDefault } from "./options.ts"
 
 /** A step's result: the next state, the value to emit, and whether motion has settled. */
 export interface StepResult<S, V> {
@@ -44,7 +46,7 @@ export const valueOr = <A>(value: A | undefined, fallback: A): A => {
 export const DEFAULT_DURATION = 0.3
 
 /** A tween's duration, or `Number.EPSILON` for one at or below 0, so a zero duration still divides. */
-const durationOf = (duration: number): number => {
+export const durationOf = (duration: number): number => {
   if (duration <= 0) return Number.EPSILON
   return duration
 }
@@ -60,15 +62,32 @@ export interface ResolvedTween {
   readonly delay: number
   /** The duration, at least `Number.EPSILON`, so a zero duration still divides. */
   readonly duration: number
+  /** The duration as given (0 for an instant tween): its span's, and what `keyframes` splits. */
+  readonly seconds: number
   readonly easing: Easing.Easing
 }
 
-/** Fill in a tween's defaults: 0.3 s, no delay, linear easing. */
-export const resolveTween = (options: TweenOptions): ResolvedTween => ({
-  delay: valueOr(options.delay, 0),
-  duration: durationOf(valueOr(options.duration, DEFAULT_DURATION)),
-  easing: valueOr(options.easing, Easing.linear),
+/** A tween's fields as a Schema (#66): `animate`'s bag adds its repeat modifiers to them. */
+export const TweenFields = {
+  delay: withDefault(NonNegative, 0),
+  duration: withDefault(NonNegative, DEFAULT_DURATION),
+  easing: withDefault(Fn<Easing.Easing>("an easing function"), Easing.linear),
+}
+
+/** A decoded tween's fields, resolved: its duration clamped for division, as given beside it. */
+export const resolvedTweenOf = (decoded: { readonly delay: number; readonly duration: number; readonly easing: Easing.Easing }): ResolvedTween => ({
+  delay: decoded.delay,
+  duration: durationOf(decoded.duration),
+  seconds: decoded.duration,
+  easing: decoded.easing,
 })
+
+/**
+ * Fill in a tween's defaults: 0.3 s, no delay, linear easing. Decoded once a bag (#66): a negative
+ * or non-finite duration or delay, or an easing that isn't a function, throws its `SchemaError`.
+ * Public as `Machine.resolveTween`, Tier 3, for dom's layout tween.
+ */
+export const resolveTween: (options: TweenOptions) => ResolvedTween = cachedResolver(Schema.Struct(TweenFields), resolvedTweenOf)
 
 export const initTween = (): TweenState => ({ elapsed: 0 })
 
@@ -102,12 +121,18 @@ export interface ResolvedDecay {
   readonly delay: number
 }
 
-/** Fill in a decay's defaults: friction 3, rest below 0.1, no delay. */
-export const resolveDecay = (options: DecayOptions): ResolvedDecay => ({
-  friction: valueOr(options.friction, 3),
-  restVelocity: valueOr(options.restVelocity, 0.1),
-  delay: valueOr(options.delay, 0),
-})
+/**
+ * Fill in a decay's defaults: friction 3, rest below 0.1, no delay. Decoded once a bag (#66): a
+ * friction or rest speed at or below 0, or a non-finite value, throws its `SchemaError`.
+ */
+export const resolveDecay: (options: DecayOptions) => ResolvedDecay = cachedResolver(
+  Schema.Struct({
+    friction: withDefault(Positive, 3),
+    restVelocity: withDefault(Positive, 0.1),
+    delay: withDefault(NonNegative, 0),
+  }),
+  ({ friction, restVelocity, delay }): ResolvedDecay => ({ friction, restVelocity, delay }),
+)
 
 export const initDecay = (initial: number, velocity: number): DecayState => ({
   position: initial,

@@ -32,6 +32,7 @@ import * as Option from "effect/Option"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { Covariant } from "effect/Types"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -40,16 +41,18 @@ import type * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
+import { cachedResolver, NonNegative, withDefault } from "./internal/options.ts"
 import {
-  DEFAULT_DURATION,
+  durationOf,
   initDecay,
   initTween,
   resolveDecay,
   type ResolvedTween,
+  resolvedTweenOf,
   resolveTween,
   stepDecay,
   stepTween,
-  valueOr,
+  TweenFields,
 } from "./internal/stepper.ts"
 import * as Inertia from "./Inertia.ts"
 import type * as Point from "./Point.ts"
@@ -131,7 +134,9 @@ export const MAX_DT = 0.5
 // --- The option bags ---------------------------------------------------------
 //
 // Durations and delays are in seconds, matching the public `transition: { duration: 0.3 }`
-// surface and the `dt` the Clock emits.
+// surface and the `dt` the Clock emits. Each bag is a Schema's encoded side (#66, ADR-0025
+// *Amendment (#66)*): decoded once a bag, when an animation is built, filling in its defaults; a
+// value no animation can take throws its `SchemaError`, naming the field.
 
 /** Options for a definite, duration-based animation. */
 export interface TweenOptions {
@@ -145,6 +150,18 @@ export interface TweenOptions {
    */
   readonly delay?: number
 }
+
+/**
+ * A tween's options resolved, and its resolver (#66): Tier 3 (ADR-0008, ADR-0028 decision 2), as
+ * `Spring.resolve` is, for `@wardic/dom`'s projection pass, which runs a layout tween on it.
+ */
+export { type ResolvedTween, resolveTween } from "./internal/stepper.ts"
+
+/**
+ * A missing bag: one object, so its decode is cached (#66) and a builder called without options
+ * decodes once, not once a call.
+ */
+const NO_OPTIONS = {}
 
 /** Options for interruptible spring motion. */
 export interface SpringOptions {
@@ -217,9 +234,9 @@ export interface InertiaVecOptions extends Omit<InertiaOptions, "min" | "max"> {
 /** Repeat / lifecycle modifiers shared across primitives. */
 export interface Modifiers {
   /**
-   * Additional repeats after the first run. `Infinity` loops forever. Default 0. Each repeat
-   * starts on the tick after the one before it settles, or after its `repeatDelay`: `delay` holds
-   * once, before the first run (#77).
+   * Additional repeats after the first run: a whole number, or `Infinity` to loop forever.
+   * Default 0. Each repeat starts on the tick after the one before it settles, or after its
+   * `repeatDelay`: `delay` holds once, before the first run (#77).
    */
   readonly repeat?: number
   /**
@@ -559,12 +576,11 @@ const tweenSpan = (from: number, to: number, duration: number): Span => ({
   attributes: { from, to, duration },
 })
 
-/** A tween's duration as its options give it, or 0.3 s. Not on the per-frame path: read when it's built. */
-const durationOr = (options: TweenOptions): number => valueOr(options.duration, DEFAULT_DURATION)
-
 /** A definite, duration-based animation from `from` to `to`. Its `delay` is its stepper's. */
-export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame.Frame<number>> =>
-  tweenLeaf(from, to, resolveTween(options), tweenSpan(from, to, durationOr(options)))
+export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame.Frame<number>> => {
+  const resolved = resolveTween(options)
+  return tweenLeaf(from, to, resolved, tweenSpan(from, to, resolved.seconds))
+}
 
 /**
  * The spring stepper toward `getTarget()`, read afresh on every step, so a moving target is
@@ -585,7 +601,7 @@ const springRun =
  * Spring motion toward a static `target`, from `options.from` (default 0), settling at rest. A
  * moving target is `chase`'s.
  */
-export const spring = (target: number, options: SpringOptions = {}): Machine<Frame.Physics> => {
+export const spring = (target: number, options: SpringOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = Spring.resolve(options)
   return make({
     settles: true,
@@ -600,7 +616,7 @@ export const spring = (target: number, options: SpringOptions = {}): Machine<Fra
  * retargeted snap). Its Frames report rest, but it never settles: a run ends only when it's
  * removed (the Stream's subscriber cancels, or the run is interrupted).
  */
-export const chase = (getTarget: () => number, options: SpringOptions = {}): Machine<Frame.Physics> => {
+export const chase = (getTarget: () => number, options: SpringOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = Spring.resolve(options)
   return make({
     settles: false,
@@ -610,7 +626,7 @@ export const chase = (getTarget: () => number, options: SpringOptions = {}): Mac
 }
 
 /** Momentum/decay motion: fling from `initial` at `velocity`, slowed by friction. */
-export const decay = (initial: number, velocity: number, options: DecayOptions = {}): Machine<Frame.Physics> => {
+export const decay = (initial: number, velocity: number, options: DecayOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = resolveDecay(options)
   return make({
     settles: true,
@@ -659,7 +675,7 @@ export const decayVec = (initial: Point.Point, velocity: Point.Point, options: D
  * `timeConstant`; where it would cross `min` or `max`, or starts past one, a spring back to that edge
  * on the bounce. What a drag's release runs: a Fling, and a snap back to the origin (both edges 0).
  */
-export const inertia = (initial: number, velocity: number, options: InertiaOptions = {}): Machine<Frame.Physics> =>
+export const inertia = (initial: number, velocity: number, options: InertiaOptions = NO_OPTIONS): Machine<Frame.Physics> =>
   make({
     settles: true,
     span: { name: "wardic.inertia", attributes: { initial, velocity } },
@@ -679,7 +695,7 @@ export const inertia = (initial: number, velocity: number, options: InertiaOptio
  * Two-axis inertia: both axes stepped together, one `Point` per tick, each with its own edges,
  * settling once both rest. A drag's release in the Solid binding (ADR-0016, *Amendment (#140)*).
  */
-export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options: InertiaVecOptions = {}): Machine<Frame.Frame<Point.Point>> =>
+export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options: InertiaVecOptions = NO_OPTIONS): Machine<Frame.Frame<Point.Point>> =>
   make({
     settles: true,
     span: { name: "wardic.inertiaVec", attributes: {} },
@@ -715,7 +731,7 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
  */
 export const springValues = (
   target: Record<string, number>,
-  options: SpringOptions = {},
+  options: SpringOptions = NO_OPTIONS,
   from: Record<string, number> = {},
   velocity: Record<string, number> = {},
 ): Machine<Frame.MultiPhysics> => {
@@ -798,9 +814,46 @@ export const springValues = (
 
 // --- The composites ----------------------------------------------------------
 
-/** A missing number option, read once: its value, or `fallback`. */
-const numberOr = (value: number | undefined, fallback: number): number =>
-  Option.getOrElse(Option.fromNullishOr(value), () => fallback)
+/** A repeat count: a whole number, 0 or above, or `Infinity` to loop forever. */
+const Repeat = Schema.Number.check(
+  Schema.makeFilter((n: number) =>
+    Bool.match(Bool.or(n === Infinity, Bool.and(Number.isInteger(n), n >= 0)), {
+      onTrue: () => true,
+      onFalse: () => "Expected a whole number of repeats, 0 or above, or Infinity",
+    }),
+  ),
+)
+
+/** `animate`'s bag, resolved: its tween, and its repeat modifiers. */
+interface ResolvedAnimate {
+  readonly tween: ResolvedTween
+  readonly repeat: number
+  readonly repeatDelay: number
+  readonly yoyo: boolean
+  readonly reverse: boolean
+}
+
+/**
+ * `animate`'s bag as a Schema (#66, ADR-0025 *Amendment (#66)*): a tween's fields and the repeat
+ * modifiers, decoded once a bag. A fractional or negative `repeat`, a negative `repeatDelay`, or a
+ * tween field the tween rejects throws its `SchemaError`.
+ */
+const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResolver(
+  Schema.Struct({
+    ...TweenFields,
+    repeat: withDefault(Repeat, 0),
+    repeatDelay: withDefault(NonNegative, 0),
+    yoyo: withDefault(Schema.Boolean, false),
+    reverse: withDefault(Schema.Boolean, false),
+  }),
+  (decoded): ResolvedAnimate => ({
+    tween: resolvedTweenOf(decoded),
+    repeat: decoded.repeat,
+    repeatDelay: decoded.repeatDelay,
+    yoyo: decoded.yoyo,
+    reverse: decoded.reverse,
+  }),
+)
 
 /**
  * A tween with modifiers: `reverse` swaps the endpoints, `repeat` replays, and `yoyo` turns
@@ -809,7 +862,7 @@ const numberOr = (value: number | undefined, fallback: number): number =>
  * `yoyo`, at its turning point, as Motion's `repeatType: "reverse"` does.
  *
  * - **Finite `repeat: N`** runs N+1 segments (`concatAll`), and only the last Frame carries
- *   `done: true`. A fractional `repeat` (1.5) runs ceil(N+1) segments and settles on the last.
+ *   `done: true`. A fractional `repeat` (1.5) is rejected (#66).
  * - **`repeat: Infinity`** runs the first segment, then a cycle of the rest without end
  *   (`concat(first, forever(concatAll(rest)))`): one segment, or a backward and forward pair
  *   with `yoyo`, each segment holding after it. It never settles; it ends when its run is
@@ -818,16 +871,13 @@ const numberOr = (value: number | undefined, fallback: number): number =>
  * Then `delay(options.delay)`, and its own span, `wardic.animate`. Each segment's tween clamps
  * its `dt` at `MAX_DT`, and so does the hold.
  */
-export const animate = (from: number, to: number, options: AnimateOptions = {}): Machine<Frame.Frame<number>> => {
-  const reverse = Option.getOrElse(Option.fromNullishOr(options.reverse), () => false)
-  const repeats = numberOr(options.repeat, 0)
-  const yoyo = options.yoyo === true
+export const animate = (from: number, to: number, options: AnimateOptions = NO_OPTIONS): Machine<Frame.Frame<number>> => {
+  const { tween: resolved, repeat: repeats, repeatDelay: gap, yoyo, reverse } = resolveAnimate(options)
   const [a, b] = Bool.match(reverse, { onTrue: () => [to, from] as const, onFalse: () => [from, to] as const })
   // Every segment's tween: `delay` holds once, outside them.
-  const segment = resolveTween({ ...options, delay: 0 })
-  const gap = numberOr(options.repeatDelay, 0)
-  const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, durationOr(options)))
-  const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, durationOr(options)))
+  const segment: ResolvedTween = { ...resolved, delay: 0 }
+  const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, resolved.seconds))
+  const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, resolved.seconds))
   // The segments a run holds after: every one but the last (`holdAfter(0)` is its input).
   const forwardHeld = holdAfter(forward, gap)
   const backwardHeld = holdAfter(backward, gap)
@@ -839,7 +889,8 @@ export const animate = (from: number, to: number, options: AnimateOptions = {}):
     Bool.match(yoyo && i % 2 === 1, { onTrue: () => backwardHeld, onFalse: () => forwardHeld })
   return Bool.match(Number.isFinite(repeats), {
     onTrue: () => {
-      const count = Math.ceil(Math.max(0, repeats) + 1)
+      // A whole number, 0 or above: its decode rejects any other (#66).
+      const count = repeats + 1
       // Every segment but the last holds after it.
       return concatAll(
         Arr.makeBy(count, (i) => Bool.match(i === count - 1, { onTrue: () => segmentFor(i), onFalse: () => heldFor(i) })),
@@ -858,7 +909,7 @@ export const animate = (from: number, to: number, options: AnimateOptions = {}):
         ),
       ),
   }).pipe(
-    delay(numberOr(options.delay, 0)),
+    delay(resolved.delay),
     withSpan("wardic.animate", { attributes: { from, to, repeat: repeats, repeatDelay: gap, yoyo, reverse } }),
   )
 }
@@ -870,9 +921,10 @@ export const animate = (from: number, to: number, options: AnimateOptions = {}):
  */
 export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): Machine<Frame.Frame<number>> => {
   const pairs = Arr.zip(stops, Arr.drop(stops, 1))
-  const total = durationOr(options)
+  const resolved = resolveTween(options)
+  const total = resolved.seconds
   const duration = total / Math.max(1, pairs.length)
-  const segment = resolveTween({ ...options, duration, delay: 0 })
+  const segment: ResolvedTween = { ...resolved, duration: durationOf(duration), seconds: duration, delay: 0 }
   return Arr.match(pairs, {
     onEmpty: () => {
       const only = Option.getOrElse(Arr.head(stops), () => 0)
@@ -881,7 +933,7 @@ export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): 
     onNonEmpty: (nonEmpty) =>
       concatAll(Arr.map(nonEmpty, ([a, b]) => tweenLeaf(a, b, segment, tweenSpan(a, b, duration)))),
   }).pipe(
-    delay(numberOr(options.delay, 0)),
+    delay(resolved.delay),
     withSpan("wardic.keyframes", { attributes: { stops: stops.length, duration: total } }),
   )
 }
@@ -948,7 +1000,7 @@ const blendAt = (
 export const animateValues = (
   from: Values.Values,
   to: Values.Values,
-  options: AnimateOptions = {},
+  options: AnimateOptions = NO_OPTIONS,
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.map(blendersFor(from, to), (blenders) =>
     animate(0, 1, options).pipe(
@@ -976,7 +1028,7 @@ export const animateValues = (
 export const springBlend = (
   from: Values.Values,
   to: Values.Values,
-  options: SpringOptions = {},
+  options: SpringOptions = NO_OPTIONS,
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.map(blendersFor(from, to), (blenders) =>
     springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }).pipe(
