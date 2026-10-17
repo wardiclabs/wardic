@@ -9,11 +9,10 @@
  * with the resolved form, which reads plain fields.
  */
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
 import * as Easing from "../Easing.ts"
 import type { DecayOptions, TweenOptions } from "../Machine.ts"
 import * as Scalar from "../Scalar.ts"
-import { cachedResolver, Fn, NonNegative, Positive, withDefault } from "./options.ts"
+import { cachedResolver, field, Fn, NonNegative, Positive } from "./options.ts"
 
 /** A step's result: the next state, the value to emit, and whether motion has settled. */
 export interface StepResult<S, V> {
@@ -69,9 +68,9 @@ export interface ResolvedTween {
 
 /** A tween's fields as a Schema (#66): `animate`'s bag adds its repeat modifiers to them. */
 export const TweenFields = {
-  delay: withDefault(NonNegative, 0),
-  duration: withDefault(NonNegative, DEFAULT_DURATION),
-  easing: withDefault(Fn<Easing.Easing>("an easing function"), Easing.linear),
+  delay: field(NonNegative, 0),
+  duration: field(NonNegative, DEFAULT_DURATION),
+  easing: field(Fn<Easing.Easing>("an easing function"), Easing.linear),
 }
 
 /** A decoded tween's fields, resolved: its duration clamped for division, as given beside it. */
@@ -87,7 +86,7 @@ export const resolvedTweenOf = (decoded: { readonly delay: number; readonly dura
  * or non-finite duration or delay, or an easing that isn't a function, throws its `SchemaError`.
  * Public as `Machine.resolveTween`, Tier 3, for dom's layout tween.
  */
-export const resolveTween: (options: TweenOptions) => ResolvedTween = cachedResolver(Schema.Struct(TweenFields), resolvedTweenOf)
+export const resolveTween: (options: TweenOptions) => ResolvedTween = cachedResolver(TweenFields, resolvedTweenOf)
 
 export const initTween = (): TweenState => ({ elapsed: 0 })
 
@@ -126,11 +125,11 @@ export interface ResolvedDecay {
  * friction or rest speed at or below 0, or a non-finite value, throws its `SchemaError`.
  */
 export const resolveDecay: (options: DecayOptions) => ResolvedDecay = cachedResolver(
-  Schema.Struct({
-    friction: withDefault(Positive, 3),
-    restVelocity: withDefault(Positive, 0.1),
-    delay: withDefault(NonNegative, 0),
-  }),
+  {
+    friction: field(Positive, 3),
+    restVelocity: field(Positive, 0.1),
+    delay: field(NonNegative, 0),
+  },
   ({ friction, restVelocity, delay }): ResolvedDecay => ({ friction, restVelocity, delay }),
 )
 

@@ -15,7 +15,7 @@
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
-import { cachedResolver, Fn, NonNegative, NotNaN, Positive, withDefault } from "./internal/options.ts"
+import { cachedResolver, field, Fn, NonNegative, NotNaN, Positive } from "./internal/options.ts"
 import type { PhysicsStepResult } from "./internal/stepper.ts"
 import type { InertiaOptions } from "./Machine.ts"
 
@@ -102,27 +102,24 @@ interface Decoded {
 
 /**
  * An inertia's options as a Schema (#66, ADR-0025 *Amendment (#66)*): the plain bag is its encoded
- * side, and decoding fills in Motion's defaults and rejects a value no inertia can take: a time
- * constant, bounce stiffness or rest threshold at or below 0, a negative bounce damping, a power
- * that isn't finite, an edge that's NaN, or `min` above `max`. An infinite edge is no edge.
+ * side. Its decode rejects a value no inertia can take (a time constant, bounce stiffness or rest
+ * threshold at or below 0, a negative bounce damping, a power that isn't finite, an edge that's NaN,
+ * or `min` above `max`; an infinite edge is no edge), and Motion's defaults are filled in after.
  */
 const decode: (options: InertiaOptions) => Decoded = cachedResolver(
-  Schema.Struct({
-    power: withDefault(Schema.Finite, DEFAULT_POWER),
-    timeConstant: withDefault(Positive, DEFAULT_TIME_CONSTANT),
-    bounceStiffness: withDefault(Positive, DEFAULT_BOUNCE_STIFFNESS),
-    bounceDamping: withDefault(NonNegative, DEFAULT_BOUNCE_DAMPING),
-    restDelta: withDefault(Positive, DEFAULT_REST_DELTA),
-    restSpeed: withDefault(Positive, DEFAULT_REST_SPEED),
-    modifyTarget: withDefault(Fn<(ideal: number) => number>("a modifyTarget function"), asIs),
-    min: withDefault(NotNaN, Number.NEGATIVE_INFINITY),
-    max: withDefault(NotNaN, Number.POSITIVE_INFINITY),
-  }).check(
-    Schema.makeFilter(({ min, max }: { readonly min: number; readonly max: number }) =>
-      Bool.match(min <= max, { onTrue: () => true, onFalse: () => `Expected min (${min}) at or below max (${max})` }),
-    ),
-  ),
+  {
+    power: field(Schema.Finite, DEFAULT_POWER),
+    timeConstant: field(Positive, DEFAULT_TIME_CONSTANT),
+    bounceStiffness: field(Positive, DEFAULT_BOUNCE_STIFFNESS),
+    bounceDamping: field(NonNegative, DEFAULT_BOUNCE_DAMPING),
+    restDelta: field(Positive, DEFAULT_REST_DELTA),
+    restSpeed: field(Positive, DEFAULT_REST_SPEED),
+    modifyTarget: field(Fn<(ideal: number) => number>("a modifyTarget function"), asIs),
+    min: field(NotNaN, Number.NEGATIVE_INFINITY),
+    max: field(NotNaN, Number.POSITIVE_INFINITY),
+  },
   (decoded): Decoded => decoded,
+  ({ min, max }) => Bool.match(min <= max, { onTrue: () => true, onFalse: () => `Expected min (${min}) at or below max (${max})` }),
 )
 
 /**

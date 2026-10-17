@@ -41,7 +41,7 @@ import type * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
-import { cachedResolver, NonNegative, withDefault } from "./internal/options.ts"
+import { cachedResolver, field, NonNegative } from "./internal/options.ts"
 import {
   durationOf,
   initDecay,
@@ -839,13 +839,13 @@ interface ResolvedAnimate {
  * tween field the tween rejects throws its `SchemaError`.
  */
 const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResolver(
-  Schema.Struct({
+  {
     ...TweenFields,
-    repeat: withDefault(Repeat, 0),
-    repeatDelay: withDefault(NonNegative, 0),
-    yoyo: withDefault(Schema.Boolean, false),
-    reverse: withDefault(Schema.Boolean, false),
-  }),
+    repeat: field(Repeat, 0),
+    repeatDelay: field(NonNegative, 0),
+    yoyo: field(Schema.Boolean, false),
+    reverse: field(Schema.Boolean, false),
+  },
   (decoded): ResolvedAnimate => ({
     tween: resolvedTweenOf(decoded),
     repeat: decoded.repeat,

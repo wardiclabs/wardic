@@ -6,7 +6,7 @@
  */
 import * as Schema from "effect/Schema"
 import type { SpringOptions } from "./Machine.ts"
-import { cachedResolver, NonNegative, Positive, withDefault } from "./internal/options.ts"
+import { cachedResolver, field, NonNegative, optionalField, Positive } from "./internal/options.ts"
 import { type PhysicsStepResult, valueOr } from "./internal/stepper.ts"
 
 // --- Presets: drop into `Machine.spring(…)` or a `transition`. `gentle` and `stiff` are the
@@ -38,19 +38,19 @@ export interface Resolved {
 
 /**
  * A spring's options as a Schema (#66, ADR-0025 *Amendment (#66)*): the plain bag is its encoded
- * side, and decoding fills in the defaults and rejects a value no spring can take. `from` and
- * `velocity` are `init`'s, checked here.
+ * side, checked field by field, each default filled in after. `from` and `velocity` are `init`'s,
+ * checked here.
  */
-const Options = Schema.Struct({
-  stiffness: withDefault(Positive, 170),
-  damping: withDefault(NonNegative, 26),
-  mass: withDefault(Positive, 1),
-  restDelta: withDefault(Positive, 0.01),
-  restVelocity: withDefault(Positive, 0.01),
-  delay: withDefault(NonNegative, 0),
-  from: Schema.optional(Schema.Finite),
-  velocity: Schema.optional(Schema.Finite),
-})
+const Options = {
+  stiffness: field(Positive, 170),
+  damping: field(NonNegative, 26),
+  mass: field(Positive, 1),
+  restDelta: field(Positive, 0.01),
+  restVelocity: field(Positive, 0.01),
+  delay: field(NonNegative, 0),
+  from: optionalField(Schema.Finite),
+  velocity: optionalField(Schema.Finite),
+}
 
 /**
  * Fill in a spring's defaults: 170 / 26 / 1, rest at 0.01, no delay. Decoded once a bag (#66): a
