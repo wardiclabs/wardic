@@ -221,7 +221,7 @@ Every root name on `74fb80b` and its home now:
   - and it registers the factory's `dispose` as the Scope's finalizer.
 
   dom's own tests build the engine and the gate with the factories, on a test `ManagedRuntime`, as before.
-- **The runner drops the building call's scheduler** (`internal/runner.ts`, found through DR1 in CI). A binding's first read builds the Layers inside a `ManagedRuntime.runSync`, whose fiber carries a sync `MixedScheduler`. The first draft captured the build's context, scheduler and all, through `FiberSet.makeRuntime`, so every later fork by the gate and the engine resumed its yields on a microtask, where a `ManagedRuntime`'s forks resume on a macrotask (ADR-0027, decision 6).
+- **The runner drops the building call's scheduler** (`internal/runner.ts`, found through DR1 in CI; since #208, only a sync one: *Amendment (#208)*). A binding's first read builds the Layers inside a `ManagedRuntime.runSync`, whose fiber carries a sync `MixedScheduler`. The first draft captured the build's context, scheduler and all, through `FiberSet.makeRuntime`, so every later fork by the gate and the engine resumed its yields on a microtask, where a `ManagedRuntime`'s forks resume on a macrotask (ADR-0027, decision 6).
   - **`Context.omit(Scheduler.Scheduler)` alone wasn't enough:** `FiberSet.runtime` reads `Effect.context()` again in the current fiber, and `Effect.provideContext` merges into that context instead of replacing it.
   - **The fix:** `makeRunner` forks with the trimmed context itself (`Effect.runForkWith`) and adds each fiber to a `FiberSet` in the Layer's Scope.
   - **Pinned by** `test/runner.node.test.ts`:
@@ -338,3 +338,25 @@ ReorderController.make(options): Effect<ReorderController<V>, never, ProjectionS
   - keyboard reorder announced;
   - real-mouse drags 0.00 px, 0 frames behind.
 - **Gates:** typecheck, lint, unit (963), browser (1007), the lab's tsc and vitest (208).
+
+## Amendment (#208, 2026-10-17): the runner keeps a host's async scheduler
+
+The runner dropped every `Scheduler` from the context a service's Layer was built in. That was aimed at `ManagedRuntime.runSync`'s sync `MixedScheduler`, but it also dropped one a host installs on purpose. Foldkit (`foldkit@0.168.0`) runs its program under `new Scheduler.MixedScheduler("async", microtaskSetImmediate)`, to avoid `setTimeout`'s 4 ms clamp on fiber yields. A Foldkit binding hands Wardic's Layers to Foldkit's `resources`, where they're built under that scheduler. Wardic's forks would then have resumed their yields on Effect's default `setTimeout`, beside Foldkit's own fibers on microtasks.
+
+Grilled 2026-10-17 (A, A):
+- **The runner drops only a sync scheduler.** The `Scheduler` interface exposes `executionMode`:
+  - **A `"sync"` one is `runSync`'s draining scheduler,** and is dropped as before (RN1).
+  - **Any other is the host's choice,** and Wardic's forks inherit it, as ADR-0027 decision 6 says a fork inherits the scheduler it's forked under.
+  - **With none stored,** the context already has Effect's default.
+  - **A host that provides a sync scheduler is overridden too.** A sync scheduler exists to drain a `runSync`, and the runner's JSDoc says so.
+  - Rejected:
+    - a `scheduler` option on `FlushGate.layer` / `ProjectionSystem.layer`: new Tier 2 surface, which every binding author would have to know to pass;
+    - dropping all of them, written down as the rule.
+- **Recorded as this amendment.**
+
+Solid's provider installs no scheduler, so Solid's apps, `bench:solid` and the lab run as before. Solid's `onBrowserScheduler` tests provide a `setTimeout(0)` async scheduler, and now their gate's and projection system's forks follow it too, as those tests intend.
+
+**Pinned by** `test/runner.node.test.ts`:
+- RN3: built under a host's async scheduler, a microtask `MixedScheduler` provided as a Layer, a fork resumes from a yield on that scheduler. It fails on the old rule.
+- RN4: a host's sync scheduler is dropped like `runSync`'s, so a fork resumes on Effect's default. It fails with no drop at all, as RN1 does.
+
