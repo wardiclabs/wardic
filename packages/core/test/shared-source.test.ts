@@ -1,3 +1,16 @@
+// Core's SharedSource (#37, ADR-0041 *Amendment (#37)*): a cold source shared, hot and ref-counted,
+// per target (`byTarget`, `RcMap`) or for the whole Environment (`make`, `RcRef`). CONTEXT.md's
+// **Shared source** contract.
+//
+// - SS1: two subscribers to one target share one lookup and its events.
+// - SS2: a target Effect's structural `Hash` would throw on (a throwing getter here; a DOM node in
+//   a browser, pinned in dom's shared-source.browser.test.ts) is keyed by identity: the lookup runs.
+// - SS3: distinct targets get distinct lookups, each with its own events.
+// - SS4: closing one subscriber keeps the source until the last closes, then releases it once.
+// - SS5: re-subscribing after teardown looks up afresh.
+// - SS6: `idleTimeToLive` keeps an idle source for a rapid re-subscribe, then releases it.
+// - SS7: `make`'s subscribers share one acquire and the same events, released with the last.
+// - SS8: `make` re-acquires after the last unsubscribe.
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -5,7 +18,7 @@ import * as PubSub from "effect/PubSub"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
-import { makeSharedByTarget, makeSharedGlobal } from "../src/internal/shared.ts"
+import * as SharedSource from "../src/SharedSource.ts"
 
 /**
  * A test-controlled cold source factory that records ref-counting facts. Each
@@ -73,11 +86,11 @@ const subscribeIn = <A>(stream: Stream.Stream<A>) =>
     }
   })
 
-describe("makeSharedByTarget", () => {
-  it.effect("two concurrent subscribers to the same target share one lookup", () =>
+describe("SharedSource.byTarget", () => {
+  it.effect("SS1: two concurrent subscribers to the same target share one lookup", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedByTarget(probe.lookup)
+      const shared = yield* SharedSource.byTarget(probe.lookup)
       const target = { id: "a" }
       const a = yield* subscribeIn(shared(target))
       const b = yield* subscribeIn(shared(target))
@@ -96,31 +109,28 @@ describe("makeSharedByTarget", () => {
       yield* b.close
     }))
 
-  // Regression: a LONE first subscriber keyed by a real DOM element. RcMap hashes
-  // its keys with Effect's structural Hash, which THROWS on a DOM node (it touches
-  // a function's `.caller` in strict mode); the throw silently killed the forked
-  // subscriber, so the lookup never ran (acquired stayed 0) and no events flowed.
-  // 09's tests missed this — they keyed by plain objects, which hash fine. Fixed
-  // by keying RcMap via an identity TargetKey wrapper (see shared.ts).
-  it.effect("a lone first subscriber keyed by a DOM element runs the lookup and receives events", () =>
+  // A key Effect's structural Hash throws on, as it does on a DOM node: RcMap would hash it and the
+  // throw would kill the subscriber, so the lookup would never run. TargetKey keys it by identity.
+  it.effect("SS2: a target structural hashing would throw on is keyed by identity: the lookup runs", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedByTarget(probe.lookup)
-      const el = document.createElement("div")
-      const a = yield* subscribeIn(shared(el))
-
-      // Before the fix this was 0 — the structural-hash throw killed the get.
+      const shared = yield* SharedSource.byTarget(probe.lookup)
+      const hostile = {
+        get boom(): never {
+          throw new Error("a structural hash read this")
+        },
+      }
+      const a = yield* subscribeIn(shared(hostile))
       expect(yield* probe.getAcquired).toBe(1)
-
       yield* probe.publish(0, 7)
       expect(yield* a.received).toEqual([7])
       yield* a.close
     }))
 
-  it.effect("distinct targets get distinct lookups", () =>
+  it.effect("SS3: distinct targets get distinct lookups", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedByTarget(probe.lookup)
+      const shared = yield* SharedSource.byTarget(probe.lookup)
       const a = yield* subscribeIn(shared({ id: "a" }))
       const b = yield* subscribeIn(shared({ id: "b" }))
 
@@ -138,10 +148,10 @@ describe("makeSharedByTarget", () => {
       yield* b.close
     }))
 
-  it.effect("closing one subscriber keeps the source until the last closes", () =>
+  it.effect("SS4: closing one subscriber keeps the source until the last closes", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedByTarget(probe.lookup)
+      const shared = yield* SharedSource.byTarget(probe.lookup)
       const target = { id: "a" }
       const a = yield* subscribeIn(shared(target))
       const b = yield* subscribeIn(shared(target))
@@ -162,10 +172,10 @@ describe("makeSharedByTarget", () => {
       expect(yield* probe.getReleased).toBe(1)
     }))
 
-  it.effect("re-subscribing after teardown performs a fresh lookup", () =>
+  it.effect("SS5: re-subscribing after teardown performs a fresh lookup", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedByTarget(probe.lookup)
+      const shared = yield* SharedSource.byTarget(probe.lookup)
       const target = { id: "a" }
       const a = yield* subscribeIn(shared(target))
       expect(yield* probe.getAcquired).toBe(1)
@@ -184,10 +194,10 @@ describe("makeSharedByTarget", () => {
   // drives it exactly — no wall-clock flake. A
   // re-subscribe within the TTL reuses the still-idle source (no re-acquire);
   // a re-subscribe after the TTL has elapsed re-acquires.
-  it.effect("idleTimeToLive debounces teardown on rapid re-subscribe", () =>
+  it.effect("SS6: idleTimeToLive debounces teardown on rapid re-subscribe", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedByTarget(probe.lookup, { idleTimeToLive: "200 millis" })
+      const shared = yield* SharedSource.byTarget(probe.lookup, { idleTimeToLive: "200 millis" })
       const target = { id: "a" }
 
       const a = yield* subscribeIn(shared(target))
@@ -213,11 +223,11 @@ describe("makeSharedByTarget", () => {
     }))
 })
 
-describe("makeSharedGlobal", () => {
-  it.effect("concurrent subscribers share one acquire and the same events", () =>
+describe("SharedSource.make", () => {
+  it.effect("SS7: concurrent subscribers share one acquire and the same events", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedGlobal(probe.acquire)
+      const shared = yield* SharedSource.make(probe.acquire)
       const a = yield* subscribeIn(shared)
       const b = yield* subscribeIn(shared)
 
@@ -234,10 +244,10 @@ describe("makeSharedGlobal", () => {
       expect(yield* probe.getReleased).toBe(1)
     }))
 
-  it.effect("re-subscribing after the last unsubscribe re-acquires", () =>
+  it.effect("SS8: re-subscribing after the last unsubscribe re-acquires", () =>
     Effect.gen(function* () {
       const probe = yield* makeProbeSource<number>()
-      const shared = yield* makeSharedGlobal(probe.acquire)
+      const shared = yield* SharedSource.make(probe.acquire)
       const a = yield* subscribeIn(shared)
       expect(yield* probe.getAcquired).toBe(1)
       yield* a.close
