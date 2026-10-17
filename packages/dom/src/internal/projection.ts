@@ -1130,37 +1130,45 @@ interface Release {
   stopped: boolean
 }
 
-/**
- * A just-disposed `layoutId` node's content-frame box, kept until the end of the
- * current task so a presence `handleLeave` arriving AFTER dispose can re-introduce
- * the element as a leaving Follower (ADR-0010). `reintroduced` records whether it did.
- */
-interface RecentLeaver {
-  readonly layoutId: string
+/** A node's last pass, what a re-introduction draws it from: its content-frame box and paint deltas (#136). */
+interface LastPass {
   readonly box: Box.Box
-  /** The leaver's paint deltas at its last pass, for the leaving Follower it may become (#136). */
   readonly paintDelta: Projection.Delta | undefined
   readonly unpaintDelta: Projection.Delta | undefined
+}
+
+/**
+ * A just-disposed layout node, held until the end of the current task (#221; ADR-0010 *Amendment
+ * (#13)*, #169): what a presence `handleLeave` arriving after its dispose re-introduces it from (a
+ * twin as a leaving Follower, a plain layout node as one its leaving container carries), and a
+ * twin's Switch seed. One record per node, whatever it was. `reintroduced` records whether a
+ * `handleLeave` brought it back.
+ */
+interface Leaver {
+  readonly element: HTMLElement
+  /** Its last pass; `undefined` when it never had one, and then it can't come back. */
+  readonly last: LastPass | undefined
+  /** Its Relative anchor, for a node its leaving container carries (#169). */
+  readonly layoutAnchor: Point.Point | false | undefined
+  /** What only a `layoutId` node has (ADR-0010); `undefined` for a plain layout node. */
+  readonly twin: TwinLeaver | undefined
+  reintroduced: boolean
+}
+
+/** A leaver's twin part (ADR-0010). */
+interface TwinLeaver {
+  readonly layoutId: string
   /**
    * Its chain at its last pass (ADR-0012 *Amendment (#137)*), and its frame's offset from the page's
    * as it went: a twin a leaving wrapper hands back keeps following it (ADR-0010 *Amendment (#181)*).
    */
   readonly chain: ReadonlyArray<PaintLink> | undefined
   readonly shift: Point.Point
-  reintroduced: boolean
-}
-
-/**
- * A disposed layout node with no `layoutId`, held until the end of the current task (#169): what a
- * presence `handleLeave` re-introduces it from when it sits inside the leaver, so a closing
- * container's layout children stay corrected for its lock. `reintroduced` records whether it was.
- */
-interface RecentNode {
-  readonly box: Box.Box
-  readonly paintDelta: Projection.Delta | undefined
-  readonly unpaintDelta: Projection.Delta | undefined
-  readonly layoutAnchor: Point.Point | false | undefined
-  reintroduced: boolean
+  /**
+   * Its Switch seed (ADR-0010 *Amendment (#13)*): held per `layoutId` for an enterer in the task,
+   * handed straight to a twin that registered first and is unmeasured, or none (no box to seed from).
+   */
+  readonly seed: HeldSeed | "handed-off" | undefined
 }
 
 /**
@@ -1307,18 +1315,14 @@ export const makeProjectionSystem = (
   const stacks = new Map<string, Array<NodeState>>()
   // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe).
   let ro: ResizeObserver | undefined
-  // A just-disposed `layoutId` node's box, so a presence `handleLeave` arriving
-  // AFTER dispose can re-introduce it as a leaving Follower (cleared at the end of
-  // the task, by the leaver's `endOfTask` hold).
-  const recentLeavers = new Map<HTMLElement, RecentLeaver>()
-  /** Disposed layout nodes with no `layoutId` this task (#169), cleared together at its end. */
-  const recentNodes = new Map<HTMLElement, RecentNode>()
-  let recentNodesHeld = false
-  // A disposed twin's Switch seed per `layoutId`, in the Root frame, until the end of
-  // the task (ADR-0010 *Amendment (#13)*). An enterer registering within the task
-  // takes it; a twin already registered but unmeasured gets it handed over directly.
-  // Plain `Map`s keyed by string / element identity — nothing here is Effect-hashed.
-  const heldSeeds = new Map<string, HeldSeed>()
+  // The layout nodes disposed this task, by element (#221), and the newest held Switch seed per
+  // `layoutId`, in the Root frame (ADR-0010 *Amendment (#13)*): an enterer registering within the
+  // task takes it (a twin already registered but unmeasured got it handed over directly). One
+  // `wardic.projection.leaversHold` step at the end of the task expires them all. Plain `Map`s
+  // keyed by element identity / string: nothing here is Effect-hashed.
+  const leavers = new Map<HTMLElement, Leaver>()
+  const seeds = new Map<string, HeldSeed>()
+  let leaversHeld = false
   // The end-of-task hold fibers. A `FiberSet` (a native `Set`, reference identity)
   // inside a Scope the system owns: disposing the system closes it, interrupting any
   // hold still pending.
@@ -2663,98 +2667,116 @@ export const makeProjectionSystem = (
     return undefined
   }
 
+  /** `node`'s last pass, `undefined` when it never had one. */
+  const lastPassOf = (node: NodeState): LastPass | undefined =>
+    UndefinedOr.map(boxOf(node), (box): LastPass => ({ box, paintDelta: node.paintDelta, unpaintDelta: node.unpaintDelta }))
+
   /**
-   * Hold a disposed layout node with no `layoutId` until the end of the task (#169): what a
-   * presence `handleLeave` re-introduces it from, should it sit inside the leaver. One
-   * `wardic.projection.nodesHold` step clears every node held in the task, so unmounting a large
-   * layout list costs one map entry a node.
+   * Hold `leaver` until the end of its task (#221). The first hold in a task schedules one
+   * `wardic.projection.leaversHold` step, which expires every leaver held in it, so unmounting a
+   * large layout list costs one map entry a node (#169), and annotates what became of them.
    */
-  const holdNode = (node: NodeState): void => {
-    const box = boxOf(node)
-    if (Predicate.isUndefined(box)) return
-    recentNodes.set(node.element, {
-      box,
-      paintDelta: node.paintDelta,
-      unpaintDelta: node.unpaintDelta,
-      layoutAnchor: node.layoutAnchor,
-      reintroduced: false,
-    })
-    if (recentNodesHeld) return
-    recentNodesHeld = true
-    endOfTask("wardic.projection.nodesHold", {}, () => {
-      const held = recentNodes.size
-      const reintroduced = Arr.filter(Array.from(recentNodes.values()), (recent) => recent.reintroduced).length
-      recentNodes.clear()
-      recentNodesHeld = false
-      return { held, reintroduced }
+  const hold = (leaver: Leaver): void => {
+    leavers.set(leaver.element, leaver)
+    if (leaversHeld) return
+    leaversHeld = true
+    endOfTask("wardic.projection.leaversHold", {}, () => {
+      const held = Array.from(leavers.values())
+      leavers.clear()
+      leaversHeld = false
+      return outcomeOf(held)
     })
   }
 
   /**
-   * Hold a disposed `layoutId` node's two end-of-task records (ADR-0010 *Amendment
-   * (#13)*): the content-frame box a presence `handleLeave` may re-introduce, and the
-   * Switch seed in the Root frame — handed straight to a twin that registered first,
-   * or held per `layoutId` for an enterer that registers within this task. ONE
-   * `wardic.projection.leaverHold` fiber per leaver expires both at the end of the
-   * task and annotates what became of them.
+   * Hold a disposed layout node with no `layoutId` (#169): what a presence `handleLeave` re-introduces
+   * it from, should it sit inside the leaver. Nothing to hold when it never had a pass.
+   */
+  const holdNode = (node: NodeState): void => {
+    const last = lastPassOf(node)
+    if (Predicate.isUndefined(last)) return
+    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: undefined, reintroduced: false })
+  }
+
+  /**
+   * Hold a disposed `layoutId` node (ADR-0010 *Amendment (#13)*): the last pass a presence
+   * `handleLeave` may re-introduce it from, and its Switch seed in the Root frame, handed straight
+   * to a twin that registered first or held per `layoutId` for an enterer that registers within
+   * this task. Nothing to hold when it has neither.
    */
   const holdLeaver = (node: NodeState, layoutId: string): void => {
-    const box = boxOf(node)
-    const recent = UndefinedOr.map(box, (stored): RecentLeaver => ({
-      layoutId,
-      box: stored,
-      paintDelta: node.paintDelta,
-      unpaintDelta: node.unpaintDelta,
-      chain: node.paintChain,
-      shift: scrollOffset(node, measureDocumentScroll()),
-      reintroduced: false,
-    }))
-    if (Predicate.isNotUndefined(recent)) recentLeavers.set(node.element, recent)
-
+    const last = lastPassOf(node)
+    const shift = scrollOffset(node, measureDocumentScroll())
     const seedBox = rootFrameBox(node)
     // Its look as drawn as it goes (ADR-0010 *Amendment (#166)*): what a twin taking over blends from.
     const look = drawnLookOf(node, leavingOpacityOf(node))
     node.leftLook = look
-    let handedOff = false
-    let held: HeldSeed | undefined
-    if (Predicate.isNotUndefined(seedBox)) {
-      const twin = pendingTwinOf(node, layoutId)
-      if (Predicate.isNotUndefined(twin)) {
-        twin.seed = seedBox
-        twin.seedBlend = look
-        handedOff = true
-      }
-      if (Predicate.isUndefined(twin)) {
-        held = { box: seedBox, blend: look, consumed: false }
-        heldSeeds.set(layoutId, held)
-      }
-    }
-    if (Predicate.isUndefined(recent) && Predicate.isUndefined(seedBox)) return
-
-    endOfTask("wardic.projection.leaverHold", { layoutId }, () => {
-      if (Predicate.isNotUndefined(recent) && recentLeavers.get(node.element) === recent) recentLeavers.delete(node.element)
-      const seed = UndefinedOr.match(held, {
-        onUndefined: () => Bool.match(handedOff, { onTrue: () => "handed-off", onFalse: () => "none" }),
-        onDefined: (h) => heldOutcomeOf(h, layoutId),
-      })
-      return { seed, reintroduced: Predicate.isNotUndefined(recent) && recent.reintroduced }
-    })
+    const seed = UndefinedOr.map(seedBox, (box) => seedOf(node, layoutId, box, look))
+    if (Predicate.isUndefined(last) && Predicate.isUndefined(seedBox)) return
+    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: { layoutId, chain: node.paintChain, shift, seed }, reintroduced: false })
   }
 
-  /** What became of a leaver's held Switch seed by the end of its task: consumed, expired (dropped now), or replaced. */
-  const heldOutcomeOf = (held: HeldSeed, layoutId: string): string =>
-    Bool.match(held.consumed, {
-      onTrue: () => "consumed",
-      onFalse: () =>
-        Bool.match(heldSeeds.get(layoutId) === held, {
-          onTrue: () => {
-            heldSeeds.delete(layoutId)
-            return "expired"
-          },
-          // A later leaver with the same layoutId took the slot.
-          onFalse: () => "replaced",
-        }),
+  /**
+   * A disposed twin's Switch seed (ADR-0010 *Amendment (#13)*): handed straight to the twin that
+   * registered first and is still unmeasured, else held per `layoutId`, replacing one a leaver with
+   * the same `layoutId` held earlier in the task.
+   */
+  const seedOf = (node: NodeState, layoutId: string, box: Box.Box, look: Blend): HeldSeed | "handed-off" =>
+    UndefinedOr.match(pendingTwinOf(node, layoutId), {
+      onDefined: (twin): HeldSeed | "handed-off" => {
+        twin.seed = box
+        twin.seedBlend = look
+        return "handed-off"
+      },
+      onUndefined: () => {
+        const held: HeldSeed = { box, blend: look, consumed: false }
+        seeds.set(layoutId, held)
+        return held
+      },
     })
+
+  /**
+   * What became of a task's leavers, for its span: how many it held, how many a `handleLeave` brought
+   * back, and each twin's Switch seed by `layoutId` (see {@link seedOutcomeOf}), when it held a twin.
+   */
+  const outcomeOf = (held: ReadonlyArray<Leaver>): Record<string, unknown> => {
+    const twins = Arr.filter(Arr.map(held, (leaver) => leaver.twin), Predicate.isNotUndefined)
+    const bySeed = Arr.reduce(twins, {} as Record<string, string>, (out, twin) => {
+      const outcome = seedOutcomeOf(twin)
+      out[twin.layoutId] = UndefinedOr.match(out[twin.layoutId], { onUndefined: () => outcome, onDefined: (earlier) => `${earlier}, ${outcome}` })
+      return out
+    })
+    return {
+      held: held.length,
+      reintroduced: Arr.filter(held, (leaver) => leaver.reintroduced).length,
+      ...Bool.match(Arr.isArrayNonEmpty(twins), { onTrue: () => ({ seeds: bySeed }), onFalse: () => ({}) }),
+    }
+  }
+
+  /**
+   * What became of a twin's Switch seed by the end of its task: `consumed` by an enterer, `expired`
+   * (dropped now), `replaced` by a later leaver's with the same `layoutId`, `handed-off` straight to
+   * a twin, or `none` when it had no box to seed from.
+   */
+  const seedOutcomeOf = (twin: TwinLeaver): string =>
+    Match.value(twin.seed).pipe(
+      Match.when(Match.undefined, () => "none"),
+      Match.when("handed-off", (handedOff) => handedOff),
+      Match.orElse((held) =>
+        Bool.match(held.consumed, {
+          onTrue: () => "consumed",
+          onFalse: () =>
+            Bool.match(seeds.get(twin.layoutId) === held, {
+              onTrue: () => {
+                seeds.delete(twin.layoutId)
+                return "expired"
+              },
+              // A later leaver with the same layoutId took the slot.
+              onFalse: () => "replaced",
+            }),
+        }),
+      ),
+    )
 
   // --- One round of the Measure pass (reads, then FLIP seeds), run inside the ---
   // sink's `flushPass`, which applies what it writes before returning. The
@@ -4019,11 +4041,11 @@ export const makeProjectionSystem = (
 
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
     const live = elementToNode.get(el)
-    const recent = recentLeavers.get(el)
-    // A live node's layoutId, else the one a recent leaver held.
+    const recent = leavers.get(el)
+    // A live node's layoutId, else the one a leaver held as a twin.
     const layoutId = Option.getOrUndefined(
       Option.orElse(Option.flatMap(Option.fromUndefinedOr(live), (n) => Option.fromUndefinedOr(n.layoutId)), () =>
-        Option.map(Option.fromUndefinedOr(recent), (r) => r.layoutId)),
+        Option.map(Option.flatMap(Option.fromUndefinedOr(recent), (r) => Option.fromUndefinedOr(r.twin)), (twin) => twin.layoutId)),
     )
     if (Predicate.isUndefined(layoutId)) return false
     debug("handleLeave", { layoutId, branch: Bool.match(Predicate.isNotUndefined(live), { onTrue: () => "live", onFalse: () => "reintroduce" }) })
@@ -4058,9 +4080,11 @@ export const makeProjectionSystem = (
     // transient leaving Follower from the recorded box (the re-introduce model).
     const lead = leadOf(layoutId)
     if (Predicate.isUndefined(lead) || lead.element === el || Predicate.isUndefined(recent)) return false
+    const last = recent.last
+    if (Predicate.isUndefined(last)) return false
     const stack = stacks.get(layoutId)
     if (Predicate.isUndefined(stack)) return false
-    const follower = makeLeavingNode(el, layoutId, recent, onDone, undefined, undefined)
+    const follower = makeLeavingNode(el, layoutId, last, onDone, undefined, undefined)
     recent.reintroduced = true
     nodes.add(follower)
     elementToNode.set(el, follower)
@@ -4093,19 +4117,23 @@ export const makeProjectionSystem = (
    * The twins inside `container` re-introduced (#5): each a leaving Follower of its Lead in a
    * handover, spliced below it, with the chain `chainOf` gives it. The ones that came back.
    */
-  const reintroduceTwinsWithin = (container: HTMLElement, chainOf: (recent: RecentLeaver) => ReadonlyArray<PaintLink> | undefined): Array<NodeState> => {
+  const reintroduceTwinsWithin = (container: HTMLElement, chainOf: (held: TwinLeaver) => ReadonlyArray<PaintLink> | undefined): Array<NodeState> => {
     const twins: Array<NodeState> = []
-    Arr.forEach(Array.from(recentLeavers), ([inner, recent]) => {
+    Arr.forEach(Array.from(leavers), ([inner, recent]) => {
+      const held = recent.twin
+      const last = recent.last
+      if (Predicate.isUndefined(held)) return
+      if (Predicate.isUndefined(last)) return
       if (inner === container) return
       if (recent.reintroduced) return
       if (Bool.not(container.contains(inner))) return
-      const lead = leadOf(recent.layoutId)
-      const stack = stacks.get(recent.layoutId)
+      const lead = leadOf(held.layoutId)
+      const stack = stacks.get(held.layoutId)
       if (Predicate.isUndefined(lead)) return
       if (Predicate.isUndefined(stack)) return
       if (lead.element === inner) return
       if (Bool.not(active.has(lead))) return
-      const twin = makeLeavingNode(inner, recent.layoutId, recent, () => undefined, undefined, chainOf(recent))
+      const twin = makeLeavingNode(inner, held.layoutId, last, () => undefined, undefined, chainOf(held))
       recent.reintroduced = true
       nodes.add(twin)
       elementToNode.set(inner, twin)
@@ -4120,11 +4148,14 @@ export const makeProjectionSystem = (
    * derived under it each frame and finished with it.
    */
   const reintroduceNodesWithin = (container: HTMLElement): void =>
-    Arr.forEach(Array.from(recentNodes), ([inner, recent]) => {
+    Arr.forEach(Array.from(leavers), ([inner, recent]) => {
+      const last = recent.last
+      if (Predicate.isNotUndefined(recent.twin)) return
+      if (Predicate.isUndefined(last)) return
       if (recent.reintroduced) return
       if (Bool.not(container.contains(inner))) return
       recent.reintroduced = true
-      const carried = makeLeavingNode(inner, undefined, recent, undefined, recent.layoutAnchor, undefined)
+      const carried = makeLeavingNode(inner, undefined, last, undefined, recent.layoutAnchor, undefined)
       nodes.add(carried)
       elementToNode.set(inner, carried)
     })
@@ -4162,6 +4193,13 @@ export const makeProjectionSystem = (
     return Arr.appendAll(Arr.append(outer, link), inner)
   }
 
+  /** Whether `el` is a twin held this task with a last pass, one a `handleLeave` may re-introduce itself. */
+  const isHeldTwin = (el: HTMLElement): boolean =>
+    UndefinedOr.match(leavers.get(el), {
+      onUndefined: constFalse,
+      onDefined: (leaver) => Bool.and(Predicate.isNotUndefined(leaver.twin), Predicate.isNotUndefined(leaver.last)),
+    })
+
   /**
    * The twins inside a leaving element that isn't a twin handed back (ADR-0010 *Amendment (#181)*), as
    * {@link reintroduceWithin} does for a twin's: each a leaving Follower of its Lead, with the layout
@@ -4171,10 +4209,10 @@ export const makeProjectionSystem = (
    */
   const doHandBackWithin = (el: HTMLElement, onDone: () => void): (() => void) | undefined => {
     if (elementToNode.has(el)) return undefined
-    if (recentLeavers.has(el)) return undefined
-    const twins = reintroduceTwinsWithin(el, (recent) =>
-      UndefinedOr.map(recent.chain, (chain) =>
-        UndefinedOr.match(wrapperLinkOf(el, recent.shift), { onUndefined: () => chain, onDefined: (link) => withLink(chain, link, el) }),
+    if (isHeldTwin(el)) return undefined
+    const twins = reintroduceTwinsWithin(el, (held) =>
+      UndefinedOr.map(held.chain, (chain) =>
+        UndefinedOr.match(wrapperLinkOf(el, held.shift), { onUndefined: () => chain, onDefined: (link) => withLink(chain, link, el) }),
       ),
     )
     if (Arr.isArrayEmpty(twins)) return undefined
@@ -4332,12 +4370,12 @@ export const makeProjectionSystem = (
       }
       stack.push(node)
       // Take the Switch seed a twin disposed earlier in this task left behind.
-      const held = heldSeeds.get(node.layoutId)
+      const held = seeds.get(node.layoutId)
       if (Predicate.isNotUndefined(held)) {
         node.seed = held.box
         node.seedBlend = held.blend
         held.consumed = true
-        heldSeeds.delete(node.layoutId)
+        seeds.delete(node.layoutId)
       }
     }
     // No observer on a server.
@@ -4522,9 +4560,8 @@ export const makeProjectionSystem = (
     stopTicking()
     // Interrupt any end-of-task hold still pending, then drop what they held.
     runtime.runFork(Scope.close(scope, Exit.void))
-    heldSeeds.clear()
-    recentLeavers.clear()
-    recentNodes.clear()
+    seeds.clear()
+    leavers.clear()
     if (Predicate.isNotUndefined(ro)) ro.disconnect()
     ro = undefined
     active.clear()

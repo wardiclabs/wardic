@@ -55,7 +55,7 @@ ADR-0009 established box projection as the only model where scale-correction, sc
 
 ### Follow-ups
 
-- **#16:** move the engine's DOM-free half (the stack, the switch-seed slot, first-measure detection and the fold arithmetic) into `@wardic/core`, and route its reads through `Probe`. The slot is written DOM-free in `@wardic/dom`'s `makeProjectionSystem` for now, next to the stack. Merging the switch-seed record and `recentLeavers` into one structure is deferred to this lift.
+- **#16:** move the engine's DOM-free half (the stack, the switch-seed slot, first-measure detection and the fold arithmetic) into `@wardic/core`, and route its reads through `Probe`. The slot is written DOM-free in `@wardic/dom`'s `makeProjectionSystem` for now, next to the stack. Merging the switch-seed record and `recentLeavers` into one structure is deferred to this lift. *Done on its own in #221 (Amendment (#221)), when #16 was parked.*
 - **Cross-container crossfade (not yet filed):** the Crossfade path still takes its origin from the prior lead's Scroll-stable box, so coexisting twins in differently scrolled `layoutScroll` containers start off by the difference of their container scrolls. It is tied to #8 (the seed box's transform space).
 
 ## Note (#136, 2026-10-12): twins are compared as painted
@@ -450,3 +450,41 @@ Grilled 2026-10-14:
   - carried nodes left behind, or every layout node in the child brought back;
   - `onDone` at once;
   - teardown over running exits only.
+
+## Amendment (#221, 2026-10-17): one record for a just-disposed layout node
+
+The engine kept a just-disposed layout node in three structures, each written and expired on its own:
+- `recentLeavers`: a `layoutId` node's box, paint deltas, chain and frame shift, keyed by element;
+- `heldSeeds`: its Switch seed, keyed by `layoutId`;
+- `recentNodes`: a plain layout node's box, deltas and anchor (#169), keyed by element.
+
+The first two expired one fiber per leaver (`wardic.projection.leaverHold`), the third one step per task (`wardic.projection.nodesHold`). #13 deferred merging them to #16's lift, and #16 was parked until a non-DOM Environment exists, so the merge was done on its own.
+
+Grilled 2026-10-17 (A, A):
+- **One `Leaver` per disposed layout node, keyed by element:**
+  - its last pass (box and paint deltas; absent when it never had one, and then it can't come back);
+  - its anchor;
+  - an optional twin part, holding what only a `layoutId` node has: the `layoutId`, chain, frame shift, and its Switch seed (held, `"handed-off"`, or none);
+  - `reintroduced`.
+
+  The newest held seed per `layoutId` stays in `seeds`, sharing the twin's seed object, so "replaced" is an identity check, as before.
+  - Rejected: two record types under a union tag; folding only the seed into the twin's record.
+- **One end-of-task step per task expires every leaver held in it,** span `wardic.projection.leaversHold`. It's as cheap as #169's for a long list. It's annotated with `held`, `reintroduced`, and each twin's seed outcome by `layoutId` (`consumed`, `expired`, `replaced`, `handed-off`, `none`). It replaces `leaverHold` and `nodesHold`.
+  - Rejected: keeping the two expiries; a fiber per leaver.
+
+**Pinned by** `packages/dom/test/projection-leavers.browser.test.ts`, new:
+- LV1: a twin registered first and still unmeasured takes the leaver's seed straight away; its first frame is at the leaver's box. Solid's register-then-dispose test measures the enterer while its twin is live, so it never reached this hand-off.
+- LV2: a leaver lasts until the end of its task.
+- LV3: a twin inside a re-introduced leaver whose own Lead isn't in a handover isn't carried, while a plain layout node beside it is.
+
+**Mutations, 6:**
+- **Caught (5):**
+  - plain-node re-introduction taking twins (LV3);
+  - an expired seed kept (the window-pin test);
+  - leavers outliving their task (LV2);
+  - no twin re-introduced within (HB1–HB5 and more);
+  - no direct hand-off (LV1).
+- **Survives (1):** a hand-back not declining a twin leaver itself (HB2's case). The hand-back then finds no twin inside the twin and declines anyway. It survives on main too.
+
+On main, the equivalents of the hand-off, the expiry and the twin-leaver mutations all survived the existing tests. The first had no equivalent, since separate maps couldn't mix twins and plain nodes; LV1–LV3 now pin it.
+
