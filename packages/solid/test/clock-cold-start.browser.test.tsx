@@ -21,6 +21,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import * as Scheduler from "effect/Scheduler"
 import { createSignal } from "solid-js"
@@ -122,7 +123,7 @@ it("Cold start: a useWardic spring set from a task moves on the 1st painted fram
     <WardicProvider env={DomLive}>
       <style>{CSS}</style>
       <div class="cs-stage">
-        <wardic.div data-dot class="cs-dot" animate={{ x: go() ? 200 : 0 }} />
+        <wardic.div data-dot class="cs-dot" animate={{ x: Bool.match(go(), { onTrue: () => 200, onFalse: () => 0 }) }} />
       </div>
     </WardicProvider>
   ))
@@ -142,7 +143,7 @@ it("warm start: a useWardic spring set from a task while another spring runs mov
     <WardicProvider env={DomLive}>
       <style>{CSS}</style>
       <div class="cs-stage">
-        <wardic.div data-dot class="cs-dot" animate={{ x: go() ? 200 : 0 }} />
+        <wardic.div data-dot class="cs-dot" animate={{ x: Bool.match(go(), { onTrue: () => 200, onFalse: () => 0 }) }} />
         <wardic.div class="cs-dot" style={{ top: "180px" }} animate={{ x: drive() }} transition={{ stiffness: 4, damping: 1 }} />
       </div>
     </WardicProvider>

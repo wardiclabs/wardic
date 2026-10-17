@@ -10,6 +10,8 @@
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicDragTransition, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
@@ -54,8 +56,8 @@ const mountBox = async (opts: {
           drag
           dragMomentum={opts.momentum !== false}
           dragSnapToOrigin={opts.snapToOrigin === true}
-          {...(opts.constraints !== undefined ? { dragConstraints: opts.constraints, dragElastic: 0.5 } : {})}
-          {...(opts.dragTransition !== undefined ? { dragTransition: opts.dragTransition } : {})}
+          {...UndefinedOr.match(opts.constraints, { onUndefined: () => ({}), onDefined: (dragConstraints) => ({ dragConstraints, dragElastic: 0.5 }) })}
+          {...UndefinedOr.match(opts.dragTransition, { onUndefined: () => ({}), onDefined: (dragTransition) => ({ dragTransition }) })}
           style={{ position: "relative", width: "120px", height: "80px", background: "#8af" }}
         />
       </div>
@@ -135,8 +137,8 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
     // The offsets past the bound move at half the pointer's speed; the release reads the pointer's.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
-      const b = await mountBox({ layout: true, dragTransition: SOFT, ...(constrained ? { constraints: { x: { min: 0, max: 50 } } } : {}) })
-      const at = await flick(b, constrained ? 150 : 50, 25)
+      const b = await mountBox({ layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { x: { min: 0, max: 50 } } }), onFalse: () => ({}) }) })
+      const at = await flick(b, Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 }), 25)
       const released = dxOf(b)
       expect(released, "let go 150 px right of the slot").toBeCloseTo(150, -1)
       const sampling = sampleFrames(() => dxOf(b))

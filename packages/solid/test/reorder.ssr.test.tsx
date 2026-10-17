@@ -16,16 +16,17 @@
 // so neither is pinned. The markup is parsed rather than compared whole, because Solid's
 // `renderToString` adds hydration keys.
 import { createReorderGroup, Reorder, wardic } from "@wardic/solid"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { For, type JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { expectDragDefaults, serve, tagsOf } from "./ssr-helpers.ts"
 
 const VALUES = ["a", "b", "c"]
 const list = (props: { readonly groupAs?: "div"; readonly itemAs?: "span"; readonly groupStyle?: JSX.CSSProperties; readonly itemStyle?: JSX.CSSProperties } = {}) => () => (
-  <Reorder.Group values={VALUES} onReorder={() => {}} {...(props.groupAs !== undefined ? { as: props.groupAs } : {})} style={props.groupStyle}>
+  <Reorder.Group values={VALUES} onReorder={() => {}} {...UndefinedOr.match(props.groupAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })} style={props.groupStyle}>
     <For each={VALUES}>
       {(value) => (
-        <Reorder.Item value={value} data-value={value} {...(props.itemAs !== undefined ? { as: props.itemAs } : {})} style={props.itemStyle}>
+        <Reorder.Item value={value} data-value={value} {...UndefinedOr.match(props.itemAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })} style={props.itemStyle}>
           {value}
         </Reorder.Item>
       )}

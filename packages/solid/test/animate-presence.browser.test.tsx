@@ -9,13 +9,14 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal, Show } from "solid-js"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
+import * as Option from "effect/Option"
 import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
 const trackedNode = (container: HTMLElement): HTMLElement | undefined => {
   const node = container.querySelector("[data-presence]")
-  return node instanceof HTMLElement ? node : undefined
+  return Option.getOrUndefined(Option.liftPredicate(node, (n): n is HTMLElement => n instanceof HTMLElement))
 }
 
 describe("AnimatePresence — single child, parent-driven exit", () => {

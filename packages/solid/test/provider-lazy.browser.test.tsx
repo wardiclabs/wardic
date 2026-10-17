@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import { useWardicGate, useWardicRuntime, wardic, WardicProvider, type WardicRuntime } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { raf, until } from "./browser-helpers.ts"
 
 afterEach(() => {
@@ -83,7 +84,8 @@ describe("a client WardicProvider builds on first need (#51)", () => {
     const seen = spies()
     let runtime: WardicRuntime | undefined
     const errors: Array<unknown> = []
-    const onError = (e: ErrorEvent | PromiseRejectionEvent) => errors.push("reason" in e ? e.reason : e.error)
+    const onError = (e: ErrorEvent | PromiseRejectionEvent) =>
+      errors.push(Bool.match("reason" in e, { onTrue: () => (e as PromiseRejectionEvent).reason, onFalse: () => (e as ErrorEvent).error }))
     window.addEventListener("error", onError)
     window.addEventListener("unhandledrejection", onError)
     render(() => (

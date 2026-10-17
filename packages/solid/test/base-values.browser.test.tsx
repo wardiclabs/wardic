@@ -12,6 +12,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { useWardic, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -390,7 +391,7 @@ describe("a key with no base value (#47): review cases", () => {
       )
     }
     function Child() {
-      const c = useWardic(() => ({ initial: { x: 0 }, animate: { x: childOpen() ? 20 : 0 } }))
+      const c = useWardic(() => ({ initial: { x: 0 }, animate: { x: Bool.match(childOpen(), { onTrue: () => 20, onFalse: () => 0 }) } }))
       return <div {...c({ style: { width: "10px", height: "10px" } })} />
     }
     render(() => (

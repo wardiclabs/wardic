@@ -21,6 +21,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import * as Clock from "@wardic/core/Clock"
 import { DomLive } from "@wardic/dom"
 import { useWardic, useWardicGate, useWardicRuntime, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Stream from "effect/Stream"
@@ -104,7 +105,7 @@ const LayoutBox = (props: {
     layout
     transition={SPRING}
     layoutDependency={props.atB()}
-    style={{ top: `${props.top ?? 0}px`, left: props.atB() ? `${props.to}px` : "0px" }}
+    style={{ top: `${props.top ?? 0}px`, left: Bool.match(props.atB(), { onTrue: () => `${props.to}px`, onFalse: () => "0px" }) }}
   />
 )
 
@@ -151,7 +152,7 @@ it("a layout change from an app ResizeObserver callback paints its origin first 
     onCleanup(() => observer.disconnect())
     return (
       <>
-        <div ref={driver} style={{ position: "absolute", top: "300px", left: "0px", height: "10px", width: wide() ? "200px" : "50px" }} />
+        <div ref={driver} style={{ position: "absolute", top: "300px", left: "0px", height: "10px", width: Bool.match(wide(), { onTrue: () => "200px", onFalse: () => "50px" }) }} />
         <LayoutBox atB={atB} to={240} ref={(el) => (box = el)} />
       </>
     )
@@ -395,7 +396,7 @@ it("an unrelated spring keeps even steps through a Measure pass that runs after 
     onCleanup(() => observer.disconnect())
     return (
       <>
-        <div ref={driver} style={{ position: "absolute", top: "300px", left: "0px", height: "10px", width: wide() ? "200px" : "50px" }} />
+        <div ref={driver} style={{ position: "absolute", top: "300px", left: "0px", height: "10px", width: Bool.match(wide(), { onTrue: () => "200px", onFalse: () => "50px" }) }} />
         <LayoutBox atB={atB} to={240} ref={() => {}} />
         <WarmDot to={drive} ref={(el) => (dot = el)} />
       </>
@@ -438,7 +439,7 @@ const WatchedLayoutNode = (props: {
       {...ward({
         ref: props.ref,
         get style(): JSX.CSSProperties {
-          return { position: "absolute", top: `${props.top}px`, left: props.atB() ? "200px" : "0px", width: "40px", height: "30px" }
+          return { position: "absolute", top: `${props.top}px`, left: Bool.match(props.atB(), { onTrue: () => "200px", onFalse: () => "0px" }), width: "40px", height: "30px" }
         },
       })}
     />

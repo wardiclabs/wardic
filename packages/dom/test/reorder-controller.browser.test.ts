@@ -17,6 +17,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as ReorderController from "@wardic/dom/ReorderController"
 import * as internalReorder from "../src/internal/reorder.ts"
 import { clearStages, el, endOfTask, type Engine, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
@@ -68,7 +69,7 @@ const mountList = async (
   kind: Kind,
   o: { readonly n?: number; readonly parent?: HTMLElement; readonly options?: Partial<ReorderController.Options<string>> } = {},
 ): Promise<List> => {
-  const values = Array.from({ length: o.n ?? (kind === "grid" ? 6 : 3) }, (_, i) => String.fromCharCode(97 + i))
+  const values = Array.from({ length: o.n ?? Bool.match(kind === "grid", { onTrue: () => 6, onFalse: () => 3 }) }, (_, i) => String.fromCharCode(97 + i))
   let order: ReadonlyArray<string> = values
   const reorders: Array<ReadonlyArray<string>> = []
   const axes: Array<Reorder.Axis> = []

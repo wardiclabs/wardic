@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { type Accessor, createSignal, type JSX } from "solid-js"
 import { useWardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -147,7 +148,7 @@ describe("useWardic — reactive config (Accessor)", () => {
         setOpen = setOpenSig
         ward = useWardic(() => ({
           initial: { opacity: 0 },
-          animate: { opacity: open() ? 1 : 0 },
+          animate: { opacity: Bool.match(open(), { onTrue: () => 1, onFalse: () => 0 }) },
         }))
         return <div {...ward({ ref: (node) => (el = node) })}>x</div>
       }

@@ -17,7 +17,10 @@ import { DomLive } from "@wardic/dom"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Style from "@wardic/dom/Style"
 import { wardic, type WardicMotionProps, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { type Component, createRenderEffect, createSignal, ErrorBoundary, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -86,7 +89,8 @@ const FIRST_FRAME = 0.1
 /** The DOM's projection, from the Renderer DomLive provides. */
 const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
 
-const opacityOf = (el: Element | null): number => (el === null ? 1 : Number(getComputedStyle(el).opacity))
+const opacityOf = (el: Element | null): number =>
+  Option.match(Option.fromNullOr(el), { onNone: () => 1, onSome: (node) => Number(getComputedStyle(node).opacity) })
 
 /** The opacity the user sees: the root's times the inner element's. */
 const visible = (host: HTMLElement): number =>
@@ -141,7 +145,7 @@ interface Mounted {
 type MountTiming = "task" | "frame"
 
 const enter = (timing: MountTiming): Promise<void> =>
-  timing === "frame" ? raf() : new Promise((resolve) => setTimeout(resolve, 0))
+  Bool.match(timing === "frame", { onTrue: () => raf(), onFalse: () => new Promise<void>((resolve) => setTimeout(resolve, 0)) })
 
 /** Mount `name` wrapped with opacity 0 -> 1 and a user style `{ color }` the test can change. */
 const mountShape = (name: ShapeName, options: { readonly drag?: "x"; readonly layout?: true } = {}): Mounted => {
@@ -161,8 +165,8 @@ const mountShape = (name: ShapeName, options: { readonly drag?: "x"; readonly la
           animate={ANIMATE}
           transition={TWEEN}
           style={{ color: color() }}
-          {...(options.drag !== undefined ? { drag: options.drag } : {})}
-          {...(options.layout === true ? { layout: true } : {})}
+          {...UndefinedOr.match(options.drag, { onUndefined: () => ({}), onDefined: (drag) => ({ drag }) })}
+          {...Bool.match(options.layout === true, { onTrue: () => ({ layout: true }), onFalse: () => ({}) })}
         />
       </ErrorBoundary>
     </WardicProvider>
@@ -240,7 +244,7 @@ describe("wardic.create(Component) shapes (ADR-0021, decision 6)", () => {
       const Spy = (p: ShapeProps): JSX.Element => {
         createRenderEffect(() => {
           const style = p.style as Record<string, unknown> | undefined
-          log.push({ style: style === undefined ? undefined : { ...style }, draggable: p.draggable })
+          log.push({ style: UndefinedOr.map(style, (s) => ({ ...s })), draggable: p.draggable })
         })
         return (
           <div data-k="root" ref={p.ref} style={p.style} draggable={p.draggable}>
@@ -255,8 +259,8 @@ describe("wardic.create(Component) shapes (ADR-0021, decision 6)", () => {
             initial={INITIAL}
             animate={ANIMATE}
             transition={TWEEN}
-            {...(options.style !== undefined ? { style: options.style } : {})}
-            {...(options.drag !== undefined ? { drag: options.drag } : {})}
+            {...UndefinedOr.match(options.style, { onUndefined: () => ({}), onDefined: (style) => ({ style }) })}
+            {...UndefinedOr.match(options.drag, { onUndefined: () => ({}), onDefined: (drag) => ({ drag }) })}
           />
         </WardicProvider>
       ))

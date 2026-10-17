@@ -7,6 +7,8 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, useWardic, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import { createSignal, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -92,7 +94,7 @@ describe("initial={false} (#134)", () => {
     const [on, setOn] = createSignal(true)
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={false} animate={on() ? { opacity: 0.5 } : {}} transition={TWEEN} />
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={false} animate={Bool.match(on(), { onTrue: () => ({ opacity: 0.5 }), onFalse: () => ({}) })} transition={TWEEN} />
       </WardicProvider>
     ))
     await wait(100)
@@ -107,7 +109,7 @@ describe("initial={false} (#134)", () => {
     const [on, setOn] = createSignal(true)
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, opacity: 0.8 }} initial={false} animate={on() ? { opacity: 0.5 } : {}} transition={TWEEN} />
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, opacity: 0.8 }} initial={false} animate={Bool.match(on(), { onTrue: () => ({ opacity: 0.5 }), onFalse: () => ({}) })} transition={TWEEN} />
       </WardicProvider>
     ))
     await wait(100)
@@ -190,7 +192,7 @@ describe("initial={false} (#134)", () => {
           style={{ ...BOX, opacity: 0.8 }}
           initial={false}
           // An `animate` that goes away: an app without `exactOptionalPropertyTypes` writes this as is.
-          animate={(on() ? { opacity: 0.5 } : undefined) as WardicValues}
+          animate={Bool.match(on(), { onTrue: () => ({ opacity: 0.5 }), onFalse: () => undefined }) as WardicValues}
           transition={TWEEN}
         />
       </WardicProvider>
@@ -205,7 +207,7 @@ describe("initial={false} (#134)", () => {
   it("IF11: a component wrap starts at its animate before its first frame, and never moves", async () => {
     let el!: HTMLElement
     const Card = (p: { ref?: (el: HTMLElement) => void; style?: JSX.CSSProperties | string }): JSX.Element => (
-      <article ref={p.ref} style={{ ...BOX, ...(typeof p.style === "object" ? p.style : {}) }} />
+      <article ref={p.ref} style={{ ...BOX, ...Bool.match(Predicate.isObject(p.style), { onTrue: () => p.style as JSX.CSSProperties, onFalse: () => ({}) }) }} />
     )
     const WCard = wardic.create(Card)
     render(() => (

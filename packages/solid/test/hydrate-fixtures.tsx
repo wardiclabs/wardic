@@ -29,6 +29,7 @@ import {
 } from "@wardic/solid"
 import { TestLive } from "@wardic/test"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
 import { createRenderEffect, For, type JSX, Show } from "solid-js"
 
@@ -273,12 +274,12 @@ const el = (host: HTMLElement, k: string): HTMLElement | null => host.querySelec
 const opacity = (...ks: ReadonlyArray<string>) => (host: HTMLElement): number =>
   ks.reduce((acc, k) => {
     const node = el(host, k)
-    return acc * (node === null ? 1 : Number(getComputedStyle(node).opacity))
+    return acc * Option.match(Option.fromNullOr(node), { onNone: () => 1, onSome: (n) => Number(getComputedStyle(n).opacity) })
   }, 1)
 /** The painted uniform scale: the computed transform matrix's x-axis length, 1 for none. */
 const scale = (k: string) => (host: HTMLElement): number => {
   const node = el(host, k)
-  const t = node === null ? "none" : getComputedStyle(node).transform
+  const t = Option.match(Option.fromNullOr(node), { onNone: () => "none", onSome: (n) => getComputedStyle(n).transform })
   if (t === "" || t === "none") return 1
   const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
   return Math.hypot(v[0]!, v[1]!)
@@ -286,9 +287,9 @@ const scale = (k: string) => (host: HTMLElement): number => {
 /** The painted background's red channel, 0 to 1. */
 const red = (k: string) => (host: HTMLElement): number => {
   const node = el(host, k)
-  const c = node === null ? "" : getComputedStyle(node).backgroundColor
+  const c = Option.match(Option.fromNullOr(node), { onNone: () => "", onSome: (n) => getComputedStyle(n).backgroundColor })
   const m = /\((\d+)/.exec(c)
-  return m === null ? Number.NaN : Number(m[1]) / 255
+  return Option.match(Option.fromNullOr(m), { onNone: () => Number.NaN, onSome: (match) => Number(match[1]) / 255 })
 }
 const attr = (k: string, name: string) => (host: HTMLElement): number => Number(el(host, k)?.getAttribute(name) ?? NaN)
 

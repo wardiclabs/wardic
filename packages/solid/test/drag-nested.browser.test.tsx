@@ -19,6 +19,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import type * as Drag from "@wardic/core/Drag"
 import { DomLive } from "@wardic/dom"
 import { createDrag, Reorder, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createEffect, createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
@@ -83,7 +84,7 @@ const motionProps = (spec: NodeSpec, who: "outer" | "inner") => ({
   whileDrag: { opacity: 0.5 },
   whileHover: { "background-color": HOVER[who] },
   whileTap: { color: TAP },
-  ...(spec.springy === true ? {} : { transition: T }),
+  ...Bool.match(spec.springy === true, { onTrue: () => ({}), onFalse: () => ({ transition: T }) }),
 })
 
 interface Scene {

@@ -18,6 +18,8 @@
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicDragTransition, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
@@ -61,11 +63,11 @@ const mountBox = async (opts: BoxOptions = {}): Promise<Box> => {
         <wardic.div
           ref={(n: HTMLElement) => setEl(n)}
           drag={opts.axis ?? true}
-          {...(opts.constraints !== undefined ? { dragConstraints: opts.constraints } : {})}
-          {...(opts.elastic !== undefined ? { dragElastic: opts.elastic } : {})}
-          {...(opts.momentum !== undefined ? { dragMomentum: opts.momentum } : {})}
-          {...(opts.snapToOrigin !== undefined ? { dragSnapToOrigin: opts.snapToOrigin } : {})}
-          {...(opts.dragTransition !== undefined ? { dragTransition: opts.dragTransition } : {})}
+          {...UndefinedOr.match(opts.constraints, { onUndefined: () => ({}), onDefined: (dragConstraints) => ({ dragConstraints }) })}
+          {...UndefinedOr.match(opts.elastic, { onUndefined: () => ({}), onDefined: (dragElastic) => ({ dragElastic }) })}
+          {...UndefinedOr.match(opts.momentum, { onUndefined: () => ({}), onDefined: (dragMomentum) => ({ dragMomentum }) })}
+          {...UndefinedOr.match(opts.snapToOrigin, { onUndefined: () => ({}), onDefined: (dragSnapToOrigin) => ({ dragSnapToOrigin }) })}
+          {...UndefinedOr.match(opts.dragTransition, { onUndefined: () => ({}), onDefined: (dragTransition) => ({ dragTransition }) })}
           style={{ position: "relative", width: "120px", height: "80px", background: "#8af" }}
         />
       </div>
@@ -119,7 +121,7 @@ const releaseAndSample = async (b: Box, at: Pt, ms: number) => {
 
 /** The sampled value at the frame nearest `t` ms after `start`. */
 const at = (frames: ReadonlyArray<{ readonly frameAt: number; readonly v: number }>, start: number, t: number): number =>
-  frames.reduce((best, f) => (Math.abs(f.frameAt - start - t) < Math.abs(best.frameAt - start - t) ? f : best)).v
+  frames.reduce((best, f) => Bool.match(Math.abs(f.frameAt - start - t) < Math.abs(best.frameAt - start - t), { onTrue: () => f, onFalse: () => best })).v
 
 describe("a drag's release runs on its drag transition (#140)", () => {
   it("DT1: a free flick glides on Motion's curve, easing out over 0.75 s, still on its way at 1.5 s", async () => {
@@ -243,7 +245,7 @@ describe("an x drag's release (#140)", () => {
 describe("a <Reorder.Item>'s release runs on its drag transition (#140)", () => {
   /** Drag item b 20 px down, slowly (not past its neighbour), let go, and sample its offset from its slot. */
   const release = async (dragElastic: number | undefined) => {
-    const scene = await mountReorder(dragElastic === undefined ? {} : { dragElastic })
+    const scene = await mountReorder(UndefinedOr.match(dragElastic, { onUndefined: () => ({}), onDefined: (elastic) => ({ dragElastic: elastic }) }))
     const item = scene.item("b")
     const slot = item.getBoundingClientRect()
     const g: Pt = { x: slot.left + 50, y: slot.top + 25 }

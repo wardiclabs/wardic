@@ -13,6 +13,7 @@
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
+import * as Option from "effect/Option"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
@@ -85,7 +86,10 @@ describe("a layout drag's release through the drag track (ADR-0016, Amendment (v
       // The velocity the release should carry: the last 100 ms of moves, the release point counted.
       const end = seen.at(-1)
       const first = seen.find((e) => end !== undefined && end.t - e.t <= 100)
-      const velocity = end !== undefined && first !== undefined && end.t > first.t ? ((end.x - first.x) / (end.t - first.t)) * 1000 : 0
+      const velocity = Option.all([Option.fromUndefinedOr(end), Option.fromUndefinedOr(first)]).pipe(
+        Option.filter(([e, f]) => e.t > f.t),
+        Option.match({ onNone: () => 0, onSome: ([e, f]) => ((e.x - f.x) / (e.t - f.t)) * 1000 }),
+      )
       const t0 = frames[0]?.frameAt ?? 0
       await commands.report(
         `DR1 momentum=${momentum} low=${lows.at(-1)!.toFixed(2)} v100=${velocity.toFixed(0)}px/s ` +

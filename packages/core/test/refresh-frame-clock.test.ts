@@ -8,6 +8,7 @@ import * as Fiber from "effect/Fiber"
 import { MaxOpsBeforeYield, MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 // The Clock's Cold start contract (ADR-0017, and ADR-0033: no Priming tick), checked against a hand-driven
 // Refresh frame source. Every fiber runs on Effect's browser fallback scheduler
@@ -83,9 +84,10 @@ const makeHarness = async () => {
       }),
     )
     const fiber = Effect.runFork(
-      options?.maxOpsBeforeYield === undefined
-        ? consume
-        : consume.pipe(Effect.provideService(MaxOpsBeforeYield, options.maxOpsBeforeYield)),
+      UndefinedOr.match(options?.maxOpsBeforeYield, {
+        onUndefined: () => consume,
+        onDefined: (ops) => consume.pipe(Effect.provideService(MaxOpsBeforeYield, ops)),
+      }),
       { scheduler },
     )
     return { received, fiber, close: () => Effect.runPromise(Fiber.interrupt(fiber), { scheduler }) }

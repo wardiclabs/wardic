@@ -2,6 +2,7 @@ import type * as Box from "@wardic/core/Box"
 import * as Reorder from "@wardic/core/Reorder"
 import * as Velocity from "@wardic/core/Velocity"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { describe, expect, expectTypeOf, it } from "@effect/vitest"
 
 // The Reorder group (ADR-0020): core's framework-free `Reorder.Group`, checked
@@ -31,7 +32,7 @@ const fakeSource = (layout: Box.Box | undefined): FakeSource => {
   const s: FakeSource = {
     layout,
     offset: { x: 0, y: 0 },
-    version: layout === undefined ? 0 : 1,
+    version: UndefinedOr.match(layout, { onUndefined: () => 0, onDefined: () => 1 }),
     layoutBox: () => Option.fromUndefinedOr(s.layout),
     dragOffset: () => s.offset,
     layoutVersion: () => s.version,
@@ -62,7 +63,7 @@ const harness = <V,>(
       state.values = next
     },
     axis: () => Option.flatMap(Option.fromUndefinedOr(options.axis), (axis) => Option.fromUndefinedOr(axis())),
-    ...(options.direction !== undefined ? { direction: options.direction } : {}),
+    ...UndefinedOr.match(options.direction, { onUndefined: () => ({}), onDefined: (direction) => ({ direction }) }),
     debug: (event, annotations) => state.events.push({ event, annotations }),
   })
   const measured = options.measured ?? initial

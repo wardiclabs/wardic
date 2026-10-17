@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { createSignal, type JSX } from "solid-js"
 import { create, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -184,7 +185,7 @@ describe("wardic.div — tracked-value motion props (Solid prop reactivity)", ()
           <wardic.div
             ref={(node: HTMLDivElement) => (el = node)}
             initial={{ opacity: 0 }}
-            animate={open() ? { opacity: 1 } : { opacity: 0 }}
+            animate={Bool.match(open(), { onTrue: () => ({ opacity: 1 }), onFalse: () => ({ opacity: 0 }) })}
           >
             x
           </wardic.div>

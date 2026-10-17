@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 // `animateValues` through a registry's Key rules (ADR-0035): a rule's blend replaces the key's
 // blend by value, for the whole leg. The Test Environment's registry has none, so a `display` pair
@@ -21,7 +22,7 @@ const run = (from: Values.Values, to: Values.Values, registry?: Layer.Layer<Inte
   const frames = Stream.runCollect(
     Machine.animateValues(from, to, { duration: 1, easing: Easing.linear }).pipe(Effect.map(Machine.toStream), Stream.unwrap),
   )
-  const withRegistry = registry === undefined ? frames : Effect.provide(frames, registry)
+  const withRegistry = UndefinedOr.match(registry, { onUndefined: () => frames, onDefined: (layer) => Effect.provide(frames, layer) })
   return withRegistry.pipe(
     Effect.provide(testLayer(quarter)),
     Effect.map((fs) => (Array.from(fs) as ReadonlyArray<Frame.Frame<Values.Values>>).map((f) => f.value)),

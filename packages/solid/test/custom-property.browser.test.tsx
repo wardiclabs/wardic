@@ -7,6 +7,8 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { useWardic, wardic, WardicProvider, type WardicValues } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -72,7 +74,7 @@ describe("a custom property keeps its name (#151)", () => {
   it("CP3: through a wardic.create(Component) wrap", async () => {
     let el!: HTMLElement
     const Card = (p: { ref?: (el: HTMLElement) => void; style?: JSX.CSSProperties | string }): JSX.Element => (
-      <article ref={p.ref} style={{ ...LEVEL, ...(typeof p.style === "object" ? p.style : {}) }} />
+      <article ref={p.ref} style={{ ...LEVEL, ...Bool.match(Predicate.isObject(p.style), { onTrue: () => p.style as JSX.CSSProperties, onFalse: () => ({}) }) }} />
     )
     const WCard = wardic.create(Card)
     render(() => (
@@ -102,7 +104,7 @@ describe("a custom property keeps its name (#151)", () => {
     const [on, setOn] = createSignal(true)
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} style={LEVEL} animate={(on() ? HALF : {}) as WardicValues} transition={TWEEN} />
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={LEVEL} animate={Bool.match(on(), { onTrue: () => HALF, onFalse: () => ({}) }) as WardicValues} transition={TWEEN} />
       </WardicProvider>
     ))
     await until(() => Math.abs(opacityOf(el) - 0.5) < 0.01, 3000)

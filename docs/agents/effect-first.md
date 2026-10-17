@@ -2,7 +2,7 @@
 
 How code in this repo is written: Effect's modules over vanilla TypeScript, and no ternary operators. Set in #63 and recorded, with the reasons and measurements, in [ADR-0025](../adr/0025-effect-first-core.md).
 
-**Scope.** `packages/core/src`, `packages/dom/src` and `packages/solid/src` follow these rules; solid's Tier 1 stays Effect-free, unwrapping at its edge. New code in `@wardic/test` follows them too; converting its existing code is #69's PR 5 (ADR-0025, *Amendment (#69)*). Tests and `packages/core/bench` are tooling: no ternaries, and the rest where it reads well.
+**Scope.** Every package's source follows these rules: `packages/core/src`, `packages/dom/src`, `packages/solid/src` and `packages/test/src` (ADR-0025, *Amendment (#69)*). solid's Tier 1 stays Effect-free, unwrapping at its edge. Every package's tests and benches are tooling: no ternaries, and the rest where it reads well. A ternary there takes rule 2's forms, as in source (`Bool.match`, `UndefinedOr.match`, `Option.match`, `Match`), and a branch in JSX on a signal is Solid's `<Show>`.
 
 ## The two rules
 
@@ -113,7 +113,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 
 ## Checks
 
-- **`bun run lint`** holds what can be held mechanically on `packages/core/src`, `packages/dom/src` and `packages/solid/src` (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do):
+- **`bun run lint`** holds what can be held mechanically on every package's source (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do), and no ternaries in every package's tests and benches:
   - ternaries;
   - `switch`, and `if … else`;
   - `??`, `??=` and `?.`;

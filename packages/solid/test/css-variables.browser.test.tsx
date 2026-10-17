@@ -6,6 +6,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition, type WardicValues } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { until } from "./browser-helpers.ts"
@@ -36,7 +37,7 @@ const mountFlip = (off: WardicValues, on: WardicValues, transition: WardicTransi
   render(() => (
     <WardicProvider env={DomLive}>
       <div ref={(n: HTMLElement) => (parent = n)} style={VARS}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={off} animate={shown() ? on : off} transition={transition} />
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={off} animate={Bool.match(shown(), { onTrue: () => on, onFalse: () => off })} transition={transition} />
       </div>
     </WardicProvider>
   ))
@@ -158,7 +159,7 @@ describe("Variable values with real paint (#55)", () => {
     await settle()
     const leaving = el
     setShown(false)
-    const frames = await sampleFor(900, () => (leaving.isConnected ? backgroundOf(leaving) : undefined))
+    const frames = await sampleFor(900, () => Bool.match(leaving.isConnected, { onTrue: () => backgroundOf(leaving), onFalse: () => undefined }))
     const between = frames.filter((f): f is Rgba => f !== undefined && f[0] > 10 && f[0] < 245 && f[2] > 10 && f[2] < 245)
     expect(between.length, "frames in between before it goes").toBeGreaterThan(3)
   })

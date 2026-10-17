@@ -16,6 +16,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { LayoutGroup, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
@@ -80,26 +81,28 @@ const mount = async (mode: "free" | "layout", where: "page" | "container"): Prom
     <wardic.div ref={(n: HTMLElement) => setEl(n)} layout={mode === "layout"} drag dragMomentum={false} style={BOX} />
   )
   const column = (): JSX.Element =>
-    mode === "layout" ? (
-      <LayoutGroup>
-        <wardic.div layout style={{ height: `${40 + grown()}px`, width: "120px", background: "#8f8" }} />
-        {d()}
-      </LayoutGroup>
-    ) : (
-      d()
-    )
+    Bool.match(mode === "layout", {
+      onTrue: () => (
+        <LayoutGroup>
+          <wardic.div layout style={{ height: `${40 + grown()}px`, width: "120px", background: "#8f8" }} />
+          {d()}
+        </LayoutGroup>
+      ),
+      onFalse: () => d(),
+    })
   render(() => (
     <WardicProvider env={DomLive}>
-      {where === "page" ? (
-        <div style={{ position: "absolute", top: "40px", left: "40px", height: "3000px" }}>{column()}</div>
-      ) : (
-        <div
-          ref={(n: HTMLElement) => setScroller(n)}
-          style={{ position: "absolute", top: "40px", left: "40px", width: "220px", height: "200px", overflow: "auto" }}
-        >
-          <div style={{ height: "1000px" }}>{column()}</div>
-        </div>
-      )}
+      {Bool.match(where === "page", {
+        onTrue: () => <div style={{ position: "absolute", top: "40px", left: "40px", height: "3000px" }}>{column()}</div>,
+        onFalse: () => (
+          <div
+            ref={(n: HTMLElement) => setScroller(n)}
+            style={{ position: "absolute", top: "40px", left: "40px", width: "220px", height: "200px", overflow: "auto" }}
+          >
+            <div style={{ height: "1000px" }}>{column()}</div>
+          </div>
+        ),
+      })}
     </WardicProvider>
   ))
   await settle()

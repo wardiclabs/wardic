@@ -12,6 +12,7 @@
 // ResizeObserver is a no-op, so every Measure pass here comes from `notify`.
 import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -92,7 +93,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
   }
   const tracer = Tracer.make({
     span: (options) =>
-      options.name === "wardic.projection.measure" ? new MeasureSpan(options) : new Tracer.NativeSpan(options),
+      Bool.match(options.name === "wardic.projection.measure", { onTrue: () => new MeasureSpan(options), onFalse: () => new Tracer.NativeSpan(options) }),
   })
   const runtime = ManagedRuntime.make(Layer.merge(DomLive, Layer.succeed(Tracer.Tracer, tracer)))
   const system = internalProjection.makeProjectionSystem(runtime, sink)

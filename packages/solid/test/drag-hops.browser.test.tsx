@@ -17,8 +17,11 @@ import { DomLive } from "@wardic/dom"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import { useWardicGate, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { TestInput } from "@wardic/test"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Scheduler from "effect/Scheduler"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
@@ -44,7 +47,7 @@ const settle = async (): Promise<void> => {
 /** The element's painted translateX, from its inline transform (0 for none). */
 const translateXOf = (el: HTMLElement): number => {
   const m = /translateX\(([-\d.e]+)px\)/.exec(el.style.transform)
-  return m === null ? 0 : Number(m[1])
+  return Option.match(Option.fromNullOr(m), { onNone: () => 0, onSome: (match) => Number(match[1]) })
 }
 
 /** One gate write: its keys, its `x` if it wrote one, and whether it came inside a dispatch below. */
@@ -62,7 +65,7 @@ function GateSpy(props: { readonly writes: Array<Write> }) {
   const write = gate.write
   ;(gate as { write: FlushGate.Shape["write"] }).write = (id, partial) => {
     const x = partial.x
-    props.writes.push({ keys: Object.keys(partial), x: typeof x === "number" ? x : undefined, inDispatch: dispatching })
+    props.writes.push({ keys: Object.keys(partial), x: Option.getOrUndefined(Option.liftPredicate(x, Predicate.isNumber)), inDispatch: dispatching })
     write(id, partial)
   }
   return null
@@ -80,7 +83,7 @@ const dispatch = (el: HTMLElement, type: string, x: number, buttons: number, ini
     clientX: x,
     clientY: 50,
     buttons,
-    button: type === "pointermove" ? -1 : 0,
+    button: Bool.match(type === "pointermove", { onTrue: () => -1, onFalse: () => 0 }),
     pointerId: init.pointerId ?? 1,
     pointerType: init.pointerType ?? "mouse",
     isPrimary: init.isPrimary ?? true,

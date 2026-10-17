@@ -5,6 +5,7 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { Reorder, wardic, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { resetScene, sampleFrames, wait } from "./reorder-harness.tsx"
@@ -40,7 +41,7 @@ const mountBox = (layout: () => boolean | "position" | "size" | "x" | "y" | "pre
         layout={layout()}
         layoutDependency={go()}
         transition={SPRING}
-        style={{ position: "absolute", left: go() ? "140px" : "40px", top: go() ? "60px" : "40px", width: go() ? "200px" : "100px", height: "50px", background: "#68c" }}
+        style={{ position: "absolute", left: Bool.match(go(), { onTrue: () => "140px", onFalse: () => "40px" }), top: Bool.match(go(), { onTrue: () => "60px", onFalse: () => "40px" }), width: Bool.match(go(), { onTrue: () => "200px", onFalse: () => "100px" }), height: "50px", background: "#68c" }}
       />
     </WardicProvider>
   ))

@@ -4,6 +4,7 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import * as Velocity from "@wardic/core/Velocity"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 
@@ -228,7 +229,7 @@ it.effect("DV5: every sample reads what the whole gesture's history would, the r
       const events = [ev("down", x, y, t)]
       const count = 2 + Math.floor(random() * 40)
       for (let k = 0; k < count; k++) {
-        t += random() < 0.1 ? 150 + random() * 250 : 1 + random() * 59
+        t += Bool.match(random() < 0.1, { onTrue: () => 150 + random() * 250, onFalse: () => 1 + random() * 59 })
         x += Math.round((random() - 0.3) * 30)
         y += Math.round((random() - 0.5) * 30)
         points.push({ x, y, timeStamp: t })

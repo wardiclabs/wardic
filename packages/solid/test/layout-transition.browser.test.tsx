@@ -9,6 +9,8 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -43,8 +45,8 @@ const flight = async (transitions: ReadonlyArray<WardicTransition | undefined>, 
               data-box
               layout
               layoutDependency={moved()}
-              {...(transition === undefined ? {} : { transition })}
-              style={{ position: "absolute", top: `${i() * 60}px`, left: moved() ? "200px" : "0px", width: "40px", height: "40px", background: "teal" }}
+              {...UndefinedOr.match(transition, { onUndefined: () => ({}), onDefined: (defined) => ({ transition: defined }) })}
+              style={{ position: "absolute", top: `${i() * 60}px`, left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }), width: "40px", height: "40px", background: "teal" }}
             />
           )}
         </For>
