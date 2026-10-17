@@ -530,6 +530,14 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
 /** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
 const NO_TRANSITION: Machine.SpringOptions = {}
 
+/** Whether two transitions have the same keys, each holding the same value (`===`). */
+const sameFields = (a: WardicTransition, b: WardicTransition): boolean => {
+  const ra = a as Readonly<Record<string, unknown>>
+  const rb = b as Readonly<Record<string, unknown>>
+  const keys = Rec.keys(ra)
+  return Bool.and(keys.length === Rec.keys(rb).length, Arr.every(keys, (key) => Bool.and(key in rb, ra[key] === rb[key])))
+}
+
 /** The Override stack resolved: the spine effect's input. */
 interface Resolution {
   /** Each key's value from the highest active layer. */
@@ -687,19 +695,16 @@ export function runSpine(opts: RunSpineOptions): void {
     velocities: {},
   }
 
-  // The staggered transition last built (ADR-0007): kept while its base and its extra delay
-  // stay the same, so core decodes it once (#66), as it does the element's own `transition`.
-  let staggered: { readonly base: WardicTransition | undefined; readonly extra: number; readonly bag: WardicTransition } | undefined
-  const staggeredOf = (base: WardicTransition | undefined, extra: number): WardicTransition =>
-    Option.fromUndefinedOr(staggered).pipe(
-      Option.filter((last) => Bool.and(last.base === base, last.extra === extra)),
-      Option.match({
-        onSome: (last) => last.bag,
-        onNone: () => {
-          const bag = { ...base, delay: delayOf(base) + extra } as WardicTransition
-          staggered = { base, extra, bag }
-          return bag
-        },
+  // The transition this element's last Retarget ran on (#66): a Retarget's that has the same
+  // fields is that object, so core's decode cache hits when the object is rebuilt with the same
+  // values (a staggered child's, ADR-0007, or one Solid rebuilds as it reads a signal).
+  let lastTransition: WardicTransition | undefined
+  const reused = (transition: WardicTransition): WardicTransition =>
+    Option.fromUndefinedOr(lastTransition).pipe(
+      Option.filter((last) => sameFields(last, transition)),
+      Option.getOrElse(() => {
+        lastTransition = transition
+        return transition
       }),
     )
 
@@ -1141,10 +1146,13 @@ export function runSpine(opts: RunSpineOptions): void {
             // transition.delay = base.delay + computedDelay. extraDelay() is read
             // at Retarget time so a re-snapshot before this start is reflected.
             const extra = UndefinedOr.match(extraDelay, { onUndefined: () => 0, onDefined: (delay) => delay() })
-            const transition = Bool.match(extra !== 0, {
-              onTrue: (): WardicTransition | undefined => staggeredOf(baseTransition, extra),
-              onFalse: () => baseTransition,
-            })
+            const transition = UndefinedOr.map(
+              Bool.match(extra !== 0, {
+                onTrue: (): WardicTransition | undefined => ({ ...baseTransition, delay: delayOf(baseTransition) + extra }) as WardicTransition,
+                onFalse: () => baseTransition,
+              }),
+              reused,
+            )
             const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
 
             // Reduced motion (ADR-0029), read now for this Retarget's legs: the positional keys
