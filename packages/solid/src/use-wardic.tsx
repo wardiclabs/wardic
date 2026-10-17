@@ -52,6 +52,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
 import { constTrue, constUndefined, identity, pipe } from "effect/Function"
+import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -1016,7 +1017,9 @@ export function runSpine(opts: RunSpineOptions): void {
             })
             if (held) Arr.forEach(dragMoves, (key) => driven.delete(key))
             returning = new Map()
-            Arr.forEach(Arr.fromIterable(driven), ([key, like]) => {
+            // Over the Map itself: copying it into an array first costs ~20 times the walk, per element
+            // per Retarget (#69's PR 4). Deleting the entry being visited is safe in a Map's iteration.
+            Iter.forEach(driven, ([key, like]) => {
               // A translate key the strip below holds back returns once the drag lets go.
               if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) return
               Option.match(BaseValue.of(key, { base, initial: initialLink, started: startedLink, ...linksFor(like) }), {
