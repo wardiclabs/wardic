@@ -4,7 +4,7 @@
  * (`PointerLikeEvent`/`KeyboardLikeEvent`/`FocusLikeEvent`).
  *
  * Every accessor is built on the shared-source helpers (CONTEXT.md's **Shared
- * source** contract): per-target streams go through {@link makeSharedByTarget}
+ * source** contract): per-target streams go through core's `SharedSource.byTarget`
  * (one listener-set per element, ref-counted). A consumer attaching `hover` + `press`
  * + `drag` to one element therefore shares a single pointer listener-set, not three.
  *
@@ -37,12 +37,13 @@
  * `Layer.scoped`), which the helpers' `RcMap`/`RcRef` need: the ref-counting
  * caches live for the layer's lifetime.
  *
- * Observability (CONTEXT.md observability convention): the shared helpers
- * already carry a `wardic.dom.shared.*` span + a debug-log on subscribe; the
+ * Observability (CONTEXT.md observability convention): core's `SharedSource`
+ * already carries a `wardic.sharedSource.*` span + a debug-log on subscribe; the
  * per-event mapping path is deliberately unlogged — it is the hot path.
  */
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
+import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -56,7 +57,6 @@ import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { scrollersOf } from "./measure.ts"
 import { requireGlobal } from "./require-global.ts"
-import { makeSharedByTarget } from "./shared.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */
 const POINTER_TYPE: Record<string, InputSource.PointerLikeEvent["type"]> = {
@@ -284,7 +284,7 @@ const make = Effect.gen(function* () {
   // Client-only (ADR-0021, decision 7): every stream below is built on a live document.
   yield* requireGlobal("InputDomLive", "document")
 
-  const pointer = yield* makeSharedByTarget((target) =>
+  const pointer = yield* SharedSource.byTarget((target) =>
     Effect.succeed(
       InputSource.heldPointer({
         target: feedOf(target as EventTarget, POINTER_EVENTS),
@@ -294,7 +294,7 @@ const make = Effect.gen(function* () {
     )
   )
 
-  const focus = yield* makeSharedByTarget((target) =>
+  const focus = yield* SharedSource.byTarget((target) =>
     Effect.succeed(
       Stream.merge(
         Stream.fromEventListener<FocusEvent>(target as Stream.EventListener<FocusEvent>, "focus").pipe(
@@ -307,7 +307,7 @@ const make = Effect.gen(function* () {
     )
   )
 
-  const keyboard = yield* makeSharedByTarget((target) => Effect.succeed(keyboardOf(target)))
+  const keyboard = yield* SharedSource.byTarget((target) => Effect.succeed(keyboardOf(target)))
 
   return InputSource.InputSource.of({
     pointer,

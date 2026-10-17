@@ -13,15 +13,16 @@
  * layer's scope so they live exactly as long as the Layer.
  *
  * Per CONTEXT.md's **Shared source** contract, `observeResize`/`observeIntersection`
- * go through {@link makeSharedByTarget}: one `ResizeObserver`/`IntersectionObserver`
+ * go through core's `SharedSource.byTarget`: one `ResizeObserver`/`IntersectionObserver`
  * per target, ref-counted — the observer is constructed and `observe()`d on the
  * first subscriber and `disconnect()`ed when the last unsubscribes.
  *
- * Observability (CONTEXT.md observability convention): the shared helpers already
- * carry a `wardic.dom.shared.*` span + a debug-log on subscribe; the hot
+ * Observability (CONTEXT.md observability convention): core's `SharedSource` already
+ * carries a `wardic.sharedSource.*` span + a debug-log on subscribe; the hot
  * `measure`/viewport-write paths stay quiet.
  */
 import * as Probe from "@wardic/core/Probe"
+import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -32,7 +33,6 @@ import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { requireGlobal } from "./require-global.ts"
-import { makeSharedByTarget } from "./shared.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
 const toBounds = (r: DOMRect): Probe.Bounds => ({
@@ -93,10 +93,10 @@ const make = Effect.gen(function* () {
   }
 
   // --- observeResize ------------------------------------------------------
-  // One ResizeObserver per target, ref-counted via makeSharedByTarget. The
+  // One ResizeObserver per target, ref-counted via `SharedSource.byTarget`. The
   // observer is constructed on the first subscriber; `Effect.addFinalizer`
   // disconnects it when the last subscriber's scope closes.
-  const observeResize = yield* makeSharedByTarget<Probe.Bounds>((target) =>
+  const observeResize = yield* SharedSource.byTarget<Probe.Bounds>((target) =>
     Effect.succeed(
       Stream.callback<Probe.Bounds>((queue) =>
         Effect.gen(function* () {
@@ -112,8 +112,8 @@ const make = Effect.gen(function* () {
   )
 
   // --- observeIntersection ------------------------------------------------
-  // One IntersectionObserver per target, ref-counted via makeSharedByTarget.
-  const observeIntersection = yield* makeSharedByTarget<boolean>((target) =>
+  // One IntersectionObserver per target, ref-counted via `SharedSource.byTarget`.
+  const observeIntersection = yield* SharedSource.byTarget<boolean>((target) =>
     Effect.succeed(
       Stream.callback<boolean>((queue) =>
         Effect.gen(function* () {

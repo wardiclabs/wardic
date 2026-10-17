@@ -360,3 +360,32 @@ Solid's provider installs no scheduler, so Solid's apps, `bench:solid` and the l
 - RN3: built under a host's async scheduler, a microtask `MixedScheduler` provided as a Layer, a fork resumes from a yield on that scheduler. It fails on the old rule.
 - RN4: a host's sync scheduler is dropped like `runSync`'s, so a fork resumes on Effect's default. It fails with no drop at all, as RN1 does.
 
+## Amendment (#37, 2026-10-17): the Shared source helpers move to core
+
+dom's `internal/shared.ts` held the two helpers an Environment meets CONTEXT.md's **Shared source** contract with: `makeSharedByTarget` (`RcMap`) and `makeSharedGlobal` (`RcRef`). Nothing in them is DOM-specific, and any Environment must meet the contract, so a native or canvas one would have written them again. #31's rule is that Wardic ships what makes a new Environment little work, the rule that put `InputSource.heldPointer` in core (ADR-0019).
+
+Grilled 2026-10-17 (A, A, A, A):
+- **A module, `@wardic/core/SharedSource`,** Tier 2 for Environment authors (ADR-0008), named after the glossary's term:
+  - `makeSharedByTarget(lookup, options)` → `SharedSource.byTarget(lookup, options)`;
+  - `SharedOptions` → `SharedSource.Options`;
+  - `TargetKey`, the identity key, stays private;
+  - the spans and logs follow the module: `wardic.dom.shared.*` → `wardic.sharedSource.*`.
+
+  dom's `internal/input.ts` and `internal/probe.ts` build on it, and `internal/shared.ts` is gone.
+  - Rejected:
+    - a function inside `InputSource` (Probe's observers use it too);
+    - a module named for the mechanism.
+- **The keyless helper stays,** as `SharedSource.make(acquire, options)`. It mirrors `RcRef.make` beside `RcMap.make`, for a page-wide feed. It had no production caller, but the window's resize, which #45 is about, is the kind of source it's for.
+  - Rejected:
+    - dropping it, since `byTarget` with a fixed key does the same;
+    - `SharedSource.global`.
+- **Core's tests are on the node tier; dom keeps one browser test.**
+  - `packages/core/test/shared-source.test.ts` holds SS1–SS8:
+    - the seven from dom's old `shared.browser.test.ts`, keyed by plain objects;
+    - SS2, new: a key Effect's structural `Hash` throws on (a throwing getter) is keyed by identity, so the lookup runs. It fails when `byTarget` keys a target as it is.
+  - dom's `shared-source.browser.test.ts` keeps SSD1, the lone first subscriber keyed by a real DOM element.
+  - Rejected:
+    - all of them on dom's browser tier;
+    - dropping the DOM-element test.
+- **Recorded as this amendment,** with a line in the glossary's Shared source entry.
+
