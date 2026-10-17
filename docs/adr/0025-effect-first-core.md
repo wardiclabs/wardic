@@ -369,3 +369,31 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
   - keyboard reorder announced;
   - real-mouse drags 0.00 px, 0 frames behind.
 - **Gates:** typecheck, lint, unit (963), browser (1009), the lab's tsc and vitest (208).
+
+## Implementation in #69's PR 5: test's source, and the tests' ternaries
+
+- **Lint** now covers two more areas:
+  - It holds the rules on `@wardic/test`'s source, which joins dom's and solid's block.
+  - It holds `no-ternary` on every package's tests and benches (decision 3). `bun run lint` now reaches `packages/core/test`, which no block or path covered before.
+
+  On main `a470c20` that flagged 183 places:
+  - **test's source, 7:** all `??` defaults in `probe.ts`. They're destructuring defaults now, in one `fixed` helper that both Probes share.
+  - **tests and benches, 176 ternaries:** the issue's 164 at `300c431`, plus those written since. By package: solid's tests 140, dom's 17, solid's bench 12, core's 5, test's 2.
+- **The forms are rule 2's, as in source:**
+  - `Bool.match` for a boolean pick, and for a spread on a boolean;
+  - `UndefinedOr.match` for an undefined pick, and for a spread of an optional field;
+  - `Option.match` over `Option.fromNullOr` for a regex match or a node that can be `null`;
+  - `Match.value` for a chain.
+
+  In JSX:
+  - A prop on a signal keeps its getter, so it tracks as before.
+  - A branch in children on a signal is Solid's `<Show>`. There's one, in `drag-measure-pass`.
+  - A static branch is a `Bool.match` or `UndefinedOr.match` returning the JSX.
+  - Exceptions:
+    - `server-guard`'s `instanceof Error` pick is an early return, since `Bool.match` can't narrow the defect.
+    - The bench's report lines take a `when(cond, text)` helper for their optional parts.
+- **Core's smoke test imports `@wardic/core`'s root,** because the root is what it tests. That's the one place the subpath rule is turned off, with its reason given.
+- **Gates:** typecheck, lint, unit (963), browser (1009), and the lab's tsc and vitest (208).
+  - No "optimized dependencies changed" in the browser log: every `effect/*` module the tests now import was already in the three lists.
+  - No source but `probe.ts` changed, so no bench or lab run. A short `bench:solid` A/A confirms its runner after the edits.
+- **With this PR, #69's five PRs are in.**
