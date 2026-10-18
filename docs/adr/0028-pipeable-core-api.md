@@ -507,3 +507,63 @@ ADR-0031's decision 2 changes decision 11's table, and #122 lands it.
 - **`withMomentum` → `Drag.fling` is gone,** with no alias, and its tests with it (`momentum.test.ts`, `pointer-rules.test.ts` N6 and N7). Nothing outside them called it: the reason this record's *Amendment (#25)* gives for `Velocity.of`.
 - **Why not reshaped:** it merged the drag's samples with the grabs and `switchMap`ped into emitting inners, 2 dispatcher tasks per element per frame. A `Stream` of both input-driven and Clock-driven positions can't be made inline without a `merge` or a `switchMap`, and its inline form is an `Effect` with a sink, the drag track's (ADR-0032, decision 3; ADR-0004, *Amendment (#32)*).
 - **The `Drag` module is `Sample`, `AxisRange`, `Bounds`, `axisLock` and `withinBounds`.**
+
+## Amendment (#226, 2026-10-18): `animate` and `keyframes` on one time, as Motion's; `repeatType`
+
+#226 came out of #23's comparison with Motion (ADR-0017, *Amendment (#23)*). Decision 4's "the sequencing exists once, in the combinators" built `animate` and `keyframes` from tween segments under `concatAll`, `forever` and `holdAfter`, where the next segment starts from 0 on the tick after the last one settles. The rest of the tick a segment ended in was dropped. Each seam cost the segment's duration rounded up to whole frames: 0–1 frame, about half once frame intervals jitter (an endless loop's restarts, ±1% jitter):
+
+| segment | 60 Hz | 120 Hz | 144 Hz |
+|---|---|---|---|
+| 0.12 s | 13.9 ms a seam, 11.6% slow | 5.3 ms, 4.4% | 5.3 ms, 4.4% |
+| 0.3 s | 6.8 ms, 2.3% | 5.0 ms, 1.7% | 5.8 ms, 1.9% |
+| 1 s | 7.4 ms, 0.7% | 4.0 ms, 0.4% | 3.6 ms, 0.4% |
+
+A stall across a seam lost the rest of the stall. Through 500 ms, `keyframes([0, 60, 100], 1 s)` held at 60.00 where Motion was at 72.34. Motion's `JSAnimation` reads the pass, the time into it and its direction off one elapsed time (`tick`, motion-dom 13.3.0), and its keyframes generator is one function of it, so a boundary costs Motion nothing. Grilled 2026-10-18 (Q1–Q5, all A).
+
+1. **`animate` and `keyframes` are single leaves over one frame time (Q1).** Each step adds its `dt` (clamped at `MAX_DT`) to one elapsed time. `runAt` and `keyframesAt` (`internal/stepper.ts`) read the run off it:
+   - `animate`: the pass, the time into it, the gap's hold, and the pass's direction;
+   - `keyframes`: the Segment and its progress.
+
+   A pass or Segment starts the moment the one before it ends, wherever that falls in a tick. `delay` stays `Machine.delay`'s hold, which already handed its leftover on.
+   - **A tick across a turn paints that tick's value, not the turn.** Motion does the same: a frame held at the turn would be the dropped time this fixes.
+   - **A single run (`repeat: 0`) is the tween's own step,** which `runAt` reduces to, so the binding's tween legs without a `repeat` keep their per-frame path. A run's pass-plus-gap and its whole length are resolved once a bag, with the rest of the run.
+   - **Decision 4's sequencing is reversed for these two,** with its oracle (*Tests*).
+   - **The generic combinators keep `Stream.concat`'s seam (Q3),** documented: `concat`, `concatAll`, `forever` and `holdAfter` stay public with no internal caller. They sequence any machine, including a spring that settles on a rest check, which has no leftover to hand on.
+   - Rejected: carrying a leftover through the combinators (a settled Frame reporting the time it didn't use), which changes the Frame and step contract a `make` user implements, and can only report 0 for a physics leaf; both.
+2. **`repeatType` replaces `yoyo` (Q5).** Motion's `"loop" | "reverse" | "mirror"`, default `"loop"`. `yoyo` played every other pass from `to` to `from` on the same easing, which is Motion's `"mirror"`, while its doc (#91) said `"reverse"`. Motion's `"reverse"` plays the pass backwards in time: from `to` to `from` on `ease(1 − s)`, so an `easeOut` pass comes back easing in. The two differ for any asymmetric easing. ADR-0042's rule (Motion's names for what Motion has) never reached `yoyo`, which isn't a Motion name.
+   - **Breaking, no alias:** `yoyo: true` is `repeatType: "mirror"` for the same look, or `"reverse"` for Motion's.
+   - **`ReducedMotion.endOf`:** `"reverse"` and `"mirror"` both end at `from` after an odd finite `repeat`.
+   - **The span's attribute** is `repeatType`, where it was `yoyo`.
+   - Rejected: `yoyo` made Motion's `"reverse"` (a changed look under a non-Motion name, and no `"mirror"`); `yoyo` kept as it behaved, its doc corrected.
+3. **The glossary:** a **Segment** starts the moment the one before it ends, in frame time, and a **Hold** is a stretch of frame time. Both used to describe the seam (CONTEXT.md).
+
+**Tests (Q2):**
+- **`packages/test/test/motion-oracle.ts`:** Motion's timing as an oracle (`motionRunAt`, `motionRunDone`, `motionKeyframesAt`), ported from `JSAnimation.tick` and the keyframes generator. It was checked against Motion itself before any test used it: `JSAnimation.sample` on 7,440 samples over every combination of `repeat`, `repeatDelay`, `repeatType` and `delay`, with an asymmetric easing, matched it to 7e-14, and the keyframes generator to 3e-14 (`.tmp/226/check-oracle.ts` on the bench box).
+- **`machines.test.ts`:**
+  - `animate` (9 cases, every `repeatType`, `reverse`, `repeatDelay`, `delay`, `repeat: Infinity`) and `keyframes` are stepped through its uneven dts (a repeated timestamp, a 0.25 s stall, a 0.6 s one above `MAX_DT`) against the oracle, value and `done`, Frame by Frame, with a cubic easing so `"reverse"` and `"mirror"` differ;
+  - `animateValues` is checked against `animate`'s progress through the same blenders;
+  - the Stream oracle (`animateOracle`, `keyframesOracle`) goes;
+  - on random uneven ticks, the new leaves matched the oracle to 9e-13 over 12,120 Frames, `done` on every one.
+- **`sequence-drift.test.ts`** (27): an endless `animate` at 60, 120 and 144 Hz with ±1% jitter, 0.12, 0.3 and 1 s runs, every `repeatType`. Every Frame is Motion's at its wall time, and the 30th restart shows within a frame of 30 runs (a turn within two: the frame across a turn can read past the one before it).
+- **`stall.test.ts`** gains the rows #23 left out: `keyframes` and `animate` (`"mirror"`, and an endless `"reverse"` with a gap), each pinned against Motion's value from `JSAnimation.sample`. A run that ends inside a stall settles on the stall's frame.
+- **`repeat-delay.test.ts`** uses the shared oracle; its whole-tick Frames are unchanged.
+- **The `yoyo` tests move to `repeatType`:** `delay-once`, `reduced-motion` (`endOf` across all three), `observability`, `combinators`, `options`, `tween-duration`, and solid's `tween-options`.
+- **Mutations,** each caught: `"reverse"` and `"mirror"` swapped (19 cases); the old seam put back, a restart's leftover dropped (33); the leaf's `MAX_DT` clamp removed (7).
+- **`bench:core`'s `animateRepeat` workloads** pass both `repeatType: "mirror"` and `yoyo: true`, so main's core (which reads `yoyo`) and this one (which reads `repeatType`) run the same workload. They measure the single leaf now, where decision 7 added them as the deepest stack.
+
+**Measured** (bench box, after `wardic-quiet`, against main `b429963`; logs in `~/wardic/.tmp/226*.out`):
+- **`bench:core`, 11 reps:** every workload passes in Bun and Chromium, and the repeat workloads get cheaper. Chromium's `animateRepeat/loop` −8.7% and `animateRepeatDelay/loop` −6.9%; Bun's −19.3% and −6.3%. `animateValues` and `animateComplex` are level (Chromium −1.0% and −0.0%). Node passes every workload but one: `animateRepeat/loop`, which read +5.2%, then +2.0% and +6.8% on two Node-only reruns, while `animateRepeatDelay/loop`, on the same leaf, read −3.7% to −4.2% each time. The same 1,000 endless turned runs, stepped by hand in Node 22 (`.tmp/226/node-warmup.ts`), cost:
+
+  | frames from a cold process | main | #226 |
+  |---|---|---|
+  | 0–10 | 163–220 µs | 123–166 µs |
+  | 10–35 | 121–144 µs | 129–138 µs |
+  | 35–60 | 101–116 µs | 56 µs |
+  | 120–300 | 58–61 µs | 41–42 µs |
+
+  V8 optimizes the single leaf at about frame 35, later than main's stack of small steps. The bench's `/loop` window, 30 frames after 5 warm ones, lands just before that. Past it, the leaf is about twice as fast. Chromium's newer V8 reads −8.7% on the same workload.
+- **The A/A** (main against main, the same run): every workload passed in Node and Chromium. Bun flagged `animateRepeat/loop` (+6.7%), and Node's bytes gate flapped on `animateValues/loop` and `springBlend/loop`, as it has before (ADR-0025's bench notes).
+- **`bench:solid`, 11 reps, warm:** its page as it is (springs): mount −0.0%, retarget +0.4%, restRetarget +1.1%, unmount +0.9%, bytes −0.2%. Its page with `transition={{ type: "tween", duration: 0.3 }}`, so every leg runs `animate` (run the same way, then reverted): mount −1.3%, retarget −3.0%, restRetarget −2.6%, unmount −0.7%, bytes −2.8%.
+- **A first pair of runs measured against a stale base** (the bench clone's `main` was still `4a3f3ec`, before #66 and #23), and read Chromium's `animateValues` and `animateComplex` +2.7% and +3.8%. Against `b429963` they're level, so that was #66's and #23's share, not this one's.
+
+**Gates:** typecheck, lint, unit (1104), browser (1017, no "optimized dependencies changed"), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #23's: drive16 54 of 54, drive-held 0 off, drive7 6 clean · held 0, drive17 identical, drive14k on its slot, late reads 0 frames behind.
