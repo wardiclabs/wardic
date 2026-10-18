@@ -872,11 +872,14 @@ const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResol
   },
   (decoded): ResolvedAnimate => {
     const tween = resolvedTweenOf(decoded)
+    const cycle = tween.duration + decoded.repeatDelay
     return {
       run: {
         tween: { ...tween, delay: 0 },
         repeats: decoded.repeat,
         gap: decoded.repeatDelay,
+        cycle,
+        total: cycle * (decoded.repeat + 1) - decoded.repeatDelay,
         reverses: decoded.repeatType === "reverse",
         mirrors: decoded.repeatType === "mirror",
       },

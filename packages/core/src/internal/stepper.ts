@@ -117,6 +117,10 @@ export interface ResolvedRun {
   readonly repeats: number
   /** The hold after every pass but the last, in seconds (`repeatDelay`). */
   readonly gap: number
+  /** A pass and its gap, in seconds: `duration + gap`. */
+  readonly cycle: number
+  /** The whole run, in seconds: `cycle · (repeats + 1) − gap`, `Infinity` for an endless one. */
+  readonly total: number
   /** Every other pass plays backwards in time (`repeatType: "reverse"`). */
   readonly reverses: boolean
   /** Every other pass plays from `to` to `from`, eased forwards (`repeatType: "mirror"`). */
@@ -137,8 +141,8 @@ export interface Sample {
  */
 export const runAt = (t: number, from: number, to: number, run: ResolvedRun): Sample => {
   const duration = run.tween.duration
-  const cycle = duration + run.gap
-  const total = cycle * (run.repeats + 1) - run.gap
+  const cycle = run.cycle
+  const total = run.total
   const time = Math.min(t, total)
   let pass = Math.floor(time / cycle)
   let within = Math.max(0, time - pass * cycle)
