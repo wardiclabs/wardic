@@ -105,6 +105,72 @@ export const stepTween = (
   return { state: { elapsed }, value: Scalar.lerp(from, to, eased), done: elapsed >= tween.delay + tween.duration }
 }
 
+// --- A run of repeats, and keyframes (#226) ----------------------------------
+
+/**
+ * `animate`'s run, resolved: one tween played `repeats + 1` times, `gap` seconds apart, every other
+ * pass turned by its `repeatType`. Its tween's `delay` is 0: `Machine.delay` holds it, outside.
+ */
+export interface ResolvedRun {
+  readonly tween: ResolvedTween
+  /** The passes after the first: a whole number, or `Infinity`. */
+  readonly repeats: number
+  /** The hold after every pass but the last, in seconds (`repeatDelay`). */
+  readonly gap: number
+  /** A pass and its gap, in seconds: `duration + gap`. */
+  readonly cycle: number
+  /** The whole run, in seconds: `cycle · (repeats + 1) − gap`, `Infinity` for an endless one. */
+  readonly total: number
+  /** Every other pass plays backwards in time (`repeatType: "reverse"`). */
+  readonly reverses: boolean
+  /** Every other pass plays from `to` to `from`, eased forwards (`repeatType: "mirror"`). */
+  readonly mirrors: boolean
+}
+
+/** A sampled Frame's fields: the value, and whether the run has ended. */
+export interface Sample {
+  readonly value: number
+  readonly done: boolean
+}
+
+/**
+ * Where a run from `from` to `to` is `t` seconds in, by Motion's `JSAnimation` iteration math
+ * (motion-dom 13.3.0): every pass and every gap is a stretch of one time, so a pass starts the
+ * moment the one before it ends, wherever that falls in a tick (#226). A gap holds where its pass
+ * ended. Per frame (ADR-0025): arithmetic and statement `if`s.
+ */
+export const runAt = (t: number, from: number, to: number, run: ResolvedRun): Sample => {
+  const duration = run.tween.duration
+  const cycle = run.cycle
+  const total = run.total
+  const time = Math.min(t, total)
+  let pass = Math.floor(time / cycle)
+  let within = Math.max(0, time - pass * cycle)
+  // A pass's end is its own, not the start of the next.
+  if (within === 0 && pass > 0) {
+    pass--
+    within = cycle
+  }
+  const s = Math.min(within / duration, 1)
+  const done = t >= total
+  if (pass % 2 === 1 && run.reverses) return { value: Scalar.lerp(from, to, run.tween.easing(1 - s)), done }
+  if (pass % 2 === 1 && run.mirrors) return { value: Scalar.lerp(to, from, run.tween.easing(s)), done }
+  return { value: Scalar.lerp(from, to, run.tween.easing(s)), done }
+}
+
+/**
+ * Where keyframes through `stops` (two or more) are `t` seconds into `total`, each Segment `segment`
+ * seconds long (at least `Number.EPSILON`) and eased whole: Motion's keyframes, evenly spaced. One
+ * time across every Segment, so the next starts the moment one ends (#226). Per frame (ADR-0025).
+ */
+export const keyframesAt = (t: number, stops: ReadonlyArray<number>, segment: number, total: number, easing: Easing.Easing): Sample => {
+  const last = stops.length - 1
+  const time = Math.min(t, total)
+  const i = Math.min(Math.floor(time / segment), last - 1)
+  const s = Math.min(Math.max((time - i * segment) / segment, 0), 1)
+  return { value: Scalar.lerp(stops[i], stops[i + 1], easing(s)), done: t >= total }
+}
+
 // --- Decay -------------------------------------------------------------------
 
 export interface DecayState {

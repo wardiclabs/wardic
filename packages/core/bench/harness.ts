@@ -115,14 +115,18 @@ const SPRING = (i: number) =>
   [{ x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 }, {}, { x: 0, y: 0, scale: 1, opacity: 0 }] as const
 
 /**
- * `animateValues`' deepest stack (ADR-0028, decision 7): an infinite `repeat` with `yoyo`, and a
- * `delay` spread over the elements, so each element's seams fall on different frames. A 0.15 s
- * segment is about 9 frames, so two or three seams fall inside the measured window.
+ * `animateValues` with every modifier (ADR-0028, decision 7; one leaf since #226, where it was the
+ * deepest stack): an infinite `repeat` turned every other run, and a `delay` spread over the
+ * elements, so each element's turns fall on different frames. A 0.15 s run is about 9 frames, so
+ * two or three turns fall inside the measured window.
  */
 const REPEAT = (core: Core, i: number) => ({
   duration: 0.15,
   easing: core.Easing.easeInOutCubic,
   repeat: Number.POSITIVE_INFINITY,
+  // Every other run turned: `repeatType` since #226, `yoyo` before it. Each core reads its own key and
+  // ignores the other, so base and head run the same workload across the rename.
+  repeatType: "mirror" as const,
   yoyo: true,
   delay: spread(i, 0, 0.2),
 })

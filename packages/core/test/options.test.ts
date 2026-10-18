@@ -86,10 +86,10 @@ describe("AnimateOptions: a tween's fields, a whole number of repeats or Infinit
     ["repeat", { repeat: -1 }],
     ["repeat", { repeat: Number.NaN }],
     ["repeatDelay", { repeatDelay: -0.1 }],
-    ["yoyo", { yoyo: "true" }],
+    ["repeatType", { repeatType: "yoyo" }],
     ["duration", { duration: -1, repeat: 2 }],
   ])
-  accepts((bag) => Machine.animate(0, 1, bag), [{ repeat: 0 }, { repeat: 3, yoyo: true }, { repeat: Number.POSITIVE_INFINITY }])
+  accepts((bag) => Machine.animate(0, 1, bag), [{ repeat: 0 }, { repeat: 3, repeatType: "reverse" }, { repeat: 3, repeatType: "mirror" }, { repeat: Number.POSITIVE_INFINITY }])
 })
 
 describe("DecayOptions: a positive friction and rest speed, a non-negative delay", () => {

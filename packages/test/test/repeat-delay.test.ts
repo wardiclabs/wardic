@@ -3,6 +3,7 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
+import { motionRunAt, type RunOptions } from "./motion-oracle.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -10,17 +11,18 @@ import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 
 /**
- * `repeatDelay` (#91): each run but the last holds where it ended (with `yoyo`, its turning
- * point), then the next starts on the tick after, as Motion's `repeatDelay` does
- * (motion-dom `animation/JSAnimation.ts:176-177`, `:257-306` at 16c61222c). `animate` puts
- * `Machine.holdAfter(repeatDelay)` on every segment but the last; an infinite `repeat` holds after
- * every segment; `delay` still holds once, before the first.
+ * `repeatDelay` (#91): each run but the last holds where it ended (a turned run, at its turning
+ * point), then the next starts, as Motion's `repeatDelay` does (motion-dom `JSAnimation.tick`).
+ * `animate` is one time across every run and gap (#226), so the next run starts the moment the
+ * gap ends; an infinite `repeat` holds after every run; `delay` still holds once, before the first.
  *
  * On a pushable Clock at 1/16 s per tick, exact in binary: a 0.25 s segment is 4 ticks, a
  * 0.125 s gap 2, and 0 → 16 moves 4 per tick, so every Frame is a whole number. Each case runs
  * through both drivers (ADR-0027): `Machine.toStream`, and `Machine.run` on the Frame loop.
  */
 const DT = 1 / 16
+
+const linear = (t: number): number => t
 const RUN = { duration: 0.25, repeatDelay: 0.125 }
 
 /** Frames with these values: settled on the last when `settles`, never otherwise. */
@@ -72,9 +74,9 @@ describe("repeatDelay holds after each run but the last (#91)", () => {
       framesOf([4, 8, 12, 16, 16, 16, 4, 8, 12, 16, 16, 16, 4, 8, 12, 16], true),
     ))
 
-  it.effect("repeat 2 with yoyo: each run holds its turning point", () =>
+  it.effect("repeat 2, reversed every other run: each run holds its turning point", () =>
     bothDrivers(
-      Machine.animate(0, 16, { ...RUN, repeat: 2, yoyo: true }),
+      Machine.animate(0, 16, { ...RUN, repeat: 2, repeatType: "reverse" }),
       framesOf([4, 8, 12, 16, 16, 16, 12, 8, 4, 0, 0, 0, 4, 8, 12, 16], true),
     ))
 
@@ -88,9 +90,9 @@ describe("repeatDelay holds after each run but the last (#91)", () => {
       18,
     ))
 
-  it.effect("repeat Infinity with yoyo: a hold at every turning point, never settling", () =>
+  it.effect("repeat Infinity, reversed every other run: a hold at every turning point, never settling", () =>
     bothDrivers(
-      Machine.animate(0, 16, { ...RUN, repeat: Infinity, yoyo: true }),
+      Machine.animate(0, 16, { ...RUN, repeat: Infinity, repeatType: "reverse" }),
       framesOf([4, 8, 12, 16, 16, 16, 12, 8, 4, 0, 0, 0, 4, 8, 12, 16, 16, 16], false),
       18,
     ))
@@ -114,45 +116,20 @@ describe("repeatDelay holds after each run but the last (#91)", () => {
     }))
 })
 
-/** The run as Motion's JSAnimation computes it at time `t`: its iteration math (`:257-306`), on a linear tween. */
-const motionAt = (
-  t: number,
-  o: { readonly duration: number; readonly repeatDelay: number; readonly repeat: number; readonly yoyo: boolean; readonly delay: number },
-  from: number,
-  to: number,
-): number => {
-  const time = t - o.delay
-  if (time < 0) return from
-  const resolvedDuration = o.duration + o.repeatDelay
-  const totalDuration = resolvedDuration * (o.repeat + 1) - o.repeatDelay
-  const progress = Math.min(time, totalDuration) / resolvedDuration
-  let iteration = Math.floor(progress)
-  let iterationProgress = progress % 1.0
-  if (!iterationProgress && progress >= 1) iterationProgress = 1
-  if (iterationProgress === 1) iteration--
-  iteration = Math.min(iteration, o.repeat + 1)
-  if (iteration % 2 === 1 && o.yoyo) {
-    iterationProgress = 1 - iterationProgress
-    if (o.repeatDelay) iterationProgress -= o.repeatDelay / resolvedDuration
-  }
-  const elapsed = Math.min(Math.max(iterationProgress, 0), 1) * resolvedDuration
-  return from + (to - from) * Math.min(elapsed / o.duration, 1)
-}
-
 describe("the Frames are Motion's, at 1/16 s ticks", () => {
   const cases = [
-    ["repeat 2", { duration: 0.25, repeatDelay: 0.125, repeat: 2, yoyo: false, delay: 0 }],
-    ["repeat 3 with yoyo", { duration: 0.25, repeatDelay: 0.125, repeat: 3, yoyo: true, delay: 0 }],
-    ["repeat Infinity with yoyo and a delay", { duration: 0.5, repeatDelay: 0.25, repeat: Infinity, yoyo: true, delay: 0.125 }],
-    ["a gap longer than a run", { duration: 0.125, repeatDelay: 0.375, repeat: 2, yoyo: true, delay: 0 }],
-  ] as const
+    ["repeat 2", { duration: 0.25, repeatDelay: 0.125, repeat: 2, repeatType: "loop", delay: 0, easing: linear }],
+    ["repeat 3, reverse", { duration: 0.25, repeatDelay: 0.125, repeat: 3, repeatType: "reverse", delay: 0, easing: linear }],
+    ["repeat Infinity, mirror, a delay", { duration: 0.5, repeatDelay: 0.25, repeat: Infinity, repeatType: "mirror", delay: 0.125, easing: linear }],
+    ["a gap longer than a run, reverse", { duration: 0.125, repeatDelay: 0.375, repeat: 2, repeatType: "reverse", delay: 0, easing: linear }],
+  ] as const satisfies ReadonlyArray<readonly [string, RunOptions]>
   for (const [name, options] of cases) {
     it.effect(name, () =>
       Effect.gen(function* () {
         const frames = yield* onTheStream(Machine.toStream(Machine.animate(-5, 20, options)), 40)
         expect(frames.length).toBeGreaterThanOrEqual(10)
         for (const [i, frame] of frames.entries()) {
-          expect(frame.value, `tick ${i + 1}`).toBeCloseTo(motionAt((i + 1) * DT, options, -5, 20), 9)
+          expect(frame.value, `tick ${i + 1}`).toBeCloseTo(motionRunAt((i + 1) * DT, -5, 20, options), 9)
         }
       }))
   }

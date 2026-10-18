@@ -18,7 +18,7 @@ const framesOf = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>): 
   return DTS.map((dt) => step(dt))
 }
 
-const MODIFIERS = { easing: Easing.easeInOutCubic, delay: 0.1, repeat: 2, yoyo: true, repeatDelay: 0.05 }
+const MODIFIERS = { easing: Easing.easeInOutCubic, delay: 0.1, repeat: 2, repeatType: "reverse" as const, repeatDelay: 0.05 }
 
 describe("a missing duration is 0.3 s, and the other options still apply", () => {
   it("tween", () => {
@@ -27,7 +27,7 @@ describe("a missing duration is 0.3 s, and the other options still apply", () =>
     expect(Machine.tween(0, 16, {}).span.attributes).toEqual({ from: 0, to: 16, duration: 0.3 })
   })
 
-  it("animate, with a delay, an easing, repeat, yoyo and repeatDelay", () => {
+  it("animate, with a delay, an easing, repeat, repeatType and repeatDelay", () => {
     expect(framesOf(Machine.animate(0, 16, MODIFIERS))).toEqual(framesOf(Machine.animate(0, 16, { duration: 0.3, ...MODIFIERS })))
   })
 

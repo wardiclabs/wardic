@@ -1,6 +1,6 @@
 // A tween transition with no `duration` (#107): its other options apply, and its duration is
 // core's default, 0.3 s. It used to run on `animateValues`' defaults whole, dropping its `delay`,
-// `easing`, `repeat` and `yoyo`, and the stagger the spine folds into `delay`. Real time, so each
+// `easing`, `repeat` and `repeatType`, and the stagger the spine folds into `delay`. Real time, so each
 // check reads well inside its window.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
@@ -47,8 +47,8 @@ describe("a tween transition with no duration keeps its other options (#107)", (
     expect(opacityOf(m.box)).toBe(1)
   })
 
-  it("repeat and yoyo: it runs out and back, and ends where it started", async () => {
-    const m = await mountFade({ type: "tween", repeat: 1, yoyo: true })
+  it("repeat and repeatType reverse: it runs out and back, and ends where it started", async () => {
+    const m = await mountFade({ type: "tween", repeat: 1, repeatType: "reverse" })
     m.go()
     let peak = 0
     await until(() => {

@@ -132,12 +132,14 @@ describe("endOf: where `Machine.animate` ends", () => {
     {},
     { reverse: true },
     { repeat: 1 },
-    { repeat: 1, yoyo: true },
-    { repeat: 2, yoyo: true },
-    { repeat: 3, yoyo: true },
-    { repeat: 1, yoyo: true, reverse: true },
-    { repeat: 2, yoyo: true, reverse: true },
-    { repeat: 1, yoyo: true, repeatDelay: 0.125 },
+    { repeat: 1, repeatType: "reverse" },
+    { repeat: 1, repeatType: "mirror" },
+    { repeat: 1, repeatType: "loop" },
+    { repeat: 2, repeatType: "reverse" },
+    { repeat: 3, repeatType: "mirror" },
+    { repeat: 1, repeatType: "reverse", reverse: true },
+    { repeat: 2, repeatType: "mirror", reverse: true },
+    { repeat: 1, repeatType: "reverse", repeatDelay: 0.125 },
   ]
 
   it.each(cases)("%o: the run's own last Frame", (modifiers) => {
@@ -147,8 +149,8 @@ describe("endOf: where `Machine.animate` ends", () => {
 
   it("a run that repeats forever lands where its first run does (Motion's last keyframe)", () => {
     expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY })).toBe(16)
-    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY, yoyo: true })).toBe(16)
-    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY, yoyo: true, reverse: true })).toBe(0)
+    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY, repeatType: "reverse" })).toBe(16)
+    expect(ReducedMotion.endOf(0, 16, { repeat: Number.POSITIVE_INFINITY, repeatType: "mirror", reverse: true })).toBe(0)
   })
 })
 

@@ -1,4 +1,3 @@
-import * as Clock from "@wardic/core/Clock"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -6,6 +5,7 @@ import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import { TestClock } from "@wardic/test"
+import { motionKeyframesAt, motionRunAt, motionRunDone, type RunOptions } from "./motion-oracle.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -16,12 +16,11 @@ import * as Stream from "effect/Stream"
 
 /**
  * The `Machine` module's Primitives (ADR-0027, ADR-0028):
- * - **the composites against an oracle:** `animate`, `keyframes`, `animateValues` and
- *   `springBlend` through `Machine.toStream`, against their Streams as they were written before
- *   #94, from the leaves' `toStream` with `Stream.concat`, `Stream.forever` and `Stream.map`, so
- *   the combinators' seams are pinned against `Stream.concat`'s and `Stream.forever`'s. The
- *   oracle's hold is `Machine.delay`'s (held Frames, then the time left over), written with
- *   Stream ops, so they compare exactly (ADR-0028, decision 9);
+ * - **the composites against Motion's timing** (#226, ADR-0028 *Amendment (#226)*): `animate` and
+ *   `keyframes` against `motion-oracle.ts` (Motion's `JSAnimation` iteration math and keyframes
+ *   generator) at each Frame's frame time, value and `done`; `animateValues` against `animate`'s
+ *   progress through the same blenders, and `springBlend` against `springValues`' progress. The
+ *   generic combinators' seams are `combinators.test.ts`';
  * - **driver parity:** every constructor through `Machine.toStream` against `Machine.run` on the
  *   Frame loop, Frame for Frame.
  *
@@ -75,96 +74,20 @@ const kept = <F extends Frame.Frame<unknown>>(frame: F): F => {
   return { ...frame, ...records }
 }
 
-// --- The oracle: the composites' Streams as they were before #94 ---------------------------------
+// --- The oracle: Motion's timing (#226) -------------------------------------------------------
 
-/** `frame`, re-stamped `done: false`: a seam's re-stamp. */
-const unsettled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, done: false })
-
-/** A segment that isn't a run's last: its settled Frame re-stamped, so the run settles once. */
-const restamped = <F extends Frame.Frame<unknown>>(segment: Stream.Stream<F, never, Clock.Clock>) =>
-  segment.pipe(
-    Stream.map((frame) => {
-      if (frame.done) return unsettled(frame)
-      return frame
-    }),
-  )
-
-/** Segments one after another, each but the last re-stamped: `Stream.concat`'s seam. */
-const inSequence = <F extends Frame.Frame<unknown>>(segments: ReadonlyArray<Stream.Stream<F, never, Clock.Clock>>) =>
-  segments
-    .map((segment, i) => {
-      if (i === segments.length - 1) return segment
-      return restamped(segment)
-    })
-    .reduce((out, segment) => Stream.concat(out, segment))
-
-/** The Frame a machine starts at: its step at 0, as `Machine.delay` holds it. */
-const firstFrame = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>): F => machine.start()(0)
-
-/**
- * `inner` after a hold of `seconds`, as `Machine.delay` holds: `held` on each tick until the
- * held time (each dt clamped at `MAX_DT`, as `Machine.delay` counts it) reaches
- * `seconds`, then `inner` on a Clock whose first subscription's first tick is the time left
- * over. A later segment of `inner` subscribes again, and starts on the next tick.
- */
-const heldFor = <F>(seconds: number, held: F, inner: Stream.Stream<F, never, Clock.Clock>): Stream.Stream<F, never, Clock.Clock> => {
-  if (seconds === 0) return inner
-  return Stream.unwrap(
-    Effect.gen(function* () {
-      const clock = yield* Clock.Clock
-      let elapsed = 0
-      const hold = clock.ticks.pipe(
-        Stream.map((dt) => (elapsed += Math.min(dt, Machine.MAX_DT))),
-        Stream.takeWhile((time) => time < seconds),
-        Stream.map(() => held),
-      )
-      let leftover = true
-      const ticks = Stream.suspend(() => {
-        if (!leftover) return clock.ticks
-        leftover = false
-        return Stream.concat(Stream.make(elapsed - seconds), clock.ticks)
-      })
-      const after = inner.pipe(Stream.provideService(Clock.Clock, { ...clock, ticks }))
-      return Stream.concat(hold, after)
-    }),
-  )
-}
-
-/**
- * `animate`'s Stream before #94: tweens with no delay, `reverse`'s endpoints swapped, `yoyo`'s odd
- * segments backwards, `repeat`'s runs in sequence, or for an infinite `repeat` the first, then
- * `Stream.forever` over the rest; then the hold.
- */
-const animateOracle = (from: number, to: number, options: Machine.AnimateOptions) => {
-  const repeats = options.repeat ?? 0
-  const yoyo = options.yoyo === true
-  let [a, b] = [from, to]
-  if (options.reverse === true) [a, b] = [to, from]
-  const segment: Machine.TweenOptions = { ...options, delay: 0 }
-  const tweenFor = (i: number) => {
-    if (yoyo && i % 2 === 1) return Machine.tween(b, a, segment)
-    return Machine.tween(a, b, segment)
+/** A machine stepped through `DTS` by hand: each Frame, and its frame time (each dt clamped at `MAX_DT`, as the machine counts it). */
+const stepped = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>) => {
+  const step = machine.start()
+  const frames: Array<{ readonly frame: F; readonly time: number }> = []
+  let time = 0
+  for (const dt of DTS) {
+    time += Math.min(dt, Machine.MAX_DT)
+    const frame = step(dt)
+    frames.push({ frame, time })
+    if (frame.done) break
   }
-  const segmentFor = (i: number) => Machine.toStream(tweenFor(i))
-  const run = () => {
-    if (Number.isFinite(repeats)) {
-      return inSequence(Array.from({ length: Math.ceil(Math.max(0, repeats) + 1) }, (_, i) => segmentFor(i)))
-    }
-    const rest = [segmentFor(1)]
-    if (yoyo) rest.push(segmentFor(2))
-    return Stream.concat(restamped(segmentFor(0)), Stream.forever(rest.map(restamped).reduce((x, y) => Stream.concat(x, y))))
-  }
-  return heldFor(options.delay ?? 0, firstFrame(tweenFor(0)), run())
-}
-
-/** `keyframes`' Stream before #94: one tween per pair of stops, `duration` split evenly, then the hold. */
-const keyframesOracle = (stops: ReadonlyArray<number>, options: Machine.TweenOptions) => {
-  const pairs = stops.slice(1).map((to, i) => [stops[i]!, to] as const)
-  const duration = (options.duration ?? 0.3) / Math.max(1, pairs.length)
-  const segment: Machine.TweenOptions = { ...options, duration, delay: 0 }
-  const tweens = pairs.map(([a, b]) => Machine.tween(a, b, segment))
-  if (tweens.length === 0) tweens.push(Machine.tween(stops[0] ?? 0, stops[0] ?? 0, segment))
-  return heldFor(options.delay ?? 0, firstFrame(tweens[0]!), inSequence(tweens.map(Machine.toStream)))
+  return frames
 }
 
 /**
@@ -291,49 +214,67 @@ describe("the combinators over springValues' rewritten Frame (#111)", () => {
   }
 })
 
-describe("the composites against their Streams before #94", () => {
-  const animateCases = [
-    ["one segment", { duration: 0.3 }],
-    ["repeat 2, a delay held once (#77)", { duration: 0.3, repeat: 2, delay: 0.05 }],
-    ["repeat 3, yoyo, reverse, an easing", { duration: 0.25, repeat: 3, yoyo: true, reverse: true, easing: Easing.easeInOutCubic }],
-    ["repeat Infinity", { duration: 0.2, repeat: Infinity }],
-    ["repeat Infinity, yoyo", { duration: 0.2, repeat: Infinity, yoyo: true }],
-    ["repeat Infinity, yoyo, a delay held once (#77)", { duration: 0.2, repeat: Infinity, yoyo: true, delay: 0.05 }],
-    ["a delay of 0.3, past the 0.25 s stall", { duration: 0.4, delay: 0.3 }],
-  ] as const
-  for (const [name, options] of animateCases) {
-    it.effect(`animate: ${name}`, () =>
-      Effect.gen(function* () {
-        const [s, m] = yield* sideBySide(animateOracle(-5, 20, options), Machine.toStream(Machine.animate(-5, 20, options)))
-        expectSame(s, m, 5)
-      }))
+describe("the composites against Motion's timing (#226)", () => {
+  /** An asymmetric easing, so `"reverse"` and `"mirror"` differ. */
+  const CUBE = (t: number) => t * t * t
+  const animateCases: ReadonlyArray<readonly [string, RunOptions, boolean]> = [
+    ["one run", { duration: 0.3, delay: 0, repeat: 0, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
+    ["repeat 2, a delay held once (#77)", { duration: 0.3, delay: 0.05, repeat: 2, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
+    ["repeat 3, reverse, swapped endpoints", { duration: 0.25, delay: 0, repeat: 3, repeatDelay: 0, repeatType: "reverse", easing: CUBE }, true],
+    ["repeat 3, mirror, a repeatDelay", { duration: 0.25, delay: 0, repeat: 3, repeatDelay: 0.07, repeatType: "mirror", easing: CUBE }, false],
+    ["repeat 2, reverse, a repeatDelay and a delay", { duration: 0.2, delay: 0.05, repeat: 2, repeatDelay: 0.07, repeatType: "reverse", easing: CUBE }, false],
+    ["repeat Infinity", { duration: 0.2, delay: 0, repeat: Infinity, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
+    ["repeat Infinity, mirror, a delay held once (#77)", { duration: 0.2, delay: 0.05, repeat: Infinity, repeatDelay: 0, repeatType: "mirror", easing: CUBE }, false],
+    ["repeat Infinity, reverse, a repeatDelay", { duration: 0.12, delay: 0, repeat: Infinity, repeatDelay: 0.05, repeatType: "reverse", easing: CUBE }, false],
+    ["a delay of 0.3, past the 0.25 s stall", { duration: 0.4, delay: 0.3, repeat: 0, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
+  ]
+  for (const [name, o, reverse] of animateCases) {
+    it(`animate: ${name}`, () => {
+      const frames = stepped(Machine.animate(-5, 20, { ...o, reverse }))
+      const [a, b] = Bool.match(reverse, { onTrue: () => [20, -5] as const, onFalse: () => [-5, 20] as const })
+      expect(frames.length).toBeGreaterThanOrEqual(5)
+      for (const [i, { frame, time }] of frames.entries()) {
+        expect(frame.value, `frame ${i}, at ${time}`).toBeCloseTo(motionRunAt(time, a, b, o), 9)
+        expect(frame.done, `frame ${i} done`).toBe(motionRunDone(time, o))
+      }
+    })
   }
 
   const keyframesCases = [
-    ["four stops, a delay held once (#77)", [0, 10, 5, 20], { duration: 0.6, delay: 0.05 }],
-    ["one stop", [3], { duration: 0.2 }],
-    ["no stops", [], { duration: 0.2 }],
+    ["four stops, a delay held once (#77)", [0, 10, 5, 20], 0.6, 0.05],
+    ["five stops", [10, -20, 40, 0, 5], 0.9, 0],
   ] as const
-  for (const [name, stops, options] of keyframesCases) {
-    it.effect(`keyframes: ${name}`, () =>
-      Effect.gen(function* () {
-        const [s, m] = yield* sideBySide(keyframesOracle(stops, options), Machine.toStream(Machine.keyframes(stops, options)))
-        expectSame(s, m, 5)
-        expect(settledLast(s)).toBe(true)
-      }))
+  for (const [name, stops, duration, delay] of keyframesCases) {
+    it(`keyframes: ${name}`, () => {
+      const frames = stepped(Machine.keyframes(stops, { duration, delay, easing: CUBE }))
+      expect(frames.length).toBeGreaterThanOrEqual(5)
+      for (const [i, { frame, time }] of frames.entries()) {
+        expect(frame.value, `frame ${i}, at ${time}`).toBeCloseTo(motionKeyframesAt(time, stops, duration, delay, CUBE), 9)
+        expect(frame.done, `frame ${i} done`).toBe(time - delay >= duration)
+      }
+    })
   }
+
+  it("keyframes: one stop, or none, holds still for its duration", () => {
+    for (const stops of [[3], []]) {
+      const frames = stepped(Machine.keyframes(stops, { duration: 0.2 }))
+      expect(frames.every(({ frame }) => frame.value === (stops[0] ?? 0))).toBe(true)
+      expect(frames.at(-1)?.frame.done).toBe(true)
+      expect(frames.at(-1)?.time).toBeGreaterThanOrEqual(0.2)
+    }
+  })
 
   const FROM = { x: 0, filter: "blur(2px) brightness(0.5)", width: "10px", "pointer-events": "auto", visibility: "visible" }
   const TO = { x: 40, filter: "blur(8px) brightness(1)", width: "200px", "pointer-events": "none", visibility: "hidden" }
 
-  it.effect("animateValues: strings, a Discrete pair and visibility, repeat 1 with yoyo and a delay", () =>
+  it.effect("animateValues: strings, a Discrete pair and visibility, repeat 1 mirrored, a delay: animate's progress, blended", () =>
     Effect.gen(function* () {
-      const options = { duration: 0.4, repeat: 1, yoyo: true, delay: 0.05, easing: Easing.easeInOutCubic }
+      const options = { duration: 0.4, repeat: 1, repeatType: "mirror" as const, delay: 0.05, easing: Easing.easeInOutCubic }
       const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistry.layer))
       const machine = yield* Machine.animateValues(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistry.layer))
-      const oracle = animateOracle(0, 1, options).pipe(Stream.map((progress) => blend(progress.value, progress.done)))
-      const [s, m] = yield* sideBySide(oracle, Machine.toStream(machine))
-      expectSame(s, m, 10)
+      const progress = Machine.toStream(Machine.animate(0, 1, options)).pipe(Stream.map((frame) => blend(frame.value, frame.done)))
+      const [s, m] = yield* sideBySide(progress, Machine.toStream(machine))
+      expectSame(s, m, 5)
       expect(settledLast(s)).toBe(true)
     }))
 
@@ -382,7 +323,7 @@ const bothDrivers = <F extends Frame.Frame<unknown>>(build: () => Effect.Effect<
   })
 
 describe("every constructor through both drivers", () => {
-  const OPTIONS = { duration: 0.3, repeat: 2, yoyo: true, delay: 0.05, easing: Easing.easeInOutCubic }
+  const OPTIONS = { duration: 0.3, repeat: 2, repeatType: "mirror" as const, delay: 0.05, easing: Easing.easeInOutCubic }
   const FROM = { x: 0, filter: "blur(2px) brightness(0.5)", width: "10px", "pointer-events": "auto", visibility: "visible" }
   const TO = { x: 40, filter: "blur(8px) brightness(1)", width: "200px", "pointer-events": "none", visibility: "hidden" }
   const cases: ReadonlyArray<
@@ -407,11 +348,11 @@ describe("every constructor through both drivers", () => {
       "springValues, options' from and velocity, a delay",
       () => Effect.succeed(Machine.springValues({ x: 100, y: 50 }, { stiffness: 300, from: -20, velocity: 40, delay: 0.1 }, { y: 10 })),
     ],
-    ["animate, repeat 2, yoyo, a delay", () => Effect.succeed(Machine.animate(-5, 20, OPTIONS))],
+    ["animate, repeat 2, mirror, a delay", () => Effect.succeed(Machine.animate(-5, 20, OPTIONS))],
     ["animate, repeat Infinity", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity }))],
     [
-      "animate, repeat 3, yoyo, a repeatDelay and a delay",
-      () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: 3, yoyo: true, repeatDelay: 0.07, delay: 0.05 })),
+      "animate, repeat 3, reverse, a repeatDelay and a delay",
+      () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: 3, repeatType: "reverse", repeatDelay: 0.07, delay: 0.05 })),
     ],
     ["animate, repeat Infinity with a repeatDelay", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity, repeatDelay: 0.1 }))],
     ["keyframes", () => Effect.succeed(Machine.keyframes([0, 10, 5, 20], { duration: 0.6, delay: 0.05 }))],

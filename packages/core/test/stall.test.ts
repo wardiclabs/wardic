@@ -6,7 +6,8 @@
 //   at that wall time (`.tmp/23-stall/motion-rows.ts` on the bench box; `.tmp` is gitignored);
 // - a longer stall advances it `MAX_DT`, and it plays out the rest: it settles that much later than
 //   wall time would have it. Motion jumps to where wall time puts it.
-// A sequence (`keyframes`, `animate`'s repeats) drops a tick's leftover at each seam: #226.
+// The sequences (`keyframes`, `animate`'s repeats) are one time across their Segments since #226, so a
+// stall that crosses a Segment's end lands where Motion's does too.
 import * as Easing from "@wardic/core/Easing"
 import * as Machine from "@wardic/core/Machine"
 import { describe, expect, it } from "vitest"
@@ -29,6 +30,12 @@ const consumers: ReadonlyArray<readonly [string, () => Run]> = [
   ["decay from 1,000 px/s", () => Machine.decay(0, 1000)],
   ["inertia: a release back to its slot", () => Machine.inertia(80, 0, RELEASE)],
   ["inertia: a free fling at 1,000 px/s", () => Machine.inertia(0, 1000, { power: 0.8, timeConstant: 0.75, restDelta: 1, restSpeed: 10 })],
+  ["keyframes 0 / 60 / 100 over 1 s", () => Machine.keyframes([0, 60, 100], { duration: 1, easing: EASE_OUT })],
+  ["animate 0.12 s, repeat 3, mirror", () => Machine.animate(0, 100, { duration: 0.12, repeat: 3, repeatType: "mirror", easing: EASE_OUT })],
+  [
+    "animate 0.16 s, repeat Infinity, reverse, a 0.05 s repeatDelay",
+    () => Machine.animate(0, 100, { duration: 0.16, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse", repeatDelay: 0.05, easing: EASE_OUT }),
+  ],
 ]
 
 /** `n` frames at 60 Hz. */
@@ -62,7 +69,9 @@ describe("a stall up to MAX_DT lands each consumer where its unstalled frames wo
         const without = through(make, frames(6 + k + 600))
         expect(withStall.values[6], "the stall's frame").toBeCloseTo(without.values[6 + k - 1]!, 6)
         expect(withStall.values.at(-1), "600 frames later").toBeCloseTo(without.values.at(-1)!, 6)
-        expect(withStall.settled, "settles at the same wall time, s").toBeCloseTo(without.settled, 9)
+        // It settles on the first frame at or after its end: the unstalled run's, or the stall's own frame
+        // when it ends inside the stall.
+        expect(withStall.settled, "settles on the first frame past its end, s").toBeCloseTo(Math.max(without.settled, 6 * F + stallMs / 1000), 9)
       })
     }
   }
@@ -89,6 +98,15 @@ describe("against Motion 13.3.0, at the wall time a 200 ms stall after 100 ms la
     ["spring 170 / 26 / 1", () => Machine.spring(100, { restDelta: 0.01, restVelocity: 0.01 }), 90.28975432882734, 0.06],
     ["inertia: a release back to its slot", () => Machine.inertia(80, 0, RELEASE), 16.657462269063462, 1e-9],
     ["inertia: a free fling at 1,000 px/s", () => Machine.inertia(0, 1000, { power: 0.8, timeConstant: 0.75, restDelta: 1, restSpeed: 10 }), 263.74396317148853, 1e-9],
+    // The sequences (#226), each across a Segment's end: `.tmp/226/motion-rows.ts`, `JSAnimation.sample`.
+    ["keyframes 0 / 60 / 100 over 1 s", () => Machine.keyframes([0, 60, 100], { duration: 1, easing: EASE_OUT }), 47.1100746531738, 0.05],
+    ["animate 0.12 s, repeat 3, mirror", () => Machine.animate(0, 100, { duration: 0.12, repeat: 3, repeatType: "mirror", easing: EASE_OUT }), 68.46233151445631, 0.05],
+    [
+      "animate 0.16 s, repeat Infinity, reverse, a 0.05 s repeatDelay",
+      () => Machine.animate(0, 100, { duration: 0.16, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse", repeatDelay: 0.05, easing: EASE_OUT }),
+      61.516176428995095,
+      0.05,
+    ],
   ]
   for (const [name, make, motion, within] of rows) {
     it(`${name}: within ${within} of Motion's ${motion.toFixed(3)}`, () => {

@@ -46,10 +46,13 @@ import {
   durationOf,
   initDecay,
   initTween,
+  keyframesAt,
   resolveDecay,
+  type ResolvedRun,
   type ResolvedTween,
   resolvedTweenOf,
   resolveTween,
+  runAt,
   stepDecay,
   stepTween,
   TweenFields,
@@ -149,7 +152,7 @@ export interface TweenOptions {
   /** Easing function; defaults to linear. */
   readonly easing?: Easing.Easing
   /**
-   * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `yoyo`, or across
+   * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `repeatType`, or across
    * `keyframes`' stops, it holds once, before the first segment (#77): `Machine.delay`.
    */
   readonly delay?: number
@@ -239,18 +242,25 @@ export interface InertiaVecOptions extends Omit<InertiaOptions, "min" | "max"> {
 export interface Modifiers {
   /**
    * Additional repeats after the first run: a whole number, or `Infinity` to loop forever.
-   * Default 0. Each repeat starts on the tick after the one before it settles, or after its
-   * `repeatDelay`: `delay` holds once, before the first run (#77).
+   * Default 0. Each repeat starts the moment the one before it ends, or its `repeatDelay` after,
+   * wherever that falls in a tick (#226): `delay` holds once, before the first run (#77).
    */
   readonly repeat?: number
   /**
    * A gap between repeats, in seconds (Motion's `repeatDelay`, #91). Default 0. Each run but the
-   * last holds where it ended (with `yoyo`, its turning point) for this long, then the next run
-   * starts on the tick after; an infinite `repeat` holds after every run.
+   * last holds where it ended (a turned run, at its turning point) for this long; an infinite
+   * `repeat` holds after every run.
    */
   readonly repeatDelay?: number
-  /** Reverse direction on alternate repeats (ping-pong). Default false. */
-  readonly yoyo?: boolean
+  /**
+   * How every other repeat runs (Motion's `repeatType`, #226). Default `"loop"`.
+   * - `"loop"`: each run starts at `from` again.
+   * - `"reverse"`: every other run plays backwards in time, from `to` to `from` on the easing's
+   *   curve reversed: an `easeOut` run comes back easing in.
+   * - `"mirror"`: every other run plays from `to` to `from` on the same easing: an `easeOut` run
+   *   comes back easing out.
+   */
+  readonly repeatType?: "loop" | "reverse" | "mirror"
   /** Run the animation from `to` back to `from`. Default false. */
   readonly reverse?: boolean
 }
@@ -284,7 +294,9 @@ export const map: {
  * Segments played one after another, as one run: `Stream.concat`'s seam over N segments, flat,
  * with one step through them (ADR-0027, decision 4). A segment's settled Frame is re-stamped
  * `done: false` unless it's the last, and the next segment starts on the next tick, from its
- * beginning, with no leftover time carried over.
+ * beginning, with no leftover time carried over: the rest of the tick a segment ends in is
+ * dropped, so a sequence runs up to a frame a seam behind wall time. For tweens in sequence, time-
+ * exact, `keyframes` and `animate` are one leaf over one time (#226).
  *
  * A segment that never settles (`chase`, `forever`) is the last one reached, as a `Stream` that
  * never ends is in `Stream.concat`: the rest are dropped. One segment is returned as it is. Keeps
@@ -327,8 +339,8 @@ export const concatAll = <F extends Frame.Frame<unknown>>(segments: Arr.NonEmpty
 
 /**
  * `that` on the tick after `self` settles: `Stream.concat`'s seam, `self`'s settled Frame
- * re-stamped `done: false`. A `self` that never settles never reaches `that`. `concatAll` of the
- * two; keeps `self`'s span.
+ * re-stamped `done: false`, the rest of that tick dropped (`concatAll`'s, #226). A `self` that
+ * never settles never reaches `that`. `concatAll` of the two; keeps `self`'s span.
  */
 export const concat: {
   <G extends Frame.Frame<unknown>>(that: Machine<G>): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F | G>
@@ -341,8 +353,10 @@ export const concat: {
 
 /**
  * `self` restarted on the tick after it settles, without end: `Stream.forever`'s. Each settled
- * Frame is re-stamped `done: false`, so a run never settles. A `self` that never settles is
- * returned as it is. Keeps `self`'s span.
+ * Frame is re-stamped `done: false`, so a run never settles, and the rest of the tick it settled
+ * in is dropped, so each restart runs up to a frame behind wall time; `animate`'s `repeat:
+ * Infinity` is time-exact (#226). A `self` that never settles is returned as it is. Keeps `self`'s
+ * span.
  */
 export const forever = <F extends Frame.Frame<unknown>>(self: Machine<F>): Machine<F> =>
   Bool.match(self.settles, {
@@ -411,8 +425,9 @@ export const delay: {
  * once, is returned on the tick it settles and on every held tick, the same object, until the
  * held time reaches `seconds`; on that tick it settles with `self`'s settled Frame. The held
  * time counts each tick's `dt` at most `MAX_DT`, as a step does, and starts on the tick after
- * `self` settles. A `self` that never settles is returned as it is, and so is `holdAfter(0)` (or
- * a negative hold).
+ * `self` settles, so the rest of that tick is dropped (`animate`'s `repeatDelay` is time-exact,
+ * #226). A `self` that never settles is returned as it is, and so is `holdAfter(0)` (or a negative
+ * hold).
  * Keeps `self`'s span. Effect has no hold after; #91's name.
  */
 export const holdAfter: {
@@ -831,12 +846,14 @@ const Repeat = Schema.Number.check(
   ),
 )
 
-/** `animate`'s bag, resolved: its tween, and its repeat modifiers. */
+/** `animate`'s bag, resolved: its run (its tween's `delay` 0), and the rest as given. */
 interface ResolvedAnimate {
-  readonly tween: ResolvedTween
+  readonly run: ResolvedRun
+  readonly delay: number
+  readonly seconds: number
   readonly repeat: number
   readonly repeatDelay: number
-  readonly yoyo: boolean
+  readonly repeatType: "loop" | "reverse" | "mirror"
   readonly reverse: boolean
 }
 
@@ -850,95 +867,104 @@ const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResol
     ...TweenFields,
     repeat: field(Repeat, 0),
     repeatDelay: field(NonNegative, 0),
-    yoyo: field(Schema.Boolean, false),
+    repeatType: field(Schema.Literals(["loop", "reverse", "mirror"]), "loop"),
     reverse: field(Schema.Boolean, false),
   },
-  (decoded): ResolvedAnimate => ({
-    tween: resolvedTweenOf(decoded),
-    repeat: decoded.repeat,
-    repeatDelay: decoded.repeatDelay,
-    yoyo: decoded.yoyo,
-    reverse: decoded.reverse,
-  }),
+  (decoded): ResolvedAnimate => {
+    const tween = resolvedTweenOf(decoded)
+    const cycle = tween.duration + decoded.repeatDelay
+    return {
+      run: {
+        tween: { ...tween, delay: 0 },
+        repeats: decoded.repeat,
+        gap: decoded.repeatDelay,
+        cycle,
+        total: cycle * (decoded.repeat + 1) - decoded.repeatDelay,
+        reverses: decoded.repeatType === "reverse",
+        mirrors: decoded.repeatType === "mirror",
+      },
+      delay: tween.delay,
+      seconds: tween.seconds,
+      repeat: decoded.repeat,
+      repeatDelay: decoded.repeatDelay,
+      repeatType: decoded.repeatType,
+      reverse: decoded.reverse,
+    }
+  },
 )
 
 /**
- * A tween with modifiers: `reverse` swaps the endpoints, `repeat` replays, and `yoyo` turns
- * each replay around. `delay` holds once, before the first segment, as Motion's does (#77), and
- * `repeatDelay` holds after each segment but the last, where it ended (`holdAfter`, #91): with
- * `yoyo`, at its turning point, as Motion's `repeatType: "reverse"` does.
+ * A tween with modifiers: `reverse` swaps the endpoints, `repeat` replays, and `repeatType` turns
+ * every other replay (`"reverse"`, `"mirror"`). `delay` holds once, before the first run, as
+ * Motion's does (#77), and `repeatDelay` holds after each run but the last, where it ended (#91).
  *
- * - **Finite `repeat: N`** runs N+1 segments (`concatAll`), and only the last Frame carries
- *   `done: true`. A fractional `repeat` (1.5) is rejected (#66).
- * - **`repeat: Infinity`** runs the first segment, then a cycle of the rest without end
- *   (`concat(first, forever(concatAll(rest)))`): one segment, or a backward and forward pair
- *   with `yoyo`, each segment holding after it. It never settles; it ends when its run is
- *   removed.
+ * One leaf over one frame time, as Motion's `JSAnimation` is (#226): each step adds its `dt`
+ * (clamped at `MAX_DT`) and reads the run's pass, the time into it and its direction off the total,
+ * so a pass starts the moment the one before it ends, wherever that falls in a tick, and a tick
+ * across a turn paints that tick's value, not the turn. A finite `repeat` settles once its last
+ * pass ends; `repeat: Infinity` never settles, and ends when its run is removed.
  *
- * Then `delay(options.delay)`, and its own span, `wardic.animate`. Each segment's tween clamps
- * its `dt` at `MAX_DT`, and so does the hold.
+ * Then `delay(options.delay)`, and its own span, `wardic.animate`.
  */
 export const animate = (from: number, to: number, options: AnimateOptions = NO_OPTIONS): Machine<Frame.Frame<number>> => {
-  const { tween: resolved, repeat: repeats, repeatDelay: gap, yoyo, reverse } = resolveAnimate(options)
+  const resolved = resolveAnimate(options)
+  const { run, repeat, repeatDelay, repeatType, reverse } = resolved
   const [a, b] = Bool.match(reverse, { onTrue: () => [to, from] as const, onFalse: () => [from, to] as const })
-  // Every segment's tween: `delay` holds once, outside them.
-  const segment: ResolvedTween = { ...resolved, delay: 0 }
-  const forward = tweenLeaf(a, b, segment, tweenSpan(a, b, resolved.seconds))
-  const backward = tweenLeaf(b, a, segment, tweenSpan(b, a, resolved.seconds))
-  // The segments a run holds after: every one but the last (`holdAfter(0)` is its input).
-  const forwardHeld = holdAfter(forward, gap)
-  const backwardHeld = holdAfter(backward, gap)
-  /** Segment `i`: `yoyo`'s odd segments run backwards. */
-  const segmentFor = (i: number): Machine<Frame.Frame<number>> =>
-    Bool.match(yoyo && i % 2 === 1, { onTrue: () => backward, onFalse: () => forward })
-  /** Segment `i`, holding after it. */
-  const heldFor = (i: number): Machine<Frame.Frame<number>> =>
-    Bool.match(yoyo && i % 2 === 1, { onTrue: () => backwardHeld, onFalse: () => forwardHeld })
-  return Bool.match(Number.isFinite(repeats), {
-    onTrue: () => {
-      // A whole number, 0 or above: its decode rejects any other (#66).
-      const count = repeats + 1
-      // Every segment but the last holds after it.
-      return concatAll(
-        Arr.makeBy(count, (i) => Bool.match(i === count - 1, { onTrue: () => segmentFor(i), onFalse: () => heldFor(i) })),
-      )
-    },
+  const span = tweenSpan(a, b, resolved.seconds)
+  // One run, no repeat: nothing to sequence, so the tween's own step, which `runAt` reduces to, and
+  // the cheaper per frame (the binding's every tween leg without a `repeat`).
+  return Bool.match(repeat === 0, {
+    onTrue: () => tweenLeaf(a, b, run.tween, span),
     onFalse: () =>
-      concat(
-        heldFor(0),
-        forever(
-          concatAll(
-            Bool.match(yoyo, {
-              onTrue: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [heldFor(1), heldFor(2)],
-              onFalse: (): Arr.NonEmptyReadonlyArray<Machine<Frame.Frame<number>>> => [heldFor(1)],
-            }),
-          ),
-        ),
-      ),
+      make({
+        settles: Number.isFinite(repeat),
+        span,
+        start: () => {
+          let elapsed = 0
+          // Per frame (ADR-0025): one time, `dt` clamped (#78); the run resolved when it was built.
+          return (dt): Frame.Frame<number> => {
+            elapsed += Math.min(dt, MAX_DT)
+            return runAt(elapsed, a, b, run)
+          }
+        },
+      }),
   }).pipe(
     delay(resolved.delay),
-    withSpan("wardic.animate", { attributes: { from, to, repeat: repeats, repeatDelay: gap, yoyo, reverse } }),
+    withSpan("wardic.animate", { attributes: { from, to, repeat, repeatDelay, repeatType, reverse } }),
   )
 }
 
 /**
- * Animate through a sequence of stops, splitting `duration` evenly across the segments between
- * them (`concatAll`); a single stop, or none, holds still for `duration`. `delay` holds once,
- * before the first stop's segment (#77). Its own span, `wardic.keyframes`.
+ * Animate through a sequence of stops, splitting `duration` evenly across the Segments between
+ * them, each eased whole (Motion's keyframes, evenly spaced). One leaf over one frame time (#226):
+ * the next Segment starts the moment one ends, wherever that falls in a tick. A single stop, or
+ * none, holds still for `duration`. `delay` holds once, before the first Segment (#77). Its own
+ * span, `wardic.keyframes`.
  */
 export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): Machine<Frame.Frame<number>> => {
-  const pairs = Arr.zip(stops, Arr.drop(stops, 1))
   const resolved = resolveTween(options)
   const total = resolved.seconds
-  const duration = total / Math.max(1, pairs.length)
-  const segment: ResolvedTween = { ...resolved, duration: durationOf(duration), seconds: duration, delay: 0 }
-  return Arr.match(pairs, {
+  const count = Math.max(1, stops.length - 1)
+  const segment = durationOf(total / count)
+  const at: ReadonlyArray<number> = Arr.copy(stops)
+  return Arr.match(Arr.drop(stops, 1), {
     onEmpty: () => {
       const only = Option.getOrElse(Arr.head(stops), () => 0)
-      return tweenLeaf(only, only, segment, tweenSpan(only, only, duration))
+      return tweenLeaf(only, only, { ...resolved, delay: 0 }, tweenSpan(only, only, total))
     },
-    onNonEmpty: (nonEmpty) =>
-      concatAll(Arr.map(nonEmpty, ([a, b]) => tweenLeaf(a, b, segment, tweenSpan(a, b, duration)))),
+    onNonEmpty: () =>
+      make({
+        settles: true,
+        span: tweenSpan(Option.getOrElse(Arr.head(stops), () => 0), Option.getOrElse(Arr.last(stops), () => 0), total),
+        start: () => {
+          let elapsed = 0
+          // Per frame (ADR-0025): one time, `dt` clamped (#78); the stops copied when it was built.
+          return (dt): Frame.Frame<number> => {
+            elapsed += Math.min(dt, MAX_DT)
+            return keyframesAt(elapsed, at, segment, total, resolved.easing)
+          }
+        },
+      }),
   }).pipe(
     delay(resolved.delay),
     withSpan("wardic.keyframes", { attributes: { stops: stops.length, duration: total } }),
@@ -997,7 +1023,7 @@ const blendAt = (
  * Animate a bag of values from `from` to `to`, each key through the `InterpolatorRegistry`
  * (numbers, unit strings, complex values, and its Environment's own kinds, the DOM's colours).
  * One `animate(0, 1, options)` progress drives every key, so the modifiers (`reverse`, `repeat`,
- * `yoyo`, an infinite `repeat`, `delay`) apply to the bag as a whole, and `done` is the progress
+ * `repeatType`, `repeatDelay`, `delay`) apply to the bag as a whole, and `done` is the progress
  * Frame's. A Discrete pair switches at the first Frame; an Environment's Key rule can hold a key
  * until the last (the DOM's `display` and `visibility`, ADR-0024 and ADR-0035).
  *
