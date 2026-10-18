@@ -907,17 +907,24 @@ export const animate = (from: number, to: number, options: AnimateOptions = NO_O
   const resolved = resolveAnimate(options)
   const { run, repeat, repeatDelay, repeatType, reverse } = resolved
   const [a, b] = Bool.match(reverse, { onTrue: () => [to, from] as const, onFalse: () => [from, to] as const })
-  return make({
-    settles: Number.isFinite(repeat),
-    span: tweenSpan(a, b, resolved.seconds),
-    start: () => {
-      let elapsed = 0
-      // Per frame (ADR-0025): one time, `dt` clamped (#78); the run resolved when it was built.
-      return (dt): Frame.Frame<number> => {
-        elapsed += Math.min(dt, MAX_DT)
-        return runAt(elapsed, a, b, run)
-      }
-    },
+  const span = tweenSpan(a, b, resolved.seconds)
+  // One run, no repeat: nothing to sequence, so the tween's own step, which `runAt` reduces to, and
+  // the cheaper per frame (the binding's every tween leg without a `repeat`).
+  return Bool.match(repeat === 0, {
+    onTrue: () => tweenLeaf(a, b, run.tween, span),
+    onFalse: () =>
+      make({
+        settles: Number.isFinite(repeat),
+        span,
+        start: () => {
+          let elapsed = 0
+          // Per frame (ADR-0025): one time, `dt` clamped (#78); the run resolved when it was built.
+          return (dt): Frame.Frame<number> => {
+            elapsed += Math.min(dt, MAX_DT)
+            return runAt(elapsed, a, b, run)
+          }
+        },
+      }),
   }).pipe(
     delay(resolved.delay),
     withSpan("wardic.animate", { attributes: { from, to, repeat, repeatDelay, repeatType, reverse } }),
