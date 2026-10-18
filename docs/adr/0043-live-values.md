@@ -60,6 +60,8 @@ It lands in two PRs. The first adds core's `LiveValue` module and the gate's per
 ## Implementation
 
 **PR 1** (core and dom): `packages/core/src/LiveValue.ts`; `FlushGate.valueOf` in `packages/dom/src/internal/gate.ts`, with `inert`'s; the glossary's Live value.
+- **Measured:** `bench:solid` against main `6632187`, 11 reps, warm: every task within ±1% (mount −0.5%, Retarget −0.1%, at rest −1.0%, unmount +0.5%, bytes −0.2%), so the gate's check for outputs costs nothing measurable.
+- **Gates:** typecheck, lint, unit (1136), browser (1017), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #226's.
 EOF
 python3 - <<'EOF'
 import re
