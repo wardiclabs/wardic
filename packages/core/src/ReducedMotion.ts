@@ -83,21 +83,25 @@ export const split = (values: Values.Values, keys: PositionalKeys["Service"]): S
   rest: Rec.filter(values, (_, key) => !keys.isPositional(key)),
 })
 
-/** A repeat count whose last run is odd-numbered, which `yoyo` runs backwards: finite, and odd once rounded up. */
+/** A repeat count whose last run is odd-numbered, which a turning `repeatType` runs backwards: finite, and odd once rounded up. */
 const endsBackwards: Predicate.Predicate<number> = Predicate.and(
   (repeats: number) => Number.isFinite(repeats),
   (repeats: number) => Math.ceil(Math.max(0, repeats)) % 2 === 1,
 )
 
+/** Whether a `repeatType` turns every other run: `"reverse"` and `"mirror"` do, `"loop"` doesn't. */
+const turns = (repeatType: Machine.Modifiers["repeatType"]): boolean => Bool.or(repeatType === "reverse", repeatType === "mirror")
+
 /**
  * Where a `Machine.animate` run from `from` to `to` with `options` ends, which its snap lands on
- * (Motion's `getFinalKeyframe`): `to`, or `from` with `reverse`; with `yoyo` and an odd finite
- * `repeat`, the other one, since its last run goes backwards. A run that repeats forever never
- * ends, and lands where its first run does (Motion's last keyframe).
+ * (Motion's `getFinalKeyframe`): `to`, or `from` with `reverse`; with a `repeatType` that turns
+ * (`"reverse"`, `"mirror"`) and an odd finite `repeat`, the other one, since its last run goes
+ * backwards. A run that repeats forever never ends, and lands where its first run does (Motion's
+ * last keyframe).
  */
 export const endOf = <A>(from: A, to: A, options: Machine.Modifiers): A => {
   const repeats = Option.getOrElse(Option.fromUndefinedOr(options.repeat), () => 0)
-  const backwards = Bool.and(options.yoyo === true, endsBackwards(repeats))
+  const backwards = Bool.and(turns(options.repeatType), endsBackwards(repeats))
   return Bool.match(Bool.xor(backwards, options.reverse === true), { onTrue: () => from, onFalse: () => to })
 }
 

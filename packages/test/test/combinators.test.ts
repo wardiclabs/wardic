@@ -243,7 +243,7 @@ describe("defaults add no layer (ADR-0028, decision 7)", () => {
     const animate = Machine.animate(0, 16, QUARTER)
     expect(animate.span).toEqual({
       name: "wardic.animate",
-      attributes: { from: 0, to: 16, repeat: 0, repeatDelay: 0, yoyo: false, reverse: false },
+      attributes: { from: 0, to: 16, repeat: 0, repeatDelay: 0, repeatType: "loop", reverse: false },
     })
     expect(animate.settles).toBe(true)
   })

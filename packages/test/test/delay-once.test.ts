@@ -77,8 +77,8 @@ describe("delay holds once, before the first segment (#77)", () => {
     )
   })
 
-  it.effect("animate, repeat 2 with yoyo: forward, back, forward, with one hold", () => {
-    const options = { ...SEGMENT, repeat: 2, yoyo: true }
+  it.effect("animate, repeat 2 reversed every other run: forward, back, forward, with one hold", () => {
+    const options = { ...SEGMENT, repeat: 2, repeatType: "reverse" as const }
     return bothDrivers(
       Machine.animate(0, 16, options),
       framesOf([0, 0, 4, 8, 12, 16, 12, 8, 4, 0, 4, 8, 12, 16], true),
@@ -102,8 +102,8 @@ describe("delay holds once, before the first segment (#77)", () => {
     )
   })
 
-  it.effect("animate, repeat Infinity with yoyo: the hold once, then forward and back, never settling", () => {
-    const options = { ...SEGMENT, repeat: Infinity, yoyo: true }
+  it.effect("animate, repeat Infinity reversed every other run: the hold once, then forward and back, never settling", () => {
+    const options = { ...SEGMENT, repeat: Infinity, repeatType: "reverse" as const }
     return bothDrivers(
       Machine.animate(0, 16, options),
       framesOf([0, 0, 4, 8, 12, 16, 12, 8, 4, 0, 4, 8, 12, 16, 12, 8, 4, 0], false),
@@ -140,8 +140,8 @@ describe("unchanged by #77", () => {
     return bothDrivers(Machine.animate(0, 16, options), framesOf([4, 8, 12, 16, 4, 8, 12, 16], true))
   })
 
-  it.effect("an infinite yoyo with no delay cycles forward and back", () => {
-    const options = { duration: 0.25, repeat: Infinity, yoyo: true }
+  it.effect("an infinite reversing repeat with no delay cycles forward and back", () => {
+    const options = { duration: 0.25, repeat: Infinity, repeatType: "reverse" as const }
     return bothDrivers(
       Machine.animate(0, 16, options),
       framesOf([4, 8, 12, 16, 12, 8, 4, 0, 4, 8, 12, 16], false),
