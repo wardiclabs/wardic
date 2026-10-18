@@ -118,16 +118,20 @@ export const isMachine = (u: unknown): u is Machine<Frame.Frame<unknown>> => Pre
 /**
  * Maximum delta-time (seconds) any Primitive simulates in one step.
  *
- * Long frame stalls (tab switches, slow first paints, debugger pauses) can produce `dt` values
- * measured in seconds, large enough to teleport a spring across its rest thresholds or blow up a
- * decay integration. Every constructor clamps each step's `dt` here once (#78), in its leaves'
- * steps and in `delay`'s hold, so both drivers clamp and no stepper needs to defend itself.
- * Inline, not a `clampDt` layer: a layer is one more call per element per frame, which V8
+ * Every constructor clamps each step's `dt` here once (#78), in its leaves' steps and in `delay`'s
+ * hold, so both drivers clamp and no stepper needs to defend itself; dom's projection pass clamps
+ * its own. Inline, not a `clampDt` layer: a layer is one more call per element per frame, which V8
  * doesn't inline (ADR-0028, *Implementation in #94*).
  *
- * 500ms is permissive by design: it accommodates the synthetic frame samples our unit tests use
- * (which push the engine with 0.25s–0.5s deltas) while still capping the multi-second deltas a
- * tab-switch can produce. Live 60fps frames (~16ms) are unaffected.
+ * Why 500 ms (#23, ADR-0017 *Amendment (#23)*):
+ * - **A stall up to it reaches each consumer whole,** so a tween, a spring, decay, inertia or a
+ *   layout animation lands where wall time puts it, as Motion's time-based animations do: every
+ *   jank short of a tab switch or a debugger pause.
+ * - **A longer one (a hidden tab) advances it 500 ms,** and the animation plays out the rest, where
+ *   Motion's jumps to its end. It bounds the spring's cost too: it's integrated in 1/240 s substeps,
+ *   so a minute away would be 14,400 a spring on return.
+ *
+ * A sequence's seams drop the rest of a tick, a stall's included (#226).
  */
 export const MAX_DT = 0.5
 
@@ -625,7 +629,10 @@ export const chase = (getTarget: () => number, options: SpringOptions = NO_OPTIO
   })
 }
 
-/** Momentum/decay motion: fling from `initial` at `velocity`, slowed by friction. */
+/**
+ * Momentum/decay motion: fling from `initial` at `velocity`, slowed by friction. Stepped in closed
+ * form (#23), so it comes to rest `velocity / friction` from `initial` whatever the frame rate.
+ */
 export const decay = (initial: number, velocity: number, options: DecayOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = resolveDecay(options)
   return make({

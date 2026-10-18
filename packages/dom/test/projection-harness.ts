@@ -50,13 +50,16 @@ export const unstubFrames = (): void => {
   vi.unstubAllGlobals()
 }
 
-/** Fire every pending Refresh frame at the next timestamp (one nominal interval later). */
-export const fireFrame = (): void => {
-  frameTime += 1000 / 60
+/** Fire every pending Refresh frame `ms` after the last one: a stall, when it's longer than a frame (#23). */
+export const fireFrameAfter = (ms: number): void => {
+  frameTime += ms
   const callbacks = [...pendingFrames.values()]
   pendingFrames.clear()
   for (const cb of callbacks) cb(frameTime)
 }
+
+/** Fire every pending Refresh frame at the next timestamp (one nominal interval later). */
+export const fireFrame = (): void => fireFrameAfter(1000 / 60)
 
 /** Fire `n` Refresh frames. */
 export const fireFrames = (n: number): void => {

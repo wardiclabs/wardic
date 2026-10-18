@@ -139,7 +139,13 @@ export const initDecay = (initial: number, velocity: number): DecayState => ({
   elapsed: 0,
 })
 
-/** One frame of a resolved decay. */
+/**
+ * One frame of a resolved decay, in closed form (#23): over `dt` the velocity falls by
+ * `e^(−friction·dt)` and the position moves by its integral, `velocity · (1 − e^(−friction·dt)) / friction`.
+ * So a decay comes to rest at `velocity / friction` from its start whatever the frame rate, and a
+ * stall up to `MAX_DT` lands it where its frames would have (an Euler step fell 2.5% short at 60 Hz,
+ * and a third short through a 500 ms stall).
+ */
 export const stepDecay = (state: DecayState, dt: number, decay: ResolvedDecay): PhysicsStepResult<DecayState> => {
   const elapsed = state.elapsed + dt
 
@@ -147,8 +153,9 @@ export const stepDecay = (state: DecayState, dt: number, decay: ResolvedDecay): 
   let velocity = state.velocity
   const simDt = Math.max(0, Math.min(dt, elapsed - decay.delay))
   if (simDt > 0) {
-    velocity *= Math.exp(-decay.friction * simDt)
-    position += velocity * simDt
+    const kept = Math.exp(-decay.friction * simDt)
+    position += (velocity * (1 - kept)) / decay.friction
+    velocity *= kept
   }
 
   const done = simDt > 0 && Math.abs(velocity) < decay.restVelocity
