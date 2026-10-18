@@ -46,3 +46,10 @@ it("springEasing is normalized and monotone at the ends", () => {
   expect(ease(1)).toBe(1)
   expect(ease(0.5)).toBeGreaterThan(0)
 })
+
+it("springEasing's curve is the same since its bag is decoded (#225): main's samples at b429963", () => {
+  const defaults = Easing.spring()
+  expect([0.1, 0.25, 0.5, 0.75].map(defaults)).toEqual([0.47106338743795767, 0.8971595320988142, 0.9951913745458054, 0.9997920031627241])
+  const bouncy = Easing.spring({ stiffness: 300, damping: 10, mass: 2 })
+  expect([0.1, 0.25, 0.5, 0.75].map(bouncy)).toEqual([1.194085310278693, 1.0194798369298201, 1.0099502090092494, 0.999782822567119])
+})

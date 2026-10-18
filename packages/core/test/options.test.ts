@@ -63,6 +63,23 @@ describe("SpringOptions: positive stiffness, mass and rest thresholds, non-negat
   })
 })
 
+describe("Easing.spring: its bag is a spring's, decoded when it's called (#225)", () => {
+  rejects(Easing.spring, [
+    ["mass", { mass: 0 }],
+    ["stiffness", { stiffness: Number.NaN }],
+    ["stiffness", { stiffness: "170" }],
+    ["damping", { damping: -1 }],
+    // A spring field the curve doesn't read is a spring's, so it's checked too.
+    ["restDelta", { restDelta: 0 }],
+    ["from", { from: Number.NaN }],
+  ])
+  accepts(Easing.spring, [{}, { stiffness: 300, damping: 10, mass: 2 }, { stiffness: 200, delay: 0.1, restDelta: 0.5, velocity: 40 }])
+
+  it("called without a bag, it shares one: it decodes once, and never throws", () => {
+    expect(() => Easing.spring()).not.toThrow()
+  })
+})
+
 describe("TweenOptions: a non-negative, finite duration and delay, an easing function", () => {
   rejects(Machine.resolveTween, [
     ["duration", { duration: -1 }],
