@@ -62,9 +62,13 @@ _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is on
 The point at which a Primitive reaches its rest thresholds; it produces a final Frame and completes.
 _Avoid_: finish, end, stop.
 
-**Retarget** (interrupt):
-Replacing a running Primitive with a fresh one seeded from its last Frame. A Physics primitive carries velocity across the seam; a Definite primitive restarts from the current value.
-_Avoid_: restart, cancel (those name the mechanism, not the intent).
+**Retarget**:
+Replacing a running Primitive with a fresh one seeded from its last Frame: the running one is **Superseded**. A Physics primitive carries velocity across the seam; a Definite primitive restarts from the current value.
+_Avoid_: restart, cancel, interrupt (those name a mechanism, not the intent).
+
+**Superseded**:
+A run a Retarget ended before it settled. It leaves the **Frame loop** at once and ends normally: neither settled, so it counts toward nothing, nor failed, so nothing reports it.
+_Avoid_: cancelled, interrupted (mechanisms: a Superseded run's fiber isn't interrupted).
 
 **Snapshot**:
 The last value a binding has cached for each key it drives, a number or a string, with a Physics primitive's velocities: the seed read at the moment of a Retarget.

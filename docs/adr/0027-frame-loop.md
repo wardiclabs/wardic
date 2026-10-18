@@ -534,3 +534,66 @@ ADR-0040, decision 3. A run's span is now `Effect.useSpan(name, { attributes }, 
 - **No span here captures a call-site stack** (ADR-0040, decision 2). The burst's `wardic.frameloop` and the loop's `wardic.frameloop.make` pass `captureStackTrace: false`, and `make` is `Effect.gen` inside `withSpan`, not `Effect.fn`, which always captures one.
 - **Decision 3's "about 1 µs per start"** timed `Effect.makeSpan` alone. #83 measured all of `withSpan` at 1.4–5.5 µs (ADR-0030, decision 9), and #87 found most of it was the stack capture.
 
+
+## Amendment (#200, 2026-10-18): a Retarget supersedes its legs
+
+#200 came out of #87's profile (ADR-0040, decision 4): a Retarget and an unmount spent about 7 µs per **Leg** interrupting its fiber. Grilled 2026-10-18 (Q1–Q6, all A).
+
+**Why an interrupt cost that much** (`.tmp/200/` on the bench box): 2,000 fibers waiting on a `Deferred` in plain Effect 4.0.2 under Node, median µs per fiber:
+
+| layers around the wait | interrupted | ended normally (the `Deferred` completed) |
+|---|---|---|
+| none | 2.95 | 0.15 |
+| + `acquireUseRelease` (the run's release) | 3.48 | 0.36 |
+| + `onExit` (the leg's) | 3.17 | 0.39 |
+| + the run's span | 5.14 | 0.63 |
+| + `asVoid`, in a `FiberSet`, cleared | 5.24 | 0.89 |
+
+So the cost isn't the number of layers: an interrupt with none costs about 3 µs.
+- **A CPU profile** put 64% of a bare interrupt in `Hash.hash`, `Equal.compareObjects` and `dedupeReasons`.
+- **Instrumented,** every `causeCombine` during an interrupt merged a cause with itself: once bare, three times with two layers. `exitFailCause` merged the fiber's `_interruptedCause` into the cause it was already failing with, at each continuation.
+- **Every public way to interrupt pays it:** 1.6–2.7 µs bare, against 0.14 µs to end the same fiber normally.
+- **Effect 4.0.5 (2026-10-15) fixed it** (`exitFailCause` calls `causeAddInterrupts`, which compares by reference and never hashes): 1.54 µs an interrupt through every layer, against 5.35 on 4.0.2. 4.0.3 and 4.0.4 still merge. Wardic is on 4.0.2, so no upstream report was needed. A bump is its own change (*Follow-ups*).
+
+**Decisions:**
+1. **A Retarget supersedes its runs instead of interrupting them (Q1).** Decision 5's Retarget still "removes the old runs and adds the new ones … in one synchronous call", and removal is still immediate, mid-tick included. But the old runs' fibers end normally: each run's `Deferred` is completed, so there's no interrupt cause for each finalizer to combine. A **Superseded** run (CONTEXT.md) is neither settled nor failed. The glossary's **Retarget** loses its "(interrupt)" alias.
+   - Rejected: fewer layers per run (at most about 40% back, since a bare interrupt is about 3 µs, and the layers are the run's span and release); one fiber per element or per Retarget (#83's `runAll`: half the interrupts for a two-leg element, each still about 5 µs); waiting on Effect, which hadn't fixed it when this was grilled.
+2. **The outcome is a success carrying `Supersede.Superseded` (Q2).** It's typed only when a run is given a token: `FrameLoop.run(machine, sink, { supersede })` and `Machine.run(sink, { supersede })` return `Effect<F | Superseded>`, and without a token they're unchanged. The run's span ends OK with `superseded: true`, and the loop's metrics count it as neither a settle nor a failure.
+   - Rejected: a typed failure in `E` (1.11 µs against 0.89, and every Retarget would mark spans as errors); the last Frame, `done: false` (no Frame before a run's first step, and ambiguous for a run that never settles).
+3. **The token is explicit (Q3) and has its own module (Q4).** `Supersede.make()`, `Supersede.end(token)`, `Supersede.Superseded`, `Supersede.isSuperseded`, Tier 2 (ADR-0008). A data type, so not in `FrameLoop`, a service module (ADR-0028, decision 11). `end` takes each of its runs off the loop and completes its fiber, inline: the fiber has ended before `end` returns, with no scheduler dispatch (SU1, on the loop tests' counting `setTimeout(0)` scheduler).
+   - Rejected: an ambient token through a `Context.Reference` (nothing in a run's type would say whether it can be superseded); a handle per run; the names inside `FrameLoop`; `Generation`.
+4. **Only the spine's legs supersede: Retargets and unmounts (Q5).** Each Retarget ends its element's token and starts its legs under a new one, with one options object for all of them. A leg that ends `Superseded` counts toward nothing. An unmount ends the token, then closes the leg Scope, which has nothing left to interrupt. A leg the token didn't reach (one not on the loop) is still interrupted, by the FiberSet's clear or the Scope's close.
+   - **Left as interrupts:** presence's exit when its child comes back, a drag release when the next drag or grab starts, and the press and hover recognizers on unmount. Each ends a handful of fibers per gesture, not thousands per Retarget.
+   - Rejected: every early end (the same token in three more call sites for a cost nobody can see); the Retarget only (an unmount of 1,000 elements would keep paying).
+
+**Measured** (bench box, after `wardic-quiet`, against main `8c2ff87`; logs in `~/wardic/.tmp/200*.out`):
+- **`bench:solid`, 11 reps, warm:**
+  - **Retarget mid-flight:** 34.9 → 22.7 ms, −36.3% [−36.6% – −34.7%].
+  - **Unmount:** 15.9 → 7.0 ms, −55.7%.
+  - **Retarget at rest:** −0.3%. The first build read +4.8%: each leg start built an options object, and `Machine.run` a match object and two closures. One options object per Retarget, passed straight through, levelled it.
+  - **Mount:** +0.3%.
+  - **Bytes per element per round:** −10.3%.
+  - **Cold:** Retarget −34.7%, unmount −58.1%.
+  - **The A/A:** every task within ±0.6%.
+- **On a patched Effect** (`causeCombine` returning `self` when merging a cause with itself, the same effect as 4.0.5's fix, on both sides):
+  - main alone: Retarget 27.3 ms (−21%), unmount 9.2 (−41%);
+  - superseding on top of it: Retarget 23.0 (−15.6%), unmount 7.0 (−24.6%).
+
+  So superseding beats even the cheaper interrupt, and with it the bump gains the legs nothing more.
+- **`bench:core`, 11 reps:** every workload passes. The loop's per-frame path didn't change.
+
+**Tests:**
+- **`frame-loop.test.ts`, SU1–SU7:**
+  - SU1: `end` ends every run before it returns, its fiber succeeded with `Superseded`, with no dispatch and no interrupt.
+  - SU2: a superseded run takes no further step or Frame, even when ended mid-tick before its turn.
+  - SU3: its span ends OK with `superseded: true`.
+  - SU4: a run without the token, or with another, is untouched.
+  - SU5: `end` twice is harmless, and a run given the token after an end joins it.
+  - SU6: a run superseded before its first tick gets no Frame.
+  - SU7: a run that settled first keeps its Frame; a superseded one counts as neither.
+- **`frame-loop.browser.test.tsx`:** its counting loop now passes `run`'s options through, where it had dropped them. With them dropped, every leg had silently fallen back to being interrupted. The #76 tests now see a Retarget's legs end `Superseded` (none interrupted, none failed), and an unmount's every leg `Superseded`.
+- **Mutations,** each caught: the Retarget not ending the old token (the Retarget test); `end` not completing the `Deferred` (SU1–SU6 and both #76 tests); the unmount not ending the token (the unmount test).
+
+**Gates:** typecheck, lint, unit (1120), browser (1017), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #226's.
+
+**Follow-ups:** bumping Effect to 4.0.5 makes the interrupts left (presence's exits, drag releases, the recognizers) about 3.5× cheaper. It's its own change, with its own gates and benches.

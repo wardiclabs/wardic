@@ -2,7 +2,9 @@
  * The `FrameLoop` module (ADR-0027): the one loop per Environment that steps every running
  * Primitive once per tick, in one pass. A binding runs its Primitives on it with
  * `Machine.run(sink)` rather than one fiber per animation; a Primitive's `Stream` (Tier 2,
- * `Machine.toStream`) runs the same machine on its own. Its shape and `make` are internal
+ * `Machine.toStream`) runs the same machine on its own. A caller that replaces runs together (a
+ * Retarget) gives them a `Supersede` token and ends them with it, without interrupting their fibers
+ * (#200). Its shape and `make` are internal
  * (ADR-0028, decision 11).
  *
  * A dev check for non-finite Frames, `CheckFrames`, is off by default: an app turns it on in

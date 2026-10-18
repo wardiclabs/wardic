@@ -7,7 +7,10 @@
  *
  * - **A run** is `run(machine, sink)`: an entry added, its Frames handed to `sink` from the loop's
  *   next tick, and its settled Frame returned. `acquireUseRelease` removes the entry on every
- *   exit (a settle, an interruption, a defect), so interrupting a run removes it at once.
+ *   exit (a settle, an interruption, a defect), so interrupting a run removes it at once. A run
+ *   given a token (`run(machine, sink, { supersede })`, #200) joins it, and `Supersede.end` takes
+ *   it off at once too, completing its fiber with `Superseded`: no interrupt, and no interrupt
+ *   cause for every finalizer to combine (ADR-0027, *Amendment (#200)*).
  * - **A burst** is the loop's one `Clock.ticks` subscription, held in a `FiberHandle` and forked
  *   under the Layer's build context (never a caller's scheduler or span, the Clock's own rule,
  *   ADR-0017). The first run starts it; it ends itself at the first tick with nothing left, so
@@ -58,6 +61,7 @@ import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
 import * as Clock from "../Clock.ts"
 import type * as Frame from "../Frame.ts"
+import * as Supersede from "../Supersede.ts"
 import type * as FrameLoop from "../FrameLoop.ts"
 import type * as Machine from "../Machine.ts"
 
@@ -66,20 +70,35 @@ import type * as Machine from "../Machine.ts"
 declare const performance: { readonly now: () => number }
 
 /** The Frame loop's service shape. */
+/** A run's options: the token it joins, so its caller can end it with others (#200). */
+export interface RunOptions {
+  readonly supersede: Supersede.Supersede
+}
+
+/** `run`'s and `runLast`'s shape: a run given a token can also end `Superseded`. */
+export interface Run {
+  <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F>
+  <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options: RunOptions): Effect.Effect<F | Supersede.Superseded>
+}
+
 export interface Shape {
   /**
    * Run `machine` on the loop, handing each of its Frames to `sink`, from the loop's next tick
    * until it settles. Succeeds with the settled Frame (a machine that never settles, `chase`,
-   * runs until interrupted); dies with the defect if its step or its sink throws. Interrupting
-   * it removes it at once. One span per run, named after its Primitive.
+   * runs until interrupted or superseded); dies with the defect if its step or its sink throws.
+   * Interrupting it removes it at once. One span per run, named after its Primitive.
+   *
+   * Given a token (`{ supersede }`, #200), the run joins it, and `Supersede.end(token)` ends it
+   * as an interrupt would, at once, but its fiber succeeds with `Superseded`, with no interrupt
+   * cause to build; its span ends with `superseded: true`.
    */
-  readonly run: <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>) => Effect.Effect<F>
+  readonly run: Run
   /**
    * `run`, but stepped after every run `run` added, in each tick (ADR-0027, *Amendment (#137)*):
    * for a machine that reads what the others' sinks wrote in the same tick. The projection's
    * coordinator is the one caller. Among themselves, these runs step in add order too.
    */
-  readonly runLast: <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>) => Effect.Effect<F>
+  readonly runLast: Run
   /**
    * Call `hook` at the end of every tick, after every run's step and sink and the continuations
    * of the runs that settled in it, until the `Scope` closes (ADR-0033). Hooks run in the order
@@ -102,8 +121,8 @@ interface Entry {
   readonly step: (dt: number) => Frame.Frame<unknown>
   readonly sink: FrameLoop.Sink<Frame.Frame<unknown>>
   readonly settles: boolean
-  /** Completed by the loop: the settled Frame, the defect, or an interruption. */
-  readonly settled: Deferred.Deferred<Frame.Frame<unknown>>
+  /** Completed by the loop: the settled Frame, the defect, or an interruption; or by its token, `Superseded` (#200). */
+  readonly settled: Deferred.Deferred<Frame.Frame<unknown> | Supersede.Superseded>
   removed: boolean
 }
 
@@ -174,10 +193,14 @@ const checked =
     return sink(frame)
   }
 
-/** A run's ending, counted: a settle or a failure (an interruption is neither). */
+/** A run's ending, counted: a settle or a failure (an interruption is neither, nor a superseded run). */
 const countEnd = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
   Exit.match(exit, {
-    onSuccess: () => Metric.update(settledRuns, 1),
+    onSuccess: (end) =>
+      Bool.match(Supersede.isSuperseded(end), {
+        onTrue: () => Effect.void,
+        onFalse: () => Metric.update(settledRuns, 1),
+      }),
     onFailure: (cause) =>
       Bool.match(Cause.hasInterruptsOnly(cause), {
         onTrue: () => Effect.void,
@@ -363,15 +386,23 @@ export const make = () =>
        * A run added to `lane`: `run`'s and `runLast`'s one body. Its span is the `ParentSpan` of what
        * runs inside it, with no stack frame (ADR-0040, decision 3).
        */
-      const runIn =
-        (lane: Array<Entry>) =>
-        <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F> =>
+      const runIn = (lane: Array<Entry>): Run =>
+        (<F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions) =>
           Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
-            Effect.provideService(added(lane, machine, sink), Tracer.ParentSpan, span),
-          )
+            Effect.provideService(added(lane, machine, sink, options, span), Tracer.ParentSpan, span),
+          )) as Run
 
-      /** The run itself: its start log, then its entry on `lane` until it ends. */
-      const added = <F extends Frame.Frame<unknown>>(lane: Array<Entry>, machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F> =>
+      /**
+       * The run itself: its start log, then its entry on `lane` (and in its token, given one) until
+       * it ends. A superseded end marks `span`.
+       */
+      const added = <F extends Frame.Frame<unknown>>(
+        lane: Array<Entry>,
+        machine: Machine.Machine<F>,
+        sink: FrameLoop.Sink<F>,
+        options: RunOptions | undefined,
+        span: Tracer.Span,
+      ): Effect.Effect<F | Supersede.Superseded> =>
         Effect.logDebug(`${machine.span.name}: start`).pipe(
           Effect.andThen(
             Effect.acquireUseRelease(
@@ -386,19 +417,21 @@ export const make = () =>
                       step: machine.start(),
                       sink: Bool.match(check, { onTrue: () => checked(sink), onFalse: () => sink }) as FrameLoop.Sink<Frame.Frame<unknown>>,
                       settles: machine.settles,
-                      settled: Deferred.makeUnsafe<Frame.Frame<unknown>>(),
+                      settled: Deferred.makeUnsafe<Frame.Frame<unknown> | Supersede.Superseded>(),
                       removed: false,
                     }
                     lane.push(entry)
+                    if (Predicate.isNotUndefined(options)) options.supersede.runs.push(entry)
                     return Effect.as(startBurst, entry)
                   }),
                   Match.exhaustive,
                 ),
               ),
-              (entry) => Deferred.await(entry.settled) as Effect.Effect<F>,
+              (entry) => Deferred.await(entry.settled) as Effect.Effect<F | Supersede.Superseded>,
               (entry, exit) =>
                 Effect.sync(() => {
                   entry.removed = true
+                  if (Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)) span.attribute("superseded", true)
                 }).pipe(Effect.andThen(countEnd(exit))),
             ),
           ),

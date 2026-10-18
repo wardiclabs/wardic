@@ -60,6 +60,7 @@ import {
 import * as Inertia from "./Inertia.ts"
 import type * as Point from "./Point.ts"
 import * as Spring from "./Spring.ts"
+import type * as Supersede from "./Supersede.ts"
 import type * as Values from "./Values.ts"
 
 // --- The data type -----------------------------------------------------------
@@ -556,6 +557,11 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
  * interrupted. Dies if the step or the sink throws, or with the loop's own failure. Interrupting
  * it removes the run at once. One span per run, with a `<name>: start` debug log.
  *
+ * Given a token (`{ supersede }`, #200, ADR-0027 *Amendment (#200)*), the run joins it, and
+ * `Supersede.end(token)` ends it with the others given it: it leaves the loop at once, as an
+ * interrupted run does, and succeeds with `Supersede.Superseded` instead of an interruption, about
+ * a sixth of the cost. Only a run given a token can end so, and only its type says so.
+ *
  * A Frame handed to `sink` is the run's until the next tick, so a sink that keeps one copies it:
  * `springValues` rewrites one Frame per run (ADR-0030, decision 11). The settled Frame it succeeds
  * with is stable: nothing steps after a settle.
@@ -564,12 +570,27 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
  */
 export const run: {
   <F extends Frame.Frame<unknown>>(sink: FrameLoop.Sink<F>): (self: Machine<F>) => Effect.Effect<F, never, FrameLoop.FrameLoop>
+  <F extends Frame.Frame<unknown>>(
+    sink: FrameLoop.Sink<F>,
+    options: RunOptions,
+  ): (self: Machine<F>) => Effect.Effect<F | Supersede.Superseded, never, FrameLoop.FrameLoop>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F, never, FrameLoop.FrameLoop>
+  <F extends Frame.Frame<unknown>>(
+    self: Machine<F>,
+    sink: FrameLoop.Sink<F>,
+    options: RunOptions,
+  ): Effect.Effect<F | Supersede.Superseded, never, FrameLoop.FrameLoop>
 } = dual(
-  2,
-  <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>): Effect.Effect<F, never, FrameLoop.FrameLoop> =>
-    FrameLoop.FrameLoop.use((loop) => loop.run(self, sink)),
+  (args) => isMachine(args[0]),
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions): Effect.Effect<F | Supersede.Superseded, never, FrameLoop.FrameLoop> =>
+    // The loop reads a missing `options` as none: one call, nothing allocated per run.
+    FrameLoop.FrameLoop.use((loop) => loop.run(self, sink, options as RunOptions)),
 )
+
+/** `run`'s options: the token the run joins (#200). */
+export interface RunOptions {
+  readonly supersede: Supersede.Supersede
+}
 
 // --- The leaves --------------------------------------------------------------
 

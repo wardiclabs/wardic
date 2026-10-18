@@ -2,6 +2,7 @@ import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
+import * as Supersede from "@wardic/core/Supersede"
 import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 // The Frame loop's shape and `make` are internal (ADR-0028, decision 11): core's own tests reach them by path.
 import * as internal from "../src/internal/frameLoop.ts"
@@ -702,5 +703,140 @@ describe("the Frame loop: afterTick (ADR-0033)", () => {
       const exit = run.fiber.pollUnsafe()
       expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
     }
+  })
+})
+
+describe("the Frame loop: superseded runs (#200, ADR-0027 *Amendment (#200)*)", () => {
+  /** `machine` on the loop, given `token`: its Frames land in `received`. */
+  const startWith = <F extends Frame.Frame<unknown>>(h: Awaited<ReturnType<typeof makeHarness>>, machine: Machine.Machine<F>, token: Supersede.Supersede, onFrame?: (frame: F) => void) => {
+    const received: Array<F> = []
+    const fiber = h.fork(
+      h.loop.run(
+        machine,
+        (frame) => {
+          received.push(frame)
+          onFrame?.(frame)
+          return undefined
+        },
+        { supersede: token },
+      ),
+    )
+    return { received, fiber }
+  }
+
+  it("SU1: Supersede.end ends each run before it returns: its fiber has succeeded with Superseded, with no dispatch and no interrupt", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const runs = Array.from({ length: 20 }, () => startWith(h, counting(Infinity), token))
+    await endOfTask()
+    h.frames.fire(1000)
+    const before = h.dispatches()
+    Supersede.end(token)
+    for (const { fiber } of runs) {
+      const exit = fiber.pollUnsafe()
+      expect(exit !== undefined && Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)).toBe(true)
+      expect(exit !== undefined && Exit.hasInterrupts(exit)).toBe(false)
+    }
+    expect(h.dispatches() - before).toBe(0)
+  })
+
+  it("SU2: a superseded run leaves the loop at once: no further step or Frame, even when it's ended mid-tick before its turn", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const steady = startWith(h, counting(Infinity), token)
+    // Another run's sink ends the token on the second tick, before the superseded run's turn.
+    const other = Supersede.make()
+    startWith(h, counting(Infinity), other, (frame) => {
+      if (frame.value.length === 2) Supersede.end(token)
+    })
+    const later = startWith(h, counting(Infinity), token)
+    await endOfTask()
+    h.frames.fire(1000)
+    expect([steady.received.length, later.received.length]).toEqual([1, 1])
+    h.frames.fire(1016)
+    // `steady` was stepped before the sink ended the token; `later`, after it, gets no Frame.
+    expect([steady.received.length, later.received.length]).toEqual([2, 1])
+    h.frames.fire(1033)
+    expect([steady.received.length, later.received.length]).toEqual([2, 1])
+  })
+
+  it("SU3: a superseded run's span ends OK, marked superseded: true", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    startWith(h, counting(Infinity, "test.superseded"), token)
+    await endOfTask()
+    h.frames.fire(1000)
+    Supersede.end(token)
+    const span = h.spans.find((s) => s.name === "test.superseded")
+    expect(span?.status._tag).toBe("Ended")
+    expect(span?.status._tag === "Ended" && Exit.isSuccess(span.status.exit)).toBe(true)
+    expect(span?.attributes.get("superseded")).toBe(true)
+  })
+
+  it("SU4: a run without the token, or with another, is untouched by its end", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const mine = startWith(h, counting(Infinity), token)
+    const theirs = startWith(h, counting(Infinity), Supersede.make())
+    const plain = h.start(counting(Infinity))
+    await endOfTask()
+    h.frames.fire(1000)
+    Supersede.end(token)
+    h.frames.fire(1016)
+    expect([mine.received.length, theirs.received.length, plain.received.length]).toEqual([1, 2, 2])
+    expect(theirs.fiber.pollUnsafe()).toBeUndefined()
+    expect(plain.fiber.pollUnsafe()).toBeUndefined()
+  })
+
+  it("SU5: end twice is harmless; a run given the token after an end joins it, and the next end ends it", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const first = startWith(h, counting(Infinity), token)
+    await endOfTask()
+    Supersede.end(token)
+    Supersede.end(token)
+    expect(token.runs).toEqual([])
+    const second = startWith(h, counting(Infinity), token)
+    await endOfTask()
+    h.frames.fire(1000)
+    expect(second.received.length).toBe(1)
+    Supersede.end(token)
+    const exits = [first.fiber.pollUnsafe(), second.fiber.pollUnsafe()]
+    expect(exits.every((exit) => exit !== undefined && Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value))).toBe(true)
+  })
+
+  it("SU6: a run superseded before its first tick gets no Frame, and ends Superseded", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const run = startWith(h, counting(Infinity), token)
+    Supersede.end(token)
+    await endOfTask()
+    h.frames.fire(1000)
+    expect(run.received.length).toBe(0)
+    const exit = run.fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)).toBe(true)
+  })
+
+  it("SU7: a run that settled first keeps its settled Frame; a superseded one counts as neither a settle nor a failure", async () => {
+    const counts = () =>
+      Effect.runSync(Metric.snapshot).reduce<Record<string, unknown>>((out, snapshot) => {
+        out[snapshot.id] = snapshot.state
+        return out
+      }, {})
+    const countOf = (state: unknown): number => Number((state as { readonly count?: number } | undefined)?.count ?? 0)
+    const before = counts()
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const settles = startWith(h, counting(1), token)
+    const runs = startWith(h, counting(Infinity), token)
+    await endOfTask()
+    h.frames.fire(1000)
+    Supersede.end(token)
+    const settled = settles.fiber.pollUnsafe()
+    expect(settled !== undefined && Exit.isSuccess(settled) && !Supersede.isSuperseded(settled.value)).toBe(true)
+    expect(runs.fiber.pollUnsafe() !== undefined).toBe(true)
+    const after = counts()
+    expect(countOf(after["wardic_frameloop_settled"]) - countOf(before["wardic_frameloop_settled"])).toBe(1)
+    expect(countOf(after["wardic_frameloop_failed"]) - countOf(before["wardic_frameloop_failed"])).toBe(0)
   })
 })
