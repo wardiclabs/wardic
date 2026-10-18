@@ -24,7 +24,7 @@
     "culori": "^4.0.2"
   },
   "peerDependencies": {
-    "effect": "^4.0.2"
+    "effect": "^4.0.5"
   },
   "devDependencies": {
     "@wardic/test": "workspace:*"
