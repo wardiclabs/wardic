@@ -4,7 +4,9 @@
  * a progress spring per node per frame with it; everything else runs a spring as a machine
  * (`Machine.spring`, `Machine.springValues`). It's on the per-frame path (ADR-0025).
  */
+import * as Schema from "effect/Schema"
 import type { SpringOptions } from "./Machine.ts"
+import { cachedResolver, field, NonNegative, optionalField, Positive } from "./internal/options.ts"
 import { type PhysicsStepResult, valueOr } from "./internal/stepper.ts"
 
 // --- Presets: drop into `Machine.spring(…)` or a `transition`. `gentle` and `stiff` are the
@@ -34,15 +36,31 @@ export interface Resolved {
   readonly delay: number
 }
 
-/** Fill in a spring's defaults: 170 / 26 / 1, rest at 0.01, no delay. */
-export const resolve = (options: SpringOptions): Resolved => ({
-  stiffness: valueOr(options.stiffness, 170),
-  damping: valueOr(options.damping, 26),
-  mass: valueOr(options.mass, 1),
-  restDelta: valueOr(options.restDelta, 0.01),
-  restVelocity: valueOr(options.restVelocity, 0.01),
-  delay: valueOr(options.delay, 0),
-})
+/**
+ * A spring's options as a Schema (#66, ADR-0025 *Amendment (#66)*): the plain bag is its encoded
+ * side, checked field by field, each default filled in after. `from` and `velocity` are `init`'s,
+ * checked here.
+ */
+const Options = {
+  stiffness: field(Positive, 170),
+  damping: field(NonNegative, 26),
+  mass: field(Positive, 1),
+  restDelta: field(Positive, 0.01),
+  restVelocity: field(Positive, 0.01),
+  delay: field(NonNegative, 0),
+  from: optionalField(Schema.Finite),
+  velocity: optionalField(Schema.Finite),
+}
+
+/**
+ * Fill in a spring's defaults: 170 / 26 / 1, rest at 0.01, no delay. Decoded once a bag (#66): a
+ * value no spring can take (a stiffness or mass at or below 0, a negative damping, NaN, Infinity)
+ * throws its `SchemaError`, naming the field.
+ */
+export const resolve: (options: SpringOptions) => Resolved = cachedResolver(
+  Options,
+  ({ stiffness, damping, mass, restDelta, restVelocity, delay }): Resolved => ({ stiffness, damping, mass, restDelta, restVelocity, delay }),
+)
 
 /** A spring at rest at `options.from` (default 0), moving at `options.velocity` (default 0). */
 export const init = (options: SpringOptions): State => ({

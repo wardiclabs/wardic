@@ -116,6 +116,9 @@ export const usePresenceContext = (): PresenceContextValue | undefined => useCon
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
 
+/** An exit's spring: the defaults, one object, so core decodes it once (#66). */
+const EXIT_SPRING: Machine.SpringOptions = {}
+
 /** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
 
@@ -317,7 +320,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // side: the exit ends once both settle.
     const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
     if (snapped > 0) runs.push(ReducedMotion.snap(Values.pick(from, positional), positional).pipe(Machine.run(commitFrame)))
-    if (hasNumeric) runs.push(Machine.springValues(numericTo, {}, fromNumeric, {}).pipe(Machine.run(commitFrame)))
+    if (hasNumeric) runs.push(Machine.springValues(numericTo, EXIT_SPRING, fromNumeric).pipe(Machine.run(commitFrame)))
     // The leaving element's Variable values (#55): a `var()` end blends what it resolves to on it.
     if (hasStrings) {
       runs.push(

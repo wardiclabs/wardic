@@ -397,3 +397,74 @@ ADR-0030's decision 1: Effect's time stays wall time, and frame time (CONTEXT.md
   - No "optimized dependencies changed" in the browser log: every `effect/*` module the tests now import was already in the three lists.
   - No source but `probe.ts` changed, so no bench or lab run. A short `bench:solid` A/A confirms its runner after the edits.
 - **With this PR, #69's five PRs are in.**
+
+## Amendment (#66, 2026-10-17): the option bags decoded through Schema
+
+Decision 6 left the option bags' Schemas to #66, because a decode validates and what it rejects is a behaviour change. #66 was grilled 2026-10-17 (Q1–Q5, all A). By then, every resolver ran only when an animation was built or started: core's constructors once a Primitive, dom's projection once a flight (at its start) and once a release. The per-node per-frame `Spring.resolve` that `effect-first.md` still described was gone, so a decode could replace the resolvers themselves.
+
+1. **The decode is inside core's resolvers (Q1).** `Spring.resolve`, the tween's and the decay's resolvers (`internal/stepper.ts`), `animate`'s, and `Inertia.resolve`'s options are each a Schema decode. Every caller goes through them: core's constructors, dom's flight starts and releases, the binding's Retargets, and a Tier 2 user with no binding.
+   - **The bags users write are each Schema's encoded side,** unchanged. Each field is declared once, with its check and its default (`field(Positive, 170)`, `internal/options.ts`). The Schema checks it as an optional key, and the resolver fills in the default after the decode. A missing key and an `undefined` one both take the default, and an excess key (a transition's `type`, a binding's own fields) is ignored.
+   - **Changed after measuring (re-asked 2026-10-17, A):** Q1 had the defaults in the Schema, through `Schema.withDecodingDefault`. That runs an Effect for each missing key. A spring bag's decode cost 12–16 µs cold and 2.2 µs warm in Node (9–12 / 1.6 in Bun), against 2.3 / 0.27 with optional keys and the defaults filled in after (`~/wardic/.tmp/66-decode/probe.ts` on the bench box). On `bench:solid`, an element carrying its own `transition` failed the gate: mount +13.0%. A `transition` rebuilt on each Retarget failed retarget (+13.3%), restRetarget (+23.0%) and bytes (+6.8%). Optional keys passed both pages (*Measured*). The defaults are still declared once, beside each check.
+     - Rejected: keeping `withDecodingDefault` and the cost; decoding in development only (Q4's C).
+   - **The tween's resolver is public as `Machine.resolveTween`,** Tier 3 (ADR-0008, ADR-0028 decision 2), as `Spring.resolve` is. dom's layout tween read its bag's fields itself. It now runs on the tween's resolved form.
+   - Rejected: decoding at the binding's boundary only, which leaves a Tier 2 user unchecked; both, which is two places to keep in step.
+2. **What's rejected (Q2):**
+
+   | Bag | Field | Valid |
+   |---|---|---|
+   | spring | `stiffness`, `mass`, `restDelta`, `restVelocity` | finite, > 0 |
+   |  | `damping` | finite, ≥ 0 (0 is an undamped spring) |
+   |  | `from`, `velocity` | finite |
+   | tween | `duration` | finite, ≥ 0 (0 is instant) |
+   |  | `easing` | a function |
+   | decay | `friction`, `restVelocity` | finite, > 0 |
+   | inertia | `timeConstant`, `bounceStiffness`, `restDelta`, `restSpeed` | finite, > 0 |
+   |  | `bounceDamping` | finite, ≥ 0 |
+   |  | `power` | finite |
+   |  | `min`, `max` | not NaN (an infinite edge is no edge), `min` ≤ `max` |
+   |  | `modifyTarget` | a function |
+   | all | `delay`, `repeatDelay` | finite, ≥ 0 |
+   | animate | `repeat` | a whole number ≥ 0, or `Infinity` |
+   |  | `yoyo`, `reverse` | booleans |
+
+   NaN is rejected everywhere, and `Infinity` everywhere but `repeat` and an edge. A value of the wrong type (`stiffness: "170"` from a JS caller) is rejected too.
+   - **A fractional `repeat` is rejected.** ADR-0027 (*Implementation in #74*) and ADR-0028 (#94) had it run `ceil(N + 1)` segments and settle on the last, and four tests pinned that (*Tests*). `options.test.ts` pins the rejection.
+   - Rejected: types only (Motion's behaviour, which doesn't validate); the issue's short list only.
+3. **A rejected bag is a defect, contained to its one animation (Q3).** The resolver decodes with `decodeUnknownSync`, so a rejected bag throws a `SchemaError` whose message names the field (`Expected a value greater than 0 at ["stiffness"]`). Each call site contains it:
+   - **The binding builds each leg inside the leg's own fiber** (`Effect.suspend`), the reduced-motion snap's included: its delay is read through the same decode. The defect ends that leg, and it's reported as any failed leg is ("wardic.spine: a leg failed", ADR-0030 decision 4). The element stays where it is, and the rest of the page animates. A fork runs inline up to its first yield, so no leg starts later than before.
+   - **dom's flight start** (`startFlight`): the node lands on its new box on its first frame, as reduced motion lands it, reported as "wardic.projection: layout transition rejected". The rest of the pass animates.
+   - **dom's release:** it starts at rest on the slot, so the node lands there, reported as "wardic.projection: drag transition rejected".
+   - **solid's drag release** (decided while implementing): a release whose run dies is reported ("wardic.drag: a release failed"), and the element rests where it was dropped. Before, any failure of a release failed the whole drag track, and the element stopped dragging until it was remounted. A release's other defects get the same treatment, `CheckFrames`' non-finite Frame among them (`error-reporting.browser.test.tsx`).
+   - **A Tier 2 user** gets the throw when the Primitive is built. An inertia's glide is worked out at its run's start, so its bag is decoded there, and the throw is a defect of the fiber running it.
+   - Rejected: a typed error in each constructor's `E`, which changes every Tier 2 type and call site; falling back to the default with a logged warning, which hides a typo behind an animation that looks almost right.
+4. **Each decode is cached by its bag's identity (Q4),** in a `WeakMap` from the bag to its resolved form (`internal/options.ts`, `cachedResolver`). A Wardic element's `transition` is the same object across its Retargets, so it's decoded once an element, not once a Retarget.
+   - **A missing bag is one object:** core's constructors default to a shared empty bag, and the binding's spring legs and presence's exits pass a module-level one, so a call with no options decodes once.
+   - **A Retarget's transition with the same fields as the element's last one is the last one** (decided while measuring): Solid rebuilds a staggered child's bag (`delay` plus its stagger, ADR-0007) on every Retarget, and a `transition` that reads a signal on every read. A shallow comparison (same keys, each `===`) costs less than the decode and the cache insert it saves (about 1.2 µs an element in Chromium).
+   - **A drag release's bag** spreads the edges into the drag transition, so it's a new object each release and decodes each time, once a release.
+   - **The caveat:** a bag changed after its first decode keeps its first result. The bags are `readonly` in their types, and `internal/options.ts`' doc says so.
+   - Rejected: no cache; decoding in development only, which has the two builds behave differently.
+5. **This amendment, one PR (Q5).** `effect-first.md`'s line on resolving options is corrected: no caller resolves per frame any more.
+   - Rejected: a new ADR; two PRs, which would have core throwing at the binding's uncontained call sites in between.
+
+**Not covered:** `Easing.spring`, which bakes a spring into an easing curve, reads `stiffness`, `damping` and `mass` itself. Decoding them through `Spring.resolve` would make `Easing.ts` import `Spring.ts`, which imports `internal/stepper.ts`, which imports `Easing.ts`, and `stepper.ts` needs `Easing.linear` as it loads (the tween's default).
+
+**Measured** (bench box, after `wardic-quiet`; head `9cf962a` against main `4a3f3ec`; the probes and logs in `~/wardic/.tmp/66-decode/` and `~/wardic/.tmp/66*.out`):
+- **`bench:core`, 11 reps:** Node passes every workload, with every MB/frame unchanged. Its start times, where each of the 1,000 elements decodes its own fresh bag, rise 1–1.5 ms (24.7 → 25.9 for `springValues`). With `withDecodingDefault` they had risen about 10 ms (24.8 → 35.0). Bun's and Chromium's frame workloads pass too, but for one small Chromium `/loop` workload a run (0.3 ms a frame, its medians printing the same): `animateRepeat/loop` +6.3% on the first run, then +4.5% on a rerun, when `animateRepeatDelay/loop` read +5.1%. The same workloads against #66's first commit, whose per-frame code is the same, read +3.1% and −4.8%. The flag moves between workloads from run to run. It's the timer's quantization on the smallest workloads, not the frame path, which #66 doesn't change.
+- **`bench:solid`, 11 reps, warm, against main:** its page as it is, every element on the binding's one empty bag: mount +0.8%, retarget +0.9%, restRetarget +0.5%, unmount +0.1%, bytes +0.6%. Two variants of the page, run the same way and then reverted:
+  - **each element with its own static `transition={{ stiffness: 170 }}`**, decoded once an element: mount +3.8%, retarget +2.0%, restRetarget +1.8%, bytes +1.8%. With `withDecodingDefault`: mount +13.0%, bytes +3.4%.
+  - **a `transition` that reads a signal**, which Solid rebuilds on every read: mount +3.3%, retarget +1.4%, restRetarget +2.6%, bytes +2.0%. With `withDecodingDefault`: retarget +13.3%, restRetarget +23.0%, bytes +6.8%. With optional keys but no reuse of a same-fields transition (decision 4): restRetarget +7.5%.
+
+**Tests:**
+- **`packages/core/test/options.test.ts`** (54): the table row by row, through the public builders and resolvers (each rejection a `SchemaError` naming its field, a JS caller's `"170"` among them); the defaults, `undefined` as missing; the cache (the same bag resolves to the same object, an equal one decodes afresh, a bag changed after its decode keeps its first result).
+- **`packages/dom/test/projection-options.browser.test.ts`:**
+  - PO1: a rejected layout transition (a spring's stiffness 0, a tween's negative duration) lands its node on its first frame, reported, while the node beside it animates.
+  - PO2: a rejected drag transition's release is reported and lands on the slot.
+  - PO3: a layout tween with no duration runs core's 0.3 s.
+- **`packages/solid/test/error-reporting.browser.test.tsx`:**
+  - a leg on a rejected transition fails alone, reported naming the field; the element beside it animates, and its next Retarget on a good transition animates;
+  - drag's release on a rejected drag transition: reported, the element rests where it was dropped, and the next drag drags (it replaces the track-failure test, whose NaN is now rejected at the decode);
+  - a release that steps a NaN under `CheckFrames` (a `modifyTarget` returning NaN) fails alone.
+- **Mutations** (worktree `wardic-wt/m66`, removed), each caught by its test: dom's flight start uncontained (PO1, both rows), dom's release uncontained (PO2), a spring leg built outside its fiber (the leg test), drag's release uncontained (both drag tests).
+- **Fractional `repeat`:** `machines.test.ts` lost two cases and `reduced-motion.test.ts` one. `frame-loop.browser.test.tsx`'s afterChildren test moves from `repeat: 1.5` to `repeat: 2`, the same three segments.
+
+**Gates:** typecheck, lint, unit (1024), browser (1013, no "optimized dependencies changed": `effect/Schema` and `effect/Cause` were already in the three lists), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #221's: drive16 54 of 54, drive-held 0 off, drive7 6 clean · held 0, drive17 identical, drive14k on its slot, late reads 0 frames behind.

@@ -72,10 +72,8 @@ describe("inertia", () => {
     })
   }
 
-  it("never rests on a step that isn't a number: a NaN bounce steps NaN, so a frame check catches it", () => {
-    const frames = run(Machine.inertia(60, 0, { min: 0, max: 0, bounceStiffness: Number.NaN }), 5)
-    expect(frames).toHaveLength(5)
-    for (const f of frames) expect(f).toMatchObject({ value: Number.NaN, done: false })
+  it("never steps a NaN: a NaN bounce stiffness is rejected before any step, naming it (#66)", () => {
+    expect(() => run(Machine.inertia(60, 0, { min: 0, max: 0, bounceStiffness: Number.NaN }), 5)).toThrow(/bounceStiffness/)
   })
 
   it("on a near-rigid wall (Motion's 1e6 / 1e7 with no elastic), stops at the edge", () => {

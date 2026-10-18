@@ -508,9 +508,10 @@ describe("a Retarget ends the spine's legs before it starts its own, and an unmo
   })
 })
 
-describe("a tween with a fractional repeat settles on its last segment (ADR-0027, Implementation)", () => {
-  // `repeat: 1.5` plays ceil(2.5) = 3 segments. Its Stream re-stamps the last one's settled Frame
-  // `done: false` and ends, so the leg never reported done; on the loop, the machine settles.
+describe("a repeated tween settles on its last segment (ADR-0027, Implementation)", () => {
+  // `repeat: 2` plays 3 segments, as `repeat: 1.5` did (ceil(2.5)) until #66 rejected a fractional
+  // `repeat` (ADR-0025, *Amendment (#66)*). The Stream re-stamped the last one's settled Frame
+  // `done: false` and ended, so the leg never reported done; on the loop, the machine settles.
   it("so a parent with when: afterChildren starts once the child's last segment settles", async () => {
     let setOpen: (open: boolean) => void = () => {}
     let parentEl!: HTMLElement
@@ -529,7 +530,7 @@ describe("a tween with a fractional repeat settles on its last segment (ADR-0027
           const child = createWard({
             initial: { opacity: 0 },
             variants: { open: { opacity: 1 }, closed: { opacity: 0 } },
-            transition: { type: "tween", duration: 0.1, repeat: 1.5 },
+            transition: { type: "tween", duration: 0.1, repeat: 2 },
           })
           return <div {...child({ ref: (n: HTMLElement) => (childEl = n) })}>c</div>
         }

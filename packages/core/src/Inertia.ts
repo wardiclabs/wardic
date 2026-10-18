@@ -14,7 +14,9 @@
  */
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import { type PhysicsStepResult, valueOr } from "./internal/stepper.ts"
+import * as Schema from "effect/Schema"
+import { cachedResolver, field, Fn, NonNegative, NotNaN, Positive } from "./internal/options.ts"
+import type { PhysicsStepResult } from "./internal/stepper.ts"
 import type { InertiaOptions } from "./Machine.ts"
 
 /**
@@ -82,30 +84,66 @@ const DEFAULT_REST_SPEED = 2
 /** Motion caps the overdamped spring's `sinh` and `cosh` argument here, so they never overflow. */
 const MAX_HYPERBOLIC = 300
 
-/** Fill in an inertia's defaults and work out its glide from `initial` at `velocity`. Once per run. */
+/** No `modifyTarget`: the resting point as it is. */
+const asIs = (ideal: number): number => ideal
+
+/** An inertia's options with every default filled in. */
+interface Decoded {
+  readonly power: number
+  readonly timeConstant: number
+  readonly bounceStiffness: number
+  readonly bounceDamping: number
+  readonly restDelta: number
+  readonly restSpeed: number
+  readonly modifyTarget: (ideal: number) => number
+  readonly min: number
+  readonly max: number
+}
+
+/**
+ * An inertia's options as a Schema (#66, ADR-0025 *Amendment (#66)*): the plain bag is its encoded
+ * side. Its decode rejects a value no inertia can take (a time constant, bounce stiffness or rest
+ * threshold at or below 0, a negative bounce damping, a power that isn't finite, an edge that's NaN,
+ * or `min` above `max`; an infinite edge is no edge), and Motion's defaults are filled in after.
+ */
+const decode: (options: InertiaOptions) => Decoded = cachedResolver(
+  {
+    power: field(Schema.Finite, DEFAULT_POWER),
+    timeConstant: field(Positive, DEFAULT_TIME_CONSTANT),
+    bounceStiffness: field(Positive, DEFAULT_BOUNCE_STIFFNESS),
+    bounceDamping: field(NonNegative, DEFAULT_BOUNCE_DAMPING),
+    restDelta: field(Positive, DEFAULT_REST_DELTA),
+    restSpeed: field(Positive, DEFAULT_REST_SPEED),
+    modifyTarget: field(Fn<(ideal: number) => number>("a modifyTarget function"), asIs),
+    min: field(NotNaN, Number.NEGATIVE_INFINITY),
+    max: field(NotNaN, Number.POSITIVE_INFINITY),
+  },
+  (decoded): Decoded => decoded,
+  ({ min, max }) => Bool.match(min <= max, { onTrue: () => true, onFalse: () => `Expected min (${min}) at or below max (${max})` }),
+)
+
+/**
+ * Fill in an inertia's defaults and work out its glide from `initial` at `velocity`. Once per run;
+ * the options are decoded once a bag (#66), and a value no inertia can take throws its `SchemaError`.
+ */
 export const resolve = (initial: number, velocity: number, options: InertiaOptions): Resolved => {
-  const ideal = initial + valueOr(options.power, DEFAULT_POWER) * velocity
-  const target = valueOr(options.modifyTarget, asIs)(ideal)
-  const restDelta = valueOr(options.restDelta, DEFAULT_REST_DELTA)
-  const stiffness = valueOr(options.bounceStiffness, DEFAULT_BOUNCE_STIFFNESS)
+  const o = decode(options)
+  const target = o.modifyTarget(initial + o.power * velocity)
   return {
     target,
     amplitude: target - initial,
-    timeConstant: valueOr(options.timeConstant, DEFAULT_TIME_CONSTANT),
-    restDelta,
-    min: valueOr(options.min, Number.NEGATIVE_INFINITY),
-    max: valueOr(options.max, Number.POSITIVE_INFINITY),
+    timeConstant: o.timeConstant,
+    restDelta: o.restDelta,
+    min: o.min,
+    max: o.max,
     bounce: {
-      omega: Math.sqrt(stiffness),
-      ratio: valueOr(options.bounceDamping, DEFAULT_BOUNCE_DAMPING) / (2 * Math.sqrt(stiffness)),
-      restDelta,
-      restSpeed: valueOr(options.restSpeed, DEFAULT_REST_SPEED),
+      omega: Math.sqrt(o.bounceStiffness),
+      ratio: o.bounceDamping / (2 * Math.sqrt(o.bounceStiffness)),
+      restDelta: o.restDelta,
+      restSpeed: o.restSpeed,
     },
   }
 }
-
-/** No `modifyTarget`: the resting point as it is. */
-const asIs = (ideal: number): number => ideal
 
 /** The glide's distance from its resting point at `t` seconds: `−amplitude · e^(−t / timeConstant)`. Per frame. */
 const glideDelta = (t: number, inertia: Resolved): number => -inertia.amplitude * Math.exp(-t / inertia.timeConstant)

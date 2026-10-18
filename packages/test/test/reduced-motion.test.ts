@@ -137,7 +137,6 @@ describe("endOf: where `Machine.animate` ends", () => {
     { repeat: 3, yoyo: true },
     { repeat: 1, yoyo: true, reverse: true },
     { repeat: 2, yoyo: true, reverse: true },
-    { repeat: 1.5, yoyo: true },
     { repeat: 1, yoyo: true, repeatDelay: 0.125 },
   ]
 
