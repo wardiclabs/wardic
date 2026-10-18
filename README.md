@@ -137,6 +137,8 @@ Wardic keeps Motion's names for everything Motion has:
 
 What differs is what Wardic names itself: one element's motion binding is a **ward**, and an element with one is a **Wardic element** (ADR-0042).
 
+One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a debugger pause) advances an animation 0.5 s, and it plays out the rest when frames resume, where Motion's jumps to where the elapsed time puts it. A shorter stall lands a tween, a spring or a layout animation where Motion's lands (ADR-0017, *Amendment (#23)*).
+
 | Motion | Wardic |
 |---|---|
 | `motion.div` | `wardic.div` |
