@@ -1036,7 +1036,8 @@ export function runSpine(opts: RunSpineOptions): void {
           ({ resolved, base, dragging: held }) => {
             Supersede.end(generation)
             generation = Supersede.make()
-            const supersede = generation
+            // One options object for this Retarget's legs, each joining its token.
+            const runOptions = { supersede: generation }
             // A leg its token didn't reach (one not on the loop) is interrupted, as before.
             if (holdsFibers(legFibers)) runtime.runFork(FiberSet.clear(legFibers))
 
@@ -1204,7 +1205,7 @@ export function runSpine(opts: RunSpineOptions): void {
                       recordFrame(frame.value)
                       report(frame.done)
                       return undefined
-                    }, { supersede }),
+                    }, runOptions),
                   )),
               )
             }
@@ -1239,7 +1240,7 @@ export function runSpine(opts: RunSpineOptions): void {
                         recordFrame(frame.value)
                         report(frame.done)
                         return undefined
-                      }, { supersede }),
+                      }, runOptions),
                     ),
                   ),
                 )
@@ -1277,7 +1278,7 @@ export function runSpine(opts: RunSpineOptions): void {
                         recordFrame(frame.value)
                         report(frame.done)
                         return undefined
-                      }, { supersede }),
+                      }, runOptions),
                     )),
                 )
               }
@@ -1293,7 +1294,7 @@ export function runSpine(opts: RunSpineOptions): void {
                         recordFrame(frame.value)
                         report(frame.done)
                         return undefined
-                      }, { supersede }),
+                      }, runOptions),
                     ),
                   ),
                 )

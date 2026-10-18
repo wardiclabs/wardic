@@ -583,11 +583,8 @@ export const run: {
 } = dual(
   (args) => isMachine(args[0]),
   <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions): Effect.Effect<F | Supersede.Superseded, never, FrameLoop.FrameLoop> =>
-    FrameLoop.FrameLoop.use((loop) =>
-      UndefinedOr.match(options, {
-        onUndefined: (): Effect.Effect<F | Supersede.Superseded> => loop.run(self, sink),
-        onDefined: (given) => loop.run(self, sink, given),
-      })),
+    // The loop reads a missing `options` as none: one call, nothing allocated per run.
+    FrameLoop.FrameLoop.use((loop) => loop.run(self, sink, options as RunOptions)),
 )
 
 /** `run`'s options: the token the run joins (#200). */
