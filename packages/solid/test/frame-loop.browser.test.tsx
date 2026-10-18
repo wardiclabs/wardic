@@ -10,6 +10,9 @@ import { cleanup, render } from "@solidjs/testing-library"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import type * as Frame from "@wardic/core/Frame"
+import type * as Machine from "@wardic/core/Machine"
+import * as Supersede from "@wardic/core/Supersede"
 import type * as Values from "@wardic/core/Values"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as DomClock from "@wardic/dom/DomClock"
@@ -118,14 +121,14 @@ const countingLoop = () => {
   const ends: Array<Exit.Exit<unknown>> = []
   const names: Array<string> = []
   // Both lanes counted: the projection's coordinator runs in the last (ADR-0027, *Amendment (#137)*).
-  const counted =
-    (go: LoopShape["run"]): LoopShape["run"] =>
-    (machine, sink) =>
+  // The run's options pass through, its Supersede token among them (#200).
+  const counted = (go: LoopShape["run"]): LoopShape["run"] =>
+    ((machine: Machine.Machine<Frame.Frame<unknown>>, sink: FrameLoop.Sink<Frame.Frame<unknown>>, options?: FrameLoopRunOptions) =>
       Effect.suspend(() => {
         names.push(machine.span.name)
         live++
         most = Math.max(most, live)
-        return go(machine, sink)
+        return go(machine, sink, options as FrameLoopRunOptions)
       }).pipe(
         Effect.onExit((exit) =>
           Effect.sync(() => {
@@ -133,7 +136,7 @@ const countingLoop = () => {
             ends.push(exit)
           }),
         ),
-      )
+      )) as unknown as LoopShape["run"]
   const wrap = (loop: LoopShape): LoopShape => ({
     afterTick: loop.afterTick,
     run: counted(loop.run),
@@ -150,6 +153,12 @@ const countingLoop = () => {
 
 /** Whether a run ended by interruption alone: a Retarget's or an unmount's. */
 const interrupted = (exit: Exit.Exit<unknown>): boolean => Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
+
+/** A run ended by its token (#200): a success, with `Superseded`. */
+const superseded = (exit: Exit.Exit<unknown>): boolean => Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)
+
+/** `run`'s third argument (#200). */
+type FrameLoopRunOptions = { readonly supersede: Supersede.Supersede }
 
 /** The logs of a failed leg. */
 const failedLegs = (logs: ReadonlyArray<Logged>): ReadonlyArray<Logged> =>
@@ -436,7 +445,7 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
   })
 })
 
-describe("a Retarget ends the spine's legs before it starts its own, and an unmount ends them at once (#76)", () => {
+describe("a Retarget ends the spine's legs before it starts its own, and an unmount ends them at once (#76; Superseded since #200)", () => {
   it("Retargets in one task, then a frame apart, never have more legs live than one Retarget starts", async () => {
     const counted = countingLoop()
     const logs: Array<Logged> = []
@@ -464,12 +473,14 @@ describe("a Retarget ends the spine's legs before it starts its own, and an unmo
     await until(() => opacityOf(el) === 0.6 && backgroundOf(el) === WHITE && counted.live() === 0)
     expect(opacityOf(el)).toBe(0.6)
     expect(counted.most()).toBe(2)
-    // Each leg settled or was interrupted; none failed.
+    // Each leg settled or was Superseded by the next Retarget (#200): none failed, none was interrupted.
     expect(counted.ends().filter((exit) => Exit.isFailure(exit) && !interrupted(exit))).toEqual([])
+    expect(counted.ends().filter(interrupted)).toEqual([])
+    expect(counted.ends().filter(superseded).length).toBeGreaterThanOrEqual(6)
     expect(logs.filter((log) => log.level === "ERROR")).toEqual([])
   })
 
-  it("an unmount mid-flight ends every leg in its own task, by interruption, with nothing logged", async () => {
+  it("an unmount mid-flight ends every leg in its own task, Superseded, not interrupted (#200), with nothing logged", async () => {
     const counted = countingLoop()
     const clock = countingClock()
     const logs: Array<Logged> = []
@@ -500,7 +511,7 @@ describe("a Retarget ends the spine's legs before it starts its own, and an unmo
     // Off the loop in the unmount's own task, before any frame.
     expect(counted.live()).toBe(0)
     expect(counted.ends().length).toBeGreaterThanOrEqual(20)
-    expect(counted.ends().every(interrupted)).toBe(true)
+    expect(counted.ends().every(superseded)).toBe(true)
     // With nothing left, the loop drops its Clock subscription at its next tick.
     await until(() => clock.open() === 0)
     expect(clock.open()).toBe(0)

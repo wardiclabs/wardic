@@ -36,6 +36,7 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Spring from "@wardic/core/Spring"
 import * as Stagger from "@wardic/core/Stagger"
+import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -527,6 +528,12 @@ const TRANSLATE_KEY_LIST: ReadonlyArray<string> = Arr.fromIterable(TRANSLATE_KEY
 /** Whether a value map has any key. */
 const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
 
+/** Whether a leg FiberSet still holds a fiber: a leg its Retarget's token didn't reach (#200). */
+const holdsFibers = (set: FiberSet.FiberSet<void, never>): boolean => {
+  if (set.state._tag === "Closed") return false
+  return set.state.backing.size > 0
+}
+
 /** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
 const NO_TRANSITION: Machine.SpringOptions = {}
 
@@ -993,14 +1000,22 @@ export function runSpine(opts: RunSpineOptions): void {
       })
 
       // The spine: on each target change, end the running legs and reseed a fresh primitive
-      // from the Snapshot (velocity-preserving). Every leg runs in this element's FiberSet (#76):
-      // a Retarget clears it before it starts its own legs, and the element's teardown closes its
-      // Scope, which interrupts whatever is left. Both end the legs in the calling task: a leg
-      // waiting on the Frame loop is interrupted inline, and its run leaves the loop at once
-      // (ADR-0027, decision 5). The same shape as the projection system's end-of-task holds.
+      // from the Snapshot (velocity-preserving). Every leg runs in this element's FiberSet (#76)
+      // and joins its Retarget's token: a Retarget ends the token before it starts its own legs,
+      // and the element's teardown ends it and closes its Scope. Both end the legs in the calling
+      // task: each leg's run leaves the loop at once, and its fiber ends Superseded, inline
+      // (ADR-0027, decision 5, *Amendment (#200)*). A leg the token didn't reach is interrupted,
+      // by the FiberSet's clear or the Scope's close. The same shape as the projection system's
+      // end-of-task holds.
       const legScope = Scope.makeUnsafe()
       const legFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(legScope)))
+      // The running legs' token (#200, ADR-0027 *Amendment (#200)*): a Retarget ends it and starts
+      // its own, so its legs are Superseded, not interrupted: off the loop at once, their fibers
+      // ended normally, at about a sixth of an interrupt's cost.
+      let generation = Supersede.make()
       onCleanup(() => {
+        // The legs end normally first, so closing the Scope has nothing left to interrupt.
+        Supersede.end(generation)
         runtime.runFork(Scope.close(legScope, Exit.void))
       })
 
@@ -1019,7 +1034,11 @@ export function runSpine(opts: RunSpineOptions): void {
             return t
           },
           ({ resolved, base, dragging: held }) => {
-            runtime.runFork(FiberSet.clear(legFibers))
+            Supersede.end(generation)
+            generation = Supersede.make()
+            const supersede = generation
+            // A leg its token didn't reach (one not on the loop) is interrupted, as before.
+            if (holdsFibers(legFibers)) runtime.runFork(FiberSet.clear(legFibers))
 
             // `when` start-gate (ADR-0007): when canStart() is false, freeze at the
             // snapshot (the previous legs are already interrupted) and bail; the
@@ -1105,12 +1124,13 @@ export function runSpine(opts: RunSpineOptions): void {
               if (--legs === 0) settleReturns(returns)
             })
             // A leg's end, told apart (ADR-0027, decision 7): a settle counts toward the returns;
-            // an interruption (a Retarget, an unmount) is nothing; anything else (a step or a
-            // sink that threw, the Frame loop's own failure) is logged and reported (ADR-0030,
-            // decision 4), and doesn't count.
+            // a Superseded end (a Retarget, an unmount, #200) or an interruption (a leg its token
+            // didn't reach) is nothing; anything else (a step or a sink that threw, the Frame loop's
+            // own failure) is logged and reported (ADR-0030, decision 4), and doesn't count.
             const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
               Exit.match(exit, {
-                onSuccess: () => legDone,
+                // A Superseded leg (#200) counts toward nothing: the next Retarget's legs settle the returns.
+                onSuccess: (end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.void, onFalse: () => legDone }),
                 onFailure: (cause) => Report.failure("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
               })
             // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
@@ -1184,7 +1204,7 @@ export function runSpine(opts: RunSpineOptions): void {
                       recordFrame(frame.value)
                       report(frame.done)
                       return undefined
-                    }),
+                    }, { supersede }),
                   )),
               )
             }
@@ -1219,7 +1239,7 @@ export function runSpine(opts: RunSpineOptions): void {
                         recordFrame(frame.value)
                         report(frame.done)
                         return undefined
-                      }),
+                      }, { supersede }),
                     ),
                   ),
                 )
@@ -1257,7 +1277,7 @@ export function runSpine(opts: RunSpineOptions): void {
                         recordFrame(frame.value)
                         report(frame.done)
                         return undefined
-                      }),
+                      }, { supersede }),
                     )),
                 )
               }
@@ -1273,7 +1293,7 @@ export function runSpine(opts: RunSpineOptions): void {
                         recordFrame(frame.value)
                         report(frame.done)
                         return undefined
-                      }),
+                      }, { supersede }),
                     ),
                   ),
                 )
