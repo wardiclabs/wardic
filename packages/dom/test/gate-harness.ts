@@ -17,6 +17,7 @@ import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
 import { TestClock } from "@wardic/test"
 import * as Layer from "effect/Layer"
+import { AtomRegistry } from "effect/reactivity"
 import { vi } from "vitest"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
@@ -47,7 +48,12 @@ export const resetFrames = (): void => {
 
 /** `env` with the hand-driven source as its Refresh frame source. */
 export const withFrames = <A, E>(env: Layer.Layer<A, E>) =>
-  Layer.merge(env, RefreshFrameSource.layer({ requestFrame: (cb) => frames.request(cb), cancelFrame: (id) => frames.cancel(id) }))
+  Layer.mergeAll(
+    env,
+    RefreshFrameSource.layer({ requestFrame: (cb) => frames.request(cb), cancelFrame: (id) => frames.cancel(id) }),
+    // The gate's live outputs are Atoms in the Environment's registry (#130).
+    AtomRegistry.layer,
+  )
 
 /** A Frame loop over a Clock that never ticks: the gate's hook is on it and never runs. */
 export const stillLoop = FrameLoop.layer.pipe(Layer.provide(TestClock.layer([])))

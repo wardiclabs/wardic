@@ -200,7 +200,7 @@ _Avoid_: notification, toast (visible), alert (a role).
 ### Layout
 
 **Measurement**:
-A `Bounds` reading taken via `Probe`, recorded so a later layout change can be animated from it. Distinct from a **Snapshot** (a cached *Frame* seeding a Retarget): a Measurement is *geometry*, a Snapshot is *motion value*. The two never substitute for each other.
+A `Bounds` reading taken via `Probe`, recorded so a later layout change can be animated from it. Distinct from a **Snapshot** (a cached *Frame* seeding a Retarget): a Measurement is *geometry*, a Snapshot is a *cached value*. The two never substitute for each other.
 _Avoid_: snapshot (reserved), rect, box.
 
 **FLIP** (layout animation):
@@ -321,8 +321,12 @@ An element's style before its first Frame: `project(resolveInitial(config))`, co
 _Avoid_: initial style (`initial` is its input, not its projected result), SSR seed.
 
 **Hydration hold**:
-From a server render until the element mounts, a client hydrating that markup renders exactly what the server rendered: the Starting style, and a client-only hook's server value (`false` for `createHover`, `createReducedMotion`, …). At mount it switches to live values and the engine starts. A client-only render has no hold (ADR-0021).
+From a server render until the element mounts, a client hydrating that markup renders exactly what the server rendered: the Starting style, and a client-only hook's server value (`false` for `createHover`, `createReducedMotion`, …). At mount it switches to its client values and the engine starts. A client-only render has no hold (ADR-0021).
 _Avoid_: deferred hydration, two-pass render.
+
+**Live value**:
+A value the user moves themselves, given in `style`. It's the key's `style` link (**Base value**): the element follows it on every change while no entry of the **Override stack** sets the key, and an entry that lets go returns the key to where the Live value is then.
+_Avoid_: motion value (Motion's name, for a value the engine writes into), signal, atom (its forms).
 
 **Base value**:
 The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). With `initial={false}`, a key the element started at from `animate`: its `style` value, then the value it started at (#134, Motion's `baseTarget`). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
@@ -354,7 +358,7 @@ _Avoid_: motion element, animated element.
 - A **Recognizer** consumes an **Environment**'s input/geometry and emits an interaction signal — a **State recognizer** a boolean, a **Sample recognizer** Drag samples. A Recognizer is *not* a Primitive: event-driven, no **Settle**.
 - A **Fling** composes the `drag` Sample recognizer with an `inertia` Primitive, in the binding.
 - Stacked gesture states resolve through an **Override stack** to the target that feeds the multi-value Primitives (`springValues`/`animateValues`).
-- **FLIP** animates from a prior **Measurement** to the current one; a **Measurement** is geometry and a **Snapshot** is a motion value — never interchanged.
+- **FLIP** animates from a prior **Measurement** to the current one; a **Measurement** is geometry and a **Snapshot** is a cached value — never interchanged.
 - A key that leaves the target animates to its **Base value**, whose last link is the element's **Own value**.
 
 ## Example dialogue

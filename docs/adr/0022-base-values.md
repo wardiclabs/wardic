@@ -154,3 +154,7 @@ With `initial={false}` an element starts at its `animate` (ADR-0003, *Amendment 
 - Core's chain gains a `started` link between `style` and `own` (`BaseValue.of`: `base`, `initial`, `style`, `started`, `own`); such an element passes an empty `initial` and its starting values as `started`.
 - The Override stack's base layer falls back to nothing, not to the starting values, when no `animate` or inherited name sets it (ADR-0007's step 3), so those values come after `style` there too.
 - Rejected (grilled, Q2): the started values before `style`, as if `animate` were written as `initial`, which ignores a `style` value Motion follows; and forgetting them (`style`, then the Own value), a visible move Motion doesn't make.
+
+## Note (#130, 2026-10-18): a Live value is a `style` link
+
+ADR-0043 makes a value the user moves, given in `style`, the key's `style` link, live: the element follows it while no entry of the Override stack sets the key, and a return goes to where it is then. `style` also takes the transform keys from #130's PR 2. See ADR-0043.

@@ -14,6 +14,7 @@
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import { Atom } from "effect/reactivity"
 import type * as Scope from "effect/Scope"
 import * as internal from "./internal/gate.ts"
 import { makeRunner } from "./internal/runner.ts"
@@ -51,6 +52,9 @@ export const layer = (options: Options): Layer.Layer<FlushGate, never, Services>
 
 const noop = (): void => {}
 
+/** What `inert`'s `valueOf` gives: an Atom that stays `undefined`, since nothing is committed on a server. */
+const NO_VALUE: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
+
 /**
  * The gate a server render gets (ADR-0021, decision 9): it flushes nothing, so `register` returns a
  * no-op unregister and the rest do nothing. Code that grabs the gate at setup and uses it after
@@ -61,6 +65,7 @@ export const inert: Shape = Object.freeze({
   write: noop,
   flushPass: noop,
   release: noop,
+  valueOf: () => NO_VALUE,
 })
 
 /** `inert` as a Layer, for a binding whose server render runs an Effect program. */

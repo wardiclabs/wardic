@@ -54,6 +54,7 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Cause from "effect/Cause"
+import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
@@ -102,6 +103,14 @@ interface Entry {
    * key drops out.
    */
   readonly committed: Map<string, string>
+  /** Its keys' live outputs (`valueOf`), or `undefined` while nothing asked for one. */
+  outputs: Map<string, Output> | undefined
+}
+
+/** One key's live output: its Atom, and the value last set on it. */
+interface Output {
+  readonly atom: Atom.Writable<unknown>
+  last: unknown
 }
 
 /** The element's own inline value for a patch key (`""` for none, or a target with no style). */
@@ -146,6 +155,14 @@ export interface FlushGate {
    */
   readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
   /**
+   * The value the gate last committed for `id`'s `key`, live (#130, ADR-0043): an `Atom` set as
+   * each commit that writes the key changes it, the value before the Renderer projects it (`x`
+   * as a number, not a `transform`). `undefined` before the key's first commit, and once it's
+   * released or the element unregisters. One Atom for an id and a key, made on first ask, so
+   * per frame only the keys asked for cost anything.
+   */
+  readonly valueOf: (id: string, key: string) => Atom.Atom<unknown>
+  /**
    * Take the gate's hook off the Frame loop, cancel any pending frame and clear the
    * accumulator. Wired into the provider's `onCleanup`.
    */
@@ -153,7 +170,7 @@ export interface FlushGate {
 }
 
 /** What a flush gate needs from its Environment: the `Renderer`, the Frame loop it flushes at the end of each tick of (ADR-0033), and the `RefreshFrameSource` (ADR-0031). */
-export type FlushGateServices = Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop
+export type FlushGateServices = Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop | AtomRegistry.AtomRegistry
 
 /**
  * How the gate runs its Effects: synchronously, and forked. `FlushGate.make` builds one from its
@@ -203,6 +220,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   )
 
   const accumulator = new Map<string, Entry>()
+  // Every live output asked for (`valueOf`), by id: an entry registered later picks its map up.
+  const outputsById = new Map<string, Map<string, Output>>()
+  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
   // Sinks waiting for their first commit's `beforeFirstCommit` (usually empty).
   const firstCommits = new Set<string>()
   let scheduled = false
@@ -249,6 +269,15 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       sink.onHeld(Array.from(committed.keys()))
     }
     commit(target, patch)
+    // The live outputs asked for, set where the value changed: an unchanged one skips the registry.
+    const outputs = entry.outputs
+    if (Predicate.isUndefined(outputs)) return
+    for (const [key, output] of outputs) {
+      const value = entry.values[key]
+      if (value === output.last) continue
+      output.last = value
+      registry.set(output.atom, value)
+    }
   }
 
   /**
@@ -296,12 +325,44 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const register: FlushGate["register"] = (id, sink) => {
-    accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map() })
+    accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id) })
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {
       accumulator.delete(id)
       firstCommits.delete(id)
+      endOutputs(id)
     }
+  }
+
+  /** `id`'s live outputs, each set to `undefined` and forgotten: its element is gone. */
+  const endOutputs = (id: string): void => {
+    const outputs = outputsById.get(id)
+    if (Predicate.isUndefined(outputs)) return
+    outputsById.delete(id)
+    for (const output of outputs.values()) registry.set(output.atom, undefined)
+  }
+
+  /** `id`'s current value for `key`, or `undefined` for an unregistered id or a key it hasn't written. */
+  const committedValueOf = (id: string, key: string): unknown => {
+    const entry = accumulator.get(id)
+    if (Predicate.isUndefined(entry)) return undefined
+    return entry.values[key]
+  }
+
+  const valueOf: FlushGate["valueOf"] = (id, key) => {
+    let outputs = outputsById.get(id)
+    if (Predicate.isUndefined(outputs)) {
+      outputs = new Map()
+      outputsById.set(id, outputs)
+      const entry = accumulator.get(id)
+      if (Predicate.isNotUndefined(entry)) entry.outputs = outputs
+    }
+    const known = outputs.get(key)
+    if (Predicate.isNotUndefined(known)) return known.atom
+    const value = committedValueOf(id, key)
+    const output: Output = { atom: Atom.keepAlive(Atom.make<unknown>(value)), last: value }
+    outputs.set(key, output)
+    return output.atom
   }
 
   const write: FlushGate["write"] = (id, partial) => {
@@ -357,13 +418,14 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     }
     accumulator.clear()
     firstCommits.clear()
+    for (const id of [...outputsById.keys()]) endOutputs(id)
   }
 
   // The gate's hook on the loop, for the gate's lifetime.
   const ticks = Scope.makeUnsafe()
   runtime.runSync(afterTick(flushTicked).pipe(Scope.provide(ticks)))
 
-  return { register, write, flushPass, release, dispose }
+  return { register, write, flushPass, release, valueOf, dispose }
 }
 
 

@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import { AtomRegistry } from "effect/reactivity"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
 import { beforeEach, describe, expect, it } from "vitest"
@@ -220,7 +221,7 @@ describe("makeFlushGate", () => {
     // (ADR-0031, decision 6). A write the Frame loop's tick doesn't make takes the gate's own
     // request, so it paints in the next frame, as every write did before ADR-0033.
     const clock = Effect.runSync(TestClock.pushable())
-    const runtime = ManagedRuntime.make(FrameLoop.layer.pipe(Layer.provideMerge(Layer.merge(HEARD, clock.layer))))
+    const runtime = ManagedRuntime.make(FrameLoop.layer.pipe(Layer.provideMerge(Layer.mergeAll(HEARD, clock.layer, AtomRegistry.layer))))
     const events: Array<string> = []
     const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
     gate.register("a", sinkOf((p) => void events.push(`flush ${String(p.x)}`)))
@@ -670,5 +671,95 @@ describe("makeFlushGate — the keys held on an element (ADR-0034)", () => {
     } finally {
       void runtime.dispose()
     }
+  })
+})
+
+describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
+  /** A gate on a still loop, and the registry its outputs live in. */
+  const harness = () => {
+    const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
+    const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+    const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+    const end = (): void => {
+      gate.dispose()
+      void runtime.dispose()
+    }
+    return { runtime, gate, registry, end }
+  }
+
+  it("GV1: undefined before the key's first commit; then the value committed, before projection", () => {
+    const { gate, registry, end } = harness()
+    gate.register("a", sinkOf(() => {}))
+    const x = gate.valueOf("a", "x")
+    expect(registry.get(x)).toBeUndefined()
+    gate.write("a", { x: 12 })
+    expect(registry.get(x), "not before the commit").toBeUndefined()
+    fireFrame()
+    expect(registry.get(x)).toBe(12)
+    gate.write("a", { x: 30, opacity: 0.5 })
+    fireFrame()
+    expect(registry.get(x)).toBe(30)
+    end()
+  })
+
+  it("GV2: a subscriber hears each change once, and nothing when a commit leaves the key as it was (the gate skips it; the registry would too)", () => {
+    const { gate, registry, end } = harness()
+    gate.register("a", sinkOf(() => {}))
+    const heard: Array<unknown> = []
+    registry.subscribe(gate.valueOf("a", "x"), (v) => void heard.push(v))
+    gate.write("a", { x: 1 })
+    fireFrame()
+    gate.write("a", { opacity: 0.2 })
+    fireFrame()
+    gate.write("a", { x: 1 })
+    fireFrame()
+    gate.write("a", { x: 2 })
+    fireFrame()
+    expect(heard).toEqual([1, 2])
+    end()
+  })
+
+  it("GV3: a released key's output is undefined from the next commit", () => {
+    const { gate, registry, end } = harness()
+    gate.register("a", sinkOf(() => {}))
+    const x = gate.valueOf("a", "x")
+    gate.write("a", { x: 5, opacity: 1 })
+    fireFrame()
+    gate.release("a", ["x"])
+    fireFrame()
+    expect(registry.get(x)).toBeUndefined()
+    end()
+  })
+
+  it("GV4: asked before its element registers, it's picked up at the register; the same Atom for an id and a key", () => {
+    const { gate, registry, end } = harness()
+    const x = gate.valueOf("a", "x")
+    expect(gate.valueOf("a", "x")).toBe(x)
+    gate.register("a", sinkOf(() => {}))
+    gate.write("a", { x: 7 })
+    fireFrame()
+    expect(registry.get(x)).toBe(7)
+    end()
+  })
+
+  it("GV5: an element's unregister sets its outputs to undefined", () => {
+    const { gate, registry, end } = harness()
+    const unregister = gate.register("a", sinkOf(() => {}))
+    const x = gate.valueOf("a", "x")
+    gate.write("a", { x: 3 })
+    fireFrame()
+    unregister()
+    expect(registry.get(x)).toBeUndefined()
+    end()
+  })
+
+  it("GV6: an element with no output asked for commits as before", () => {
+    const { gate, end } = harness()
+    let received: Renderer.Patch | undefined
+    gate.register("a", sinkOf((p) => (received = p)))
+    gate.write("a", { x: 4 })
+    fireFrame()
+    expect(received).toEqual({ x: 4 })
+    end()
   })
 })
