@@ -21,6 +21,6 @@
     "@wardic/core": "workspace:*"
   },
   "peerDependencies": {
-    "effect": "^4.0.2"
+    "effect": "^4.0.5"
   }
 }

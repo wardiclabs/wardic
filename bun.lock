@@ -6,11 +6,11 @@
       "name": "wardic",
       "devDependencies": {
         "@changesets/cli": "^2.31.0",
-        "@effect/vitest": "4.0.2",
+        "@effect/vitest": "4.0.5",
         "@solidjs/testing-library": "^0.8.10",
         "@types/node": "^25.7.0",
         "@vitest/browser-playwright": "^5.0.2",
-        "effect": "4.0.2",
+        "effect": "4.0.5",
         "eslint": "^10.12.0",
         "happy-dom": "^20.10.1",
         "jsdom": "^29.1.1",
@@ -29,7 +29,7 @@
         "@wardic/core": "workspace:*",
         "@wardic/dom": "workspace:*",
         "@wardic/solid": "workspace:*",
-        "effect": "4.0.2",
+        "effect": "4.0.5",
         "solid-js": "1.9.13",
       },
       "devDependencies": {
@@ -60,7 +60,7 @@
         "culori": "^4.0.2",
       },
       "peerDependencies": {
-        "effect": "^4.0.2",
+        "effect": "^4.0.5",
       },
     },
     "packages/dom": {
@@ -74,7 +74,7 @@
         "@wardic/test": "workspace:*",
       },
       "peerDependencies": {
-        "effect": "^4.0.2",
+        "effect": "^4.0.5",
       },
     },
     "packages/solid": {
@@ -87,11 +87,11 @@
       },
       "devDependencies": {
         "@wardic/test": "workspace:*",
-        "effect": "4.0.2",
+        "effect": "4.0.5",
         "solid-js": "^1.9.13",
       },
       "peerDependencies": {
-        "effect": "^4.0.2",
+        "effect": "^4.0.5",
         "solid-js": "^1.9.13",
       },
     },
@@ -102,7 +102,7 @@
         "@wardic/core": "workspace:*",
       },
       "peerDependencies": {
-        "effect": "^4.0.2",
+        "effect": "^4.0.5",
       },
     },
   },
@@ -219,7 +219,7 @@
 
     "@deno/shim-deno-test": ["@deno/shim-deno-test@0.5.0", "", {}, "sha512-4nMhecpGlPi0cSzT67L+Tm+GOJqvuk8gqHBziqcUQOarnuIax1z96/gJHCSIz2Z0zhxE6Rzwb3IZXPtFh51j+w=="],
 
-    "@effect/vitest": ["@effect/vitest@4.0.2", "", { "peerDependencies": { "effect": "^4.0.2", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-Zb72nu7iUy3rNdBp9J1Xu5oUQGwJ8cOYsUwmYgujj88aqyvASRDjOS01SjlcPViqf77csduetKdCJTVndMNfzw=="],
+    "@effect/vitest": ["@effect/vitest@4.0.5", "", { "peerDependencies": { "effect": "^4.0.5", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-q64paZ/i4V2NiRhTyqCmT2KiDbFjlxc2EZrZca8GGt+Nf8844946HyJM5bPk/q+YeRkFSxIrlCs+J+LSfky/wA=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.25.12", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA=="],
 
@@ -803,7 +803,7 @@
 
     "ee-first": ["ee-first@1.1.1", "", {}, "sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow=="],
 
-    "effect": ["effect@4.0.2", "", {}, "sha512-YeYnLqSFrL4+tCOXRrfNP03w8FILoF/wDl+ukraJAGzXrjcS383W7LAAvGBbLatEyktmLxRq+9xJinx7QzXW5A=="],
+    "effect": ["effect@4.0.5", "", {}, "sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.362", "", {}, "sha512-PUY2DrLvkjkUuWqq+KPL2iWshrJsZOcIojzRQ7eXFacc9dWga7MGMJAa15VbiejSZB1PAXaRLAiKgruHP8LB1w=="],
 

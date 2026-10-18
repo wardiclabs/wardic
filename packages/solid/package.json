@@ -23,12 +23,12 @@
     "@wardic/dom": "workspace:*"
   },
   "peerDependencies": {
-    "effect": "^4.0.2",
+    "effect": "^4.0.5",
     "solid-js": "^1.9.13"
   },
   "devDependencies": {
     "@wardic/test": "workspace:*",
-    "effect": "4.0.2",
+    "effect": "4.0.5",
     "solid-js": "^1.9.13"
   }
 }
