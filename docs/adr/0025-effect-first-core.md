@@ -468,3 +468,17 @@ Decision 6 left the option bags' Schemas to #66, because a decode validates and 
 - **Fractional `repeat`:** `machines.test.ts` lost two cases and `reduced-motion.test.ts` one. `frame-loop.browser.test.tsx`'s afterChildren test moves from `repeat: 1.5` to `repeat: 2`, the same three segments.
 
 **Gates:** typecheck, lint, unit (1024), browser (1013, no "optimized dependencies changed": `effect/Schema` and `effect/Cause` were already in the three lists), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #221's: drive16 54 of 54, drive-held 0 off, drive7 6 clean · held 0, drive17 identical, drive14k on its slot, late reads 0 frames behind.
+
+## Amendment (#225, 2026-10-18): `Easing.spring`'s bag is decoded too
+
+*Amendment (#66)* left `Easing.spring` under *Not covered*. It read `stiffness`, `damping` and `mass` itself, so a value every other spring bag rejects baked a broken curve. NaN stiffness or `mass: 0` gave NaN through the middle of it, a negative stiffness reached −5e17 by t = 0.75, and a string `"170"` was coerced. Grilled 2026-10-18 (Q1–Q3, all A).
+
+1. **It throws when called (Q1),** as a Tier 2 builder does (*Amendment (#66)*, decision 3): `Easing.spring` decodes its bag through `Spring.resolve` at the call, before it bakes the curve, so a rejected bag throws its `SchemaError` naming the field, at the developer's own line. The binding's per-animation containment doesn't reach it: an easing is built in user code, usually as a component renders, outside any leg.
+   - Rejected: decoding at the curve's first sample, inside a leg (contained, but the curve's 0.1–0.8 ms build moves into a frame, and a Tier 2 user sees the throw far from its cause); a logged fallback to the defaults (#66's Q3 rejected it).
+2. **The whole bag, as every spring bag's (Q2).** `Spring.resolve` checks every field, so a spring field the curve doesn't read (`restDelta`, `from`, `delay`) is still rejected when it's wrong, and a bag shared with a spring transition passes or fails the same way in both places. Only `stiffness`, `damping` and `mass` shape the curve, which bakes its own rest thresholds (1e-4) and step (1/240 s). `Easing.SpringOptions` stays those three, the JSDoc says the rest are checked, and a call without a bag shares one, so its decode is cached.
+   - Rejected: a narrower Schema for the three (a second spring table to keep in step); also rejecting the fields it ignores (it would refuse a bag that's valid everywhere else).
+3. **The import cycle #66 named isn't one.** `Spring.ts` loaded `internal/stepper.ts` at run time only for `valueOr`, in `Spring.init`. Read through `UndefinedOr` there, `Spring.ts` imports nothing of `stepper.ts` but a type, so `Easing.ts` imports `Spring.resolve` and `stepper.ts` still finds `Easing.linear` defined when it loads. No module moved.
+
+**Tests:** `options.test.ts` gains `Easing.spring`'s rows: `mass: 0`, NaN and `"170"` stiffness, a negative damping, and a rejected `restDelta` and `from` the curve doesn't read, each throwing its `SchemaError` naming the field. It accepts the defaults, a bouncy bag, and a transition-shaped bag. `easing.test.ts` pins the curve against main's at four samples on two bags, equal to the last bit. Mutation: baking without the decode fails the six rejection rows.
+
+**Gates:** typecheck, lint, unit (1113), browser (1017), and the lab's tsc and vitest (208). No bench and no lab drives: no per-frame code changed, and nothing in Wardic calls `Easing.spring`.

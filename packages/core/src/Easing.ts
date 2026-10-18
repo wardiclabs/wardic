@@ -9,6 +9,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Scalar from "./Scalar.ts"
+import * as Spring from "./Spring.ts"
 
 /** Easing function mapping normalized time `t` in [0, 1] to eased progress. */
 export type Easing = (t: number) => number
@@ -146,12 +147,19 @@ export const steps = (count: number, position: StepPosition = "end"): Easing => 
   }
 }
 
-/** Options shaping a {@link spring} curve. */
+/**
+ * Options shaping a {@link spring} curve: its `stiffness`, `damping` and `mass`. The bag is a spring's
+ * (`Spring.resolve` decodes it, #225), so a spring's other fields may come with it, and are checked,
+ * but don't shape the curve.
+ */
 export interface SpringOptions {
   readonly stiffness?: number
   readonly damping?: number
   readonly mass?: number
 }
+
+/** No options: the spring's defaults, one bag, so its decode is cached (#66). */
+const NO_SPRING: SpringOptions = {}
 
 /** The unit spring `spring` samples, between two of its 1/240 s steps. */
 interface SpringSim {
@@ -169,11 +177,14 @@ interface SpringSim {
  * in `chase` — see ADR-0001), this is a one-shot easing for cases that need a
  * `(t) => progress` function — the spring is simulated 0 → 1 to rest, then
  * sampled and re-normalized.
+ *
+ * Its bag is decoded as every spring bag is (`Spring.resolve`, #225, ADR-0025 *Amendment (#225)*), when
+ * it's called: a value no spring can take (a stiffness or mass at or below 0, a negative damping, NaN,
+ * Infinity) throws its `SchemaError`, naming the field. Only `stiffness`, `damping` and `mass` shape
+ * the curve; it bakes its own rest thresholds and step.
  */
-export const spring = (options: SpringOptions = {}): Easing => {
-  const stiffness = Option.getOrElse(Option.fromNullishOr(options.stiffness), () => 170)
-  const damping = Option.getOrElse(Option.fromNullishOr(options.damping), () => 26)
-  const mass = Option.getOrElse(Option.fromNullishOr(options.mass), () => 1)
+export const spring = (options: SpringOptions = NO_SPRING): Easing => {
+  const { stiffness, damping, mass } = Spring.resolve(options)
   const dt = 1 / 240
   const restDelta = 1e-4
   const restVelocity = 1e-4

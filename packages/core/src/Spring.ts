@@ -5,9 +5,10 @@
  * (`Machine.spring`, `Machine.springValues`). It's on the per-frame path (ADR-0025).
  */
 import * as Schema from "effect/Schema"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { SpringOptions } from "./Machine.ts"
 import { cachedResolver, field, NonNegative, optionalField, Positive } from "./internal/options.ts"
-import { type PhysicsStepResult, valueOr } from "./internal/stepper.ts"
+import type { PhysicsStepResult } from "./internal/stepper.ts"
 
 // --- Presets: drop into `Machine.spring(…)` or a `transition`. `gentle` and `stiff` are the
 // everyday choices; `wobbly` and `bouncy` overshoot.
@@ -62,10 +63,17 @@ export const resolve: (options: SpringOptions) => Resolved = cachedResolver(
   ({ stiffness, damping, mass, restDelta, restVelocity, delay }): Resolved => ({ stiffness, damping, mass, restDelta, restVelocity, delay }),
 )
 
-/** A spring at rest at `options.from` (default 0), moving at `options.velocity` (default 0). */
+/** A missing `from` or `velocity`: 0. */
+const ZERO = { onUndefined: () => 0, onDefined: (n: number) => n }
+
+/**
+ * A spring at rest at `options.from` (default 0), moving at `options.velocity` (default 0). Read
+ * through `UndefinedOr`, so this module loads nothing of `internal/stepper.ts`, which loads `Easing`:
+ * `Easing.spring` decodes its bag here (#225).
+ */
 export const init = (options: SpringOptions): State => ({
-  position: valueOr(options.from, 0),
-  velocity: valueOr(options.velocity, 0),
+  position: UndefinedOr.match(options.from, ZERO),
+  velocity: UndefinedOr.match(options.velocity, ZERO),
   elapsed: 0,
 })
 
