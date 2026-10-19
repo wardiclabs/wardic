@@ -137,3 +137,7 @@ On the bench server, with `wardic-quiet` and Chromium 147 headless.
 - **`bun run bench:core --base main`** (11 paired reps, N = 1,000): every workload passes in Bun, Node and Chromium. The noise controls read +1.0%, +0.2% and +0.5%, and Node's bytes per frame are unchanged. Core's per-frame path doesn't change: only `applyTo`'s `Effect.sync`.
 - **The layout lab** (`.tmp/73-proto/drive.ts`: scenarios 1–10 and the drags 11–14, cold and warm, 5 runs each), against #73's final run, which is main. Every scenario holds the same frames: 0 from a task (s1, s6, s7, s9, s10), 1 after the frame's tick (s2–s5, s8). First steps agree within 0.2 px, every run is clean, and `framesToMeasure` is 0 wherever a scenario measures. The drags read 0 frames behind and 0 release held. s8 now triggers at a new driver's first-commit switch (its scenario, changed).
 - **Gates:** `bun run typecheck` (and the layout lab's), `bun run lint`, `bun run test` (66 files, 713 tests) and `bun run test:browser` (65 files, 648 tests; no "optimized dependencies changed" in the log).
+
+## Note (#130, 2026-10-18): the gate's live outputs
+
+ADR-0043 decision 5: `FlushGate.valueOf(id, key)` is an Atom of the value the gate last committed for the key, set as a commit changes it. An element with no output pays one `undefined` check per commit. Live values themselves are written upstream of the gate, as this ADR's notes for #130 expected.
