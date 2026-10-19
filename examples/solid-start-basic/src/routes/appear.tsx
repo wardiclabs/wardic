@@ -82,6 +82,29 @@ export default function AppearRoute(): JSX.Element {
         </div>
 
         <div style={row}>
+          <span style={label}>SVG: a circle grows across, a line draws (#245)</span>
+          <svg width="140" height="40" style={{ overflow: "visible" }}>
+            <wardic.circle
+              data-appear-k="svg-circle"
+              fill="#3a7"
+              initial={{ cx: 12, r: 4, opacity: 0.2 }}
+              animate={{ cx: 120, r: 14, opacity: 1 }}
+              transition={{ type: "tween", duration: 2 }}
+            />
+            <wardic.path
+              data-appear-k="svg-line"
+              d="M0 36L140 36"
+              stroke="#333"
+              stroke-width="3"
+              fill="none"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ type: "tween", duration: 2 }}
+            />
+          </svg>
+        </div>
+
+        <div style={row}>
           <span style={label}>appear=&#123;false&#125;: held until hydration</span>
           <wardic.div data-appear-k="held" data-appear-expect="held" style={box} appear={false} initial={{ opacity: 0.3, y: 20 }} animate={{ opacity: 1, y: 0 }} />
         </div>

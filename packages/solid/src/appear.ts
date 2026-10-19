@@ -277,15 +277,21 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
     css: () => {
       const resolve = (pick: "normal" | "reduced") => timings(entries, pick)
       const normal = Bool.match(reducedMotion === "always", { onTrue: () => resolve("reduced"), onFalse: () => resolve("normal") })
-      const reduced = Bool.match(reducedMotion === "user", { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Map<Entry, Result.Result<Appear.Play, string>>>() })
+      const reduced = Bool.match(reducedMotion === "user", { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Timings>() })
+      const settings = Arr.prepend(Option.toArray(reduced), normal)
+      // Most renders write no SVG geometry: no group pass.
+      const supports = Bool.match(Arr.some(settings, (byEntry) => byEntry.geometry), {
+        onTrue: () => groupSupports(entries, settings),
+        onFalse: () => () => NO_SUPPORTS,
+      })
       Arr.forEach(entries, (entry) =>
         Option.map(entry.slot, (slot) => {
           const play = UndefinedOr.getOrThrow(normal.get(entry))
           const reducedPlay = Option.map(reduced, (byEntry) => UndefinedOr.getOrThrow(byEntry.get(entry)))
           const defined = Result.flatMap(play, (p) =>
             Option.match(reducedPlay, {
-              onNone: () => slot.define(p),
-              onSome: (r) => Result.flatMap(r, (rp) => slot.define(p, rp)),
+              onNone: () => slot.define(p, undefined, supports(entry)),
+              onSome: (r) => Result.flatMap(r, (rp) => slot.define(p, rp, supports(entry))),
             }))
           Result.match(defined, { onFailure: (reason) => reasons.push(reason), onSuccess: () => undefined })
         }))
@@ -301,8 +307,9 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
  * settles under `when: "beforeChildren"`; a parent under `"afterChildren"` starts once its last
  * child settles. A start that depends on an element with no rule has none.
  */
-const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Map<Entry, Result.Result<Appear.Play, string>> => {
-  const memo = new Map<Entry, Result.Result<{ readonly play: Appear.Play; readonly settled: number }, string>>()
+const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Timings => {
+  const memo = new Map<Entry, Result.Result<{ readonly play: TimedPlay; readonly settled: number }, string>>()
+  let geometry = false
   /** An entry's spec and rule, or why it has none; a missing play (nothing animates) is a rule of 0 s. */
   const ruleOf = (entry: Entry): Result.Result<Option.Option<{ readonly spec: Appear.Spec; readonly rule: Appear.Keyframes }>, string> =>
     Arr.match(entry.vetoes, {
@@ -316,7 +323,7 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Map
         Result.flatMap(Result.flatMap(animation, specOf), (spec) => Result.map(Appear.keyframes(spec), (rule) => Option.some({ spec, rule }))),
     })
   /** The seconds from first paint to when `entry` starts, and its play. */
-  const timingOf = (entry: Entry): Result.Result<{ readonly play: Appear.Play; readonly settled: number }, string> =>
+  const timingOf = (entry: Entry): Result.Result<{ readonly play: TimedPlay; readonly settled: number }, string> =>
     Option.getOrElse(Option.fromUndefinedOr(memo.get(entry)), () => {
       const computed = Result.flatMap(ruleOf(entry), (rule) =>
         Result.map(startOf(entry), (start) => {
@@ -326,7 +333,9 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Map
           const forever = repeatsForever(transition)
           const before = Bool.match(forever, { onTrue: () => ownDelayOf(transition), onFalse: () => 0 })
           const settled = Option.match(rule, { onNone: () => 0, onSome: (r) => Bool.match(forever, { onTrue: () => Number.POSITIVE_INFINITY, onFalse: () => r.rule.settled }) })
-          return { play: { spec: spec as Appear.Spec, delay: start + before }, settled: start + before + settled }
+          const supports = Option.match(rule, { onNone: () => NO_SUPPORTS, onSome: (r) => r.rule.supports })
+          geometry = Bool.or(geometry, Arr.isReadonlyArrayNonEmpty(supports))
+          return { play: { spec: spec as Appear.Spec, delay: start + before, supports }, settled: start + before + settled }
         }))
       memo.set(entry, computed)
       return computed
@@ -358,10 +367,57 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Map
     })
   const groupsLed = new Map<Entry, AppearGroup>()
   Arr.forEach(entries, (entry) => Option.map(entry.group, (g) => groupsLed.set(g.leader, g)))
-  return new Map(Arr.map(entries, (entry) => [entry, Result.flatMap(timingOf(entry), (t) => Bool.match(Predicate.isUndefined(t.play.spec), {
+  const plays = new Map(Arr.map(entries, (entry) => [entry, Result.flatMap(timingOf(entry), (t) => Bool.match(Predicate.isUndefined(t.play.spec), {
     onTrue: () => Result.fail("nothing animates"),
     onFalse: () => Result.succeed(t.play),
   }))] as const))
+  return Object.assign(plays, { geometry })
+}
+
+/** Each entry's play for one motion setting, and whether any of their rules writes SVG geometry. */
+type Timings = Map<Entry, Result.Result<TimedPlay, string>> & { readonly geometry: boolean }
+
+/** An element's play, with the SVG geometry properties its rule writes (#245, `Appear.Keyframes.supports`). */
+interface TimedPlay extends Appear.Play {
+  readonly supports: ReadonlyArray<string>
+}
+
+const NO_SUPPORTS: ReadonlyArray<string> = []
+
+/**
+ * The SVG geometry properties each entry's orchestrated group writes, over every play (#245,
+ * `Appear.Keyframes.supports`): the whole tree a top leader orchestrates is defined under one
+ * `@supports`, so a browser without them keeps all of it at its Starting style, not part of it
+ * (decision 4: an element qualifies whole, and so does what it orchestrates). Per element on a
+ * server: a render whose rules write none (most) pays a look at each play.
+ */
+const groupSupports = (
+  entries: ReadonlyArray<Entry>,
+  settings: ReadonlyArray<Map<Entry, Result.Result<TimedPlay, string>>>,
+): ((entry: Entry) => ReadonlyArray<string>) => {
+  /** The leader at the top of an entry's orchestration: itself, outside any group. */
+  const topOf = (entry: Entry): Entry => Option.match(entry.group, { onNone: () => entry, onSome: (g) => topOf(g.leader) })
+  /** What an entry's own rules write, over every play. */
+  const own = (entry: Entry): ReadonlyArray<string> =>
+    Arr.flatMap(settings, (byEntry) =>
+      Option.match(Option.fromUndefinedOr(byEntry.get(entry)), {
+        onNone: () => NO_SUPPORTS,
+        onSome: (play) => Result.match(play, { onFailure: () => NO_SUPPORTS, onSuccess: (p) => p.supports }),
+      }))
+  const byTop = new Map<Entry, ReadonlyArray<string>>()
+  Arr.forEach(entries, (entry) =>
+    Arr.match(own(entry), {
+      onEmpty: () => undefined,
+      onNonEmpty: (mine) => {
+        const top = topOf(entry)
+        byTop.set(top, Arr.appendAll(Option.getOrElse(Option.fromUndefinedOr(byTop.get(top)), () => NO_SUPPORTS), mine))
+      },
+    }))
+  return (entry) =>
+    Bool.match(byTop.size === 0, {
+      onTrue: () => NO_SUPPORTS,
+      onFalse: () => Option.getOrElse(Option.fromUndefinedOr(byTop.get(topOf(entry))), () => NO_SUPPORTS),
+    })
 }
 
 /** A Variant child's stagger: its parent's `delayChildren` plus its place (ADR-0007), as the client works it out. */

@@ -18,6 +18,9 @@
 // - AR9: a render with no `</head>` drops the style, and its elements keep their Starting style.
 // - AR10: a component wrap passes its `animation` through `style`.
 // - AR11: a spec's key doesn't hang on its keys' order; an easing with no name gives none.
+// - AR12 (#245): an svg-inner element's attributes play as CSS; a group whose rules write SVG
+//   geometry is defined, whole, under one `@supports`, its reduced block too; one that writes none
+//   isn't; `width` still keeps its Starting style.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -244,5 +247,42 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
       expect(timing(css, propertyOf(tag?.style.animation)).normal, name).not.toBe("")
     }
   })
-})
 
+  it("AR12: SVG attributes play as CSS; a group writing geometry is defined whole under one @supports (#245)", () => {
+    const html = page(() => (
+      <svg>
+        <wardic.g initial="hidden" animate="shown" variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }} transition={{ staggerChildren: 0.1 }}>
+          <wardic.circle variants={{ hidden: { cx: 0, r: 4 }, shown: { cx: 50, r: 20 } }} />
+          <wardic.path d="M0 0L10 10" variants={{ hidden: { pathLength: 0 }, shown: { pathLength: 1 } }} />
+        </wardic.g>
+        <wardic.rect width={10} height={10} initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
+        <wardic.rect data-k="sized" width={0} height={10} initial={{ width: "0px" }} animate={{ width: "10px" }} />
+      </svg>
+    ))
+    const css = headCss(html)
+    const tag = (name: string) => tagsOf(html).find((t) => t.name === name)
+    const property = (name: string) => propertyOf(tag(name)?.style.animation)
+    const circle = tag("circle")
+    expect(circle?.attrs.cx, "its Starting style stays an attribute").toBe("0")
+    expect(circle?.attrs.r).toBe("4")
+    expect(css).toMatch(/@keyframes wardic-\w+\{0%\{cx:0px;r:4px\}/)
+    expect(css).toMatch(/@keyframes wardic-\w+\{0%\{stroke-dasharray:0 1;stroke-dashoffset:0\}/)
+    // The group, the circle's leader and the path beside it too, under the circle's condition.
+    const [plain, media = ""] = css.split("@media (prefers-reduced-motion: reduce)")
+    const guarded = (text: string) => /@supports \(cx:0px\) and \(r:0px\)\{:root\{([^}]*)\}\}/.exec(text)?.[1] ?? ""
+    for (const name of ["g", "circle", "path"]) {
+      expect(property(name), name).not.toBe("")
+      expect(guarded(plain!), name).toContain(`${property(name)}:`)
+      expect(guarded(media), `${name} reduced`).toContain(`${property(name)}:`)
+    }
+    // The rect writes no geometry: defined with no condition.
+    const rect = tagsOf(html).find((t) => t.name === "rect" && t.attrs["data-k"] === undefined)
+    const rectProperty = propertyOf(rect?.style.animation)
+    expect(rectProperty).not.toBe("")
+    expect(guarded(plain!)).not.toContain(rectProperty)
+    expect(/(?:^|\})(:root\{[^}]*\})/.exec(plain!)?.[1]).toContain(`${rectProperty}:`)
+    // `width` can't be guarded: the rect keeps its Starting style.
+    const sized = tagsOf(html).find((t) => t.attrs["data-k"] === "sized")
+    expect(timing(css, propertyOf(sized?.style.animation)).normal).toBe("")
+  })
+})
