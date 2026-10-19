@@ -10,6 +10,14 @@
 // - PS5: one listener set a container: two readers add one `scroll` listener, and the last one
 //   out removes it.
 // - PS6: an unchanged scroll isn't set again: its readers hear nothing.
+// - PS8: a container's content grows with the scroll still: its range and progress follow, a frame
+//   later (#239, the ResizeObserver's delivery).
+// - PS9: the page with a body sized to the window: a child added, then grown, moves its range; with
+//   a body of its content's height, text added straight to it does.
+// - PS10: a target moves as content above it grows, and resizes on its own: its progress follows.
+// - PS11: a child added after the reader started is watched, a removed one changes the range, a
+//   reader whose target is a child leaves it watched as it goes, the last reader out disconnects both
+//   observers, and an idle container is never read.
 import * as Probe from "@wardic/core/Probe"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -35,6 +43,16 @@ const scene = () => {
   document.body.append(box)
   return { box, target, remove: () => box.remove() }
 }
+
+/** `n` animation frames: a ResizeObserver delivers in the frame after a change's layout. */
+const frames = (n: number) =>
+  Effect.promise(() => new Promise<void>((resolve) => {
+    const next = (left: number): void => {
+      if (left === 0) return resolve()
+      requestAnimationFrame(() => next(left - 1))
+    }
+    next(n)
+  }))
 
 /** Scroll `box` to `top` and fire its event at once, as a synthetic dispatch runs its listeners. */
 const scrollTo = (box: HTMLElement, top: number): void => {
@@ -90,6 +108,8 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       const scope = yield* Scope.make()
       const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
       expect(registry.get(atom).y.length).toBe(900)
+      // Past the observers' first delivery (#239), so only the resize below is read.
+      yield* frames(3)
       s.box.style.height = "200px"
       // The ResizeObserver delivers after layout, in the next rendering update.
       yield* Effect.promise(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
@@ -183,6 +203,160 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       expect(heard).toBe(1)
       stop()
       yield* Scope.close(scope, Exit.void)
+      s.remove()
+    }))
+
+  it.effect("PS8: a container's content grows with the scroll still: its range and progress follow", () =>
+    Effect.gen(function* () {
+      const s = scene()
+      const column = s.box.firstElementChild as HTMLElement
+      const probe = yield* Probe.Probe
+      const registry = yield* AtomRegistry.AtomRegistry
+      const scope = yield* Scope.make()
+      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      // An observer delivers once as it starts: past that, only a change reads anything.
+      yield* frames(3)
+      scrollTo(s.box, 450)
+      expect(registry.get(atom).y).toEqual({ current: 450, length: 900, progress: 0.5 })
+      // The browser's own scroll event for that scrollTop comes a frame later: past it too.
+      yield* frames(3)
+      column.style.height = "1900px"
+      yield* frames(2)
+      expect(registry.get(atom).y, "no scroll event: the content's resize").toEqual({ current: 450, length: 1800, progress: 0.25 })
+      yield* Scope.close(scope, Exit.void)
+      s.remove()
+    }))
+
+  it.effect("PS9: the page with a body sized to the window: a child added, then grown, moves its range", () =>
+    Effect.gen(function* () {
+      const html = document.documentElement
+      const before = { html: html.style.height, body: document.body.style.height }
+      html.style.height = "100%"
+      document.body.style.height = "100%"
+      const probe = yield* Probe.Probe
+      const registry = yield* AtomRegistry.AtomRegistry
+      const scope = yield* Scope.make()
+      const atom = yield* probe.scroll().pipe(Scope.provide(scope))
+      const page = document.scrollingElement as Element
+      const tall = document.createElement("div")
+      tall.style.cssText = "height: 3000px"
+      document.body.append(tall)
+      yield* frames(2)
+      expect(registry.get(atom).y.length, "a child added after the reader started").toBe(page.scrollHeight - page.clientHeight)
+      const added = registry.get(atom).y.length
+      expect(added).toBeGreaterThan(2000)
+      tall.style.height = "4000px"
+      yield* frames(2)
+      expect(registry.get(atom).y.length - added, "that child grown").toBe(1000)
+      tall.remove()
+      // A body of its content's height that grows by text alone: only the body's own box shows it.
+      html.style.height = before.html
+      document.body.style.height = before.body
+      yield* frames(3)
+      const grown = registry.get(atom).y.length
+      const text = document.createTextNode("")
+      document.body.append(text)
+      yield* frames(3)
+      text.textContent = Array.from({ length: 400 }, () => "line").join(" \n")
+      document.body.style.whiteSpace = "pre"
+      yield* frames(3)
+      expect(registry.get(atom).y.length, "text added straight to the body").toBe(page.scrollHeight - page.clientHeight)
+      expect(registry.get(atom).y.length).toBeGreaterThan(grown)
+      yield* Scope.close(scope, Exit.void)
+      text.remove()
+      document.body.style.whiteSpace = ""
+    }))
+
+  it.effect("PS10: a target moves as content above it grows, and resizes on its own: its progress follows", () =>
+    Effect.gen(function* () {
+      // A column of auto height: a spacer, then the target, then filler.
+      const box = document.createElement("div")
+      box.style.cssText = "position: relative; width: 200px; height: 100px; overflow: auto"
+      const column = document.createElement("div")
+      const spacer = document.createElement("div")
+      spacer.style.height = "300px"
+      const target = document.createElement("div")
+      target.style.cssText = "width: 50px; height: 80px"
+      const filler = document.createElement("div")
+      filler.style.height = "600px"
+      column.append(spacer, target, filler)
+      box.append(column)
+      document.body.append(box)
+      const probe = yield* Probe.Probe
+      const registry = yield* AtomRegistry.AtomRegistry
+      const scope = yield* Scope.make()
+      // "start end" → "end start": from where the target's top meets the box's bottom to where its bottom meets the box's top.
+      const atom = yield* probe.scroll({ container: box, target, offset: ["start end", "end start"] }).pipe(Scope.provide(scope))
+      yield* frames(3)
+      scrollTo(box, 290)
+      // 200 → 380 (300 − 100 to 300 + 80): 290 is halfway.
+      expect(registry.get(atom).y.progress).toBeCloseTo(0.5, 9)
+      yield* frames(3)
+      spacer.style.height = "390px"
+      yield* frames(2)
+      // 290 → 470: 290 is at its start.
+      expect(registry.get(atom).y.progress, "moved down by what grew above it").toBeCloseTo(0, 9)
+      // A target in a column of fixed height: its own resize, with nothing else moving.
+      column.style.height = "1000px"
+      yield* frames(2)
+      scrollTo(box, 380)
+      expect(registry.get(atom).y.progress).toBeCloseTo(0.5, 9)
+      yield* frames(3)
+      target.style.height = "260px"
+      yield* frames(2)
+      // 290 → 650: 380 is a quarter of the way.
+      expect(registry.get(atom).y.progress, "the target's own resize").toBeCloseTo(0.25, 9)
+      yield* Scope.close(scope, Exit.void)
+      box.remove()
+    }))
+
+  it.effect("PS11: a child added later is watched, a removed one changes the range, the last reader out disconnects both observers, an idle container is never read", () =>
+    Effect.gen(function* () {
+      const s = scene()
+      const probe = yield* Probe.Probe
+      const registry = yield* AtomRegistry.AtomRegistry
+      const disconnects = { resize: 0, mutation: 0 }
+      const resizeDisconnect = ResizeObserver.prototype.disconnect
+      const mutationDisconnect = MutationObserver.prototype.disconnect
+      ResizeObserver.prototype.disconnect = function () {
+        disconnects.resize++
+        return resizeDisconnect.call(this)
+      }
+      MutationObserver.prototype.disconnect = function () {
+        disconnects.mutation++
+        return mutationDisconnect.call(this)
+      }
+      const scope = yield* Scope.make()
+      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      let heard = 0
+      const stop = registry.subscribe(atom, () => void heard++)
+      yield* frames(6)
+      expect(heard, "idle: nothing read changes").toBe(0)
+      const late = document.createElement("div")
+      late.style.height = "500px"
+      s.box.append(late)
+      yield* frames(2)
+      expect(registry.get(atom).y.length, "the added child's height").toBe(1400)
+      late.style.height = "900px"
+      yield* frames(2)
+      expect(registry.get(atom).y.length, "the added child is watched").toBe(1800)
+      late.remove()
+      yield* frames(2)
+      expect(registry.get(atom).y.length, "its removal").toBe(900)
+      // A second reader whose target is one of the children: its going leaves the child watched.
+      const column = s.box.firstElementChild as HTMLElement
+      const second = yield* Scope.make()
+      yield* probe.scroll({ container: s.box, target: column }).pipe(Scope.provide(second))
+      yield* Scope.close(second, Exit.void)
+      yield* frames(2)
+      column.style.height = "1500px"
+      yield* frames(2)
+      expect(registry.get(atom).y.length, "the child still watched for the first reader").toBe(1400)
+      stop()
+      yield* Scope.close(scope, Exit.void)
+      expect(disconnects).toEqual({ resize: 1, mutation: 1 })
+      ResizeObserver.prototype.disconnect = resizeDisconnect
+      MutationObserver.prototype.disconnect = mutationDisconnect
       s.remove()
     }))
 })

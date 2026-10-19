@@ -1,8 +1,8 @@
 /**
  * `Probe.scroll` for the DOM (#234, ADR-0043 *Amendment (#233, #234)*): a container's scroll as an
- * Atom, set inside the container's `scroll` event, the window's `resize` and the container's own
- * resize, so a value derived from it is written in the frame that shows the scroll (#45's pattern
- * for `viewport`).
+ * Atom, set inside the container's `scroll` event, the window's `resize`, and a resize of the
+ * container or its content (#239), so a value derived from a scroll is written in the frame that
+ * shows it (#45's pattern for `viewport`).
  *
  * One listener set a container, however many read it: a reader adds its own measure to the
  * container's set and takes it out when its Scope closes, and the last one out removes the
@@ -14,6 +14,15 @@
  * each stop resolves to a scroll
  * position, the target's edge (in the target's length, from where it sits in the container) less
  * the container's edge (in the container's), and progress runs piecewise between them, clamped.
+ *
+ * **The content's size** (#239, ADR-0043 *Amendment (#239)*): content that grows or shrinks with the
+ * scroll still changes the range and a target's offsets, and fires no `scroll`. One `ResizeObserver`
+ * a container watches its own box and its direct children (the page: the body and its children),
+ * a `MutationObserver` keeping the children watched as they're added and removed, and each reader's
+ * target. A deep change resizes the direct child it sits in. Nothing runs while nothing changes; a
+ * change is read after its layout, so what it moves paints a frame later. Overflow no watched box
+ * shows (an absolutely positioned descendant hanging out) isn't seen: Motion's `trackContentSize`
+ * reads the size every frame instead, opt-in.
  *
  * Observability: per event, so quiet (no span, no log).
  */
@@ -37,6 +46,8 @@ import * as ScrollOffset from "../ScrollOffset.ts"
 interface Container {
   readonly readers: Set<() => void>
   count: number
+  /** Watch a reader's target's size too, until the returned function is called. */
+  readonly watch: (target: Element) => () => void
   readonly remove: () => void
 }
 
@@ -254,22 +265,59 @@ export const makeScroll = (registry: AtomRegistry.AtomRegistry): ((options?: Pro
     const scrolls: EventTarget = Bool.match(page, { onTrue: (): EventTarget => window, onFalse: () => element })
     scrolls.addEventListener("scroll", readAll, { passive: true })
     window.addEventListener("resize", readAll)
-    // A container's own resize changes its range.
-    const observer = Bool.match(page, {
-      onTrue: () => Option.none<ResizeObserver>(),
-      onFalse: () => {
-        const ro = new ResizeObserver(readAll)
-        ro.observe(element)
-        return Option.some(ro)
-      },
+    // Sizes (#239): a container's own box, its content's, and its readers' targets'. One observer,
+    // each box counted by the reasons it's watched for (a target can be a child too).
+    const sizes = new ResizeObserver(readAll)
+    const watched = new Map<Element, number>()
+    const observe = (box: Element): void => {
+      const count = Option.getOrElse(Option.fromUndefinedOr(watched.get(box)), () => 0)
+      watched.set(box, count + 1)
+      if (count === 0) sizes.observe(box)
+    }
+    const unobserve = (box: Element): void => {
+      const count = Option.getOrElse(Option.fromUndefinedOr(watched.get(box)), () => 0)
+      if (count === 0) return
+      if (count > 1) {
+        watched.set(box, count - 1)
+        return
+      }
+      watched.delete(box)
+      sizes.unobserve(box)
+    }
+    // A container's own resize changes its range; the page's is the window's.
+    if (Bool.not(page)) observe(element)
+    // Its content: the direct children (the page's, the body and the body's: a body sized to the
+    // window doesn't grow with what overflows it), kept as they come and go.
+    const parent = Bool.match(page, { onTrue: () => Option.fromNullOr(document.body), onFalse: () => Option.some(element) })
+    Option.map(parent, (content) => {
+      if (page) observe(content)
+      Arr.forEach(Array.from(content.children), observe)
     })
+    const children = new MutationObserver((records) => {
+      Arr.forEach(records, (record) => {
+        Arr.forEach(Array.from(record.addedNodes), (node) => {
+          if (node instanceof Element) observe(node)
+        })
+        Arr.forEach(Array.from(record.removedNodes), (node) => {
+          if (node instanceof Element) unobserve(node)
+        })
+      })
+      // A removed child resizes nothing still watched, and changes the range all the same.
+      readAll()
+    })
+    Option.map(parent, (content) => children.observe(content, { childList: true }))
     const container: Container = {
       readers,
       count: 0,
+      watch: (target) => {
+        observe(target)
+        return () => unobserve(target)
+      },
       remove: () => {
         scrolls.removeEventListener("scroll", readAll)
         window.removeEventListener("resize", readAll)
-        Option.map(observer, (ro) => ro.disconnect())
+        sizes.disconnect()
+        children.disconnect()
       },
     }
     containers.set(element, container)
@@ -315,6 +363,11 @@ export const makeScroll = (registry: AtomRegistry.AtomRegistry): ((options?: Pro
             unmount()
           }),
       )
+      // A target's own size moves its offsets (#239): watched while this reader reads.
+      yield* Option.match(Option.fromUndefinedOr(options.target as Element | undefined), {
+        onNone: () => Effect.void,
+        onSome: (target) => Effect.acquireRelease(Effect.sync(() => container.watch(target)), (unwatch) => Effect.sync(unwatch)),
+      })
       return atom
     })
 }
