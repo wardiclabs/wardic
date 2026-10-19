@@ -24,8 +24,10 @@ import * as Spring from "@wardic/core/Spring"
 import * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import type * as Effect from "effect/Effect"
-import { constTrue, identity } from "effect/Function"
+import * as Effect from "effect/Effect"
+import { constTrue, identity, type LazyArg } from "effect/Function"
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -69,6 +71,33 @@ export interface Blend {
 /** One leg of a Retarget. */
 export type Leg = Snap | Follow | Numbers | Blend
 
+/** The orchestration's fields (ADR-0007): read by the variant tree, never by a machine. */
+const ORCHESTRATION = ["staggerChildren", "delayChildren", "from", "staggerDirection", "when"] as const
+
+/** A transition as a machine takes it: without the orchestration's fields (#243), each arm. */
+export type MotionTransition = WardicTransition extends infer T ? (T extends unknown ? Omit<T, (typeof ORCHESTRATION)[number]> : never) : never
+
+/** Each transition without its orchestration, by the transition: one object each, so core's decode cache hits (#66). */
+const MOTIONS = new WeakMap<WardicTransition, MotionTransition>()
+
+/**
+ * A transition as its machines take it: without the orchestration's fields (#243). A stagger's
+ * `from` (`"last"`, `"center"`) is the variant tree's, and a spring decodes `from` as its starting
+ * position, so it failed every leg; the rest of those fields a machine ignores. The same transition,
+ * one with none of them.
+ */
+export const motionOf = (transition: WardicTransition | undefined): MotionTransition | undefined =>
+  UndefinedOr.map(transition, (t): MotionTransition =>
+    Bool.match(Arr.some(ORCHESTRATION, (key) => Object.hasOwn(t, key)), {
+      onFalse: () => t as MotionTransition,
+      onTrue: () =>
+        Option.getOrElse(Option.fromUndefinedOr(MOTIONS.get(t)), () => {
+          const motion = Rec.filter(t as Record<string, unknown>, (_, key) => Bool.not(Arr.contains(ORCHESTRATION, key))) as MotionTransition
+          MOTIONS.set(t, motion)
+          return motion
+        }),
+    }))
+
 /** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
 const NO_TRANSITION: Machine.SpringOptions = {}
 
@@ -84,7 +113,8 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  *
  * @param from each key's start
  * @param to each key's target
- * @param transition the transition the legs run on, any stagger delay folded in (ADR-0007)
+ * @param given the transition the legs run on, any stagger delay folded in (ADR-0007); its orchestration
+ *   fields are left out ({@link motionOf})
  * @param reducedMotion whether reduced motion is on (the provider's, ADR-0029); a transition can still opt out
  * @param positionalKeys which keys are positional: the Environment's (ADR-0036)
  * @param velocities each key's velocity now: a spring starts from it
@@ -93,12 +123,13 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
 export const legsOf = (
   from: Values.Values,
   to: Values.Values,
-  transition: WardicTransition | undefined,
+  given: WardicTransition | undefined,
   reducedMotion: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   velocities: Readonly<Record<string, number>>,
   follow?: Follows | undefined,
 ): ReadonlyArray<Leg> => {
+  const transition = motionOf(given)
   const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
   // through the delay it would hold, and the rest animate as they would. A transition opts out with
@@ -165,6 +196,21 @@ export const legsOf = (
   }
   return legs
 }
+
+/**
+ * `leg`, started `at()` seconds in (`Machine.startAt`): a Handoff's first legs, which pick up an
+ * Appear animation where its CSS has got (#48, ADR-0044 decision 6).
+ */
+export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => startingAtMatch({ leg, at })
+
+/** {@link startingAt}'s cases, built once at module load: it runs per element at hydration (#69's PR 2). */
+const startingAtMatch: (input: { readonly leg: Leg; readonly at: LazyArg<number> }) => Leg = Match.type<{ readonly leg: Leg; readonly at: LazyArg<number> }>().pipe(
+  Match.when({ leg: { _tag: "Blend" } }, ({ leg, at }): Leg => ({ ...leg, machine: () => Effect.map(leg.machine(), Machine.startAt(at)) })),
+  Match.orElse(({ leg, at }): Leg => {
+    const plain = leg as Exclude<Leg, Blend>
+    return { ...plain, machine: () => (plain.machine() as Machine.Machine<Frame.Frame<unknown>>).pipe(Machine.startAt(at)) } as Leg
+  }),
+)
 
 /** The snap's leg: the positional keys, from where they are to `to`, after `delay()`. */
 const snapLeg = (from: Values.Values, positional: Values.Values, to: Values.Values, delay: () => number): Snap => ({

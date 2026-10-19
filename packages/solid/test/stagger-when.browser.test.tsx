@@ -215,3 +215,42 @@ it("(e) a child WITHOUT a parent Provider is unaffected (no stagger/gating)", as
   await until(() => op(loneEl) >= 0.99)
   expect(op(loneEl)).toBeCloseTo(1, 1)
 })
+
+it("(f) #243: a stagger from: 'last' on a spring parent animates it and its children, the last one first", async () => {
+  // A stagger's `from` used to reach the spring, which decoded "last" as its starting position and
+  // failed every leg: the parent's, and its children's, which inherit its transition.
+  const { setOpen, els } = renderStagger({ staggerChildren: 0.08, from: "last", stiffness: 60, damping: 30 }, 3)
+  await raf()
+  await raf()
+  setOpen(true)
+  const cross = await crossings(els, 0.5, () => allAt(els, 1))
+  expect(cross[2]).toBeGreaterThanOrEqual(0)
+  expect(cross[1]!).toBeGreaterThan(cross[2]!)
+  expect(cross[0]!).toBeGreaterThan(cross[1]!)
+  expect(allAt(els, 1)).toBe(true)
+})
+
+it("(g) #243: a layout node whose transition carries a stagger from: 'center' still animates its layout", async () => {
+  let box!: HTMLElement
+  const [wide, setWide] = createSignal(false)
+  render(() => {
+    function App() {
+      const ward = createWard(() => ({ layout: true, transition: { from: "center", staggerChildren: 0.1, stiffness: 120, damping: 20 } as const }))
+      return <div {...ward({ ref: (node: HTMLElement) => (box = node), style: { width: Bool.match(wide(), { onTrue: () => "200px", onFalse: () => "100px" }), height: "20px" } })} />
+    }
+    return (
+      <WardicProvider env={DomLive}>
+        <App />
+      </WardicProvider>
+    )
+  })
+  await raf()
+  await raf()
+  setWide(true)
+  const transforms: Array<string> = []
+  for (let i = 0; i < 20; i++) {
+    await raf()
+    transforms.push(box.style.transform)
+  }
+  expect(transforms.some((t) => t !== "" && t !== "none"), `a FLIP ran: ${transforms.slice(0, 4).join(" | ")}`).toBe(true)
+})

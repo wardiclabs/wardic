@@ -13,7 +13,7 @@ Wardic is a fine-grained reactive animation engine built on [Effect v4](https://
 
 **Environments are services, not parallel packages.** The engine declares its dependencies (Clock, Renderer, InputSource, Probe, InterpolatorRegistry) as Effect services. Environment packages provide Layer implementations. Adding a new environment is writing a Layer, not reimplementing the engine. The same animation code works everywhere a Layer exists.
 
-**SSR-correct by default.** `createWard` computes initial styles synchronously during render and applies them via spread props. Server-rendered HTML arrives at the client already in the correct initial state. No flash of unanimated content, no hydration mismatch.
+**SSR-correct by default.** `createWard` computes initial styles synchronously during render and applies them via spread props. Server-rendered HTML arrives at the client already in the correct initial state. No flash of unanimated content, no hydration mismatch. And a mount animation doesn't wait for your JavaScript: the server samples it from Wardic's own springs and tweens into CSS, it plays from first paint (to its end with JS off), and the client takes it over at hydration, mid-flight, velocity included (*Appear animations*, ADR-0044).
 
 **Variant orchestration as a first-class feature.** Declarative named animation states propagate through the component tree, from every Wardic element to its children. Children inherit the current variant from their parent, with automatic stagger support and configurable ordering. Familiar pattern from Framer Motion, but built on a reactive foundation that scales cleanly to complex trees.
 
@@ -155,6 +155,7 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | `useTime()` | `createTime()` |
 | `onUpdate={(latest) => …}` | `onUpdate={(latest) => …}` |
 | a motion value that `drag` or `animate` writes into | `ward.value("x")`, the element's output |
+| Framer's optimised appear animations (`startOptimizedAppearAnimation`) | on by default for a server render: `<WardicProvider appear={false}>` or an element's `appear={false}` turns it off |
 
 One difference in how a value you move works: Wardic never writes into it. It's an input the element follows, and what Wardic shows comes out through the element's output, `ward.value(key)` (see *Live values* below).
 
@@ -248,6 +249,21 @@ function ScrollLinked() {
 ```
 
 A scroll's values are set within its own event, so what you derive from them paints in the frame of the scroll. Velocity reads 0 once its value stops, and time keeps the frame loop running while it exists.
+
+### Server rendering and Appear animations
+
+A server render gives every element its starting style (its `initial`), and the client hydrates it with no flash. An element whose whole mount animation the server knows (static `initial` and `animate`, every key starting from `initial`) also plays it from first paint: the server samples it from the same springs and tweens the client runs into a CSS `@keyframes` rule in the page's head, and the element runs it before any JavaScript does. At hydration the engine takes it over where the CSS has got to, velocity included; with JavaScript off, it plays to its end and holds. Variant staggers, `when`, repeats and reduced motion (`prefers-reduced-motion`) carry over.
+
+```tsx
+<WardicProvider env={DomLive}>
+  {/* Plays from first paint, taken over at hydration. */}
+  <wardic.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>Hello</wardic.h1>
+  {/* Waits for hydration, as before. */}
+  <wardic.div appear={false} initial={{ scale: 0.9 }} animate={{ scale: 1 }} />
+</WardicProvider>
+```
+
+The rules go in the head through Solid's `useAssets` (SolidStart's document renders them; a render with no `</head>` leaves its elements at their starting style). A `layout` element, a key that starts from the element's own value (no `initial`), and an `auto` or `var()` value wait for hydration. Each element costs a server render about 8 µs more.
 
 ### Imperative primitives for fine-grained control
 

@@ -15,6 +15,10 @@ export default function Home() {
           <a href="/ssr" rel="external">/ssr</a>: every Wardic element rendered on the server, then hydrated, with a hydration
           report (#41). The link loads the page from the server; the router would render it client-side.
         </p>
+        <p>
+          <a href="/appear" rel="external">/appear</a>: Appear animations (#48), mount animations played in CSS from first
+          paint and taken over at hydration, with a report; add <code>?hydrate=1500</code> to hydrate mid-flight.
+        </p>
         <ul>
           <li>@wardic/core — v{corePackage.version}</li>
           <li>@wardic/dom — v{domVersion}</li>

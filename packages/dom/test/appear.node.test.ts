@@ -1,7 +1,8 @@
 // Appear animations, the DOM's server half (#48, ADR-0044): a mount animation sampled into one
 // `@keyframes` rule, thinned within a tolerance per key, cached by its spec, and a render's sheet.
 //
-// - AP1: a spring's rule: its name, its length in 60 Hz frames, its first and last stops.
+// - AP1: a spring's rule: its name, its length in 60 Hz frames, where it settles, its first and last
+//   stops.
 // - AP2: every sample a dropped stop stood for is within its key's tolerance of the line drawn
 //   (a length in px, a scale at 0.001), and the default spring keeps under a third of its frames.
 // - AP3: a bouncy spring's overshoot peaks are kept, within tolerance.
@@ -90,6 +91,7 @@ describe("the sampler (#48, ADR-0044)", () => {
     expect(rule.name.startsWith(Appear.PREFIX)).toBe(true)
     const end = Math.round(rule.duration * 60)
     expect(rule.duration).toBeCloseTo(end / 60, 12)
+    expect(rule.settled, "settled: the frame the spec settles at, past the rule's end").toBeCloseTo((frames.length - 1) / 60, 12)
     expect(end).toBeLessThan(frames.length - 1)
     const off = (frame: Values.Values) => Math.abs(frame.y as number) > 0.1 || Math.abs((frame.opacity as number) - 1) > 0.002
     expect(off(frames[end - 1]!), "the frame before the end is still moving").toBe(true)

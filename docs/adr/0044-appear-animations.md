@@ -99,12 +99,9 @@ This amends ADR-0003 and ADR-0021.
   - an `animation: var(--wardic-aN)` in each qualifying element's inline style.
 
   Server-rendered entrances move from first paint, and play through with JS off.
-- **A server render pays (Bun, `.tmp/48/server-cost.ts`):**
-  - 77–122 µs once per distinct spec per process, to sample it;
-  - about 2 µs per element for a cached spec (its name's hash and the lookup);
-  - 1.4 µs per element for a sheet's slot and definition.
-
-  ADR-0021 measured about 9 µs per element for the rest of a server render.
+- **A server render pays:**
+  - 77–122 µs once per distinct spec per process, to sample it (Bun, `.tmp/48/server-cost.ts`);
+  - per qualifying element, through the Solid binding: about 8 µs with reduced motion's default `"user"` (two sets of rules), about 6 µs with `"never"`. The rest of a 100-element render costs about 4.6 µs per element (the ssr project in Node, PR 3).
 - **The CSS's size:** a rule of 1–2 KB per distinct spec, and one `:root` declaration (about 70 B) per element: 10 KB for 100 elements over three specs, before compression.
 - **A client pays at mount:** one `getAnimations()` per qualifying element, and a catch-up of one machine step per 1/60 s elapsed, once per run. Nothing per frame.
 - **Not covered:**
@@ -137,6 +134,47 @@ This amends ADR-0003 and ADR-0021.
   - a finished animation still filling;
   - an undefined custom property playing nothing;
   - a delay.
+
+## Implementation (PR 3)
+
+- **On a server:**
+  - The provider holds a render's Appear state in its existing context: a new provider component would have moved every hydration key (ADR-0021, decision 4).
+  - `serverWard` (`wardic.<tag>`, `createWard`) and the component wrap enter each element. A Variant child joins its parent's group through the server's variant context (`appearGroup`), in render order.
+  - `useAssets` writes `<style data-wardic-appear>` with `innerHTML`. Solid escapes a text child, which breaks CSS quoting.
+  - A user style's own `animation` is known only when `ward()` is called, so it vetoes the entry after the fact. The element keeps its own `animation`, and its slot stays undefined.
+- **Timings:**
+  - A child under `when: "beforeChildren"` starts at its parent's settle: the machine's own, stepped in 1/60 s as the sampler does (`Keyframes.settled`, past the rule's trimmed end).
+  - Summed in 1/60 s steps, a 0.3 s tween lands just past 0.3 at its 18th step and settles there, but a 0.5 s tween lands just short at its 30th step and settles at the 31st. The settle comes from stepping the machine, not from the duration.
+  - A forever-repeating tween is sampled as two runs and the `repeatDelay` after them, with no delay before: one CSS cycle, played `infinite`, its own delay in `animation-delay`. Two runs make the cycle exact for every `repeatType`.
+- **The Handoff's start:** `elapsed − animation-delay − the rule's own hold + the client's transition delay`.
+  - The difference is a `when` wait the client waited itself. Under it, a child can start a frame before the server's timing said; core's `startAt` holds a negative start.
+- **The spec's key:**
+  - Canonical text: sorted keys, `undefined`s left out, and an easing by `Easing.nameOf` (the Penner set by name; `cubicBezier`, `steps` and `spring` by their call). An app's own easing function has no name, so its element waits for hydration.
+  - Written directly, once per element: built with `Match.value` per value and a sorting `JSON.stringify` replacer, the binding added 26 µs per element; profiled down to 8.
+- **Found on the way:**
+  - #243: a stagger's `from` (`"last"`, `"center"`) sat in the transition a spring decodes `from` from, and every leg failed. Machines now get a transition without its orchestration fields (`motionOf`).
+  - In PR 1: a sampled jump holds to halfway between its frames, and `startAt` holds a negative start.
+- **The hydration tests read each frame after its callbacks** (a task posted from `requestAnimationFrame`). Read inside the callback, they saw the engine's previous frame: the engine's tick is a later callback.
+- **The hand check, `/appear`** in `examples/solid-start-basic`, with `?hydrate=<ms>`. Headless (`.tmp/48/drive-appear.ts`):
+  - hydrated at once, at 300 ms, at 1.2 s, and under reduced motion: every element OK (played by CSS or in its delay, no step at the Handoff, the CSS animation gone);
+  - with JS off, each ends at its target and holds; `/ssr` 14/14 with `appear={false}`.
+
+### Pinned by (PR 3)
+
+- `packages/solid/test/appear.ssr.test.tsx`, AR1–AR10:
+  - the slot and the head's rule;
+  - the off switches;
+  - each refusal;
+  - reduced motion's three settings;
+  - stagger by `from` and direction;
+  - `when` both ways;
+  - an infinite cycle;
+  - hydration keys unchanged;
+  - no head;
+  - a component wrap and a spread.
+- `packages/solid/test/appear.hydrate.browser.test.tsx`, AH1–AH8: server render, then hydration, every frame compared with the machine at its time. That covers a spring and a tween handed off mid-flight, a late hydration, JS off, a stagger, `when`, a loop and reduced motion.
+- `packages/solid/test/stagger-when.browser.test.tsx` (f), (g): #243.
+- `packages/core/test/easing.test.ts`: `Easing.nameOf`.
 
 ## Implementation (PR 1)
 

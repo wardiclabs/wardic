@@ -1,0 +1,466 @@
+/**
+ * Appear animations in the Solid binding (#48, ADR-0044): a server-rendered mount animation played
+ * in CSS from first paint, and taken over at mount (the **Handoff**).
+ *
+ * - **Both sides** describe an element's mount animation the same way ({@link MountAnimation}): its
+ *   starting values, its targets, its own transition and whether motion is reduced. The rule's name
+ *   is the hash of that description ({@link keyOf}), so the client tells a Handoff it can continue
+ *   from one it can't.
+ * - **On a server** the provider holds one render's {@link ServerAppear}. Each element that
+ *   qualifies takes a slot (its inline `animation: var(--wardic-aN)`); a Variant child joins its
+ *   parent's group, in render order. Once the render is done, `css()` works out each one's timing
+ *   (its stagger, its `when`) and writes the head's `<style>`.
+ * - **At mount** the spine finds the element's animation ({@link handoffOf}), starts its first legs
+ *   that far in, and removes it in its first commit.
+ */
+import * as Easing from "@wardic/core/Easing"
+import type * as Frame from "@wardic/core/Frame"
+import * as Machine from "@wardic/core/Machine"
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as Stagger from "@wardic/core/Stagger"
+import type * as Values from "@wardic/core/Values"
+import * as Appear from "@wardic/dom/Appear"
+import * as DomInterpolators from "@wardic/dom/DomInterpolators"
+import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
+import * as OwnValues from "@wardic/dom/OwnValues"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
+import * as Option from "effect/Option"
+import * as Order from "effect/Order"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
+import * as UndefinedOr from "effect/UndefinedOr"
+import type { WardicTransition } from "./create-ward.tsx"
+import { type Leg, legsOf } from "./retarget-legs.ts"
+
+// --- The mount animation, on both sides -------------------------------------------------------
+
+/** An element's mount animation, described the same on the server and the client. */
+export interface MountAnimation {
+  /** The element's tag, for SVG's routing; `undefined` for an element whose tag isn't known. */
+  readonly tag: string | undefined
+  /** Each animated key's start. */
+  readonly from: Values.Values
+  /** Each animated key's target. */
+  readonly to: Values.Values
+  /** The element's own transition: its stagger isn't in it (ADR-0007). */
+  readonly transition: WardicTransition | undefined
+  /** Whether reduced motion is on for it (ADR-0029). */
+  readonly reduced: boolean
+}
+
+/** What stands in for a function with no easing name: canonical text holding it is no key. */
+const UNNAMED = "\u0000unnamed"
+
+/**
+ * A value as canonical text: JSON with each object's keys in order, `undefined`s left out, and a
+ * function by its easing name (`Easing.nameOf`), else {@link UNNAMED}. Written directly, its cases
+ * built once at module load: it runs per element (#69's PR 2).
+ */
+const textOf: (value: unknown) => string = Match.type<unknown>().pipe(
+  Match.when(Predicate.isFunction, (fn) => Option.match(Easing.nameOf(fn as Easing.Easing), { onNone: () => UNNAMED, onSome: (easing) => `{"easing":${JSON.stringify(easing)}}` })),
+  Match.when(Array.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
+  Match.when(Predicate.isObject, (record) => {
+    const keys = Arr.sort(Arr.filter(Object.keys(record), (key) => Predicate.isNotUndefined((record as Record<string, unknown>)[key])), Order.String)
+    return `{${Arr.map(keys, (key) => `${JSON.stringify(key)}:${textOf((record as Record<string, unknown>)[key])}`).join(",")}}`
+  }),
+  Match.orElse((v) => String(JSON.stringify(v))),
+)
+
+/** A value as canonical text; `None` when a function in it has no easing name. */
+const canonical = (value: unknown): Option.Option<string> => Option.filter(Option.some(textOf(value)), (text) => Bool.not(text.includes(UNNAMED)))
+
+/** Each mount animation's canonical starts, targets and transition, by its `from`: both its plays share one. */
+const baseKeys = new WeakMap<Values.Values, Option.Option<string>>()
+
+/**
+ * The mount animation's key: its starts, targets and transition as one canonical text, and whether
+ * motion is reduced. `None` when the transition holds a function with no easing name
+ * (`Easing.nameOf`): the server can't tell it from another, so the element keeps its Starting style.
+ */
+export const keyOf = (m: MountAnimation): Option.Option<string> => {
+  const base = Option.getOrElse(Option.fromUndefinedOr(baseKeys.get(m.from)), () => {
+    const computed = canonical({ from: m.from, to: m.to, transition: UndefinedOr.match(m.transition, { onUndefined: () => null, onDefined: (t: WardicTransition) => t }) })
+    baseKeys.set(m.from, computed)
+    return computed
+  })
+  return Option.map(base, (text) => `${text}|reduced:${m.reduced}`)
+}
+
+/** Whether a transition repeats for ever: a tween's `repeat: Infinity`. */
+export const repeatsForever = (transition: WardicTransition | undefined): boolean =>
+  UndefinedOr.match(transition, { onUndefined: () => false, onDefined: (t) => Bool.and(t.type === "tween", (t as Machine.AnimateOptions).repeat === Number.POSITIVE_INFINITY) })
+
+/** A transition's own delay, 0 without one. */
+const ownDelayOf = (transition: WardicTransition | undefined): number =>
+  UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: ({ delay = 0 }) => delay })
+
+/**
+ * The seconds a rule holds before it moves, of the delay the client counts: a transition's own
+ * delay is in its rule, except a forever-repeating one's, whose rule is a cycle and whose own delay
+ * goes in `animation-delay` with the stagger.
+ */
+const heldInRule = (transition: WardicTransition | undefined): number =>
+  Bool.match(repeatsForever(transition), { onTrue: () => 0, onFalse: () => ownDelayOf(transition) })
+
+/**
+ * The transition a server samples: as given, but for one that repeats for ever, two runs and the
+ * delay that follows them, with no delay before (one cycle of the CSS, played `infinite`). Two
+ * runs, so a cycle is exact for every `repeatType`, `reverse` and `mirror` included.
+ */
+const sampledTransition = (transition: WardicTransition | undefined): WardicTransition | undefined =>
+  Bool.match(repeatsForever(transition), {
+    onTrue: () => ({ ...transition, delay: 0, repeat: 1 }) as WardicTransition,
+    onFalse: () => transition,
+  })
+
+/**
+ * One machine of a Retarget's legs, run together: each step steps every leg not yet settled, and
+ * merges their values; it settles with the last. What a server samples. Built with the DOM's
+ * Interpolators (a server projects with the DOM's `project`, ADR-0021 decision 2).
+ */
+const together = (legs: ReadonlyArray<Leg>): Machine.Machine<Frame.Frame<Values.Values>> => {
+  const machines = Effect.runSync(
+    Effect.all(Arr.map(legs, (leg): Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, never> => machineOfLeg(leg))).pipe(
+      Effect.provide(DomInterpolators.layer),
+    ),
+  )
+  return Machine.make({
+    settles: true,
+    span: { name: "wardic.appear", attributes: { legs: legs.length } },
+    start: () => {
+      const runs = Arr.map(machines, (machine, i) => ({ step: machine.start(), key: keyOfLeg(legs[i] as Leg), last: Option.none<Frame.Frame<unknown>>() }))
+      return (dt) => {
+        const value: Record<string, number | string> = {}
+        const done = Arr.reduce(runs, true, (all, run) => {
+          const frame = Option.getOrElse(Option.filter(run.last, (last) => last.done), () => run.step(dt))
+          run.last = Option.some(frame)
+          Option.match(run.key, {
+            onNone: () => Object.assign(value, frame.value as Values.Values),
+            onSome: (key) => Object.assign(value, { [key]: frame.value as number }),
+          })
+          return Bool.and(all, frame.done)
+        })
+        return { value, done }
+      }
+    },
+  })
+}
+
+/** A leg's machine, built: a Blend's through the Interpolators. */
+const machineOfLeg = (leg: Leg): Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, never> =>
+  Bool.match(leg._tag === "Blend", {
+    onTrue: () => (leg as Extract<Leg, { _tag: "Blend" }>).machine().pipe(Effect.provide(DomInterpolators.layer)),
+    onFalse: () => Effect.sync(() => (leg as Exclude<Leg, { _tag: "Blend" }>).machine() as Machine.Machine<Frame.Frame<unknown>>),
+  })
+
+/** The key a Follow leg's single value is: its own. */
+const keyOfLeg = (leg: Leg): Option.Option<string> =>
+  Bool.match(leg._tag === "Follow", { onTrue: () => Option.some((leg as Extract<Leg, { _tag: "Follow" }>).key), onFalse: () => Option.none() })
+
+/** The DOM's Positional keys, which a server's reduced rule snaps (ADR-0029, ADR-0036). */
+const DOM_POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
+
+/** A mount animation's spec for the DOM's sampler, or why it has none. */
+export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
+  Option.match(keyOf(m), {
+    onNone: () => Result.fail("its transition holds a function with no easing name"),
+    onSome: (key) => {
+      const transition = sampledTransition(m.transition)
+      const repeatDelay = UndefinedOr.match(m.transition, { onUndefined: () => 0, onDefined: (t) => Option.getOrElse(Option.fromUndefinedOr((t as Machine.AnimateOptions).repeatDelay), () => 0) })
+      return Result.succeed({
+        key,
+        tag: m.tag,
+        infinite: repeatsForever(m.transition),
+        machine: () =>
+          Bool.match(repeatsForever(m.transition), {
+            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, {})), repeatDelay),
+            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, {})),
+          }),
+      })
+    },
+  })
+
+/**
+ * Why a mount animation can't play before hydration, or `None` when it can (decision 4): a key
+ * starting from anything but `initial`, a value the DOM reads from the element (`auto`, `var()`),
+ * or a start that can't take its target's shape (a length pair in two units).
+ */
+export const unplayable = (initial: Values.Values, to: Values.Values): Option.Option<string> =>
+  Arr.findFirst(Rec.toEntries(to), ([key, target]) =>
+    Option.match(Option.fromUndefinedOr(initial[key]), {
+      onNone: () => Option.some(`${key} starts from the element's own value (no initial)`),
+      onSome: (start) =>
+        Bool.match(Bool.or(readsElement(start), readsElement(target)), {
+          onTrue: () => Option.some(`${key} is a value the DOM reads from the element`),
+          onFalse: () =>
+            // A start that can't take its target's shape, a length in another unit among them (ADR-0024).
+            Bool.match(Option.isNone(OwnValues.valueLike(start, target)), {
+              onTrue: () => Option.some(`${key}'s start and target don't take one shape`),
+              onFalse: () => Option.none(),
+            }),
+        }),
+    }))
+
+/** Whether a value is one the DOM reads from the element: `auto`, or a custom property. */
+const readsElement = (value: number | string): boolean => Predicate.isString(value) && /\bauto\b|var\(/.test(value)
+
+// --- The server --------------------------------------------------------------------------------
+
+/** A variant parent's orchestration, on a server: its children in render order, its stagger and `when`. */
+export interface AppearGroup {
+  readonly leader: Entry
+  readonly stagger: { readonly amount: number; readonly delayChildren: number; readonly from: Stagger.Origin; readonly direction: 1 | -1 }
+  readonly when: "beforeChildren" | "afterChildren" | undefined
+  readonly children: Array<Entry>
+}
+
+/** One element's place in a server render's Appear animations. */
+export interface Entry {
+  /** Its mount animation per motion setting, or why it has none; `None` when nothing animates. */
+  readonly plays: { readonly normal: Option.Option<Result.Result<MountAnimation, string>>; readonly reduced: Option.Option<Result.Result<MountAnimation, string>> }
+  readonly slot: Option.Option<Appear.Slot>
+  /** The group it staggers in, as a Variant child. */
+  readonly group: Option.Option<AppearGroup>
+  /** Why it was ruled out after it rendered: its user style, read when `ward()` is called (ADR-0044, decision 4). */
+  readonly vetoes: Array<string>
+}
+
+/** One server render's Appear animations: the provider's (ADR-0044, decisions 3 and 5). */
+export interface ServerAppear {
+  /** The provider's reduced motion: which rules the head holds. */
+  readonly reducedMotion: ReducedMotion.Config
+  /** An element's entry, and its inline `animation` when it plays. */
+  readonly enter: (
+    animation: { readonly normal: Option.Option<Result.Result<MountAnimation, string>>; readonly reduced: Option.Option<Result.Result<MountAnimation, string>> },
+    group: Option.Option<AppearGroup>,
+  ) => { readonly entry: Entry; readonly animation: Option.Option<string> }
+  /** A variant parent's group, its children to come. */
+  readonly group: (leader: Entry, transition: WardicTransition | undefined) => AppearGroup
+  /** The head's CSS, once the render is done: every element's timing worked out, and the rules. */
+  readonly css: () => string
+  /** Why each element that doesn't play doesn't: for the debug log. */
+  readonly reasons: () => ReadonlyArray<string>
+}
+
+/** No transition: no orchestration. */
+const NO_TRANSITION: WardicTransition = {}
+
+/** A server render's Appear animations, for a provider whose reduced motion is `reducedMotion`. */
+export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear => {
+  const sheet = Appear.sheet()
+  const entries: Array<Entry> = []
+  const reasons: Array<string> = []
+  const plays = (animation: Entry["plays"]): boolean =>
+    Bool.or(Option.exists(animation.normal, Result.isSuccess), Option.exists(animation.reduced, Result.isSuccess))
+  return {
+    reducedMotion,
+    enter: (animation, group) => {
+      Arr.forEach([animation.normal, animation.reduced], (play) =>
+        Option.map(Option.flatMap(play, (p) => Result.getFailure(p)), (reason) => reasons.push(reason)))
+      const slot = Option.liftPredicate(animation, plays).pipe(Option.map(() => sheet.slot()))
+      const entry: Entry = { plays: animation, slot, group, vetoes: [] }
+      entries.push(entry)
+      Option.map(group, (g) => g.children.push(entry))
+      return { entry, animation: Option.map(slot, (s) => s.animation) }
+    },
+    group: (leader, transition) => {
+      const { staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1, when } = UndefinedOr.match(transition, {
+        onUndefined: () => NO_TRANSITION,
+        onDefined: (t: WardicTransition) => t,
+      })
+      return { leader, stagger: { amount: staggerChildren, delayChildren, from, direction: staggerDirection }, when, children: [] }
+    },
+    css: () => {
+      const resolve = (pick: "normal" | "reduced") => timings(entries, pick)
+      const normal = Bool.match(reducedMotion === "always", { onTrue: () => resolve("reduced"), onFalse: () => resolve("normal") })
+      const reduced = Bool.match(reducedMotion === "user", { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Map<Entry, Result.Result<Appear.Play, string>>>() })
+      Arr.forEach(entries, (entry) =>
+        Option.map(entry.slot, (slot) => {
+          const play = UndefinedOr.getOrThrow(normal.get(entry))
+          const reducedPlay = Option.map(reduced, (byEntry) => UndefinedOr.getOrThrow(byEntry.get(entry)))
+          const defined = Result.flatMap(play, (p) =>
+            Option.match(reducedPlay, {
+              onNone: () => slot.define(p),
+              onSome: (r) => Result.flatMap(r, (rp) => slot.define(p, rp)),
+            }))
+          Result.match(defined, { onFailure: (reason) => reasons.push(reason), onSuccess: () => undefined })
+        }))
+      return sheet.css()
+    },
+    reasons: () => reasons,
+  }
+}
+
+/**
+ * Each entry's play for one motion setting: its spec and its delay, or why it has none. A Variant
+ * child starts after its stagger (`delayChildren` plus its place, ADR-0007), and after its parent
+ * settles under `when: "beforeChildren"`; a parent under `"afterChildren"` starts once its last
+ * child settles. A start that depends on an element with no rule has none.
+ */
+const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Map<Entry, Result.Result<Appear.Play, string>> => {
+  const memo = new Map<Entry, Result.Result<{ readonly play: Appear.Play; readonly settled: number }, string>>()
+  /** An entry's spec and rule, or why it has none; a missing play (nothing animates) is a rule of 0 s. */
+  const ruleOf = (entry: Entry): Result.Result<Option.Option<{ readonly spec: Appear.Spec; readonly rule: Appear.Keyframes }>, string> =>
+    Arr.match(entry.vetoes, {
+      onNonEmpty: (vetoes) => Result.fail(vetoes.join("; ")),
+      onEmpty: () => playOf(entry),
+    })
+  const playOf = (entry: Entry): Result.Result<Option.Option<{ readonly spec: Appear.Spec; readonly rule: Appear.Keyframes }>, string> =>
+    Option.match(entry.plays[pick], {
+      onNone: () => Result.succeed(Option.none()),
+      onSome: (animation) =>
+        Result.flatMap(Result.flatMap(animation, specOf), (spec) => Result.map(Appear.keyframes(spec), (rule) => Option.some({ spec, rule }))),
+    })
+  /** The seconds from first paint to when `entry` starts, and its play. */
+  const timingOf = (entry: Entry): Result.Result<{ readonly play: Appear.Play; readonly settled: number }, string> =>
+    Option.getOrElse(Option.fromUndefinedOr(memo.get(entry)), () => {
+      const computed = Result.flatMap(ruleOf(entry), (rule) =>
+        Result.map(startOf(entry), (start) => {
+          const spec = Option.match(rule, { onNone: () => undefined, onSome: (r) => r.spec })
+          // A forever-repeating rule is a cycle: its own delay plays before it, and it never settles.
+          const transition = Option.match(entry.plays[pick], { onNone: () => undefined, onSome: (p) => Result.match(p, { onFailure: () => undefined, onSuccess: (m) => m.transition }) })
+          const forever = repeatsForever(transition)
+          const before = Bool.match(forever, { onTrue: () => ownDelayOf(transition), onFalse: () => 0 })
+          const settled = Option.match(rule, { onNone: () => 0, onSome: (r) => Bool.match(forever, { onTrue: () => Number.POSITIVE_INFINITY, onFalse: () => r.rule.settled }) })
+          return { play: { spec: spec as Appear.Spec, delay: start + before }, settled: start + before + settled }
+        }))
+      memo.set(entry, computed)
+      return computed
+    })
+  /** When `entry` starts: its stagger, after its parent under `beforeChildren`, after its children under `afterChildren`. */
+  const startOf = (entry: Entry): Result.Result<number, string> =>
+    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + staggerOf(entry)))
+  const afterParent = (entry: Entry): Result.Result<number, string> =>
+    Option.match(Option.filter(entry.group, (g) => g.when === "beforeChildren"), {
+      onNone: () => Result.succeed(0),
+      onSome: (g) =>
+        Result.flatMap(
+          Result.mapError(Result.map(timingOf(g.leader), (t) => t.settled), (reason) => `its parent has no rule (${reason})`),
+          (settled) => Bool.match(Number.isFinite(settled), { onTrue: () => Result.succeed(settled), onFalse: () => Result.fail("its parent never settles") }),
+        ),
+    })
+  const afterChildren = (entry: Entry): Result.Result<number, string> =>
+    Option.match(Option.fromUndefinedOr(groupsLed.get(entry)), {
+      onNone: () => Result.succeed(0),
+      onSome: (g) =>
+        Bool.match(g.when === "afterChildren", {
+          onFalse: () => Result.succeed(0),
+          onTrue: () =>
+            Result.mapError(
+              Result.map(Result.all(Arr.map(g.children, timingOf)), (kids) => Arr.reduce(kids, 0, (latest, t) => Math.max(latest, t.settled))),
+              (reason) => `a child has no rule (${reason})`,
+            ),
+        }),
+    })
+  const groupsLed = new Map<Entry, AppearGroup>()
+  Arr.forEach(entries, (entry) => Option.map(entry.group, (g) => groupsLed.set(g.leader, g)))
+  return new Map(Arr.map(entries, (entry) => [entry, Result.flatMap(timingOf(entry), (t) => Bool.match(Predicate.isUndefined(t.play.spec), {
+    onTrue: () => Result.fail("nothing animates"),
+    onFalse: () => Result.succeed(t.play),
+  }))] as const))
+}
+
+/** A Variant child's stagger: its parent's `delayChildren` plus its place (ADR-0007), as the client works it out. */
+const staggerOf = (entry: Entry): number =>
+  Option.match(entry.group, {
+    onNone: () => 0,
+    onSome: (g) => {
+      const n = g.children.length
+      const i = g.children.indexOf(entry)
+      const index = Bool.match(g.stagger.direction === -1, { onTrue: () => n - 1 - i, onFalse: () => i })
+      return g.stagger.delayChildren + Stagger.make(g.stagger.amount, { from: g.stagger.from })(index, n)
+    },
+  })
+
+/** What the server knows of an element when it renders it. */
+export interface ServerElement {
+  /** The element's own `appear` (the provider's is the render's {@link ServerAppear}). */
+  readonly appear: boolean | undefined
+  readonly tag: string | undefined
+  /** Its starting values: `initial`, an inherited `initial` name, or `animate` under `initial={false}`. */
+  readonly initial: Values.Values
+  /** Its targets at mount: `animate`, or an inherited variant name resolved against its `variants`; `None` with neither. */
+  readonly to: Option.Option<Values.Values>
+  /** Its own transition, else the one it inherits (ADR-0007). */
+  readonly transition: WardicTransition | undefined
+  /** Whether it's a layout node (`layout` or `layoutId`): its box is measured at mount. */
+  readonly layout: boolean
+  /** The group it staggers in, as a Variant child: its parent's (`node.inherited`). */
+  readonly group: Option.Option<AppearGroup>
+  /** Whether it orchestrates its Variant children: it has variants of its own (ADR-0007). */
+  readonly leads: boolean
+  /** Its own transition, whose stagger and `when` its Variant children follow. */
+  readonly ownTransition: WardicTransition | undefined
+}
+
+/**
+ * An element's entry in a server render's Appear animations: its inline `animation` when it plays
+ * one, and the group its Variant children join when it leads one.
+ */
+export const enterServer = (
+  appear: ServerAppear,
+  el: ServerElement,
+): { readonly animation: Option.Option<string>; readonly group: Option.Option<AppearGroup>; readonly veto: (reason: string) => void } => {
+  // Its starts and targets once, both plays sharing them (and so their key's text, `keyOf`).
+  const mount = Option.flatMap(el.to, (to) =>
+    Bool.match(Rec.isEmptyRecord(Rec.filter(to, (target, key) => Bool.not(el.initial[key] === target))), {
+      onTrue: () => Option.none(),
+      onFalse: () => Option.some(playable(el, to)),
+    }))
+  const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
+    Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced })))
+  const { entry, animation: inline } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
+  return {
+    animation: inline,
+    group: Option.liftPredicate(entry, () => el.leads).pipe(Option.map((leader) => appear.group(leader, el.ownTransition))),
+    veto: (reason) => {
+      entry.vetoes.push(reason)
+    },
+  }
+}
+
+/** An element's starts and targets, or why its mount animation can't play before hydration (decision 4). */
+const playable = (el: ServerElement, to: Values.Values): Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> => playableMatch({ el, to })
+
+/** {@link playable}'s cases, built once at module load: it runs per element (#69's PR 2). */
+const playableMatch: (input: { readonly el: ServerElement; readonly to: Values.Values }) => Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> =
+  Match.type<{ readonly el: ServerElement; readonly to: Values.Values }>().pipe(
+    Match.when({ el: { appear: false } }, () => Result.fail("appear={false}")),
+    Match.when({ el: { layout: true } }, () => Result.fail("a layout node is measured at mount")),
+    Match.orElse(({ el, to }) =>
+      Option.match(unplayable(el.initial, to), {
+        onSome: (reason): Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> => Result.fail(reason),
+        onNone: () => Result.succeed({ from: Rec.map(to, (target, key) => Option.getOrThrow(OwnValues.valueLike(el.initial[key] as number | string, target))), to }),
+      })),
+  )
+
+/** Whether a user style sets an `animation` of its own: the element's one CSS animation would be taken. */
+export const setsAnimation: (css: object | string | undefined) => boolean = Match.type<object | string | undefined>().pipe(
+  Match.when(Predicate.isString, (text) => /(^|;)\s*animation(-name)?\s*:/i.test(text)),
+  Match.when(Predicate.isObject, (record) => Bool.or(Object.hasOwn(record, "animation"), Object.hasOwn(record, "animationName"))),
+  Match.orElse(() => false),
+)
+
+// --- The Handoff -------------------------------------------------------------------------------
+
+/** An element's Appear animation, found at mount: the spine starts its first legs as far in as it has got. */
+export interface Handoff {
+  readonly animation: Animation
+}
+
+/** The element's Appear animation, if a server started one (decision 6). */
+export const handoffOf = (element: Element): Option.Option<Handoff> => Option.map(Appear.find(element), (animation) => ({ animation }))
+
+/**
+ * How far into its own run the client's first legs start, in seconds, read at their first tick:
+ * where the CSS has got, less what the CSS waited that the client waits for itself. The CSS waited
+ * its `animation-delay` and its rule's hold; the client's legs hold their transition's delay
+ * (`clientDelay`, the stagger in it). The difference is a `when` wait, which the client has already
+ * waited.
+ */
+export const startAtOf = (handoff: Handoff, ownTransition: WardicTransition | undefined, clientDelay: number) => (): number =>
+  Appear.elapsedOf(handoff.animation) - Appear.delayOf(handoff.animation) - heldInRule(ownTransition) + clientDelay

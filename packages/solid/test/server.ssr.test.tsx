@@ -455,8 +455,12 @@ describe("a server render on DomLive (ADR-0021)", () => {
       )),
     )
     expect(colour?.style).toEqual({ "background-color": "#000" })
-    expect(keywords?.style).toEqual({ display: "none", height: "10px" })
-    expect(wrapped?.style, "a component wrap's Starting style through style").toEqual({ "background-color": "#000" })
+    // Its whole mount animation starts from `initial`, so it also plays it before hydration (#48, ADR-0044).
+    expect(keywords?.style).toEqual({ display: "none", height: "10px", animation: expect.stringMatching(/^var\(--wardic-a\d+\)$/) })
+    expect(wrapped?.style, "a component wrap's Starting style through style, and its Appear animation").toEqual({
+      "background-color": "#000",
+      animation: expect.stringMatching(/^var\(--wardic-a\d+\)$/),
+    })
   })
 
   it("SV15a (guard): under TestLive, the fixture's hydration keys are the recorded ones", () => {

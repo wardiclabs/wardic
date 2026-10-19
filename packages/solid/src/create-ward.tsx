@@ -38,6 +38,7 @@ import * as Stagger from "@wardic/core/Stagger"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import * as Appear from "@wardic/dom/Appear"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
@@ -77,12 +78,13 @@ import { fromAtom } from "./bridge.ts"
 import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split, valuesOf } from "./live-style.ts"
-import { createVariantNode, ownOrInherited, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
+import { createVariantNode, hasOwnVariants, ownOrInherited, type ServerVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
-import { type Follows, type Leg, legsOf } from "./retarget-legs.ts"
+import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
+import { enterServer, type Handoff, handoffOf, keyOf, type MountAnimation, repeatsForever, setsAnimation, startAtOf } from "./appear.ts"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress, createWhenWanted } from "./sensors.ts"
-import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 
@@ -196,9 +198,11 @@ export interface WardicReducedMotion {
  * options. `type` defaults to `"spring"`; `"tween"` routes every key through
  * `animateValues` (duration-based, no velocity). Both arms also carry the
  * optional {@link WardicOrchestration} fields and {@link WardicReducedMotion}'s opt-out.
+ * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
+ * key starts where it is), and the two clashed (#243).
  */
 export type WardicTransition =
-  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
   | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
 
 /**
@@ -423,6 +427,13 @@ export interface WardConfig {
    * signal it sets paints in the next frame. For one key, `ward.value(key)` costs less.
    */
   readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
+  /**
+   * `false` keeps this element at its Starting style until mount during a server render, when the
+   * provider would start its mount animation in CSS from first paint (an Appear animation, #48,
+   * ADR-0044), for an animation that should start only once the page responds. Read on the server,
+   * once; the provider's `appear` turns it off for every element.
+   */
+  readonly appear?: boolean
 }
 
 /**
@@ -688,6 +699,13 @@ export interface RunSpineOptions {
    */
   readonly makeSink: (el: HTMLElement) => FlushGate.Sink
   /**
+   * Whether the element hydrates a server render (ADR-0021): its Appear animation, if the server
+   * started one, is taken over at mount (#48, ADR-0044 decision 6). Omitted on the directives.
+   */
+  readonly hydrating?: boolean | undefined
+  /** The element's tag, for its mount animation's spec (SVG's routing): `undefined` when it isn't known. */
+  readonly tag?: string | undefined
+  /**
    * Whether the element's drag defaults and base style reach it with its props: a `createWard`
    * spread's `style` and attributes. Otherwise the spine sets them on the element at mount (the
    * directives, and a `wardic.create(Component)` wrap, in case its component doesn't pass them
@@ -711,7 +729,10 @@ export interface RunSpineOptions {
  * Must be called within a Solid owner (it registers `createEffect` / `onCleanup`).
  */
 export function runSpine(opts: RunSpineOptions): void {
-  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf } = opts
+  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
+  // The element's Appear animation, while hydrating (#48, ADR-0044 decision 6): found at mount,
+  // taken over by its first Retarget that starts, and removed in its first commit.
+  let handoff: Handoff | undefined
   // A `style` value read now: a Live value's current value (#130), anything else as it is.
   const readStyle = (raw: unknown): unknown => {
     if (Predicate.isUndefined(live)) return raw
@@ -777,7 +798,8 @@ export function runSpine(opts: RunSpineOptions): void {
       // Register the element with the caller-supplied sink (ADR-0006): each
       // flushed frame's Patch is committed onto it (ADR-0034). An element with `onUpdate` at mount
       // is told each committed frame (#233); any other never joins the gate's tells.
-      const unregister = gate.register(id, withOnUpdate(makeSink(element), untrack(cfg).onUpdate, cfg))
+      if (hydrating === true) handoff = Option.getOrUndefined(handoffOf(element))
+      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, cfg), handoff, element))
       onCleanup(unregister)
 
       // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
@@ -1246,7 +1268,17 @@ export function runSpine(opts: RunSpineOptions): void {
               const routes = live
               follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
             }
-            const retargetLegs = legsOf(from, t, transition, reducedMotion(), positionalKeys, snapshot.velocities, follow)
+            const reduce = reducedMotion()
+            let retargetLegs = legsOf(from, t, transition, reduce, positionalKeys, snapshot.velocities, follow)
+            // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
+            // animation up as far in as its CSS has got, read at the legs' first tick.
+            if (Predicate.isNotUndefined(handoff)) {
+              const taken = handoff
+              handoff = undefined
+              checkHandoff(runtime, id, taken, { tag, from, to: t, transition: baseTransition, reduced: reduce })
+              const at = startAtOf(taken, baseTransition, delayOf(transition))
+              retargetLegs = Arr.map(retargetLegs, (leg) => startingAt(leg, at))
+            }
             reporting = retargetLegs.length
             // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
             // built for the leg that needs it (#69's PR 2: a Retarget is per element).
@@ -1395,6 +1427,37 @@ const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], cfg
 }
 
 
+/**
+ * `sink`, removing the element's Appear animation in its first commit (#48, ADR-0044 decision 6):
+ * in the task that writes the engine's first frame, so no paint falls between. Without one, `sink`.
+ */
+const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefined, element: HTMLElement): FlushGate.Sink => {
+  if (Predicate.isUndefined(handoff)) return sink
+  const before = sink.beforeFirstCommit
+  return {
+    ...sink,
+    beforeFirstCommit: () => {
+      Appear.release(element)
+      if (Predicate.isNotUndefined(before)) before()
+    },
+  }
+}
+
+/**
+ * A Handoff whose Appear animation the server sampled from another mount animation than the
+ * client's: the app rendered differently on the server, or a function it gave has no easing name.
+ * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
+ */
+const checkHandoff = (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation): void => {
+  const same = Option.exists(keyOf(mount), (key) => Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition) }))
+  if (same) return
+  runtime.runFork(
+    Effect.logDebug("wardic.hydration: the server's Appear animation was sampled from another mount animation than this element's; it goes on from the same time").pipe(
+      Effect.annotateLogs({ id }),
+    ),
+  )
+}
+
 /** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
 const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
   Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
@@ -1527,6 +1590,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
     // The spread's `style` and attributes carry the drag defaults and the base style.
     defaultsInProps: true,
+    hydrating,
+    tag: internal.tag,
   })
 
   // `<ward.Provider>` publishes what this instance hands its children (#50): its own
@@ -1651,10 +1716,13 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   const seed = Style.starting(internal.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
   const dragAxis = dragAxisOf(c, internal)
   const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
-  const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
-    <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
-  )
   const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
+  // children join when it leads one.
+  const appear = serverAppearOf(c, internal.tag, initialValues, node)
+  const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
+    <WardicVariantContext.Provider value={appear.provided}>{props.children}</WardicVariantContext.Provider>
+  )
   const read = (value: unknown): unknown => readServerStyle(value)
   let lastStyle: WardUserProps["style"]
   return Object.assign(
@@ -1662,6 +1730,9 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
       lastStyle = userProps.style
       // Its routed keys' values join the Starting style, under `initial`'s (#130).
       const parts = split(userProps.style)
+      // A style with its own `animation` keeps it: the element's Appear animation would take its place.
+      const ownAnimation = setsAnimation(parts.css)
+      if (ownAnimation) appear.veto("its own style sets an animation")
       return {
         ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
         style: pipe(
@@ -1669,6 +1740,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
           Style.over(parts.css),
           Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
           Style.over(dragDefaults),
+          Style.over(Bool.match(ownAnimation, { onTrue: constUndefined, onFalse: () => appear.style })),
         ) as JSX.CSSProperties,
         ...seed.attrs,
         ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
@@ -1681,6 +1753,61 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
     },
   )
 }
+
+/** An element's Appear animation on a server (#48, ADR-0044), as `serverWard` and a component wrap use it. */
+export interface ServerAppearOf {
+  /** Its inline `animation`, under the user's style: none when it plays none. */
+  readonly style: { readonly animation: string } | undefined
+  /** The context its children read: its variant node's, with its Appear group when it leads one. */
+  readonly provided: WardicVariantContextValue | undefined
+  /** Rules it out once it has rendered: its user style is read when `ward()` is called. */
+  readonly veto: (reason: string) => void
+}
+
+/** No Appear animation: a provider with `appear={false}`. */
+const NO_APPEAR = (provided: WardicVariantContextValue | undefined): ServerAppearOf => ({ style: undefined, provided, veto: constVoid })
+
+/**
+ * An element's entry in the server render's Appear animations (#48, ADR-0044): its starting
+ * values, its targets at mount (`animate`, or an inherited variant name against its `variants`),
+ * its transition, and its place in its parent's group.
+ */
+export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode): ServerAppearOf =>
+  UndefinedOr.match(useWardicAppear(), {
+    onUndefined: () => NO_APPEAR(node.provided),
+    onDefined: (state) => {
+      const entered = enterServer(state, {
+        appear: c.appear,
+        tag,
+        initial: initialValues,
+        to: serverTargetOf(c, node.inherited),
+        transition: ownOrInherited(c.transition, node.inherited),
+        layout: Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId)),
+        group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
+        leads: hasOwnVariants(c),
+        ownTransition: c.transition,
+      })
+      return {
+        style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),
+        provided: Option.match(entered.group, {
+          onNone: () => node.provided,
+          onSome: (appearGroup) => UndefinedOr.map(node.provided, (provided): WardicVariantContextValue => ({ ...provided, appearGroup })),
+        }),
+        veto: entered.veto,
+      }
+    },
+  })
+
+/** An element's targets at mount on a server: its `animate`, else an inherited variant name resolved against its own `variants`. */
+const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Values.Values> =>
+  UndefinedOr.match(c.animate, {
+    onDefined: (own) => Option.some(resolveValues(own, c.variants)),
+    onUndefined: () =>
+      Option.map(
+        Option.flatMap(Option.fromUndefinedOr(inherited), (context) => Option.fromUndefinedOr(context.variant())),
+        (name) => resolveValues(name, c.variants),
+      ),
+  })
 
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
 const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf)

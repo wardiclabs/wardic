@@ -22,7 +22,7 @@ import type * as Projection from "@wardic/core/Projection"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constTrue, identity } from "effect/Function"
+import { constTrue } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -31,12 +31,13 @@ import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import type { WardicTransition } from "./create-ward.tsx"
+import { type MotionTransition, motionOf } from "./retarget-legs.ts"
 
 /** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */
 const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restVelocity"] as const
 
-/** A transition that isn't a tween: `type: "spring"`, or no `type`. */
-type SpringTransition = Exclude<WardicTransition, { readonly type: "tween" }>
+/** A transition that isn't a tween: `type: "spring"`, or no `type`, as its machines take it (#243). */
+type SpringTransition = Exclude<MotionTransition, { readonly type: "tween" }>
 
 /** Whether a transition with no `type` sets a spring field. */
 const hasSpringField = (t: SpringTransition): boolean => Arr.some(SPRING_FIELDS, (key) => Predicate.isNotUndefined(t[key]))
@@ -54,7 +55,7 @@ const springOrDefault = (t: SpringTransition): ProjectionSystem.LayoutTransition
   })
 
 /** One transition as a layout animation's (ADR-0009 *Amendment (#171)*): a tween keeps its timing. */
-const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransition =>
+const asLayoutTransition = (t: MotionTransition): ProjectionSystem.LayoutTransition =>
   Match.value(t).pipe(
     Match.when({ type: "tween" }, (tween): ProjectionSystem.LayoutTransition => ({ ...tween, type: "tween" })),
     Match.orElse(springOrDefault),
@@ -65,7 +66,8 @@ const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransit
  * whole `transition`; `undefined`, with neither, for the engine's default, Motion's 0.45 s tween.
  */
 const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<ProjectionSystem.LayoutTransition> =>
-  Option.map(Option.fromUndefinedOr(t), (element) => asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: identity })))
+  Option.map(Option.fromUndefinedOr(motionOf(t)), (element) =>
+    asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: (layout) => UndefinedOr.getOrThrow(motionOf(layout)) })))
 
 /** Options for {@link useLayoutMember}. */
 export interface UseLayoutMemberOptions {

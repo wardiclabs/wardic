@@ -127,7 +127,7 @@ export const easeInOutBounce: Easing = (t) => {
  * Backed by `bezier-easing`.
  */
 export const cubicBezier = (x1: number, y1: number, x2: number, y2: number): Easing =>
-  bezier(x1, y1, x2, y2)
+  named(bezier(x1, y1, x2, y2), `cubicBezier(${x1},${y1},${x2},${y2})`)
 
 /** Step position — where the jump happens within each step. */
 export type StepPosition = "start" | "end"
@@ -140,11 +140,11 @@ export const steps = (count: number, position: StepPosition = "end"): Easing => 
   const n = Math.max(1, Math.floor(count))
   // Chosen once, so the easing itself, which runs per frame, only rounds (ADR-0025).
   const round = Bool.match(position === "start", { onTrue: () => Math.ceil, onFalse: () => Math.floor })
-  return (t) => {
+  return named((t) => {
     const clamped = Scalar.clamp(t, 0, 1)
     const step = round(clamped * n)
     return Scalar.clamp(step / n, 0, 1)
-  }
+  }, `steps(${n},${position})`)
 }
 
 /**
@@ -206,7 +206,7 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
 
   const lastIndex = samples.length - 1
   // Per frame (ADR-0025): early returns, and indexes in range by construction.
-  return (t) => {
+  return named((t) => {
     if (t <= 0) return 0
     if (t >= 1) return 1
     const idx = t * lastIndex
@@ -215,5 +215,39 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
     const frac = idx - lo
     const from = samples[lo]
     return from + (samples[hi] - from) * frac
-  }
+  }, `spring(${stiffness},${damping},${mass})`)
 }
+
+// --- Names (#48, ADR-0044) --------------------------------------------------------------------
+
+/**
+ * The name each easing Wardic makes was made with. A server names a mount animation's transition
+ * by it (an Appear animation's spec), so the same easing names the same CSS rule on the server and
+ * the client, where each made its own function.
+ */
+const NAMES = new WeakMap<Easing, string>()
+
+/** `easing`, remembered under `name`. */
+function named(easing: Easing, name: string): Easing {
+  NAMES.set(easing, name)
+  return easing
+}
+
+Arr.forEach(
+  Object.entries({
+    linear, easeInQuad, easeOutQuad, easeInOutQuad, easeInCubic, easeOutCubic, easeInOutCubic,
+    easeInQuart, easeOutQuart, easeInOutQuart, easeInQuint, easeOutQuint, easeInOutQuint,
+    easeInSine, easeOutSine, easeInOutSine, easeInExpo, easeOutExpo, easeInOutExpo,
+    easeInCirc, easeOutCirc, easeInOutCirc, easeInBack, easeOutBack, easeInOutBack,
+    easeInElastic, easeOutElastic, easeInOutElastic, easeOutBounce, easeInBounce, easeInOutBounce,
+  }),
+  ([name, easing]) => named(easing, name),
+)
+
+/**
+ * The name an easing was made with (#48, ADR-0044): a Penner easing's own (`"easeOutCubic"`), or a
+ * factory's call with its arguments (`"cubicBezier(0.4,0,0.2,1)"`, `"steps(4,end)"`,
+ * `"spring(170,26,1)"`). `None` for a function an app wrote itself, which a server can't tell from
+ * another.
+ */
+export const nameOf = (easing: Easing): Option.Option<string> => Option.fromUndefinedOr(NAMES.get(easing))

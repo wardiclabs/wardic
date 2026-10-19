@@ -1,5 +1,6 @@
 import * as Easing from "@wardic/core/Easing"
 import { expect, it } from "@effect/vitest"
+import * as Option from "effect/Option"
 
 /** The Penner easings: every `Easing` export but the generators (`cubicBezier`, `steps`, `spring`). */
 const penner = Object.entries(Easing)
@@ -52,4 +53,19 @@ it("springEasing's curve is the same since its bag is decoded (#225): main's sam
   expect([0.1, 0.25, 0.5, 0.75].map(defaults)).toEqual([0.47106338743795767, 0.8971595320988142, 0.9951913745458054, 0.9997920031627241])
   const bouncy = Easing.spring({ stiffness: 300, damping: 10, mass: 2 })
   expect([0.1, 0.25, 0.5, 0.75].map(bouncy)).toEqual([1.194085310278693, 1.0194798369298201, 1.0099502090092494, 0.999782822567119])
+})
+
+it("nameOf (#48, ADR-0044): a Penner easing's own name, a factory's call; None for an app's own function", () => {
+  expect(Easing.nameOf(Easing.easeOutCubic)).toEqual(Option.some("easeOutCubic"))
+  expect(Easing.nameOf(Easing.linear)).toEqual(Option.some("linear"))
+  for (const [name, fn] of Object.entries(Easing).filter(([name]) => name === "linear" || name.startsWith("ease"))) {
+    expect(Easing.nameOf(fn as Easing.Easing), name).toEqual(Option.some(name))
+  }
+  expect(Easing.nameOf(Easing.cubicBezier(0.4, 0, 0.2, 1))).toEqual(Option.some("cubicBezier(0.4,0,0.2,1)"))
+  expect(Easing.nameOf(Easing.steps(4.6))).toEqual(Option.some("steps(4,end)"))
+  expect(Easing.nameOf(Easing.steps(3, "start"))).toEqual(Option.some("steps(3,start)"))
+  expect(Easing.nameOf(Easing.spring({ stiffness: 300 }))).toEqual(Option.some("spring(300,26,1)"))
+  // Two calls with the same arguments: two functions, one name.
+  expect(Easing.nameOf(Easing.cubicBezier(0.1, 0.2, 0.3, 0.4))).toEqual(Easing.nameOf(Easing.cubicBezier(0.1, 0.2, 0.3, 0.4)))
+  expect(Option.isNone(Easing.nameOf((t) => t * t))).toBe(true)
 })

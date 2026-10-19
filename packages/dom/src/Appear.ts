@@ -14,6 +14,7 @@
  */
 export {
   animationOf,
+  delayOf,
   elapsedOf,
   find,
   keyframes,
