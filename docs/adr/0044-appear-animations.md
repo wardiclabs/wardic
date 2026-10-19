@@ -28,7 +28,7 @@ This amends ADR-0003 and ADR-0021.
      - wall-clock animations alone: one case of decision 2's, an animation that's a pure function of time;
      - parking it.
 2. **A CSS `@keyframes` rule sampled from Wardic's own machines (Q2).**
-   - The server steps the mount animation through core's machines and the DOM's `project`, and writes it as one `@keyframes` rule. The element's inline style gets `animation: … linear both`.
+   - The server steps the mount animation through core's machines and the DOM's `project`, and writes it as one `@keyframes` rule. The element's inline style gets `animation: … linear forwards`.
    - What paints before hydration is what Wardic would have painted. The composed `transform` is sampled whole, so `x` on a spring and `opacity` on a tween animate together exactly.
    - With JS off or failed, it plays through and holds its target. No script is needed: the `<style>` falls under the same `style-src` policy the Starting style's inline styles already need.
    - Rejected:
@@ -184,6 +184,7 @@ This amends ADR-0003 and ADR-0021.
 - **The sampler copies each Frame before the next step.** `springValues` rewrites one Frame per run in place, and the first build's first stop read as the settled one.
 - **A rule ends where every later Frame is within tolerance of the settled one,** and draws that Frame as the settled one. A 0.5 s tween stepped in 1/60 s settles a frame after it arrives, when the steps' sum crosses its duration; its rule lasts 0.5 s.
 - **A jump holds the Frame before it to halfway, then steps.** A loop's seam (352.5° then 0° on the next frame), a `steps()` easing, a snap, a discrete flip: a line between the two stops drew, on a frame between them, a value the engine never draws. PR 3's hydration test caught a loop spinning backwards. `jumpAt` finds them: a change of text, or a move past its tolerance and four times its neighbours'. Halfway, not a hair before the later Frame: display frames land on the 60 Hz stops give or take a vsync's jitter, and a hold ending 0.17 ms before a stop caught them mid-step.
+- **The rule fills forwards, not both.** Through a stagger's delay the element shows its inline Starting style. A reduced rule's first stop has its positional keys already snapped, and the client's snap holds them at their start until the delay ends (ADR-0029); filling backwards showed them snapped early, a step at the Handoff on the phone check's drive.
 - **Unsafe text is refused:** `<`, `>`, `{`, `}`, `;`, `\` and `/*` in a declaration. A value from an app's config could otherwise end the `<style>` it sits in.
 - **`release` only removes the inline `animation`:** that ends the CSS animation at the task's style update, and a `cancel()` as well changed nothing (a surviving mutation).
 - **The elapsed-time read sits at the first tick, not at mount,** so its frame is the one the CSS was drawing. Inside a `requestAnimationFrame` callback, an animation's `currentTime` is the frame's.

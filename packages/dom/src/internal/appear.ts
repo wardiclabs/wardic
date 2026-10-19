@@ -364,11 +364,16 @@ export const keyframes = (spec: Spec): Result.Result<Keyframes, string> => {
   })
 }
 
-/** An element's `animation` value for a play of `rule`: its name, length, delay and repeat, filling both ways. */
+/**
+ * An element's `animation` value for a play of `rule`: its name, length, delay and repeat, filling
+ * forwards. Not backwards: through its delay the element shows its inline Starting style, which is
+ * the rule's first stop for a rule that moves from it, and the start a reduced rule's snap holds
+ * until the delay ends (ADR-0029), where the first stop is already snapped.
+ */
 export const animationOf = (rule: Keyframes, delay: number): string =>
   `${rule.name} ${trimNumbers(String(rule.duration))}s linear ${trimNumbers(String(delay))}s ${
     Bool.match(rule.infinite, { onTrue: () => "infinite", onFalse: () => "1" })
-  } both`
+  } forwards`
 
 // --- A render's sheet --------------------------------------------------------------------------
 
