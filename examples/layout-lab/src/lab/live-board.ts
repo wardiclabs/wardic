@@ -34,8 +34,9 @@
  *   the value the frame painted.
  * - **resizes** (#239, the progress bar after "Add rows"): the box's content grows with its scroll
  *   still, and the bar shows the box's new progress (`live`: read from the box itself) within
- *   {@link RESIZE_FRAMES} frames, then stays on it. A content change is read after its layout, so
- *   what it moves paints a frame later.
+ *   {@link RESIZE_FRAMES} frames of each change, and is on it at the run's end. A content change is
+ *   read after its layout, so what it moves paints a frame later. A run can hold more than one change
+ *   (a second tap while it records) and scrolls between them, which the bar follows in their frame.
  *
  * A frame read late (`late`, `lab/frame-counter.ts`: a phone's read after the paint that ran after
  * the next frame started) holds two frames' reads, so follows, same frame and updates skip it.
@@ -238,11 +239,22 @@ const resizesOf = (s: LiveSeries): LiveCheck => {
   const frames = onTime(s.frames)
   if (frames.length === 0) return line("resizes", false, "no frame", "frames after the content changed")
   if (frames.every((f) => f.live === 0)) return line("resizes", true, "the box was at its top: its progress stays 0", "")
-  const landing = landingOf(frames, s.tolerance)
+  // Each stretch of frames off the box's progress: one per change, each as long as the change took.
+  const stretches: Array<number> = []
+  let off = 0
+  for (const f of frames) {
+    if (isOn(f, s.tolerance)) {
+      if (off > 0) stretches.push(off)
+      off = 0
+    } else off++
+  }
   const last = frames[frames.length - 1]!
-  if (landing === undefined) return line("resizes", false, `shows ${fmt(last.shown)} at ${fmt(last.live)}`, "the box's new progress")
-  if (landing > RESIZE_FRAMES) return line("resizes", false, `on it ${landing} frames after the change`, `within ${RESIZE_FRAMES}`)
-  return line("resizes", true, `on it ${landing} frame${landing === 1 ? "" : "s"} after the change`, "")
+  if (off > 0) return line("resizes", false, `shows ${fmt(last.shown)} at ${fmt(last.live)} at the end`, "the box's progress")
+  const longest = Math.max(0, ...stretches)
+  if (longest > RESIZE_FRAMES) return line("resizes", false, `on it ${longest} frames after a change`, `within ${RESIZE_FRAMES}`)
+  const changes = stretches.length
+  if (changes === 0) return line("resizes", true, "on it every frame", "")
+  return line("resizes", true, `${changes} change${changes === 1 ? "" : "s"}, each on it within ${longest} frame${longest === 1 ? "" : "s"}`, "")
 }
 
 const checkOf: Readonly<Record<LiveCheckName, (s: LiveSeries) => LiveCheck>> = {
