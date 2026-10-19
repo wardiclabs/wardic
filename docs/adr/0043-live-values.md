@@ -88,7 +88,7 @@ ADR-0043's follow-ups (decisions 5 and 7), grilled together 2026-10-19, Q1–Q8 
 1. **Scroll is an Environment reading, `Probe.scroll(options)` (Q1):** an Atom per scroll container (the page by default) holding each axis's position, scroll length and progress.
    - **Written inside the container's `scroll` event,** and on a window or container resize, which changes the range. A value derived from it is written into the gate before the frame's commit and paints in the frame that shows the scroll: #45's pattern for `viewport`.
    - **One listener set a container,** however many read it, held while a reader's Scope is: a plain ref-counted map, not `SharedSource`, whose forked pump would set the Atom a task after the event.
-   - **No compositor path:** Motion hands `scroll` to a native `ScrollTimeline` where it can; Wardic draws everything through the gate.
+   - **No compositor path:** Motion hands `scroll` to a native `ScrollTimeline` where it can; Wardic draws everything through the gate. Measured, and kept until after v0.1, in *Note (#240)*.
    - Rejected: a `Stream` (every Live value helper and `style` takes Atoms); the binding alone (React or Foldkit would each rebuild it, and core couldn't derive from it).
 2. **Motion's four values (Q2):** `LiveValue.scroll({ container, target, offset, axis })` gives `scrollX`, `scrollY`, `scrollXProgress` and `scrollYProgress`, each derived from `Probe.scroll`'s Atom; Solid's `createScroll` gives them as accessors (PR 2). A Solid container or target can be an accessor, since a ref arrives at mount; until it does the values read 0, as Motion's do while a ref is pending.
 3. **`target` and `offset` in full (Q3):** Motion's syntax, its named edges (`start`, `center`, `end`), fractions, `px`, `%`, `vw` and `vh`, a lone edge, more than two stops, and the presets (`Enter`, `Exit`, `Any`, `All`). With a `target` and no `offset`, `All`; `axis` (default `"y"`) is the axis they resolve on, the other keeping the container's plain progress.
@@ -181,3 +181,18 @@ Grilled 2026-10-19, Q1–Q3 all A. `Probe.scroll` read the range on a `scroll`, 
   - the observers never disconnected (PS11);
   - the container's own box unwatched (PS3).
 - **The lab, scenario 19:** "Add rows" grows the box's content by a direct child with its scroll still. Its **resizes** line holds the bar to the box's own progress, read from the box each frame: on it within two frames of the change (the observer's frame late, and one more), then staying there. The lab's `test/live-board.test.ts` covers the line. Driven (`.tmp/239/drive19.ts`, by mouse and by touch): every run is on it one frame after the change, and the other cells' lines still pass.
+
+## Note (#240): measured, and left on the main thread until after v0.1
+
+Decided 2026-10-19 (#240, Q1 A: measure first; Q2 A: defer). Decision 1 of the *Amendment (#233, #234)* stands: Wardic draws every scroll-linked value through the gate.
+
+- **What it costs:** a browser scrolls on the compositor where it can, and a scroll-linked value set in the `scroll` event is drawn with the main thread's next frame. Measured against a CSS scroll-driven animation on the same scroll, in the same composited frame (Chromium 147, CDP screencast, touch flings and wheel notches):
+  - **one frame behind** with an idle main thread, in mobile emulation and on a desktop at DPR 2;
+  - **up to three frames behind** with the main thread blocked 50 ms out of every 100;
+  - **no gap** on a desktop at DPR 1, where Chrome scrolls the box on the main thread, so both stall together.
+  
+  Firefox 148 has no `animation-timeline`, so it had nothing to compare against. A phone (Chrome 155 on Android, about 72 Hz) showed nothing the lab can judge: the bar matched the main thread's scroll in every frame it drew, Busy on or off.
+- **Motion is the same** for most scroll-linked values. It hands only `opacity`, `clipPath`, `filter`, `transform` and `backgroundColor` bound to a progress, or to a range `useTransform` of one, to a native `ScrollTimeline` or `ViewTimeline`. Its own `scaleX: scrollYProgress` progress bar draws on the main thread, as Wardic's does.
+- **Why not now:** a timeline-run value is a WAAPI handoff, which `docs/plans/v0.1.md` defers to after v0.1 in full. It is the simplest case of one: no retarget and no velocity, only a pure function of the scroll, so `ward.value` and `onUpdate` could compute it from `Probe.scroll` instead of reading it back. The plan's WAAPI entry names it as the first eligible case, and #240 holds what it would cover.
+- **The yardstick:** scenario 19's orange bar is that CSS animation, run with the scroll itself, under Wardic's progress bar. Its Busy toggle blocks the main thread 50 ms out of every 100. Fling the box and watch the gap. #240's comment holds the screencast script that measured it.
+- **The lab's lines** skip frames read late in **moves** and **updates** too. A run whose moving (or told) frames were mostly read late isn't judged on them: a busy main thread's run leaves too little to judge. Covered in the lab's `test/live-board.test.ts`.
