@@ -108,16 +108,18 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
         <wardic.div {...rise} transition={{ type: "tween", easing: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
         <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
         <wardic.div {...rise} style="color: red; animation: spin 1s infinite" />
+        <wardic.div initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff" }} />
       </>
     ))
     const divs = tagsOf(html).filter((t) => t.name === "div")
     const css = headCss(html)
     const plays = divs.map((d) => timing(css, propertyOf(d.style.animation)).normal !== "")
-    expect(plays).toEqual([false, false, false, false, false, false, true, false, false])
+    // The last, a colour pair, plays: its digits aren't two units.
+    expect(plays).toEqual([false, false, false, false, false, false, true, false, false, true])
     expect(divs[5]?.style.animation, "its own animation stays").toBe("spin 1s infinite")
     expect(divs[8]?.style.animation, "a CSS-text style's own too").toBe("spin 1s infinite")
-    // Only the one that plays has its timing in the head: an element ruled out leaves its slot undefined.
-    expect(css.split("@media")[0]!.match(/--wardic-a\d+:/g), css).toHaveLength(1)
+    // Only the two that play have their timing in the head: an element ruled out leaves its slot undefined.
+    expect(css.split("@media")[0]!.match(/--wardic-a\d+:/g), css).toHaveLength(2)
   })
 
   it("AR4: reduced motion: user adds the reduced rules under the media query; always and never write one set", () => {
