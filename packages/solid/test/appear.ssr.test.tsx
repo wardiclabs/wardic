@@ -5,7 +5,8 @@
 // - AR1: a qualifying element gets `animation: var(--wardic-aN)`, and the head its rule and timing.
 // - AR2: the provider's `appear={false}` and an element's own turn it off; so does `initial={false}`.
 // - AR3: an element the server can't play keeps its Starting style alone: an animate-only key, a
-//   value the DOM reads (`auto`, `var()`), a layout node, an easing with no name, its own `animation`.
+//   value the DOM reads (`auto`, `var()`), a layout node, an easing with no name, its own `animation`,
+//   a length in two units.
 // - AR4: reduced motion: `"user"` adds the reduced rules under the media query; `"always"` and
 //   `"never"` write one set.
 // - AR5: a Variant child's stagger: `delayChildren` plus its place, in render order, by `from` and
@@ -16,6 +17,7 @@
 // - AR8: the markup's hydration keys are the same with or without it.
 // - AR9: a render with no `</head>` drops the style, and its elements keep their Starting style.
 // - AR10: a component wrap passes its `animation` through `style`.
+// - AR11: a spec's key doesn't hang on its keys' order; an easing with no name gives none.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -24,6 +26,8 @@ import type { JSX } from "solid-js"
 import { renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
 import { tagsOf } from "./ssr-helpers.ts"
+import { keyOf } from "../src/appear.ts"
+import * as Option from "effect/Option"
 
 /** A whole document with a head, as SolidStart renders it, and `ui` under a provider. */
 const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean; readonly reducedMotion?: "user" | "always" | "never" } = {}): string =>
@@ -102,12 +106,13 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
         <wardic.div {...rise} transition={{ type: "tween", easing: anonymous }} />
         <wardic.div {...rise} style={own} />
         <wardic.div {...rise} transition={{ type: "tween", easing: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
+        <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
       </>
     ))
     const divs = tagsOf(html).filter((t) => t.name === "div")
     const css = headCss(html)
     const plays = divs.map((d) => timing(css, propertyOf(d.style.animation)).normal !== "")
-    expect(plays).toEqual([false, false, false, false, false, false, true])
+    expect(plays).toEqual([false, false, false, false, false, false, true, false])
     expect(divs[5]?.style.animation, "its own animation stays").toBe("spin 1s infinite")
   })
 
@@ -204,6 +209,14 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     ))
     expect(headCss(html)).toBe("")
     expect(tagsOf(html)[0]?.style.animation, "an undefined custom property: no animation plays").toMatch(/^var\(--wardic-a\d+\)$/)
+  })
+
+  it("AR11: a spec's key: the same whatever its keys' order; none for an easing with no name", () => {
+    const at = (from: Record<string, number>, to: Record<string, number>, easing: (t: number) => number = Easing.linear) =>
+      keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, easing }, reduced: false })
+    expect(at({ opacity: 0, y: 20 }, { opacity: 1, y: 0 })).toEqual(at({ y: 20, opacity: 0 }, { y: 0, opacity: 1 }))
+    expect(Option.isSome(at({ x: 0 }, { x: 1 }, Easing.easeOutCubic))).toBe(true)
+    expect(Option.isNone(at({ x: 0 }, { x: 1 }, (t) => t * t))).toBe(true)
   })
 
   it("AR10: a component wrap and a createWard spread pass their animation through style", () => {
