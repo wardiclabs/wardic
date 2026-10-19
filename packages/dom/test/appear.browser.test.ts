@@ -66,7 +66,7 @@ const found = (element: Element): Animation => Option.getOrThrow(Appear.find(ele
 
 describe("Appear animations in a browser (#48, ADR-0044)", () => {
   it("HA1: the element plays the rule from its first frame, the machine at its elapsed time", async () => {
-    const spec = { key: "HA1", tag: "div", machine: rise() }
+    const spec = { key: "HA1", tag: "div", machine: () => rise() }
     const element = appear(spec)
     await wait(120)
     const reads: Array<{ readonly elapsed: number; readonly y: number; readonly opacity: number }> = []
@@ -76,14 +76,14 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     }
     expect(reads[0]!.elapsed).toBeGreaterThan(0.08)
     for (const read of reads) {
-      const frame = at(spec.machine, read.elapsed)
+      const frame = at(spec.machine(), read.elapsed)
       expect(Math.abs(read.y - (frame.y as number)), `y at ${read.elapsed}`).toBeLessThanOrEqual(0.11)
       expect(Math.abs(read.opacity - (frame.opacity as number)), `opacity at ${read.elapsed}`).toBeLessThanOrEqual(0.0025)
     }
   })
 
   it("HA2: find gets the element's wardic- animation, and only it; matches tells its spec", async () => {
-    const spec = { key: "HA2", tag: "div", machine: rise() }
+    const spec = { key: "HA2", tag: "div", machine: () => rise() }
     const element = appear(spec)
     await raf()
     const animation = found(element)
@@ -106,14 +106,14 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
   })
 
   it("HA3: the Handoff draws where the CSS was drawing, and leaves nothing running", async () => {
-    const spec = { key: "HA3", tag: "div", machine: rise() }
+    const spec = { key: "HA3", tag: "div", machine: () => rise() }
     const element = appear(spec)
     await wait(150)
     const handoff = await new Promise<{ readonly before: ReturnType<typeof drawn>; readonly after: ReturnType<typeof drawn> }>((resolve) =>
       requestAnimationFrame(() => {
         const animation = found(element)
         const before = drawn(element)
-        const frame = at(spec.machine, Appear.elapsedOf(animation))
+        const frame = at(spec.machine(), Appear.elapsedOf(animation))
         for (const [key, value] of Object.entries(project(frame))) element.style.setProperty(key, String(value))
         Appear.release(element)
         resolve({ before, after: drawn(element) })
@@ -129,7 +129,7 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
   })
 
   it("HA4: a finished animation still fills, and is still found, past its end", async () => {
-    const spec = { key: "HA4", tag: "div", machine: Machine.springValues({ y: 0, opacity: 1 }, { stiffness: 900, damping: 60 }, { y: 40, opacity: 0 }) }
+    const spec = { key: "HA4", tag: "div", machine: () => Machine.springValues({ y: 0, opacity: 1 }, { stiffness: 900, damping: 60 }, { y: 40, opacity: 0 }) }
     const rule = Result.getOrThrow(Appear.keyframes(spec))
     const element = appear(spec)
     await wait(rule.duration * 1000 + 150)
@@ -140,7 +140,7 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
   })
 
   it("HA5: an undefined custom property plays nothing; the element keeps its inline Starting style", async () => {
-    const element = appear({ key: "HA5", tag: "div", machine: rise() }, 0, "var(--wardic-never-defined)")
+    const element = appear({ key: "HA5", tag: "div", machine: () => rise() }, 0, "var(--wardic-never-defined)")
     await raf()
     await raf()
     expect(Option.isNone(Appear.find(element))).toBe(true)
@@ -148,7 +148,7 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
   })
 
   it("HA6: a delay holds the first stop, and counts toward the elapsed time", async () => {
-    const element = appear({ key: "HA6", tag: "div", machine: rise() }, 10)
+    const element = appear({ key: "HA6", tag: "div", machine: () => rise() }, 10)
     await wait(100)
     await raf()
     const animation = found(element)

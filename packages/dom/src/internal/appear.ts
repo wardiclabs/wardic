@@ -20,6 +20,7 @@ import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import type { LazyArg } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -38,8 +39,11 @@ export interface Spec {
   readonly key: string
   /** The element's tag, for SVG's routing (ADR-0014); `undefined` for an HTML element. */
   readonly tag: string | undefined
-  /** The animation's values from its start; for an `infinite` one, one cycle of it. */
-  readonly machine: Machine.Machine<Frame.Frame<Values.Values>>
+  /**
+   * The animation's values from its start (for an `infinite` one, one cycle of it), built only when
+   * the rule isn't cached: a server render calls it once per spec per process.
+   */
+  readonly machine: LazyArg<Machine.Machine<Frame.Frame<Values.Values>>>
   /** Played over and over: an infinite repeat, `machine` one cycle of it. */
   readonly infinite?: boolean | undefined
 }
@@ -257,7 +261,7 @@ const percentOf = (stop: number, last: number): string =>
 
 /** A spec sampled into its rule, or why it can't be one. Not cached: {@link keyframes} is. */
 const sample = (spec: Spec): Result.Result<Keyframes, string> =>
-  Option.match(framesOf(spec.machine), {
+  Option.match(framesOf(spec.machine()), {
     onNone: () => Result.fail(`longer than ${MAX_SECONDS} s`),
     onSome: (frames) => {
       const last = frames.length - 1
