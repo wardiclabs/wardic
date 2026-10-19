@@ -9,7 +9,7 @@
 //   inline and the animation released, draws where the CSS was drawing; nothing is left running.
 // - HA4: a finished animation still fills, and is still found, its elapsed time past its end.
 // - HA5: an undefined custom property plays nothing: the element keeps its inline Starting style.
-// - HA6: a delay holds the first stop, and counts toward the elapsed time.
+// - HA6: a delay holds the first stop, counts toward the elapsed time, and reads back (delayOf).
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
@@ -155,5 +155,6 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     expect(drawn(element)).toEqual({ y: 40, opacity: 0 })
     expect(Appear.elapsedOf(animation)).toBeGreaterThan(0.05)
     expect(Appear.elapsedOf(animation)).toBeLessThan(1)
+    expect(Appear.delayOf(animation), "its animation-delay, in seconds").toBe(10)
   })
 })

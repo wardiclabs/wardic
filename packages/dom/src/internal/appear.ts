@@ -52,8 +52,13 @@ export interface Spec {
 export interface Keyframes {
   /** The rule's name: `wardic-` and the spec's hash. */
   readonly name: string
-  /** Seconds, from the first Frame to the settled one: a multiple of 1/60 s. */
+  /**
+   * Seconds the rule plays, a multiple of 1/60 s: to the first Frame from which every one is within
+   * tolerance of the settled one.
+   */
   readonly duration: number
+  /** Seconds to the Frame the spec settles at, which a client waits for (`when`, ADR-0007): at or past `duration`. */
+  readonly settled: number
   readonly infinite: boolean
   /** The time of each stop kept, in seconds from the start. */
   readonly times: ReadonlyArray<number>
@@ -274,6 +279,7 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
         (declarations): Keyframes => ({
           name,
           duration: end * Machine.CATCH_UP_DT,
+          settled: last * Machine.CATCH_UP_DT,
           infinite: spec.infinite === true,
           times: Arr.map(kept, (stop) => stop * Machine.CATCH_UP_DT),
           css: `@keyframes ${name}{${
@@ -392,6 +398,13 @@ export const elapsedOf = (animation: Animation): number =>
   Option.match(Option.filter(Option.fromNullishOr(animation.currentTime), Predicate.isNumber), {
     onNone: () => 0,
     onSome: (ms) => Math.max(0, ms / 1000),
+  })
+
+/** The delay `animation` started after, in seconds: what its element's `animation-delay` holds. */
+export const delayOf = (animation: Animation): number =>
+  Option.match(Option.filter(Option.fromNullishOr(animation.effect), (effect) => Predicate.isNotUndefined(effect.getTiming)), {
+    onNone: () => 0,
+    onSome: (effect) => Option.getOrElse(Option.filter(Option.some(effect.getTiming().delay), Predicate.isNumber), () => 0) / 1000,
   })
 
 /**
