@@ -10,7 +10,7 @@
 // - AP6: a colour is judged by its channels' quantum, and drawn in the DOM's syntax.
 // - AP7: a stop is the Frame `Machine.startAt(k / 60)` draws, projected.
 // - AP8: no rule for a key SVG draws as an attribute, for text CSS can't hold, or past 60 s.
-// - AP9: sampled once a spec, cached across requests by its name.
+// - AP9: sampled once a spec, cached across requests by its name; a cached spec's machine isn't built.
 // - AP10: the name is the hash of the key, the tag and the repeat.
 // - AP11: an element's `animation` value; a rule that settles at once is one stop of 0 s.
 // - AP12: a sheet: a slot per element, each rule once, `:root`'s lines, the reduced block.
@@ -81,9 +81,9 @@ const worstMiss = (frames: ReadonlyArray<Values.Values>, kept: ReadonlyArray<num
 
 describe("the sampler (#48, ADR-0044)", () => {
   it("AP1: a spring's rule: its name, its length in 60 Hz frames to where it's within tolerance of settled, its first and last stops", () => {
-    const spec = { key: "AP1", tag: "div", machine: rise() }
+    const spec = { key: "AP1", tag: "div", machine: () => rise() }
     const rule = ok(Appear.keyframes(spec))
-    const frames = samples(spec.machine)
+    const frames = samples(spec.machine())
     expect(rule.name).toBe(Appear.nameOf(spec))
     expect(rule.name.startsWith(Appear.PREFIX)).toBe(true)
     const end = Math.round(rule.duration * 60)
@@ -103,22 +103,22 @@ describe("the sampler (#48, ADR-0044)", () => {
     for (const options of [{}, { stiffness: 120, damping: 14 }, { stiffness: 280, damping: 60 }]) {
       const machine = rise(options)
       const frames = samples(machine)
-      const kept = keptOf(ok(Appear.keyframes({ key: `AP2 ${JSON.stringify(options)}`, tag: "div", machine })))
+      const kept = keptOf(ok(Appear.keyframes({ key: `AP2 ${JSON.stringify(options)}`, tag: "div", machine: () => machine })))
       expect(worstMiss(frames, kept, "y"), "0.1 px").toBeLessThanOrEqual(0.1)
       expect(worstMiss(frames, kept, "opacity"), "0.002").toBeLessThanOrEqual(0.002)
       expect(kept.length * 3, `${kept.length} of ${frames.length}`).toBeLessThan(frames.length)
     }
     // A length key is judged in px as a translate is, and a scale at 0.001.
-    const along = (key: string) => ok(Appear.keyframes({ key: `AP2 ${key}`, tag: "div", machine: Machine.springValues({ [key]: 0 }, {}, { [key]: 120 }) })).times
+    const along = (key: string) => ok(Appear.keyframes({ key: `AP2 ${key}`, tag: "div", machine: () => Machine.springValues({ [key]: 0 }, {}, { [key]: 120 }) })).times
     expect(along("width")).toEqual(along("x"))
     const grow = Machine.springValues({ scale: 1 }, { stiffness: 120, damping: 14 }, { scale: 0.4 })
-    expect(worstMiss(samples(grow), keptOf(ok(Appear.keyframes({ key: "AP2 scale", tag: "div", machine: grow }))), "scale")).toBeLessThanOrEqual(0.001)
+    expect(worstMiss(samples(grow), keptOf(ok(Appear.keyframes({ key: "AP2 scale", tag: "div", machine: () => grow }))), "scale")).toBeLessThanOrEqual(0.001)
   })
 
   it("AP3: a bouncy spring's overshoot peaks are kept, within tolerance", () => {
     const machine = Machine.springValues({ x: 100 }, { stiffness: 400, damping: 10 }, { x: 0 })
     const frames = samples(machine)
-    const kept = keptOf(ok(Appear.keyframes({ key: "AP3", tag: undefined, machine })))
+    const kept = keptOf(ok(Appear.keyframes({ key: "AP3", tag: undefined, machine: () => machine })))
     const peak = Math.max(...frames.map((f) => f.x as number))
     const drawnPeak = Math.max(...kept.map((i) => frames[i]!.x as number))
     expect(peak).toBeGreaterThan(110)
@@ -127,12 +127,12 @@ describe("the sampler (#48, ADR-0044)", () => {
   })
 
   it("AP4: a linear tween is two stops; an eased one keeps its curve", () => {
-    const linear = ok(Appear.keyframes({ key: "AP4 linear", tag: "div", machine: tweenValues({ x: 0 }, { x: 300 }, { duration: 0.5 }) }))
+    const linear = ok(Appear.keyframes({ key: "AP4 linear", tag: "div", machine: () => tweenValues({ x: 0 }, { x: 300 }, { duration: 0.5 }) }))
     expect(linear.times).toHaveLength(2)
     // 30 frames: the 31st step, where the steps' sum crosses 0.5 s and the tween settles, is trimmed.
     expect(linear.duration).toBeCloseTo(0.5, 12)
     const eased = tweenValues({ x: 0 }, { x: 300 }, { duration: 0.5, easing: (t) => 1 - (1 - t) ** 3 })
-    const kept = keptOf(ok(Appear.keyframes({ key: "AP4 eased", tag: "div", machine: eased })))
+    const kept = keptOf(ok(Appear.keyframes({ key: "AP4 eased", tag: "div", machine: () => eased })))
     expect(kept.length).toBeGreaterThan(5)
     expect(worstMiss(samples(eased), kept, "x")).toBeLessThanOrEqual(0.1)
   })
@@ -151,14 +151,14 @@ describe("the sampler (#48, ADR-0044)", () => {
         }
       },
     })
-    const kept = keptOf(ok(Appear.keyframes({ key: "AP5", tag: "div", machine: flip })))
+    const kept = keptOf(ok(Appear.keyframes({ key: "AP5", tag: "div", machine: () => flip })))
     expect(kept).toContain(9)
     expect(kept).toContain(10)
   })
 
   it("AP6: a colour is judged by its channels' quantum, and drawn in the DOM's syntax", () => {
     const machine = tweenValues({ backgroundColor: "#000" }, { backgroundColor: "#fff" }, { duration: 1 })
-    const rule = ok(Appear.keyframes({ key: "AP6", tag: "div", machine }))
+    const rule = ok(Appear.keyframes({ key: "AP6", tag: "div", machine: () => machine }))
     // Linear in sRGB, written as whole bytes: rounding alone moves a channel by under 1, so 2 stops.
     expect(rule.times).toHaveLength(2)
     expect(rule.css).toContain("background-color:rgb(0, 0, 0)")
@@ -167,7 +167,7 @@ describe("the sampler (#48, ADR-0044)", () => {
 
   it("AP7: a stop is the Frame Machine.startAt(k / 60) draws, projected", () => {
     const machine = rise()
-    const rule = ok(Appear.keyframes({ key: "AP7", tag: "div", machine }))
+    const rule = ok(Appear.keyframes({ key: "AP7", tag: "div", machine: () => machine }))
     const four = (n: number) => String(Number(n.toFixed(4)) + 0)
     for (const k of keptOf(rule).slice(1, 6)) {
       const frame = Machine.startAt(machine, () => k / 60).start()(1 / 60).value
@@ -179,17 +179,17 @@ describe("the sampler (#48, ADR-0044)", () => {
   })
 
   it("AP8: no rule for a key SVG draws as an attribute, for text CSS can't hold, or past 60 s", () => {
-    const attribute = Appear.keyframes({ key: "AP8 cx", tag: "circle", machine: Machine.springValues({ cx: 50 }, {}, { cx: 0 }) })
+    const attribute = Appear.keyframes({ key: "AP8 cx", tag: "circle", machine: () => Machine.springValues({ cx: 50 }, {}, { cx: 0 }) })
     expect(Result.isFailure(attribute) && attribute.failure).toMatch(/attribute \(cx\)/)
-    expect(Result.isSuccess(Appear.keyframes({ key: "AP8 svg transform", tag: "circle", machine: Machine.springValues({ x: 50 }, {}, { x: 0 }) }))).toBe(true)
+    expect(Result.isSuccess(Appear.keyframes({ key: "AP8 svg transform", tag: "circle", machine: () => Machine.springValues({ x: 50 }, {}, { x: 0 }) }))).toBe(true)
     for (const unsafe of ["red}body{color:blue", "red</style><script>", "url(a;b)", "red/*", "\\72 ed"]) {
       const held = { value: { color: unsafe }, done: true }
       const machine = Machine.make<Frame.Frame<Values.Values>>({ settles: true, span: { name: "t", attributes: {} }, start: () => () => held })
-      const result = Appear.keyframes({ key: `AP8 ${unsafe}`, tag: "div", machine })
+      const result = Appear.keyframes({ key: `AP8 ${unsafe}`, tag: "div", machine: () => machine })
       expect(Result.isFailure(result) && result.failure, unsafe).toMatch(/CSS text can't hold/)
     }
     const never = Machine.chase(() => 1).pipe(Machine.map((f): Frame.Frame<Values.Values> => ({ value: { x: f.value }, done: f.done && false })))
-    const long = Appear.keyframes({ key: "AP8 long", tag: "div", machine: never })
+    const long = Appear.keyframes({ key: "AP8 long", tag: "div", machine: () => never })
     expect(Result.isFailure(long) && long.failure).toBe(`longer than ${Appear.MAX_SECONDS} s`)
   })
 
@@ -197,10 +197,16 @@ describe("the sampler (#48, ADR-0044)", () => {
     let starts = 0
     const inner = rise()
     const counted = Machine.make({ settles: true, span: inner.span, start: () => (starts++, inner.start()) })
-    const first = Appear.keyframes({ key: "AP9", tag: "div", machine: counted })
-    const second = Appear.keyframes({ key: "AP9", tag: "div", machine: counted })
+    let built = 0
+    const build = () => {
+      built++
+      return counted
+    }
+    const first = Appear.keyframes({ key: "AP9", tag: "div", machine: build })
+    const second = Appear.keyframes({ key: "AP9", tag: "div", machine: build })
     expect(second).toBe(first)
     expect(starts).toBe(1)
+    expect(built, "a cached spec's machine isn't built").toBe(1)
   })
 
   it("AP10: the name is the hash of the key, the tag and the repeat", () => {
@@ -217,12 +223,12 @@ describe("the sampler (#48, ADR-0044)", () => {
   })
 
   it("AP11: an element's animation value; a rule that settles at once is one stop of 0 s", () => {
-    const rule = ok(Appear.keyframes({ key: "AP11", tag: "div", machine: rise() }))
+    const rule = ok(Appear.keyframes({ key: "AP11", tag: "div", machine: () => rise() }))
     expect(Appear.animationOf(rule, 0.25)).toBe(`${rule.name} ${Number(rule.duration.toFixed(4))}s linear 0.25s 1 both`)
-    const loop = ok(Appear.keyframes({ key: "AP11 loop", tag: "div", infinite: true, machine: tweenValues({ rotate: 0 }, { rotate: 360 }, { duration: 1 }) }))
+    const loop = ok(Appear.keyframes({ key: "AP11 loop", tag: "div", infinite: true, machine: () => tweenValues({ rotate: 0 }, { rotate: 360 }, { duration: 1 }) }))
     expect(Appear.animationOf(loop, 0)).toBe(`${loop.name} 1s linear 0s infinite both`)
     const snap = Machine.make<Frame.Frame<Values.Values>>({ settles: true, span: { name: "t", attributes: {} }, start: () => () => ({ value: { x: 20 }, done: true }) })
-    const at = ok(Appear.keyframes({ key: "AP11 snap", tag: "div", machine: snap }))
+    const at = ok(Appear.keyframes({ key: "AP11 snap", tag: "div", machine: () => snap }))
     expect(at.duration).toBe(0)
     expect(at.css).toBe(`@keyframes ${at.name}{0%,100%{transform:translateX(20px)}}`)
   })
@@ -231,8 +237,8 @@ describe("the sampler (#48, ADR-0044)", () => {
 describe("a render's sheet (#48, ADR-0044)", () => {
   it("AP12: a slot per element, each rule once, :root's lines, the reduced block only when given", () => {
     const sheet = Appear.sheet()
-    const spec = { key: "AP12", tag: "div", machine: rise() }
-    const reduced = { key: "AP12 reduced", tag: "div", machine: Machine.springValues({ opacity: 1 }, {}, { opacity: 0 }) }
+    const spec = { key: "AP12", tag: "div", machine: () => rise() }
+    const reduced = { key: "AP12 reduced", tag: "div", machine: () => Machine.springValues({ opacity: 1 }, {}, { opacity: 0 }) }
     const a = sheet.slot()
     const b = sheet.slot()
     const c = sheet.slot()
@@ -242,7 +248,7 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     expect(Result.isSuccess(a.define({ spec, delay: 0 }, { spec: reduced, delay: 0 }))).toBe(true)
     expect(Result.isSuccess(b.define({ spec, delay: 0.1 }))).toBe(true)
     // c is never defined: its element keeps its Starting style. d's spec has no rule.
-    const failed = d.define({ spec: { key: "AP12 bad", tag: "circle", machine: Machine.springValues({ cx: 1 }, {}, { cx: 0 }) }, delay: 0 })
+    const failed = d.define({ spec: { key: "AP12 bad", tag: "circle", machine: () => Machine.springValues({ cx: 1 }, {}, { cx: 0 }) }, delay: 0 })
     expect(Result.isFailure(failed)).toBe(true)
     const css = sheet.css()
     const rule = ok(Appear.keyframes(spec))
