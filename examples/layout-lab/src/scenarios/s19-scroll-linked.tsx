@@ -13,6 +13,12 @@
  *   **settles**.
  * - **spinner**: `createTime()` turns a square 90° a second. Sample spinner records 60 frames, on
  *   **ticks**.
+ * - **CSS reference** (#240): under the progress bar, a bar driven by CSS alone, a scroll-driven
+ *   animation on the box's named `scroll-timeline`, which the browser can run off the main thread
+ *   with the scroll itself. Busy blocks the page's main thread 50 ms out of every 100: the reference
+ *   keeps up with a touch scroll, and the gap between the two bars is how far the main thread's
+ *   copy of the scroll trails what's on screen. Not drawn where scroll-driven animations aren't
+ *   supported. Not judged: the gap is read off screen captures (`.tmp/240/measure.ts`) or by eye.
  *
  * The recorder reads each painted value just after its frame, and the Live value as the frame
  * starts (its rAF callback), and the card judges the run (`liveChecksOf` in `lab/live-board.ts`). A
@@ -31,7 +37,7 @@ import type { ScenarioContext, ScenarioDef } from "./types.ts"
 /** The scenario id, also the View root's `data-scenario` value. */
 const ID = "scroll-linked"
 
-const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "320px", "--stage-h": "245px" }
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "320px", "--stage-h": "259px" }
 const COLUMN: JSX.CSSProperties = { display: "flex", "flex-direction": "column", gap: "6px", padding: "8px 10px" }
 const LABEL: JSX.CSSProperties = { "font-size": "10px", "line-height": "12px", opacity: 0.8 }
 const ACCENT = "var(--lab-accent, rgb(0, 102, 204))"
@@ -50,6 +56,24 @@ const ADDED_ROW: JSX.CSSProperties = { height: "30px", margin: "0 10px 6px", bac
 const CARD: JSX.CSSProperties = { position: "absolute", top: "400px", left: "110px", width: "80px", height: "40px", background: ACCENT, "border-radius": "6px" }
 const ROW: JSX.CSSProperties = { display: "flex", "align-items": "center", gap: "40px", height: "50px", "padding-left": "20px" }
 const SQUARE: JSX.CSSProperties = { width: "36px", height: "36px", background: ACCENT, "border-radius": "4px" }
+/** The CSS reference's colour, unlike the accent so a capture tells the bars apart. */
+const REFERENCE_COLOUR = "rgb(230, 120, 20)"
+const REFERENCE_BAR: JSX.CSSProperties = { ...BAR, background: REFERENCE_COLOUR, transform: "scaleX(0)" }
+/**
+ * The reference (#240): the box names its scroll timeline, the column brings the name into scope
+ * for its sibling, and the bar's animation runs on it. `animation-timeline` comes after the
+ * `animation` shorthand, which resets it.
+ */
+const REFERENCE_SHEET = `
+@keyframes wardic-s19-fill { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+@supports (animation-timeline: scroll()) {
+  [data-scenario="${ID}"] [data-cell="column"] { timeline-scope: --wardic-s19-box }
+  [data-scenario="${ID}"] [data-cell="scroller"] { scroll-timeline: --wardic-s19-box y }
+  [data-scenario="${ID}"] [data-cell="reference"] { animation: wardic-s19-fill linear both; animation-timeline: --wardic-s19-box }
+}`
+/** Busy (#240): the main thread blocked this long out of every `BUSY_EVERY` ms. */
+const BUSY_MS = 50
+const BUSY_EVERY = 100
 const CONTROLS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "8px", "margin-top": "6px" }
 
 /** The computed transform's matrix `[a, b, c, d]`, the identity for none. */
@@ -228,6 +252,22 @@ const View: ScenarioDef["View"] = (props) => {
     recorder.start(resizeSpec)
     setRows(rows() + 8)
   }
+  // Busy (#240): a main thread that misses frames, as a page's own work would.
+  const [busy, setBusy] = createSignal(false)
+  let busyTimer: ReturnType<typeof setInterval> | undefined
+  const block = (): void => {
+    const until = performance.now() + BUSY_MS
+    while (performance.now() < until) {
+      // Spin: the main thread does nothing else for BUSY_MS.
+    }
+  }
+  const toggleBusy = (): void => {
+    clearInterval(busyTimer)
+    busyTimer = undefined
+    if (!busy()) busyTimer = setInterval(block, BUSY_EVERY)
+    setBusy(!busy())
+  }
+  onCleanup(() => clearInterval(busyTimer))
   const [sampling, setSampling] = createSignal(false)
   const sample = (): void => {
     setSampling(true)
@@ -237,10 +277,12 @@ const View: ScenarioDef["View"] = (props) => {
 
   return (
     <div data-scenario={ID}>
+      <style>{REFERENCE_SHEET}</style>
       <div class="stage" style={STAGE_STYLE}>
-        <div style={COLUMN}>
-          <span style={LABEL}>progress bar: scroll the box</span>
+        <div style={COLUMN} data-cell="column">
+          <span style={LABEL}>progress bar: scroll the box · under it, CSS's own</span>
           <wardic.div ref={(el: HTMLElement) => (bar = el)} data-cell="bar" style={{ ...BAR, scaleX: scrollYProgress }} onUpdate={onUpdate} />
+          <div data-cell="reference" style={REFERENCE_BAR} />
           <div ref={box} style={SCROLLER} data-cell="scroller" onScroll={scrolled}>
             <div style={COLUMN_INSIDE}>
               <div ref={card} style={CARD}>
@@ -265,6 +307,9 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="add-rows" onClick={addRows}>
           Add rows
         </button>
+        <button type="button" class="btn secondary small" data-action="busy" aria-pressed={busy()} onClick={toggleBusy}>
+          {busy() ? "Busy: on" : "Busy: off"}
+        </button>
       </div>
     </div>
   )
@@ -279,13 +324,17 @@ export const s19: ScenarioDef = {
   mechanism:
     "Scroll the box: the bar fills with its progress and reports through onUpdate, the card inside fades in and out as it " +
     "passes, and the square leans with the scroll's speed and stands back up. Sample spinner records the square turning on time. " +
-    "Scroll partway, then Add rows: the box's content grows with its scroll still, and the bar follows its new progress.",
+    "Scroll partway, then Add rows: the box's content grows with its scroll still, and the bar follows its new progress. " +
+    "The orange bar under the progress bar is CSS's own scroll-driven animation, run with the scroll itself: fling the box with " +
+    "Busy on (the main thread blocked 50 ms out of every 100) and watch the gap between the two.",
   prediction: "safe",
   rationale:
     "createScroll's values are set within the box's scroll event (Probe.scroll, ADR-0043 Amendment (#233, #234)), so a value " +
     "derived from one paints in the frame of the scroll; the card's progress runs through Motion's offsets. createVelocity reads " +
     "the scroll's change each frame and 0 once it stops; createTime adds each frame's time; onUpdate is told once a frame the " +
     "bar changed, after the gate's commits, with what it painted. A change of the content's size is read by observers on it " +
-    "(ADR-0043 Amendment (#239)), after its layout, so the bar shows it a frame later.",
+    "(ADR-0043 Amendment (#239)), after its layout, so the bar shows it a frame later. The bar is set from the main thread's " +
+    "copy of the scroll, so a scroll the browser runs off the main thread (a touch fling) can be ahead of it on screen; the " +
+    "CSS reference shows by how much (#240).",
   View,
 }
