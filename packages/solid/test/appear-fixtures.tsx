@@ -61,3 +61,18 @@ export const A5 = (): JSX.Element =>
       transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY }}
     />
   ))
+
+/** An SVG circle growing across and fading in, and a line drawing itself (#245): attributes, played as CSS. */
+export const A6 = (): JSX.Element =>
+  page(() => (
+    <svg width="120" height="60">
+      <wardic.circle
+        data-k="dot"
+        fill="teal"
+        initial={{ cx: 10, r: 4, opacity: 0 }}
+        animate={{ cx: 90, r: 16, opacity: 1 }}
+        transition={{ type: "tween", duration: 1.2 }}
+      />
+      <wardic.path data-k="line" d="M0 50L120 50" stroke="black" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ type: "tween", duration: 1.2 }} />
+    </svg>
+  ))

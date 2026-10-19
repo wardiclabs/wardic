@@ -10,6 +10,8 @@
 // - HA4: a finished animation still fills, and is still found, its elapsed time past its end.
 // - HA5: an undefined custom property plays nothing: the element keeps its inline Starting style.
 // - HA6: a delay holds the first stop, counts toward the elapsed time, and reads back (delayOf).
+// - HA7 (#245): an svg-inner element's attributes, drawn as their CSS properties under `@supports`:
+//   it plays the machine, and at the Handoff the engine's attributes take over value for value.
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
@@ -126,6 +128,75 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     await raf()
     expect(element.getAnimations(), "not restarted by a later style change").toHaveLength(0)
     expect(drawn(element)).toEqual(handoff.after)
+  })
+
+  it("HA7: an svg-inner element plays its attributes as CSS, and hands them back to the attributes (#245)", async () => {
+    // A circle growing and moving, its stroke widening and fading in; and a line drawing itself.
+    const grow = (): Machine.Machine<Frame.Frame<Values.Values>> =>
+      Machine.springValues({ cx: 60, r: 20, strokeWidth: 4, opacity: 1 }, {}, { cx: 10, r: 4, strokeWidth: 0, opacity: 0 })
+    const draw = (): Machine.Machine<Frame.Frame<Values.Values>> => Machine.springValues({ pathLength: 1 }, {}, { pathLength: 0 })
+    const circleSpec = { key: "HA7 circle", tag: "circle", machine: grow }
+    const pathSpec = { key: "HA7 path", tag: "path", machine: draw }
+    const sheet = Appear.sheet()
+    const circleSlot = sheet.slot()
+    const pathSlot = sheet.slot()
+    expect(Result.isSuccess(circleSlot.define({ spec: circleSpec, delay: 0 }))).toBe(true)
+    expect(Result.isSuccess(pathSlot.define({ spec: pathSpec, delay: 0 }))).toBe(true)
+    expect(sheet.css()).toContain("@supports (cx:0px) and (r:0px){")
+    const style = document.createElement("style")
+    style.textContent = sheet.css()
+    document.head.append(style)
+    // The server's markup: each Starting value an attribute, the slot inline.
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+    svg.setAttribute("width", "100")
+    svg.setAttribute("height", "100")
+    svg.innerHTML =
+      `<circle cx="10" r="4" stroke-width="0" opacity="0" fill="teal" stroke="black" style="animation: ${circleSlot.animation}"/>` +
+      `<path d="M0 50 L100 50" stroke="black" pathLength="1" stroke-dasharray="0 1" stroke-dashoffset="0" style="animation: ${pathSlot.animation}"/>`
+    document.body.append(svg)
+    cleanups.push(() => {
+      svg.remove()
+      style.remove()
+    })
+    const circle = svg.querySelector("circle")!
+    const path = svg.querySelector("path")!
+    const read = (element: Element, property: string): number => Number.parseFloat(getComputedStyle(element).getPropertyValue(property))
+    const circleDrawn = () => ({ cx: read(circle, "cx"), r: read(circle, "r"), strokeWidth: read(circle, "stroke-width"), opacity: read(circle, "opacity") })
+    const dash = () => Number.parseFloat(getComputedStyle(path).getPropertyValue("stroke-dasharray"))
+    await wait(120)
+    // It plays the machine at its elapsed time, each attribute within its tolerance.
+    for (let i = 0; i < 6; i++) {
+      await raf()
+      const frame = at(grow(), Appear.elapsedOf(found(circle)))
+      const now = circleDrawn()
+      expect(Math.abs(now.cx - (frame.cx as number)), `cx at ${i}`).toBeLessThanOrEqual(0.11)
+      expect(Math.abs(now.r - (frame.r as number)), `r at ${i}`).toBeLessThanOrEqual(0.11)
+      expect(Math.abs(now.strokeWidth - (frame.strokeWidth as number)), `stroke-width at ${i}`).toBeLessThanOrEqual(0.11)
+      expect(Math.abs(now.opacity - (frame.opacity as number)), `opacity at ${i}`).toBeLessThanOrEqual(0.0025)
+      expect(Math.abs(dash() - (at(draw(), Appear.elapsedOf(found(path))).pathLength as number)), `dash at ${i}`).toBeLessThanOrEqual(0.0011)
+    }
+    expect(circleDrawn().cx, "mid-flight").toBeGreaterThan(11)
+    expect(circleDrawn().cx, "mid-flight").toBeLessThan(59)
+    // The Handoff: the engine's Frame written as attributes, the CSS released, in one frame.
+    const handoff = await new Promise<{ readonly before: ReturnType<typeof circleDrawn>; readonly after: ReturnType<typeof circleDrawn>; readonly dash: readonly [number, number] }>((resolve) =>
+      requestAnimationFrame(() => {
+        const frame = at(grow(), Appear.elapsedOf(found(circle)))
+        const drawFrame = at(draw(), Appear.elapsedOf(found(path)))
+        const before = circleDrawn()
+        const dashBefore = dash()
+        for (const [key, name] of [["cx", "cx"], ["r", "r"], ["strokeWidth", "stroke-width"], ["opacity", "opacity"]] as const) circle.setAttribute(name, String(frame[key]))
+        path.setAttribute("stroke-dasharray", `${drawFrame.pathLength} 1`)
+        Appear.release(circle)
+        Appear.release(path)
+        resolve({ before, after: circleDrawn(), dash: [dashBefore, dash()] })
+      }))
+    expect(Math.abs(handoff.after.cx - handoff.before.cx)).toBeLessThanOrEqual(0.11)
+    expect(Math.abs(handoff.after.r - handoff.before.r)).toBeLessThanOrEqual(0.11)
+    expect(Math.abs(handoff.after.strokeWidth - handoff.before.strokeWidth)).toBeLessThanOrEqual(0.11)
+    expect(Math.abs(handoff.after.opacity - handoff.before.opacity)).toBeLessThanOrEqual(0.0025)
+    expect(Math.abs(handoff.dash[1] - handoff.dash[0])).toBeLessThanOrEqual(0.0011)
+    expect(circle.getAnimations()).toHaveLength(0)
+    expect(path.getAnimations()).toHaveLength(0)
   })
 
   it("HA4: a finished animation still fills, and is still found, past its end", async () => {

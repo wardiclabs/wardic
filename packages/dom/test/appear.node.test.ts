@@ -10,12 +10,17 @@
 // - AP5: a discrete change keeps the stops on both sides of it.
 // - AP6: a colour is judged by its channels' quantum, and drawn in the DOM's syntax.
 // - AP7: a stop is the Frame `Machine.startAt(k / 60)` draws, projected.
-// - AP8: no rule for a key SVG draws as an attribute, for text CSS can't hold, or past 60 s.
+// - AP8: no rule for a key SVG draws only as an attribute, for text CSS can't hold, or past 60 s.
 // - AP9: sampled once a spec, cached across requests by its name; a cached spec's machine isn't built.
 // - AP10: the name is the hash of the key, the tag and the repeat.
 // - AP11: an element's `animation` value; a rule that settles at once is one stop of 0 s.
 // - AP12: a sheet: a slot per element, each rule once, `:root`'s lines, the reduced block.
 // - AP13: a jump (a loop's seam, steps()) holds the Frame before it to halfway, then steps.
+// - AP14 (#245): an svg-inner element's attributes drawn as their CSS properties: the presentation
+//   ones unitless, the stroke dash (`pathLength`) at 0.001, geometry in px at 0.1 and listed in
+//   `supports`; `width`, `height` and `d` still refused.
+// - AP15 (#245): a sheet defines a slot under `@supports` for its rules' geometry properties and the
+//   ones its binding passes (its group's), the reduced block too.
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
@@ -182,9 +187,9 @@ describe("the sampler (#48, ADR-0044)", () => {
     }
   })
 
-  it("AP8: no rule for a key SVG draws as an attribute, for text CSS can't hold, or past 60 s", () => {
-    const attribute = Appear.keyframes({ key: "AP8 cx", tag: "circle", machine: () => Machine.springValues({ cx: 50 }, {}, { cx: 0 }) })
-    expect(Result.isFailure(attribute) && attribute.failure).toMatch(/attribute \(cx\)/)
+  it("AP8: no rule for a key SVG draws only as an attribute, for text CSS can't hold, or past 60 s", () => {
+    const attribute = Appear.keyframes({ key: "AP8 stdDeviation", tag: "feGaussianBlur", machine: () => Machine.springValues({ stdDeviation: 5 }, {}, { stdDeviation: 0 }) })
+    expect(Result.isFailure(attribute) && attribute.failure).toMatch(/only as an attribute \(stdDeviation\)/)
     expect(Result.isSuccess(Appear.keyframes({ key: "AP8 svg transform", tag: "circle", machine: () => Machine.springValues({ x: 50 }, {}, { x: 0 }) }))).toBe(true)
     for (const unsafe of ["red}body{color:blue", "red</style><script>", "url(a;b)", "red/*", "\\72 ed"]) {
       const held = { value: { color: unsafe }, done: true }
@@ -267,6 +272,53 @@ describe("a jump in the rule (#48, ADR-0044)", () => {
   })
 })
 
+describe("SVG attributes (#245)", () => {
+  it("AP14: an svg-inner element's attributes drawn as their CSS properties, judged by what they mean", () => {
+    // Presentation attributes, unitless as the attribute is; nothing to guard.
+    const paint = ok(Appear.keyframes({
+      key: "AP14 paint",
+      tag: "circle",
+      machine: () => tweenValues({ opacity: 0, strokeWidth: 0, stroke: "rgb(255, 0, 0)" }, { opacity: 1, strokeWidth: 4, stroke: "rgb(0, 0, 255)" }, { duration: 0.5 }),
+    }))
+    expect(paint.css).toMatch(/^@keyframes wardic-\w+\{0%\{opacity:0;stroke-width:0;stroke:rgba?\(255, 0, 0/)
+    expect(paint.css).toMatch(/100%\{opacity:1;stroke-width:4;stroke:rgba?\(0, 0, 255/)
+    expect(paint.supports).toEqual([])
+    // The stroke dash a pathLength draws, at 0.001 of the path; its fixed pathLength="1" isn't written.
+    const draw = tweenValues({ pathLength: 0 }, { pathLength: 1 }, { duration: 0.8, easing: Easing.easeOutCubic })
+    const line = ok(Appear.keyframes({ key: "AP14 path", tag: "path", machine: () => draw }))
+    expect(line.css).toContain("0%{stroke-dasharray:0 1;stroke-dashoffset:0}")
+    expect(line.css).toContain("100%{stroke-dasharray:1 1;stroke-dashoffset:0}")
+    expect(line.css).not.toContain("path-length")
+    expect(line.css).not.toContain("pathLength")
+    expect(worstMiss(samples(draw), keptOf(line), "pathLength"), "0.001 of the path").toBeLessThanOrEqual(0.001)
+    // A dash thins as a scale does, at 0.001: the same spring keeps the same stops.
+    const spring = (key: string, tag: string) => ok(Appear.keyframes({ key: `AP14 dash ${key}`, tag, machine: () => Machine.springValues({ [key]: 1 }, { stiffness: 120, damping: 14 }, { [key]: 0 }) })).times
+    expect(spring("pathLength", "path")).toEqual(spring("scale", "div"))
+    // Geometry, in px, judged at 0.1 of a user unit, and listed for `@supports`.
+    const grow = Machine.springValues({ cx: 100, r: 40 }, {}, { cx: 0, r: 10 })
+    const circle = ok(Appear.keyframes({ key: "AP14 geometry", tag: "circle", machine: () => grow }))
+    expect(circle.css).toContain("0%{cx:0px;r:10px}")
+    expect(circle.css).toContain("100%{cx:100px;r:40px}")
+    expect(circle.supports).toEqual(["cx", "r"])
+    const frames = samples(grow)
+    expect(worstMiss(frames, keptOf(circle), "cx"), "0.1 of a user unit").toBeLessThanOrEqual(0.1)
+    // A user unit thins as a CSS px does: `cx` keeps the stops `x` keeps on HTML.
+    const along = (key: string, tag: string) => ok(Appear.keyframes({ key: `AP14 along ${key}`, tag, machine: () => Machine.springValues({ [key]: 100 }, {}, { [key]: 0 }) })).times
+    expect(along("cx", "circle")).toEqual(along("x", "div"))
+    // An opacity attribute is judged as opacity is.
+    const fade = Machine.springValues({ fillOpacity: 1 }, {}, { fillOpacity: 0 })
+    expect(worstMiss(samples(fade), keptOf(ok(Appear.keyframes({ key: "AP14 fill-opacity", tag: "rect", machine: () => fade }))), "fillOpacity")).toBeLessThanOrEqual(0.002)
+    // On HTML, the same keys as before.
+    expect(ok(Appear.keyframes({ key: "AP14 html", tag: "div", machine: () => Machine.springValues({ opacity: 1 }, {}, { opacity: 0 }) })).supports).toEqual([])
+    // Still refused: `width` and `height` (a `@supports` can't tell), and `d`.
+    const sized = Appear.keyframes({ key: "AP14 width", tag: "rect", machine: () => Machine.springValues({ width: 100 }, {}, { width: 0 }) })
+    expect(Result.isFailure(sized) && sized.failure).toMatch(/only as an attribute \(width\)/)
+    const shape = Machine.make<Frame.Frame<Values.Values>>({ settles: true, span: { name: "t", attributes: {} }, start: () => () => ({ value: { d: "M0 0L10 10" }, done: true }) })
+    const path = Appear.keyframes({ key: "AP14 d", tag: "path", machine: () => shape })
+    expect(Result.isFailure(path) && path.failure).toMatch(/only as an attribute \(d\)/)
+  })
+})
+
 describe("a render's sheet (#48, ADR-0044)", () => {
   it("AP12: a slot per element, each rule once, :root's lines, the reduced block only when given", () => {
     const sheet = Appear.sheet()
@@ -281,7 +333,7 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     expect(Result.isSuccess(a.define({ spec, delay: 0 }, { spec: reduced, delay: 0 }))).toBe(true)
     expect(Result.isSuccess(b.define({ spec, delay: 0.1 }))).toBe(true)
     // c is never defined: its element keeps its Starting style. d's spec has no rule.
-    const failed = d.define({ spec: { key: "AP12 bad", tag: "circle", machine: () => Machine.springValues({ cx: 1 }, {}, { cx: 0 }) }, delay: 0 })
+    const failed = d.define({ spec: { key: "AP12 bad", tag: "feGaussianBlur", machine: () => Machine.springValues({ stdDeviation: 1 }, {}, { stdDeviation: 0 }) }, delay: 0 })
     expect(Result.isFailure(failed)).toBe(true)
     const css = sheet.css()
     const rule = ok(Appear.keyframes(spec))
@@ -293,6 +345,34 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     expect(css).toContain(`@media (prefers-reduced-motion: reduce){:root{${property(a)}:${Appear.animationOf(reducedRule, 0)}}}`)
     expect(css).not.toContain(property(c))
     expect(css).not.toContain(property(d))
+  })
+
+  it("AP15: a slot under `@supports` for its rules' geometry and its group's (#245)", () => {
+    const sheet = Appear.sheet()
+    const circle = { key: "AP15 circle", tag: "circle", machine: () => Machine.springValues({ cx: 100 }, {}, { cx: 0 }) }
+    const fade = { key: "AP15 fade", tag: "div", machine: () => Machine.springValues({ opacity: 1 }, {}, { opacity: 0 }) }
+    const a = sheet.slot()
+    const b = sheet.slot()
+    const c = sheet.slot()
+    expect(Result.isSuccess(a.define({ spec: circle, delay: 0 }, { spec: circle, delay: 0 }))).toBe(true)
+    // b orchestrates with a: its binding passes the group's geometry.
+    expect(Result.isSuccess(b.define({ spec: fade, delay: 0.1 }, { spec: fade, delay: 0 }, ["cx"]))).toBe(true)
+    expect(Result.isSuccess(c.define({ spec: fade, delay: 0.2 }))).toBe(true)
+    const property = (slot: Appear.Slot) => slot.animation.slice(4, -1)
+    const circleRule = ok(Appear.keyframes(circle))
+    const fadeRule = ok(Appear.keyframes(fade))
+    const css = sheet.css()
+    expect(css).toContain(`:root{${property(c)}:${Appear.animationOf(fadeRule, 0.2)}}`)
+    expect(css).toContain(`@supports (cx:0px){:root{${property(a)}:${Appear.animationOf(circleRule, 0)};${property(b)}:${Appear.animationOf(fadeRule, 0.1)}}}`)
+    expect(css).toContain(
+      `@media (prefers-reduced-motion: reduce){@supports (cx:0px){:root{${property(a)}:${Appear.animationOf(circleRule, 0)};${property(b)}:${Appear.animationOf(fadeRule, 0)}}}}`,
+    )
+    // Two properties: one condition, in order, whichever came first.
+    const two = Appear.sheet()
+    const both = two.slot()
+    const radius = { key: "AP15 radius", tag: "circle", machine: () => Machine.springValues({ r: 20 }, {}, { r: 4 }) }
+    both.define({ spec: radius, delay: 0 }, undefined, ["cx"])
+    expect(two.css()).toContain(`@supports (cx:0px) and (r:0px){:root{${property(both)}:`)
   })
 
   it("AP12: an empty sheet writes nothing", () => {

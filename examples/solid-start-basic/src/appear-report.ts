@@ -3,7 +3,7 @@
 //
 // 1. `startAppearRecorder()` runs in entry-client.tsx BEFORE SolidStart mounts. Every frame, for
 //    each element marked `data-appear-k`, it records what the element draws (opacity, x, y,
-//    rotate) and whether its CSS animation still runs. It reads after the frame's callbacks (a
+//    rotate; an SVG element's cx, r and stroke dash, #245) and whether its CSS animation still runs. It reads after the frame's callbacks (a
 //    task posted from the frame's rAF callback), so it sees what the engine drew that frame. A
 //    read that runs into the next frame is skipped (#184's late post-paint reads).
 // 2. `markHydration()` notes when hydration starts (`?hydrate=<ms>` delays it), and the route's
@@ -29,6 +29,10 @@ interface Drawn {
   readonly x: number
   readonly y: number
   readonly rotate: number
+  /** An SVG element's `cx`, `r` and stroke dash (#245); 0 where it has none. */
+  readonly cx: number
+  readonly r: number
+  readonly dash: number
   readonly css: boolean
   /** Its CSS animation is still in its delay. */
   readonly waiting: boolean
@@ -69,6 +73,9 @@ const drawnOf = (el: Element): Drawn => {
     x: m.m41,
     y: m.m42,
     rotate: (Math.atan2(m.m12, m.m11) * 180) / Math.PI,
+    cx: Number.parseFloat(computed.getPropertyValue("cx")) || 0,
+    r: Number.parseFloat(computed.getPropertyValue("r")) || 0,
+    dash: Number.parseFloat(computed.getPropertyValue("stroke-dasharray")) || 0,
     css: animation !== undefined,
     waiting,
     cssTime: Number(animation?.currentTime ?? 0),
@@ -120,6 +127,9 @@ const CHANNELS = [
   ["x", 0.5],
   ["y", 0.5],
   ["rotate", 2],
+  ["cx", 0.5],
+  ["r", 0.5],
+  ["dash", 0.02],
 ] as const
 
 /** The smallest angle between two, in degrees. */

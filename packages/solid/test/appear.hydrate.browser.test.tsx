@@ -18,6 +18,8 @@
 //   frame, and opacity animates.
 // - AH9: reduced motion and a stagger: each item's positional key holds its start through its delay,
 //   then snaps, as the engine's snap does (the rule fills forwards).
+// - AH10 (#245): an SVG circle's `cx`, `r` and `opacity` and a path's stroke dash, attributes played
+//   as CSS, handed off mid-flight to the engine's attributes.
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
@@ -29,7 +31,7 @@ import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5 } from "./appear-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6 } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
 const FILE = "./test/appear-fixtures.tsx"
@@ -40,6 +42,10 @@ interface Drawn {
   readonly x: number
   readonly y: number
   readonly rotate: number
+  /** An SVG element's `cx` and `r`, and its stroke dash's first length (#245); 0 where it has none. */
+  readonly cx: number
+  readonly r: number
+  readonly dash: number
   /** Whether a CSS animation still runs on it. */
   readonly css: boolean
 }
@@ -73,6 +79,9 @@ const drawnOf = (el: Element): Drawn => {
     x: m.m41,
     y: m.m42,
     rotate: (Math.atan2(m.m12, m.m11) * 180) / Math.PI,
+    cx: Number.parseFloat(computed.getPropertyValue("cx")) || 0,
+    r: Number.parseFloat(computed.getPropertyValue("r")) || 0,
+    dash: Number.parseFloat(computed.getPropertyValue("stroke-dasharray")) || 0,
     css: el.getAnimations().length > 0,
   }
 }
@@ -171,10 +180,14 @@ const settledAt = (machine: Machine.Machine<Frame.Frame<Values.Values>>): number
 }
 
 /** Tolerances: a little over the sampler's own, for the browser's rounding. */
-const TOL = { opacity: 0.012, px: 0.6, deg: 1.5 }
+const TOL = { opacity: 0.012, px: 0.6, deg: 1.5, dash: 0.006 }
 
 /** Every frame of `k` against `expected(seconds since its CSS started)`; returns how many frames came after hydration. */
-const followsMachine = (r: Run, k: string, expected: (seconds: number) => { readonly opacity?: number; readonly x?: number; readonly y?: number; readonly rotate?: number }): number => {
+const followsMachine = (
+  r: Run,
+  k: string,
+  expected: (seconds: number) => { readonly opacity?: number; readonly x?: number; readonly y?: number; readonly rotate?: number; readonly cx?: number; readonly r?: number; readonly dash?: number },
+): number => {
   const start = r.startOf[k]
   expect(start, `${k}'s CSS animation was found`).toBeDefined()
   let after = 0
@@ -187,6 +200,9 @@ const followsMachine = (r: Run, k: string, expected: (seconds: number) => { read
     if (want.opacity !== undefined) expect(Math.abs(got.opacity - want.opacity), `${where}: opacity ${got.opacity} vs ${want.opacity}`).toBeLessThanOrEqual(TOL.opacity)
     if (want.x !== undefined) expect(Math.abs(got.x - want.x), `${where}: x ${got.x} vs ${want.x}`).toBeLessThanOrEqual(TOL.px)
     if (want.y !== undefined) expect(Math.abs(got.y - want.y), `${where}: y ${got.y} vs ${want.y}`).toBeLessThanOrEqual(TOL.px)
+    if (want.cx !== undefined) expect(Math.abs(got.cx - want.cx), `${where}: cx ${got.cx} vs ${want.cx}`).toBeLessThanOrEqual(TOL.px)
+    if (want.r !== undefined) expect(Math.abs(got.r - want.r), `${where}: r ${got.r} vs ${want.r}`).toBeLessThanOrEqual(TOL.px)
+    if (want.dash !== undefined) expect(Math.abs(got.dash - want.dash), `${where}: dash ${got.dash} vs ${want.dash}`).toBeLessThanOrEqual(TOL.dash)
     if (want.rotate !== undefined) {
       const diff = Math.abs((((got.rotate - want.rotate) % 360) + 540) % 360 - 180)
       expect(diff, `${where}: rotate ${got.rotate} vs ${want.rotate}`).toBeLessThanOrEqual(TOL.deg)
@@ -296,5 +312,24 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     const opacity = Machine.springValues({ opacity: 1 }, {}, { opacity: 0 })
     const r = await run("A1", A1, { hydrateAfter: 180, forMs: 1400 })
     expect(followsMachine(r, "card", (s) => ({ opacity: machineAt(opacity, s).opacity as number, y: 0 }))).toBeGreaterThan(20)
+  })
+
+  it("AH10: SVG attributes played as CSS, handed off mid-flight to the engine's attributes (#245)", async () => {
+    const dot = tween({ cx: 10, r: 4, opacity: 0 }, { cx: 90, r: 16, opacity: 1 }, { duration: 1.2 })
+    const line = tween({ pathLength: 0 }, { pathLength: 1 }, { duration: 1.2 })
+    const r = await run("A6", A6, { hydrateAfter: 450, forMs: 1700 })
+    const before = r.frames.filter((f) => !f.hydrated && f.drawn.dot!.css)
+    expect(before.some((f) => f.drawn.dot!.cx > 15 && f.drawn.dot!.cx < 85), "it moved before hydration").toBe(true)
+    expect(followsMachine(r, "dot", (s) => {
+      const v = machineAt(dot, s)
+      return { cx: v.cx as number, r: v.r as number, opacity: v.opacity as number }
+    })).toBeGreaterThan(30)
+    expect(followsMachine(r, "line", (s) => ({ dash: machineAt(line, s).pathLength as number }))).toBeGreaterThan(30)
+    const last = r.frames.at(-1)!.drawn
+    expect(last.dot!.css, "the CSS animation is gone").toBe(false)
+    expect(last.dot!.cx).toBeCloseTo(90, 1)
+    const circle = r.host.querySelector("circle")!
+    expect(circle.getAttribute("cx"), "the engine writes the attribute").toBe("90")
+    expect(r.host.querySelector("path")!.getAttribute("stroke-dasharray")).toBe("1 1")
   })
 })

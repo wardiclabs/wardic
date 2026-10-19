@@ -22,12 +22,13 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import type { LazyArg } from "effect/Function"
 import * as Option from "effect/Option"
+import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { drawnUnitOf, project } from "./renderer.ts"
-import { dashCase, splitPatchForTag } from "./svg.ts"
+import { dashCase, isPathKey, isSvgInnerTag, splitPatchForTag, svgAttrNameOf } from "./svg.ts"
 
 /** An element's mount animation, as its binding describes it. */
 export interface Spec {
@@ -64,6 +65,12 @@ export interface Keyframes {
   readonly times: ReadonlyArray<number>
   /** The rule, `@keyframes <name>{…}`. */
   readonly css: string
+  /**
+   * The SVG geometry properties its stops write (`cx`, `r`…), which a browser draws from CSS only in
+   * part (#245): an element playing it is defined under `@supports` for each, so a browser without
+   * them keeps it at its Starting style. Empty for most rules.
+   */
+  readonly supports: ReadonlyArray<string>
 }
 
 /** Where an element's timing is decided: a spec, and the delay it starts after. */
@@ -176,19 +183,19 @@ const decimalsOf = (token: string): number =>
  * its range, 1/500 (a colour channel's half step), and never finer than the decimals it's written
  * with.
  */
-const tolerancesOf = (key: string, series: ReadonlyArray<Split>): ReadonlyArray<number> =>
+const tolerancesOf = (key: string, svgInner: boolean, series: ReadonlyArray<Split>): ReadonlyArray<number> =>
   Arr.map(Arr.headNonEmpty(series as Arr.NonEmptyReadonlyArray<Split>).numbers, (_, token) => {
     const values = Arr.map(series, (split) => split.numbers[token] as number)
     const span = Math.max(...values) - Math.min(...values)
     const decimals = Math.min(6, Math.max(...Arr.map(series, (split) => split.decimals[token] as number)))
     const unit = Arr.headNonEmpty(series as Arr.NonEmptyReadonlyArray<Split>).units[token] as string
     const bare = Arr.headNonEmpty(series as Arr.NonEmptyReadonlyArray<Split>).skeleton === "#"
-    return Math.max(1e-9, toleranceFor(key, bare, unit, span, 10 ** -decimals))
+    return Math.max(1e-9, toleranceFor(key, svgInner, bare, unit, span, 10 ** -decimals))
   })
 
-const toleranceFor = (key: string, bare: boolean, unit: string, span: number, quantum: number): number =>
+const toleranceFor = (key: string, svgInner: boolean, bare: boolean, unit: string, span: number, quantum: number): number =>
   Bool.match(bare, {
-    onTrue: () => bareTolerance(key),
+    onTrue: () => Bool.match(svgInner, { onTrue: () => svgTolerance(key), onFalse: () => bareTolerance(key) }),
     onFalse: () =>
       Bool.match(unit === "px" || unit === "deg", {
         onTrue: () => Math.max(0.1, quantum),
@@ -203,11 +210,30 @@ const bareTolerance = (key: string): number =>
     onFalse: () => 0.1,
   })
 
+/** The opacities an svg-inner element draws as attributes, judged as opacity is. */
+const SVG_OPACITIES: ReadonlySet<string> = new Set(["opacity", "fillOpacity", "strokeOpacity", "stopOpacity", "floodOpacity"])
+
+/**
+ * A bare number's tolerance on an svg-inner element (#245), by what its attribute means: a
+ * normalised dash (`pathLength`, `pathOffset`, `pathSpacing`: 0 to 1 of the path) 0.001, an
+ * opacity 0.002, any other attribute in user units, a CSS px, 0.1. A key drawn as style (the
+ * transform's) as on HTML.
+ */
+const svgTolerance = (key: string): number =>
+  Bool.match(isPathKey(key), {
+    onTrue: () => 0.001,
+    onFalse: () =>
+      Option.match(svgAttrNameOf(key), {
+        onNone: () => bareTolerance(key),
+        onSome: () => Bool.match(SVG_OPACITIES.has(key), { onTrue: () => 0.002, onFalse: () => 0.1 }),
+      }),
+  })
+
 /** A series of Frames split per key, with each key's tolerances: what the stops are judged on. */
-const judged = (frames: ReadonlyArray<Values.Values>) => {
+const judged = (frames: ReadonlyArray<Values.Values>, svgInner: boolean) => {
   const keys = Arr.flatMap(Arr.take(frames, 1), Rec.keys)
   const splits = Arr.map(keys, (key) => Arr.map(frames, (frame) => splitOf(UndefinedOr.match(frame[key], { onUndefined: () => "", onDefined: (v: number | string) => v }))))
-  const tolerances = Arr.map(keys, (key, k) => tolerancesOf(key, splits[k] as ReadonlyArray<Split>))
+  const tolerances = Arr.map(keys, (key, k) => tolerancesOf(key, svgInner, splits[k] as ReadonlyArray<Split>))
   /** Whether stop `i` is within every key's tolerance of where a straight line from `a` to `b` puts it. */
   const onLine = (i: number, a: number, b: number): boolean =>
     Arr.every(splits, (series, k) => {
@@ -258,15 +284,19 @@ const judged = (frames: ReadonlyArray<Values.Values>) => {
  *   tells. The rule holds the Frame before it to halfway between them, then steps, so a display
  *   frame near either draws that Frame, not a value on a line through values the engine never draws.
  */
-export const thin = (frames: ReadonlyArray<Values.Values>): { readonly kept: ReadonlyArray<number>; readonly end: number; readonly jumps: ReadonlyArray<number> } => {
+export const thin = (
+  frames: ReadonlyArray<Values.Values>,
+  tag?: string | undefined,
+): { readonly kept: ReadonlyArray<number>; readonly end: number; readonly jumps: ReadonlyArray<number> } => {
   const last = frames.length - 1
-  const whole = judged(frames)
+  const svgInner = Predicate.isNotUndefined(tag) && isSvgInnerTag(tag)
+  const whole = judged(frames, svgInner)
   const end = Option.match(Arr.findLastIndex(Arr.range(0, last), (i) => !whole.onLine(i, last, last)), {
     onNone: () => 0,
     onSome: (i) => Math.min(last, i + 1),
   })
   // The series drawn: the Frames up to the end, the end drawn as the settled Frame.
-  const { onLine, jumpAt } = judged(Arr.append(Arr.take(frames, end), frames[last] as Values.Values))
+  const { onLine, jumpAt } = judged(Arr.append(Arr.take(frames, end), frames[last] as Values.Values), svgInner)
   /** Whether one straight line from stop `a` to stop `b` stands in for every stop between. */
   const fits = (a: number, b: number): boolean => Arr.every(Arr.range(a + 1, b - 1), (i) => onLine(i, a, b))
   /** The farthest stop a line from `a` can reach. */
@@ -283,16 +313,70 @@ const trimNumbers = (text: string): string =>
 /** Text CSS can't hold inside a declaration, or that would end the `<style>` it sits in. */
 const UNSAFE = /[<>{};]|\/\*|\\/
 
-/** One Frame's declarations, or why it can't be one: a key SVG draws as an attribute, or unsafe text. */
-const declarationsOf = (tag: string | undefined, values: Values.Values): Result.Result<string, string> => {
+/**
+ * The SVG attributes a keyframe draws as their CSS property (#245, ADR-0044 *Amendment (#245)*):
+ * presentation attributes, which a stylesheet's or an animation's value overrides, so the attribute
+ * the engine writes at the Handoff takes over value for value. Unitless, as the attribute is.
+ */
+const SVG_PRESENTATION: ReadonlySet<string> = new Set([
+  "opacity",
+  "fill",
+  "stroke",
+  "stroke-width",
+  "fill-opacity",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stop-color",
+  "stop-opacity",
+  "flood-color",
+  "flood-opacity",
+])
+
+/**
+ * SVG 2's geometry properties a keyframe draws, in px, behind `@supports` (`Keyframes.supports`):
+ * Chrome and Firefox draw them from CSS, Safari only in part. Not `width` and `height`:
+ * `@supports (width: 0px)` holds for HTML in every browser, so it can't tell whether one draws a
+ * `<rect>`'s from CSS.
+ */
+const SVG_GEOMETRY: ReadonlySet<string> = new Set(["cx", "cy", "r", "rx", "ry", "x", "y"])
+
+/** The attribute the stroke dash writes beside it, `pathLength="1"`: the Starting style writes it too, and it never changes. */
+const SVG_FIXED: ReadonlySet<string> = new Set(["pathLength"])
+
+const BARE_NUMBER = /^-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i
+
+/** An SVG attribute's declaration: a geometry property's bare number in px, what a user unit is. */
+const attributeDeclaration = ([name, value]: readonly [string, string]): string =>
+  `${name}:${trimNumbers(Bool.match(Bool.and(SVG_GEOMETRY.has(name), BARE_NUMBER.test(value)), { onTrue: () => `${value}px`, onFalse: () => value }))}`
+
+/** Why an attribute can't be a keyframe's: it isn't a CSS property (`d` in Safari, `points`, a filter primitive's). */
+const drawnOnlyAsAttribute = (name: string): boolean => Bool.not(Bool.or(SVG_FIXED.has(name), Bool.or(SVG_PRESENTATION.has(name), SVG_GEOMETRY.has(name))))
+
+/** One Frame's declarations and the geometry properties among them. */
+interface Declarations {
+  readonly text: string
+  readonly supports: ReadonlyArray<string>
+}
+
+/**
+ * One Frame's declarations, or why it can't be one: a key SVG draws only as an attribute, or unsafe
+ * text. An svg-inner element's attributes are drawn as their CSS properties where they have one.
+ */
+const declarationsOf = (tag: string | undefined, values: Values.Values): Result.Result<Declarations, string> => {
   const { attrs, style } = splitPatchForTag(tag, project(values))
-  const declarations = Arr.map(Rec.toEntries(style), ([key, value]) => `${dashCase(key)}:${trimNumbers(String(value))}`)
-  return Bool.match(Rec.isEmptyRecord(attrs), {
-    onFalse: () => Result.fail(`a key SVG draws as an attribute (${Rec.keys(attrs).join(", ")})`),
-    onTrue: () =>
+  const drawn = Arr.filter(Rec.toEntries(attrs), ([name]) => Bool.not(SVG_FIXED.has(name)))
+  const declarations = Arr.appendAll(
+    Arr.map(Rec.toEntries(style), ([key, value]) => `${dashCase(key)}:${trimNumbers(String(value))}`),
+    Arr.map(drawn, attributeDeclaration),
+  )
+  return Arr.match(Arr.filter(Rec.keys(attrs), drawnOnlyAsAttribute), {
+    onNonEmpty: (names) => Result.fail(`a key SVG draws only as an attribute (${names.join(", ")})`),
+    onEmpty: () =>
       Option.match(Arr.findFirst(declarations, (declaration) => UNSAFE.test(declaration)), {
         onSome: (declaration) => Result.fail(`a value CSS text can't hold (${declaration})`),
-        onNone: () => Result.succeed(declarations.join(";")),
+        onNone: () =>
+          Result.succeed({ text: declarations.join(";"), supports: Arr.filter(Arr.map(drawn, ([name]) => name), (name) => SVG_GEOMETRY.has(name)) }),
       }),
   })
 }
@@ -314,7 +398,7 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
     onNone: () => Result.fail(`longer than ${MAX_SECONDS} s`),
     onSome: (frames) => {
       const last = frames.length - 1
-      const { kept, end, jumps } = thin(frames)
+      const { kept, end, jumps } = thin(frames, spec.tag)
       const name = nameOf(spec)
       /** A kept stop's Frame: the end drawn as the settled Frame. */
       const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values
@@ -338,12 +422,20 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
           times: Arr.map(kept, (stop) => stop * Machine.CATCH_UP_DT),
           css: `@keyframes ${name}{${
             Arr.map(Bool.match(end === 0, { onTrue: () => ["0%,100%"], onFalse: () => Arr.map(stops, ({ offset }) => percentOf(offset, end)) }), (offset, i) =>
-              `${offset}{${declarations[i] as string}}`).join("")
+              `${offset}{${(declarations[i] as Declarations).text}}`).join("")
           }}`,
+          supports: supportsOf(Arr.flatMap(declarations, (d) => d.supports)),
         }),
       )
     },
   })
+
+/** Geometry properties once each, in order: a condition's text is the same for the same set. */
+const supportsOf = (properties: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(Arr.dedupe(properties), Order.String)
+
+/** An `@supports` condition for geometry properties, `(cx:0px) and (r:0px)`; empty for none. */
+const conditionOf = (properties: ReadonlyArray<string>): string => Arr.map(properties, (property) => `(${property}:0px)`).join(" and ")
+
 
 /** The rules sampled so far, across requests, by name; the oldest dropped past `CACHE_SIZE`. */
 const cache = new Map<string, Result.Result<Keyframes, string>>()
@@ -385,8 +477,12 @@ export interface Slot {
    * The element's timing: `play`, and under `prefers-reduced-motion: reduce` `reduced` when given
    * (a provider's `"user"`). Undefined until called, and left so when either spec has no rule: the
    * element keeps its Starting style. The reason comes back for the debug log.
+   *
+   * Defined under `@supports` for the geometry properties its rules write and `supports` (#245): a
+   * binding passes the ones every element it orchestrates with writes, so a browser without them
+   * keeps the whole group at its Starting style, not half of it.
    */
-  readonly define: (play: Play, reduced?: Play) => Result.Result<void, string>
+  readonly define: (play: Play, reduced?: Play | undefined, supports?: ReadonlyArray<string>) => Result.Result<void, string>
 }
 
 /** One render's Appear rules: a slot per element, and the `<style>` text for the head. */
@@ -396,40 +492,61 @@ export interface Sheet {
   readonly css: () => string
 }
 
+/** Each `@supports` condition's `:root` declarations, the unconditional ones under `""`. */
+type Blocks = Map<string, Array<string>>
+
+/** A block's declarations added under its condition. */
+const addTo = (blocks: Blocks, condition: string, line: string): void => {
+  Option.match(Option.fromUndefinedOr(blocks.get(condition)), {
+    onNone: () => blocks.set(condition, [line]),
+    onSome: (lines) => lines.push(line),
+  })
+}
+
+/** The blocks' CSS: the unconditional `:root` first, then each condition's under `@supports`. */
+const blocksCss = (blocks: Blocks): string =>
+  Arr.map(Arr.sort(Array.from(blocks.keys()), Order.String), (condition) => {
+    const root = `:root{${(blocks.get(condition) as Array<string>).join(";")}}`
+    return Bool.match(condition === "", { onTrue: () => root, onFalse: () => `@supports ${condition}{${root}}` })
+  }).join("")
+
 /** A sheet for one render. */
 export const sheet = (): Sheet => {
   let slots = 0
   const rules = new Map<string, string>()
-  const lines: Array<string> = []
-  const reducedLines: Array<string> = []
-  /** A play's rule added to the sheet, and its `animation` value. */
-  const animationFor = (play: Play): Result.Result<string, string> =>
+  const blocks: Blocks = new Map()
+  const reducedBlocks: Blocks = new Map()
+  /** A play's rule added to the sheet: its `animation` value, and the geometry properties it writes. */
+  const animationFor = (play: Play): Result.Result<{ readonly animation: string; readonly supports: ReadonlyArray<string> }, string> =>
     Result.map(keyframes(play.spec), (rule) => {
       rules.set(rule.name, rule.css)
-      return animationOf(rule, play.delay)
+      return { animation: animationOf(rule, play.delay), supports: rule.supports }
     })
   return {
     slot: () => {
       const property = `--${PREFIX}a${slots++}`
       return {
         animation: `var(${property})`,
-        define: (play, reduced) =>
+        define: (play, reduced, supports = []) =>
           Result.map(
-            Result.all([animationFor(play), UndefinedOr.match(reduced, { onUndefined: () => Result.succeed(""), onDefined: animationFor })]),
-            ([animation, reducedAnimation]) => {
-              lines.push(`${property}:${animation}`)
-              if (Predicate.isNotUndefined(reduced)) reducedLines.push(`${property}:${reducedAnimation}`)
+            Result.all([animationFor(play), UndefinedOr.match(reduced, { onUndefined: () => Result.succeed(undefined), onDefined: animationFor })]),
+            ([normal, reducedPlay]) => {
+              const reducedSupports = UndefinedOr.match(reducedPlay, { onUndefined: () => supports, onDefined: (r) => r.supports })
+              const condition = Bool.match(
+                Bool.and(Arr.isReadonlyArrayEmpty(normal.supports), Bool.and(Arr.isReadonlyArrayEmpty(reducedSupports), Arr.isReadonlyArrayEmpty(supports))),
+                { onTrue: () => "", onFalse: () => conditionOf(supportsOf(Arr.flatten([normal.supports, reducedSupports, supports]))) },
+              )
+              addTo(blocks, condition, `${property}:${normal.animation}`)
+              UndefinedOr.map(reducedPlay, (r) => addTo(reducedBlocks, condition, `${property}:${r.animation}`))
             },
           ),
       }
     },
     css: () =>
-      `${Array.from(rules.values()).join("")}${
-        Arr.match(lines, { onEmpty: () => "", onNonEmpty: () => `:root{${lines.join(";")}}` })
-      }${
-        Arr.match(reducedLines, {
-          onEmpty: () => "",
-          onNonEmpty: () => `@media (prefers-reduced-motion: reduce){:root{${reducedLines.join(";")}}}`,
+      `${Array.from(rules.values()).join("")}${blocksCss(blocks)}${
+        Bool.match(reducedBlocks.size === 0, {
+          onTrue: () => "",
+          onFalse: () => `@media (prefers-reduced-motion: reduce){${blocksCss(reducedBlocks)}}`,
         })
       }`,
   }

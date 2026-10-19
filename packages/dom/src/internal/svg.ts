@@ -110,7 +110,7 @@ const attrName = (key: string): string => {
 }
 
 /** Whether a key collapses into the stroke dash: `pathLength`, `pathSpacing` or `pathOffset`. */
-const isPathKey = (key: string): boolean => key === "pathLength" || key === "pathSpacing" || key === "pathOffset"
+export const isPathKey = (key: string): boolean => key === "pathLength" || key === "pathSpacing" || key === "pathOffset"
 
 /**
  * The attribute an svg-inner element's `key` is written as (the routing below), or
