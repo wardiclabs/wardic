@@ -321,8 +321,16 @@ An element's style before its first Frame: `project(resolveInitial(config))`, co
 _Avoid_: initial style (`initial` is its input, not its projected result), SSR seed.
 
 **Hydration hold**:
-From a server render until the element mounts, a client hydrating that markup renders exactly what the server rendered: the Starting style, and a client-only hook's server value (`false` for `createHover`, `createReducedMotion`, …). At mount it switches to its client values and the engine starts. A client-only render has no hold (ADR-0021).
+From a server render until the element mounts, a client hydrating that markup renders exactly what the server rendered: the Starting style, and a client-only hook's server value (`false` for `createHover`, `createReducedMotion`, …). At mount it switches to its client values and the engine starts. A client-only render has no hold (ADR-0021). An **Appear animation** plays through the hold, and the **Handoff** ends it (ADR-0044).
 _Avoid_: deferred hydration, two-pass render.
+
+**Appear animation**:
+An element's mount animation as a server render starts it: the server samples it from Wardic's own machines into a CSS `@keyframes` rule in the page's head, and the element plays it from first paint, before any script runs (with none, to its end). An element qualifies whole, when the server knows its whole mount animation: static `initial` and `animate`, every key starting from `initial`. One that doesn't keeps its **Starting style** until mount. At mount the engine takes it over, the **Handoff** (#48, ADR-0044; Motion's "optimised appear").
+_Avoid_: optimised appear, pre-hydration animation, server animation.
+
+**Handoff**:
+The engine taking over an **Appear animation** at mount: the element's run starts as far in as the CSS has got, read in the frame that draws its first Frame, and that frame's commit removes the CSS animation, with no paint between (ADR-0044). Motion's word for the same step.
+_Avoid_: resume, takeover, sync.
 
 **Live value**:
 A value the user moves themselves, given in `style`. It's the key's `style` link (**Base value**): the element follows it on every change while no entry of the **Override stack** sets the key, and an entry that lets go returns the key to where the Live value is then.

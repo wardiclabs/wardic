@@ -1,0 +1,401 @@
+/**
+ * Appear animations (#48, ADR-0044): a server-rendered mount animation played in CSS from first
+ * paint, which the client takes over at mount (the **Handoff**). The DOM's half, framework-free:
+ *
+ * - **The sampler** steps a binding's mount animation through core's machines, as a 60 Hz client
+ *   would (`Machine.CATCH_UP_DT`), projects each Frame with the DOM's `project`, and writes it as one
+ *   `@keyframes` rule, thinned to the stops a straight line can't stand in for, within a tolerance
+ *   per key below what a screen shows (decision 9). One rule a spec, cached across requests by it.
+ * - **A sheet** collects one render's rules. An element's inline style names only a custom
+ *   property, `animation: var(--wardic-aN)`, which the sheet defines in `:root` once the render
+ *   knows its timing (decision 5); undefined, it leaves the element at its Starting style.
+ * - **The Handoff's reads:** the element's `wardic-…` animation, how far it has got, and its
+ *   removal, written in the same task as the engine's first frame (decision 6).
+ *
+ * @module
+ */
+import * as BaseValue from "@wardic/core/BaseValue"
+import type * as Frame from "@wardic/core/Frame"
+import * as Machine from "@wardic/core/Machine"
+import type * as Values from "@wardic/core/Values"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { drawnUnitOf, project } from "./renderer.ts"
+import { dashCase, splitPatchForTag } from "./svg.ts"
+
+/** An element's mount animation, as its binding describes it. */
+export interface Spec {
+  /**
+   * What built the animation, as one string the binding writes the same on the server and the
+   * client: its starting values, its targets, its transition, whether motion is reduced. The rule's
+   * name is its hash, so a client tells a Handoff it can continue from one it can't (decision 6).
+   */
+  readonly key: string
+  /** The element's tag, for SVG's routing (ADR-0014); `undefined` for an HTML element. */
+  readonly tag: string | undefined
+  /** The animation's values from its start; for an `infinite` one, one cycle of it. */
+  readonly machine: Machine.Machine<Frame.Frame<Values.Values>>
+  /** Played over and over: an infinite repeat, `machine` one cycle of it. */
+  readonly infinite?: boolean | undefined
+}
+
+/** A spec's `@keyframes` rule. */
+export interface Keyframes {
+  /** The rule's name: `wardic-` and the spec's hash. */
+  readonly name: string
+  /** Seconds, from the first Frame to the settled one: a multiple of 1/60 s. */
+  readonly duration: number
+  readonly infinite: boolean
+  /** The time of each stop kept, in seconds from the start. */
+  readonly times: ReadonlyArray<number>
+  /** The rule, `@keyframes <name>{…}`. */
+  readonly css: string
+}
+
+/** Where an element's timing is decided: a spec, and the delay it starts after. */
+export interface Play {
+  readonly spec: Spec
+  /** Seconds before it starts: its orchestration's, and any whole-element delay. */
+  readonly delay: number
+}
+
+/** The prefix every Appear rule's name starts with. */
+export const PREFIX = "wardic-"
+
+/** The longest mount animation sampled, in seconds; a longer one keeps its Starting style. */
+export const MAX_SECONDS = 60
+
+const MAX_STEPS = Math.round(MAX_SECONDS / Machine.CATCH_UP_DT)
+
+// --- The spec's name ---------------------------------------------------------------------------
+
+/** cyrb53, a 53-bit string hash: plenty for a page's specs, and the same in every engine. */
+const hash53 = (text: string): string => {
+  const [h1, h2] = Arr.reduce(Array.from(text), [0xdeadbeef, 0x41c6ce57] as const, ([a, b], char): readonly [number, number] => {
+    const code = char.codePointAt(0) as number
+    return [Math.imul(a ^ code, 2654435761), Math.imul(b ^ code, 1597334677)]
+  })
+  const a = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  const b = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36)
+}
+
+/** The rule's name for a spec: its key, tag and repeat, hashed. */
+export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite">): string =>
+  `${PREFIX}${hash53(`${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}`)}`
+
+// --- Sampling ----------------------------------------------------------------------------------
+
+/**
+ * The spec's Frames' values at 0, 1/60 s, 2/60 s… to the settled one: `startAt`'s catch-up steps,
+ * so the client's `startAt(k / 60)` draws the `k`th. Each copied, since a machine may rewrite its
+ * Frame in place (`springValues`, ADR-0030 decision 11). `None` past `MAX_SECONDS`.
+ */
+const framesOf = (machine: Machine.Machine<Frame.Frame<Values.Values>>): Option.Option<ReadonlyArray<Values.Values>> => {
+  const step = machine.start()
+  const copy = (frame: Frame.Frame<Values.Values>) => ({ values: { ...frame.value }, done: frame.done })
+  // Copied before the next step, which may rewrite it.
+  const first = copy(step(0))
+  const rest = Arr.unfold({ frame: first, steps: 0 }, ({ frame, steps }) =>
+    Bool.match(frame.done || steps >= MAX_STEPS, {
+      onTrue: () => Option.none(),
+      onFalse: () => {
+        const next = copy(step(Machine.CATCH_UP_DT))
+        return Option.some([next, { frame: next, steps: steps + 1 }] as const)
+      },
+    }))
+  const frames = Arr.prepend(rest, first)
+  return Option.liftPredicate(
+    Arr.map(frames, (frame) => frame.values),
+    () => Arr.lastNonEmpty(frames).done,
+  )
+}
+
+/** One key's value split for comparing: its numbers, and the text between them. */
+interface Split {
+  readonly skeleton: string
+  readonly numbers: ReadonlyArray<number>
+  /** The decimals each number was written with: a quantised token can't be judged finer than it. */
+  readonly decimals: ReadonlyArray<number>
+  /** Each number's unit, the letters after it. */
+  readonly units: ReadonlyArray<string>
+}
+
+const NUMBER_TOKEN = /(-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z%]*)/gi
+
+/** A value split into its numbers and the text around them; a number is one token with no text. */
+const splitOf = (value: number | string): Split =>
+  Bool.match(Predicate.isNumber(value), {
+    onTrue: () => ({ skeleton: "#", numbers: [value as number], decimals: [Number.POSITIVE_INFINITY], units: [""] }),
+    onFalse: () => {
+      const text = String(value)
+      const tokens = Array.from(text.matchAll(NUMBER_TOKEN))
+      return {
+        skeleton: text.replace(NUMBER_TOKEN, "#$2"),
+        numbers: Arr.map(tokens, (match) => Number(match[1])),
+        decimals: Arr.map(tokens, (match) => decimalsOf(String(match[1]))),
+        units: Arr.map(tokens, (match) => String(match[2]).toLowerCase()),
+      }
+    },
+  })
+
+/** How many decimals `token` is written with: none for `12`, two for `0.53`. */
+const decimalsOf = (token: string): number =>
+  Option.match(Option.fromNullishOr(/\.(\d+)/.exec(token)), { onNone: () => 0, onSome: (match) => String(match[1]).length })
+
+/**
+ * The tolerance per key and token (decision 9): what a straight line between two stops may miss a
+ * sample by. A bare number by its key's unit: 0.1 px, 0.1°, 0.001 of a scale, 0.002 for the rest
+ * (opacity). A token in a string by its own unit, `px` and `deg` alike; any other by its part of
+ * its range, 1/500 (a colour channel's half step), and never finer than the decimals it's written
+ * with.
+ */
+const tolerancesOf = (key: string, series: ReadonlyArray<Split>): ReadonlyArray<number> =>
+  Arr.map(Arr.headNonEmpty(series as Arr.NonEmptyReadonlyArray<Split>).numbers, (_, token) => {
+    const values = Arr.map(series, (split) => split.numbers[token] as number)
+    const span = Math.max(...values) - Math.min(...values)
+    const decimals = Math.min(6, Math.max(...Arr.map(series, (split) => split.decimals[token] as number)))
+    const unit = Arr.headNonEmpty(series as Arr.NonEmptyReadonlyArray<Split>).units[token] as string
+    const bare = Arr.headNonEmpty(series as Arr.NonEmptyReadonlyArray<Split>).skeleton === "#"
+    return Math.max(1e-9, toleranceFor(key, bare, unit, span, 10 ** -decimals))
+  })
+
+const toleranceFor = (key: string, bare: boolean, unit: string, span: number, quantum: number): number =>
+  Bool.match(bare, {
+    onTrue: () => bareTolerance(key),
+    onFalse: () =>
+      Bool.match(unit === "px" || unit === "deg", {
+        onTrue: () => Math.max(0.1, quantum),
+        onFalse: () => Math.max(span / 500, quantum),
+      }),
+  })
+
+/** A bare number's tolerance, by the unit `project` draws `key` in. */
+const bareTolerance = (key: string): number =>
+  Bool.match(drawnUnitOf(key) === "", {
+    onTrue: () => Bool.match(BaseValue.TRANSFORM_IDENTITY[key] === 1, { onTrue: () => 0.001, onFalse: () => 0.002 }),
+    onFalse: () => 0.1,
+  })
+
+/** A series of Frames split per key, with each key's tolerances: what the stops are judged on. */
+const judged = (frames: ReadonlyArray<Values.Values>) => {
+  const keys = Arr.flatMap(Arr.take(frames, 1), Rec.keys)
+  const splits = Arr.map(keys, (key) => Arr.map(frames, (frame) => splitOf(UndefinedOr.match(frame[key], { onUndefined: () => "", onDefined: (v: number | string) => v }))))
+  const tolerances = Arr.map(keys, (key, k) => tolerancesOf(key, splits[k] as ReadonlyArray<Split>))
+  /** Whether stop `i` is within every key's tolerance of where a straight line from `a` to `b` puts it. */
+  const onLine = (i: number, a: number, b: number): boolean =>
+    Arr.every(splits, (series, k) => {
+      const from = series[a] as Split
+      const to = series[b] as Split
+      const at = series[i] as Split
+      return at.skeleton === from.skeleton && at.skeleton === to.skeleton &&
+        Arr.every(at.numbers, (value, token) => {
+          const line = (from.numbers[token] as number) + (((to.numbers[token] as number) - (from.numbers[token] as number)) * (i - a)) / Math.max(1, b - a)
+          return Math.abs(value - line) <= ((tolerances[k] as ReadonlyArray<number>)[token] as number)
+        })
+    })
+  return { onLine }
+}
+
+/**
+ * The stops kept (decision 9), as indices into `frames`, and where the rule ends.
+ *
+ * - **It ends** at the first Frame from which every one is within tolerance of the settled Frame,
+ *   drawn as the settled Frame: a tween stepped in 1/60 s settles a frame after it arrives, when
+ *   its steps' sum crosses its duration.
+ * - **The stops kept** are the first, the end, and each one a straight line from the last kept can't
+ *   reach past, within every key's tolerances. A key whose text changes between two Frames (a
+ *   discrete value) keeps both, so the flip falls between them.
+ */
+export const thin = (frames: ReadonlyArray<Values.Values>): { readonly kept: ReadonlyArray<number>; readonly end: number } => {
+  const last = frames.length - 1
+  const whole = judged(frames)
+  const end = Option.match(Arr.findLastIndex(Arr.range(0, last), (i) => !whole.onLine(i, last, last)), {
+    onNone: () => 0,
+    onSome: (i) => Math.min(last, i + 1),
+  })
+  // The series drawn: the Frames up to the end, the end drawn as the settled Frame.
+  const { onLine } = judged(Arr.append(Arr.take(frames, end), frames[last] as Values.Values))
+  /** Whether one straight line from stop `a` to stop `b` stands in for every stop between. */
+  const fits = (a: number, b: number): boolean => Arr.every(Arr.range(a + 1, b - 1), (i) => onLine(i, a, b))
+  /** The farthest stop a line from `a` can reach. */
+  const reach = (a: number): number =>
+    Option.getOrElse(Arr.findFirst(Arr.range(a + 1, end), (b) => b === end || !fits(a, b + 1)), () => end)
+  const kept = Arr.unfold(0, (a) => Bool.match(a >= end, { onTrue: () => Option.none(), onFalse: () => Option.some([reach(a), reach(a)] as const) }))
+  return { kept: [0, ...kept], end }
+}
+
+/** A number written to at most four decimals, `-0` as `0`: finer than any tolerance, and short. */
+const trimNumbers = (text: string): string =>
+  text.replace(/-?(?:\d+\.\d+|\.\d+)(?:e[-+]?\d+)?|-?\d+e[-+]?\d+/gi, (token) => String(Number(Number(token).toFixed(4)) + 0))
+
+/** Text CSS can't hold inside a declaration, or that would end the `<style>` it sits in. */
+const UNSAFE = /[<>{};]|\/\*|\\/
+
+/** One Frame's declarations, or why it can't be one: a key SVG draws as an attribute, or unsafe text. */
+const declarationsOf = (tag: string | undefined, values: Values.Values): Result.Result<string, string> => {
+  const { attrs, style } = splitPatchForTag(tag, project(values))
+  const declarations = Arr.map(Rec.toEntries(style), ([key, value]) => `${dashCase(key)}:${trimNumbers(String(value))}`)
+  return Bool.match(Rec.isEmptyRecord(attrs), {
+    onFalse: () => Result.fail(`a key SVG draws as an attribute (${Rec.keys(attrs).join(", ")})`),
+    onTrue: () =>
+      Option.match(Arr.findFirst(declarations, (declaration) => UNSAFE.test(declaration)), {
+        onSome: (declaration) => Result.fail(`a value CSS text can't hold (${declaration})`),
+        onNone: () => Result.succeed(declarations.join(";")),
+      }),
+  })
+}
+
+/** A stop's offset in the rule, a percentage to four decimals. */
+const percentOf = (stop: number, last: number): string =>
+  `${trimNumbers(String(Bool.match(last === 0, { onTrue: () => 0, onFalse: () => (stop / last) * 100 })))}%`
+
+/** A spec sampled into its rule, or why it can't be one. Not cached: {@link keyframes} is. */
+const sample = (spec: Spec): Result.Result<Keyframes, string> =>
+  Option.match(framesOf(spec.machine), {
+    onNone: () => Result.fail(`longer than ${MAX_SECONDS} s`),
+    onSome: (frames) => {
+      const last = frames.length - 1
+      const { kept, end } = thin(frames)
+      const name = nameOf(spec)
+      /** A kept stop's Frame: the end drawn as the settled Frame. */
+      const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values
+      return Result.map(
+        Result.all(Arr.map(kept, (stop) => declarationsOf(spec.tag, frameAt(stop)))),
+        (declarations): Keyframes => ({
+          name,
+          duration: end * Machine.CATCH_UP_DT,
+          infinite: spec.infinite === true,
+          times: Arr.map(kept, (stop) => stop * Machine.CATCH_UP_DT),
+          css: `@keyframes ${name}{${
+            Arr.map(Bool.match(end === 0, { onTrue: () => ["0%,100%"], onFalse: () => Arr.map(kept, (stop) => percentOf(stop, end)) }), (offset, i) =>
+              `${offset}{${declarations[i] as string}}`).join("")
+          }}`,
+        }),
+      )
+    },
+  })
+
+/** The rules sampled so far, across requests, by name; the oldest dropped past `CACHE_SIZE`. */
+const cache = new Map<string, Result.Result<Keyframes, string>>()
+
+const CACHE_SIZE = 512
+
+/**
+ * A spec's rule, or why it has none (a debug log's line): sampled once a spec, cached across
+ * requests by its name, since a spec's rule never changes.
+ */
+export const keyframes = (spec: Spec): Result.Result<Keyframes, string> => {
+  const name = nameOf(spec)
+  return Option.getOrElse(Option.fromUndefinedOr(cache.get(name)), () => {
+    const sampled = sample(spec)
+    Option.map(Arr.head(Arr.take(Array.from(cache.keys()), Math.max(0, cache.size + 1 - CACHE_SIZE))), (oldest) => cache.delete(oldest))
+    cache.set(name, sampled)
+    return sampled
+  })
+}
+
+/** An element's `animation` value for a play of `rule`: its name, length, delay and repeat, filling both ways. */
+export const animationOf = (rule: Keyframes, delay: number): string =>
+  `${rule.name} ${trimNumbers(String(rule.duration))}s linear ${trimNumbers(String(delay))}s ${
+    Bool.match(rule.infinite, { onTrue: () => "infinite", onFalse: () => "1" })
+  } both`
+
+// --- A render's sheet --------------------------------------------------------------------------
+
+/** One element's place in a sheet. */
+export interface Slot {
+  /** The element's inline `animation`: `var(--wardic-aN)`, which the sheet defines once `define` is called. */
+  readonly animation: string
+  /**
+   * The element's timing: `play`, and under `prefers-reduced-motion: reduce` `reduced` when given
+   * (a provider's `"user"`). Undefined until called, and left so when either spec has no rule: the
+   * element keeps its Starting style. The reason comes back for the debug log.
+   */
+  readonly define: (play: Play, reduced?: Play) => Result.Result<void, string>
+}
+
+/** One render's Appear rules: a slot per element, and the `<style>` text for the head. */
+export interface Sheet {
+  readonly slot: () => Slot
+  /** The head's CSS: each rule once, each defined slot's custom property, the reduced ones under the media query. */
+  readonly css: () => string
+}
+
+/** A sheet for one render. */
+export const sheet = (): Sheet => {
+  let slots = 0
+  const rules = new Map<string, string>()
+  const lines: Array<string> = []
+  const reducedLines: Array<string> = []
+  /** A play's rule added to the sheet, and its `animation` value. */
+  const animationFor = (play: Play): Result.Result<string, string> =>
+    Result.map(keyframes(play.spec), (rule) => {
+      rules.set(rule.name, rule.css)
+      return animationOf(rule, play.delay)
+    })
+  return {
+    slot: () => {
+      const property = `--${PREFIX}a${slots++}`
+      return {
+        animation: `var(${property})`,
+        define: (play, reduced) =>
+          Result.map(
+            Result.all([animationFor(play), UndefinedOr.match(reduced, { onUndefined: () => Result.succeed(""), onDefined: animationFor })]),
+            ([animation, reducedAnimation]) => {
+              lines.push(`${property}:${animation}`)
+              if (Predicate.isNotUndefined(reduced)) reducedLines.push(`${property}:${reducedAnimation}`)
+            },
+          ),
+      }
+    },
+    css: () =>
+      `${Array.from(rules.values()).join("")}${
+        Arr.match(lines, { onEmpty: () => "", onNonEmpty: () => `:root{${lines.join(";")}}` })
+      }${
+        Arr.match(reducedLines, {
+          onEmpty: () => "",
+          onNonEmpty: () => `@media (prefers-reduced-motion: reduce){:root{${reducedLines.join(";")}}}`,
+        })
+      }`,
+  }
+}
+
+// --- The Handoff -------------------------------------------------------------------------------
+
+/** A `CSSAnimation`'s name, where the animation has one. */
+const nameOfAnimation = (animation: Animation): Option.Option<string> =>
+  Option.filter(Option.some((animation as Animation & { readonly animationName?: unknown }).animationName), Predicate.isString)
+
+/** The element's Appear animation (decision 6): its `wardic-…` CSS animation, running or finished and filling. */
+export const find = (element: Element): Option.Option<Animation> =>
+  Bool.match(Predicate.hasProperty(element, "getAnimations"), {
+    onFalse: () => Option.none(),
+    onTrue: () => Arr.findFirst(element.getAnimations(), (animation) => Option.exists(nameOfAnimation(animation), (name) => name.startsWith(PREFIX))),
+  })
+
+/** Whether `animation` is `spec`'s: the rule the server sampled from the same spec. */
+export const matches = (animation: Animation, spec: Pick<Spec, "key" | "tag" | "infinite">): boolean =>
+  Option.exists(nameOfAnimation(animation), (name) => name === nameOf(spec))
+
+/** How far `animation` has got, in seconds since it started (its delay included): 0 before it has. */
+export const elapsedOf = (animation: Animation): number =>
+  Option.match(Option.filter(Option.fromNullishOr(animation.currentTime), Predicate.isNumber), {
+    onNone: () => 0,
+    onSome: (ms) => Math.max(0, ms / 1000),
+  })
+
+/**
+ * The Handoff's last step: the element's inline `animation` removed, in the task that writes the
+ * engine's first frame, so no paint falls between (decision 6). While it ran, its value beat the
+ * inline style the engine writes. The removal ends the CSS animation at that task's style update; a
+ * `cancel()` too changed nothing (a mutation, #48's PR 1).
+ */
+export const release = (element: ElementCSSInlineStyle): void => {
+  element.style.removeProperty("animation")
+}

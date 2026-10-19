@@ -53,3 +53,7 @@ The SolidStart sandbox's `/ssr` (ADR-0021's hand check) has the same three, as t
 - `packages/core/test/base-value.test.ts` B13, B14: the chain's `started` link after `style`.
 - On main, IS1–IS4, IS6, IS8, IF1, IF4–IF11 and F19–F21's HY3 (F19 and F21's HY4 too) fail; the others pin what main already did.
 - Mutation-checked: 14 single-point mutations of the new code, each failing the test meant for it.
+
+## Amendment (#48, 2026-10-19): a server render can start the mount animation in CSS
+
+ADR-0044 decides it. The Starting style stays the one pure seed, and the server's markup now also carries the element's mount animation, sampled from Wardic's own machines into a CSS `@keyframes` rule (an **Appear animation**). The element plays it from first paint, and the client takes it over at mount from as far as it has got, the **Handoff**. The "two-pass / resumability serialization" option this ADR deferred is answered differently: nothing is serialized for the client, which re-derives the animation from its own config and checks it against the rule's name, a hash of the spec.
