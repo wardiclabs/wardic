@@ -32,6 +32,10 @@
  *   frame's time in ms, `shown` the key's value unwrapped.
  * - **updates** (`onUpdate`): told at most once a frame, at least once in the run, and each time with
  *   the value the frame painted.
+ * - **resizes** (#239, the progress bar after "Add rows"): the box's content grows with its scroll
+ *   still, and the bar shows the box's new progress (`live`: read from the box itself) within
+ *   {@link RESIZE_FRAMES} frames, then stays on it. A content change is read after its layout, so
+ *   what it moves paints a frame later.
  *
  * A frame read late (`late`, `lab/frame-counter.ts`: a phone's read after the paint that ran after
  * the next frame started) holds two frames' reads, so follows, same frame and updates skip it.
@@ -64,14 +68,14 @@ export interface LiveFrame {
 }
 
 /** The lines a live run can be judged on, in display order. */
-export const LIVE_CHECK_NAMES = ["follows", "wins", "returns", "same frame", "moves", "settles", "ticks", "updates"] as const
+export const LIVE_CHECK_NAMES = ["follows", "wins", "returns", "same frame", "moves", "settles", "ticks", "updates", "resizes"] as const
 export type LiveCheckName = (typeof LIVE_CHECK_NAMES)[number]
 
 /** Scenario 18's card lines (#130). */
 export const LIVE_VALUE_LINES: ReadonlyArray<LiveCheckName> = ["follows", "wins", "returns", "same frame"]
 
 /** Scenario 19's card lines (#234, #233). */
-export const SCROLL_LINKED_LINES: ReadonlyArray<LiveCheckName> = ["follows", "moves", "settles", "ticks", "updates"]
+export const SCROLL_LINKED_LINES: ReadonlyArray<LiveCheckName> = ["follows", "moves", "settles", "ticks", "updates", "resizes"]
 
 /** A live run's frames and how its cell judges them. */
 export interface LiveSeries {
@@ -227,6 +231,20 @@ const updatesOf = (s: LiveSeries): LiveCheck => {
   return line("updates", true, `told on ${told.length} frames, each with what painted`, "")
 }
 
+/** Frames a content change may take to reach what it moves (#239): the observer's delivery, a frame late, and one more. */
+export const RESIZE_FRAMES = 2
+
+const resizesOf = (s: LiveSeries): LiveCheck => {
+  const frames = onTime(s.frames)
+  if (frames.length === 0) return line("resizes", false, "no frame", "frames after the content changed")
+  if (frames.every((f) => f.live === 0)) return line("resizes", true, "the box was at its top: its progress stays 0", "")
+  const landing = landingOf(frames, s.tolerance)
+  const last = frames[frames.length - 1]!
+  if (landing === undefined) return line("resizes", false, `shows ${fmt(last.shown)} at ${fmt(last.live)}`, "the box's new progress")
+  if (landing > RESIZE_FRAMES) return line("resizes", false, `on it ${landing} frames after the change`, `within ${RESIZE_FRAMES}`)
+  return line("resizes", true, `on it ${landing} frame${landing === 1 ? "" : "s"} after the change`, "")
+}
+
 const checkOf: Readonly<Record<LiveCheckName, (s: LiveSeries) => LiveCheck>> = {
   follows: followsOf,
   wins: winsOf,
@@ -236,6 +254,7 @@ const checkOf: Readonly<Record<LiveCheckName, (s: LiveSeries) => LiveCheck>> = {
   settles: settlesOf,
   ticks: ticksOf,
   updates: updatesOf,
+  resizes: resizesOf,
 }
 
 /** A live run's lines (see the module doc): the ones its cell names, in display order. */

@@ -141,3 +141,43 @@ ADR-0043's follow-ups (decisions 5 and 7), grilled together 2026-10-19, Q1–Q8 
 - **Driven** (`.tmp/234/drive19.ts`, wheel bursts, and a phone's finger drags with `touch`): every line of scenario 19's 10 runs passes either way; the spinner reads 89.9° and 90.0° a second against its 90.
 - **Measured:** `bench:solid` against main `9496f31`, 11 reps, warm, at `a3591e9`: mount +0.1%, Retarget −0.5%, at rest −0.8%, unmount +1.5%, bytes +0.0%, inside an A/A run's spread on the same host that day (main against main: +0.7%, +1.2%, +0.2%, −0.9%, +0.4%). The plain-divs control read −7% both times, so the runner called each run too noisy: it read the same A/A, so it's the host's that day, not either side's. A first build's mount read +2.1% [−1.0% – +2.9%] with `onUpdate`'s check at mount a match; as a guard it reads level.
 - **Gates:** typecheck, lint, unit (1165), browser (1050, hydration included), and the lab's tsc and vitest (220). The lab's drives on a restarted 5173 are as before; scenarios 18 and 19 pass every line, by mouse and by touch.
+
+## Amendment (#239): a scroll follows its content's size
+
+Grilled 2026-10-19, Q1–Q3 all A. `Probe.scroll` read the range on a `scroll`, a window `resize` and a resize of the container's own box. Content that grew or shrank with the scroll still changed the range, and a target's offsets, and nothing read them until the next scroll. A list that loaded more rows kept its progress bar where the old length put it.
+
+1. **Always on, through observers (Q1).** The DOM's `Probe.scroll` watches the content's size itself; core's contract is unchanged, and there's no option.
+   - **Motion's `trackContentSize`** reads `scrollWidth` and `scrollHeight` every frame, opt-in. A read every frame keeps the frame loop awake while any scroll is followed, and can force a layout early; off by default, content changes go unread unless an app asks.
+   - **What it costs:** nothing while nothing changes. A change is read after its layout, in the `ResizeObserver`'s delivery, after that frame's commit, so a value derived from it paints a frame later. A scroll still paints in its own frame.
+   - **What it misses:** overflow no watched box shows, such as an absolutely positioned descendant hanging out of the content.
+2. **What's watched (Q2), one `ResizeObserver` per container, shared by its readers and disconnected with the last:**
+   - an element container's own box, as before, and its direct children: a deep change resizes the direct child it sits in;
+   - the page's: `document.body` and its direct children (a body sized to the window doesn't grow with what overflows it; text straight in the body grows only the body);
+   - children kept as they come and go by a `MutationObserver` on the content's child list, which also reads once on each change, since a removed child resizes nothing still watched;
+   - each reader's target, while that reader reads: a target that resizes inside content of a fixed size moves its offsets. Each box is counted by the reasons it's watched for, so a target that's also a child stays watched when its reader goes.
+3. **Proven and delivered (Q3):** one PR, with the browser tests, mutations and scenario 19's "Add rows" below.
+
+### Pinned by
+
+- `packages/dom/test/scroll.browser.test.ts`:
+  - **PS8:** a container's content grows with the scroll still; its range and progress follow a frame later.
+  - **PS9:** the page with a body sized to the window: a child added, then grown; with a body of its content's height, text added straight to it.
+  - **PS10:** a target moved by what grew above it, and resized on its own in a column of fixed height.
+  - **PS11:**
+    - a child added after the reader started, then grown and removed;
+    - a second reader whose target is a child, gone, leaving the child watched;
+    - both observers disconnected with the last reader;
+    - an idle container never read.
+  - **PS3** now waits past the observers' first delivery, which had read the resize for it.
+
+  PS8 and PS10 at first passed on main too: setting `scrollTop` queues the browser's own `scroll` event a frame later, which re-read the grown content. They now wait past it, and all four fail on main.
+- **Mutations,** each caught:
+  - the children unwatched (PS8, PS10, PS11);
+  - no `MutationObserver` (PS9, PS11);
+  - no read on a removal (PS11);
+  - the page's body unwatched (PS9);
+  - a reader's target unwatched (PS10);
+  - a box unwatched as soon as one reason goes (PS11);
+  - the observers never disconnected (PS11);
+  - the container's own box unwatched (PS3).
+- **The lab, scenario 19:** "Add rows" grows the box's content by a direct child with its scroll still. Its **resizes** line holds the bar to the box's own progress, read from the box each frame: on it within two frames of the change (the observer's frame late, and one more), then staying there. The lab's `test/live-board.test.ts` covers the line. Driven (`.tmp/239/drive19.ts`, by mouse and by touch): every run is on it one frame after the change, and the other cells' lines still pass.

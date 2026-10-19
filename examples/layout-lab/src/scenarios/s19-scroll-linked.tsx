@@ -23,7 +23,7 @@
  * @module
  */
 import { createScroll, createTime, createTransform, createVelocity, wardic } from "@wardic/solid"
-import { createSignal, type JSX, onCleanup } from "solid-js"
+import { createSignal, For, type JSX, onCleanup } from "solid-js"
 import { frameNumber } from "../lab/frame-counter.ts"
 import { type LiveCheckName, type LiveFrame, SCROLL_LINKED_LINES } from "../lab/live-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
@@ -45,6 +45,8 @@ const SCROLLER: JSX.CSSProperties = {
   background: "rgba(0, 0, 0, 0.05)",
 }
 const COLUMN_INSIDE: JSX.CSSProperties = { position: "relative", height: "900px" }
+/** One added row (#239): "Add rows" grows the box's content with its scroll still. */
+const ADDED_ROW: JSX.CSSProperties = { height: "30px", margin: "0 10px 6px", background: "rgba(0, 0, 0, 0.08)", "border-radius": "4px" }
 const CARD: JSX.CSSProperties = { position: "absolute", top: "400px", left: "110px", width: "80px", height: "40px", background: ACCENT, "border-radius": "6px" }
 const ROW: JSX.CSSProperties = { display: "flex", "align-items": "center", gap: "40px", height: "50px", "padding-left": "20px" }
 const SQUARE: JSX.CSSProperties = { width: "36px", height: "36px", background: ACCENT, "border-radius": "4px" }
@@ -217,6 +219,15 @@ const View: ScenarioDef["View"] = (props) => {
     recorder.start(revealSpec)
     recorder.start(skewSpec)
   }
+  // The box's content, grown by "Add rows" with its scroll still (#239): the bar follows its new
+  // progress, judged against the box's own, read each frame.
+  const [rows, setRows] = createSignal(0)
+  const boxProgress = (): number => box.scrollTop / Math.max(1, box.scrollHeight - box.clientHeight)
+  const resizeSpec: CellSpec = { cell: "content resize", lines: ["resizes"], shown: () => scaleXOf(bar), live: boxProgress, tolerance: 0.002 }
+  const addRows = (): void => {
+    recorder.start(resizeSpec)
+    setRows(rows() + 8)
+  }
   const [sampling, setSampling] = createSignal(false)
   const sample = (): void => {
     setSampling(true)
@@ -236,6 +247,9 @@ const View: ScenarioDef["View"] = (props) => {
                 <wardic.div ref={(el: HTMLElement) => (reveal = el)} data-cell="reveal" style={{ width: "100%", height: "100%", background: ACCENT, "border-radius": "6px", opacity: revealOpacity }} />
               </div>
             </div>
+            <div data-cell="added">
+              <For each={Array.from({ length: rows() }, (_, i) => i)}>{() => <div style={ADDED_ROW} />}</For>
+            </div>
           </div>
           <span style={LABEL}>velocity skew · spinner</span>
           <div style={ROW}>
@@ -247,6 +261,9 @@ const View: ScenarioDef["View"] = (props) => {
       <div style={CONTROLS}>
         <button type="button" class="btn secondary small" data-action="sample" disabled={sampling()} onClick={sample}>
           Sample spinner
+        </button>
+        <button type="button" class="btn secondary small" data-action="add-rows" onClick={addRows}>
+          Add rows
         </button>
       </div>
     </div>
@@ -261,12 +278,14 @@ export const s19: ScenarioDef = {
   title: "scroll-linked (scroll, velocity, time, onUpdate)",
   mechanism:
     "Scroll the box: the bar fills with its progress and reports through onUpdate, the card inside fades in and out as it " +
-    "passes, and the square leans with the scroll's speed and stands back up. Sample spinner records the square turning on time.",
+    "passes, and the square leans with the scroll's speed and stands back up. Sample spinner records the square turning on time. " +
+    "Scroll partway, then Add rows: the box's content grows with its scroll still, and the bar follows its new progress.",
   prediction: "safe",
   rationale:
     "createScroll's values are set within the box's scroll event (Probe.scroll, ADR-0043 Amendment (#233, #234)), so a value " +
     "derived from one paints in the frame of the scroll; the card's progress runs through Motion's offsets. createVelocity reads " +
     "the scroll's change each frame and 0 once it stops; createTime adds each frame's time; onUpdate is told once a frame the " +
-    "bar changed, after the gate's commits, with what it painted.",
+    "bar changed, after the gate's commits, with what it painted. A change of the content's size is read by observers on it " +
+    "(ADR-0043 Amendment (#239)), after its layout, so the bar shows it a frame later.",
   View,
 }

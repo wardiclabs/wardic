@@ -135,6 +135,23 @@ describe("liveChecksOf: scenario 19's lines (#234, #233)", () => {
   })
 })
 
+describe("liveChecksOf: resizes (#239)", () => {
+  const series = (frames: ReadonlyArray<LiveFrame>): LiveSeries => ({ frames, lines: ["resizes"], maxStep: Number.POSITIVE_INFINITY, tolerance: 0.002 })
+  // The box's progress drops from 0.5 to 0.3 as its content grows; the bar reaches it `lag` frames later.
+  const grown = (lag: number): Array<LiveFrame> => Array.from({ length: 10 }, (_, i) => ({ shown: i < lag ? 0.5 : 0.3, live: 0.3, phase: "after" }))
+
+  it("passes a bar on the new progress within two frames, and fails one later or never", () => {
+    expect(failed(run(series(grown(1))))).toEqual([])
+    expect(failed(run(series(grown(2))))).toEqual([])
+    expect(failed(run(series(grown(3))))).toEqual(["resizes"])
+    expect(failed(run(series(grown(10))))).toEqual(["resizes"])
+  })
+
+  it("passes a box at its top, whose progress stays 0", () => {
+    expect(failed(run(series(Array.from({ length: 5 }, () => ({ shown: 0, live: 0, phase: "after" })))))).toEqual([])
+  })
+})
+
 describe("liveChecksOf: a frame read late (lab/frame-counter.ts)", () => {
   it("follows, same frame and updates skip it: it holds the next frame's reads, and two frames' tells", () => {
     const frames: Array<LiveFrame> = [
