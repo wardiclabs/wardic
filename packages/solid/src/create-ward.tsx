@@ -1483,17 +1483,17 @@ export function runSpine(opts: RunSpineOptions): void {
  * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had
  * one at mount; `sink` as it is otherwise.
  */
-const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], cfg: Accessor<WardConfig>): FlushGate.Sink =>
-  UndefinedOr.match(atMount, {
-    onUndefined: () => sink,
-    onDefined: (): FlushGate.Sink => ({
-      ...sink,
-      onCommit: (latest) => {
-        const onUpdate = untrack(cfg).onUpdate
-        if (Predicate.isNotUndefined(onUpdate)) onUpdate(latest as Readonly<Record<string, number | string>>)
-      },
-    }),
-  })
+const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], cfg: Accessor<WardConfig>): FlushGate.Sink => {
+  // Per element at mount: most have none, and pay a check.
+  if (Predicate.isUndefined(atMount)) return sink
+  return {
+    ...sink,
+    onCommit: (latest) => {
+      const onUpdate = untrack(cfg).onUpdate
+      if (Predicate.isNotUndefined(onUpdate)) onUpdate(latest as Readonly<Record<string, number | string>>)
+    },
+  }
+}
 
 /** No keys: a Retarget with no following return. */
 const NO_KEYS: ReadonlyArray<string> = []
