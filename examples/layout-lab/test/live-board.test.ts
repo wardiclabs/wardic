@@ -135,6 +135,36 @@ describe("liveChecksOf: scenario 19's lines (#234, #233)", () => {
   })
 })
 
+describe("liveChecksOf: a run read late on most moving frames (#240's phone log)", () => {
+  it("moves and updates aren't judged: a busy main thread read most of them late", () => {
+    // A scroll moving 20 a frame for 10 frames, all read late (the skew read 0, told twice), then still.
+    const frames: Array<LiveFrame> = Array.from({ length: 30 }, (_, i) => ({
+      shown: 0,
+      live: Math.min(i, 10) * 20,
+      phase: "after",
+      ...(i < 11 ? { late: true, calls: 2, updated: 0 } : { calls: 0 }),
+    }))
+    const checks = run({ frames, lines: ["moves", "updates"], maxStep: Number.POSITIVE_INFINITY, tolerance: 0.05 })
+    expect(failed(checks)).toEqual([])
+    expect(boardChecksOf(checks).filter((c) => c.text.includes("not judged")).map((c) => c.name)).toEqual(["moves", "updates"])
+  })
+
+  it("half read on time is judged, on those frames: a skew at rest on them fails moves", () => {
+    // Every other moving frame read late (off its rest there); on time it reads 0, a skew that never moved.
+    const frames: Array<LiveFrame> = Array.from({ length: 30 }, (_, i) => ({ shown: 0, live: Math.min(i, 10) * 20, phase: "after" }))
+    for (const i of [2, 4, 6, 8, 10]) frames[i] = { ...frames[i]!, shown: 5, late: true }
+    const checks = run({ frames, lines: ["moves"], maxStep: Number.POSITIVE_INFINITY, tolerance: 0.05 })
+    expect(failed(checks)).toEqual(["moves"])
+  })
+
+  it("half told on time is judged: told twice on those frames fails updates", () => {
+    const frames: Array<LiveFrame> = Array.from({ length: 10 }, (_, i) => ({ shown: i, live: i, phase: "after", calls: 2, updated: i }))
+    for (const i of [1, 3, 5, 7, 9]) frames[i] = { ...frames[i]!, calls: 1, late: true }
+    const checks = run({ frames, lines: ["updates"], maxStep: Number.POSITIVE_INFINITY, tolerance: 0.05 })
+    expect(failed(checks)).toEqual(["updates"])
+  })
+})
+
 describe("liveChecksOf: resizes (#239)", () => {
   const series = (frames: ReadonlyArray<LiveFrame>): LiveSeries => ({ frames, lines: ["resizes"], maxStep: Number.POSITIVE_INFINITY, tolerance: 0.002 })
   // The box's progress drops from 0.5 to 0.3 as its content grows; the bar reaches it `lag` frames later.

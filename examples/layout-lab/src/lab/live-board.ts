@@ -39,7 +39,9 @@
  *   (a second tap while it records) and scrolls between them, which the bar follows in their frame.
  *
  * A frame read late (`late`, `lab/frame-counter.ts`: a phone's read after the paint that ran after
- * the next frame started) holds two frames' reads, so follows, same frame and updates skip it.
+ * the next frame started) holds two frames' reads, so follows, same frame, updates, moves and resizes
+ * skip it. A run whose moving (or told) frames were mostly read late, a busy main thread's (#240's
+ * phone log: frames 140 ms apart), isn't judged on moves or updates: too little is left to judge.
  *
  * Pure (no DOM), so the node test tier imports it (`test/live-board.test.ts`).
  *
@@ -193,10 +195,16 @@ const sameFrameOf = (s: LiveSeries): LiveCheck => {
 const changedAt = (frames: ReadonlyArray<LiveFrame>, tolerance: number): Array<number> =>
   frames.flatMap((f, i) => (i > 0 && Math.abs(f.live - frames[i - 1]!.live) > tolerance / 2 ? [i] : []))
 
+/** Not judged: most of the run's moving frames were read late (a phone's busy main thread, #240's log). */
+const READ_LATE = "its moving frames read late (a busy main thread), not judged"
+
 const movesOf = (s: LiveSeries): LiveCheck => {
   const rest = s.rest ?? 0
-  const changed = changedAt(s.frames, s.tolerance)
-  if (changed.length === 0) return line("moves", false, "its value never moved", "a run that moves it")
+  const moving = changedAt(s.frames, s.tolerance)
+  if (moving.length === 0) return line("moves", false, "its value never moved", "a run that moves it")
+  // A late read holds the next frame's skew against this frame's change: judged on the frames read on time.
+  const changed = moving.filter((i) => s.frames[i]!.late !== true)
+  if (changed.length * 2 < moving.length) return { name: "moves", ok: true, text: READ_LATE }
   const off = changed.filter((i) => Math.abs(s.frames[i]!.shown - rest) > s.tolerance).length
   return line("moves", off * 2 >= changed.length, `off its rest on ${off} of ${changed.length} moving frames`, "half or more")
 }
@@ -224,6 +232,8 @@ const ticksOf = (s: LiveSeries): LiveCheck => {
 
 const updatesOf = (s: LiveSeries): LiveCheck => {
   const told = onTime(s.frames).filter((f) => (f.calls ?? 0) > 0)
+  const toldAll = s.frames.filter((f) => (f.calls ?? 0) > 0).length
+  if (told.length * 2 < toldAll) return { name: "updates", ok: true, text: "told on frames read late (a busy main thread), not judged" }
   if (told.length === 0) return line("updates", false, "never told", "told each changed frame")
   const twice = told.filter((f) => (f.calls ?? 0) > 1).length
   const off = told.find((f) => f.updated === undefined || Math.abs(f.updated - f.shown) > s.tolerance)
