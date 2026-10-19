@@ -203,7 +203,30 @@ const judged = (frames: ReadonlyArray<Values.Values>) => {
           return Math.abs(value - line) <= ((tolerances[k] as ReadonlyArray<number>)[token] as number)
         })
     })
-  return { onLine }
+  /**
+   * Whether the Frame at `k` jumps from the one before: a key's text changes (a discrete value), or
+   * one of its numbers moves past its tolerance and four times its moves on either side (a loop's
+   * seam, a `steps()` easing, a snap). The engine draws one Frame, then the other; a line between
+   * them would draw values it never does.
+   */
+  const jumpAt = (k: number): boolean =>
+    Arr.some(splits, (series, j) => {
+      const before = series[k - 1] as Split
+      const at = series[k] as Split
+      return Bool.or(
+        at.skeleton !== before.skeleton,
+        Arr.some(at.numbers, (value, token) => {
+          const move = (i: number): number =>
+            Option.getOrElse(
+              Option.map(Option.all([Option.fromUndefinedOr(series[i]), Option.fromUndefinedOr(series[i - 1])]), ([a, b]) => Math.abs((a.numbers[token] as number) - (b.numbers[token] as number))),
+              () => 0,
+            )
+          const step = Math.abs(value - (before.numbers[token] as number))
+          return Bool.and(step > ((tolerances[j] as ReadonlyArray<number>)[token] as number), step > 4 * Math.max(move(k - 1), move(k + 1)))
+        }),
+      )
+    })
+  return { onLine, jumpAt }
 }
 
 /**
@@ -213,10 +236,12 @@ const judged = (frames: ReadonlyArray<Values.Values>) => {
  *   drawn as the settled Frame: a tween stepped in 1/60 s settles a frame after it arrives, when
  *   its steps' sum crosses its duration.
  * - **The stops kept** are the first, the end, and each one a straight line from the last kept can't
- *   reach past, within every key's tolerances. A key whose text changes between two Frames (a
- *   discrete value) keeps both, so the flip falls between them.
+ *   reach past, within every key's tolerances.
+ * - **A jump** (`jumps`, kept stops): a Frame the one before it can't be drawn into, as `jumpAt`
+ *   tells. The rule holds the Frame before it until a hair before it, so it jumps where the engine
+ *   would, not along a line through values the engine never draws.
  */
-export const thin = (frames: ReadonlyArray<Values.Values>): { readonly kept: ReadonlyArray<number>; readonly end: number } => {
+export const thin = (frames: ReadonlyArray<Values.Values>): { readonly kept: ReadonlyArray<number>; readonly end: number; readonly jumps: ReadonlyArray<number> } => {
   const last = frames.length - 1
   const whole = judged(frames)
   const end = Option.match(Arr.findLastIndex(Arr.range(0, last), (i) => !whole.onLine(i, last, last)), {
@@ -224,14 +249,14 @@ export const thin = (frames: ReadonlyArray<Values.Values>): { readonly kept: Rea
     onSome: (i) => Math.min(last, i + 1),
   })
   // The series drawn: the Frames up to the end, the end drawn as the settled Frame.
-  const { onLine } = judged(Arr.append(Arr.take(frames, end), frames[last] as Values.Values))
+  const { onLine, jumpAt } = judged(Arr.append(Arr.take(frames, end), frames[last] as Values.Values))
   /** Whether one straight line from stop `a` to stop `b` stands in for every stop between. */
   const fits = (a: number, b: number): boolean => Arr.every(Arr.range(a + 1, b - 1), (i) => onLine(i, a, b))
   /** The farthest stop a line from `a` can reach. */
   const reach = (a: number): number =>
     Option.getOrElse(Arr.findFirst(Arr.range(a + 1, end), (b) => b === end || !fits(a, b + 1)), () => end)
   const kept = Arr.unfold(0, (a) => Bool.match(a >= end, { onTrue: () => Option.none(), onFalse: () => Option.some([reach(a), reach(a)] as const) }))
-  return { kept: [0, ...kept], end }
+  return { kept: [0, ...kept], end, jumps: Arr.filter(kept, jumpAt) }
 }
 
 /** A number written to at most four decimals, `-0` as `0`: finer than any tolerance, and short. */
@@ -255,9 +280,12 @@ const declarationsOf = (tag: string | undefined, values: Values.Values): Result.
   })
 }
 
-/** A stop's offset in the rule, a percentage to four decimals. */
+/** A stop's offset in the rule, a percentage to six decimals, so a jump's hold sits before its stop. */
 const percentOf = (stop: number, last: number): string =>
-  `${trimNumbers(String(Bool.match(last === 0, { onTrue: () => 0, onFalse: () => (stop / last) * 100 })))}%`
+  `${String(Number(Bool.match(last === 0, { onTrue: () => 0, onFalse: () => (stop / last) * 100 }).toFixed(6)) + 0)}%`
+
+/** How far before a jump its hold ends: a hundredth of a frame, finer than any display draws. */
+const HOLD_BEFORE_JUMP = 0.01
 
 /** A spec sampled into its rule, or why it can't be one. Not cached: {@link keyframes} is. */
 const sample = (spec: Spec): Result.Result<Keyframes, string> =>
@@ -265,19 +293,25 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
     onNone: () => Result.fail(`longer than ${MAX_SECONDS} s`),
     onSome: (frames) => {
       const last = frames.length - 1
-      const { kept, end } = thin(frames)
+      const { kept, end, jumps } = thin(frames)
       const name = nameOf(spec)
       /** A kept stop's Frame: the end drawn as the settled Frame. */
       const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values
+      // The rule's stops: each kept one, and before a jump, the Frame before it held until a hair before it.
+      const stops = Arr.flatMap(kept, (stop): ReadonlyArray<{ readonly offset: number; readonly frame: Values.Values }> =>
+        Bool.match(Arr.contains(jumps, stop), {
+          onTrue: () => [{ offset: stop - HOLD_BEFORE_JUMP, frame: frames[stop - 1] as Values.Values }, { offset: stop, frame: frameAt(stop) }],
+          onFalse: () => [{ offset: stop, frame: frameAt(stop) }],
+        }))
       return Result.map(
-        Result.all(Arr.map(kept, (stop) => declarationsOf(spec.tag, frameAt(stop)))),
+        Result.all(Arr.map(stops, ({ frame }) => declarationsOf(spec.tag, frame))),
         (declarations): Keyframes => ({
           name,
           duration: end * Machine.CATCH_UP_DT,
           infinite: spec.infinite === true,
           times: Arr.map(kept, (stop) => stop * Machine.CATCH_UP_DT),
           css: `@keyframes ${name}{${
-            Arr.map(Bool.match(end === 0, { onTrue: () => ["0%,100%"], onFalse: () => Arr.map(kept, (stop) => percentOf(stop, end)) }), (offset, i) =>
+            Arr.map(Bool.match(end === 0, { onTrue: () => ["0%,100%"], onFalse: () => Arr.map(stops, ({ offset }) => percentOf(offset, end)) }), (offset, i) =>
               `${offset}{${declarations[i] as string}}`).join("")
           }}`,
         }),

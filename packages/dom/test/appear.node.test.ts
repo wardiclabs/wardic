@@ -14,9 +14,11 @@
 // - AP10: the name is the hash of the key, the tag and the repeat.
 // - AP11: an element's `animation` value; a rule that settles at once is one stop of 0 s.
 // - AP12: a sheet: a slot per element, each rule once, `:root`'s lines, the reduced block.
+// - AP13: a jump (a loop's seam, steps()) holds the Frame before it until a hair before it.
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
+import * as Easing from "@wardic/core/Easing"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -172,7 +174,7 @@ describe("the sampler (#48, ADR-0044)", () => {
     for (const k of keptOf(rule).slice(1, 6)) {
       const frame = Machine.startAt(machine, () => k / 60).start()(1 / 60).value
       const patch = project(frame)
-      const offset = four((k / Math.round(rule.duration * 60)) * 100)
+      const offset = String(Number(((k / Math.round(rule.duration * 60)) * 100).toFixed(6)) + 0)
       const transform = String(patch.transform).replace(/-?\d+\.\d+/g, (n) => four(Number(n)))
       expect(rule.css).toContain(`${offset}%{transform:${transform};opacity:${four(patch.opacity as number)}}`)
     }
@@ -231,6 +233,27 @@ describe("the sampler (#48, ADR-0044)", () => {
     const at = ok(Appear.keyframes({ key: "AP11 snap", tag: "div", machine: () => snap }))
     expect(at.duration).toBe(0)
     expect(at.css).toBe(`@keyframes ${at.name}{0%,100%{transform:translateX(20px)}}`)
+  })
+})
+
+describe("a jump in the rule (#48, ADR-0044)", () => {
+  it("AP13: a jump holds the Frame before it until a hair before it: a loop's seam, steps(), a snap", () => {
+    /** Each stop's offset (%) and declarations, in order. */
+    const stopsOf = (css: string) => Array.from(css.matchAll(/([\d.]+)%\{([^}]*)\}/g), (m) => ({ at: Number(m[1]), decl: m[2]! }))
+    // Two runs of a 0.5 s linear x, 0 → 60: the second starts from 0 as the first ends at 60.
+    const loop = ok(Appear.keyframes({ key: "AP13 loop", tag: "div", machine: () => tweenValues({ x: 0 }, { x: 60 }, { duration: 0.5, repeat: 1 }) }))
+    const stops = stopsOf(loop.css)
+    const seam = stops.findIndex((stop, i) => i > 0 && stop.decl.includes("translateX(60px)") && stops[i + 1]!.at - stop.at < 0.05)
+    expect(seam, `a hold at 60px right before the seam: ${loop.css.slice(0, 400)}`).toBeGreaterThan(0)
+    expect(stops[seam + 1]!.decl, "then the jump").not.toContain("translateX(60px)")
+    // A steps() easing: flat between its jumps, each a step.
+    const stepped = ok(Appear.keyframes({ key: "AP13 steps", tag: "div", machine: () => tweenValues({ x: 0 }, { x: 40 }, { duration: 0.4, easing: Easing.steps(4) }) }))
+    const holds = stopsOf(stepped.css)
+    for (let i = 1; i < holds.length; i++) {
+      const sameValue = holds[i]!.decl === holds[i - 1]!.decl
+      const tight = holds[i]!.at - holds[i - 1]!.at < 0.05
+      expect(sameValue || tight, `between ${holds[i - 1]!.at}% and ${holds[i]!.at}%: flat, or a jump`).toBe(true)
+    }
   })
 })
 
