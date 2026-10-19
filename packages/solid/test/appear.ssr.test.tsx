@@ -75,7 +75,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const name = animation.split(" ")[0]!
     expect(name.startsWith(Appear.PREFIX)).toBe(true)
     expect(css).toContain(`@keyframes ${name}{0%{transform:translateY(20px);opacity:0}`)
-    expect(animation).toMatch(new RegExp(`^${name} [\\d.]+s linear 0s 1 both$`))
+    expect(animation).toMatch(new RegExp(`^${name} [\\d.]+s linear 0s 1 forwards$`))
     expect(html.indexOf("<style data-wardic-appear"), "in the head").toBeLessThan(html.indexOf("</head>"))
   })
 
@@ -191,7 +191,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     ))
     const div = tagsOf(html).find((t) => t.name === "div")
     const animation = timing(headCss(html), propertyOf(div?.style.animation)).normal
-    expect(animation).toMatch(/ 2s linear 0\.3s infinite both$/)
+    expect(animation).toMatch(/ 2s linear 0\.3s infinite forwards$/)
   })
 
   it("AR8: the markup's hydration keys are the same with or without it", () => {

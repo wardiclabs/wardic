@@ -16,6 +16,8 @@
 // - AH7: a loop for ever, handed off in its second cycle.
 // - AH8: reduced motion (`"user"`, emulated): the positional key is at its target from the first
 //   frame, and opacity animates.
+// - AH9: reduced motion and a stagger: each item's positional key holds its start through its delay,
+//   then snaps, as the engine's snap does (the rule fills forwards).
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
@@ -270,6 +272,23 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     const r = await run("A5", A5, { hydrateAfter: 1000, forMs: 1800 })
     expect(followsMachine(r, "spin", (s) => ({ rotate: ((s % 0.8) / 0.8) * 360 }))).toBeGreaterThan(20)
     expect(r.frames.at(-1)!.drawn.spin!.css, "the engine runs it now").toBe(false)
+  })
+
+  it("AH9: reduced motion and a stagger: each item's positional key holds its start through its delay, then snaps", async () => {
+    await commands.emulateReducedMotion(true)
+    const r = await run("A2", A2, { hydrateAfter: 200, forMs: 1300 })
+    ;["i0", "i1", "i2"].forEach((k, i) => {
+      const delay = 0.12 * i
+      const opacity = tween({ opacity: 0 }, { opacity: 1 }, { duration: 0.5, delay })
+      // A display frame near the snap can land on either side of it: those frames don't count.
+      const nearSnap = (s: number) => Math.abs(s - delay) < 0.02
+      const want = (s: number) => {
+        const values: { opacity: number; x?: number } = { opacity: machineAt(opacity, s).opacity as number }
+        if (!nearSnap(s)) values.x = [0, -30][Number(s < delay)]!
+        return values
+      }
+      expect(followsMachine(r, k, want), k).toBeGreaterThan(20)
+    })
   })
 
   it("AH8: reduced motion: the positional key at its target from the first frame, opacity animating", async () => {

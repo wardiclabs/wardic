@@ -17,6 +17,7 @@ const start = (): void => {
 
 // `?hydrate=<ms>` hydrates that much later, as a slow network would (#48): an Appear animation
 // plays in CSS until then, and the engine takes it over mid-flight.
-const delay = Number(new URLSearchParams(location.search).get("hydrate") ?? "0")
+// Read leniently: a link copied with a trailing comma (`?hydrate=1500,`) is still 1500.
+const delay = Number.parseInt(new URLSearchParams(location.search).get("hydrate") ?? "0", 10)
 if (delay > 0) setTimeout(start, delay)
 else start()

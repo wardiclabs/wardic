@@ -5,7 +5,7 @@
 // (src/appear-report.ts) judges each element marked `data-appear-k` two seconds after hydration.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
-import { For, type JSX } from "solid-js"
+import { For, type JSX, onMount } from "solid-js"
 
 const box: JSX.CSSProperties = { width: "48px", height: "48px", background: "#3a7", "border-radius": "8px" }
 const row: JSX.CSSProperties = { display: "flex", gap: "16px", "align-items": "center", margin: "12px 0" }
@@ -14,6 +14,8 @@ const label: JSX.CSSProperties = { font: "13px system-ui, sans-serif", width: "1
 const items = { hidden: { opacity: 0, x: -40 }, shown: { opacity: 1, x: 0 } }
 
 export default function AppearRoute(): JSX.Element {
+  // The report judges once the route has mounted (src/appear-report.ts).
+  onMount(() => window.dispatchEvent(new Event("wardic:appear-mounted")))
   return (
     <WardicProvider env={DomLive}>
       <main style={{ padding: "16px", "max-width": "28rem" }}>
