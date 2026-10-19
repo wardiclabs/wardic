@@ -9,7 +9,8 @@
  *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`,
  *     `DomInterpolators`, `DomPositionalKeys`, `DomKeyRules`);
  *   - dom's own concepts, by the glossary's names: `FlushGate`, `ProjectionSystem`,
- *     `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `OwnValues` and `Report`.
+ *     `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `ScrollOffset`, `Appear`, `OwnValues`
+ *     and `Report`.
  *
  * Everything under `internal/` is dom's own and not exported.
  */
@@ -50,6 +51,7 @@ export * as Svg from "./Svg.ts"
 export * as Color from "./Color.ts"
 export * as Variables from "./Variables.ts"
 export * as ScrollOffset from "./ScrollOffset.ts"
+export * as Appear from "./Appear.ts"
 export * as OwnValues from "./OwnValues.ts"
 export * as Report from "./Report.ts"
 
