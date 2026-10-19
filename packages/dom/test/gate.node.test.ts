@@ -773,3 +773,100 @@ describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
     end()
   })
 })
+
+describe("the gate's commit hook, onCommit (#233, ADR-0043 Amendment (#233, #234))", () => {
+  /** A gate on a still loop. */
+  const harness = () => {
+    const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
+    const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+    const end = (): void => {
+      gate.dispose()
+      void runtime.dispose()
+    }
+    return { gate, end }
+  }
+
+  it("GC1: told once per flush that commits the element, after every commit of it, with its values before projection", () => {
+    const { gate, end } = harness()
+    const events: Array<string> = []
+    gate.register("a", sinkOf(() => void events.push("commit a"), { onCommit: (v) => void events.push(`told a ${JSON.stringify(v)}`) }))
+    gate.register("b", sinkOf(() => void events.push("commit b")))
+    gate.write("a", { x: 10 })
+    gate.write("b", { x: 1 })
+    gate.write("a", { opacity: 0.5 })
+    fireFrame()
+    expect(events).toEqual(["commit a", "commit b", 'told a {"x":10,"opacity":0.5}'])
+    end()
+  })
+
+  it("GC2: a flush that doesn't commit the element doesn't tell it", () => {
+    const { gate, end } = harness()
+    let told = 0
+    gate.register("a", sinkOf(() => {}, { onCommit: () => void told++ }))
+    gate.register("b", sinkOf(() => {}))
+    gate.write("a", { x: 1 })
+    fireFrame()
+    gate.write("b", { x: 2 })
+    fireFrame()
+    expect(told).toBe(1)
+    end()
+  })
+
+  it("GC3: a Measure pass's commit is told at the frame flush after it, once with that frame's own", () => {
+    const { gate, end } = harness()
+    const told: Array<unknown> = []
+    gate.register("a", sinkOf(() => {}, { onCommit: (v) => void told.push({ ...v }) }))
+    gate.flushPass(() => gate.write("a", { x: 3 }))
+    expect(told, "not inside the pass").toEqual([])
+    gate.write("a", { y: 4 })
+    fireFrame()
+    expect(told).toEqual([{ x: 3, y: 4 }])
+    // A pass with no write after it still gets its frame flush.
+    gate.flushPass(() => gate.write("a", { x: 5 }))
+    fireFrame()
+    expect(told).toEqual([{ x: 3, y: 4 }, { x: 5, y: 4 }])
+    end()
+  })
+
+  it("GC4: one object per element, reused, without a key the gate let go of", () => {
+    const { gate, end } = harness()
+    const seen: Array<Readonly<Record<string, unknown>>> = []
+    const snapshots: Array<unknown> = []
+    gate.register("a", sinkOf(() => {}, { onCommit: (v) => {
+      seen.push(v)
+      snapshots.push({ ...v })
+    } }))
+    gate.write("a", { x: 1, opacity: 1 })
+    fireFrame()
+    gate.release("a", ["opacity"])
+    gate.write("a", { x: 2 })
+    fireFrame()
+    expect(seen[0]).toBe(seen[1])
+    expect(snapshots).toEqual([{ x: 1, opacity: 1 }, { x: 2 }])
+    end()
+  })
+
+  it("GC5: a throw is reported, and the other elements are still told", async () => {
+    const reports: Array<string> = []
+    const runtime = ManagedRuntime.make(
+      withFrames(Layer.merge(HEARD, stillLoop).pipe(Layer.provideMerge(ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))])))),
+    )
+    const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+    const end = (): void => {
+      gate.dispose()
+      void runtime.dispose()
+    }
+    const told: Array<string> = []
+    gate.register("a", sinkOf(() => {}, { onCommit: () => {
+      throw new Error("boom")
+    } }))
+    gate.register("b", sinkOf(() => {}, { onCommit: () => void told.push("b") }))
+    gate.write("a", { x: 1 })
+    gate.write("b", { x: 1 })
+    fireFrame()
+    expect(told).toEqual(["b"])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(reports).toEqual(["boom"])
+    end()
+  })
+})

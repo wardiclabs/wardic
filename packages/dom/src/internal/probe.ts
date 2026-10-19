@@ -33,6 +33,7 @@ import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { requireGlobal } from "./require-global.ts"
+import { makeScroll } from "./scroll.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
 const toBounds = (r: DOMRect): Probe.Bounds => ({
@@ -135,6 +136,8 @@ const make = Effect.gen(function* () {
     measure: (target) => Effect.sync(() => toBounds((target as Element).getBoundingClientRect())),
     viewport,
     prefersReducedMotion,
+    // A container's scroll, set within its events (#234): `scroll.ts`.
+    scroll: makeScroll(registry),
     observeResize,
     observeIntersection,
   })
