@@ -62,9 +62,19 @@ export {
 /**
  * Live values (#130, ADR-0043): a value the user moves, given in an element's `style` (an accessor
  * or an Atom), followed while no layer of the Override stack sets its key. `createTransform` maps
- * one (through a function, or ranges), `createSpring` follows one with a spring.
+ * one (through a function, or ranges), `createSpring` follows one with a spring; `createScroll`,
+ * `createVelocity` and `createTime` make one from a scroll, a value's velocity and time (#234).
  */
-export { createSpring, createTransform } from "./live-value.ts"
+export {
+  createScroll,
+  createSpring,
+  createTime,
+  createTransform,
+  createVelocity,
+  type ElementSource,
+  type ScrollOptions,
+  type ScrollValues,
+} from "./live-value.ts"
 export type { Live, LiveSource } from "./live-style.ts"
 
 /**

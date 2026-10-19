@@ -106,6 +106,7 @@ export const MOTION_PROPS = [
   "layoutAnchor",
   "onLayoutAnimationStart",
   "onLayoutAnimationComplete",
+  "onUpdate",
   "transition",
 ] as const
 
@@ -220,6 +221,12 @@ export interface WardicMotionProps {
    * reports a change's end however it went. Read when it fires.
    */
   readonly onLayoutAnimationComplete?: () => void
+  /**
+   * Called once a frame in which Wardic changed the element's values, after that frame's commits
+   * (#233, Motion's `onUpdate`), with every value it holds for the element. `latest` is reused: copy
+   * it to keep it. Whether the element reports is read once, at mount.
+   */
+  readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
 }
 
 /**
@@ -276,6 +283,7 @@ export const motionToConfig =
     const layoutAnchor = motion.layoutAnchor
     const onLayoutAnimationStart = motion.onLayoutAnimationStart
     const onLayoutAnimationComplete = motion.onLayoutAnimationComplete
+    const onUpdate = motion.onUpdate
     if (Predicate.isNotUndefined(initial)) config.initial = initial
     if (Predicate.isNotUndefined(animate)) config.animate = animate
     if (Predicate.isNotUndefined(whileHover)) config.whileHover = whileHover
@@ -300,6 +308,7 @@ export const motionToConfig =
     if (Predicate.isNotUndefined(layoutAnchor)) config.layoutAnchor = layoutAnchor
     if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart
     if (Predicate.isNotUndefined(onLayoutAnimationComplete)) config.onLayoutAnimationComplete = onLayoutAnimationComplete
+    if (Predicate.isNotUndefined(onUpdate)) config.onUpdate = onUpdate
     return config
   }
 

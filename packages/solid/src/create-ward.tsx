@@ -417,6 +417,14 @@ export interface WardConfig {
    * reports a change's end however it went. Read when it fires.
    */
   readonly onLayoutAnimationComplete?: () => void
+  /**
+   * Called once a frame in which Wardic changed the element's values, after that frame's commits
+   * (#233, Motion's `onUpdate`), with every value it holds for the element, before it's drawn (`x`
+   * as a number). `latest` is one object per element, reused: read it during the call, copy it to
+   * keep it. Whether the element reports is read once, at mount; the function is read each call. A
+   * signal it sets paints in the next frame. For one key, `ward.value(key)` costs less.
+   */
+  readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
 }
 
 /**
@@ -772,8 +780,9 @@ export function runSpine(opts: RunSpineOptions): void {
       if (Predicate.isUndefined(element)) return
 
       // Register the element with the caller-supplied sink (ADR-0006): each
-      // flushed frame's Patch is committed onto it (ADR-0034).
-      const unregister = gate.register(id, makeSink(element))
+      // flushed frame's Patch is committed onto it (ADR-0034). An element with `onUpdate` at mount
+      // is told each committed frame (#233); any other never joins the gate's tells.
+      const unregister = gate.register(id, withOnUpdate(makeSink(element), untrack(cfg).onUpdate, cfg))
       onCleanup(unregister)
 
       // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
@@ -1469,6 +1478,22 @@ export function runSpine(opts: RunSpineOptions): void {
     }),
   )
 }
+
+/**
+ * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had
+ * one at mount; `sink` as it is otherwise.
+ */
+const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], cfg: Accessor<WardConfig>): FlushGate.Sink =>
+  UndefinedOr.match(atMount, {
+    onUndefined: () => sink,
+    onDefined: (): FlushGate.Sink => ({
+      ...sink,
+      onCommit: (latest) => {
+        const onUpdate = untrack(cfg).onUpdate
+        if (Predicate.isNotUndefined(onUpdate)) onUpdate(latest as Readonly<Record<string, number | string>>)
+      },
+    }),
+  })
 
 /** No keys: a Retarget with no following return. */
 const NO_KEYS: ReadonlyArray<string> = []
