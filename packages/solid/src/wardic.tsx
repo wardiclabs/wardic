@@ -54,7 +54,9 @@ import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import {
   dragAxisOf,
+  drawnAtRest,
   flagStartingStyle,
+  isLayoutNode,
   registryOf,
   runSpine,
   serverAppearOf,
@@ -388,9 +390,11 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
       const config = untrack(cfg)
       const initialValues = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
-      const projected = runtime.runSync(Renderer.Renderer).project(initialValues)
+      // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
+      const layoutNode = isLayoutNode(config)
+      const projected = runtime.runSync(Renderer.Renderer).project(drawnAtRest(initialValues, layoutNode))
       const hydrating = isHydrating()
-      const starting = Bool.match(hydrating, { onTrue: () => DomRenderer.project(initialValues), onFalse: () => projected })
+      const starting = Bool.match(hydrating, { onTrue: () => DomRenderer.project(drawnAtRest(initialValues, layoutNode)), onFalse: () => projected })
       if (hydrating) flagStartingStyle(runtime, id, starting, projected)
       const axis = dragAxisOf(config, undefined)
       const dragDefaults = UndefinedOr.map(axis, Style.dragDefaults)
@@ -399,7 +403,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // writes from mount, and the Starting style carries until then, under `initial`'s.
       const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id) })
       const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => runtime.runSync(Renderer.Renderer).project })
-      const startingWith = (routed: Values.Values): Renderer.Patch => projectStarting({ ...routed, ...initialValues })
+      const startingWith = (routed: Values.Values): Renderer.Patch => projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode))
       const elementStyle = createElementStyle({ userStyle, starting, startingWith, live, defaults: dragDefaults })
 
       // The gate commits each frame onto the forwarded element (ADR-0034). The node wires
@@ -556,7 +560,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   if (ownAnimation) appear.veto("its own style sets an animation")
   override(out, {
     style: pipe(
-      serverStartingStyle(undefined, Style.starting(undefined, initial).style, initial, parts.routed),
+      serverStartingStyle(undefined, Style.starting(undefined, drawnAtRest(initial, isLayoutNode(config))).style, initial, parts.routed, isLayoutNode(config)),
       Style.over(parts.css),
       Style.over(dragDefaults),
       Style.over(Bool.match(ownAnimation, { onTrue: constUndefined, onFalse: () => appear.style })),

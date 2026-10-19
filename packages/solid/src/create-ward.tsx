@@ -32,7 +32,7 @@ import type * as Frame from "@wardic/core/Frame"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
-import type * as Projection from "@wardic/core/Projection"
+import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Stagger from "@wardic/core/Stagger"
 import * as Supersede from "@wardic/core/Supersede"
@@ -1275,7 +1275,7 @@ export function runSpine(opts: RunSpineOptions): void {
             if (Predicate.isNotUndefined(handoff)) {
               const taken = handoff
               handoff = undefined
-              checkHandoff(runtime, id, taken, { tag, from, to: t, transition: baseTransition, reduced: reduce })
+              checkHandoff(runtime, id, taken, { tag, from, to: t, transition: baseTransition, reduced: reduce, layout: isLayoutNode(untrack(cfg)) })
               const at = startAtOf(taken, baseTransition, delayOf(transition))
               retargetLegs = Arr.map(retargetLegs, (leg) => startingAt(leg, at))
             }
@@ -1449,7 +1449,8 @@ const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefined, ele
  * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
  */
 const checkHandoff = (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation): void => {
-  const same = Option.exists(keyOf(mount), (key) => Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition) }))
+  const same = Option.exists(keyOf(mount), (key) =>
+    Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition), projected: mount.layout }))
   if (same) return
   runtime.runFork(
     Effect.logDebug("wardic.hydration: the server's Appear animation was sampled from another mount animation than this element's; it goes on from the same time").pipe(
@@ -1526,6 +1527,9 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // commit, so pre-mount render carries the initial style (no flash).
   const initialConfig = untrack(cfg)
   const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
+  const layoutNode = isLayoutNode(initialConfig)
+  const drawnStart = drawnAtRest(initialValues, layoutNode)
 
   // The Starting style: the projected SSR initial, carried by `style` until the gate's
   // first commit (ADR-0021 decision 6, ADR-0034). An svg-inner tag's attribute keys are
@@ -1534,9 +1538,9 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // DOM's project (the Hydration hold, ADR-0021 decision 2): the Environment's Renderer
   // takes over at the first frame, and a different Starting style from it is noted once
   // (cold path).
-  const projected = project(initialValues)
+  const projected = project(drawnStart)
   const hydrating = isHydrating()
-  const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(initialValues), onFalse: () => projected })
+  const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(drawnStart), onFalse: () => projected })
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = Svg.splitPatchForTag(internal.tag, startingPatch)
 
@@ -1544,7 +1548,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // writes from mount, and the Starting style carries until then, under `initial`'s.
   const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id) })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
-  const startingWith = (routed: Values.Values): Renderer.Patch => Svg.splitPatchForTag(internal.tag, projectStarting({ ...routed, ...initialValues })).style
+  const startingWith = (routed: Values.Values): Renderer.Patch =>
+    Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode))).style
 
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
@@ -1713,7 +1718,8 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())
-  const seed = Style.starting(internal.tag, startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())))
+  const layoutNode = isLayoutNode(c)
+  const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())), layoutNode))
   const dragAxis = dragAxisOf(c, internal)
   const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
   const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()))
@@ -1736,7 +1742,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
       return {
         ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
         style: pipe(
-          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed),
+          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode),
           Style.over(parts.css),
           Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
           Style.over(dragDefaults),
@@ -1782,7 +1788,7 @@ export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialVa
         initial: initialValues,
         to: serverTargetOf(c, node.inherited),
         transition: ownOrInherited(c.transition, node.inherited),
-        layout: Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId)),
+        layout: isLayoutNode(c),
         group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
         leads: hasOwnVariants(c),
         ownTransition: c.transition,
@@ -1821,11 +1827,24 @@ export const serverStartingStyle = (
   starting: Renderer.Patch,
   initialValues: Values.Values,
   routed: Readonly<Record<string, unknown>>,
+  layout: boolean,
 ): Renderer.Patch =>
   Bool.match(Rec.isEmptyRecord(routed), {
     onTrue: () => starting,
-    onFalse: () => Style.starting(tag, { ...valuesOf(routed, serverRegistryOf), ...initialValues }).style,
+    onFalse: () => Style.starting(tag, drawnAtRest({ ...valuesOf(routed, serverRegistryOf), ...initialValues }, layout)).style,
   })
+
+/** Whether a config makes its element a layout node: `layout` (or a mode), or a `layoutId`. */
+export const isLayoutNode = (c: WardConfig): boolean =>
+  Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId))
+
+/**
+ * The values a layout node's Starting style is drawn from (#245, ADR-0044 *Amendment (#245)*):
+ * through its projection at rest, as its first commit draws it, its own `x` and `y` left out (the
+ * projection owns translate, ADR-0016). Any other element's, as they are.
+ */
+export const drawnAtRest = (values: Values.Values, layout: boolean): Readonly<Record<string, unknown>> =>
+  Bool.match(layout, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })
 
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = (): void => {}

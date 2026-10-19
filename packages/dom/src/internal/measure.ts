@@ -18,6 +18,7 @@ import { constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Str from "effect/String"
+import { pending as appearRuns } from "./appear.ts"
 
 /**
  * Read `el`'s box AS IT CURRENTLY RENDERS — a raw `getBoundingClientRect`, no
@@ -54,6 +55,8 @@ export const readLayoutBox = (el: HTMLElement): Probe.Bounds => {
 export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
   const saved = el.style.transform
   el.style.transform = ""
+  // An Appear animation not yet handed off (#245): its CSS transform beats an inline one, not an important one.
+  if (appearRuns(el)) el.style.setProperty("transform", "none", "important")
   try {
     return readLayoutBox(el)
   } finally {

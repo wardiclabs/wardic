@@ -254,5 +254,5 @@ export const heldTouches: {
  * attributes, everything else is style. `undefined` is an HTML element (a `createWard`
  * spread, which doesn't know its tag).
  */
-export const startingStyle = (tag: string | undefined, values: Values.Values): SplitPatch =>
+export const startingStyle = (tag: string | undefined, values: Readonly<Record<string, unknown>>): SplitPatch =>
   splitPatchForTag(tag, project(values))

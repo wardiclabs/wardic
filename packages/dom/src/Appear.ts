@@ -22,6 +22,7 @@ export {
   matches,
   MAX_SECONDS,
   nameOf,
+  pending,
   type Play,
   PREFIX,
   release,

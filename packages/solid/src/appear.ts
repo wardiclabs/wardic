@@ -50,6 +50,11 @@ export interface MountAnimation {
   readonly transition: WardicTransition | undefined
   /** Whether reduced motion is on for it (ADR-0029). */
   readonly reduced: boolean
+  /**
+   * Whether it's a layout node (#245): drawn through its projection at rest, as the client draws
+   * it, its own `x` and `y` left out (ADR-0016). Part of its rule's name (`Appear.Spec.projected`).
+   */
+  readonly layout: boolean
 }
 
 /** What stands in for a function with no easing name: canonical text holding it is no key. */
@@ -175,6 +180,7 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
         key,
         tag: m.tag,
         infinite: repeatsForever(m.transition),
+        projected: m.layout,
         machine: () =>
           Bool.match(repeatsForever(m.transition), {
             onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, {})), repeatDelay),
@@ -443,7 +449,7 @@ export interface ServerElement {
   readonly to: Option.Option<Values.Values>
   /** Its own transition, else the one it inherits (ADR-0007). */
   readonly transition: WardicTransition | undefined
-  /** Whether it's a layout node (`layout` or `layoutId`): its box is measured at mount. */
+  /** Whether it's a layout node (`layout` or `layoutId`): drawn through its projection at rest (#245). */
   readonly layout: boolean
   /** The group it staggers in, as a Variant child: its parent's (`node.inherited`). */
   readonly group: Option.Option<AppearGroup>
@@ -468,7 +474,7 @@ export const enterServer = (
       onFalse: () => Option.some(playable(el, to)),
     }))
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
-    Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced })))
+    Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout })))
   const { entry, animation: inline } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
   return {
     animation: inline,
@@ -486,7 +492,6 @@ const playable = (el: ServerElement, to: Values.Values): Result.Result<{ readonl
 const playableMatch: (input: { readonly el: ServerElement; readonly to: Values.Values }) => Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> =
   Match.type<{ readonly el: ServerElement; readonly to: Values.Values }>().pipe(
     Match.when({ el: { appear: false } }, () => Result.fail("appear={false}")),
-    Match.when({ el: { layout: true } }, () => Result.fail("a layout node is measured at mount")),
     Match.orElse(({ el, to }) =>
       Option.match(unplayable(el.initial, to), {
         onSome: (reason): Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> => Result.fail(reason),

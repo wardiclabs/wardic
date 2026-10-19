@@ -20,18 +20,25 @@
 //   then snaps, as the engine's snap does (the rule fills forwards).
 // - AH10 (#245): an SVG circle's `cx`, `r` and `opacity` and a path's stroke dash, attributes played
 //   as CSS, handed off mid-flight to the engine's attributes.
+// - AH11 (#245): a layout card's entrance (scale, opacity, its own y): drawn as the client draws a
+//   layout node, its y left out, from first paint; handed off mid-flight; and its next layout change
+//   animates from its true box, measured past the CSS at mount.
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
+import * as References from "effect/References"
+import { DomLive } from "@wardic/dom"
 import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6 } from "./appear-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
 const FILE = "./test/appear-fixtures.tsx"
@@ -46,6 +53,10 @@ interface Drawn {
   readonly cx: number
   readonly r: number
   readonly dash: number
+  /** Its scale on x (no rotation), and its painted box's width and top (#245). */
+  readonly scale: number
+  readonly width: number
+  readonly top: number
   /** Whether a CSS animation still runs on it. */
   readonly css: boolean
 }
@@ -62,6 +73,8 @@ interface Run {
   /** Each watched element's CSS animation's start, on the rAF timeline. */
   readonly startOf: Readonly<Record<string, number>>
   readonly host: HTMLElement
+  /** Each watched element's inline `transform` right after `hydrate()` returned, before the first commit. */
+  readonly hydratedStyle: Readonly<Record<string, string>>
 }
 
 const cleanups: Array<() => void> = []
@@ -82,6 +95,9 @@ const drawnOf = (el: Element): Drawn => {
     cx: Number.parseFloat(computed.getPropertyValue("cx")) || 0,
     r: Number.parseFloat(computed.getPropertyValue("r")) || 0,
     dash: Number.parseFloat(computed.getPropertyValue("stroke-dasharray")) || 0,
+    scale: m.m11,
+    width: el.getBoundingClientRect().width,
+    top: el.getBoundingClientRect().top,
     css: el.getAnimations().length > 0,
   }
 }
@@ -89,7 +105,11 @@ const drawnOf = (el: Element): Drawn => {
 let runs = 0
 
 /** Server-render `name`, put it on the page with its head, hydrate after `hydrateAfter` ms (never, without), and record `forMs` of frames. */
-const run = async (name: string, code: () => JSX.Element, options: { readonly hydrateAfter?: number; readonly forMs: number }): Promise<Run> => {
+const run = async (
+  name: string,
+  code: () => JSX.Element,
+  options: { readonly hydrateAfter?: number; readonly forMs: number; readonly then?: { readonly afterMs: number; readonly act: () => void } },
+): Promise<Run> => {
   const renderId = `${name}-${runs++}`
   const { html, head, script, error } = await commands.serverRenderPage(FILE, name, renderId)
   if (error !== "") throw new Error(`server render of ${name} failed: ${error}`)
@@ -115,14 +135,21 @@ const run = async (name: string, code: () => JSX.Element, options: { readonly hy
     for (const style of styles) style.remove()
   })
   const startOf: Record<string, number> = {}
+  const hydratedStyle: Record<string, string> = {}
   const frames: Array<Recorded> = []
   const begun = performance.now()
+  if (options.then !== undefined) {
+    const { afterMs, act } = options.then
+    const timer = setTimeout(act, afterMs)
+    cleanups.push(() => clearTimeout(timer))
+  }
   if (options.hydrateAfter !== undefined) {
     setTimeout(() => {
       ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
       sharedConfig.done = false
       dispose = hydrate(code, host, { renderId })
       hydrated = true
+      for (const el of watched) hydratedStyle[(el as HTMLElement).dataset.k!] = (el as HTMLElement).style.transform
     }, options.hydrateAfter)
   }
   // Read after the frame's callbacks, the engine's tick among them (the order of rAF callbacks is
@@ -157,7 +184,7 @@ const run = async (name: string, code: () => JSX.Element, options: { readonly hy
     requestAnimationFrame(frame)
   })
   counting = false
-  return { frames, startOf, host }
+  return { frames, startOf, host, hydratedStyle }
 }
 
 /** The machine's values `seconds` in, as `Machine.startAt` draws them. */
@@ -331,5 +358,46 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     const circle = r.host.querySelector("circle")!
     expect(circle.getAttribute("cx"), "the engine writes the attribute").toBe("90")
     expect(r.host.querySelector("path")!.getAttribute("stroke-dasharray")).toBe("1 1")
+  })
+
+  it("AH11: a layout card drawn as a layout node from first paint, handed off, its next layout change from its true box (#245)", async () => {
+    const card = tween({ opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1 }, { duration: 1.2 })
+    // The layout change, once the entrance has ended: the spacer above grows by 60 px.
+    const grow = { afterMs: 1900, act: () => (globalThis as { __a7grow?: () => void }).__a7grow?.() }
+    // The client's debug logs, for its Handoff's check.
+    const logs: Array<string> = []
+    setAppearEnv(
+      Layer.mergeAll(DomLive, Logger.layer([Logger.map(Logger.formatStructured, (s) => void logs.push(String(s.message)))]), Layer.succeed(References.MinimumLogLevel, "Debug")),
+    )
+    cleanups.push(() => setAppearEnv(DomLive))
+    const r = await run("A7", A7, { hydrateAfter: 350, forMs: 2700, then: grow })
+    // The client starts it from the server's Starting style, no translate, and its spec is the server's.
+    expect(r.hydratedStyle.card, "the Starting style hydration keeps").toBe("scale(0.5, 0.5)")
+    expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
+    // Its own y is never drawn: a layout node's translate is its projection's (ADR-0016).
+    const before = r.frames.filter((f) => !f.hydrated && f.drawn.card!.css)
+    expect(before.some((f) => f.drawn.card!.scale > 0.55 && f.drawn.card!.scale < 0.95), "it moved before hydration").toBe(true)
+    const start = r.startOf.card!
+    const entrance = { ...r, frames: r.frames.filter((f) => f.at - start < 1700) }
+    expect(followsMachine(entrance, "card", (s) => {
+      const v = machineAt(card, s)
+      return { opacity: v.opacity as number, y: 0 }
+    })).toBeGreaterThan(30)
+    // Its scale, through the Handoff to rest.
+    for (const f of r.frames.filter((frame) => frame.at >= start && frame.at - start < 1500)) {
+      const want = machineAt(card, (f.at - start) / 1000).scale as number
+      expect(Math.abs(f.drawn.card!.scale - want), `scale at ${((f.at - start) / 1000).toFixed(3)} s`).toBeLessThanOrEqual(0.006)
+    }
+    // The layout change: the first frame it draws is where the card was, its true size, then it moves down 60 px.
+    const atRest = r.frames.filter((f) => f.at - start > 1400 && f.at - start < 1700)
+    expect(atRest.length).toBeGreaterThan(5)
+    const rest = atRest.at(-1)!.drawn.card!
+    expect(rest.width).toBeCloseTo(40, 0)
+    const changed = r.frames.findIndex((f) => f.at - start > 1700 && Math.abs(f.drawn.card!.top - rest.top) > 0.5)
+    expect(changed, "it moved").toBeGreaterThan(0)
+    const first = r.frames[changed]!.drawn.card!
+    expect(first.width, "its true size: no jump to the box the CSS drew at mount").toBeCloseTo(40, 0)
+    expect(first.top - rest.top, "from where it was, not jumped").toBeLessThan(15)
+    expect(r.frames.at(-1)!.drawn.card!.top - rest.top, "landing 60 px down").toBeGreaterThan(30)
   })
 })

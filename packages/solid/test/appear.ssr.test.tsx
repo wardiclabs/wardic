@@ -5,8 +5,8 @@
 // - AR1: a qualifying element gets `animation: var(--wardic-aN)`, and the head its rule and timing.
 // - AR2: the provider's `appear={false}` and an element's own turn it off; so does `initial={false}`.
 // - AR3: an element the server can't play keeps its Starting style alone: an animate-only key, a
-//   value the DOM reads (`auto`, `var()`), a layout node, an easing with no name, its own `animation`,
-//   a length in two units.
+//   value the DOM reads (`auto`, `var()`), an easing with no name, its own `animation`, a length in
+//   two units.
 // - AR4: reduced motion: `"user"` adds the reduced rules under the media query; `"always"` and
 //   `"never"` write one set.
 // - AR5: a Variant child's stagger: `delayChildren` plus its place, in render order, by `from` and
@@ -21,6 +21,9 @@
 // - AR12 (#245): an svg-inner element's attributes play as CSS; a group whose rules write SVG
 //   geometry is defined, whole, under one `@supports`, its reduced block too; one that writes none
 //   isn't; `width` still keeps its Starting style.
+// - AR13 (#245): a layout node plays, drawn through its projection at rest as the client draws it:
+//   its Starting style and its rule leave its own `x` and `y` out, keep its rotate and opacity, and
+//   its rule is named apart from a plain element's.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -105,7 +108,6 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
         <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1, color: "red" }} />
         <wardic.div initial={{ height: "0px" }} animate={{ height: "auto" }} />
         <wardic.div initial={{ color: "red" }} animate={{ color: "var(--brand)" }} />
-        <wardic.div {...rise} layout />
         <wardic.div {...rise} transition={{ type: "tween", easing: anonymous }} />
         <wardic.div {...rise} style={own} />
         <wardic.div {...rise} transition={{ type: "tween", easing: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
@@ -118,9 +120,9 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const css = headCss(html)
     const plays = divs.map((d) => timing(css, propertyOf(d.style.animation)).normal !== "")
     // The last, a colour pair, plays: its digits aren't two units.
-    expect(plays).toEqual([false, false, false, false, false, false, true, false, false, true])
-    expect(divs[5]?.style.animation, "its own animation stays").toBe("spin 1s infinite")
-    expect(divs[8]?.style.animation, "a CSS-text style's own too").toBe("spin 1s infinite")
+    expect(plays).toEqual([false, false, false, false, false, true, false, false, true])
+    expect(divs[4]?.style.animation, "its own animation stays").toBe("spin 1s infinite")
+    expect(divs[7]?.style.animation, "a CSS-text style's own too").toBe("spin 1s infinite")
     // Only the two that play have their timing in the head: an element ruled out leaves its slot undefined.
     expect(css.split("@media")[0]!.match(/--wardic-a\d+:/g), css).toHaveLength(2)
   })
@@ -222,7 +224,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
 
   it("AR11: a spec's key: the same whatever its keys' order; none for an easing with no name", () => {
     const at = (from: Record<string, number>, to: Record<string, number>, easing: (t: number) => number = Easing.linear) =>
-      keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, easing }, reduced: false })
+      keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, easing }, reduced: false, layout: false })
     expect(at({ opacity: 0, y: 20 }, { opacity: 1, y: 0 })).toEqual(at({ y: 20, opacity: 0 }, { y: 0, opacity: 1 }))
     expect(Option.isSome(at({ x: 0 }, { x: 1 }, Easing.easeOutCubic))).toBe(true)
     expect(Option.isNone(at({ x: 0 }, { x: 1 }, (t) => t * t))).toBe(true)
@@ -284,5 +286,47 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     // `width` can't be guarded: the rect keeps its Starting style.
     const sized = tagsOf(html).find((t) => t.attrs["data-k"] === "sized")
     expect(timing(css, propertyOf(sized?.style.animation)).normal).toBe("")
+  })
+
+  it("AR13: a layout node plays, its own x and y left out of its Starting style and its rule (#245)", () => {
+    const entrance = { initial: { opacity: 0, y: 40, rotate: 10 }, animate: { opacity: 1, y: 0, rotate: 0 } } as const
+    const Card = (p: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties }) => <article ref={p.ref} style={p.style} />
+    const WCard = wardic.create(Card)
+    const html = page(() => (
+      <>
+        <WCard layout {...entrance} />
+        <wardic.div data-k="layout" layout {...entrance} />
+        <wardic.div data-k="shared" layoutId="card" {...entrance} />
+        <wardic.div data-k="plain" {...entrance} />
+        <wardic.div data-k="slide" layout initial={{ x: -30 }} animate={{ x: 0 }} />
+      </>
+    ))
+    const css = headCss(html)
+    const div = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
+    const ruleOf = (k: string) => {
+      const name = timing(css, propertyOf(div(k)?.style.animation)).normal.split(" ")[0]!
+      return { name, body: new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? "" }
+    }
+    // The Starting style: the rotate and opacity, no translate, as the client's first commit draws it.
+    for (const k of ["layout", "shared"]) {
+      expect(div(k)?.style.transform, k).toBe("rotate(10deg)")
+      expect(div(k)?.style.opacity, k).toBe("0")
+    }
+    expect(div("plain")?.style.transform).toBe("translateY(40px) rotate(10deg)")
+    const article = tagsOf(html).find((t) => t.name === "article")
+    expect(article?.style.transform, "a component wrap's too").toBe("rotate(10deg)")
+    const wrapName = timing(css, propertyOf(article?.style.animation)).normal.split(" ")[0]!
+    expect(new RegExp(`@keyframes ${wrapName}\\{(.*?\\})\\}`).exec(css)?.[1], "its rule draws the same").toBe(ruleOf("layout").body)
+    // Its rule: the same, every stop.
+    const layout = ruleOf("layout")
+    expect(layout.body.startsWith("0%{transform:rotate(10deg);opacity:0}"), layout.body).toBe(true)
+    expect(layout.body).not.toContain("translate")
+    expect(ruleOf("shared").name, "a layoutId node's too").toBe(layout.name)
+    const plain = ruleOf("plain")
+    expect(plain.body.startsWith("0%{transform:translateY(40px) rotate(10deg);opacity:0}"), plain.body).toBe(true)
+    expect(plain.name, "named apart: the client's spec names it the same").not.toBe(layout.name)
+    // Only its own x animating: nothing it draws moves, one stop at rest.
+    expect(div("slide")?.style.transform).toBe("none")
+    expect(ruleOf("slide").body).toBe("0%,100%{transform:none}")
   })
 })

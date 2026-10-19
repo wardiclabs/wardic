@@ -105,6 +105,17 @@ export interface Value {
   readonly passesPointer?: true
 }
 
+/** An axis with nothing to project: no shift, no scale. */
+const REST_AXIS: AxisDelta = { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }
+
+/**
+ * A node drawn at its own box (#245): no delta, no ancestors' scale. The renderer draws it with the
+ * element's own rotate, skew and scale and leaves its own translate out (the projection owns it,
+ * ADR-0016), as it draws a layout node at rest. What a server, which measures nothing (ADR-0021),
+ * projects a layout node's Starting style and Appear animation with.
+ */
+export const AT_REST: Value = { delta: { x: REST_AXIS, y: REST_AXIS }, treeScale: { x: 1, y: 1 } }
+
 /** Below this distance from 1, a computed scale snaps to exactly 1 (Motion's `SCALE_PRECISION`). */
 const SCALE_PRECISION = 0.0001
 /** Below this distance from 0, a computed translate snaps to exactly 0 (Motion's `TRANSLATE_PRECISION`). */
