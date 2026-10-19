@@ -145,6 +145,7 @@ This amends ADR-0003 and ADR-0021.
 - **A spec's machine is a thunk,** built only when its rule isn't cached: a server render builds a mount animation's legs once per spec per process, not once per element.
 - **The sampler copies each Frame before the next step.** `springValues` rewrites one Frame per run in place, and the first build's first stop read as the settled one.
 - **A rule ends where every later Frame is within tolerance of the settled one,** and draws that Frame as the settled one. A 0.5 s tween stepped in 1/60 s settles a frame after it arrives, when the steps' sum crosses its duration; its rule lasts 0.5 s.
+- **A jump holds the Frame before it until a hair before it.** A loop's seam (0→360° on one frame), a `steps()` easing, a snap or a discrete flip: a line between the two stops drew, on a frame that fell between them, a value the engine never draws (PR 3's hydration test caught a loop spinning backwards). `jumpAt` finds them: a change of text, or a move past its tolerance and four times its neighbours'.
 - **Unsafe text is refused:** `<`, `>`, `{`, `}`, `;`, `\` and `/*` in a declaration. A value from an app's config could otherwise end the `<style>` it sits in.
 - **`release` only removes the inline `animation`:** that ends the CSS animation at the task's style update, and a `cancel()` as well changed nothing (a surviving mutation).
 - **The elapsed-time read sits at the first tick, not at mount,** so its frame is the one the CSS was drawing. Inside a `requestAnimationFrame` callback, an animation's `currentTime` is the frame's.
