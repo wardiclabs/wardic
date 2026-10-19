@@ -46,8 +46,8 @@ export { fromAtom, streamToSignal } from "./bridge.ts"
 
 /**
  * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /
- * `createInView` / `createDrag` (recognizer-backed signals), `createReducedMotion`
- * (`Probe.prefersReducedMotion` atom bridge), and the pure `createTransform`.
+ * `createInView` / `createDrag` (recognizer-backed signals) and `createReducedMotion`
+ * (`Probe.prefersReducedMotion` atom bridge).
  */
 export {
   type CreateDragOptions,
@@ -57,8 +57,15 @@ export {
   createInView,
   createPress,
   createReducedMotion,
-  createTransform,
 } from "./sensors.ts"
+
+/**
+ * Live values (#130, ADR-0043): a value the user moves, given in an element's `style` (an accessor
+ * or an Atom), followed while no layer of the Override stack sets its key. `createTransform` maps
+ * one (through a function, or ranges), `createSpring` follows one with a spring.
+ */
+export { createSpring, createTransform } from "./live-value.ts"
+export type { Live, LiveSource } from "./live-style.ts"
 
 /**
  * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->
@@ -69,6 +76,8 @@ export {
 export {
   type Ward,
   type WardConfig,
+  type WardStyle,
+  type WardValue,
   type WardicDragTransition,
   type WardicReducedMotion,
   type WardicTransformShorthands,

@@ -388,7 +388,15 @@ export const F22 = live(() => (
   </svg>
 ))
 
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22 } as const
+// #130: a transform key and a Live value in `style` are in the server's Starting style, under
+// `initial`'s, kept through hydration, and the gate takes them over from mount.
+export const F23 = live(() => (
+  <wardic.div data-k="f23" style={{ x: 30, opacity: () => 0.6 }} initial={{ scale: 0.5 }} animate={{ scale: 1 }} transition={TWEEN}>
+    f23
+  </wardic.div>
+))
+
+export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23 } as const
 export type FixtureName = keyof typeof FIXTURES
 
 export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
@@ -442,4 +450,12 @@ export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
   F20: { startK: "f20", starting: projected({ opacity: 1 }), tracks: [{ label: "opacity", read: opacity("f20"), from: 1, to: 1 }] },
   F21: { startK: "f21", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f21"), from: 0.5, to: 0.5 }] },
   F22: { startK: "f22", starting: { "--brandLevel": "0.4" }, tracks: [{ label: "opacity", read: opacity("f22"), from: 0.4, to: 0.8 }] },
+  F23: {
+    startK: "f23",
+    starting: projected({ x: 30, opacity: 0.6, scale: 0.5 }),
+    tracks: [
+      { label: "opacity", read: opacity("f23"), from: 0.6, to: 0.6 },
+      { label: "scale", read: scale("f23"), from: 0.5, to: 1 },
+    ],
+  },
 }

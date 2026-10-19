@@ -107,10 +107,11 @@ interface Entry {
   outputs: Map<string, Output> | undefined
 }
 
-/** One key's live output: its Atom, and the value last set on it. */
+/** One key's live output: its Atom, the value last set on it, and its mount in the registry. */
 interface Output {
   readonly atom: Atom.Writable<unknown>
   last: unknown
+  readonly unmount: () => void
 }
 
 /** The element's own inline value for a patch key (`""` for none, or a target with no style). */
@@ -155,11 +156,13 @@ export interface FlushGate {
    */
   readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
   /**
-   * The value the gate last committed for `id`'s `key`, live (#130, ADR-0043): an `Atom` set as
-   * each commit that writes the key changes it, the value before the Renderer projects it (`x`
-   * as a number, not a `transform`). `undefined` before the key's first commit, and once it's
-   * released or the element unregisters. One Atom for an id and a key, made on first ask, so
-   * per frame only the keys asked for cost anything.
+   * The element's value for `id`'s `key`, live (#130, ADR-0043): an `Atom` set as each write that
+   * changes it lands, so it's the value the next commit draws, before the Renderer projects it
+   * (`x` as a number, not a `transform`). Set at the write, not the commit, so a value derived
+   * from it (another key following it through a binding) is written in the same frame and
+   * commits with it. `undefined` before the key's first write, and once it's released or the
+   * element unregisters. One Atom for an id and a key, made on first ask, so per frame only the
+   * keys asked for cost anything.
    */
   readonly valueOf: (id: string, key: string) => Atom.Atom<unknown>
   /**
@@ -269,7 +272,15 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       sink.onHeld(Array.from(committed.keys()))
     }
     commit(target, patch)
-    // The live outputs asked for, set where the value changed: an unchanged one skips the registry.
+  }
+
+  /**
+   * The live outputs asked for of `entry`, each set where its value changed, as a write or a
+   * release lands: a value derived from one (a Live value of another key, through a binding) is
+   * written in the same frame, and commits with it. An unchanged one skips the registry. Plain
+   * calls: a write is the per-frame path.
+   */
+  const setOutputs = (entry: Entry): void => {
     const outputs = entry.outputs
     if (Predicate.isUndefined(outputs)) return
     for (const [key, output] of outputs) {
@@ -339,7 +350,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     const outputs = outputsById.get(id)
     if (Predicate.isUndefined(outputs)) return
     outputsById.delete(id)
-    for (const output of outputs.values()) registry.set(output.atom, undefined)
+    for (const output of outputs.values()) {
+      registry.set(output.atom, undefined)
+      output.unmount()
+    }
   }
 
   /** `id`'s current value for `key`, or `undefined` for an unregistered id or a key it hasn't written. */
@@ -359,10 +373,17 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     }
     const known = outputs.get(key)
     if (Predicate.isNotUndefined(known)) return known.atom
-    const value = committedValueOf(id, key)
-    const output: Output = { atom: Atom.keepAlive(Atom.make<unknown>(value)), last: value }
+    // Made `undefined` and mounted until its element unregisters, not kept alive: a kept-alive
+    // Atom's node never leaves the registry, and one left behind reads `undefined` afresh.
+    const atom = Atom.make<unknown>(undefined)
+    const output: Output = { atom, last: undefined, unmount: registry.mount(atom) }
     outputs.set(key, output)
-    return output.atom
+    const value = committedValueOf(id, key)
+    if (Predicate.isNotUndefined(value)) {
+      output.last = value
+      registry.set(atom, value)
+    }
+    return atom
   }
 
   const write: FlushGate["write"] = (id, partial) => {
@@ -372,6 +393,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     entry.dirty = true
     if (Predicate.isNotUndefined(recording)) recording.add(id)
     scheduleFlush()
+    setOutputs(entry)
   }
 
   const flushPass: FlushGate["flushPass"] = (pass) => {
@@ -408,6 +430,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     if (!released) return
     entry.dirty = true
     scheduleFlush()
+    setOutputs(entry)
   }
 
   const dispose: FlushGate["dispose"] = () => {

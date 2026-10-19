@@ -73,13 +73,14 @@ const nonEmpty = (value: string | null): Option.Option<string> => Option.filter(
 /**
  * The user's `style` value for `key`, the `style` link of its Base value: an object style by
  * the key, then by the key dash-cased; a CSS-text style parsed as `Style.over` parses it.
- * `undefined`, `null` and an empty string are misses, `None`. A transform key has no `style` link:
- * in a DOM style, `scale`, `translate` and `rotate` are CSS properties of their own, which
- * compose with the element's transform rather than seed it.
+ * `undefined`, `null` and an empty string are misses, `None`. A transform key (`x`, `scale`,
+ * `rotate`…) is Wardic's, as Motion's is (#130, ADR-0043 decision 4): the binding composes it into
+ * `transform` through the flush gate. The value is as given, so a binding resolves a Live value
+ * (an Atom, an accessor) itself.
  */
 export const styleValueOf = (style: object | string | undefined, key: string): Option.Option<unknown> =>
   Option.flatMap(
-    Option.filter(Option.fromNullishOr(style), () => Option.isNone(BaseValue.transformIdentity(key))),
+    Option.fromNullishOr(style),
     (given) => {
       const map = recordOf(given)
       // A value at `k`: `undefined`, `null` and an empty string are misses.
