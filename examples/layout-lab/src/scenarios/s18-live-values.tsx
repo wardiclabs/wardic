@@ -22,8 +22,10 @@
  *   **returns**: no jump, at rest on the slider's value.
  *
  * The recorder reads each painted value just after its frame (a `MessageChannel` message posted from
- * each rAF), with the Live value as it was set before that frame, and the card judges the run
- * (`liveChecksOf` in `lab/live-board.ts`).
+ * each rAF), with the Live value as it was when that frame started (read in the rAF callback, so an
+ * input a phone delivers after the paint counts for the next frame), and the card judges the run
+ * (`liveChecksOf` in `lab/live-board.ts`). A run samples on until it stands still on its Live value,
+ * or 4 s after the value last moved; one cut off at 60 s with the value still moving isn't judged.
  *
  * The stage is the lab's default 320px wide, each cell's label above its row, and the slider and
  * Hold sit under the stage, so a phone shows every cell and both controls.
@@ -88,13 +90,19 @@ interface Recording {
   readonly startedAt: number
   /** Consecutive frames on its Live value, with the Live value still, since the gesture's end. */
   still: number
+  /** When its Live value last moved. */
+  movedAt: number
+  /** Cut off at {@link MAX_MS} while its Live value still moved. */
+  cut: boolean
   readonly finish: () => void
 }
 
 /** Frames on a still Live value that end a run. */
 const STILL_FRAMES = 12
-/** The longest a run samples, ms. */
-const MAX_MS = 8000
+/** How long a run samples on after its Live value last moved, ms: one not on it by then fails. */
+const SETTLE_MS = 4000
+/** The longest a run samples while its Live value keeps moving, ms: then it's cut off, unjudged. */
+const MAX_MS = 60000
 
 /**
  * Sample each cell's runs just after every painted frame and record each as a board run of kind
@@ -111,6 +119,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
       frames: [],
       startedAt: performance.now(),
       still: 0,
+      movedAt: performance.now(),
+      cut: false,
       finish: () => {
         if (done) return
         done = true
@@ -135,27 +145,42 @@ const makeRecorder = (ctx: ScenarioContext) => {
             ...(spec.held === undefined ? {} : { held: spec.held }),
             maxStep: spec.maxStep,
             tolerance: spec.tolerance,
+            ...(rec.cut ? { cut: true } : {}),
           },
         })
       },
     }
     running.set(spec.cell, rec)
     let lastLive = Number.NaN
+    // The Live value as the frame starts (its rAF callback): what its paint should show. A phone can
+    // deliver an input after the paint and before the read just after it (#184's late reads), which
+    // only the next frame can show.
+    let liveAtFrame = Number.NaN
+    const nextFrame = (): void => {
+      requestAnimationFrame(() => {
+        liveAtFrame = spec.live()
+        channel.port2.postMessage(undefined)
+      })
+    }
     channel.port1.onmessage = () => {
-      const live = spec.live()
+      const live = liveAtFrame
+      const now = performance.now()
       const derived = spec.derived?.()
       const frame: LiveFrame = { shown: spec.read(), live, phase: rec.phase, ...(derived === undefined ? {} : derived) }
       rec.frames.push(frame)
-      const on = Math.abs(frame.shown - live) <= spec.tolerance && Math.abs(live - lastLive) <= spec.tolerance / 2
+      const moved = Math.abs(live - lastLive) > spec.tolerance / 2
+      if (moved) rec.movedAt = now
       lastLive = live
-      rec.still = rec.phase !== "held" && on ? rec.still + 1 : 0
-      if (rec.still >= STILL_FRAMES || performance.now() - rec.startedAt > MAX_MS) {
+      rec.still = rec.phase !== "held" && !moved && Math.abs(frame.shown - live) <= spec.tolerance ? rec.still + 1 : 0
+      const settled = rec.phase !== "held" && now - rec.movedAt > SETTLE_MS
+      rec.cut = now - rec.startedAt > MAX_MS
+      if (rec.still >= STILL_FRAMES || settled || rec.cut) {
         rec.finish()
         return
       }
-      requestAnimationFrame(() => channel.port2.postMessage(undefined))
+      nextFrame()
     }
-    requestAnimationFrame(() => channel.port2.postMessage(undefined))
+    nextFrame()
     return rec
   }
   return {

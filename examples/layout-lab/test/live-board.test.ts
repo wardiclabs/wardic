@@ -57,6 +57,20 @@ describe("liveChecksOf", () => {
     expect(failed(run(SERIES(frames)))).toContain("wins")
   })
 
+  it("wins passes a press let go on its way there (a phone's short press), and fails one pulled back", () => {
+    const rising = [0.4, 0.6, 0.75, 0.86, 0.93, 0.97, 0.99]
+    const held = (shown: ReadonlyArray<number>): Array<LiveFrame> => shown.map((v) => ({ shown: v, live: 0.37, phase: "held" }))
+    const series = (frames: ReadonlyArray<LiveFrame>): LiveSeries => ({ frames, lines: ["wins"], held: 1, maxStep: 0.2, tolerance: 0.002 })
+    expect(failed(run(series(held(rising))))).toEqual([])
+    expect(failed(run(series(held([0.4, 0.6, 0.75, 0.6, 0.45]))))).toEqual(["wins"])
+    expect(failed(run(series(held([0.6, 0.9, 1, 1, 0.8]))))).toEqual(["wins"])
+  })
+
+  it("a run cut off while its value still moved isn't judged on follows or returns", () => {
+    const stuck = good().map((f) => (f.phase === "after" ? { ...f, shown: 0.6 } : f))
+    expect(failed(run({ ...SERIES(stuck), maxStep: 1, cut: true }))).toEqual([])
+  })
+
   it("returns fails a jump to the value, and a return that never lands", () => {
     const jumped = good().map((f) => (f.phase === "after" ? { ...f, shown: f.live } : f))
     expect(failed(run(SERIES(jumped)))).toEqual(["returns"])
