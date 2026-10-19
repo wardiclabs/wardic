@@ -9,12 +9,13 @@
  *   comes out through the element's output, and the opacity derived from it paints in the same frame
  *   as the `x` it's from. Each press is a run, judged on **same frame**.
  * - **scroll opacity**: a box whose opacity follows the scroll box beside it (0.15 at the top, 0.6 at
- *   the bottom), with `whileHover: { opacity: 1 }`. Each hover is a run: it **follows** the scroll at
- *   rest, the hover **wins** while on, however the scroll moves, and on leave it **returns** to where
- *   the scroll is then, a spring chasing it while it still moves, and follows it again once it rests
+ *   the bottom), with `whileHover` and `whileTap` both `{ opacity: 1 }`, so a phone, where touch never
+ *   hovers, presses it instead. Each hover or press is a run: it **follows** the scroll at rest, the
+ *   gesture **wins** while on, however the scroll moves, and once it ends it **returns** to where the
+ *   scroll is then, a spring chasing it while it still moves, and follows it again once it rests
  *   there. Scrolling at rest is a run on **follows**.
- * - **slider**: a knob whose `x` follows the range input, and Hold, which animates its `x` to 0 over
- *   it (`animate`, a 0.4 s tween): held at 0 however the slider moves, then back to the slider (the
+ * - **slider**: a knob whose `x` follows the range input under the stage, and Hold, which animates its
+ *   `x` to 0 over it (`animate`, a 0.4 s tween): held at 0 however the slider moves, then back to the slider (the
  *   tween lands on where it is at its end) and following it. Each hold is a run on all three lines;
  *   moving the slider at rest, on **follows**.
  * - **spring**: a dot whose `x` is `createSpring` of the slider: each slider move is a run on
@@ -23,6 +24,9 @@
  * The recorder reads each painted value just after its frame (a `MessageChannel` message posted from
  * each rAF), with the Live value as it was set before that frame, and the card judges the run
  * (`liveChecksOf` in `lab/live-board.ts`).
+ *
+ * The stage is the lab's default 320px wide, each cell's label above its row, and the slider and
+ * Hold sit under the stage, so a phone shows every cell and both controls.
  *
  * @module
  */
@@ -34,13 +38,21 @@ import type { ScenarioContext, ScenarioDef } from "./types.ts"
 /** The scenario id, also the View root's `data-scenario` value. */
 const ID = "live-values"
 
-const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "300px" }
-const COLUMN: JSX.CSSProperties = { display: "flex", "flex-direction": "column", gap: "10px", padding: "10px" }
-const ROW: JSX.CSSProperties = { display: "flex", "align-items": "center", gap: "12px", height: "60px" }
-const LABEL: JSX.CSSProperties = { "font-size": "10px", opacity: 0.8, width: "70px", "flex-shrink": "0" }
+/** Narrow enough for a phone: each cell's label sits above its row, and the controls below the stage. */
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "320px", "--stage-h": "280px" }
+const COLUMN: JSX.CSSProperties = { display: "flex", "flex-direction": "column", gap: "6px", padding: "8px 10px" }
+const CELL: JSX.CSSProperties = { display: "flex", "flex-direction": "column", gap: "2px" }
+const ROW: JSX.CSSProperties = { display: "flex", "align-items": "center", gap: "12px", height: "44px" }
+const LABEL: JSX.CSSProperties = { "font-size": "10px", "line-height": "12px", opacity: 0.8 }
 const ACCENT = "var(--lab-accent, rgb(0, 102, 204))"
 const BOX: JSX.CSSProperties = { width: "60px", height: "44px", background: ACCENT, "border-radius": "6px" }
-const TRACK: JSX.CSSProperties = { position: "relative", width: "240px", height: "44px", background: "rgba(0, 0, 0, 0.05)", "border-radius": "6px" }
+const TRACK: JSX.CSSProperties = { position: "relative", width: "300px", height: "44px", background: "rgba(0, 0, 0, 0.05)", "border-radius": "6px" }
+const CONTROLS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "8px", "align-items": "center", "margin-top": "6px" }
+const SLIDER: JSX.CSSProperties = { width: "200px" }
+/** The press square: a held finger neither scrolls, selects nor opens the long-press callout. */
+const PRESSABLE: JSX.CSSProperties = { "touch-action": "none", "user-select": "none", "-webkit-user-select": "none", "-webkit-touch-callout": "none" }
+/** The slider's range: the knob (40px wide) stays on its 300px track. */
+const SLIDER_MAX = 260
 const SCROLLER: JSX.CSSProperties = { width: "120px", height: "44px", overflow: "auto", "border-radius": "6px", background: "rgba(0, 0, 0, 0.05)" }
 const SCROLL_CONTENT: JSX.CSSProperties = { height: "400px", background: "linear-gradient(rgba(0, 102, 204, 0.1), rgba(0, 102, 204, 0.4))" }
 const DOT: JSX.CSSProperties = { width: "16px", height: "16px", "border-radius": "8px", background: ACCENT, "margin-top": "14px" }
@@ -242,33 +254,36 @@ const View: ScenarioDef["View"] = (props) => {
     <div data-scenario={ID}>
       <div class="stage" style={STAGE_STYLE}>
         <div style={COLUMN}>
-          <div style={ROW}>
-            <span style={LABEL}>swipe card</span>
+          <div style={CELL}>
+            <span style={LABEL}>swipe card: drag it either way</span>
             <div style={TRACK}>
               <div
-                {...swipe({ ref: (el) => (card = el), style: { ...BOX, position: "absolute", left: "90px", opacity: swipeOpacity } })}
+                {...swipe({ ref: (el) => (card = el), style: { ...BOX, position: "absolute", left: "120px", opacity: swipeOpacity } })}
                 data-cell="swipe"
                 data-action="drag"
                 onPointerDown={() => recorder.begin(swipeSpec)}
               />
             </div>
           </div>
-          <div style={ROW}>
-            <span style={LABEL}>scroll opacity</span>
-            <div style={SCROLLER} data-cell="scroller" onScroll={scrolled}>
-              <div style={SCROLL_CONTENT} />
+          <div style={CELL}>
+            <span style={LABEL}>scroll opacity: scroll the box, hover or press the square</span>
+            <div style={ROW}>
+              <div style={SCROLLER} data-cell="scroller" onScroll={scrolled}>
+                <div style={SCROLL_CONTENT} />
+              </div>
+              <wardic.div
+                ref={(el: HTMLElement) => (target = el)}
+                data-cell="scroll-target"
+                style={{ ...BOX, ...PRESSABLE, opacity: scrollOpacity }}
+                whileHover={{ opacity: 1 }}
+                whileTap={{ opacity: 1 }}
+                onPointerEnter={() => recorder.begin(scrollSpec)}
+                onPointerLeave={() => recorder.end(scrollSpec)}
+              />
             </div>
-            <wardic.div
-              ref={(el: HTMLElement) => (target = el)}
-              data-cell="scroll-target"
-              style={{ ...BOX, opacity: scrollOpacity }}
-              whileHover={{ opacity: 1 }}
-              onPointerEnter={() => recorder.begin(scrollSpec)}
-              onPointerLeave={() => recorder.end(scrollSpec)}
-            />
           </div>
-          <div style={ROW}>
-            <span style={LABEL}>slider</span>
+          <div style={CELL}>
+            <span style={LABEL}>slider: its knob's x</span>
             <div style={TRACK}>
               <wardic.div
                 ref={(el: HTMLElement) => (knob = el)}
@@ -279,19 +294,19 @@ const View: ScenarioDef["View"] = (props) => {
               />
             </div>
           </div>
-          <div style={ROW}>
-            <span style={LABEL}>spring</span>
+          <div style={CELL}>
+            <span style={LABEL}>spring: follows the slider</span>
             <div style={TRACK}>
               <wardic.div ref={(el: HTMLElement) => (dot = el)} data-cell="dot" style={{ ...DOT, x: spring }} />
             </div>
           </div>
-          <div style={{ display: "flex", "flex-wrap": "wrap", gap: "8px", "align-items": "center" }}>
-            <input type="range" min="0" max="200" value={slider()} data-cell="slider" onInput={slid} />
-            <button type="button" data-action="hold" onClick={hold}>
-              {holding() ? "Let go" : "Hold at 0"}
-            </button>
-          </div>
         </div>
+      </div>
+      <div style={CONTROLS}>
+        <input type="range" min="0" max={SLIDER_MAX} value={slider()} style={SLIDER} data-cell="slider" aria-label="slider" onInput={slid} />
+        <button type="button" class="btn secondary small" data-action="hold" onClick={hold}>
+          {holding() ? "Let go" : "Hold at 0"}
+        </button>
       </div>
     </div>
   )
@@ -304,8 +319,8 @@ export const s18: ScenarioDef = {
   boardLines: LIVE_CHECK_NAMES,
   title: "live values (style follows a value you move)",
   mechanism:
-    "Drag the swipe card: its opacity, derived from its own x, fades with it in the same frame. Hover the scroll opacity box and " +
-    "scroll the box beside it, before, during and after the hover. Move the slider; Hold animates the knob to 0 over it and " +
+    "Drag the swipe card: its opacity, derived from its own x, fades with it in the same frame. Hover or press the scroll opacity square and " +
+    "scroll the box beside it, before, during and after. Move the slider; Hold animates the knob to 0 over it and " +
     "Let go returns it to the slider, which the spring dot follows.",
   prediction: "safe",
   rationale:
