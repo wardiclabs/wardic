@@ -187,7 +187,7 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
 /**
  * Why a mount animation can't play before hydration, or `None` when it can (decision 4): a key
  * starting from anything but `initial`, a value the DOM reads from the element (`auto`, `var()`),
- * or a length pair in two units.
+ * or a start that can't take its target's shape (a length pair in two units).
  */
 export const unplayable = (initial: Values.Values, to: Values.Values): Option.Option<string> =>
   Arr.findFirst(Rec.toEntries(to), ([key, target]) =>
@@ -197,7 +197,8 @@ export const unplayable = (initial: Values.Values, to: Values.Values): Option.Op
         Bool.match(Bool.or(readsElement(start), readsElement(target)), {
           onTrue: () => Option.some(`${key} is a value the DOM reads from the element`),
           onFalse: () =>
-            Bool.match(Option.isNone(OwnValues.valueLike(start, target)) || Bool.not(sameUnits(start, target)), {
+            // A start that can't take its target's shape, a length in another unit among them (ADR-0024).
+            Bool.match(Option.isNone(OwnValues.valueLike(start, target)), {
               onTrue: () => Option.some(`${key}'s start and target don't take one shape`),
               onFalse: () => Option.none(),
             }),
@@ -206,11 +207,6 @@ export const unplayable = (initial: Values.Values, to: Values.Values): Option.Op
 
 /** Whether a value is one the DOM reads from the element: `auto`, or a custom property. */
 const readsElement = (value: number | string): boolean => Predicate.isString(value) && /\bauto\b|var\(/.test(value)
-
-/** Whether two values' numbers are in the same units, place by place: a bare number takes any. */
-const sameUnits = (a: number | string, b: number | string): boolean => Predicate.isNumber(a) || Predicate.isNumber(b) || unitsOf(a) === unitsOf(b)
-
-const unitsOf = (value: number | string): string => Array.from(String(value).matchAll(/\d([a-z%]*)/gi), (m) => m[1]).join(",")
 
 // --- The server --------------------------------------------------------------------------------
 
