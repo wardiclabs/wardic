@@ -141,6 +141,7 @@ This amends ADR-0003 and ADR-0021.
 ## Implementation (PR 1)
 
 - **`Machine.startAt(at)`** reads `at` at a run's first tick. It catches up by stepping `0`, then `CATCH_UP_DT` at a time, then the remainder, stopping at a settled Frame. A negative `delay` is a single step, clamped at `MAX_DT`, so it can't stand in.
+- **A negative `at()` holds the start for that long.** PR 3's hydration test found the need. A child under `when: "beforeChildren"` can be let go by its client parent a frame before the server's computed wait ends, and clamped to 0 it ran a frame ahead of its CSS.
 - **A spec's machine is a thunk,** built only when its rule isn't cached: a server render builds a mount animation's legs once per spec per process, not once per element.
 - **The sampler copies each Frame before the next step.** `springValues` rewrites one Frame per run in place, and the first build's first stop read as the settled one.
 - **A rule ends where every later Frame is within tolerance of the settled one,** and draws that Frame as the settled one. A 0.5 s tween stepped in 1/60 s settles a frame after it arrives, when the steps' sum crosses its duration; its rule lasts 0.5 s.

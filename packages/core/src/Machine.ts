@@ -484,7 +484,11 @@ export const CATCH_UP_DT = 1 / 60
  *   over: what a 60 Hz driver would have stepped, so the Frame at `k / 60` is the one the Appear
  *   sampler drew there. It stops at a settled Frame, which the first tick returns.
  * - **`at` is read once a run, at its first tick:** a Handoff reads there how far the CSS has got in
- *   the frame that draws the run's first Frame. At 0 or less, the first tick is `self`'s step at 0.
+ *   the frame that draws the run's first Frame.
+ * - **A negative `at()`** is a start still to come: the first tick is `self`'s step at 0, held for
+ *   `-at()` seconds of the ticks after it (each counting at most `MAX_DT`, as a step does), and the
+ *   time left over goes to the first step. A Handoff's child that its parent let go a frame before
+ *   the server's timing said starts when the CSS would have started it.
  *
  * Keeps `self`'s span and whether it settles. The catch-up is one step per 1/60 s caught up, once
  * a run.
@@ -500,12 +504,30 @@ export const startAt: {
       span: self.span,
       start: () => {
         const step = self.start()
-        let caughtUp = false
-        // Per frame (ADR-0025): a statement `if`; the catch-up runs once, on the first tick.
+        // 0: the first tick to come; 1: holding a start still to come; 2: stepping.
+        let phase = 0
+        let hold = 0
+        let held: F | undefined
+        // Per frame (ADR-0025): statement `if`s; the catch-up runs once, on the first tick.
         return (dt) => {
-          if (caughtUp) return step(dt)
-          caughtUp = true
-          return catchUp(step, at())
+          if (phase === 2) return step(dt)
+          if (phase === 0) {
+            const seconds = at()
+            if (seconds >= 0) {
+              phase = 2
+              return catchUp(step, seconds)
+            }
+            phase = 1
+            hold = -seconds
+            const first = step(0)
+            held = first
+            if (first.done) held = unsettled(first)
+            return held
+          }
+          hold -= Math.min(dt, MAX_DT)
+          if (hold > 0) return UndefinedOr.getOrThrow(held)
+          phase = 2
+          return step(-hold)
         }
       },
     }),
