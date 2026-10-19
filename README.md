@@ -147,6 +147,12 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | solid-motionone's `createMotion(el, options)` | `createWard(options)`, spread onto the element: `<div {...ward()}>` |
 | solid-motionone's `use:motion` | `use:wardic` |
 | solid-motionone's `<Presence>` | `<AnimatePresence>` |
+| `useMotionValue(0)` | a signal (or an `effect/reactivity` Atom), given in `style` |
+| `useTransform(value, input, output)` | `createTransform(value, input, output)` |
+| `useSpring(value, options)` | `createSpring(value, options)` |
+| a motion value that `drag` or `animate` writes into | `ward.value("x")`, the element's output |
+
+One difference in how a value you move works: Wardic never writes into it. It's an input the element follows, and what Wardic shows comes out through the element's output, `ward.value(key)` (see *Live values* below).
 
 ### Variant orchestration
 
@@ -190,6 +196,31 @@ A draggable inside a draggable drags on its own, as in Motion. A drag claims its
 ```
 
 The card's `whileHover` and `whileTap` still show while a child is dragged. `dragPropagation` makes an element claim nothing, so its ancestors drag with it; `createDrag(el, { claim: false })` watches a pan over an area without blocking the draggables in it.
+
+### Live values
+
+A value you move yourself goes in `style`: a signal, a memo, or an `effect/reactivity` Atom. `style` also takes the transform keys (`x`, `y`, `scale`, `rotate`…), static or live. Wardic writes them through its own frame, not through Solid's `style`, so following a value that changes every frame never re-runs your JSX:
+
+```tsx
+import { createSpring, createTransform, createWard, wardic } from "@wardic/solid"
+
+function SwipeCard() {
+  const ward = createWard({ drag: "x", dragSnapToOrigin: true })
+  // Fades as it's dragged out either way, in the same frame as its x.
+  const opacity = createTransform(ward.value("x"), [-150, 0, 150], [0, 1, 0])
+  return <div {...ward({ style: { opacity } })}>Swipe me</div>
+}
+
+function ScrollFade(props: { progress: () => number }) {
+  const opacity = createTransform(props.progress, [0, 1], [0.2, 1])
+  const x = createSpring(() => props.progress() * 100, { stiffness: 300, damping: 30 })
+  return <wardic.div style={{ opacity, x }} whileHover={{ opacity: 1 }} />
+}
+```
+
+A value in `style` is where the key rests. While `animate`, a `while*` prop or a drag sets the key, that wins. When it lets go, the key returns to where the value is then: a spring chases it if it's still moving, and a tween lands on it at its end. After that, the element follows it again. So a scroll-linked opacity under a hover shows the hover while it's on, and the scroll after.
+
+`ward.value(key)` is what the element shows for a key, whoever moves it, as an accessor. `ward.atom(key)` is the same as an Atom, for Effect code. With a transform key set, a `transform` string in `style` gives way to the keys, as in Motion, and a warning is logged.
 
 ### Imperative primitives for fine-grained control
 
