@@ -272,8 +272,9 @@ export interface DragRunInput {
    * Effect's scheduler on the page (`currentLabScheduler()`): `default` is a browser's
    * own (`setTimeout(0)`, as no browser has `setImmediate`), `microtask` the browser
    * test harness's `queueMicrotask`-backed one (`?scheduler=microtask`). Since #32 pointer
-   * input reaches Wardic's drag inside its event with either (ADR-0032); before, one
-   * scheduler hop made it a frame later with `default`. Left out, `default`.
+   * input reaches Wardic's drag inside its event with either (ADR-0032), so every check
+   * judges a run the same way whichever it ran on (#128); it's recorded as information.
+   * Left out, `default`.
    */
   readonly scheduler?: "default" | "microtask"
   /** A `<Reorder>` scenario's press (scenario 14, `lab/reorder-run.ts`); left out otherwise. */
@@ -557,13 +558,11 @@ export interface DragRun extends DragRunInput {
   readonly heldFrameCount: number
   /**
    * The largest distance, in px (the larger of x and y), between a held frame's
-   * painted centre and the grab box's centre moved by the nearest of the moves it
-   * could show: from the latest handled before that frame's rAF callback (with the
-   * `default` scheduler, before the previous frame's: the input's hop, see
-   * {@link DragRunInput.scheduler}) to the newest (a move a Measure pass flushed at
-   * once, or a scroll's, shows with no hop: #44). Centres, so a slot resize mid-drag,
-   * which paints the new size about the same centre (ADR-0016 *Amendment (#26)*),
-   * reads 0. 0 with no held frame.
+   * painted centre and the grab box's centre moved by the latest move handled before
+   * that frame's rAF callback, under either scheduler (#128: before #32, the `default`
+   * scheduler's hop also let a frame show the move before it). Centres, so a slot resize
+   * mid-drag, which paints the new size about the same centre (ADR-0016 *Amendment
+   * (#26)*), reads 0. 0 with no held frame.
    */
   readonly underPointerMaxPx: number
   /**
@@ -635,20 +634,14 @@ export interface DragRun extends DragRunInput {
 
 /**
  * What a drag scenario expects of every drag run, which the card checks each run
- * against (see {@link dragChecksOf}). A bound left out is shown without a check.
+ * against (see {@link dragChecksOf}). A bound left out is shown without a check. The
+ * same under either scheduler (#128).
  */
-/** An expectation that depends on Effect's scheduler (see {@link DragRunInput.scheduler}). */
-export type PerScheduler = number | { readonly default: number; readonly microtask: number }
-
-/** `value` for the run's scheduler. */
-const forScheduler = (value: PerScheduler | undefined, run: DragRunInput): number | undefined =>
-  value === undefined || typeof value === "number" ? value : value[run.scheduler ?? "default"]
-
 export interface DragExpect {
   /** The most {@link DragRun.underPointerMaxPx} may read, in px. */
   readonly underPointerMaxPx?: number
-  /** The most {@link DragRun.framesBehindMax} may read (per scheduler, before #32: the input's hop added one with `default`). */
-  readonly framesBehindMax?: PerScheduler
+  /** The most {@link DragRun.framesBehindMax} may read. */
+  readonly framesBehindMax?: number
   /** The most any child's {@link DragRun.childGlueMaxPx} may read, in px. */
   readonly childGlueMaxPx?: number
   /**
@@ -657,8 +650,8 @@ export interface DragExpect {
    * dragged tree's slots without animating them (scenario 11: 1, the sibling only).
    */
   readonly maxSeededPerPass?: number
-  /** The most {@link DragRun.releaseHeld} may read (per scheduler, before #32: the release's hop could add one with `default`). */
-  readonly releaseHeldMax?: PerScheduler
+  /** The most {@link DragRun.releaseHeld} may read. */
+  readonly releaseHeldMax?: number
   /** The most {@link DragRun.endsOnSlotPx} may read, in px. */
   readonly endsOnSlotMaxPx?: number
   /**
@@ -827,15 +820,9 @@ const releaseHeldOf = (frames: ReadonlyArray<DragFrame>, end: EndPoint | null): 
 
 /**
  * {@link DragRun.gestureEnd} (see {@link GestureEnd} for each field). `previous` is the
- * scenario's run before this one, `hop` the input's scheduler hop in frames (see
- * `dragRunOf`).
+ * scenario's run before this one.
  */
-const gestureEndOf = (
-  input: DragRunInput,
-  end: EndPoint | null,
-  previous: DragRun | undefined,
-  hop: number,
-): GestureEnd => {
+const gestureEndOf = (input: DragRunInput, end: EndPoint | null, previous: DragRun | undefined): GestureEnd => {
   const { frames, grabBox, releaseAt } = input
   const grabCentre = centreOf(grabBox)
   const targetOf = followOf(input, grabCentre)
@@ -844,8 +831,7 @@ const gestureEndOf = (
   const pressedAt = lastMove === undefined ? grabCentre : targetOf(lastMove)
 
   // After the end point: whether any frame moved, and the frames that sat where the
-  // unpressed pointer put the item (the latest move each frame could show, or the one
-  // before it with the scheduler's hop).
+  // unpressed pointer put the item (the latest move each frame could show).
   let framesAfter = 0
   let followedPx = 0
   let moved = false
@@ -858,7 +844,6 @@ const gestureEndOf = (
     const sitsAt = (centre: Point, m: DragMove | undefined): boolean =>
       m !== undefined && pointDistance(targetOf(m), pressedAt) > NEAR_PX && pointDistance(centre, targetOf(m)) <= EXACT_PX
     let visible = 0
-    let reachable = 0
     let inARow = 0
     for (const f of frames) {
       if (!isAfter(f, end)) {
@@ -868,10 +853,8 @@ const gestureEndOf = (
       framesAfter++
       if (boxDistance(f.d, endBox) > MOVED_PX) moved = true
       while (visible < unpressed.length && unpressed[visible].frame < f.frame) visible++
-      while (reachable < unpressed.length && unpressed[reachable].frame < f.frame - hop) reachable++
       const centre = centreOf(f.d)
-      const sits =
-        boxDistance(f.d, f.slot) > NEAR_PX && (sitsAt(centre, unpressed[visible - 1]) || sitsAt(centre, unpressed[reachable - 1]))
+      const sits = boxDistance(f.d, f.slot) > NEAR_PX && sitsAt(centre, unpressed[visible - 1])
       inARow = sits ? inARow + 1 : 0
       // Three frames in a row: a gesture left on follows every move, while a release that
       // carries on the pointer's way and turns back can pass its place twice by chance.
@@ -986,46 +969,37 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
       ? []
       : frames.filter((f) => f.frame > firstMove.frame && (releaseAt === null || f.frameAt < releaseAt))
 
-  // One walk over the held frames: the distance from the latest move each could
-  // show, and the newest move each one's painted centre does show (-1 for none).
-  // Before #32, with Effect's default scheduler a move reached the drag one hop (a frame)
-  // late, so "could show" means handled before the frame before (see `scheduler`): the
-  // under-pointer check then catches a position error, and `framesBehindMax` the lag. It
-  // stays a tolerance of under pointer only: frames behind reads the lag itself, and the
-  // drag cards hold it at 0 with either scheduler (ADR-0032).
-  const hop = (input.scheduler ?? "default") === "default" ? 1 : 0
   // The distance the checks compare: the gesture's locked axis alone, when it has one.
   const lock = input.lock
   const distance = (a: Point, b: Point): number =>
     lock === "x" ? Math.abs(a.x - b.x) : lock === "y" ? Math.abs(a.y - b.y) : pointDistance(a, b)
-  // A frame in a scroll's wake (see `DragFrame.scrolled`): the scrolled frame, and with
-  // the default scheduler the next one too, which the compensation's hop reaches late.
-  const wake = held.map((f, k) => f.scrolled === true || (hop === 1 && k > 0 && held[k - 1]!.scrolled === true))
+  // A frame in a scroll's wake (see `DragFrame.scrolled`): the scrolled frame itself.
+  const wake = held.map((f) => f.scrolled === true)
+  // One walk over the held frames: the distance from the move each should show, the latest
+  // handled before its rAF callback, and the newest move each one's painted centre does
+  // show (-1 for none). The same under either scheduler since #32 (#128): before it, the
+  // default scheduler's hop let a frame show the move before that too.
   let underPointerMaxPx = 0
   const newestShown: Array<number> = []
   let visible = 0
-  let reachable = 0
   // A grab mid-flight is judged from the frame its flight lands under the pointer: under
   // pointer here, and frames behind for the moves from that frame on.
   let landed = input.grabFlight === undefined
   let landedFrame = Number.NEGATIVE_INFINITY
   for (const [k, f] of held.entries()) {
     while (visible < moves.length && moves[visible].frame < f.frame) visible++
-    while (reachable < moves.length && moves[reachable].frame < f.frame - hop) reachable++
     const centre = centreOf(f.d)
-    // Any move from the one the hop leaves it to the newest handled may be showing: a
-    // reorder's Measure pass flushes the item at once, and a scroll reaches the drag in
-    // the frame's own scroll steps (#44), so a frame can show the newest move.
-    if (reachable > 0 && !wake[k]!) {
-      let nearest = Number.POSITIVE_INFINITY
-      for (let j = reachable - 1; j < visible; j++) nearest = Math.min(nearest, distance(centre, targetOf(moves[j])))
-      // Landed: at the newest move's place, not just near an older one a slide in the
-      // pointer's direction passes on its way.
-      if (!landed && distance(centre, targetOf(moves[visible - 1])) <= LANDED_PX) {
+    // The newest move handled before the frame: a reorder's Measure pass flushes the item
+    // at once, and a scroll reaches the drag in the frame's own scroll steps (#44), and
+    // every other move reaches it inside its event (#32).
+    if (visible > 0 && !wake[k]!) {
+      const off = distance(centre, targetOf(moves[visible - 1]))
+      // Landed: at the newest move's place.
+      if (!landed && off <= LANDED_PX) {
         landed = true
         landedFrame = f.frame
       }
-      if (landed) underPointerMaxPx = Math.max(underPointerMaxPx, nearest)
+      if (landed) underPointerMaxPx = Math.max(underPointerMaxPx, off)
     }
     let shown = -1
     for (let j = visible - 1; j >= 0; j--) {
@@ -1088,7 +1062,7 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     passes: dragPassesOf(spans, input.grabAt, input.endedAt),
     releaseHeld: releaseHeldOf(frames, end),
     endsOnSlotPx,
-    gestureEnd: gestureEndOf(input, end, previous, hop),
+    gestureEnd: gestureEndOf(input, end, previous),
     fling: flingOf(input),
     inBounds: boundsOf(input),
     offGridPx: offGridPxOf(input),
@@ -1219,8 +1193,8 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
   const { underPointerMaxPx: underMax, childGlueMaxPx: glueMax, endsOnSlotMaxPx: slotMax } = expect
   // The bound is per displaced item: a reorder run's items may each carry a layout child.
   const seededMax = expect.maxSeededPerPass === undefined ? undefined : expect.maxSeededPerPass * (run.reorder?.nodesPerItem ?? 1)
-  const behindMax = forScheduler(expect.framesBehindMax, run)
-  const releaseHeldMax = forScheduler(expect.releaseHeldMax, run)
+  const behindMax = expect.framesBehindMax
+  const releaseHeldMax = expect.releaseHeldMax
   // A lost release no unpressed move followed: its gesture's end never came in the run.
   const lostOpen = run.releaseLost === true && run.gestureEnd.at === null
   const cut = cutShort(run.endedBy)
