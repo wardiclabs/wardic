@@ -94,9 +94,21 @@ const hash53 = (text: string): string => {
   return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36)
 }
 
-/** The rule's name for a spec: its key, tag and repeat, hashed. */
-export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite">): string =>
-  `${PREFIX}${hash53(`${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}`)}`
+/** Each spec's name by its text, so a page's elements sharing a spec hash it once; the oldest dropped past `NAMES_SIZE`. */
+const names = new Map<string, string>()
+
+const NAMES_SIZE = 4096
+
+/** The rule's name for a spec: its key, tag and repeat, hashed (once a text: a server names each element's spec). */
+export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite">): string => {
+  const text = `${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}`
+  return Option.getOrElse(Option.fromUndefinedOr(names.get(text)), () => {
+    const name = `${PREFIX}${hash53(text)}`
+    if (names.size >= NAMES_SIZE) names.clear()
+    names.set(text, name)
+    return name
+  })
+}
 
 // --- Sampling ----------------------------------------------------------------------------------
 
