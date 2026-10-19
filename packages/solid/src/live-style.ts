@@ -66,10 +66,14 @@ export interface Split {
 }
 
 const NOTHING_ROUTED: Readonly<Record<string, unknown>> = {}
+const NO_VALUES: Values.Values = {}
+/** No style: nothing routed. */
+const NO_STYLE: Split = { css: undefined, routed: NOTHING_ROUTED, droppedTransform: false }
 
 /** A user's style, split into Solid's part and the routed keys (CSS text parsed when it has one). */
 export const split = (user: StyleInput): Split => {
-  const record = UndefinedOr.match(user, { onUndefined: () => NOTHING_ROUTED, onDefined: (given) => Style.over(given, undefined) })
+  if (Predicate.isUndefined(user)) return NO_STYLE
+  const record = Style.over(user, undefined)
   const routed = Rec.filter(record, isRouted)
   if (Rec.isEmptyRecord(routed)) return { css: user, routed: NOTHING_ROUTED, droppedTransform: false }
   const droppedTransform = Bool.and(Arr.some(Rec.keys(routed), isTransformKey), Predicate.isNotNullish(record["transform"]))
@@ -81,7 +85,10 @@ export const split = (user: StyleInput): Split => {
 
 /** The routed keys' values, read now: the numbers and strings among them, as a values map. */
 export const valuesOf = (routed: Readonly<Record<string, unknown>>, registry: () => AtomRegistry.AtomRegistry): Values.Values =>
-  Style.toValues(Rec.map(routed, (value) => readLive(value, registry)))
+  Bool.match(routed === NOTHING_ROUTED, {
+    onTrue: () => NO_VALUES,
+    onFalse: () => Style.toValues(Rec.map(routed, (value) => readLive(value, registry))),
+  })
 
 /** What the spine hears while it follows. */
 export interface Follower {
@@ -125,12 +132,15 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   let css: StyleInput
   let warned = false
   let follower: Follower | undefined
-  // While following: each routed key's stop (an Atom's unsubscribe, an accessor's root disposal).
-  const watching = new Map<string, () => void>()
+  // While following: each routed key's stop (an Atom's unsubscribe, an accessor's root disposal),
+  // made at the first watch: most elements watch none.
+  let watching: Map<string, () => void> | undefined
 
   const read = (value: unknown): unknown => readLive(value, registry)
 
   const watch = (key: string, source: unknown, to: Follower): void => {
+    if (Bool.not(isLive(source))) return
+    if (Predicate.isUndefined(watching)) watching = new Map()
     if (Atom.isAtom(source)) {
       watching.set(key, registry().subscribe(source, (value) => to.change(key, value)))
       return
@@ -148,6 +158,7 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   }
 
   const unwatch = (key: string): void => {
+    if (Predicate.isUndefined(watching)) return
     const stop = watching.get(key)
     if (Predicate.isUndefined(stop)) return
     watching.delete(key)
@@ -157,6 +168,8 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   /** The routed keys now `next`: what left is removed, what's new or changed is watched and told. */
   const reconcile = (next: Readonly<Record<string, unknown>>): void => {
     const prev = routed
+    // Nothing routed, as before: the usual style.
+    if (next === prev) return
     routed = next
     if (Predicate.isUndefined(follower)) return
     const to = follower
@@ -198,6 +211,7 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
       Arr.forEach(Rec.keys(routed), (key) => watch(key, routed[key], to))
       return () => {
         follower = undefined
+        if (Predicate.isUndefined(watching)) return
         Arr.forEach(Arr.fromIterable(watching.keys()), unwatch)
       }
     },

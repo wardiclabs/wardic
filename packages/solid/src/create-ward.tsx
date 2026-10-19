@@ -42,6 +42,7 @@ import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -709,7 +710,10 @@ export interface RunSpineOptions {
 export function runSpine(opts: RunSpineOptions): void {
   const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf } = opts
   // A `style` value read now: a Live value's current value (#130), anything else as it is.
-  const readStyle = UndefinedOr.match(live, { onUndefined: () => identity<unknown>, onDefined: (routes) => routes.read })
+  const readStyle = (raw: unknown): unknown => {
+    if (Predicate.isUndefined(live)) return raw
+    return live.read(raw)
+  }
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -1241,43 +1245,28 @@ export function runSpine(opts: RunSpineOptions): void {
             })
             const snapping = hasKeys(positional)
             // The returns to a moving Live value (#130, ADR-0043 decision 6): a number's follows it,
-            // in a leg of its own, and lands on it; the rest return to where it is now.
-            const followingKeys = UndefinedOr.match(live, {
-              onUndefined: (): ReadonlyArray<string> => [],
-              onDefined: (routes) =>
-                Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key])))),
-            })
-            const following = Arr.isReadonlyArrayNonEmpty(followingKeys)
-            const fixed: Values.Values = Bool.match(following, {
-              onTrue: () => Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key))),
-              onFalse: () => rest,
-            })
-            // A following return's leg: its machine, given where its Live value is now, written as any
-            // leg's frames are, from one object per leg.
-            const runFollowing = (key: string, machine: (target: () => number) => Machine.Machine<Frame.Frame<number> & { readonly velocity?: number }>): void => {
-              const routes = UndefinedOr.getOrThrow(live)
-              // Where its Live value is now, a number; where it last was when it's none.
-              let last = rest[key] as number
-              const target = (): number => {
-                const now = Option.flatMap(routes.valueOf(key), (raw) => OwnValues.valueLike(raw, last))
-                if (Option.isSome(now)) last = now.value as number
-                return last
+            // in a leg of its own, and lands on it; the rest return to where it is now. Looked for
+            // only when this Retarget returns a key, and built only for one that follows.
+            let followingKeys: ReadonlyArray<string> = NO_KEYS
+            if (returning.size > 0 && Predicate.isNotUndefined(live)) followingKeys = followingOf(live, rest, returning)
+            const following = followingKeys.length > 0
+            let fixed: Values.Values = rest
+            // A following return's frames, written as any leg's are, from one object per leg.
+            let followSink: ((key: string) => FrameLoop.Sink<Frame.Frame<number> & { readonly velocity?: number }>) | undefined
+            if (following) {
+              fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
+              followSink = (key) => {
+                const out: Record<string, number> = { [key]: 0 }
+                return (frame) => {
+                  out[key] = frame.value
+                  snapshot.values[key] = frame.value
+                  snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
+                  gate.write(id, out)
+                  recordFrame(out)
+                  report(frame.done)
+                  return undefined
+                }
               }
-              const out: Record<string, number> = { [key]: 0 }
-              runLeg(
-                Effect.suspend(() =>
-                  machine(target).pipe(
-                    Machine.run((frame) => {
-                      out[key] = frame.value
-                      snapshot.values[key] = frame.value
-                      snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
-                      gate.write(id, out)
-                      recordFrame(out)
-                      report(frame.done)
-                      return undefined
-                    }, runOptions),
-                  )),
-              )
             }
             // Every leg is built inside its own fiber: a transition core rejects (#66, ADR-0025
             // *Amendment (#66)*) throws as it's built, a defect that fails that leg alone, reported
@@ -1317,13 +1306,19 @@ export function runSpine(opts: RunSpineOptions): void {
                 )
               }
               // A following return eases toward where its Live value is each frame, so it lands on it.
-              Arr.forEach(followingKeys, (key) => {
-                const start = from[key] as number
-                runFollowing(key, (target) =>
-                  Machine.animate(0, 1, options).pipe(
-                    Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
-                  ))
-              })
+              if (following) {
+                Arr.forEach(followingKeys, (key) => {
+                  const start = from[key] as number
+                  const target = liveTargetOf(UndefinedOr.getOrThrow(live), key, start)
+                  runLeg(
+                    Effect.suspend(() =>
+                      Machine.animate(0, 1, options).pipe(
+                        Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
+                        Machine.run(UndefinedOr.getOrThrow(followSink)(key), runOptions),
+                      )),
+                  )
+                })
+              }
               if (tweening) {
                 runLeg(
                   Effect.suspend(() => Machine.animateValues(Values.pick(from, fixed), fixed, options)).pipe(
@@ -1360,10 +1355,14 @@ export function runSpine(opts: RunSpineOptions): void {
               // A spring settles at its target: the snap lands there.
               if (snapping) runSnap(positional, () => Spring.resolve(springOpts).delay)
               // A following return chases its Live value, read each step, and settles at rest on it.
-              Arr.forEach(followingKeys, (key) => {
-                const options = { ...springOpts, from: from[key] as number, velocity: UndefinedOr.match(snapshot.velocities[key], { onUndefined: () => 0, onDefined: identity }) }
-                runFollowing(key, (target) => settling(Machine.chase(target, options)))
-              })
+              if (following) {
+                Arr.forEach(followingKeys, (key) => {
+                  const start = from[key] as number
+                  const velocity = UndefinedOr.match(snapshot.velocities[key], { onUndefined: () => 0, onDefined: identity })
+                  const chase = Machine.chase(liveTargetOf(UndefinedOr.getOrThrow(live), key, start), { ...springOpts, from: start, velocity })
+                  runLeg(Effect.suspend(() => settling(chase).pipe(Machine.run(UndefinedOr.getOrThrow(followSink)(key), runOptions))))
+                })
+              }
               if (hasNumeric) {
                 const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
                 const velocities = snapshot.velocities
@@ -1442,8 +1441,11 @@ export function runSpine(opts: RunSpineOptions): void {
         }
         // At mount: every routed key nothing owns, with, before anything's committed, the values
         // the Override stack's keys start from, so a held start (a `when` gate) keeps showing them.
-        const first = Rec.filter(routes.values(), (_, key) => Bool.not(owned(key)))
-        if (hasKeys(first)) put({ ...Values.pick(snapshot.values, untrack(target).resolved), ...first })
+        const routed = routes.values()
+        if (hasKeys(routed)) {
+          const first = Rec.filter(routed, (_, key) => Bool.not(owned(key)))
+          if (hasKeys(first)) put({ ...Values.pick(snapshot.values, untrack(target).resolved), ...first })
+        }
         onCleanup(
           routes.follow({
             change: (key, value) => {
@@ -1467,6 +1469,23 @@ export function runSpine(opts: RunSpineOptions): void {
       }
     }),
   )
+}
+
+/** No keys: a Retarget with no following return. */
+const NO_KEYS: ReadonlyArray<string> = []
+
+/** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
+const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
+  Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
+
+/** Where `key`'s Live value is now, a number; where it last was when it's none (#130). */
+const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => number) => {
+  let last = start
+  return () => {
+    const now = Option.flatMap(routes.valueOf(key), (raw) => OwnValues.valueLike(raw, last))
+    if (Option.isSome(now)) last = now.value as number
+    return last
+  }
 }
 
 /** `chase`, ending at its first Frame at rest on its target: a return to a moving Live value (#130). */
@@ -1603,8 +1622,10 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // key, else where the key rests, read when the accessor is (the user's style as last given, a
   // reactive `style` prop tracked).
   const restingValueOf = (key: string): unknown => restingOf(key, initialValues, lastUserProps.style, live.read)
-  const values = new Map<string, Accessor<unknown>>()
+  // One accessor a key, made on first ask: most elements ask none.
+  let values: Map<string, Accessor<unknown>> | undefined
   const value = (key: string): Accessor<unknown> => {
+    if (Predicate.isUndefined(values)) values = new Map()
     const known = values.get(key)
     if (Predicate.isNotUndefined(known)) return known
     const shown = fromAtom(gate.valueOf(id, key))
