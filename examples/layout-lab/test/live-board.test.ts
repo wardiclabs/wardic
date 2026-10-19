@@ -147,6 +147,20 @@ describe("liveChecksOf: resizes (#239)", () => {
     expect(failed(run(series(grown(10))))).toEqual(["resizes"])
   })
 
+  it("judges each change in a run: two taps and a scroll between them pass, a slow second change fails", () => {
+    // A change at frame 0, the box scrolled down frames 2-4 (the bar on it each frame), and another
+    // change at frame 8 that the bar reaches `lag` frames later.
+    const live = [0.6, 0.6, 0.55, 0.5, 0.45, 0.45, 0.45, 0.45, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]
+    const twice = (lag: number): Array<LiveFrame> =>
+      live.map((value, i) => {
+        if (i === 0) return { shown: 0.8, live: value, phase: "after" }
+        if (i >= 8 && i < 8 + lag) return { shown: 0.45, live: value, phase: "after" }
+        return { shown: value, live: value, phase: "after" }
+      })
+    expect(failed(run(series(twice(1))))).toEqual([])
+    expect(failed(run(series(twice(3))))).toEqual(["resizes"])
+  })
+
   it("passes a box at its top, whose progress stays 0", () => {
     expect(failed(run(series(Array.from({ length: 5 }, () => ({ shown: 0, live: 0, phase: "after" })))))).toEqual([])
   })
