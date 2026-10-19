@@ -95,3 +95,59 @@ describe("liveChecksOf", () => {
     expect(landingOf([f(0.5)], 0.002)).toBeUndefined()
   })
 })
+
+describe("liveChecksOf: scenario 19's lines (#234, #233)", () => {
+  const series = (frames: ReadonlyArray<LiveFrame>, lines: LiveSeries["lines"], extra: Partial<LiveSeries> = {}): LiveSeries => ({
+    frames,
+    lines,
+    maxStep: Number.POSITIVE_INFINITY,
+    tolerance: 0.05,
+    ...extra,
+  })
+  // A scroll moving 20 a frame for 10 frames, then still; the skew leans while it moves.
+  const scrolled = (skew: (i: number) => number): Array<LiveFrame> =>
+    Array.from({ length: 40 }, (_, i) => ({ shown: skew(i), live: Math.min(i, 10) * 20, phase: "after" }))
+
+  it("moves and settles pass a skew that leans while the scroll moves and stands up after", () => {
+    const frames = scrolled((i) => (i <= 10 ? 8 : Math.max(0, 8 - (i - 10) * 2)))
+    expect(failed(run(series(frames, ["moves", "settles"])))).toEqual([])
+  })
+
+  it("moves fails a skew that never leans; settles fails one that never stands back up", () => {
+    expect(failed(run(series(scrolled(() => 0), ["moves"])))).toEqual(["moves"])
+    expect(failed(run(series(scrolled(() => 8), ["settles"])))).toEqual(["settles"])
+  })
+
+  it("ticks passes a turn at its rate every frame, and fails a stall or a wrong rate", () => {
+    const at = (rate: number, stallAt = -1): Array<LiveFrame> =>
+      Array.from({ length: 60 }, (_, i) => ({ shown: (i === stallAt ? i - 1 : i) * 16.7 * rate, live: i * 16.7, phase: "after" }))
+    expect(failed(run(series(at(0.09), ["ticks"], { rate: 0.09 })))).toEqual([])
+    expect(failed(run(series(at(0.09, 30), ["ticks"], { rate: 0.09 })))).toEqual(["ticks"])
+    expect(failed(run(series(at(0.06), ["ticks"], { rate: 0.09 })))).toEqual(["ticks"])
+  })
+
+  it("updates passes a tell once a frame with what painted, and fails two in a frame or a stale value", () => {
+    const frames = (calls: number, off: number): Array<LiveFrame> =>
+      Array.from({ length: 5 }, (_, i) => ({ shown: i / 10, live: i / 10, phase: "after", calls, updated: i / 10 + off }))
+    expect(failed(run(series(frames(1, 0), ["updates"], { tolerance: 0.002 })))).toEqual([])
+    expect(failed(run(series(frames(2, 0), ["updates"], { tolerance: 0.002 })))).toEqual(["updates"])
+    expect(failed(run(series(frames(1, 0.1), ["updates"], { tolerance: 0.002 })))).toEqual(["updates"])
+  })
+})
+
+describe("liveChecksOf: a frame read late (lab/frame-counter.ts)", () => {
+  it("follows, same frame and updates skip it: it holds the next frame's reads, and two frames' tells", () => {
+    const frames: Array<LiveFrame> = [
+      { shown: 0.1, live: 0.1, phase: "after", calls: 1, updated: 0.1 },
+      // Read after the next frame started: its paint and both frames' tells, against the first frame's value.
+      { shown: 0.3, live: 0.2, phase: "after", calls: 2, updated: 0.3, late: true },
+      { shown: 0.4, live: 0.4, phase: "after", calls: 1, updated: 0.4 },
+      ...Array.from({ length: 5 }, (): LiveFrame => ({ shown: 0.4, live: 0.4, phase: "after", calls: 0 })),
+    ]
+    const s: LiveSeries = { frames, lines: ["follows", "updates"], maxStep: 1, tolerance: 0.002 }
+    expect(failed(run(s))).toEqual([])
+    // Read on time, the same frame fails both.
+    const onTime = frames.map((f) => ({ ...f, late: false }))
+    expect(failed(run({ ...s, frames: onTime }))).toEqual(["updates"])
+  })
+})

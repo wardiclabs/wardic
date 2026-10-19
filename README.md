@@ -150,6 +150,10 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | `useMotionValue(0)` | a signal (or an `effect/reactivity` Atom), given in `style` |
 | `useTransform(value, input, output)` | `createTransform(value, input, output)` |
 | `useSpring(value, options)` | `createSpring(value, options)` |
+| `useScroll({ container, target, offset })` | `createScroll({ container, target, offset })` |
+| `useVelocity(value)` | `createVelocity(value)` |
+| `useTime()` | `createTime()` |
+| `onUpdate={(latest) => …}` | `onUpdate={(latest) => …}` |
 | a motion value that `drag` or `animate` writes into | `ward.value("x")`, the element's output |
 
 One difference in how a value you move works: Wardic never writes into it. It's an input the element follows, and what Wardic shows comes out through the element's output, `ward.value(key)` (see *Live values* below).
@@ -221,6 +225,29 @@ function ScrollFade(props: { progress: () => number }) {
 A value in `style` is where the key rests. While `animate`, a `while*` prop or a drag sets the key, that wins. When it lets go, the key returns to where the value is then: a spring chases it if it's still moving, and a tween lands on it at its end. After that, the element follows it again. So a scroll-linked opacity under a hover shows the hover while it's on, and the scroll after.
 
 `ward.value(key)` is what the element shows for a key, whoever moves it, as an accessor. `ward.atom(key)` is the same as an Atom, for Effect code. With a transform key set, a `transform` string in `style` gives way to the keys, as in Motion, and a warning is logged.
+
+Scroll, velocity and time are Live values too, and `onUpdate` reports every value Wardic draws for an element once a frame:
+
+```tsx
+import { createScroll, createTime, createTransform, createVelocity, wardic } from "@wardic/solid"
+
+function ScrollLinked() {
+  let card!: HTMLDivElement
+  // The page's scroll, and the card's way through the viewport, in Motion's offset syntax.
+  const { scrollY, scrollYProgress } = createScroll()
+  const passing = createScroll({ target: () => card, offset: ["start end", "end start"] }).scrollYProgress
+  const skewY = createTransform(createVelocity(scrollY), [-1000, 1000], [-10, 10])
+  const rotate = createTransform(createTime(), (ms) => (ms / 1000) * 90)
+  return (
+    <>
+      <wardic.div style={{ scaleX: scrollYProgress, skewY }} onUpdate={(latest) => console.log(latest.scaleX)} />
+      <wardic.div ref={card} style={{ opacity: createTransform(passing, [0, 0.5, 1], [0, 1, 0]), rotate }} />
+    </>
+  )
+}
+```
+
+A scroll's values are set within its own event, so what you derive from them paints in the frame of the scroll. Velocity reads 0 once its value stops, and time keeps the frame loop running while it exists.
 
 ### Imperative primitives for fine-grained control
 

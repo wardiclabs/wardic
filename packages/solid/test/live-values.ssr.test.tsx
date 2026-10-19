@@ -5,7 +5,8 @@
 // - LF12: a wardic.div renders a transform key and a Live value, `initial` over them, and drops a
 //   `transform` string for the keys.
 // - LF13: a createWard spread renders an Atom's value, and `ward.value` reads where a key rests.
-import { createWard, wardic } from "@wardic/solid"
+// - SL6: createScroll, createVelocity and createTime read 0 on a server, and run nothing (#234).
+import { createScroll, createTime, createVelocity, createWard, wardic } from "@wardic/solid"
 import { Atom } from "effect/reactivity"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -38,5 +39,19 @@ describe("Live values in a server render (#130)", () => {
     const section = first(serve(() => <Spread />), "section")
     expect(section?.style["transform"]).toBe("translateY(12px) rotate(10deg)")
     expect(read).toEqual([12, 0.5, 1])
+  })
+
+  it("SL6: createScroll, createVelocity and createTime read 0 on a server, and run nothing (#234)", () => {
+    let read: Array<number> = []
+    function Scroller(): JSX.Element {
+      const scroll = createScroll({ container: () => undefined })
+      const velocity = createVelocity(() => 40)
+      const time = createTime()
+      read = [scroll.scrollX(), scroll.scrollY(), scroll.scrollXProgress(), scroll.scrollYProgress(), velocity(), time()]
+      return <wardic.div style={{ opacity: scroll.scrollYProgress }} />
+    }
+    const div = first(serve(() => <Scroller />), "div")
+    expect(read).toEqual([0, 0, 0, 0, 0, 0])
+    expect(div?.style["opacity"]).toBe("0")
   })
 })

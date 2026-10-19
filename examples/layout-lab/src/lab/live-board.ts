@@ -22,6 +22,20 @@
  * - **same frame** (the swipe card): a key derived from another's output paints with it: each
  *   frame, the derived key's painted value is what the mapping gives for the other's painted value.
  *
+ * Scenario 19's lines (#234, #233):
+ *
+ * - **moves** (the velocity skew): while the Live value moves, the key moves off its rest: on at
+ *   least half the frames whose Live value changed since the frame before.
+ * - **settles**: once the Live value stops, the key is back at its rest within {@link SETTLE_FRAMES}
+ *   frames, and stays there.
+ * - **ticks** (the spinner): the key advances every frame, at the cell's rate within 5%: `live` is the
+ *   frame's time in ms, `shown` the key's value unwrapped.
+ * - **updates** (`onUpdate`): told at most once a frame, at least once in the run, and each time with
+ *   the value the frame painted.
+ *
+ * A frame read late (`late`, `lab/frame-counter.ts`: a phone's read after the paint that ran after
+ * the next frame started) holds two frames' reads, so follows, same frame and updates skip it.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/live-board.test.ts`).
  *
  * @module
@@ -38,11 +52,26 @@ export interface LiveFrame {
   /** The swipe card's derived key: its painted value, and what the mapping gives for `shown`. */
   readonly derived?: number
   readonly expected?: number
+  /** `onUpdate`'s calls since the frame before (#233), and the value its last one held. */
+  readonly calls?: number
+  readonly updated?: number
+  /**
+   * Read late (`lab/frame-counter.ts`): the read after the paint ran after another frame started,
+   * so it holds that frame's. Skipped by the lines that compare one frame's reads: follows, same
+   * frame and updates.
+   */
+  readonly late?: boolean
 }
 
 /** The lines a live run can be judged on, in display order. */
-export const LIVE_CHECK_NAMES = ["follows", "wins", "returns", "same frame"] as const
+export const LIVE_CHECK_NAMES = ["follows", "wins", "returns", "same frame", "moves", "settles", "ticks", "updates"] as const
 export type LiveCheckName = (typeof LIVE_CHECK_NAMES)[number]
+
+/** Scenario 18's card lines (#130). */
+export const LIVE_VALUE_LINES: ReadonlyArray<LiveCheckName> = ["follows", "wins", "returns", "same frame"]
+
+/** Scenario 19's card lines (#234, #233). */
+export const SCROLL_LINKED_LINES: ReadonlyArray<LiveCheckName> = ["follows", "moves", "settles", "ticks", "updates"]
 
 /** A live run's frames and how its cell judges them. */
 export interface LiveSeries {
@@ -57,7 +86,14 @@ export interface LiveSeries {
   readonly tolerance: number
   /** The recorder cut the run off while its Live value still moved: it never stood still. */
   readonly cut?: boolean
+  /** Where the key rests while its Live value stands still, for `moves` and `settles`. Default 0. */
+  readonly rest?: number
+  /** The key's rate a ms, for `ticks`. */
+  readonly rate?: number
 }
+
+/** The frames `settles` gives the key to be back at its rest once its Live value stops. */
+export const SETTLE_FRAMES = 30
 
 /** One card line of a live run. */
 export interface LiveCheck {
@@ -85,10 +121,13 @@ export const landingOf = (after: ReadonlyArray<LiveFrame>, tolerance: number): n
   return landing
 }
 
+/** The frames read on time: a late one holds two frames' reads. */
+const onTime = (frames: ReadonlyArray<LiveFrame>): ReadonlyArray<LiveFrame> => frames.filter((f) => f.late !== true)
+
 const followsOf = (s: LiveSeries): LiveCheck => {
   if (s.cut === true) return { name: "follows", ok: true, text: "cut off while its value still moved, not judged" }
-  const rest = s.frames.filter((f) => f.phase === "rest")
-  const after = s.frames.filter((f) => f.phase === "after")
+  const rest = onTime(s.frames).filter((f) => f.phase === "rest")
+  const after = onTime(s.frames).filter((f) => f.phase === "after")
   const landing = landingOf(after, s.tolerance)
   const judged = [...rest, ...(landing === undefined ? [] : after.slice(landing))]
   const off = judged.find((f) => !isOn(f, s.tolerance))
@@ -138,11 +177,54 @@ const returnsOf = (s: LiveSeries): LiveCheck => {
 }
 
 const sameFrameOf = (s: LiveSeries): LiveCheck => {
-  const pairs = s.frames.filter((f) => f.derived !== undefined && f.expected !== undefined)
+  const pairs = onTime(s.frames).filter((f) => f.derived !== undefined && f.expected !== undefined)
   if (pairs.length === 0) return line("same frame", false, "no frame read", "the derived key each frame")
   const off = pairs.find((f) => Math.abs(f.derived! - f.expected!) > s.tolerance)
   if (off !== undefined) return line("same frame", false, `${fmt(off.derived!)} at ${fmt(off.expected!)}`, `within ${s.tolerance}`)
   return line("same frame", true, `with it, ${pairs.length} frames`, "")
+}
+
+/** The index of each frame whose Live value changed since the frame before. */
+const changedAt = (frames: ReadonlyArray<LiveFrame>, tolerance: number): Array<number> =>
+  frames.flatMap((f, i) => (i > 0 && Math.abs(f.live - frames[i - 1]!.live) > tolerance / 2 ? [i] : []))
+
+const movesOf = (s: LiveSeries): LiveCheck => {
+  const rest = s.rest ?? 0
+  const changed = changedAt(s.frames, s.tolerance)
+  if (changed.length === 0) return line("moves", false, "its value never moved", "a run that moves it")
+  const off = changed.filter((i) => Math.abs(s.frames[i]!.shown - rest) > s.tolerance).length
+  return line("moves", off * 2 >= changed.length, `off its rest on ${off} of ${changed.length} moving frames`, "half or more")
+}
+
+const settlesOf = (s: LiveSeries): LiveCheck => {
+  const rest = s.rest ?? 0
+  const changed = changedAt(s.frames, s.tolerance)
+  const last = changed[changed.length - 1] ?? 0
+  const after = s.frames.slice(last + 1)
+  const back = after.findIndex((f) => Math.abs(f.shown - rest) <= s.tolerance)
+  if (back === -1) return line("settles", false, `never back at ${fmt(rest)}`, `${rest} within ${SETTLE_FRAMES} frames`)
+  const stays = after.slice(back).every((f) => Math.abs(f.shown - rest) <= s.tolerance)
+  const ok = back <= SETTLE_FRAMES && stays
+  return line("settles", ok, `back at ${fmt(rest)} ${back} frames after it stopped${stays ? "" : ", then off it"}`, `within ${SETTLE_FRAMES} frames, staying`)
+}
+
+const ticksOf = (s: LiveSeries): LiveCheck => {
+  const f = s.frames
+  if (f.length < 2 || s.rate === undefined) return line("ticks", false, "no frames", "a sampled run")
+  const stalled = f.slice(1).filter((x, i) => x.shown <= f[i]!.shown).length
+  const rate = (f[f.length - 1]!.shown - f[0]!.shown) / (f[f.length - 1]!.live - f[0]!.live)
+  const ok = stalled === 0 && Math.abs(rate - s.rate) <= 0.05 * s.rate
+  return line("ticks", ok, `${fmt(rate * 1000)} a second, ${stalled} frames still`, `${fmt(s.rate * 1000)} a second, every frame`)
+}
+
+const updatesOf = (s: LiveSeries): LiveCheck => {
+  const told = onTime(s.frames).filter((f) => (f.calls ?? 0) > 0)
+  if (told.length === 0) return line("updates", false, "never told", "told each changed frame")
+  const twice = told.filter((f) => (f.calls ?? 0) > 1).length
+  const off = told.find((f) => f.updated === undefined || Math.abs(f.updated - f.shown) > s.tolerance)
+  if (twice > 0) return line("updates", false, `told twice in ${twice} frames`, "once a frame")
+  if (off !== undefined) return line("updates", false, `told ${off.updated === undefined ? "?" : fmt(off.updated)} for ${fmt(off.shown)} painted`, "the painted value")
+  return line("updates", true, `told on ${told.length} frames, each with what painted`, "")
 }
 
 const checkOf: Readonly<Record<LiveCheckName, (s: LiveSeries) => LiveCheck>> = {
@@ -150,6 +232,10 @@ const checkOf: Readonly<Record<LiveCheckName, (s: LiveSeries) => LiveCheck>> = {
   wins: winsOf,
   returns: returnsOf,
   "same frame": sameFrameOf,
+  moves: movesOf,
+  settles: settlesOf,
+  ticks: ticksOf,
+  updates: updatesOf,
 }
 
 /** A live run's lines (see the module doc): the ones its cell names, in display order. */

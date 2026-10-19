@@ -9,7 +9,7 @@
  *   comes out through the element's output, and the opacity derived from it paints in the same frame
  *   as the `x` it's from. Each press is a run, judged on **same frame**.
  * - **scroll opacity**: a box whose opacity follows the scroll box beside it (0.15 at the top, 0.6 at
- *   the bottom), with `whileHover` and `whileTap` both `{ opacity: 1 }`, so a phone, where touch never
+ *   the bottom: `createScroll`'s `scrollYProgress` through `createTransform`, #234), with `whileHover` and `whileTap` both `{ opacity: 1 }`, so a phone, where touch never
  *   hovers, presses it instead. Each hover or press is a run: it **follows** the scroll at rest, the
  *   gesture **wins** while on, however the scroll moves, and once it ends it **returns** to where the
  *   scroll is then, a spring chasing it while it still moves, and follows it again once it rests
@@ -32,9 +32,10 @@
  *
  * @module
  */
-import { createSpring, createTransform, createWard, wardic } from "@wardic/solid"
+import { createScroll, createSpring, createTransform, createWard, wardic } from "@wardic/solid"
 import { createSignal, type JSX, onCleanup } from "solid-js"
-import { LIVE_CHECK_NAMES, type LiveCheckName, type LiveFrame } from "../lab/live-board.ts"
+import { frameNumber } from "../lab/frame-counter.ts"
+import { LIVE_VALUE_LINES, type LiveCheckName, type LiveFrame } from "../lab/live-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
@@ -156,8 +157,12 @@ const makeRecorder = (ctx: ScenarioContext) => {
     // deliver an input after the paint and before the read just after it (#184's late reads), which
     // only the next frame can show.
     let liveAtFrame = Number.NaN
+    // The frame the read was queued in: a later one at the read means it ran late (`lab/frame-counter.ts`).
+    let rafFrame = 0
+    frameNumber()
     const nextFrame = (): void => {
       requestAnimationFrame(() => {
+        rafFrame = frameNumber()
         liveAtFrame = spec.live()
         channel.port2.postMessage(undefined)
       })
@@ -166,7 +171,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
       const live = liveAtFrame
       const now = performance.now()
       const derived = spec.derived?.()
-      const frame: LiveFrame = { shown: spec.read(), live, phase: rec.phase, ...(derived === undefined ? {} : derived) }
+      const late = frameNumber() !== rafFrame
+      const frame: LiveFrame = { shown: spec.read(), live, phase: rec.phase, ...(derived === undefined ? {} : derived), ...(late ? { late: true } : {}) }
       rec.frames.push(frame)
       const moved = Math.abs(live - lastLive) > spec.tolerance / 2
       if (moved) rec.movedAt = now
@@ -226,10 +232,11 @@ const View: ScenarioDef["View"] = (props) => {
   window.addEventListener("pointerup", release)
   onCleanup(() => window.removeEventListener("pointerup", release))
 
-  // --- scroll opacity ---
+  // --- scroll opacity: the scroll box's progress, from createScroll (#234) ---
   let target!: HTMLElement
-  const [progress, setProgress] = createSignal(0)
-  const scrollOpacity = (): number => 0.15 + 0.45 * progress()
+  let scroller!: HTMLDivElement
+  const { scrollYProgress } = createScroll({ container: () => scroller })
+  const scrollOpacity = createTransform(scrollYProgress, [0, 1], [0.15, 0.6])
   const scrollSpec: CellSpec = {
     cell: "scroll opacity",
     lines: ["follows", "wins", "returns"],
@@ -240,11 +247,8 @@ const View: ScenarioDef["View"] = (props) => {
     tolerance: 0.002,
   }
   const scrollRestSpec: CellSpec = { ...scrollSpec, cell: "scroll opacity", lines: ["follows"] }
-  const scrolled = (e: Event): void => {
-    const box = e.currentTarget as HTMLElement
-    setProgress(box.scrollTop / Math.max(1, box.scrollHeight - box.clientHeight))
-    recorder.touch(scrollRestSpec, "rest")
-  }
+  // A scroll at rest starts a run (the value itself is createScroll's, set within the same event).
+  const scrolled = (): void => recorder.touch(scrollRestSpec, "rest")
 
   // --- the slider, and the spring following it ---
   let knob!: HTMLElement
@@ -293,7 +297,7 @@ const View: ScenarioDef["View"] = (props) => {
           <div style={CELL}>
             <span style={LABEL}>scroll opacity: scroll the box, hover or press the square</span>
             <div style={ROW}>
-              <div style={SCROLLER} data-cell="scroller" onScroll={scrolled}>
+              <div ref={scroller} style={SCROLLER} data-cell="scroller" onScroll={scrolled}>
                 <div style={SCROLL_CONTENT} />
               </div>
               <wardic.div
@@ -341,7 +345,7 @@ export const s18: ScenarioDef = {
   id: ID,
   index: 18,
   kind: "board",
-  boardLines: LIVE_CHECK_NAMES,
+  boardLines: LIVE_VALUE_LINES,
   title: "live values (style follows a value you move)",
   mechanism:
     "Drag the swipe card: its opacity, derived from its own x, fades with it in the same frame. Hover or press the scroll opacity square and " +
