@@ -274,10 +274,27 @@ describe("startAt: a run started partway through (#48, ADR-0044's Handoff)", () 
   it.effect("settling in the catch-up ends the run on its first tick", () =>
     bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => 1)), framesOf([16], true)))
 
-  it.effect("at 0 or less, the first tick is the step at 0", () =>
+  it.effect("at 0, the first tick is the step at 0", () =>
+    bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => 0)), framesOf([0, 4, 8, 12, 16], true)))
+
+  it.effect("below 0, a start still to come: the step at 0 held that long, then the time left over", () =>
     Effect.gen(function* () {
-      yield* bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => 0)), framesOf([0, 4, 8, 12, 16], true))
-      yield* bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => -1)), framesOf([0, 4, 8, 12, 16], true))
+      // At -0.125 s: the first tick draws the start; the run starts on the third, 0.125 s later.
+      yield* bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => -0.125)), framesOf([0, 0, 0, 4, 8, 12, 16], true))
+      // At -0.1 s, ticks of 1/16 s: the hold ends 0.025 s into the third tick, which steps that.
+      const seen: Array<number> = []
+      const recording = Machine.make<Frame.Frame<number>>({
+        settles: false,
+        span: { name: "test.recording", attributes: {} },
+        start: () => (dt) => {
+          seen.push(dt)
+          return { value: dt, done: false }
+        },
+      })
+      yield* onTheLoop(recording.pipe(Machine.startAt(() => -0.1)), ticksOf(4))
+      expect(seen[0]).toBe(0)
+      expect(seen[1]).toBeCloseTo(2 * DT - 0.1, 12)
+      expect(seen.slice(2)).toEqual([DT])
     }))
 
   it.effect("a long catch-up isn't clamped at MAX_DT, as a negative delay's one step is", () =>
