@@ -200,3 +200,9 @@ A provider with nothing from Wardic under it, say at an app's root over a route 
 
   LZ1 and LZ3 fail on main. Five single-point mutations of the provider are all caught: an eager build, no memo, a build in teardown, no teardown, and a build on reading the runtime.
 
+## Amendment (#48, 2026-10-19): Appear animations play through the Hydration hold
+
+ADR-0044 decides it, on decision 1's opening: still no runtime on a server, and the markup now carries CSS.
+- **A qualifying element's mount animation plays from first paint:** its inline style names `animation: var(--wardic-aN)`, and the head's `<style>` holds the rule and the custom property. That is the **Appear animation**. With no rule, an element keeps its Starting style until mount, as before.
+- **The Hydration hold still holds the element's own style;** the CSS animation draws over it until the **Handoff**, which decision 6's switch (`beforeFirstCommit`) carries out: the first commit writes the engine's frame and removes the CSS animation in one task.
+- **"Deferred: server-live resume (#48)"** is closed by it: the gap before hydration was the problem, and no server engine is needed.

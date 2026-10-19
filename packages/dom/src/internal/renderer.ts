@@ -22,6 +22,7 @@ import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { dashCase, isSvgInner, setSvgAttrs, splitPatch } from "./svg.ts"
+import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -165,6 +166,14 @@ const unitOf = (key: string): TransformUnit => {
   if (Predicate.isUndefined(unit)) return ""
   return unit
 }
+
+/**
+ * The unit {@link project} draws a bare number of `key` in: a transform key's (`px`, `deg`, or none
+ * for a scale), `px` for a length key, none for the rest. The Appear sampler judges its stops in it
+ * (#48, ADR-0044).
+ */
+export const drawnUnitOf = (key: string): TransformUnit =>
+  Bool.match(LENGTH_KEYS.has(key), { onTrue: (): TransformUnit => "px", onFalse: () => unitOf(key) })
 
 /**
  * Format one non-transform value. Strings pass through verbatim; numbers on a
