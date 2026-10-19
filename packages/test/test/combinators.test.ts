@@ -214,6 +214,86 @@ describe("each combinator through both drivers, at 1/16 s ticks", () => {
     }))
 })
 
+describe("startAt: a run started partway through (#48, ADR-0044's Handoff)", () => {
+  it.effect("the first tick draws the Frame at `at()`, and later ticks step on from there", () =>
+    Effect.gen(function* () {
+      for (const driver of [onTheStream, onTheLoop]) {
+        // 0.125 s is 7.5 frames of 1/60 s: the sum of the catch-up's steps is 0.125 to the last bits.
+        const frames = (yield* driver(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => 0.125)), ticksOf(4))).frames
+        expect(frames.map((frame) => frame.done)).toEqual([false, false, true])
+        expect(frames.map((frame) => frame.value).map((v, i) => Math.abs(v - [8, 12, 16][i]!) < 1e-9)).toEqual([true, true, true])
+      }
+    }))
+
+  it.effect("the catch-up steps 0, then 1/60 s at a time, the last step what's left; then each tick's dt", () =>
+    Effect.gen(function* () {
+      for (const driver of [onTheStream, onTheLoop]) {
+        const seen: Array<number> = []
+        const recording = Machine.make<Frame.Frame<number>>({
+          settles: false,
+          span: { name: "test.recording", attributes: {} },
+          start: () => (dt) => {
+            seen.push(dt)
+            return { value: dt, done: false }
+          },
+        })
+        yield* driver(recording.pipe(Machine.startAt(() => 0.04)), ticksOf(2))
+        expect(seen.slice(0, 3)).toEqual([0, Machine.CATCH_UP_DT, Machine.CATCH_UP_DT])
+        expect(seen[3]).toBeCloseTo(0.04 - 2 * Machine.CATCH_UP_DT, 12)
+        expect(seen.slice(4)).toEqual([DT])
+      }
+    }))
+
+  it.effect("caught up to k / 60, a spring is where 0 and then k steps of 1/60 s put it: the Appear sampler's steps", () =>
+    Effect.gen(function* () {
+      const spring = Machine.spring(100, { from: 0 })
+      const byHand = spring.start()
+      byHand(0)
+      const sampled: Array<number> = []
+      for (let k = 1; k <= 40; k++) sampled.push(byHand(Machine.CATCH_UP_DT).value)
+      for (const k of [1, 7, 23, 40]) {
+        const frames = (yield* onTheLoop(spring.pipe(Machine.startAt(() => k / 60)), [DT])).frames
+        expect(frames[0]!.value, `k = ${k}`).toBe(sampled[k - 1])
+      }
+    }))
+
+  it.effect("`at` is read once a run, at its first tick", () =>
+    Effect.gen(function* () {
+      let reads = 0
+      const machine = Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => {
+        reads++
+        return 0.0625
+      }))
+      expect(reads, "not when built").toBe(0)
+      yield* onTheLoop(machine, ticksOf(3))
+      expect(reads).toBe(1)
+      yield* onTheStream(machine, ticksOf(3))
+      expect(reads, "once more for a second run").toBe(2)
+    }))
+
+  it.effect("settling in the catch-up ends the run on its first tick", () =>
+    bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => 1)), framesOf([16], true)))
+
+  it.effect("at 0 or less, the first tick is the step at 0", () =>
+    Effect.gen(function* () {
+      yield* bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => 0)), framesOf([0, 4, 8, 12, 16], true))
+      yield* bothDrivers(Machine.tween(0, 16, QUARTER).pipe(Machine.startAt(() => -1)), framesOf([0, 4, 8, 12, 16], true))
+    }))
+
+  it.effect("a long catch-up isn't clamped at MAX_DT, as a negative delay's one step is", () =>
+    Effect.gen(function* () {
+      const three = Machine.tween(0, 30, { duration: 3 })
+      expect((yield* onTheLoop(three.pipe(Machine.startAt(() => 2)), [DT])).frames[0]!.value).toBeCloseTo(20, 9)
+      expect((yield* onTheLoop(three.pipe(Machine.delay(-2)), [DT])).frames[0]!.value).toBeLessThan(20)
+    }))
+
+  it("keeps the span and whether it settles; both forms give one type", () => {
+    const spring = Machine.spring(100)
+    expect(spring.pipe(Machine.startAt(() => 1)).span).toBe(spring.span)
+    expect(Machine.startAt(Machine.chase(() => 1), () => 1).settles).toBe(false)
+  })
+})
+
 describe("defaults add no layer (ADR-0028, decision 7)", () => {
   const tween = Machine.tween(0, 16, QUARTER)
   const chase = Machine.chase(() => 16)

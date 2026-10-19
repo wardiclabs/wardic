@@ -12,7 +12,7 @@
  *   `animate`, `keyframes`, `springValues`, `decayVec`; `springBlend` and `animateValues`
  *   return an `Effect` needing the `InterpolatorRegistry`), or with `make`.
  * - **Compose** with the combinators, each `dual` where it takes more than the machine: `map`,
- *   `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `clampDt`, `withSpan`. They run when
+ *   `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `startAt`, `clampDt`, `withSpan`. They run when
  *   a machine is built, never per step: a combinator's `start()` starts its inner machine, and
  *   its step makes plain calls only, allocating only the Frame it returns, and only when it
  *   changes it (ADR-0028, decision 7). Defaults add no layer: `delay(0)`, `holdAfter(0)` and a
@@ -26,7 +26,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { dual, identity } from "effect/Function"
+import { dual, identity, type LazyArg } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import * as Option from "effect/Option"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
@@ -468,6 +468,63 @@ export const holdAfter: {
         }),
     }),
 )
+
+/**
+ * The step `startAt` catches up in: a 60 Hz frame (ADR-0044). A run caught up to `k / 60` seconds
+ * has taken the steps a 60 Hz driver would have by then, and drawn the Frame the DOM's Appear
+ * sampler samples there (`@wardic/dom/Appear`), which steps `0` and then this.
+ */
+export const CATCH_UP_DT = 1 / 60
+
+/**
+ * `self` started partway through: each run's first tick steps it from its start to `at()` seconds
+ * in, in place of that tick's own `dt`, and every later tick steps as usual (ADR-0044's Handoff).
+ *
+ * - **The catch-up** steps `0`, then {@link CATCH_UP_DT} at a time, the last step the time left
+ *   over: what a 60 Hz driver would have stepped, so the Frame at `k / 60` is the one the Appear
+ *   sampler drew there. It stops at a settled Frame, which the first tick returns.
+ * - **`at` is read once a run, at its first tick:** a Handoff reads there how far the CSS has got in
+ *   the frame that draws the run's first Frame. At 0 or less, the first tick is `self`'s step at 0.
+ *
+ * Keeps `self`'s span and whether it settles. The catch-up is one step per 1/60 s caught up, once
+ * a run.
+ */
+export const startAt: {
+  (at: LazyArg<number>): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, at: LazyArg<number>): Machine<F>
+} = dual(
+  2,
+  <F extends Frame.Frame<unknown>>(self: Machine<F>, at: LazyArg<number>): Machine<F> =>
+    make({
+      settles: self.settles,
+      span: self.span,
+      start: () => {
+        const step = self.start()
+        let caughtUp = false
+        // Per frame (ADR-0025): a statement `if`; the catch-up runs once, on the first tick.
+        return (dt) => {
+          if (caughtUp) return step(dt)
+          caughtUp = true
+          return catchUp(step, at())
+        }
+      },
+    }),
+)
+
+/** `step` from its start to `seconds` in: `0`, then `CATCH_UP_DT` a step, the last what's left; a settled Frame ends it. */
+const catchUp = <F extends Frame.Frame<unknown>>(step: (dt: number) => F, seconds: number): F => {
+  let frame = step(0)
+  // The whole frames in `seconds`, a hair's rounding allowed (`k / 60` back to `k`).
+  const whole = Math.max(0, Math.floor(seconds / CATCH_UP_DT + 1e-9))
+  // In a tick (ADR-0025): a counted loop, a settled Frame ending it.
+  for (let i = 0; i < whole; i++) {
+    if (frame.done) return frame
+    frame = step(CATCH_UP_DT)
+  }
+  const rest = seconds - whole * CATCH_UP_DT
+  if (frame.done || rest <= 1e-9) return frame
+  return step(rest)
+}
 
 /**
  * `self` with each `dt` clamped at `max` before its step. Keeps `self`'s span. The constructors
