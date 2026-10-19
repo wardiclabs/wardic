@@ -196,9 +196,11 @@ export interface WardicReducedMotion {
  * options. `type` defaults to `"spring"`; `"tween"` routes every key through
  * `animateValues` (duration-based, no velocity). Both arms also carry the
  * optional {@link WardicOrchestration} fields and {@link WardicReducedMotion}'s opt-out.
+ * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
+ * key starts where it is), and the two clashed (#243).
  */
 export type WardicTransition =
-  | ({ readonly type?: "spring" } & Machine.SpringOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
   | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
 
 /**
