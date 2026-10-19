@@ -687,18 +687,29 @@ describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
     return { runtime, gate, registry, end }
   }
 
-  it("GV1: undefined before the key's first commit; then the value committed, before projection", () => {
+  it("GV1: undefined before the key's first write; then the value written, before projection, as the write lands", () => {
     const { gate, registry, end } = harness()
     gate.register("a", sinkOf(() => {}))
     const x = gate.valueOf("a", "x")
     expect(registry.get(x)).toBeUndefined()
     gate.write("a", { x: 12 })
-    expect(registry.get(x), "not before the commit").toBeUndefined()
+    expect(registry.get(x), "at the write, before the commit").toBe(12)
     fireFrame()
     expect(registry.get(x)).toBe(12)
     gate.write("a", { x: 30, opacity: 0.5 })
-    fireFrame()
     expect(registry.get(x)).toBe(30)
+    end()
+  })
+
+  it("GV7: a value derived from an output and written as it changes commits in the same flush", () => {
+    const { gate, registry, end } = harness()
+    const patches: Array<Renderer.Patch> = []
+    gate.register("a", sinkOf((p) => void patches.push(p)))
+    // opacity follows x, written by the output's subscriber, as a binding's follower would.
+    registry.subscribe(gate.valueOf("a", "x"), (x) => gate.write("a", { opacity: 1 - (x as number) / 100 }))
+    gate.write("a", { x: 50 })
+    fireFrame()
+    expect(patches).toEqual([{ x: 50, opacity: 0.5 }])
     end()
   })
 
@@ -719,14 +730,13 @@ describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
     end()
   })
 
-  it("GV3: a released key's output is undefined from the next commit", () => {
+  it("GV3: a released key's output is undefined from the release", () => {
     const { gate, registry, end } = harness()
     gate.register("a", sinkOf(() => {}))
     const x = gate.valueOf("a", "x")
     gate.write("a", { x: 5, opacity: 1 })
     fireFrame()
     gate.release("a", ["x"])
-    fireFrame()
     expect(registry.get(x)).toBeUndefined()
     end()
   })

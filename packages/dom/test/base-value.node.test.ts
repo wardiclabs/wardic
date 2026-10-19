@@ -70,11 +70,11 @@ describe("base values: the DOM's pure helpers (ADR-0022)", () => {
     expect(Option.flatMap(OwnValues.styleValueOf("width: 50%", "width"), (raw) => OwnValues.valueLike(raw, 200))).toEqual(Option.none())
   })
 
-  it("D9: a transform key has no style link (a DOM style's `scale` is a CSS property of its own)", () => {
-    expect(OwnValues.styleValueOf({ scale: "0.8", rotate: "10deg", x: 4 }, "scale")).toEqual(Option.none())
+  it("D9: a transform key is read as any key is, Wardic's, not the CSS property (#130)", () => {
+    expect(OwnValues.styleValueOf({ scale: "0.8", rotate: "10deg", x: 4 }, "scale")).toEqual(Option.some("0.8"))
     expect(OwnValues.styleValueOf({ scale: "0.8" }, "scaleX")).toEqual(Option.none())
-    expect(OwnValues.styleValueOf("scale: 0.8", "scale")).toEqual(Option.none())
-    expect(OwnValues.styleValueOf({ x: 4 }, "x")).toEqual(Option.none())
+    expect(OwnValues.styleValueOf("scale: 0.8", "scale")).toEqual(Option.some("0.8"))
+    expect(OwnValues.styleValueOf({ x: 4 }, "x")).toEqual(Option.some(4))
   })
 
   it("D8: every key core gives an identity is a transform key to the DOM's project", () => {

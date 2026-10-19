@@ -30,6 +30,11 @@
  *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
  * when one fails, and 2 when the run is too noisy.
+ *
+ * `--live` (#130, ADR-0043) runs `--head` alone, with no base: N elements following a Live value
+ * each frame (`?kind=live`) against N plain divs whose style binds the same signal (`?kind=live-plain`),
+ * paired per rep. It reports the mount, the set task and the frame after it (see `page.tsx`), and the
+ * unmount, Wardic's against plain Solid's, ungated: a base before Live values can't run the page.
  */
 import { execSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
@@ -41,7 +46,7 @@ import solid from "vite-plugin-solid"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { Round } from "./page.tsx"
+import type { LiveRound, Round } from "./page.tsx"
 
 const GATE = 1.05
 const NOISE = 0.05
@@ -65,9 +70,10 @@ const reps = Number(arg("reps", "11"))
 const n = Number(arg("n", "1000"))
 const rounds = Number(arg("rounds", "4"))
 const allocReps = Number(arg("alloc-reps", "3"))
+const liveMode = process.argv.includes("--live")
 
 type Side = "base" | "head"
-type Kind = "wardic" | "plain"
+type Kind = "wardic" | "plain" | "live" | "live-plain"
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
 const commitOf = (ref: string): string =>
@@ -161,10 +167,10 @@ const headLabel = UndefinedOr.match(headCommit, {
   onUndefined: () => `the working tree${when(dirty, " (modified)")}`,
   onDefined: (commit) => `${headRef} (${commit.slice(0, 7)})`,
 })
-const scripts: Record<Side, string> = {
-  base: await bundle("base", baseCommit, baseDeps),
-  head: await bundle("head", headCommit, headDeps),
-}
+const headScript = await bundle("head", headCommit, headDeps)
+// `--live` runs the head alone: its pages can't run on a base before Live values.
+const baseScript = await Bool.match(liveMode, { onTrue: () => Promise.resolve(headScript), onFalse: () => bundle("base", baseCommit, baseDeps) })
+const scripts: Record<Side, string> = { base: baseScript, head: headScript }
 
 const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] })
 /** A page of `side`'s build for `kind`, its script loaded, and the errors it throws. */
@@ -227,6 +233,34 @@ const allocatedPage = async (side: Side): Promise<number> => {
   return bytesOf(profile.head as HeapNode) / (rounds * n)
 }
 
+if (liveMode) {
+  // Head alone: Wardic's Live values against plain Solid binding the same signal, paired per rep.
+  console.log(`bench:solid --live: ${headLabel}, Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps\n`)
+  const LIVE_TASKS = ["mount", "set", "frame", "unmount"] as const
+  const pagesOf: Record<"live" | "live-plain", Array<ReadonlyArray<LiveRound>>> = { live: [], "live-plain": [] }
+  for (let r = 0; r < reps; r++) {
+    const order: ReadonlyArray<"live" | "live-plain"> = Bool.match(r % 2 === 0, {
+      onTrue: (): ReadonlyArray<"live" | "live-plain"> => ["live", "live-plain"],
+      onFalse: (): ReadonlyArray<"live" | "live-plain"> => ["live-plain", "live"],
+    })
+    for (const kind of order) pagesOf[kind].push((await runPage("head", kind)) as unknown as ReadonlyArray<LiveRound>)
+    process.stderr.write(`rep ${r + 1}/${reps}\r`)
+  }
+  await browser.close()
+  const warmOf = (page: ReadonlyArray<LiveRound>, task: (typeof LIVE_TASKS)[number]): number => median(page.slice(1).map((round) => round[task]))
+  console.log(`warm (ms, median across reps; wardic / plain paired per rep: median [p25 – p75])`)
+  console.log(`  ${"task".padEnd(10)}${"plain".padEnd(10)}${"wardic".padEnd(10)}ratio`)
+  for (const task of LIVE_TASKS) {
+    const ratios = pagesOf.live.map((page, r) => warmOf(page, task) / warmOf(pagesOf["live-plain"][r]!, task))
+    console.log(
+      `  ${task.padEnd(10)}${median(pagesOf["live-plain"].map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+        `${median(pagesOf.live.map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+        `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`,
+    )
+  }
+  process.exit(0)
+}
+
 console.log(`bench:solid: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}`)
 if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
 if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
@@ -237,7 +271,7 @@ const orderOf = (r: number): ReadonlyArray<Side> => {
   if (r % 2 === 0) return ["base", "head"]
   return ["head", "base"]
 }
-const runs: Record<Kind, Record<Side, Array<ReadonlyArray<Round>>>> = { wardic: { base: [], head: [] }, plain: { base: [], head: [] } }
+const runs: Record<"wardic" | "plain", Record<Side, Array<ReadonlyArray<Round>>>> = { wardic: { base: [], head: [] }, plain: { base: [], head: [] } }
 for (let r = 0; r < reps; r++) {
   const order = orderOf(r)
   for (const kind of ["wardic", "plain"] as const) for (const side of order) runs[kind][side].push(await runPage(side, kind))

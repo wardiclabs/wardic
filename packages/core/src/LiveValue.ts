@@ -7,7 +7,8 @@
  *
  * - `transform`: a value mapped from another through ranges (Motion's `useTransform`), each pair
  *   of outputs blended through the `InterpolatorRegistry`, so colours and unit strings map as
- *   `animate` blends them.
+ *   `animate` blends them. `interpolate` is its mapping as a plain function (Motion's
+ *   `interpolate`), for a binding that maps its own reactive value.
  * - `spring`: a value that follows another with a spring (Motion's `useSpring`), stepped on the
  *   Frame loop while it moves and idle once it rests.
  *
@@ -41,21 +42,20 @@ interface Stretch<O> {
 }
 
 /**
- * `source` mapped through ranges: an input at `input[i]` gives `output[i]`, and one between two
- * stops blends their outputs by its progress between them (each pair through the
- * `InterpolatorRegistry`, resolved once). `input` ascends, and is as long as `output`, with two
- * stops or more. Outside the range the ends hold, unless `clamp: false`, which carries the
- * first or last stretch on.
+ * The mapping `transform` applies, as a plain function: an input at `input[i]` gives `output[i]`,
+ * and one between two stops blends their outputs by its progress between them (each pair through
+ * the `InterpolatorRegistry`, resolved once, here). `input` ascends, and is as long as `output`,
+ * with two stops or more; anything else is a defect. Outside the range the ends hold, unless
+ * `clamp: false`, which carries the first or last stretch on.
  */
-export const transform = <O extends number | string>(
-  source: Atom.Atom<number>,
+export const interpolate = <O extends number | string>(
   input: ReadonlyArray<number>,
   output: ReadonlyArray<O>,
   options: TransformOptions = {},
-): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry> =>
+): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.gen(function* () {
     if (input.length < 2 || input.length !== output.length) {
-      return yield* Effect.die(new Error(`LiveValue.transform: input and output need the same length, two or more (got ${input.length} and ${output.length})`))
+      return yield* Effect.die(new Error(`LiveValue: input and output need the same length, two or more (got ${input.length} and ${output.length})`))
     }
     const registry = yield* InterpolatorRegistry.InterpolatorRegistry
     const pairs = Arr.zip(Arr.zip(input, Arr.drop(input, 1)), Arr.zip(output, Arr.drop(output, 1)))
@@ -64,8 +64,20 @@ export const transform = <O extends number | string>(
     // Two stops or more, checked above: one stretch or more.
     const stretches = resolved as unknown as Arr.NonEmptyReadonlyArray<Stretch<O>>
     const clamp = options.clamp !== false
-    return Atom.make((get) => stretchAt(stretches, clamp, get(source)))
+    return (v: number): O => stretchAt(stretches, clamp, v)
   })
+
+/**
+ * `source` mapped through ranges, as `interpolate` maps a number: an Atom that follows `source`,
+ * mapped afresh on each change.
+ */
+export const transform = <O extends number | string>(
+  source: Atom.Atom<number>,
+  input: ReadonlyArray<number>,
+  output: ReadonlyArray<O>,
+  options: TransformOptions = {},
+): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry> =>
+  Effect.map(interpolate(input, output, options), (map) => Atom.make((get) => map(get(source))))
 
 /** The output at `v`: its stretch's blend at its progress through it. Read on each change of the source. */
 const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, clamp: boolean, v: number): O => {
@@ -80,7 +92,7 @@ const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, clamp: b
  * the source is, and from each change on, a `Machine.chase` toward the source runs on the Frame
  * loop, reading the source afresh on every step, until it comes to rest there. Then the run
  * ends, and nothing runs until the source moves again. The run and the subscription end with
- * the Scope.
+ * the Scope; the Atom is held in the registry until then, and after it only while subscribed.
  */
 export const spring = (
   source: Atom.Atom<number>,
@@ -88,7 +100,9 @@ export const spring = (
 ): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
   Effect.gen(function* () {
     const registry = yield* AtomRegistry.AtomRegistry
-    const out = Atom.keepAlive(Atom.make(registry.get(source)))
+    // Mounted for the Scope, not kept alive: a kept-alive Atom's node never leaves the registry.
+    const out = Atom.make(registry.get(source))
+    const unmount = registry.mount(out)
     const run = yield* FiberHandle.makeRuntime<FrameLoop.FrameLoop, never, unknown>()
     let token = Supersede.make()
     let velocity = 0
@@ -121,6 +135,7 @@ export const spring = (
       Effect.sync(() => {
         unsubscribe()
         Supersede.end(token)
+        unmount()
       }))
     return out
   })

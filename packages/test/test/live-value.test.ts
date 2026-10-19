@@ -67,6 +67,16 @@ describe("LiveValue.transform: ranges mapped through the registry (#130)", () =>
       expect(Exit.isFailure(lengths) && Exit.hasDies(lengths)).toBe(true)
       expect(Exit.isFailure(single) && Exit.hasDies(single)).toBe(true)
     }).pipe(Effect.provide(layer)))
+
+  it.effect("TR6: interpolate is transform's mapping as a plain function, colours blended by the registry", () =>
+    Effect.gen(function* () {
+      const map = yield* LiveValue.interpolate([0, 100], [0, 1])
+      expect([map(-50), map(25), map(150)]).toEqual([0, 0.25, 1])
+      const unclamped = yield* LiveValue.interpolate([0, 100], [0, 1], { clamp: false })
+      expect(unclamped(150)).toBe(1.5)
+      const bad = yield* Effect.exit(LiveValue.interpolate([0, 1], [0]))
+      expect(Exit.isFailure(bad) && Exit.hasDies(bad)).toBe(true)
+    }).pipe(Effect.provide(layer)))
 })
 
 describe("LiveValue.spring: follows its source on the Frame loop, idle at rest (#130)", () => {
@@ -181,6 +191,8 @@ describe("LiveValue.spring: follows its source on the Frame loop, idle at rest (
         const source = Atom.make(0)
         const scope = yield* Scope.make()
         const out = yield* LiveValue.spring(source).pipe(Scope.provide(scope))
+        // A reader holds it, as a binding's does: after the Scope it's held only while subscribed.
+        registry.subscribe(out, () => {})
         registry.set(source, 100)
         yield* frames(h.clock, registry, out, 5)
         const at = registry.get(out)

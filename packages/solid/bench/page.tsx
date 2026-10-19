@@ -15,6 +15,13 @@
  * A full GC runs before each task starts its clock (ADR-0040, *Amendment (#69)*), so a scavenge never
  * lands inside one: the runner starts Chromium with `--expose-gc`. What a side allocates is held by
  * the runner's bytes gate instead.
+ *
+ * `?kind=live` and `?kind=live-plain` (`--live`, #130): N `wardic.div`s whose `opacity` is a Live
+ * value (one signal, in `style`), against N plain `div`s whose style binds the same signal. Per round:
+ * the mount, then 60 frames each moving the signal from a task after a paint: **set**, that task's
+ * JS (the followers' writes into the gate, or Solid's style writes), and **frame**, from the next
+ * frame's first rAF callback to just after its paint (the gate's commit, then rendering), then the
+ * unmount.
  */
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
@@ -37,6 +44,7 @@ const n = Number(params.get("n") ?? "1000")
 const kind = params.get("kind") ?? "wardic"
 const [shown, setShown] = createSignal(false)
 const [target, setTarget] = createSignal<Target>({ o: 1, c: WHITE })
+const [live, setLive] = createSignal(0.5)
 const items = Array.from({ length: n }, (_, i) => i)
 
 const style = document.createElement("style")
@@ -64,7 +72,23 @@ const Plain = () => (
     <For each={items}>{() => <div class="b" style={{ opacity: String(target().o), "background-color": target().c }} />}</For>
   </Show>
 )
-render(() => Bool.match(kind === "plain", { onTrue: () => <Plain />, onFalse: () => <Wardic /> }), host)
+const Live = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>{() => <wardic.div class="b" style={{ opacity: live, "background-color": BLUE }} />}</For>
+    </Show>
+  </WardicProvider>
+)
+const LivePlain = () => (
+  <Show when={shown()}>
+    <For each={items}>{() => <div class="b" style={{ opacity: String(live()), "background-color": BLUE }} />}</For>
+  </Show>
+)
+const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain } as const
+render(() => {
+  const Page = pages[kind as keyof typeof pages]
+  return <Page />
+}, host)
 
 const frames = (k: number): Promise<void> =>
   new Promise((resolve) => {
@@ -127,9 +151,58 @@ const round = async (): Promise<Round> => {
   return { mount, retarget, restRetarget, unmount }
 }
 
-;(globalThis as unknown as { __wardicBenchSolid: unknown }).__wardicBenchSolid = async (rounds: number): Promise<ReadonlyArray<Round>> => {
+/** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */
+export interface LiveRound {
+  readonly mount: number
+  readonly set: number
+  readonly frame: number
+  readonly unmount: number
+}
+
+/** Resolve just after the next paint, with when that frame's first rAF callback ran. */
+const nextFrame = (): Promise<number> =>
+  new Promise((resolve) => {
+    const channel = new MessageChannel()
+    let start = 0
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      resolve(performance.now() - start)
+    }
+    realRaf(() => {
+      start = performance.now()
+      channel.port2.postMessage(undefined)
+    })
+  })
+
+const liveRound = async (): Promise<LiveRound> => {
+  setLive(0.5)
+  await afterPaint()
+  const mount = timed(() => setShown(true))
+  if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
+  await frames(8)
+  await afterPaint()
+  const sets: Array<number> = []
+  const frameTimes: Array<number> = []
+  for (let i = 0; i < 60; i++) {
+    const v = (30 + 2 * (i % 20)) / 100
+    // This frame's rAF first, then the set, so the frame is timed from before the gate's commit.
+    const frame = nextFrame()
+    sets.push(timed(() => setLive(v)))
+    frameTimes.push(await frame)
+    if (Math.abs(Number(boxes()[0]!.style.opacity) - v) > 1e-6) throw new Error(`bench:solid: opacity ${boxes()[0]!.style.opacity}, not ${v}`)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  await afterPaint()
+  const unmount = timed(() => setShown(false))
+  await frames(6)
+  const mid = (xs: ReadonlyArray<number>): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
+  return { mount, set: mid(sets), frame: mid(frameTimes), unmount }
+}
+
+;(globalThis as unknown as { __wardicBenchSolid: unknown }).__wardicBenchSolid = async (rounds: number): Promise<ReadonlyArray<Round | LiveRound>> => {
   await frames(5)
-  const out: Array<Round> = []
-  for (let i = 0; i < rounds; i++) out.push(await round())
+  const out: Array<Round | LiveRound> = []
+  const one = Bool.match(kind.startsWith("live"), { onTrue: () => liveRound, onFalse: () => round })
+  for (let i = 0; i < rounds; i++) out.push(await one())
   return out
 }

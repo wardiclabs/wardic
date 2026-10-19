@@ -6,8 +6,8 @@
  * {@link streamToSignal}, so it inherits the recognizer's `wardic.*` span and
  * the per-element fiber lifecycle (interrupted on the consuming component's
  * unmount, dropping the Shared-source ref-count). `createReducedMotion` bridges
- * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}, and
- * `createTransform` is pure Solid (`createMemo`) — no Effect.
+ * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}. `createTransform` moved to
+ * `live-value.ts`, with `createSpring` (#130).
  *
  * All hooks MUST be called within a component/owner (they register `onCleanup`
  * through the bridges and read the runtime from context).
@@ -21,7 +21,7 @@ import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import type * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createComputed, createMemo, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
+import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
 import { fromAtom, streamToSignal } from "./bridge.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -137,11 +137,3 @@ export const createReducedMotion = (): Accessor<boolean> => {
   const probe = runtime.runSync(Probe.Probe)
   return fromAtom(probe.prefersReducedMotion, { serverValue: false })
 }
-
-/**
- * Map a source `Accessor<A>` through `fn` into a derived `Accessor<B>`. Pure
- * Solid (`createMemo`) — no Effect, no runtime — so it composes any sensor (or
- * plain signal) into a projected value.
- */
-export const createTransform = <A, B>(source: Accessor<A>, fn: (a: A) => B): Accessor<B> =>
-  createMemo(() => fn(source()))

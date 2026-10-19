@@ -23,16 +23,17 @@
  *   itself, not a zero like `blur(0px)`. Other runs have no such line.
  *
  * A crossfade run (#5, scenario 16) has lines of its own: `crossfadeChecksOf` in
- * `lab/crossfade-board.ts`.
+ * `lab/crossfade-board.ts`; so does a live run (#130, scenario 18): `liveChecksOf` in `lab/live-board.ts`.
  *
  * Pure (no DOM), so the node test tier imports it (`test/base-values-board.test.ts`).
  *
  * @module
  */
 import { type CrossfadeCheck, crossfadeChecksOf, type CrossfadeSeries } from "./crossfade-board.ts"
+import { type LiveCheck, liveChecksOf, type LiveSeries } from "./live-board.ts"
 
-/** What a run is: a gesture (hover, press), a mount, an exit, a style change at rest, a toggle (#61), or a crossfade (#5). */
-export type BoardRunKind = "gesture" | "mount" | "exit" | "style change" | "toggle" | "crossfade"
+/** What a run is: a gesture (hover, press), a mount, an exit, a style change at rest, a toggle (#61), a crossfade (#5), or a live run (#130). */
+export type BoardRunKind = "gesture" | "mount" | "exit" | "style change" | "toggle" | "crossfade" | "live"
 
 /** One gesture on one cell, as the board's recorder sampled it. */
 export interface BoardRunInput {
@@ -79,14 +80,16 @@ export interface BoardRunInput {
   readonly landsOn?: number
   /** A crossfade run's Follower, and what else its cell watches (#5, scenario 16): `during` is its Lead's. */
   readonly crossfade?: CrossfadeSeries
+  /** A live run's frames and lines (#130, scenario 18). */
+  readonly live?: LiveSeries
 }
 
 /** The card's lines, in display order. */
 export const BOARD_CHECK_NAMES = ["start", "end", "rests", "paints"] as const
 
-/** One card line: one of a base value run's (`BOARD_CHECK_NAMES`) or a crossfade run's (`CROSSFADE_CHECK_NAMES`). */
+/** One card line: one of a base value run's (`BOARD_CHECK_NAMES`), a crossfade run's (`CROSSFADE_CHECK_NAMES`) or a live run's (`LIVE_CHECK_NAMES`). */
 export interface BoardCheck {
-  readonly name: (typeof BOARD_CHECK_NAMES)[number] | CrossfadeCheck["name"]
+  readonly name: (typeof BOARD_CHECK_NAMES)[number] | CrossfadeCheck["name"] | LiveCheck["name"]
   readonly ok: boolean
   readonly text: string
 }
@@ -151,7 +154,8 @@ const endOf = (input: BoardRunInput): BoardCheck => {
       return line("end", ok, `at ${v3(last)}`, `${input.base}`)
     }
     case "crossfade":
-      // Judged on its own lines, by `crossfadeChecksOf`.
+    case "live":
+      // Judged on its own lines, by `crossfadeChecksOf` or `liveChecksOf`.
       return { name: "end", ok: true, text: "" }
     case "toggle": {
       const target = input.landsOn ?? input.target
@@ -176,5 +180,8 @@ const paintsOf = (input: BoardRunInput): Array<BoardCheck> => {
 }
 
 /** A run's lines (see the module doc): start and end, rests for a run back to `none`, paints for a run that watches for the fallback. */
-export const boardChecksOf = (input: BoardRunInput): Array<BoardCheck> =>
-  input.kind === "crossfade" ? crossfadeChecksOf(input) : [startOf(input), endOf(input), ...restsOf(input), ...paintsOf(input)]
+export const boardChecksOf = (input: BoardRunInput): Array<BoardCheck> => {
+  if (input.kind === "crossfade") return crossfadeChecksOf(input)
+  if (input.kind === "live") return liveChecksOf(input)
+  return [startOf(input), endOf(input), ...restsOf(input), ...paintsOf(input)]
+}

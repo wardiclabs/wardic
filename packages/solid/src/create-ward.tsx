@@ -28,6 +28,7 @@
  * writing into the same gate id) — see core's `Values.split`.
  */
 import * as BaseValue from "@wardic/core/BaseValue"
+import type * as Frame from "@wardic/core/Frame"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
@@ -41,6 +42,7 @@ import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -53,7 +55,7 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
-import { constTrue, constUndefined, identity, pipe } from "effect/Function"
+import { constFalse, constTrue, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -61,6 +63,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { Atom, AtomRegistry } from "effect/reactivity"
 import {
   type Accessor,
   type Component,
@@ -73,8 +76,10 @@ import {
   onCleanup,
   untrack,
 } from "solid-js"
+import { fromAtom } from "./bridge.ts"
 import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
+import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split, valuesOf } from "./live-style.ts"
 import { createVariantNode, ownOrInherited, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
@@ -437,8 +442,18 @@ export interface WardUserProps {
    * tracked, not frozen at setup), hence `| undefined` to allow a getter that
    * yields no style yet. Reactivity flows via the getter, not a `MaybeAccessor`.
    */
-  readonly style?: JSX.CSSProperties | undefined
+  readonly style?: WardStyle | string | undefined
 }
+
+/**
+ * A Wardic element's `style` (#130, ADR-0043): every CSS property and the transform keys (`x`,
+ * `scale`, `rotate`…), each a value or a **Live value**: an `effect/reactivity` Atom, or an
+ * accessor (a signal, a memo, {@link createTransform}'s). A transform key is Wardic's, composed
+ * into `transform` with its own (Motion's rule: with one set, a `transform` string is dropped). A
+ * key is its Base value's `style` link: while no layer of the Override stack sets it, the element
+ * shows it, following a Live value on every change, and a return goes to where it is then.
+ */
+export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string> | undefined }
 
 /** Spreadable props the {@link createWard} `ward` callable returns. */
 export interface WardProps {
@@ -475,6 +490,28 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
    * against their OWN `variants`.
    */
   readonly Provider: Component<{ readonly children?: JSX.Element }>
+  /**
+   * The element's value for `key`, live (#130, ADR-0043 decision 5): what Wardic shows for it,
+   * whoever moves it (an animation, a drag, a Live value in `style`), as a number for a transform
+   * key (`x`, not its `transform`). At rest outside the gate, its `initial`, else its `style`
+   * value, else a transform key's identity (`x` 0, `scale` 1). Derive from it as from any Live
+   * value: `createTransform(ward.value("x"), [-150, 0, 150], [0, 1, 0])`. A value derived from it
+   * and given to another key's `style` moves in the same frame. Call it where you'd create a
+   * signal: one accessor per key.
+   */
+  readonly value: WardValue
+  /**
+   * The element's value for `key` as an `effect/reactivity` Atom (`FlushGate.valueOf`): set as
+   * each write that changes it lands, `undefined` while the gate doesn't hold the key. For Effect
+   * code and core's `LiveValue` helpers; Solid code reads {@link value}.
+   */
+  readonly atom: (key: string) => Atom.Atom<unknown>
+}
+
+/** {@link Ward.value}: a transform key is always a number or a string; any other key may have no value. */
+export interface WardValue {
+  <A extends number | string = number>(key: keyof WardicTransformShorthands): Accessor<A>
+  <A extends number | string = number>(key: string): Accessor<A | undefined>
 }
 
 /**
@@ -636,6 +673,12 @@ export interface RunSpineOptions {
    */
   readonly styleOf?: (() => object | string | undefined) | undefined
   /**
+   * The element's routed `style` keys (#130, ADR-0043): its Live values and transform keys, which
+   * the spine writes through the gate while nothing else owns them, and which a return follows.
+   * Omitted on the directives, which have no `style` prop.
+   */
+  readonly live?: LiveStyle | undefined
+  /**
    * Builds the {@link FlushSink} for the registered element: the element itself, plus, for a
    * surface whose `style` prop reaches it (`createWard`, `wardic.create(Component)`), the hooks
    * that switch that `style` (ADR-0034). The spine itself never reads the sink's hooks.
@@ -665,7 +708,12 @@ export interface RunSpineOptions {
  * Must be called within a Solid owner (it registers `createEffect` / `onCleanup`).
  */
 export function runSpine(opts: RunSpineOptions): void {
-  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal = NO_INTERNALS, makeSink, onFrame, parent, runtime, styleOf } = opts
+  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf } = opts
+  // A `style` value read now: a Live value's current value (#130), anything else as it is.
+  const readStyle = (raw: unknown): unknown => {
+    if (Predicate.isUndefined(live)) return raw
+    return live.read(raw)
+  }
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -767,7 +815,7 @@ export function runSpine(opts: RunSpineOptions): void {
       const linksFor = (like: number | string) => ({
         style: (key: string) =>
           Option.flatMap(Option.fromUndefinedOr(styleOf), (of) =>
-            Option.flatMap(OwnValues.styleValueOf(untrack(of), key), (raw) => OwnValues.valueLike(raw, like)),
+            Option.flatMap(OwnValues.styleValueOf(untrack(of), key), (raw) => OwnValues.valueLike(readStyle(raw), like)),
           ),
         own: (key: string) => Option.flatMap(ownValue(key), (raw) => OwnValues.valueLike(raw, like)),
       })
@@ -807,10 +855,15 @@ export function runSpine(opts: RunSpineOptions): void {
         if (Predicate.isNotUndefined(presenceRec)) Object.assign(presenceRec.snapshot.current, value)
       }
 
+      // A routed key a return handed back: written by the follower from now on (#130). Set below,
+      // with the follower; a return settles a tick after this runs at the earliest.
+      let handBack: (key: string) => void = constVoid
+
       // A Retarget's returns have settled (ADR-0022, D4). A key back at its `style` value is
       // handed back to the element's style, so a later style change shows at rest and the
       // next gesture starts from it; any other key rests inline at its Base value and leaves
-      // the target. A key a later Retarget took over is left alone.
+      // the target. A key a later Retarget took over is left alone. A routed key (#130) stays
+      // in the gate, handed to the follower, which writes its value from now on.
       const settleReturns = (returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): void => {
         // The returns still this Retarget's: a later one took over the rest.
         const settled = Arr.filter(returns, ([key, source]) => returning.get(key) === source)
@@ -818,7 +871,10 @@ export function runSpine(opts: RunSpineOptions): void {
           returning.delete(key)
           driven.delete(key)
         })
-        const handedBack = Arr.map(Arr.filter(settled, ([, source]) => source === "style"), ([key]) => key)
+        const toStyle = Arr.map(Arr.filter(settled, ([, source]) => source === "style"), ([key]) => key)
+        const routedNow = (key: string): boolean => UndefinedOr.match(live, { onUndefined: constFalse, onDefined: (routes) => routes.routes(key) })
+        Arr.forEach(Arr.filter(toStyle, routedNow), (key) => handBack(key))
+        const handedBack = Arr.filter(toStyle, Predicate.not(routedNow))
         if (Arr.isReadonlyArrayEmpty(handedBack)) return
         // The gate writes the user's current value back, as the element's `style` would
         // (ADR-0034). A key gone from the user's style by now is cleared, not restored stale.
@@ -1188,6 +1244,30 @@ export function runSpine(opts: RunSpineOptions): void {
               onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: t }),
             })
             const snapping = hasKeys(positional)
+            // The returns to a moving Live value (#130, ADR-0043 decision 6): a number's follows it,
+            // in a leg of its own, and lands on it; the rest return to where it is now. Looked for
+            // only when this Retarget returns a key, and built only for one that follows.
+            let followingKeys: ReadonlyArray<string> = NO_KEYS
+            if (returning.size > 0 && Predicate.isNotUndefined(live)) followingKeys = followingOf(live, rest, returning)
+            const following = followingKeys.length > 0
+            let fixed: Values.Values = rest
+            // A following return's frames, written as any leg's are, from one object per leg.
+            let followSink: ((key: string) => FrameLoop.Sink<Frame.Frame<number> & { readonly velocity?: number }>) | undefined
+            if (following) {
+              fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
+              followSink = (key) => {
+                const out: Record<string, number> = { [key]: 0 }
+                return (frame) => {
+                  out[key] = frame.value
+                  snapshot.values[key] = frame.value
+                  snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
+                  gate.write(id, out)
+                  recordFrame(out)
+                  report(frame.done)
+                  return undefined
+                }
+              }
+            }
             // Every leg is built inside its own fiber: a transition core rejects (#66, ADR-0025
             // *Amendment (#66)*) throws as it's built, a defect that fails that leg alone, reported
             // as any leg's failure is, while the element's other legs run on.
@@ -1216,18 +1296,32 @@ export function runSpine(opts: RunSpineOptions): void {
               // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still
               // apply (#107).
               const options = transition as Machine.AnimateOptions
-              // With every key snapped, there's nothing left to tween.
-              const tweening = Bool.or(!snapping, hasKeys(rest))
-              reporting = Number(snapping) + Number(tweening)
+              // With every key snapped or following, there's nothing left to tween.
+              const tweening = Bool.or(Bool.and(!snapping, !following), hasKeys(fixed))
+              reporting = Number(snapping) + Number(tweening) + followingKeys.length
               if (snapping) {
                 runSnap(
                   Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)),
                   () => Machine.resolveTween(options).delay,
                 )
               }
+              // A following return eases toward where its Live value is each frame, so it lands on it.
+              if (following) {
+                Arr.forEach(followingKeys, (key) => {
+                  const start = from[key] as number
+                  const target = liveTargetOf(UndefinedOr.getOrThrow(live), key, start)
+                  runLeg(
+                    Effect.suspend(() =>
+                      Machine.animate(0, 1, options).pipe(
+                        Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
+                        Machine.run(UndefinedOr.getOrThrow(followSink)(key), runOptions),
+                      )),
+                  )
+                })
+              }
               if (tweening) {
                 runLeg(
-                  Effect.suspend(() => Machine.animateValues(Values.pick(from, rest), rest, options)).pipe(
+                  Effect.suspend(() => Machine.animateValues(Values.pick(from, fixed), fixed, options)).pipe(
                     InterpolatorRegistry.withKeyRules(elementRules),
                     Effect.flatMap(
                       Machine.run((frame) => {
@@ -1254,12 +1348,21 @@ export function runSpine(opts: RunSpineOptions): void {
               const springOpts = UndefinedOr.match(transition, { onUndefined: () => NO_TRANSITION, onDefined: identity }) as Machine.SpringOptions
               // Of the keys that animate: both halves write into the same gate id, so they
               // collapse into one projected `Patch`.
-              const { numbers: numeric, strings } = Values.split(rest)
+              const { numbers: numeric, strings } = Values.split(fixed)
               const hasNumeric = Object.keys(numeric).length > 0
               const hasStrings = Object.keys(strings).length > 0
-              reporting = Number(snapping) + Number(hasNumeric) + Number(hasStrings)
+              reporting = Number(snapping) + Number(hasNumeric) + Number(hasStrings) + followingKeys.length
               // A spring settles at its target: the snap lands there.
               if (snapping) runSnap(positional, () => Spring.resolve(springOpts).delay)
+              // A following return chases its Live value, read each step, and settles at rest on it.
+              if (following) {
+                Arr.forEach(followingKeys, (key) => {
+                  const start = from[key] as number
+                  const velocity = UndefinedOr.match(snapshot.velocities[key], { onUndefined: () => 0, onDefined: identity })
+                  const chase = Machine.chase(liveTargetOf(UndefinedOr.getOrThrow(live), key, start), { ...springOpts, from: start, velocity })
+                  runLeg(Effect.suspend(() => settling(chase).pipe(Machine.run(UndefinedOr.getOrThrow(followSink)(key), runOptions))))
+                })
+              }
               if (hasNumeric) {
                 const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
                 const velocities = snapshot.velocities
@@ -1303,9 +1406,93 @@ export function runSpine(opts: RunSpineOptions): void {
           },
         ),
       )
+
+      // --- Live values in `style` (#130, ADR-0043) ------------------------------
+      // A routed key (a Live value, or a transform key) is its `style` link, live: while no layer of
+      // the Override stack sets it, no return is running to it and no drag moves it, the element
+      // follows it, written through the gate on every change. A return hands it back here when it
+      // settles (`settleReturns`). The Starting style showed each one's value at render; from mount
+      // the gate holds them.
+      if (Predicate.isNotUndefined(live)) {
+        const routes = live
+        // Built at the first routed key, at mount or later: an element whose `style` routes none builds nothing.
+        routes.whenRouted(() => {
+          const dragHolds = Bool.and(Bool.not(projected), Predicate.isNotUndefined(dragCfg))
+          // Whether something other than the follower moves `key` now.
+          const owned = (key: string): boolean =>
+            Bool.some([
+              driven.has(key),
+              Object.hasOwn(untrack(target).resolved, key),
+              // The drag direct-sets both translate keys while it, and its release, run (ADR-0004).
+              Bool.and(dragHolds, Bool.and(untrack(dragging), Bool.or(key === "x", key === "y"))),
+            ])
+          // Written as any frame is: into the gate, the Snapshot (at rest) and the presence record.
+          const put = (values: Values.Values): void => {
+            Arr.forEach(Rec.keys(values), (key) => {
+              snapshot.values[key] = UndefinedOr.getOrThrow(values[key])
+              delete snapshot.velocities[key]
+            })
+            gate.write(id, values)
+            recordFrame(values)
+          }
+          handBack = (key) => {
+            Option.match(Option.filter(routes.valueOf(key), isValue), {
+              onNone: constVoid,
+              onSome: (value) => put({ [key]: value }),
+            })
+          }
+          // Every routed key nothing owns, with, before anything's committed, the values the Override
+          // stack's keys start from, so a held start (a `when` gate) keeps showing them.
+          const first = Rec.filter(routes.values(), (_, key) => Bool.not(owned(key)))
+          if (hasKeys(first)) put({ ...Values.pick(snapshot.values, untrack(target).resolved), ...first })
+          return {
+            change: (key, value) => {
+              if (Bool.or(owned(key), Bool.not(isValue(value)))) return
+              put({ [key]: value as number | string })
+            },
+            removed: (key) => {
+              if (owned(key)) return
+              delete snapshot.values[key]
+              delete snapshot.velocities[key]
+              if (Predicate.isNotUndefined(presenceRec)) delete presenceRec.snapshot.current[key]
+              // Gone from `style`: the element's own value comes back, or the key's CSS value now.
+              const restore = Option.match(OwnValues.styleValueOf(UndefinedOr.match(styleOf, { onUndefined: constUndefined, onDefined: untrack }), key), {
+                onNone: () => "",
+                onSome: String,
+              })
+              gate.release(id, [key], { [key]: restore })
+            },
+          }
+        })
+        onCleanup(() => routes.stop())
+      }
     }),
   )
 }
+
+/** No keys: a Retarget with no following return. */
+const NO_KEYS: ReadonlyArray<string> = []
+
+/** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
+const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
+  Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
+
+/** Where `key`'s Live value is now, a number; where it last was when it's none (#130). */
+const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => number) => {
+  let last = start
+  return () => {
+    const now = Option.flatMap(routes.valueOf(key), (raw) => OwnValues.valueLike(raw, last))
+    if (Option.isSome(now)) last = now.value as number
+    return last
+  }
+}
+
+/** `chase`, ending at its first Frame at rest on its target: a return to a moving Live value (#130). */
+const settling = <F extends Frame.Frame<unknown>>(chase: Machine.Machine<F>): Machine.Machine<F> =>
+  Machine.make({ start: chase.start, settles: true, span: chase.span })
+
+/** Whether a value is one an element can take: a number or a string. */
+const isValue = (value: unknown): value is number | string => Bool.or(Predicate.isNumber(value), Predicate.isString(value))
 
 /**
  * Create a **Ward**, one element's motion binding (ADR-0042): spread it onto the element
@@ -1372,6 +1559,12 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = Svg.splitPatchForTag(internal.tag, startingPatch)
 
+  // Its routed `style` keys (#130, ADR-0043): its Live values and transform keys, which the gate
+  // writes from mount, and the Starting style carries until then, under `initial`'s.
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id) })
+  const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
+  const startingWith = (routed: Values.Values): Renderer.Patch => Svg.splitPatchForTag(internal.tag, projectStarting({ ...routed, ...initialValues })).style
+
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
   const dragAxis = dragAxisOf(untrack(cfg), internal)
@@ -1385,6 +1578,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const elementStyle = createElementStyle({
     userStyle: () => lastUserProps.style,
     starting: seed.style,
+    startingWith,
+    live,
     defaults: dragDefaults,
     base: baseStyle,
   })
@@ -1408,6 +1603,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     onFrame: node.onFrame,
     internal,
     styleOf: () => lastUserProps.style,
+    live,
     // The gate commits onto the element (an svg-inner element's attribute keys as
     // attributes, ADR-0014); the hooks switch the spread's `style` (ADR-0034).
     makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
@@ -1420,6 +1616,22 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
   )
+
+  // The element's value per key (#130, ADR-0043 decision 5): the gate's output while it holds the
+  // key, else where the key rests, read when the accessor is (the user's style as last given, a
+  // reactive `style` prop tracked).
+  const restingValueOf = (key: string): unknown => restingOf(key, initialValues, lastUserProps.style, (raw) => live.read(raw))
+  // One accessor a key, made on first ask: most elements ask none.
+  let values: Map<string, Accessor<unknown>> | undefined
+  const value = (key: string): Accessor<unknown> => {
+    if (Predicate.isUndefined(values)) values = new Map()
+    const known = values.get(key)
+    if (Predicate.isNotUndefined(known)) return known
+    const shown = fromAtom(gate.valueOf(id, key))
+    const accessor = (): unknown => UndefinedOr.match(shown(), { onUndefined: () => restingValueOf(key), onDefined: identity })
+    values.set(key, accessor)
+    return accessor
+  }
 
   // The callable + its `.Provider` property (ADR-0007). Object.assign keeps the
   // callable's merge API (ward() / ward({ ref, style })) intact while attaching
@@ -1441,10 +1653,44 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
         ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
       }
     },
-    { Provider },
+    { Provider, value: value as WardValue, atom: (key: string) => gate.valueOf(id, key) },
   )
   return ward
 }
+
+/**
+ * Where `key` rests outside the gate (#130): its `initial`, else its `style` value (a Live value's
+ * now), else a transform key's identity, else `undefined`.
+ */
+const restingOf = (key: string, initial: Values.Values, style: object | string | undefined, read: (value: unknown) => unknown): unknown =>
+  Option.getOrUndefined(
+    Option.fromUndefinedOr(initial[key]).pipe(
+      Option.orElse((): Option.Option<unknown> => Option.flatMap(OwnValues.styleValueOf(style, key), (raw) => Option.fromNullishOr(read(raw)))),
+      Option.orElse((): Option.Option<unknown> => BaseValue.transformIdentity(key)),
+    ),
+  )
+
+/** A provider runtime's `AtomRegistry`, read on first need: an element with no Atom never reads it. */
+export const registryOf = (runtime: WardicRuntime): (() => AtomRegistry.AtomRegistry) => {
+  let registry: AtomRegistry.AtomRegistry | undefined
+  return () => {
+    if (Predicate.isUndefined(registry)) registry = runtime.runSync(AtomRegistry.AtomRegistry)
+    return registry
+  }
+}
+
+/** Log, once per element, that a `transform` string gave way to the transform keys in its `style` (#130). */
+export const warnDroppedTransform = (runtime: WardicRuntime, id: string): void => {
+  runtime.runFork(
+    Effect.logWarning(
+      "wardic.style: a `transform` string is dropped while `style` sets a transform key (x, scale, rotate…); " +
+        "the keys win, as Motion's do. Give the transform as keys, or drop them",
+    ).pipe(Effect.annotateLogs({ id })),
+  )
+}
+
+/** A server's output Atom: nothing is written there, so it stays `undefined`. */
+const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
 
 /**
  * Log, at debug level, the keys whose Starting style the Environment's Renderer projects
@@ -1490,21 +1736,51 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={node.provided}>{props.children}</WardicVariantContext.Provider>
   )
+  const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  const read = (value: unknown): unknown => readServerStyle(value)
+  let lastStyle: WardUserProps["style"]
   return Object.assign(
-    (userProps: WardUserProps = NO_USER_PROPS): WardProps => ({
-      ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
-      style: pipe(
-        seed.style,
-        Style.over(userProps.style),
-        Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
-        Style.over(dragDefaults),
-      ) as JSX.CSSProperties,
-      ...seed.attrs,
-      ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
-    }),
-    { Provider },
+    (userProps: WardUserProps = NO_USER_PROPS): WardProps => {
+      lastStyle = userProps.style
+      // Its routed keys' values join the Starting style, under `initial`'s (#130).
+      const parts = split(userProps.style)
+      return {
+        ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
+        style: pipe(
+          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed),
+          Style.over(parts.css),
+          Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
+          Style.over(dragDefaults),
+        ) as JSX.CSSProperties,
+        ...seed.attrs,
+        ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
+      }
+    },
+    {
+      Provider,
+      value: ((key: string) => () => restingOf(key, initialValues, lastStyle, read)) as WardValue,
+      atom: (): Atom.Atom<unknown> => NO_OUTPUT,
+    },
   )
 }
+
+/** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
+const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf)
+
+/**
+ * A server's Starting style for an element whose `style` has routed keys (#130): the projected
+ * `initial` with their values under it. With none, its Starting style as it was.
+ */
+export const serverStartingStyle = (
+  tag: string | undefined,
+  starting: Renderer.Patch,
+  initialValues: Values.Values,
+  routed: Readonly<Record<string, unknown>>,
+): Renderer.Patch =>
+  Bool.match(Rec.isEmptyRecord(routed), {
+    onTrue: () => starting,
+    onFalse: () => Style.starting(tag, { ...valuesOf(routed, serverRegistryOf), ...initialValues }).style,
+  })
 
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = (): void => {}

@@ -35,6 +35,7 @@
 import { mergeRefs } from "@solid-primitives/refs"
 import type * as Drag from "@wardic/core/Drag"
 import * as Renderer from "@wardic/core/Renderer"
+import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
@@ -48,17 +49,22 @@ import { type Accessor, type Component, createComponent, createSignal, createUni
 import { Dynamic } from "solid-js/web"
 import { wardicDirective } from "./directive.ts"
 import { createElementStyle } from "./element-style.ts"
+import { createLiveStyle, split } from "./live-style.ts"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
 import {
   dragAxisOf,
   flagStartingStyle,
+  registryOf,
   runSpine,
+  serverStartingStyle,
+  warnDroppedTransform,
   createWardWith,
   type WardConfig,
   type WardicDragTransition,
   type WardicTransition,
   type WardicValues,
+  type WardStyle,
   type WardUserProps,
 } from "./create-ward.tsx"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
@@ -216,8 +222,14 @@ export interface WardicMotionProps {
   readonly onLayoutAnimationComplete?: () => void
 }
 
-/** Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props. */
-export type WardicProps<Tag extends keyof JSX.IntrinsicElements> = JSX.IntrinsicElements[Tag] & WardicMotionProps
+/**
+ * Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props, with a `style` that
+ * takes the transform keys and Live values too ({@link WardStyle}, #130).
+ */
+export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
+  & Omit<JSX.IntrinsicElements[Tag], "style">
+  & WardicMotionProps
+  & { readonly style?: WardStyle | string | undefined }
 
 /**
  * Build a reactive `Accessor<WardConfig>` from a split-off `motion` props
@@ -363,7 +375,12 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       const axis = dragAxisOf(config, undefined)
       const dragDefaults = UndefinedOr.map(axis, Style.dragDefaults)
       const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
-      const elementStyle = createElementStyle({ userStyle, starting, defaults: dragDefaults })
+      // Its routed `style` keys (#130, ADR-0043): Live values and transform keys, which the gate
+      // writes from mount, and the Starting style carries until then, under `initial`'s.
+      const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id) })
+      const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => runtime.runSync(Renderer.Renderer).project })
+      const startingWith = (routed: Values.Values): Renderer.Patch => projectStarting({ ...routed, ...initialValues })
+      const elementStyle = createElementStyle({ userStyle, starting, startingWith, live, defaults: dragDefaults })
 
       // The gate commits each frame onto the forwarded element (ADR-0034). The node wires
       // the variant orchestration (ADR-0007, #50) into the spine.
@@ -382,6 +399,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         onFrame: node.onFrame,
         // The user's style is the style link of a key's Base value (ADR-0022).
         styleOf: userStyle,
+        live,
         makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
       })
 
@@ -509,8 +527,10 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   const axis = dragAxisOf(config, undefined)
   const dragDefaults = UndefinedOr.map(axis, Style.dragDefaults)
   const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  // Its routed `style` keys' values join the Starting style, under `initial`'s (#130).
+  const parts = split(props.style as object | string | undefined)
   override(out, {
-    style: pipe(Style.starting(undefined, initial).style, Style.over(props.style as JSX.CSSProperties | string | undefined), Style.over(dragDefaults)),
+    style: pipe(serverStartingStyle(undefined, Style.starting(undefined, initial).style, initial, parts.routed), Style.over(parts.css), Style.over(dragDefaults)),
     ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => ({ draggable: Style.DRAG_DEFAULT_ATTRIBUTES.draggable }) }),
     ...UndefinedOr.match(props.ref, { onUndefined: () => ({}), onDefined: (ref) => ({ ref }) }),
     component: Wrapped,

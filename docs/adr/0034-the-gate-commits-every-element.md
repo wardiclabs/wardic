@@ -140,4 +140,4 @@ On the bench server, with `wardic-quiet` and Chromium 147 headless.
 
 ## Note (#130, 2026-10-18): the gate's live outputs
 
-ADR-0043 decision 5: `FlushGate.valueOf(id, key)` is an Atom of the value the gate last committed for the key, set as a commit changes it. An element with no output pays one `undefined` check per commit. Live values themselves are written upstream of the gate, as this ADR's notes for #130 expected.
+ADR-0043 decision 5: `FlushGate.valueOf(id, key)` is an Atom of the element's value for the key, set as each write that changes it lands (from #130's PR 2; PR 1 set it at the commit, which left a value derived from it a frame behind). An element with no output pays one `undefined` check per write. Live values themselves are written upstream of the gate, as this ADR's notes for #130 expected: from PR 2 the binding writes a Live value and a transform key in `style` through the gate, and its `style` prop never carries them.
