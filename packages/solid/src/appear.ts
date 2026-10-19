@@ -52,32 +52,43 @@ export interface MountAnimation {
   readonly reduced: boolean
 }
 
-/** A value as canonical text: object keys sorted, a function by its easing name; `None` for one with none. */
-const canonical = (value: unknown): Option.Option<string> => canonicalMatch(value)
-
-/** {@link canonical}'s cases, built once at module load: it runs per element (#69's PR 2). */
-const canonicalMatch: (value: unknown) => Option.Option<string> = Match.type<unknown>().pipe(
-  Match.when(Predicate.isFunction, (fn) => Option.map(Easing.nameOf(fn as Easing.Easing), (name) => JSON.stringify({ easing: name }))),
-  Match.when(Array.isArray, (items) => Option.map(Option.all(Arr.map(items as ReadonlyArray<unknown>, canonical)), (texts) => `[${texts.join(",")}]`)),
-  Match.when(Predicate.isObject, (record) => canonicalRecord(record as Record<string, unknown>)),
-  Match.orElse((plain) => Option.some(String(JSON.stringify(plain)))),
-)
-
-/** A record as canonical text: its defined keys in order. */
-const canonicalRecord = (record: Record<string, unknown>): Option.Option<string> => {
-  const entries: Array<readonly [string, unknown]> = Arr.filter(Rec.toEntries(record), ([, v]) => Predicate.isNotUndefined(v))
-  const sorted = Arr.sortWith(entries, (entry: readonly [string, unknown]) => entry[0], Order.String)
-  const texts: ReadonlyArray<Option.Option<string>> = Arr.map(sorted, ([key, v]) => Option.map(canonical(v), (text) => `${JSON.stringify(key)}:${text}`))
-  return Option.map(Option.all(texts), (all) => `{${all.join(",")}}`)
-}
+/** What stands in for a function with no easing name: canonical text holding it is no key. */
+const UNNAMED = "\u0000unnamed"
 
 /**
- * The mount animation's key: its starts, targets, transition and reduced motion as one canonical
- * text. `None` when the transition holds a function with no easing name (`Easing.nameOf`): the
- * server can't tell it from another, so the element keeps its Starting style.
+ * A value as canonical text: JSON with each object's keys in order, `undefined`s left out, and a
+ * function by its easing name (`Easing.nameOf`), else {@link UNNAMED}. Written directly, its cases
+ * built once at module load: it runs per element (#69's PR 2).
  */
-export const keyOf = (m: MountAnimation): Option.Option<string> =>
-  canonical({ from: m.from, to: m.to, transition: UndefinedOr.match(m.transition, { onUndefined: () => null, onDefined: (t: WardicTransition) => t }), reduced: m.reduced })
+const textOf: (value: unknown) => string = Match.type<unknown>().pipe(
+  Match.when(Predicate.isFunction, (fn) => Option.match(Easing.nameOf(fn as Easing.Easing), { onNone: () => UNNAMED, onSome: (easing) => `{"easing":${JSON.stringify(easing)}}` })),
+  Match.when(Array.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
+  Match.when(Predicate.isObject, (record) => {
+    const keys = Arr.sort(Arr.filter(Object.keys(record), (key) => Predicate.isNotUndefined((record as Record<string, unknown>)[key])), Order.String)
+    return `{${Arr.map(keys, (key) => `${JSON.stringify(key)}:${textOf((record as Record<string, unknown>)[key])}`).join(",")}}`
+  }),
+  Match.orElse((v) => String(JSON.stringify(v))),
+)
+
+/** A value as canonical text; `None` when a function in it has no easing name. */
+const canonical = (value: unknown): Option.Option<string> => Option.filter(Option.some(textOf(value)), (text) => Bool.not(text.includes(UNNAMED)))
+
+/** Each mount animation's canonical starts, targets and transition, by its `from`: both its plays share one. */
+const baseKeys = new WeakMap<Values.Values, Option.Option<string>>()
+
+/**
+ * The mount animation's key: its starts, targets and transition as one canonical text, and whether
+ * motion is reduced. `None` when the transition holds a function with no easing name
+ * (`Easing.nameOf`): the server can't tell it from another, so the element keeps its Starting style.
+ */
+export const keyOf = (m: MountAnimation): Option.Option<string> => {
+  const base = Option.getOrElse(Option.fromUndefinedOr(baseKeys.get(m.from)), () => {
+    const computed = canonical({ from: m.from, to: m.to, transition: UndefinedOr.match(m.transition, { onUndefined: () => null, onDefined: (t: WardicTransition) => t }) })
+    baseKeys.set(m.from, computed)
+    return computed
+  })
+  return Option.map(base, (text) => `${text}|reduced:${m.reduced}`)
+}
 
 /** Whether a transition repeats for ever: a tween's `repeat: Infinity`. */
 export const repeatsForever = (transition: WardicTransition | undefined): boolean =>
@@ -196,8 +207,8 @@ export const unplayable = (initial: Values.Values, to: Values.Values): Option.Op
 /** Whether a value is one the DOM reads from the element: `auto`, or a custom property. */
 const readsElement = (value: number | string): boolean => Predicate.isString(value) && /\bauto\b|var\(/.test(value)
 
-/** Whether two values' numbers are in the same units, place by place. */
-const sameUnits = (a: number | string, b: number | string): boolean => unitsOf(a) === unitsOf(b) || Predicate.isNumber(a) || Predicate.isNumber(b)
+/** Whether two values' numbers are in the same units, place by place: a bare number takes any. */
+const sameUnits = (a: number | string, b: number | string): boolean => Predicate.isNumber(a) || Predicate.isNumber(b) || unitsOf(a) === unitsOf(b)
 
 const unitsOf = (value: number | string): string => Array.from(String(value).matchAll(/\d([a-z%]*)/gi), (m) => m[1]).join(",")
 
@@ -398,15 +409,15 @@ export const enterServer = (
   appear: ServerAppear,
   el: ServerElement,
 ): { readonly animation: Option.Option<string>; readonly group: Option.Option<AppearGroup>; readonly veto: (reason: string) => void } => {
-  const animation = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
-    Option.flatMap(el.to, (to) => {
-      const moving = Rec.filter(to, (target, key) => Bool.not(el.initial[key] === target))
-      return Bool.match(Rec.isEmptyRecord(moving), {
-        onTrue: () => Option.none(),
-        onFalse: () => Option.some(playable(el, to, reduced)),
-      })
-    })
-  const { entry, animation: inline } = appear.enter({ normal: animation(false), reduced: animation(true) }, el.group)
+  // Its starts and targets once, both plays sharing them (and so their key's text, `keyOf`).
+  const mount = Option.flatMap(el.to, (to) =>
+    Bool.match(Rec.isEmptyRecord(Rec.filter(to, (target, key) => Bool.not(el.initial[key] === target))), {
+      onTrue: () => Option.none(),
+      onFalse: () => Option.some(playable(el, to)),
+    }))
+  const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
+    Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced })))
+  const { entry, animation: inline } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
   return {
     animation: inline,
     group: Option.liftPredicate(entry, () => el.leads).pipe(Option.map((leader) => appear.group(leader, el.ownTransition))),
@@ -416,34 +427,27 @@ export const enterServer = (
   }
 }
 
+/** An element's starts and targets, or why its mount animation can't play before hydration (decision 4). */
+const playable = (el: ServerElement, to: Values.Values): Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> => playableMatch({ el, to })
+
+/** {@link playable}'s cases, built once at module load: it runs per element (#69's PR 2). */
+const playableMatch: (input: { readonly el: ServerElement; readonly to: Values.Values }) => Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> =
+  Match.type<{ readonly el: ServerElement; readonly to: Values.Values }>().pipe(
+    Match.when({ el: { appear: false } }, () => Result.fail("appear={false}")),
+    Match.when({ el: { layout: true } }, () => Result.fail("a layout node is measured at mount")),
+    Match.orElse(({ el, to }) =>
+      Option.match(unplayable(el.initial, to), {
+        onSome: (reason): Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> => Result.fail(reason),
+        onNone: () => Result.succeed({ from: Rec.map(to, (target, key) => Option.getOrThrow(OwnValues.valueLike(el.initial[key] as number | string, target))), to }),
+      })),
+  )
+
 /** Whether a user style sets an `animation` of its own: the element's one CSS animation would be taken. */
 export const setsAnimation: (css: object | string | undefined) => boolean = Match.type<object | string | undefined>().pipe(
   Match.when(Predicate.isString, (text) => /(^|;)\s*animation(-name)?\s*:/i.test(text)),
   Match.when(Predicate.isObject, (record) => Bool.or(Object.hasOwn(record, "animation"), Object.hasOwn(record, "animationName"))),
   Match.orElse(() => false),
 )
-
-/** An element's mount animation, or why it can't play before hydration (decision 4). */
-const playable = (el: ServerElement, to: Values.Values, reduced: boolean): Result.Result<MountAnimation, string> => playableMatch({ el, to, reduced })
-
-/** {@link playable}'s cases, built once at module load: it runs per element (#69's PR 2). */
-const playableMatch: (input: { readonly el: ServerElement; readonly to: Values.Values; readonly reduced: boolean }) => Result.Result<MountAnimation, string> =
-  Match.type<{ readonly el: ServerElement; readonly to: Values.Values; readonly reduced: boolean }>().pipe(
-    Match.when({ el: { appear: false } }, () => Result.fail("appear={false}")),
-    Match.when({ el: { layout: true } }, () => Result.fail("a layout node is measured at mount")),
-    Match.orElse(({ el, to, reduced }) =>
-      Option.match(unplayable(el.initial, to), {
-        onSome: (reason): Result.Result<MountAnimation, string> => Result.fail(reason),
-        onNone: () =>
-          Result.succeed({
-            tag: el.tag,
-            from: Rec.map(to, (target, key) => Option.getOrThrow(OwnValues.valueLike(el.initial[key] as number | string, target))),
-            to,
-            transition: el.transition,
-            reduced,
-          }),
-      })),
-  )
 
 // --- The Handoff -------------------------------------------------------------------------------
 
