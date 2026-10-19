@@ -7,8 +7,8 @@
  *   element a slot, whose `animation` goes in its inline style, and writes the head's `<style>`
  *   text once the render has defined each slot's timing.
  * - **At mount:** `find` the element's animation, check it `matches` the client's own spec, start
- *   the run `elapsedOf` it in (`Machine.startAt`), and `release` it in the task that writes the
- *   engine's first frame.
+ *   the run `elapsedOf` it in (`Machine.startAt`), and `release` the element in the task that
+ *   writes the engine's first frame.
  *
  * `@wardic/dom/Appear` (ADR-0041).
  */

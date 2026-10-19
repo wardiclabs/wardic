@@ -115,7 +115,7 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
         const before = drawn(element)
         const frame = at(spec.machine, Appear.elapsedOf(animation))
         for (const [key, value] of Object.entries(project(frame))) element.style.setProperty(key, String(value))
-        Appear.release(element, animation)
+        Appear.release(element)
         resolve({ before, after: drawn(element) })
       }))
     expect(Math.abs(handoff.after.y - handoff.before.y)).toBeLessThanOrEqual(0.11)

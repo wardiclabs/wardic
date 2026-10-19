@@ -391,11 +391,11 @@ export const elapsedOf = (animation: Animation): number =>
   })
 
 /**
- * The Handoff's last step: the element's inline `animation` removed and the CSS animation cancelled,
- * in the task that writes the engine's first frame, so no paint falls between (decision 6). While it
- * ran, its value beat the inline style the engine writes.
+ * The Handoff's last step: the element's inline `animation` removed, in the task that writes the
+ * engine's first frame, so no paint falls between (decision 6). While it ran, its value beat the
+ * inline style the engine writes. The removal ends the CSS animation at that task's style update; a
+ * `cancel()` too changed nothing (a mutation, #48's PR 1).
  */
-export const release = (element: ElementCSSInlineStyle, animation: Animation): void => {
+export const release = (element: ElementCSSInlineStyle): void => {
   element.style.removeProperty("animation")
-  animation.cancel()
 }
