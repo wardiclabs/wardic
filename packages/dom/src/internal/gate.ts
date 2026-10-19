@@ -87,6 +87,15 @@ export interface FlushSink {
    * before this returns.
    */
   readonly onHeld?: ((keys: ReadonlyArray<string>) => void) | undefined
+  /**
+   * Called once per frame in which the element's values were committed, after every commit of that
+   * frame (#233, ADR-0043 *Amendment (#233, #234)*: Motion's `onUpdate`), with its values before
+   * projection (`x` as a number). The object is the element's own, reused each call: valid during
+   * the call, copied to keep. A Measure pass's commits are told at the frame flush after them, so
+   * a frame tells each element once. A write it makes is the next frame's. A throw is reported,
+   * and the others are still told.
+   */
+  readonly onCommit?: ((values: Readonly<Record<string, unknown>>) => void) | undefined
 }
 
 /** Accumulated pre-`project` state for one registered element. */
@@ -105,6 +114,8 @@ interface Entry {
   readonly committed: Map<string, string>
   /** Its keys' live outputs (`valueOf`), or `undefined` while nothing asked for one. */
   outputs: Map<string, Output> | undefined
+  /** The values its sink's `onCommit` is told, one object reused, made on the first call. */
+  latest: Record<string, unknown> | undefined
 }
 
 /** One key's live output: its Atom, the value last set on it, and its mount in the registry. */
@@ -233,6 +244,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   let frame: unknown
   // The ids written while a `flushPass` pass runs; `undefined` otherwise.
   let recording: Set<string> | undefined
+  // The entries committed since the last frame flush whose sink has an `onCommit` (#233).
+  const committedSince = new Set<Entry>()
 
   /**
    * Project and commit one dirty entry (once per element per flush), marking it clean. Plain
@@ -272,6 +285,31 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       sink.onHeld(Array.from(committed.keys()))
     }
     commit(target, patch)
+    if (Predicate.isNotUndefined(sink.onCommit)) committedSince.add(entry)
+  }
+
+  /**
+   * Tell each entry committed since the last frame flush, once, after every commit of this one
+   * (#233). Its values are copied into its own reused object, so its sink never holds the gate's.
+   */
+  const tellCommitted = (): void => {
+    for (const entry of committedSince) {
+      const onCommit = entry.sink.onCommit
+      if (Predicate.isUndefined(onCommit)) continue
+      let latest = entry.latest
+      if (Predicate.isUndefined(latest)) {
+        latest = {}
+        entry.latest = latest
+      }
+      for (const key in latest) if (!Object.hasOwn(entry.values, key)) delete latest[key]
+      Object.assign(latest, entry.values)
+      try {
+        onCommit(latest)
+      } catch (defect) {
+        runtime.runFork(reportFailure("wardic.gate: an onCommit failed", Cause.die(defect)))
+      }
+    }
+    committedSince.clear()
   }
 
   /**
@@ -313,6 +351,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       // Every dirty element, once. No auto-reschedule — the next write() does. A write()
       // from an effect a sink's hook runs requests the next frame (it isn't stranded).
       for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
+      if (committedSince.size > 0) tellCommitted()
     } catch (defect) {
       runtime.runFork(reportFailure("wardic.gate: a flush failed", Cause.die(defect)))
     }
@@ -336,11 +375,13 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const register: FlushGate["register"] = (id, sink) => {
-    accumulator.set(id, { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id) })
+    const entry: Entry = { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined }
+    accumulator.set(id, entry)
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {
       accumulator.delete(id)
       firstCommits.delete(id)
+      committedSince.delete(entry)
       endOutputs(id)
     }
   }
@@ -408,6 +449,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     // No `beforeFirstCommit` here: a Measure pass may write only a node's projection, and
     // dropping the Starting style then would leave its animated keys unset until the frame
     // flush (a frame later for an element mounted inside a frame). The frame flush switches.
+    // A commit here is told at the frame flush (#233): the write that made it scheduled that flush.
     for (const id of written) {
       const entry = accumulator.get(id)
       if (Predicate.isNotUndefined(entry) && entry.dirty) apply(entry)
@@ -441,6 +483,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     }
     accumulator.clear()
     firstCommits.clear()
+    committedSince.clear()
     for (const id of [...outputsById.keys()]) endOutputs(id)
   }
 

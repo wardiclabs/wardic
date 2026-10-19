@@ -6,7 +6,7 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as Machine from "@wardic/core/Machine"
-import { TestClock } from "@wardic/test"
+import { TestClock, TestProbe } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -79,38 +79,38 @@ describe("LiveValue.transform: ranges mapped through the registry (#130)", () =>
     }).pipe(Effect.provide(layer)))
 })
 
+type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
+
+/** A pushable Clock, the real Frame loop wrapped to count its live runs, and a registry. */
+const harness = () =>
+  Effect.gen(function* () {
+    const clock = yield* TestClock.pushable()
+    let live = 0
+    const count = (go: LoopShape["run"]): LoopShape["run"] =>
+      ((machine: Machine.Machine<Frame.Frame<unknown>>, sink: FrameLoop.Sink<Frame.Frame<unknown>>, options?: Machine.RunOptions) =>
+        Effect.suspend(() => {
+          live++
+          return go(machine, sink, options as Machine.RunOptions)
+        }).pipe(Effect.ensuring(Effect.sync(() => void live--)))) as unknown as LoopShape["run"]
+    const loop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync((l) => ({ ...l, run: count(l.run), runLast: count(l.runLast) }))).pipe(
+      Layer.provide(FrameLoop.layer),
+    )
+    const layer = loop.pipe(Layer.provideMerge(Layer.merge(clock.layer, AtomRegistry.layer)))
+    return { clock, layer, live: () => live }
+  })
+
+/** `n` frames of 1/60 s, each `out`'s value after it. */
+const frames = (clock: { readonly advance: (dt?: number) => Effect.Effect<void> }, registry: Context.Service.Shape<typeof AtomRegistry.AtomRegistry>, out: Atom.Atom<number>, n: number) =>
+  Effect.gen(function* () {
+    const values: Array<number> = []
+    for (let i = 0; i < n; i++) {
+      yield* clock.advance(F)
+      values.push(registry.get(out))
+    }
+    return values
+  })
+
 describe("LiveValue.spring: follows its source on the Frame loop, idle at rest (#130)", () => {
-  type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
-
-  /** A pushable Clock, the real Frame loop wrapped to count its live runs, and a registry. */
-  const harness = () =>
-    Effect.gen(function* () {
-      const clock = yield* TestClock.pushable()
-      let live = 0
-      const count = (go: LoopShape["run"]): LoopShape["run"] =>
-        ((machine: Machine.Machine<Frame.Frame<unknown>>, sink: FrameLoop.Sink<Frame.Frame<unknown>>, options?: Machine.RunOptions) =>
-          Effect.suspend(() => {
-            live++
-            return go(machine, sink, options as Machine.RunOptions)
-          }).pipe(Effect.ensuring(Effect.sync(() => void live--)))) as unknown as LoopShape["run"]
-      const loop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync((l) => ({ ...l, run: count(l.run), runLast: count(l.runLast) }))).pipe(
-        Layer.provide(FrameLoop.layer),
-      )
-      const layer = loop.pipe(Layer.provideMerge(Layer.merge(clock.layer, AtomRegistry.layer)))
-      return { clock, layer, live: () => live }
-    })
-
-  /** `n` frames of 1/60 s, each `out`'s value after it. */
-  const frames = (clock: { readonly advance: (dt?: number) => Effect.Effect<void> }, registry: Context.Service.Shape<typeof AtomRegistry.AtomRegistry>, out: Atom.Atom<number>, n: number) =>
-    Effect.gen(function* () {
-      const values: Array<number> = []
-      for (let i = 0; i < n; i++) {
-        yield* clock.advance(F)
-        values.push(registry.get(out))
-      }
-      return values
-    })
-
   it.effect("SP1: it starts where its source is, and nothing runs until the source moves", () =>
     Effect.gen(function* () {
       const h = yield* harness()
@@ -203,6 +203,130 @@ describe("LiveValue.spring: follows its source on the Frame loop, idle at rest (
         yield* frames(h.clock, registry, out, 5)
         expect(registry.get(out)).toBe(at)
         expect(h.live()).toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+})
+
+describe("LiveValue.scroll: Motion's four values from the Environment's Probe.scroll (#234)", () => {
+  it.effect("PS7: scrollX, scrollY and their progress follow the Probe's scroll as it's set", () =>
+    Effect.gen(function* () {
+      const probe = yield* TestProbe.pushable()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const v = yield* LiveValue.scroll()
+        const read = () => [registry.get(v.scrollX), registry.get(v.scrollY), registry.get(v.scrollXProgress), registry.get(v.scrollYProgress)]
+        expect(read(), "a page that doesn't scroll").toEqual([0, 0, 1, 1])
+        const heard: Array<number> = []
+        registry.subscribe(v.scrollYProgress, (p) => void heard.push(p))
+        yield* probe.pushScroll({ x: { current: 10, length: 100, progress: 0.1 }, y: { current: 300, length: 600, progress: 0.5 } })
+        expect(read()).toEqual([10, 300, 0.1, 0.5])
+        expect(heard).toEqual([0.5])
+      }).pipe(Effect.scoped, Effect.provide(Layer.merge(probe.layer, AtomRegistry.layer)))
+    }))
+})
+
+describe("LiveValue.velocity: a value's velocity per frame while it moves (#234)", () => {
+  it.effect("VE1: 0 to begin with, and nothing runs until the source moves", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(5)
+        const out = yield* LiveValue.velocity(source)
+        expect(yield* frames(h.clock, registry, out, 3)).toEqual([0, 0, 0])
+        expect(h.live()).toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE2: each tick reads the change since the tick before over its dt; the first still tick reads 0 and ends the run", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const out = yield* LiveValue.velocity(source)
+        const values: Array<number> = []
+        for (const v of [1, 3, 6]) {
+          registry.set(source, v)
+          values.push(...(yield* frames(h.clock, registry, out, 1)))
+        }
+        expect(h.live(), "running while it moves").toBe(1)
+        values.push(...(yield* frames(h.clock, registry, out, 2)))
+        expect(values.map((v) => Math.round(v))).toEqual([60, 120, 180, 0, 0])
+        expect(h.live(), "ended at the first still tick").toBe(0)
+        registry.set(source, 7)
+        expect(Math.round((yield* frames(h.clock, registry, out, 1))[0]!), "a new run from where it rested").toBe(60)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE3: velocity of a velocity is acceleration", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const v = yield* LiveValue.velocity(source)
+        const a = yield* LiveValue.velocity(v)
+        const accelerations: Array<number> = []
+        for (const x of [1, 3, 6]) {
+          registry.set(source, x)
+          accelerations.push(...(yield* frames(h.clock, registry, a, 1)))
+        }
+        // Velocity 60, 120, 180 a second: acceleration 3600 a second squared, from the second tick on.
+        expect(accelerations.slice(1).map((x) => Math.round(x))).toEqual([3600, 3600])
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE4: closing its Scope ends the run and the subscription", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const scope = yield* Scope.make()
+        const out = yield* LiveValue.velocity(source).pipe(Scope.provide(scope))
+        registry.subscribe(out, () => {})
+        registry.set(source, 1)
+        yield* frames(h.clock, registry, out, 1)
+        yield* Scope.close(scope, Exit.void)
+        expect(h.live()).toBe(0)
+        registry.set(source, 2)
+        yield* frames(h.clock, registry, out, 2)
+        expect(h.live()).toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+})
+
+describe("LiveValue.time: milliseconds of wall time (#234)", () => {
+  it.effect("TI1: adds each tick's dt in ms, unclamped: a 2 s stall counts in full", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const out = yield* LiveValue.time()
+        expect(registry.get(out)).toBe(0)
+        const first = yield* frames(h.clock, registry, out, 3)
+        expect(first.map((ms) => Math.round(ms * 1000) / 1000)).toEqual([16.667, 33.333, 50])
+        yield* h.clock.advance(2)
+        expect(Math.round(registry.get(out))).toBe(2050)
+        expect(h.live(), "one run, never settling").toBe(1)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("TI2: closing its Scope ends the run", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const scope = yield* Scope.make()
+        const out = yield* LiveValue.time().pipe(Scope.provide(scope))
+        registry.subscribe(out, () => {})
+        yield* frames(h.clock, registry, out, 2)
+        yield* Scope.close(scope, Exit.void)
+        expect(h.live()).toBe(0)
+        const at = registry.get(out)
+        yield* frames(h.clock, registry, out, 2)
+        expect(registry.get(out)).toBe(at)
       }).pipe(Effect.scoped, Effect.provide(h.layer))
     }))
 })
