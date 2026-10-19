@@ -10,7 +10,8 @@
  * after the event.
  *
  * A reader with a `target` or an `offset` reads its progress on `axis` through Motion's offsets
- * (`render/dom/scroll/offsets` in framer-motion 13.4.0, ported): each stop resolves to a scroll
+ * (`ScrollOffset`, the DOM's syntax; `render/dom/scroll/offsets` in framer-motion 13.4.0, ported):
+ * each stop resolves to a scroll
  * position, the target's edge (in the target's length, from where it sits in the container) less
  * the container's edge (in the container's), and progress runs piecewise between them, clamped.
  *
@@ -30,6 +31,7 @@ import * as Rec from "effect/Record"
 import type * as Scope from "effect/Scope"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as ScrollOffset from "../ScrollOffset.ts"
 
 /** A container's listeners and the readers they measure for. */
 interface Container {
@@ -52,7 +54,7 @@ const isNamed = (edge: string): boolean => Object.hasOwn(NAMED_EDGES, edge)
 
 /** One edge and the length it's a part of. */
 interface Edge {
-  readonly edge: Probe.ScrollEdge
+  readonly edge: ScrollOffset.Edge
   readonly length: number
 }
 
@@ -63,20 +65,20 @@ interface Edge {
  */
 const edgeOffset: (edge: Edge) => number = Match.type<Edge>().pipe(
   Match.when({ edge: Match.number }, ({ edge, length }) => length * edge),
-  Match.when({ edge: (e: Probe.ScrollEdge) => Predicate.isString(e) && isNamed(e) }, ({ edge, length }) =>
+  Match.when({ edge: (e: ScrollOffset.Edge) => Predicate.isString(e) && isNamed(e) }, ({ edge, length }) =>
     length * Option.getOrElse(Rec.get(NAMED_EDGES, String(edge)), () => 0)),
-  Match.when({ edge: (e: Probe.ScrollEdge) => Predicate.isString(e) && Str.endsWith("px")(e) }, ({ edge }) => Number.parseFloat(String(edge))),
-  Match.when({ edge: (e: Probe.ScrollEdge) => Predicate.isString(e) && Str.endsWith("%")(e) }, ({ edge, length }) =>
+  Match.when({ edge: (e: ScrollOffset.Edge) => Predicate.isString(e) && Str.endsWith("px")(e) }, ({ edge }) => Number.parseFloat(String(edge))),
+  Match.when({ edge: (e: ScrollOffset.Edge) => Predicate.isString(e) && Str.endsWith("%")(e) }, ({ edge, length }) =>
     (length * Number.parseFloat(String(edge))) / 100),
-  Match.when({ edge: (e: Probe.ScrollEdge) => Predicate.isString(e) && Str.endsWith("vw")(e) }, ({ edge }) =>
+  Match.when({ edge: (e: ScrollOffset.Edge) => Predicate.isString(e) && Str.endsWith("vw")(e) }, ({ edge }) =>
     (Number.parseFloat(String(edge)) / 100) * document.documentElement.clientWidth),
-  Match.when({ edge: (e: Probe.ScrollEdge) => Predicate.isString(e) && Str.endsWith("vh")(e) }, ({ edge }) =>
+  Match.when({ edge: (e: ScrollOffset.Edge) => Predicate.isString(e) && Str.endsWith("vh")(e) }, ({ edge }) =>
     (Number.parseFloat(String(edge)) / 100) * document.documentElement.clientHeight),
   Match.orElse(({ edge, length }) => length * Number.parseFloat(String(edge))),
 )
 
 /** A stop's two edges, the target's then the container's. */
-type Pair = readonly [Probe.ScrollEdge, Probe.ScrollEdge]
+type Pair = readonly [ScrollOffset.Edge, ScrollOffset.Edge]
 
 /** A one-string stop's edges: two with a space, else a name for both, else the target's against the container's start. */
 const pairOfString = (stop: string): Pair =>
@@ -89,14 +91,14 @@ const pairOfString = (stop: string): Pair =>
   })
 
 /** A stop's edges (Motion's `resolveOffset`): a pair as it is, a number for both, a string as {@link pairOfString} reads it. */
-const pairOf: (stop: Probe.ScrollOffset[number]) => Pair = Match.type<Probe.ScrollOffset[number]>().pipe(
+const pairOf: (stop: ScrollOffset.Stop) => Pair = Match.type<ScrollOffset.Stop>().pipe(
   Match.when(Match.number, (n): Pair => [n, n]),
   Match.when(Match.string, (s) => pairOfString(Str.trim(s))),
   Match.orElse((pair) => pair as Pair),
 )
 
 /** A stop as a scroll position: where the target's edge meets the container's. */
-const positionOf = (stop: Probe.ScrollOffset[number], containerLength: number, targetLength: number, targetInset: number): number => {
+const positionOf = (stop: ScrollOffset.Stop, containerLength: number, targetLength: number, targetInset: number): number => {
   const [target, container] = pairOf(stop)
   return targetInset + edgeOffset({ edge: target, length: targetLength }) - edgeOffset({ edge: container, length: containerLength })
 }
@@ -185,15 +187,14 @@ const sizeOf = (target: Element): { readonly width: number; readonly height: num
 /** A container's progress on one axis with no target or offset: Motion's `progress(0, length, current)`, 1 for no range. */
 const plainProgress = (current: number, length: number): number => Bool.match(length === 0, { onTrue: () => 1, onFalse: () => current / length })
 
-/** Motion's `ScrollOffset.All`, its offset with a target and none given. */
-const DEFAULT_OFFSET: Probe.ScrollOffset = [
-  [0, 0],
-  [1, 1],
-]
-
 /** What a reader measures, for `options` on `element`. Reads layout: called in events, never per frame. */
 const measureOf = (element: Element, options: Probe.ScrollOptions): (() => Probe.Scroll) => {
-  const { axis = "y", offset = DEFAULT_OFFSET } = options
+  const { axis = "y" } = options
+  // The DOM's offset (core passes it through as the Environment's own); `All` with a target and none.
+  const offset = UndefinedOr.match(options.offset as ScrollOffset.ScrollOffset | undefined, {
+    onUndefined: () => ScrollOffset.All,
+    onDefined: (given) => given,
+  })
   const target = UndefinedOr.match(options.target as Element | undefined, { onUndefined: () => element, onDefined: (given) => given })
   // A target's progress, or an offset's through the container itself; else the plain one.
   const resolves = Bool.or(Predicate.isNotUndefined(options.target), Predicate.isNotUndefined(options.offset))

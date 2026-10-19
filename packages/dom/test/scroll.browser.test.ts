@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import { ProbeDomLive } from "../src/internal/probe.ts"
+import * as ScrollOffset from "../src/ScrollOffset.ts"
 
 const TestLayer = Layer.provideMerge(ProbeDomLive, AtomRegistry.layer)
 
@@ -104,7 +105,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
       // The target sits at 400 and is 80 tall; the box shows 100.
-      const read = (offset: Probe.ScrollOffset | undefined, top: number) =>
+      const read = (offset: ScrollOffset.ScrollOffset | undefined, top: number) =>
         Effect.gen(function* () {
           const options: Probe.ScrollOptions = Object.assign({ container: s.box, target: s.target }, offset !== undefined && { offset })
           const atom = yield* probe.scroll(options).pipe(Scope.provide(scope))
@@ -112,7 +113,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
           return registry.get(atom).y.progress
         })
       // "start end" → "end start": from 400 − 100 = 300 to 400 + 80 = 480.
-      const through: Probe.ScrollOffset = ["start end", "end start"]
+      const through: ScrollOffset.ScrollOffset = ["start end", "end start"]
       expect(yield* read(through, 300)).toBe(0)
       expect(yield* read(through, 390)).toBeCloseTo(0.5, 9)
       expect(yield* read(through, 480)).toBe(1)
@@ -133,8 +134,8 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       expect(yield* read(["start end", "40px end", "end start"], 340)).toBeCloseTo(0.5, 9)
       expect(yield* read(["start end", "40px end", "end start"], 410)).toBeCloseTo(0.75, 9)
       // Presets: Enter runs while the target comes in, 300 → 380.
-      expect(yield* read(Probe.ScrollOffsets.Enter, 340)).toBeCloseTo(0.5, 9)
-      expect(yield* read(Probe.ScrollOffsets.Exit, 440)).toBeCloseTo(0.5, 9) // 400 → 480
+      expect(yield* read(ScrollOffset.Enter, 340)).toBeCloseTo(0.5, 9)
+      expect(yield* read(ScrollOffset.Exit, 440)).toBeCloseTo(0.5, 9) // 400 → 480
       yield* Scope.close(scope, Exit.void)
       s.remove()
     }))

@@ -49,6 +49,7 @@ export * as Style from "./Style.ts"
 export * as Svg from "./Svg.ts"
 export * as Color from "./Color.ts"
 export * as Variables from "./Variables.ts"
+export * as ScrollOffset from "./ScrollOffset.ts"
 export * as OwnValues from "./OwnValues.ts"
 export * as Report from "./Report.ts"
 

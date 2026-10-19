@@ -45,54 +45,18 @@ export interface Scroll {
   readonly y: ScrollAxis
 }
 
-/**
- * One edge of a scroll offset, Motion's syntax: a name the Environment knows (the DOM's `start`,
- * `center`, `end`), a fraction of the length, or a length in the Environment's units (the DOM's
- * `"100px"`, `"50%"`, `"10vh"`). Core carries it as given; the Environment resolves it.
- */
-export type ScrollEdge = string | number
-
-/**
- * Where a target's progress runs, Motion's `offset`: two stops or more, each a pair of edges
- * (`[target, container]`: the target's edge meeting the container's), a string of both (`"start
- * end"`), or one edge for both. Progress runs from 0 at the first stop to 1 at the last, evenly
- * between them.
- */
-export type ScrollOffset = ReadonlyArray<ScrollEdge | readonly [ScrollEdge, ScrollEdge]>
-
-/** Motion's offset presets, as fractions: `Enter` while a target comes into its container, `Exit` while it leaves. */
-export const ScrollOffsets: {
-  readonly Enter: ScrollOffset
-  readonly Exit: ScrollOffset
-  readonly Any: ScrollOffset
-  readonly All: ScrollOffset
-} = {
-  Enter: [
-    [0, 1],
-    [1, 1],
-  ],
-  Exit: [
-    [0, 0],
-    [1, 0],
-  ],
-  Any: [
-    [1, 0],
-    [0, 1],
-  ],
-  All: [
-    [0, 0],
-    [1, 1],
-  ],
-}
-
 /** What {@link Probe}'s `scroll` reads, Motion's `scroll` options. */
 export interface ScrollOptions {
   /** The scroll container: the Environment's page when left out. */
   readonly container?: unknown
   /** An element whose progress through the container `progress` reads, on `axis`. */
   readonly target?: unknown
-  /** Where the target's progress runs ({@link ScrollOffset}); {@link ScrollOffsets}`.All` with a target. */
-  readonly offset?: ScrollOffset
+  /**
+   * Where on `axis` the target's progress runs, from 0 to 1, in the Environment's own terms, which
+   * it reads and resolves (the DOM's: `@wardic/dom/ScrollOffset`). Core passes it through, as it
+   * does `container` and `target`.
+   */
+  readonly offset?: unknown
   /** The axis `target` and `offset` apply to. Default `"y"`. */
   readonly axis?: "x" | "y"
 }

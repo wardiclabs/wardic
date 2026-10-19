@@ -91,7 +91,9 @@ ADR-0043's follow-ups (decisions 5 and 7), grilled together 2026-10-19, Q1–Q8 
    - **No compositor path:** Motion hands `scroll` to a native `ScrollTimeline` where it can; Wardic draws everything through the gate.
    - Rejected: a `Stream` (every Live value helper and `style` takes Atoms); the binding alone (React or Foldkit would each rebuild it, and core couldn't derive from it).
 2. **Motion's four values (Q2):** `LiveValue.scroll({ container, target, offset, axis })` gives `scrollX`, `scrollY`, `scrollXProgress` and `scrollYProgress`, each derived from `Probe.scroll`'s Atom; Solid's `createScroll` gives them as accessors (PR 2). A Solid container or target can be an accessor, since a ref arrives at mount; until it does the values read 0, as Motion's do while a ref is pending.
-3. **`target` and `offset` in full (Q3):** Motion's syntax, its named edges (`start`, `center`, `end`), fractions, `px`, `%`, `vw` and `vh`, a lone edge, more than two stops, and the presets (`Probe.ScrollOffsets`: `Enter`, `Exit`, `Any`, `All`). The DOM resolves them (they read its layout: a target's offsets up to the container, the viewport); core carries them as plain strings and numbers, with no CSS meaning (ADR-0035's rule). With a `target` and no `offset`, `All`; `axis` (default `"y"`) is the axis they resolve on, the other keeping the container's plain progress.
+3. **`target` and `offset` in full (Q3):** Motion's syntax, its named edges (`start`, `center`, `end`), fractions, `px`, `%`, `vw` and `vh`, a lone edge, more than two stops, and the presets (`Enter`, `Exit`, `Any`, `All`). With a `target` and no `offset`, `All`; `axis` (default `"y"`) is the axis they resolve on, the other keeping the container's plain progress.
+   - **The syntax is the DOM's alone** (decided on review, 2026-10-19, A): core's `ScrollOptions.offset` is `unknown`, an offset in the Environment's own terms, passed through as `container` and `target` are. `@wardic/dom/ScrollOffset` types Motion's syntax and holds the presets, beside the DOM's resolution, which reads its layout (a target's offsets up to the container, the viewport). A binding types its helper's `offset` from it. The first build typed and documented the syntax in core, names and CSS units included; nothing DOM- or CSS-specific belongs in core, as #158 and #160 settled for `var()` and colours, and a native Environment has no `vh`.
+   - Rejected: a neutral offset model in core (fractions, distances and viewport shares), which the DOM would translate Motion's strings into: more to design, and the viewport share is still read at measure time; all of scroll in dom, which would undo decision 1.
 4. **Velocity per frame, on the Frame loop (Q4):** `LiveValue.velocity(source)`, 0 to begin with. A change starts a run that sets, each tick, the source's change since the end of the tick before over the tick's `dt` (clamped at `MAX_DT`, as every run's step is); the first tick with no change sets 0 and ends the run.
    - **"The end of the tick before"** is read by an `afterTick` hook. A run started inside a tick (a velocity of a value another run moves) takes its first step at the next one, and measured from its own last read it counted two frames' change over one `dt`: acceleration read 7200 where 3600 was right (VE3).
    - Velocity is a value too: `velocity(velocity(x))` is acceleration, Motion's own example.
@@ -107,6 +109,7 @@ ADR-0043's follow-ups (decisions 5 and 7), grilled together 2026-10-19, Q1–Q8 
 ### Consequences
 
 - **`Probe` gains `scroll`:** every Environment provides it. The DOM's sets it in its events; `TestProbe`'s holds one Atom for every container, `pushable`'s `pushScroll` sets it.
+- **dom gains `ScrollOffset`:** Motion's offset syntax and its presets, the type a binding's `scroll` helper takes for `offset`.
 - **`FlushSink` gains `onCommit`:** an element without one pays a property check per commit.
 - **`LiveValue.spring` builds a run only after a rest** (a change while one runs costs a check), as `velocity` does: the first `velocity` rebuilt its run on every change while running and cost 351 µs a frame at 1,000.
 
@@ -120,7 +123,7 @@ ADR-0043's follow-ups (decisions 5 and 7), grilled together 2026-10-19, Q1–Q8 
 
 ### Implementation
 
-**PR 1** (core and dom): `Probe`'s `scroll` contract and `ScrollOffsets` in core; `packages/dom/src/internal/scroll.ts`; `LiveValue.scroll`, `velocity` and `time`; `onCommit` in `packages/dom/src/internal/gate.ts`; `TestProbe`'s `scroll` and `pushScroll`.
+**PR 1** (core and dom): `Probe`'s `scroll` contract in core; `packages/dom/src/ScrollOffset.ts` and `packages/dom/src/internal/scroll.ts`; `LiveValue.scroll`, `velocity` and `time`; `onCommit` in `packages/dom/src/internal/gate.ts`; `TestProbe`'s `scroll` and `pushScroll`.
 - **Measured** (`.tmp/234/velocity-cost.ts`, per frame on the Frame loop, 1,000, Bun, median of 400 warm frames):
   - 1,000 velocities of moving sources: 135 µs, the sources' own sets 26 of it: about 0.11 µs a velocity a frame. Idle while the loop ticks for something else: no cost beyond their `afterTick` hooks, below the sets' control. Setting up 1,000: 13–15 ms.
   - One `time`: 4 µs a frame; 1,000: 62 µs.
