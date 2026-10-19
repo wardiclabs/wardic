@@ -226,9 +226,9 @@ describe("the sampler (#48, ADR-0044)", () => {
 
   it("AP11: an element's animation value; a rule that settles at once is one stop of 0 s", () => {
     const rule = ok(Appear.keyframes({ key: "AP11", tag: "div", machine: () => rise() }))
-    expect(Appear.animationOf(rule, 0.25)).toBe(`${rule.name} ${Number(rule.duration.toFixed(4))}s linear 0.25s 1 both`)
+    expect(Appear.animationOf(rule, 0.25)).toBe(`${rule.name} ${Number(rule.duration.toFixed(4))}s linear 0.25s 1 forwards`)
     const loop = ok(Appear.keyframes({ key: "AP11 loop", tag: "div", infinite: true, machine: () => tweenValues({ rotate: 0 }, { rotate: 360 }, { duration: 1 }) }))
-    expect(Appear.animationOf(loop, 0)).toBe(`${loop.name} 1s linear 0s infinite both`)
+    expect(Appear.animationOf(loop, 0)).toBe(`${loop.name} 1s linear 0s infinite forwards`)
     const snap = Machine.make<Frame.Frame<Values.Values>>({ settles: true, span: { name: "t", attributes: {} }, start: () => () => ({ value: { x: 20 }, done: true }) })
     const at = ok(Appear.keyframes({ key: "AP11 snap", tag: "div", machine: () => snap }))
     expect(at.duration).toBe(0)
