@@ -401,7 +401,7 @@ describe("dragChecksOf", () => {
     expect(cut.flight?.landed).toBe(false)
   })
 
-  it("doesn't take a slide that passes an older move's place for a landing (the default scheduler's hop)", () => {
+  it("doesn't take a slide that passes an older move's place for a landing", () => {
     // The pointer moves 6px down a frame, the way the flight goes; at frame 3 the item, 6px
     // short of its landing, sits exactly where the move before the newest would put it.
     const down: ReadonlyArray<DragMove> = [0, 1, 2, 3, 4, 5].map((k) => ({ t: frameAtOf(k) + 8, frame: k, dx: 0, dy: 6 + 6 * k }))
@@ -410,7 +410,7 @@ describe("dragChecksOf", () => {
       frameOf(0, toward(GRAB, FLIGHT_SLOT, 0.1), FLIGHT_SLOT),
       ...shares.map((f, i) => frameOf(1 + i, moved(toward(GRAB, FLIGHT_SLOT, f), 0, down[i]!.dy), FLIGHT_SLOT)),
     ]
-    const run = dragRunOf(input(frames, { moves: down, scheduler: "default", grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    const run = dragRunOf(input(frames, { moves: down, grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
     expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
   })
 
@@ -467,22 +467,17 @@ describe("dragChecksOf", () => {
     ])
   })
 
-  it("picks a per-scheduler expectation by the run's scheduler (default when left out)", () => {
-    const want: DragExpect = { framesBehindMax: { default: 1, microtask: 0 }, releaseHeldMax: { default: 1, microtask: 0 } }
-    const { scheduler: _, ...unset } = input(oldFrames)
-    const lagging = dragRunOf(unset, oldSpans)
-    const byName = (run: DragRun) => Object.fromEntries(dragChecksOf(run, want).map((c) => [c.name, c.ok]))
-    expect(byName(lagging)).toMatchObject({ "frames behind": true, "release held": true })
-    expect(byName({ ...lagging, scheduler: "microtask" })).toMatchObject({ "frames behind": false, "release held": false })
-  })
-
-  it("with the default scheduler, compares a frame with the move handled before the frame before (the input's hop)", () => {
+  it("judges a run the same under either scheduler: a frame one move behind is off the pointer (#128)", () => {
     // oldFrames lag one frame behind the moves: 10 px off the latest move, on the one before.
-    const exact = dragRunOf(input(oldFrames), oldSpans)
-    const hopped = dragRunOf(input(oldFrames, { scheduler: "default" }), oldSpans)
-    expect(exact.underPointerMaxPx).toBe(10)
-    expect(hopped.underPointerMaxPx).toBe(0)
-    expect(hopped.framesBehindMax).toBe(exact.framesBehindMax) // the lag itself still reads 1
+    // Before #128 the default scheduler's hop let a frame show the move before, and this read 0.
+    const microtask = dragRunOf(input(oldFrames, { scheduler: "microtask" }), oldSpans)
+    const fallback = dragRunOf(input(oldFrames, { scheduler: "default" }), oldSpans)
+    const { scheduler: _, ...unset } = input(oldFrames)
+    for (const run of [microtask, fallback, dragRunOf(unset, oldSpans)]) {
+      expect(run.underPointerMaxPx).toBe(10)
+      expect(run.framesBehindMax).toBe(1)
+      expect(textsOf(run, S11_EXPECT).slice(0, 2)).toEqual(textsOf(microtask, S11_EXPECT).slice(0, 2))
+    }
   })
 
   it("says so on the under-pointer line when the pointer left the item", () => {
@@ -1004,12 +999,11 @@ describe("Lab.recordDragRun", () => {
   })
 })
 
-// #44 (scenario 14): a move can show with no hop. A reorder's Measure pass flushes the
-// dragged item at once (flushPass), and a scroll during the hold reaches the drag inside
-// the frame's own scroll steps, so a frame can show the newest move, not only the one the
-// default scheduler's hop leaves it. Under pointer accepts either: the item is where one
-// of the moves it could show put it.
-describe("dragRunOf: a move shown with no hop (#44)", () => {
+// #44 (scenario 14): a move shows in the frame after it's handled. A reorder's Measure pass
+// flushes the dragged item at once (flushPass), and a scroll during the hold reaches the drag
+// inside the frame's own scroll steps. Since #128 every frame is held to that, under either
+// scheduler: before #32 the default scheduler's hop let it show the move before as well.
+describe("dragRunOf: a move shown in the next frame (#44, #128)", () => {
   const GRAB44: Box = box(16, 60, 180, 36)
   const at = (dy: number): Box => moved(GRAB44, 0, dy)
   const move44 = (frame: number, dy: number): DragMove => ({ t: 16 * frame + 8, frame, dx: 0, dy, buttons: 1 })
@@ -1027,8 +1021,8 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
     scheduler: "default",
   })
 
-  it("a frame showing the newest move (a pass flushed it at once) is under the pointer", () => {
-    // Moves of 6px at frames 1..6; frame 5 shows the move handled at frame 4 (no hop), the rest one frame late.
+  it("a frame showing the newest move handled before it (a pass flushed it at once) is under the pointer", () => {
+    // Moves of 6px at frames 1..6, each shown by the frame after the one it's handled in.
     const moves = [1, 2, 3, 4, 5, 6].map((k) => move44(k, 6 * k))
     const frames = [
       frame44(2, at(6)),
@@ -1039,7 +1033,18 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
       frame44(7, at(36)),
       frame44(8, at(36)),
     ]
-    expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeLessThanOrEqual(1)
+    for (const scheduler of ["default", "microtask"] as const) {
+      expect(dragRunOf({ ...input44(frames, moves), scheduler }, []).underPointerMaxPx).toBe(0)
+    }
+  })
+
+  it("a frame showing the move before the newest is a move's step off, under either scheduler", () => {
+    const moves = [1, 2, 3, 4, 5, 6].map((k) => move44(k, 6 * k))
+    // Frame 5 shows move 3, the one before the newest handled before it.
+    const frames = [frame44(2, at(6)), frame44(3, at(12)), frame44(4, at(18)), frame44(5, at(18)), frame44(6, at(30)), frame44(7, at(36))]
+    for (const scheduler of ["default", "microtask"] as const) {
+      expect(dragRunOf({ ...input44(frames, moves), scheduler }, []).underPointerMaxPx).toBe(6)
+    }
   })
 
   it("a frame whose scroller scrolled since the last read isn't judged under pointer or frames behind", () => {
@@ -1058,7 +1063,7 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
     expect(run.framesBehindMax).toBeLessThanOrEqual(1)
   })
 
-  it("with the default scheduler the frame after a scrolled one isn't judged either (the compensation's hop)", () => {
+  it("the frame after a scrolled one is judged, under either scheduler (#128: no compensation hop)", () => {
     const moves = [1, 2, 3].map((k) => move44(k, 6 * k))
     const frames = [
       frame44(2, at(6)),
@@ -1067,9 +1072,9 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
       frame44(5, at(4)),
       frame44(6, at(18)),
     ]
-    expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeLessThanOrEqual(1)
-    // With no hop, the frame after is judged.
-    expect(dragRunOf({ ...input44(frames, moves), scheduler: "microtask" }, []).underPointerMaxPx).toBeGreaterThan(1)
+    for (const scheduler of ["default", "microtask"] as const) {
+      expect(dragRunOf({ ...input44(frames, moves), scheduler }, []).underPointerMaxPx).toBeGreaterThan(1)
+    }
   })
 
   it("an axis-locked drag is judged on its axis alone (a page scroll across it moves the pointer, not the item)", () => {
@@ -1080,9 +1085,10 @@ describe("dragRunOf: a move shown with no hop (#44)", () => {
     expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeGreaterThan(1)
   })
 
-  it("a frame between the moves it could show is still off the pointer", () => {
+  it("a frame part way to the move it should show is off by the rest of the way", () => {
     const moves = [1, 2, 3, 4, 5, 6].map((k) => move44(k, 6 * k))
-    const frames = [frame44(2, at(6)), frame44(3, at(12)), frame44(4, at(15)), frame44(5, at(18)), frame44(6, at(30)), frame44(7, at(36))]
+    // Frame 4 should show move 3 (18): it's at 15, between move 2's place and move 3's.
+    const frames = [frame44(2, at(6)), frame44(3, at(12)), frame44(4, at(15)), frame44(5, at(24)), frame44(6, at(30)), frame44(7, at(36))]
     expect(dragRunOf(input44(frames, moves), []).underPointerMaxPx).toBeCloseTo(3, 6)
   })
 })

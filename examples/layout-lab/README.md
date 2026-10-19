@@ -190,11 +190,11 @@ with no size limit, unlike a paste. The button only exists under `bun run dev`.
     centre and where the pointer put it (its grab-time centre plus the pointer's
     offset from where it went down), over the frames painted after the drag's
     first move and before the release. Each frame is compared with the latest move
-    handled before its rAF callback (with a browser's own scheduler, before the
-    previous frame's: a tolerance from before #32, when pointer input reached the
-    drag one `setTimeout(0)` hop late; **frames behind** reports a lag). Centres,
-    so a slot that resizes mid-drag, which the item paints at the new size about
-    the same centre, reads 0.
+    handled before its rAF callback, with either scheduler (#128: before #32 pointer
+    input reached the drag one `setTimeout(0)` hop late with a browser's own, and
+    this line allowed a frame the move before as well). Centres, so a slot that
+    resizes mid-drag, which the item paints at the new size about the same centre,
+    reads 0.
     `· the pointer left the item` means a pointer event of the press landed outside
     the item. Before #31's fix the drag lost such a pointer; since ADR-0019 it keeps
     it, so the note is information only.
@@ -586,12 +586,12 @@ expected card, with a browser's own scheduler:
 How the lines read a reorder:
 
 - **under pointer** compares the gesture's axis alone (an `x` row's item rightly
-  doesn't follow a vertical page scroll), and accepts a frame that shows the newest
-  move with no hop: a reorder's Measure pass flushes the item at once.
-- **frames behind** and **under pointer** skip frames in a scroll's wake: an
+  doesn't follow a vertical page scroll). A frame shows the newest move handled
+  before it: a reorder's Measure pass flushes the item at once (#44).
+- **frames behind** and **under pointer** skip a frame in a scroll's wake: an
   Auto-scroll step lands in the frame before the drag's compensation for it, so the
   item trails by the step there, as Motion's does (motion/react 13.4.6 trails by up
-  to 24 px).
+  to 24 px). The frame after it is judged, with either scheduler (#128).
 - **reorders** reports where the item was dropped (`dropped on the nearest slot`, or
   how many slots from it); a flick released while moving can let go past a
   neighbour's centre before its reorder, so it isn't judged.
