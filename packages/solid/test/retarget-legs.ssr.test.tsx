@@ -7,7 +7,8 @@
 // - RL2: a tween: every key in one blended leg.
 // - RL3: reduced motion: the positional keys snap first; a transition can opt out.
 // - RL4: a tween's snap lands where the tween ends: at `from` after an odd `repeat` that reverses.
-// - RL5: a following return's leg comes after the snap and before the rest, and reads its target.
+// - RL5: a following return's leg comes after the snap and before the rest, reads its target, and
+//   (a spring's) starts from its key's velocity.
 // - RL6: nothing is built until a leg's machine is called: a transition core rejects throws there.
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
@@ -112,6 +113,13 @@ describe("legsOf (#48, ADR-0044 decision 8)", () => {
     expect(follow.key).toBe("opacity")
     target = 3
     expect(settled(follow.machine() as Machine.Machine<Frame.Frame<unknown>>)).toBeCloseTo(3, 1)
+    // A spring's follow starts from its key's velocity now, as its Numbers leg would.
+    const firstStep = (velocity: number): number => {
+      const legs = legsFor({ velocities: { opacity: velocity }, follow: { keysOf: () => ["opacity"], targetOf: () => () => 1 } })
+      const chase = legs.find((leg) => leg._tag === "Follow")!.machine() as Machine.Machine<Frame.Frame<number>>
+      return chase.start()(1 / 60).value
+    }
+    expect(firstStep(30) - firstStep(0)).toBeGreaterThan(0.3)
   })
 
   it("RL6: nothing is built until a leg's machine is called: a transition core rejects throws there", () => {
