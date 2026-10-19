@@ -1,7 +1,7 @@
 // /ssr: every Wardic element kind rendered on the server, then hydrated (ADR-0021's hand
 // check, #41). Each element starts at a VISIBLE Starting style (faded, offset), so a load
 // with JavaScript disabled shows the server's paint; after hydration each animates to
-// rest. The `initial={false}` elements (#134) start at their animate instead and never move.
+// rest. Its provider sets `appear={false}` (#48): /appear checks what plays before hydration. The `initial={false}` elements (#134) start at their animate instead and never move.
 // The hydration report (src/hydration-report.ts, client-only) judges each element marked
 // `data-ssr-k` against SSR_EXPECTED (src/ssr-expected.ts).
 import { DomLive } from "@wardic/dom"
@@ -85,7 +85,9 @@ export default function SsrCheck(): JSX.Element {
   // on a server). A microtask, so every element's own mount has run first.
   onMount(() => queueMicrotask(() => window.dispatchEvent(new Event("wardic:ssr-hydrated"))))
   return (
-    <WardicProvider env={DomLive}>
+    // `appear={false}`: this route checks the Hydration hold (ADR-0021), each element at its Starting
+    // style until mount; /appear checks the Appear animations (#48) that otherwise play before it.
+    <WardicProvider env={DomLive} appear={false}>
       <main style={{ "font-family": "system-ui, sans-serif", padding: "1.5rem", "max-width": "44rem" }}>
         <h1>Server render, then hydration (#41)</h1>
         <p>
