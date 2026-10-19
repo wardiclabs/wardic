@@ -1464,7 +1464,7 @@ export function runSpine(opts: RunSpineOptions): void {
             },
           }
         })
-        onCleanup(routes.stop)
+        onCleanup(() => routes.stop())
       }
     }),
   )
@@ -1620,7 +1620,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // The element's value per key (#130, ADR-0043 decision 5): the gate's output while it holds the
   // key, else where the key rests, read when the accessor is (the user's style as last given, a
   // reactive `style` prop tracked).
-  const restingValueOf = (key: string): unknown => restingOf(key, initialValues, lastUserProps.style, live.read)
+  const restingValueOf = (key: string): unknown => restingOf(key, initialValues, lastUserProps.style, (raw) => live.read(raw))
   // One accessor a key, made on first ask: most elements ask none.
   let values: Map<string, Accessor<unknown>> | undefined
   const value = (key: string): Accessor<unknown> => {

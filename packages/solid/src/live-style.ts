@@ -22,6 +22,7 @@ import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import { constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -131,117 +132,146 @@ export interface LiveStyleOptions {
   readonly onDroppedTransform?: (() => void) | undefined
 }
 
-/** An element's {@link LiveStyle}. Creates computations for accessors while it follows; their roots are its own. */
-export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
-  const { registry, onDroppedTransform } = options
-  let routed: Readonly<Record<string, unknown>> = NOTHING_ROUTED
-  let seen: StyleInput
-  let css: StyleInput
-  let warned = false
-  let follower: Follower | undefined
+/** A {@link LiveStyle}'s state: one object per element, its methods on {@link Proto}. */
+interface State extends LiveStyle {
+  readonly registry: () => AtomRegistry.AtomRegistry
+  readonly onDroppedTransform: (() => void) | undefined
+  routed: Readonly<Record<string, unknown>>
+  seen: StyleInput
+  last: StyleInput
+  warned: boolean
+  follower: Follower | undefined
   // The follower's setup, until a key is first routed.
-  let pending: (() => Follower) | undefined
+  pending: (() => Follower) | undefined
   // While following: each routed key's stop (an Atom's unsubscribe, an accessor's root disposal),
   // made at the first watch: most elements watch none.
-  let watching: Map<string, () => void> | undefined
+  watching: Map<string, () => void> | undefined
+}
 
-  const read = (value: unknown): unknown => readLive(value, registry)
+/** Watch `key`'s live source for `to`: an Atom subscribed, an accessor in a computation of its own. */
+const watch = (self: State, key: string, source: unknown, to: Follower): void => {
+  if (Bool.not(isLive(source))) return
+  if (Predicate.isUndefined(self.watching)) self.watching = new Map()
+  if (Atom.isAtom(source)) {
+    self.watching.set(key, self.registry().subscribe(source, (value) => to.change(key, value)))
+    return
+  }
+  const accessor = source as Accessor<unknown>
+  self.watching.set(
+    key,
+    createRoot((dispose) => {
+      createComputed(on(accessor, (value) => to.change(key, value), { defer: true }))
+      return dispose
+    }),
+  )
+}
 
-  const watch = (key: string, source: unknown, to: Follower): void => {
-    if (Bool.not(isLive(source))) return
-    if (Predicate.isUndefined(watching)) watching = new Map()
-    if (Atom.isAtom(source)) {
-      watching.set(key, registry().subscribe(source, (value) => to.change(key, value)))
+const unwatch = (self: State, key: string): void => {
+  if (Predicate.isUndefined(self.watching)) return
+  const stop = self.watching.get(key)
+  if (Predicate.isUndefined(stop)) return
+  self.watching.delete(key)
+  stop()
+}
+
+/** Build the follower and watch every routed key. */
+const start = (self: State, setup: () => Follower): void => {
+  self.pending = undefined
+  const to = setup()
+  self.follower = to
+  Arr.forEach(Rec.keys(self.routed), (key) => watch(self, key, self.routed[key], to))
+}
+
+/** The routed keys now `next`: what left is removed, what's new or changed is watched and told. */
+const reconcile = (self: State, next: Readonly<Record<string, unknown>>): void => {
+  const prev = self.routed
+  // Nothing routed, as before: the usual style.
+  if (next === prev) return
+  self.routed = next
+  // The first routed key: the follower's setup writes them all.
+  if (Bool.and(Predicate.isNotUndefined(self.pending), Bool.not(Rec.isEmptyRecord(next)))) {
+    start(self, UndefinedOr.getOrThrow(self.pending))
+    return
+  }
+  const to = self.follower
+  if (Predicate.isUndefined(to)) return
+  Arr.forEach(Rec.keys(prev), (key) => {
+    if (Object.hasOwn(next, key)) return
+    unwatch(self, key)
+    to.removed(key)
+  })
+  Arr.forEach(Rec.keys(next), (key) => {
+    const source = next[key]
+    if (Bool.and(Object.hasOwn(prev, key), prev[key] === source)) return
+    unwatch(self, key)
+    watch(self, key, source, to)
+    to.change(key, readLive(source, self.registry))
+  })
+}
+
+const Proto: Omit<LiveStyle, never> & ThisType<State> = {
+  css(user) {
+    // The same style object as last time: the same answer (Solid may read `style` more than once).
+    if (Bool.and(user === this.seen, Predicate.isNotUndefined(this.seen))) return this.last
+    this.seen = user
+    const parts = split(user)
+    if (Bool.and(parts.droppedTransform, Bool.not(this.warned))) {
+      this.warned = true
+      UndefinedOr.match(this.onDroppedTransform, { onUndefined: constVoid, onDefined: (warn) => warn() })
+    }
+    this.last = parts.css
+    reconcile(this, parts.routed)
+    return this.last
+  },
+  values() {
+    return valuesOf(this.routed, this.registry)
+  },
+  routes(key) {
+    return Object.hasOwn(this.routed, key)
+  },
+  valueOf(key) {
+    return Option.map(Option.liftPredicate(this.routed, (routed) => Object.hasOwn(routed, key)), (routed) => readLive(routed[key], this.registry))
+  },
+  isLive(key) {
+    return Bool.and(Object.hasOwn(this.routed, key), isLive(this.routed[key]))
+  },
+  read(value) {
+    return readLive(value, this.registry)
+  },
+  whenRouted(setup) {
+    if (Rec.isEmptyRecord(this.routed)) {
+      this.pending = setup
       return
     }
-    if (Predicate.isFunction(source)) {
-      const accessor = source as Accessor<unknown>
-      watching.set(
-        key,
-        createRoot((dispose) => {
-          createComputed(on(accessor, (value) => to.change(key, value), { defer: true }))
-          return dispose
-        }),
-      )
-    }
-  }
-
-  const unwatch = (key: string): void => {
+    start(this, setup)
+  },
+  stop() {
+    this.follower = undefined
+    this.pending = undefined
+    const watching = this.watching
     if (Predicate.isUndefined(watching)) return
-    const stop = watching.get(key)
-    if (Predicate.isUndefined(stop)) return
-    watching.delete(key)
-    stop()
-  }
+    Arr.forEach(Arr.fromIterable(watching.keys()), (key) => unwatch(this, key))
+  },
+}
 
-  /** Build the follower and watch every routed key. */
-  const start = (setup: () => Follower): void => {
-    pending = undefined
-    const to = setup()
-    follower = to
-    Arr.forEach(Rec.keys(routed), (key) => watch(key, routed[key], to))
+/**
+ * An element's {@link LiveStyle}: one object, its methods shared, so an element that routes nothing
+ * pays for little more than it. Creates computations for accessors while it follows; their roots
+ * are its own. Call its methods on it (`live.read(v)`), not detached.
+ */
+export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
+  const state: Omit<State, keyof LiveStyle> = {
+    registry: options.registry,
+    onDroppedTransform: options.onDroppedTransform,
+    routed: NOTHING_ROUTED,
+    seen: undefined,
+    last: undefined,
+    warned: false,
+    follower: undefined,
+    pending: undefined,
+    watching: undefined,
   }
-
-  /** The routed keys now `next`: what left is removed, what's new or changed is watched and told. */
-  const reconcile = (next: Readonly<Record<string, unknown>>): void => {
-    const prev = routed
-    // Nothing routed, as before: the usual style.
-    if (next === prev) return
-    routed = next
-    // The first routed key: the follower's setup writes them all.
-    if (Bool.and(Predicate.isNotUndefined(pending), Bool.not(Rec.isEmptyRecord(next)))) {
-      start(UndefinedOr.getOrThrow(pending))
-      return
-    }
-    if (Predicate.isUndefined(follower)) return
-    const to = follower
-    Arr.forEach(Rec.keys(prev), (key) => {
-      if (Object.hasOwn(next, key)) return
-      unwatch(key)
-      to.removed(key)
-    })
-    Arr.forEach(Rec.keys(next), (key) => {
-      const source = next[key]
-      if (Bool.and(Object.hasOwn(prev, key), prev[key] === source)) return
-      unwatch(key)
-      watch(key, source, to)
-      to.change(key, read(source))
-    })
-  }
-
-  return {
-    css: (user) => {
-      // The same style object as last time: the same answer (Solid may read `style` more than once).
-      if (Bool.and(user === seen, Predicate.isNotUndefined(seen))) return css
-      seen = user
-      const parts = split(user)
-      if (Bool.and(parts.droppedTransform, Bool.not(warned))) {
-        warned = true
-        UndefinedOr.match(onDroppedTransform, { onUndefined: () => undefined, onDefined: (warn) => warn() })
-      }
-      css = parts.css
-      reconcile(parts.routed)
-      return css
-    },
-    values: () => valuesOf(routed, registry),
-    routes: (key) => Object.hasOwn(routed, key),
-    valueOf: (key) => Option.map(Option.liftPredicate(key, (k: string) => Object.hasOwn(routed, k)), (k) => read(routed[k])),
-    isLive: (key) => Bool.and(Object.hasOwn(routed, key), isLive(routed[key])),
-    read,
-    whenRouted: (setup) => {
-      if (Rec.isEmptyRecord(routed)) {
-        pending = setup
-        return
-      }
-      start(setup)
-    },
-    stop: () => {
-      follower = undefined
-      pending = undefined
-      if (Predicate.isUndefined(watching)) return
-      Arr.forEach(Arr.fromIterable(watching.keys()), unwatch)
-    },
-  }
+  return Object.assign(Object.create(Proto), state)
 }
 
 /** A server's registry, made on first need: an Atom read there gives its own initial value (ADR-0021). */
