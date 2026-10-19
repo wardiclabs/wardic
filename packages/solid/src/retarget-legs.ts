@@ -24,8 +24,9 @@ import * as Spring from "@wardic/core/Spring"
 import * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import type * as Effect from "effect/Effect"
-import { constTrue, identity } from "effect/Function"
+import * as Effect from "effect/Effect"
+import { constTrue, identity, type LazyArg } from "effect/Function"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -195,6 +196,21 @@ export const legsOf = (
   }
   return legs
 }
+
+/**
+ * `leg`, started `at()` seconds in (`Machine.startAt`): a Handoff's first legs, which pick up an
+ * Appear animation where its CSS has got (#48, ADR-0044 decision 6).
+ */
+export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => startingAtMatch({ leg, at })
+
+/** {@link startingAt}'s cases, built once at module load: it runs per element at hydration (#69's PR 2). */
+const startingAtMatch: (input: { readonly leg: Leg; readonly at: LazyArg<number> }) => Leg = Match.type<{ readonly leg: Leg; readonly at: LazyArg<number> }>().pipe(
+  Match.when({ leg: { _tag: "Blend" } }, ({ leg, at }): Leg => ({ ...leg, machine: () => Effect.map(leg.machine(), Machine.startAt(at)) })),
+  Match.orElse(({ leg, at }): Leg => {
+    const plain = leg as Exclude<Leg, Blend>
+    return { ...plain, machine: () => (plain.machine() as Machine.Machine<Frame.Frame<unknown>>).pipe(Machine.startAt(at)) } as Leg
+  }),
+)
 
 /** The snap's leg: the positional keys, from where they are to `to`, after `delay()`. */
 const snapLeg = (from: Values.Values, positional: Values.Values, to: Values.Values, delay: () => number): Snap => ({

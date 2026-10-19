@@ -46,6 +46,8 @@ declare module "vitest/browser" {
      * error's first line (the hydrate project only).
      */
     serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
+    /** `serverRender` as a page with a head: what the render put before `</head>` as `head` (#48). */
+    serverRenderPage: (file: string, exportName: string, renderId: string) => Promise<ServerRender & { readonly head: string }>
     /** Emulate `prefers-reduced-motion: reduce`, or clear it. */
     emulateReducedMotion: (reduce: boolean) => Promise<void>
   }

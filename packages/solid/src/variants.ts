@@ -19,6 +19,7 @@
  * members, so adding them never breaks existing readers (they only read the
  * fields they know about).
  */
+import type { AppearGroup } from "./appear.ts"
 import type * as Stagger from "@wardic/core/Stagger"
 import { type Accessor, createContext, useContext } from "solid-js"
 import type { WardicTransition } from "./create-ward.tsx"
@@ -104,6 +105,11 @@ export interface WardicVariantContextValue {
   readonly childrenMayStart: Accessor<boolean>
   /** Whether EVERY registered child has reported its spine as settled. */
   readonly allChildrenSettled: Accessor<boolean>
+  /**
+   * During a server render, the parent's Appear group (#48, ADR-0044 decision 5): its Variant
+   * children join it in render order, for their stagger and `when` before hydration.
+   */
+  readonly appearGroup?: AppearGroup | undefined
 }
 
 /**

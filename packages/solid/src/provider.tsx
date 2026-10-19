@@ -22,7 +22,8 @@ import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constFalse } from "effect/Function"
+import * as Bool from "effect/Boolean"
+import { constFalse, constUndefined } from "effect/Function"
 import * as Latch from "effect/Latch"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -32,9 +33,11 @@ import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
+import { useAssets } from "solid-js/web"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
+import { type ServerAppear, serverAppear } from "./appear.ts"
 import { isHydrating, isServer } from "./server.ts"
 
 /**
@@ -79,6 +82,8 @@ interface WardicContextValue {
   readonly reducedMotion: () => boolean
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
+  /** A server render's Appear animations (#48, ADR-0044); none on the client, or with `appear={false}`. */
+  readonly appear?: ServerAppear | undefined
 }
 
 /**
@@ -116,10 +121,17 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
  * would end, and the rest (opacity, colour, …) animate; a layout animation lands at once, and so
  * does a presence exit's move. It's read when each animation starts, and a transition opts out
  * with `respectReducedMotion: false`.
+ *
+ * `appear` (#48, ADR-0044), default `true`: a server render starts each element's mount animation
+ * in CSS from first paint (an **Appear animation**), sampled from Wardic's own machines into a
+ * `<style>` in the page's head, and the client takes it over at mount (the **Handoff**). With JS
+ * off it plays to its end. `appear={false}` renders every element at its Starting style until mount,
+ * as before; an element's own `appear={false}` does that for it alone. Read on the server, once.
  */
 export function WardicProvider(props: {
   readonly env: WardicEnv
   readonly reducedMotion?: ReducedMotion.Config | undefined
+  readonly appear?: boolean | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
   if (isServer) {
@@ -130,9 +142,18 @@ export function WardicProvider(props: {
     // Nothing builds it here, but an Environment that builds on a server (TestLive) could
     // be built by user code: dispose it with the render, as the client does on unmount.
     onCleanup(() => void runtime.dispose())
+    // The render's Appear animations (#48, ADR-0044): each element takes a slot as it renders,
+    // and once the render is done the head's `<style>` gets every rule and timing (`useAssets`,
+    // injected before `</head>`). A render with no `</head>` drops it, and its elements keep their
+    // Starting style, as they would without it.
+    const appear = Bool.match(props.appear === false, {
+      onTrue: constUndefined,
+      onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const)),
+    })
+    if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
     return (
       <WardicContext.Provider
-        value={{ runtime, gate: FlushGate.inert, projection: undefined, reducedMotion: constFalse, positionalKeys: SERVER_POSITIONAL_KEYS }}
+        value={{ runtime, gate: FlushGate.inert, projection: undefined, reducedMotion: constFalse, positionalKeys: SERVER_POSITIONAL_KEYS, appear }}
       >
         {props.children}
       </WardicContext.Provider>
@@ -217,6 +238,27 @@ interface Built {
   readonly projection: ProjectionSystem.Shape
   readonly reducedMotion: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
+}
+
+/**
+ * A server render's Appear animations (#48, ADR-0044), or `undefined`: on the client, outside a
+ * provider, or with `appear={false}`. Internal.
+ */
+export function useWardicAppear(): ServerAppear | undefined {
+  return UndefinedOr.match(useContext(WardicContext), { onUndefined: constUndefined, onDefined: (value) => value.appear })
+}
+
+/**
+ * The head's `<style>` for a render's Appear animations, or nothing when no element plays one;
+ * why each element that doesn't play doesn't, as a debug log (`wardic.hydration`).
+ */
+const appearStyle = (appear: ServerAppear): JSX.Element => {
+  const css = appear.css()
+  const reasons = appear.reasons()
+  if (reasons.length > 0) {
+    Effect.runSync(Effect.logDebug("wardic.hydration: elements keep their Starting style until mount").pipe(Effect.annotateLogs({ reasons })))
+  }
+  return Bool.match(css === "", { onTrue: () => undefined, onFalse: () => <style data-wardic-appear innerHTML={css} /> })
 }
 
 /**

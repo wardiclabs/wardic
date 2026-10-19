@@ -40,7 +40,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { pipe } from "effect/Function"
+import { constUndefined, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -57,6 +57,7 @@ import {
   flagStartingStyle,
   registryOf,
   runSpine,
+  serverAppearOf,
   serverStartingStyle,
   warnDroppedTransform,
   createWardWith,
@@ -69,6 +70,7 @@ import {
 } from "./create-ward.tsx"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { changesContext, createVariantNode, serverVariantNode, startingValuesOf } from "./variant-node.ts"
+import { setsAnimation } from "./appear.ts"
 import { useVariantContext, WardicVariantContext } from "./variants.ts"
 
 /**
@@ -107,6 +109,7 @@ export const MOTION_PROPS = [
   "onLayoutAnimationStart",
   "onLayoutAnimationComplete",
   "onUpdate",
+  "appear",
   "transition",
 ] as const
 
@@ -227,6 +230,12 @@ export interface WardicMotionProps {
    * it to keep it. Whether the element reports is read once, at mount.
    */
   readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
+  /**
+   * `false` keeps this element at its Starting style until mount during a server render, when the
+   * provider would start its mount animation in CSS from first paint (#48, ADR-0044). Read on the
+   * server, once.
+   */
+  readonly appear?: boolean
 }
 
 /**
@@ -284,6 +293,7 @@ export const motionToConfig =
     const onLayoutAnimationStart = motion.onLayoutAnimationStart
     const onLayoutAnimationComplete = motion.onLayoutAnimationComplete
     const onUpdate = motion.onUpdate
+    const appear = motion.appear
     if (Predicate.isNotUndefined(initial)) config.initial = initial
     if (Predicate.isNotUndefined(animate)) config.animate = animate
     if (Predicate.isNotUndefined(whileHover)) config.whileHover = whileHover
@@ -309,6 +319,7 @@ export const motionToConfig =
     if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart
     if (Predicate.isNotUndefined(onLayoutAnimationComplete)) config.onLayoutAnimationComplete = onLayoutAnimationComplete
     if (Predicate.isNotUndefined(onUpdate)) config.onUpdate = onUpdate
+    if (Predicate.isNotUndefined(appear)) config.appear = appear
     return config
   }
 
@@ -410,6 +421,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         styleOf: userStyle,
         live,
         makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
+        hydrating,
       })
 
       // ADR-0008 ref-forwarding contract: if the component never forwarded its
@@ -538,8 +550,17 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
   // Its routed `style` keys' values join the Starting style, under `initial`'s (#130).
   const parts = split(props.style as object | string | undefined)
+  // Its Appear animation (#48, ADR-0044), unless its own style sets an `animation`.
+  const appear = serverAppearOf(config, undefined, initial, node)
+  const ownAnimation = setsAnimation(parts.css)
+  if (ownAnimation) appear.veto("its own style sets an animation")
   override(out, {
-    style: pipe(serverStartingStyle(undefined, Style.starting(undefined, initial).style, initial, parts.routed), Style.over(parts.css), Style.over(dragDefaults)),
+    style: pipe(
+      serverStartingStyle(undefined, Style.starting(undefined, initial).style, initial, parts.routed),
+      Style.over(parts.css),
+      Style.over(dragDefaults),
+      Style.over(Bool.match(ownAnimation, { onTrue: constUndefined, onFalse: () => appear.style })),
+    ),
     ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => ({ draggable: Style.DRAG_DEFAULT_ATTRIBUTES.draggable }) }),
     ...UndefinedOr.match(props.ref, { onUndefined: () => ({}), onDefined: (ref) => ({ ref }) }),
     component: Wrapped,
@@ -551,7 +572,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
     onFalse: element,
     onTrue: () =>
       createComponent(WardicVariantContext.Provider, {
-        value: node.provided,
+        value: appear.provided,
         get children() {
           return element()
         },
