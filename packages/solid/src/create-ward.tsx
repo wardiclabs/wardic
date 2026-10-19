@@ -33,16 +33,13 @@ import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Drag from "@wardic/core/Drag"
 import * as Override from "@wardic/core/Override"
 import type * as Projection from "@wardic/core/Projection"
-import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
-import * as Spring from "@wardic/core/Spring"
 import * as Stagger from "@wardic/core/Stagger"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -55,7 +52,7 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
-import { constFalse, constTrue, constUndefined, constVoid, identity, pipe } from "effect/Function"
+import { constFalse, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -82,6 +79,7 @@ import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split, valuesOf } from "./live-style.ts"
 import { createVariantNode, ownOrInherited, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
+import { type Follows, type Leg, legsOf } from "./retarget-legs.ts"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress, createWhenWanted } from "./sensors.ts"
 import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
@@ -578,9 +576,6 @@ const holdsFibers = (set: FiberSet.FiberSet<void, never>): boolean => {
   if (set.state._tag === "Closed") return false
   return set.state.backing.size > 0
 }
-
-/** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
-const NO_TRANSITION: Machine.SpringOptions = {}
 
 /** Whether two transitions have the same keys, each holding the same value (`===`). */
 const sameFields = (a: WardicTransition, b: WardicTransition): boolean => {
@@ -1239,151 +1234,51 @@ export function runSpine(opts: RunSpineOptions): void {
               }),
               reused,
             )
-            const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
-
-            // Reduced motion (ADR-0029), read now for this Retarget's legs: the positional keys
-            // snap to where their leg would end, holding through the delay it would hold, and the
-            // rest animate as they would. A transition opts out with `respectReducedMotion: false`.
-            const respects = UndefinedOr.match(transition, {
-              onUndefined: constTrue,
-              onDefined: (tr) => tr.respectReducedMotion !== false,
-            })
-            const { positional, rest } = Bool.match(Bool.and(respects, reducedMotion()), {
-              onTrue: () => ReducedMotion.split(t, positionalKeys),
-              onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: t }),
-            })
-            const snapping = hasKeys(positional)
+            // The legs (#48, ADR-0044 decision 8): one pure builder, which a server render's Appear
+            // animation samples too, so the two can't drift. Built here; each leg's machine is built
+            // in its own fiber, so a transition core rejects (#66, ADR-0025 *Amendment (#66)*) fails
+            // that leg alone, reported as any leg's failure is, while the element's other legs run on.
             // The returns to a moving Live value (#130, ADR-0043 decision 6): a number's follows it,
             // in a leg of its own, and lands on it; the rest return to where it is now. Looked for
-            // only when this Retarget returns a key, and built only for one that follows.
-            let followingKeys: ReadonlyArray<string> = NO_KEYS
-            if (returning.size > 0 && Predicate.isNotUndefined(live)) followingKeys = followingOf(live, rest, returning)
-            const following = followingKeys.length > 0
-            let fixed: Values.Values = rest
-            // A following return's frames, written as any leg's are, from one object per leg.
-            let followSink: ((key: string) => FrameLoop.Sink<Frame.Frame<number> & { readonly velocity?: number }>) | undefined
-            if (following) {
-              fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
-              followSink = (key) => {
+            // only when this Retarget returns a key.
+            let follow: Follows | undefined
+            if (returning.size > 0 && Predicate.isNotUndefined(live)) {
+              const routes = live
+              follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
+            }
+            const retargetLegs = legsOf(from, t, transition, reducedMotion(), positionalKeys, snapshot.velocities, follow)
+            reporting = retargetLegs.length
+            // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
+            // built for the leg that needs it (#69's PR 2: a Retarget is per element).
+            Arr.forEach(retargetLegs, (leg: Leg): void => {
+              if (leg._tag === "Follow") {
+                const key = leg.key
                 const out: Record<string, number> = { [key]: 0 }
-                return (frame) => {
-                  out[key] = frame.value
-                  snapshot.values[key] = frame.value
-                  snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
-                  gate.write(id, out)
-                  recordFrame(out)
-                  report(frame.done)
-                  return undefined
-                }
-              }
-            }
-            // Every leg is built inside its own fiber: a transition core rejects (#66, ADR-0025
-            // *Amendment (#66)*) throws as it's built, a defect that fails that leg alone, reported
-            // as any leg's failure is, while the element's other legs run on.
-            // The snap's leg: the positional keys, from where they are to `to`, after the delay its
-            // transition gives, decoded as the other legs decode it. A snapped key comes to rest, so a
-            // later spring starts it at rest.
-            const runSnap = (to: Values.Values, delayOf: () => number): void => {
-              snapshot.velocities = { ...snapshot.velocities, ...Rec.map(positional, () => 0) }
-              runLeg(
-                Effect.suspend(() =>
-                  ReducedMotion.snap(Values.pick(from, positional), to, { delay: delayOf() }).pipe(
-                    Machine.run((frame) => {
-                      snapshot.values = { ...snapshot.values, ...frame.value }
-                      gate.write(id, frame.value)
-                      recordFrame(frame.value)
-                      report(frame.done)
-                      return undefined
-                    }, runOptions),
-                  )),
-              )
-            }
-
-            if (useTween) {
-              // Tween: animateValues drives ALL keys (numeric + string) from the
-              // current snapshot values; no velocity (snapshot.velocities stays {}).
-              // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still
-              // apply (#107).
-              const options = transition as Machine.AnimateOptions
-              // With every key snapped or following, there's nothing left to tween.
-              const tweening = Bool.or(Bool.and(!snapping, !following), hasKeys(fixed))
-              reporting = Number(snapping) + Number(tweening) + followingKeys.length
-              if (snapping) {
-                runSnap(
-                  Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)),
-                  () => Machine.resolveTween(options).delay,
-                )
-              }
-              // A following return eases toward where its Live value is each frame, so it lands on it.
-              if (following) {
-                Arr.forEach(followingKeys, (key) => {
-                  const start = from[key] as number
-                  const target = liveTargetOf(UndefinedOr.getOrThrow(live), key, start)
-                  runLeg(
-                    Effect.suspend(() =>
-                      Machine.animate(0, 1, options).pipe(
-                        Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
-                        Machine.run(UndefinedOr.getOrThrow(followSink)(key), runOptions),
-                      )),
-                  )
-                })
-              }
-              if (tweening) {
                 runLeg(
-                  Effect.suspend(() => Machine.animateValues(Values.pick(from, fixed), fixed, options)).pipe(
-                    InterpolatorRegistry.withKeyRules(elementRules),
-                    Effect.flatMap(
+                  Effect.suspend(() =>
+                    leg.machine().pipe(
                       Machine.run((frame) => {
-                        // MULTI-OWNER MERGE (ADR-0004): merge the tween's keys into
-                        // the snapshot rather than replacing it, so the drag's
-                        // direct-set x/y survive alongside the tween's keys and the
-                        // post-drag handoff continues from the rested position.
-                        snapshot.values = { ...snapshot.values, ...frame.value }
-                        gate.write(id, frame.value)
-                        recordFrame(frame.value)
+                        out[key] = frame.value
+                        snapshot.values[key] = frame.value
+                        snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
+                        gate.write(id, out)
+                        recordFrame(out)
                         report(frame.done)
                         return undefined
                       }, runOptions),
-                    ),
-                  ),
+                    )),
                 )
+                return
               }
-              return
-            }
-            {
-              // Spring (default): numeric keys via springValues (velocity-carrying
-              // retarget); any string/color keys via springBlend, the same spring on a
-              // 0→100 progress (ADR-0024, D5), into the same gate id.
-              const springOpts = UndefinedOr.match(transition, { onUndefined: () => NO_TRANSITION, onDefined: identity }) as Machine.SpringOptions
-              // Of the keys that animate: both halves write into the same gate id, so they
-              // collapse into one projected `Patch`.
-              const { numbers: numeric, strings } = Values.split(fixed)
-              const hasNumeric = Object.keys(numeric).length > 0
-              const hasStrings = Object.keys(strings).length > 0
-              reporting = Number(snapping) + Number(hasNumeric) + Number(hasStrings) + followingKeys.length
-              // A spring settles at its target: the snap lands there.
-              if (snapping) runSnap(positional, () => Spring.resolve(springOpts).delay)
-              // A following return chases its Live value, read each step, and settles at rest on it.
-              if (following) {
-                Arr.forEach(followingKeys, (key) => {
-                  const start = from[key] as number
-                  const velocity = UndefinedOr.match(snapshot.velocities[key], { onUndefined: () => 0, onDefined: identity })
-                  const chase = Machine.chase(liveTargetOf(UndefinedOr.getOrThrow(live), key, start), { ...springOpts, from: start, velocity })
-                  runLeg(Effect.suspend(() => settling(chase).pipe(Machine.run(UndefinedOr.getOrThrow(followSink)(key), runOptions))))
-                })
-              }
-              if (hasNumeric) {
-                const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
-                const velocities = snapshot.velocities
+              if (leg._tag === "Numbers") {
                 runLeg(
                   Effect.suspend(() =>
-                    Machine.springValues(numeric, springOpts, fromNumeric, velocities).pipe(
+                    leg.machine().pipe(
                       Machine.run((frame) => {
-                        // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys
-                        // into the snapshot rather than replacing it, so the
-                        // drag's direct-set x/y survive alongside the spring's
-                        // keys (drag owns x/y, spring owns the rest) and the
-                        // post-drag handoff continues from the rested position.
+                        // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys into the snapshot
+                        // rather than replacing it, so the drag's direct-set x/y survive alongside the
+                        // spring's keys (drag owns x/y, spring owns the rest) and the post-drag
+                        // handoff continues from the rested position.
                         snapshot.values = { ...snapshot.values, ...frame.value }
                         snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
                         gate.write(id, frame.value)
@@ -1393,25 +1288,29 @@ export function runSpine(opts: RunSpineOptions): void {
                       }, runOptions),
                     )),
                 )
+                return
               }
-              if (hasStrings) {
-                const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))
-                runLeg(
-                  Effect.suspend(() => Machine.springBlend(fromStrings, strings, springOpts)).pipe(
-                    InterpolatorRegistry.withKeyRules(elementRules),
-                    Effect.flatMap(
-                      Machine.run((frame) => {
-                        snapshot.values = { ...snapshot.values, ...frame.value }
-                        gate.write(id, frame.value)
-                        recordFrame(frame.value)
-                        report(frame.done)
-                        return undefined
-                      }, runOptions),
-                    ),
-                  ),
-                )
+              // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are.
+              const sink = (frame: Frame.Frame<Values.Values>): undefined => {
+                snapshot.values = { ...snapshot.values, ...frame.value }
+                gate.write(id, frame.value)
+                recordFrame(frame.value)
+                report(frame.done)
+                return undefined
               }
-            }
+              if (leg._tag === "Snap") {
+                // A snapped key comes to rest, so a later spring starts it at rest.
+                snapshot.velocities = { ...snapshot.velocities, ...Rec.fromEntries(Arr.map(leg.keys, (key) => [key, 0] as const)) }
+                runLeg(Effect.suspend(() => leg.machine().pipe(Machine.run(sink, runOptions))))
+                return
+              }
+              runLeg(
+                Effect.suspend(leg.machine).pipe(
+                  InterpolatorRegistry.withKeyRules(elementRules),
+                  Effect.flatMap(Machine.run(sink, runOptions)),
+                ),
+              )
+            })
           },
         ),
       )
@@ -1495,8 +1394,6 @@ const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], cfg
   }
 }
 
-/** No keys: a Retarget with no following return. */
-const NO_KEYS: ReadonlyArray<string> = []
 
 /** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
 const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
@@ -1511,10 +1408,6 @@ const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => num
     return last
   }
 }
-
-/** `chase`, ending at its first Frame at rest on its target: a return to a moving Live value (#130). */
-const settling = <F extends Frame.Frame<unknown>>(chase: Machine.Machine<F>): Machine.Machine<F> =>
-  Machine.make({ start: chase.start, settles: true, span: chase.span })
 
 /** Whether a value is one an element can take: a number or a string. */
 const isValue = (value: unknown): value is number | string => Bool.or(Predicate.isNumber(value), Predicate.isString(value))
