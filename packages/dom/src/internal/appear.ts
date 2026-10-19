@@ -243,8 +243,8 @@ const judged = (frames: ReadonlyArray<Values.Values>) => {
  * - **The stops kept** are the first, the end, and each one a straight line from the last kept can't
  *   reach past, within every key's tolerances.
  * - **A jump** (`jumps`, kept stops): a Frame the one before it can't be drawn into, as `jumpAt`
- *   tells. The rule holds the Frame before it until a hair before it, so it jumps where the engine
- *   would, not along a line through values the engine never draws.
+ *   tells. The rule holds the Frame before it to halfway between them, then steps, so a display
+ *   frame near either draws that Frame, not a value on a line through values the engine never draws.
  */
 export const thin = (frames: ReadonlyArray<Values.Values>): { readonly kept: ReadonlyArray<number>; readonly end: number; readonly jumps: ReadonlyArray<number> } => {
   const last = frames.length - 1
@@ -289,8 +289,12 @@ const declarationsOf = (tag: string | undefined, values: Values.Values): Result.
 const percentOf = (stop: number, last: number): string =>
   `${String(Number(Bool.match(last === 0, { onTrue: () => 0, onFalse: () => (stop / last) * 100 }).toFixed(6)) + 0)}%`
 
-/** How far before a jump its hold ends: a hundredth of a frame, finer than any display draws. */
-const HOLD_BEFORE_JUMP = 0.01
+/**
+ * Where a jump falls: halfway between its two Frames, so a display frame drawn near either one, a
+ * vsync's jitter early or late, draws that Frame. The step takes a thousandth of a frame.
+ */
+const JUMP_AT = 0.5
+const JUMP_TAKES = 0.001
 
 /** A spec sampled into its rule, or why it can't be one. Not cached: {@link keyframes} is. */
 const sample = (spec: Spec): Result.Result<Keyframes, string> =>
@@ -302,10 +306,14 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
       const name = nameOf(spec)
       /** A kept stop's Frame: the end drawn as the settled Frame. */
       const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values
-      // The rule's stops: each kept one, and before a jump, the Frame before it held until a hair before it.
+      // The rule's stops: each kept one, and at a jump, the Frame before it held to halfway, then its own.
       const stops = Arr.flatMap(kept, (stop): ReadonlyArray<{ readonly offset: number; readonly frame: Values.Values }> =>
         Bool.match(Arr.contains(jumps, stop), {
-          onTrue: () => [{ offset: stop - HOLD_BEFORE_JUMP, frame: frames[stop - 1] as Values.Values }, { offset: stop, frame: frameAt(stop) }],
+          onTrue: () => [
+            { offset: stop - JUMP_AT, frame: frames[stop - 1] as Values.Values },
+            { offset: stop - JUMP_AT + JUMP_TAKES, frame: frameAt(stop) },
+            { offset: stop, frame: frameAt(stop) },
+          ],
           onFalse: () => [{ offset: stop, frame: frameAt(stop) }],
         }))
       return Result.map(
