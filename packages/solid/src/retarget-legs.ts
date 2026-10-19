@@ -124,7 +124,7 @@ export const legsOf = (
       legs.push(snapLeg(from, positional, Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)), () => Machine.resolveTween(options).delay))
     }
     // A following return eases toward where its Live value is each frame, so it lands on it.
-    Arr.forEach(followingKeys, (key) => {
+    if (following) Arr.forEach(followingKeys, (key) => {
       const start = from[key] as number
       const target = UndefinedOr.getOrThrow(follow).targetOf(key, start)
       legs.push({
@@ -149,7 +149,7 @@ export const legsOf = (
   // A spring settles at its target: the snap lands there.
   if (snapping) legs.push(snapLeg(from, positional, positional, () => Spring.resolve(springOpts).delay))
   // A following return chases its Live value, read each step, and settles at rest on it.
-  Arr.forEach(followingKeys, (key) => {
+  if (following) Arr.forEach(followingKeys, (key) => {
     const start = from[key] as number
     const velocity = UndefinedOr.match(velocities[key], { onUndefined: () => 0, onDefined: identity })
     const chase = Machine.chase(UndefinedOr.getOrThrow(follow).targetOf(key, start), { ...springOpts, from: start, velocity })
