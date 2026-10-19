@@ -1238,24 +1238,15 @@ export function runSpine(opts: RunSpineOptions): void {
             // animation samples too, so the two can't drift. Built here; each leg's machine is built
             // in its own fiber, so a transition core rejects (#66, ADR-0025 *Amendment (#66)*) fails
             // that leg alone, reported as any leg's failure is, while the element's other legs run on.
-            const retargetLegs = legsOf({
-              from,
-              to: t,
-              transition,
-              reducedMotion: reducedMotion(),
-              positionalKeys,
-              velocities: snapshot.velocities,
-              // The returns to a moving Live value (#130, ADR-0043 decision 6): a number's follows it,
-              // in a leg of its own, and lands on it; the rest return to where it is now. Looked for
-              // only when this Retarget returns a key.
-              follow: Bool.match(Bool.and(returning.size > 0, Predicate.isNotUndefined(live)), {
-                onTrue: (): Follows => {
-                  const routes = UndefinedOr.getOrThrow(live)
-                  return { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
-                },
-                onFalse: constUndefined,
-              }),
-            })
+            // The returns to a moving Live value (#130, ADR-0043 decision 6): a number's follows it,
+            // in a leg of its own, and lands on it; the rest return to where it is now. Looked for
+            // only when this Retarget returns a key.
+            let follow: Follows | undefined
+            if (returning.size > 0 && Predicate.isNotUndefined(live)) {
+              const routes = live
+              follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
+            }
+            const retargetLegs = legsOf(from, t, transition, reducedMotion(), positionalKeys, snapshot.velocities, follow)
             reporting = retargetLegs.length
             // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
             // built for the leg that needs it (#69's PR 2: a Retarget is per element).

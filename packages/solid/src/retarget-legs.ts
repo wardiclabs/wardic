@@ -25,29 +25,11 @@ import * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import type * as Effect from "effect/Effect"
-import { identity } from "effect/Function"
+import { constTrue, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./create-ward.tsx"
-
-/** A Retarget, as its legs are built from it. */
-export interface RetargetInput {
-  /** Each key's start. */
-  readonly from: Values.Values
-  /** Each key's target. */
-  readonly to: Values.Values
-  /** The transition the legs run on, any stagger delay folded in (ADR-0007). */
-  readonly transition: WardicTransition | undefined
-  /** Whether reduced motion is on for this Retarget (the provider's, ADR-0029); a transition can still opt out. */
-  readonly reducedMotion: boolean
-  /** Which keys are positional: the Environment's (ADR-0036). */
-  readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
-  /** Each key's velocity now: a spring starts from it. */
-  readonly velocities: Readonly<Record<string, number>>
-  /** The returns that follow a moving Live value (#130): given only when the Retarget returns a key. */
-  readonly follow?: Follows | undefined
-}
 
 /** A Retarget's returns that follow a moving Live value (#130, ADR-0043 decision 6). */
 export interface Follows {
@@ -96,21 +78,39 @@ const NO_KEYS: ReadonlyArray<string> = []
 /** Whether a value map has any key. */
 const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
 
-/** A Retarget's legs, in the order the spine starts them. */
-export const legsOf = (input: RetargetInput): ReadonlyArray<Leg> => {
-  const { from, transition } = input
+/**
+ * A Retarget's legs, in the order the spine starts them. Positional, as the spine calls it once a
+ * Retarget per element (#69's PR 2: what a Retarget allocates shows in `bench:solid`'s bytes).
+ *
+ * @param from each key's start
+ * @param to each key's target
+ * @param transition the transition the legs run on, any stagger delay folded in (ADR-0007)
+ * @param reducedMotion whether reduced motion is on (the provider's, ADR-0029); a transition can still opt out
+ * @param positionalKeys which keys are positional: the Environment's (ADR-0036)
+ * @param velocities each key's velocity now: a spring starts from it
+ * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
+ */
+export const legsOf = (
+  from: Values.Values,
+  to: Values.Values,
+  transition: WardicTransition | undefined,
+  reducedMotion: boolean,
+  positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  velocities: Readonly<Record<string, number>>,
+  follow?: Follows | undefined,
+): ReadonlyArray<Leg> => {
   const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
   // through the delay it would hold, and the rest animate as they would. A transition opts out with
   // `respectReducedMotion: false`.
-  const respects = UndefinedOr.match(transition, { onUndefined: () => true, onDefined: (tr) => tr.respectReducedMotion !== false })
-  const { positional, rest } = Bool.match(Bool.and(respects, input.reducedMotion), {
-    onTrue: () => ReducedMotion.split(input.to, input.positionalKeys),
-    onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: input.to }),
+  const respects = UndefinedOr.match(transition, { onUndefined: constTrue, onDefined: (tr) => tr.respectReducedMotion !== false })
+  const { positional, rest } = Bool.match(Bool.and(respects, reducedMotion), {
+    onTrue: () => ReducedMotion.split(to, positionalKeys),
+    onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: to }),
   })
   const snapping = hasKeys(positional)
-  const follow = input.follow
-  const followingKeys = UndefinedOr.match(follow, { onUndefined: () => NO_KEYS, onDefined: (f) => f.keysOf(rest) })
+  let followingKeys = NO_KEYS
+  if (Predicate.isNotUndefined(follow)) followingKeys = follow.keysOf(rest)
   const following = followingKeys.length > 0
   let fixed = rest
   if (following) fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
@@ -151,13 +151,12 @@ export const legsOf = (input: RetargetInput): ReadonlyArray<Leg> => {
   // A following return chases its Live value, read each step, and settles at rest on it.
   Arr.forEach(followingKeys, (key) => {
     const start = from[key] as number
-    const velocity = UndefinedOr.match(input.velocities[key], { onUndefined: () => 0, onDefined: identity })
+    const velocity = UndefinedOr.match(velocities[key], { onUndefined: () => 0, onDefined: identity })
     const chase = Machine.chase(UndefinedOr.getOrThrow(follow).targetOf(key, start), { ...springOpts, from: start, velocity })
     legs.push({ _tag: "Follow", key, machine: () => settling(chase) })
   })
   if (hasKeys(numeric)) {
     const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
-    const velocities = input.velocities
     legs.push({ _tag: "Numbers", machine: () => Machine.springValues(numeric, springOpts, fromNumeric, velocities) })
   }
   if (hasKeys(strings)) {
