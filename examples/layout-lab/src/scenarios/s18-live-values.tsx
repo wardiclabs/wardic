@@ -34,6 +34,7 @@
  */
 import { createScroll, createSpring, createTransform, createWard, wardic } from "@wardic/solid"
 import { createSignal, type JSX, onCleanup } from "solid-js"
+import { frameNumber } from "../lab/frame-counter.ts"
 import { LIVE_VALUE_LINES, type LiveCheckName, type LiveFrame } from "../lab/live-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
 
@@ -156,8 +157,12 @@ const makeRecorder = (ctx: ScenarioContext) => {
     // deliver an input after the paint and before the read just after it (#184's late reads), which
     // only the next frame can show.
     let liveAtFrame = Number.NaN
+    // The frame the read was queued in: a later one at the read means it ran late (`lab/frame-counter.ts`).
+    let rafFrame = 0
+    frameNumber()
     const nextFrame = (): void => {
       requestAnimationFrame(() => {
+        rafFrame = frameNumber()
         liveAtFrame = spec.live()
         channel.port2.postMessage(undefined)
       })
@@ -166,7 +171,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
       const live = liveAtFrame
       const now = performance.now()
       const derived = spec.derived?.()
-      const frame: LiveFrame = { shown: spec.read(), live, phase: rec.phase, ...(derived === undefined ? {} : derived) }
+      const late = frameNumber() !== rafFrame
+      const frame: LiveFrame = { shown: spec.read(), live, phase: rec.phase, ...(derived === undefined ? {} : derived), ...(late ? { late: true } : {}) }
       rec.frames.push(frame)
       const moved = Math.abs(live - lastLive) > spec.tolerance / 2
       if (moved) rec.movedAt = now

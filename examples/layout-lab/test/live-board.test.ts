@@ -134,3 +134,20 @@ describe("liveChecksOf: scenario 19's lines (#234, #233)", () => {
     expect(failed(run(series(frames(1, 0.1), ["updates"], { tolerance: 0.002 })))).toEqual(["updates"])
   })
 })
+
+describe("liveChecksOf: a frame read late (lab/frame-counter.ts)", () => {
+  it("follows, same frame and updates skip it: it holds the next frame's reads, and two frames' tells", () => {
+    const frames: Array<LiveFrame> = [
+      { shown: 0.1, live: 0.1, phase: "after", calls: 1, updated: 0.1 },
+      // Read after the next frame started: its paint and both frames' tells, against the first frame's value.
+      { shown: 0.3, live: 0.2, phase: "after", calls: 2, updated: 0.3, late: true },
+      { shown: 0.4, live: 0.4, phase: "after", calls: 1, updated: 0.4 },
+      ...Array.from({ length: 5 }, (): LiveFrame => ({ shown: 0.4, live: 0.4, phase: "after", calls: 0 })),
+    ]
+    const s: LiveSeries = { frames, lines: ["follows", "updates"], maxStep: 1, tolerance: 0.002 }
+    expect(failed(run(s))).toEqual([])
+    // Read on time, the same frame fails both.
+    const onTime = frames.map((f) => ({ ...f, late: false }))
+    expect(failed(run({ ...s, frames: onTime }))).toEqual(["updates"])
+  })
+})

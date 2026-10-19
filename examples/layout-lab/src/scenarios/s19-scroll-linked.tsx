@@ -15,13 +15,16 @@
  *   **ticks**.
  *
  * The recorder reads each painted value just after its frame, and the Live value as the frame
- * starts (its rAF callback), and the card judges the run (`liveChecksOf` in `lab/live-board.ts`). The
+ * starts (its rAF callback), and the card judges the run (`liveChecksOf` in `lab/live-board.ts`). A
+ * read that ran late, after the next frame started (a phone's, `lab/frame-counter.ts`), is marked so
+ * and skipped by the lines that compare one frame's reads. The
  * stage is 320px wide with Sample spinner under it, so a phone shows every cell.
  *
  * @module
  */
 import { createScroll, createTime, createTransform, createVelocity, wardic } from "@wardic/solid"
 import { createSignal, type JSX, onCleanup } from "solid-js"
+import { frameNumber } from "../lab/frame-counter.ts"
 import { type LiveCheckName, type LiveFrame, SCROLL_LINKED_LINES } from "../lab/live-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
 
@@ -95,6 +98,8 @@ const makeRecorder = (ctx: ScenarioContext) => {
     const startedAt = performance.now()
     const channel = new MessageChannel()
     let liveAtFrame = Number.NaN
+    // The frame the read was queued in: a later one at the read means it ran late.
+    let rafFrame = 0
     let still = 0
     let unwrap = 0
     let previousShown = Number.NaN
@@ -126,6 +131,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
     running.set(spec.cell, () => finish(false))
     const next = (): void => {
       requestAnimationFrame(() => {
+        rafFrame = frameNumber()
         liveAtFrame = spec.live()
         channel.port2.postMessage(undefined)
       })
@@ -139,10 +145,12 @@ const makeRecorder = (ctx: ScenarioContext) => {
         shown += unwrap
       }
       const told = spec.told?.()
+      const late = frameNumber() !== rafFrame
       const frame: LiveFrame = {
         shown,
         live: liveAtFrame,
         phase: "after",
+        ...(late ? { late: true } : {}),
         ...(told === undefined ? {} : { calls: told.calls, ...(told.updated === undefined ? {} : { updated: told.updated }) }),
       }
       const before = frames[frames.length - 1]
@@ -155,8 +163,9 @@ const makeRecorder = (ctx: ScenarioContext) => {
       }
       next()
     }
-    // Reset what `onUpdate` counted before the run, so its first frame counts its own.
+    // Reset what `onUpdate` counted before the run, so its first frame counts its own; start the frame count.
     spec.told?.()
+    frameNumber()
     next()
   }
   return {

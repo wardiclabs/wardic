@@ -33,6 +33,9 @@
  * - **updates** (`onUpdate`): told at most once a frame, at least once in the run, and each time with
  *   the value the frame painted.
  *
+ * A frame read late (`late`, `lab/frame-counter.ts`: a phone's read after the paint that ran after
+ * the next frame started) holds two frames' reads, so follows, same frame and updates skip it.
+ *
  * Pure (no DOM), so the node test tier imports it (`test/live-board.test.ts`).
  *
  * @module
@@ -52,6 +55,12 @@ export interface LiveFrame {
   /** `onUpdate`'s calls since the frame before (#233), and the value its last one held. */
   readonly calls?: number
   readonly updated?: number
+  /**
+   * Read late (`lab/frame-counter.ts`): the read after the paint ran after another frame started,
+   * so it holds that frame's. Skipped by the lines that compare one frame's reads: follows, same
+   * frame and updates.
+   */
+  readonly late?: boolean
 }
 
 /** The lines a live run can be judged on, in display order. */
@@ -112,10 +121,13 @@ export const landingOf = (after: ReadonlyArray<LiveFrame>, tolerance: number): n
   return landing
 }
 
+/** The frames read on time: a late one holds two frames' reads. */
+const onTime = (frames: ReadonlyArray<LiveFrame>): ReadonlyArray<LiveFrame> => frames.filter((f) => f.late !== true)
+
 const followsOf = (s: LiveSeries): LiveCheck => {
   if (s.cut === true) return { name: "follows", ok: true, text: "cut off while its value still moved, not judged" }
-  const rest = s.frames.filter((f) => f.phase === "rest")
-  const after = s.frames.filter((f) => f.phase === "after")
+  const rest = onTime(s.frames).filter((f) => f.phase === "rest")
+  const after = onTime(s.frames).filter((f) => f.phase === "after")
   const landing = landingOf(after, s.tolerance)
   const judged = [...rest, ...(landing === undefined ? [] : after.slice(landing))]
   const off = judged.find((f) => !isOn(f, s.tolerance))
@@ -165,7 +177,7 @@ const returnsOf = (s: LiveSeries): LiveCheck => {
 }
 
 const sameFrameOf = (s: LiveSeries): LiveCheck => {
-  const pairs = s.frames.filter((f) => f.derived !== undefined && f.expected !== undefined)
+  const pairs = onTime(s.frames).filter((f) => f.derived !== undefined && f.expected !== undefined)
   if (pairs.length === 0) return line("same frame", false, "no frame read", "the derived key each frame")
   const off = pairs.find((f) => Math.abs(f.derived! - f.expected!) > s.tolerance)
   if (off !== undefined) return line("same frame", false, `${fmt(off.derived!)} at ${fmt(off.expected!)}`, `within ${s.tolerance}`)
@@ -206,7 +218,7 @@ const ticksOf = (s: LiveSeries): LiveCheck => {
 }
 
 const updatesOf = (s: LiveSeries): LiveCheck => {
-  const told = s.frames.filter((f) => (f.calls ?? 0) > 0)
+  const told = onTime(s.frames).filter((f) => (f.calls ?? 0) > 0)
   if (told.length === 0) return line("updates", false, "never told", "told each changed frame")
   const twice = told.filter((f) => (f.calls ?? 0) > 1).length
   const off = told.find((f) => f.updated === undefined || Math.abs(f.updated - f.shown) > s.tolerance)
