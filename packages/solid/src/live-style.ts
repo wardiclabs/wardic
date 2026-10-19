@@ -12,9 +12,9 @@
  * warning is logged once per element.
  *
  * The binding reads its user's style reactively in one place, its element's `style`, so that's
- * where `css` sees each new one. Following starts at mount (`follow`): from then on, a change of a
- * routed key's value, a new source for it, or its leaving the style, is told to the spine, which
- * writes it while nothing else owns the key. An Atom is subscribed; an accessor gets its own
+ * where `css` sees each new one. Following starts at mount, or at the first routed key after it
+ * (`whenRouted`): from then on, a change of a routed key's value, a new source for it, or its
+ * leaving the style, is told to the spine, which writes it while nothing else owns the key. An Atom is subscribed; an accessor gets its own
  * computation, one per key, so a change runs only that.
  */
 import * as BaseValue from "@wardic/core/BaseValue"
@@ -112,8 +112,15 @@ export interface LiveStyle {
   readonly isLive: (key: string) => boolean
   /** A style value read now, live or not. */
   readonly read: (value: unknown) => unknown
-  /** Start following: `follower` hears every change from now on, until the returned stop. */
-  readonly follow: (follower: Follower) => () => void
+  /**
+   * Follow, from the first routed key on: `setup` is called once, at once if a key is routed now,
+   * else when one first is, and the follower it gives hears every change from then on, until
+   * `stop`. Its first call is where the element's routed keys are first written. An element whose
+   * `style` never routes a key never calls it.
+   */
+  readonly whenRouted: (setup: () => Follower) => void
+  /** Stop following, and every watch with it. */
+  readonly stop: () => void
 }
 
 /** What {@link createLiveStyle} reads. */
@@ -132,6 +139,8 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   let css: StyleInput
   let warned = false
   let follower: Follower | undefined
+  // The follower's setup, until a key is first routed.
+  let pending: (() => Follower) | undefined
   // While following: each routed key's stop (an Atom's unsubscribe, an accessor's root disposal),
   // made at the first watch: most elements watch none.
   let watching: Map<string, () => void> | undefined
@@ -165,12 +174,25 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
     stop()
   }
 
+  /** Build the follower and watch every routed key. */
+  const start = (setup: () => Follower): void => {
+    pending = undefined
+    const to = setup()
+    follower = to
+    Arr.forEach(Rec.keys(routed), (key) => watch(key, routed[key], to))
+  }
+
   /** The routed keys now `next`: what left is removed, what's new or changed is watched and told. */
   const reconcile = (next: Readonly<Record<string, unknown>>): void => {
     const prev = routed
     // Nothing routed, as before: the usual style.
     if (next === prev) return
     routed = next
+    // The first routed key: the follower's setup writes them all.
+    if (Bool.and(Predicate.isNotUndefined(pending), Bool.not(Rec.isEmptyRecord(next)))) {
+      start(UndefinedOr.getOrThrow(pending))
+      return
+    }
     if (Predicate.isUndefined(follower)) return
     const to = follower
     Arr.forEach(Rec.keys(prev), (key) => {
@@ -206,14 +228,18 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
     valueOf: (key) => Option.map(Option.liftPredicate(key, (k: string) => Object.hasOwn(routed, k)), (k) => read(routed[k])),
     isLive: (key) => Bool.and(Object.hasOwn(routed, key), isLive(routed[key])),
     read,
-    follow: (to) => {
-      follower = to
-      Arr.forEach(Rec.keys(routed), (key) => watch(key, routed[key], to))
-      return () => {
-        follower = undefined
-        if (Predicate.isUndefined(watching)) return
-        Arr.forEach(Arr.fromIterable(watching.keys()), unwatch)
+    whenRouted: (setup) => {
+      if (Rec.isEmptyRecord(routed)) {
+        pending = setup
+        return
       }
+      start(setup)
+    },
+    stop: () => {
+      follower = undefined
+      pending = undefined
+      if (Predicate.isUndefined(watching)) return
+      Arr.forEach(Arr.fromIterable(watching.keys()), unwatch)
     },
   }
 }

@@ -17,6 +17,7 @@
 // - LF14: a Variant child held by its parent's `when` keeps its starting values, though the gate
 //   takes its transform key from mount.
 // - LF15: a `transform` string beside a transform key is logged once, as a warning; alone, never.
+// - LF16: a style that routes nothing at mount, and a Live value later, follows it from then on.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Layer from "effect/Layer"
@@ -362,6 +363,28 @@ describe("Live values in style (#130, ADR-0043)", () => {
     setTone("blue")
     await settle()
     expect(warnings.filter((w) => w.startsWith("wardic.style:"))).toHaveLength(1)
+  })
+
+  it("LF16: a style that routes nothing at mount, and a Live value later, follows it from then on", async () => {
+    let el!: HTMLDivElement
+    const [live, setLive] = createSignal(0.4)
+    const [routed, setRouted] = createSignal(false)
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div
+          ref={el}
+          style={Bool.match(routed(), { onTrue: () => ({ ...BOX, opacity: live, x: 30 }), onFalse: () => ({ ...BOX }) })}
+          animate={{ scale: 1 }}
+        />
+      </WardicProvider>
+    ))
+    await settle()
+    expect([el.style.opacity, el.style.transform]).toEqual(["", "none"])
+    setRouted(true)
+    await settle()
+    expect([el.style.opacity, el.style.transform]).toEqual(["0.4", "translateX(30px)"])
+    const steps = await stepped(10, (i) => 0.5 + i / 100, setLive, () => Number(el.style.opacity))
+    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 6)
   })
 
   it("LF11: ward.value at rest outside the gate: its style value, else a transform key's identity", async () => {

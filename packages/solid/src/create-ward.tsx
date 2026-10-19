@@ -1415,39 +1415,37 @@ export function runSpine(opts: RunSpineOptions): void {
       // the gate holds them.
       if (Predicate.isNotUndefined(live)) {
         const routes = live
-        const dragHolds = Bool.and(Bool.not(projected), Predicate.isNotUndefined(dragCfg))
-        // Whether something other than the follower moves `key` now.
-        const owned = (key: string): boolean =>
-          Bool.some([
-            driven.has(key),
-            Object.hasOwn(untrack(target).resolved, key),
-            // The drag direct-sets both translate keys while it, and its release, run (ADR-0004).
-            Bool.and(dragHolds, Bool.and(untrack(dragging), Bool.or(key === "x", key === "y"))),
-          ])
-        // Written as any frame is: into the gate, the Snapshot (at rest) and the presence record.
-        const put = (values: Values.Values): void => {
-          Arr.forEach(Rec.keys(values), (key) => {
-            snapshot.values[key] = UndefinedOr.getOrThrow(values[key])
-            delete snapshot.velocities[key]
-          })
-          gate.write(id, values)
-          recordFrame(values)
-        }
-        handBack = (key) => {
-          Option.match(Option.filter(routes.valueOf(key), isValue), {
-            onNone: constVoid,
-            onSome: (value) => put({ [key]: value }),
-          })
-        }
-        // At mount: every routed key nothing owns, with, before anything's committed, the values
-        // the Override stack's keys start from, so a held start (a `when` gate) keeps showing them.
-        const routed = routes.values()
-        if (hasKeys(routed)) {
-          const first = Rec.filter(routed, (_, key) => Bool.not(owned(key)))
+        // Built at the first routed key, at mount or later: an element whose `style` routes none builds nothing.
+        routes.whenRouted(() => {
+          const dragHolds = Bool.and(Bool.not(projected), Predicate.isNotUndefined(dragCfg))
+          // Whether something other than the follower moves `key` now.
+          const owned = (key: string): boolean =>
+            Bool.some([
+              driven.has(key),
+              Object.hasOwn(untrack(target).resolved, key),
+              // The drag direct-sets both translate keys while it, and its release, run (ADR-0004).
+              Bool.and(dragHolds, Bool.and(untrack(dragging), Bool.or(key === "x", key === "y"))),
+            ])
+          // Written as any frame is: into the gate, the Snapshot (at rest) and the presence record.
+          const put = (values: Values.Values): void => {
+            Arr.forEach(Rec.keys(values), (key) => {
+              snapshot.values[key] = UndefinedOr.getOrThrow(values[key])
+              delete snapshot.velocities[key]
+            })
+            gate.write(id, values)
+            recordFrame(values)
+          }
+          handBack = (key) => {
+            Option.match(Option.filter(routes.valueOf(key), isValue), {
+              onNone: constVoid,
+              onSome: (value) => put({ [key]: value }),
+            })
+          }
+          // Every routed key nothing owns, with, before anything's committed, the values the Override
+          // stack's keys start from, so a held start (a `when` gate) keeps showing them.
+          const first = Rec.filter(routes.values(), (_, key) => Bool.not(owned(key)))
           if (hasKeys(first)) put({ ...Values.pick(snapshot.values, untrack(target).resolved), ...first })
-        }
-        onCleanup(
-          routes.follow({
+          return {
             change: (key, value) => {
               if (Bool.or(owned(key), Bool.not(isValue(value)))) return
               put({ [key]: value as number | string })
@@ -1464,8 +1462,9 @@ export function runSpine(opts: RunSpineOptions): void {
               })
               gate.release(id, [key], { [key]: restore })
             },
-          }),
-        )
+          }
+        })
+        onCleanup(routes.stop)
       }
     }),
   )
