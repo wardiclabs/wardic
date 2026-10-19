@@ -45,10 +45,16 @@ export interface RetargetInput {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** Each key's velocity now: a spring starts from it. */
   readonly velocities: Readonly<Record<string, number>>
-  /** The keys among the animated ones whose return follows a moving Live value (#130); none by default. */
-  readonly followingOf?: ((rest: Values.Values) => ReadonlyArray<string>) | undefined
+  /** The returns that follow a moving Live value (#130): given only when the Retarget returns a key. */
+  readonly follow?: Follows | undefined
+}
+
+/** A Retarget's returns that follow a moving Live value (#130, ADR-0043 decision 6). */
+export interface Follows {
+  /** The keys among the animated ones whose return follows its Live value. */
+  readonly keysOf: (rest: Values.Values) => ReadonlyArray<string>
   /** Where a following key's Live value is now, read each step. */
-  readonly followTargetOf?: ((key: string, start: number) => () => number) | undefined
+  readonly targetOf: (key: string, start: number) => () => number
 }
 
 /** A leg that snaps the positional keys (ADR-0029). */
@@ -103,20 +109,11 @@ export const legsOf = (input: RetargetInput): ReadonlyArray<Leg> => {
     onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: input.to }),
   })
   const snapping = hasKeys(positional)
-  const followingKeys = UndefinedOr.match(input.followingOf, { onUndefined: () => NO_KEYS, onDefined: (following) => following(rest) })
+  const follow = input.follow
+  const followingKeys = UndefinedOr.match(follow, { onUndefined: () => NO_KEYS, onDefined: (f) => f.keysOf(rest) })
   const following = followingKeys.length > 0
-  const fixed = Bool.match(following, {
-    onTrue: () => Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key))),
-    onFalse: () => rest,
-  })
-  const followTargetOf = (key: string, start: number) => UndefinedOr.getOrThrow(input.followTargetOf)(key, start)
-  /** The snap's leg: the positional keys, from where they are to `to`, after `delay()`. */
-  const snapLeg = (to: Values.Values, delay: () => number): Snap => ({
-    _tag: "Snap",
-    keys: Rec.keys(positional),
-    machine: () => ReducedMotion.snap(Values.pick(from, positional), to, { delay: delay() }),
-  })
-
+  let fixed = rest
+  if (following) fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
   // Built a leg at a time, once a Retarget (#69's PR 2: a Retarget is per element, so no spreads).
   const legs: Array<Leg> = []
   if (useTween) {
@@ -124,12 +121,12 @@ export const legsOf = (input: RetargetInput): ReadonlyArray<Leg> => {
     const options = transition as Machine.AnimateOptions
     // A tween's snap lands where the tween would end: `repeat` and `reverse` can end it at `from`.
     if (snapping) {
-      legs.push(snapLeg(Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)), () => Machine.resolveTween(options).delay))
+      legs.push(snapLeg(from, positional, Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)), () => Machine.resolveTween(options).delay))
     }
     // A following return eases toward where its Live value is each frame, so it lands on it.
     Arr.forEach(followingKeys, (key) => {
       const start = from[key] as number
-      const target = followTargetOf(key, start)
+      const target = UndefinedOr.getOrThrow(follow).targetOf(key, start)
       legs.push({
         _tag: "Follow",
         key,
@@ -150,12 +147,12 @@ export const legsOf = (input: RetargetInput): ReadonlyArray<Leg> => {
   const springOpts = UndefinedOr.match(transition, { onUndefined: () => NO_TRANSITION, onDefined: identity }) as Machine.SpringOptions
   const { numbers: numeric, strings } = Values.split(fixed)
   // A spring settles at its target: the snap lands there.
-  if (snapping) legs.push(snapLeg(positional, () => Spring.resolve(springOpts).delay))
+  if (snapping) legs.push(snapLeg(from, positional, positional, () => Spring.resolve(springOpts).delay))
   // A following return chases its Live value, read each step, and settles at rest on it.
   Arr.forEach(followingKeys, (key) => {
     const start = from[key] as number
     const velocity = UndefinedOr.match(input.velocities[key], { onUndefined: () => 0, onDefined: identity })
-    const chase = Machine.chase(followTargetOf(key, start), { ...springOpts, from: start, velocity })
+    const chase = Machine.chase(UndefinedOr.getOrThrow(follow).targetOf(key, start), { ...springOpts, from: start, velocity })
     legs.push({ _tag: "Follow", key, machine: () => settling(chase) })
   })
   if (hasKeys(numeric)) {
@@ -169,6 +166,13 @@ export const legsOf = (input: RetargetInput): ReadonlyArray<Leg> => {
   }
   return legs
 }
+
+/** The snap's leg: the positional keys, from where they are to `to`, after `delay()`. */
+const snapLeg = (from: Values.Values, positional: Values.Values, to: Values.Values, delay: () => number): Snap => ({
+  _tag: "Snap",
+  keys: Rec.keys(positional),
+  machine: () => ReducedMotion.snap(Values.pick(from, positional), to, { delay: delay() }),
+})
 
 /** `chase`, ending at its first Frame at rest on its target: a return to a moving Live value (#130). */
 const settling = <F extends Frame.Frame<unknown>>(chase: Machine.Machine<F>): Machine.Machine<F> =>

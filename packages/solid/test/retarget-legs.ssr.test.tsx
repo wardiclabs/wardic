@@ -83,10 +83,12 @@ describe("legsOf (#48, ADR-0044 decision 8)", () => {
     const reads: Array<string> = []
     const legs = legsOf(input({
       reducedMotion: true,
-      followingOf: (rest) => Object.keys(rest).filter((key) => key === "opacity"),
-      followTargetOf: (key) => {
-        reads.push(key)
-        return () => target
+      follow: {
+        keysOf: (rest) => Object.keys(rest).filter((key) => key === "opacity"),
+        targetOf: (key) => {
+          reads.push(key)
+          return () => target
+        },
       },
     }))
     expect(legs.map((leg) => leg._tag)).toEqual(["Snap", "Follow", "Blend"])
