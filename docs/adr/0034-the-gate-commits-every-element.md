@@ -141,3 +141,16 @@ On the bench server, with `wardic-quiet` and Chromium 147 headless.
 ## Note (#130, 2026-10-18): the gate's live outputs
 
 ADR-0043 decision 5: `FlushGate.valueOf(id, key)` is an Atom of the element's value for the key, set as each write that changes it lands (from #130's PR 2; PR 1 set it at the commit, which left a value derived from it a frame behind). An element with no output pays one `undefined` check per write. Live values themselves are written upstream of the gate, as this ADR's notes for #130 expected: from PR 2 the binding writes a Live value and a transform key in `style` through the gate, and its `style` prop never carries them.
+
+## Amendment (#209, 2026-10-20): the keys held are told in the binding's batch
+
+Found building the Solid 2 binding (ADR-0045). The gate told an element's sink the keys it holds (`onHeld`) just before that element's commit, outside the binding's `batch`. That relied on the binding applying the change at once, as Solid 1 does. Solid 2 applies it at its flush, after the commit: the element's `style` dropped a key the user's style sets after the gate had written it, so Solid removed Wardic's value. For one frame mid-animation, and for good after a one-frame Snap.
+
+- **A flush, now:**
+  1. the Starting-style switches, in the binding's `batch` (before anything is read off the elements: an element's own inline value is saved once its Starting style is gone);
+  2. every dirty element prepared: its patch projected, the keys it dropped restored, and a change of the keys it holds noted;
+  3. every noted element's `onHeld`, in one `batch`, when there's one;
+  4. every prepared patch committed, then the `onCommit`s.
+- **A Measure pass's `flushPass`** prepares, tells and commits its own entries the same way, with lists of its own.
+- **For Solid 1 nothing changes but the grouping:** its effects ran at each `onHeld`'s write, before that element's commit, and now run at the end of one `batch` before every commit. The per-frame path allocates nothing new: the frame flush reuses its two lists.
+- **Tests:** dom's `gate.node.test.ts` GH4 (every element's keys held heard in one batch, after the restores and before any commit; a frame that keeps its keys runs none); solid's v2 `gate.browser.test.tsx` G3 and `style-fallback.browser.test.tsx` F9, which fail with `onHeld` outside the `batch`.

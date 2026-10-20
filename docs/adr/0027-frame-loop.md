@@ -597,3 +597,11 @@ So the cost isn't the number of layers: an interrupt with none costs about 3 µs
 **Gates:** typecheck, lint, unit (1120), browser (1017), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #226's.
 
 **Follow-ups:** bumping Effect to 4.0.5 makes the interrupts left (presence's exits, drag releases, the recognizers) about 3.5× cheaper. It's its own change, with its own gates and benches.
+
+## Amendment (#209, 2026-10-20): a run an `afterTick` hook starts keeps the burst
+
+Found building the Solid 2 binding (ADR-0045). A burst ended at the first tick with no run left, counted after the tick's steps but before its `afterTick` hooks. A run a hook started in that tick was added while the burst still held its subscription, so it started no burst, and `endAll` ended it with the burst, as an interrupt.
+
+- **How it was reached:** the flush gate's hook runs a binding's `batch` (ADR-0033), and Solid 2's `batch` runs its pending effects. A Variant child that its parent's `beforeChildren` released at the parent's last frame Retargeted there, and its legs were interrupted at once. Solid 1 never reached it from the gate, since its effects run at the write, in the step lane; an `onUpdate` (#233) that starts an animation in a burst's last tick would have.
+- **The tick counts the runs left after its hooks:** `entries.length + lastEntries.length === 0`. A run a hook starts takes its first step at the next tick, as one a sink starts does.
+- **Test** (`frame-loop.test.ts`): a hook that starts a run in the tick that ends the burst; the run gets both its Frames and settles. Before the fix it ended at once, with an interrupt.

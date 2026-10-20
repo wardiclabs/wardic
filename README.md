@@ -269,6 +269,30 @@ Content streamed after the page's shell (a `Suspense` boundary waiting on data) 
 
 On SVG, the attributes that are also CSS properties play too: `opacity`, `fill`, `stroke` and its width and dash (so a line drawing itself with `pathLength`), and the stop and flood colours. `cx`, `cy`, `r`, `rx`, `ry` and `attrX`/`attrY` play where the browser draws them from CSS (Chrome, Firefox; a browser that doesn't keeps the element, and what it orchestrates, at its starting style). `width`, `height` and `d` wait for hydration.
 
+### Solid 2 (unstable)
+
+`@wardic/solid/unstable/v2` is Wardic for Solid 2, tracking its release candidate: last tested with `solid-js` and `@solidjs/web` **2.0.0-rc.15**. Any release may change it. Once Solid 2.0 is stable it becomes `@wardic/solid`, and the Solid 1 binding moves to `@wardic/solid/v1`.
+
+Its element primitive is `ward(config)`: a ref that carries its props. Make it once, in a component's body (or a `<For>` callback), then spread it, which puts its starting style in server HTML, or give it to `ref`, client-only:
+
+```tsx
+import { ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+
+function Card(props: { open: boolean }) {
+  // A config that changes is an accessor (or a component's props).
+  const card = ward(() => ({ initial: { opacity: 0 }, animate: { opacity: 1, x: props.open ? 100 : 0 }, style: { color: "red" } }))
+  return <div {...card} class="card" />
+}
+
+<div ref={ward({ animate: { scale: 1.1 } })} />                  // client-only
+<div ref={[ward({ animate: { opacity: 1 } }), (el) => (mine = el)]} />  // with your own ref
+```
+
+- `{...ward(config)}` inline doesn't work: Solid 2 runs a spread's expression again on every update, making a new ward each time, and Wardic throws when it sees one. Keep the ward in a variable.
+- A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`.
+- Motion's components are there too: `<wardic.div animate={…}>` and `wardic.create(Component)`. There are no directives in Solid 2, so no `use:wardic`.
+- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, and server rendering of the starting style. Presence and layout, gestures and drag, Reorder, and Appear animations follow.
+
 ### Imperative primitives for fine-grained control
 
 When the declarative API doesn't fit, the lower-level hooks are there:
@@ -306,7 +330,7 @@ function DraggableCard() {
 |---------|--------|-------------|
 | `@wardic/core` | Pre-alpha | Engine, services, primitives, interpolators, utilities |
 | `@wardic/dom` | Pre-alpha | Browser environment Layers — rAF driver, DOM renderer, pointer/keyboard input, measurement |
-| `@wardic/solid` | Pre-alpha | Solid framework binding — `createWard`, `wardic.*` and `wardic.create()`, `use:wardic`, primitives, components |
+| `@wardic/solid` | Pre-alpha | Solid framework binding — `createWard`, `wardic.*` and `wardic.create()`, `use:wardic`, primitives, components; Solid 2 at `@wardic/solid/unstable/v2` (unstable) |
 | `@wardic/test` | Pre-alpha | Headless testing — mock clock, recording renderer, programmatic input |
 
 ### Future roadmap
