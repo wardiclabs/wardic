@@ -136,8 +136,10 @@ describe("a ward's gestures on Solid 2", () => {
     // The second element starts where the first was, and settles at `animate`: it isn't hovered.
     await until(() => Math.abs(opacityOf(b) - 0.2) < 0.001)
     expect(opacityOf(b), "the second element isn't hovered").toBeCloseTo(0.2, 2)
-    // The first element hovered again, after it's gone: its recognizer was interrupted.
+    // The first element left and entered again, after it's gone: its recognizer was interrupted
+    // (it reports changes only, so a leave comes first).
     for (let i = 0; i < 10; i++) {
+      a.dispatchEvent(new PointerEvent("pointerleave", mouse))
       a.dispatchEvent(new PointerEvent("pointerenter", mouse))
       await raf()
     }

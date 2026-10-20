@@ -6,6 +6,7 @@
 // - SN3: `createPress` flips on a press and back on its release.
 // - SN4: `createFocus` follows focus and blur.
 // - SN5: `createDrag` gives a drag's samples, `null` before the first.
+// - SN5b: `createDrag`'s `bounds` constrain its samples' offset.
 // - SN6: given another element, a sensor follows that one, not the first.
 // - SN7: disposed with its owner, a sensor reads nothing more.
 // - SN8: `createReducedMotion` follows the user's preference.
@@ -150,6 +151,30 @@ describe("sensors on Solid 2: refs that are their readings", () => {
       () => (flush(), sample() !== null),
     )
     expect(sample()?.phase).toBe("start")
+  })
+
+  it("SN5b: createDrag's bounds constrain its samples' offset", async () => {
+    let sample!: ReturnType<typeof createDrag>
+    let el!: HTMLElement
+    const Box = () => {
+      sample = createDrag({ bounds: { x: { max: 5 } } })
+      return <div ref={[sample, (n: HTMLElement) => (el = n)]} style={{ width: "40px", height: "40px" }} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await retryGesture(
+      () => {
+        el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, buttons: 1, ...mouse }))
+        el.dispatchEvent(new PointerEvent("pointermove", { clientX: 30, clientY: 0, buttons: 1, ...mouse }))
+        flush()
+      },
+      () => el.dispatchEvent(new PointerEvent("pointerup", { clientX: 30, clientY: 0, buttons: 0, ...mouse })),
+      () => (flush(), sample() !== null),
+    )
+    expect(sample()?.offset.x, "held at the bound").toBe(5)
   })
 
   it("SN6: given another element, a sensor follows that one, not the first", async () => {

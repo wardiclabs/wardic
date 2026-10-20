@@ -7,6 +7,7 @@
 // - DG4: constraints: hard with `dragElastic: 0`; pulled back by Motion's 0.35 by default (#140).
 // - DG5: `dragSnapToOrigin` springs back to 0 after the release.
 // - DG6: `dragMomentum: false` rests where it was let go.
+// - DG6b: a `whileTap` `y` the drag then moves stays where it was dropped, not returned (ADR-0022).
 // - DG7: a layout drag follows through the projection, not a raw `x`, and FLIPs back to its slot.
 // - DG8: Motion's drag defaults (#36): on `wardic.div`, by axis, under the user's style, none
 //   without `drag`, through a kept ward's spread, and on a `wardic.create(Component)` wrap's element.
@@ -121,6 +122,20 @@ describe("a ward's drag on Solid 2 (ADR-0004)", () => {
     el().dispatchEvent(up(70, 0))
     await wait(500)
     expect(translateXOf(el())).toBeCloseTo(70, 0)
+  })
+
+  it("DG6b: a whileTap y the drag then moves stays where it was dropped, not returned (ADR-0022)", async () => {
+    const el = wardicDiv({ drag: true, dragMomentum: false, whileTap: { y: 2 } })
+    await retryGesture(
+      () => el().dispatchEvent(down(0, 0)),
+      () => el().dispatchEvent(up(0, 0)),
+      () => translateYOf(el()) > 0.5,
+    )
+    el().dispatchEvent(move(40, 30))
+    el().dispatchEvent(up(40, 30))
+    await wait(800)
+    expect(translateXOf(el()), "x where dropped").toBeCloseTo(40, 0)
+    expect(translateYOf(el()), "y where dropped, not returned to 0").toBeGreaterThan(29)
   })
 
   it("DG7: a layout drag follows through the projection, not a raw x, and FLIPs back to its slot", async () => {
