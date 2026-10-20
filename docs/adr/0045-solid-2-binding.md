@@ -76,6 +76,26 @@ Decided while building, from what Solid 2 does, measured with probes (`test/v2/p
 - core `frame-loop.test.ts` and dom `gate.node.test.ts` GH4: the two engine fixes.
 - **Mutations** (`.tmp/209/mut1.py`, in a worktree, each against the v2 browser and server suites and core's and dom's): 30 of 31 caught. The one left, `sameResolution` without its base layer, is equivalent in PR 1: with no gesture layer, the resolved values are the base's. W9 (a ward's spine left running at unmount) and S1 (`sameResolution` without the variant name) survived the first run, and W7 and SW-j now pin them; S1's survival also found the gate memo (*Built* 5), pinned by W8.
 
+## Measured on the final code (PR 1)
+
+On the bench server, after `wardic-quiet`, Chromium 147 headless.
+
+- **`bun run bench:core --base main`** (11 paired reps, N = 1,000): every workload passes in Bun, Node and Chromium. The noise controls read Bun +0.1%, Node +0.4% and Chromium −0.5%, and Node's bytes per frame are unchanged. The Frame loop's change is one sum per tick.
+- **`bun run bench:solid --base main`** (the Solid 1 binding, 11 paired reps, N = 1,000, warm; head / base, median [p25–p75]): mount +0.8% [−0.4, +1.6], retarget +1.3% [−1.4, +2.1], rest retarget +0.5% [−1.1, +1.8], unmount −1.2% [−1.8, −0.7]; bytes per element per round +2.1% [+1.3, +2.1] (176.9 → 180.6 KB). Every gate passes; the control reads −0.5%. The shared spine and the gate's two-pass flush cost the Solid 1 binding nothing measurable.
+- **`bun run bench:solid --v2`** (new: the same N = 1,000 `wardic.div`s on the Solid 2 binding against the Solid 1 binding, both on this branch, 11 paired reps, warm, not gated; Solid 2 / Solid 1):
+
+  | Task | Solid 1 | Solid 2 | Ratio |
+  |---|---|---|---|
+  | mount | 37.45 ms | 32.08 ms | −14.9% [−15.4, −13.6] |
+  | first frame | 15.56 | 10.37 | −34.4% [−35.4, −33.1] |
+  | retarget | 22.88 | 23.94 | +6.8% [+3.6, +7.6] |
+  | rest retarget | 17.77 | 18.53 | +5.1% [+3.0, +5.9] |
+  | unmount | 7.07 | 8.10 | +14.4% [+11.6, +17.0] |
+
+  - **The first frame** is where every element's Starting-style switch runs in the binding's `batch`, then the keys held: Solid 2's apply-then-`flush()` costs a third less there than Solid 1's `batch`.
+  - **A Retarget and an unmount cost more** on Solid 2. Not profiled yet: each Retarget per element is a memo compared by value, an effect's compute and its apply, where Solid 1 runs a memo and one `on` effect.
+  - The Solid 2 page runs `flush()` inside each timed task, so a task holds the work its write causes, as a Solid 1 write does at once.
+
 ## Implementation (PR 1)
 
 - `packages/solid/src/unstable/v2/`: `provider.tsx`, `ward.tsx`, `variant-node.ts`, `solid-reactivity.ts`, `wardic.tsx`, `index.ts`.
