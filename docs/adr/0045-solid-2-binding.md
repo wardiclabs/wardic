@@ -2,7 +2,7 @@
 
 #209 gives Wardic a binding for Solid 2.0, still a release candidate (`solid-js@2.0.0-rc.15`), beside the Solid 1 one. It lives inside `@wardic/solid` under `unstable/v2`, as Effect v4 shipped its unstable modules, and its API is redesigned around Solid 2's idioms. Its element primitive is `ward(config)`: a ref that carries its props, so a kept one spreads (`{...card}`) and any one can be given to `ref`. Motion's components stay: `wardic.<tag>`, `wardic.create`, and later `AnimatePresence`, `LayoutGroup` and `Reorder`.
 
-It lands in five PRs. The first has the dev setup, `WardicProvider`, `ward()`, `wardic.*` with variants and `.Provider`, and Solid 2's batching against the gate. Then presence and layout (2); gestures, Reorder, sensors and Live-value helpers (3); SSR and Appear animations on `@solidjs/web` streaming with `<Loading>`, plus a start-mode example app (4); and the layout lab on Solid 2 (5).
+It lands in five PRs. The first has the dev setup, `WardicProvider`, `ward()`, `wardic.*` with variants and `.Provider`, and Solid 2's batching against the gate. Then presence and layout (2); gestures, Reorder, sensors and Live-value helpers (3, in two: see *PR 3a*); SSR and Appear animations on `@solidjs/web` streaming with `<Loading>`, plus a start-mode example app (4); and the layout lab on Solid 2 (5).
 
 ## Why
 
@@ -56,7 +56,7 @@ Decided while building, from what Solid 2 does, measured with probes (`test/v2/p
 ## Consequences
 
 - **What PR 1 leaves out:** presence, layout and `layoutId` (PR 2); `whileHover`/`whileTap`/`whileFocus`/`whileInView`, drag, Reorder, sensors, `createTransform`/`createSpring` and the other Live-value helpers (PR 3); Appear animations and hydration's Handoff (PR 4).
-- **Open for PR 3:** whether a value derived from `read(key)` and given to another key's `style` still paints in the same frame (the Solid 1 binding's LF7). Solid 2 applies the accessor's change at its flush, after the gate's.
+- **Answered in PR 3's grill (Q2):** a value derived from `read(key)` and given to another key's `style` paints a frame behind (measured: B following `a.read("x")` trails by 5 px at 300 px/s), since Solid 2 applies the accessor's change at its flush, after the gate's; following `a.atom("x")` paints in the same frame. So Wardic's own values carry their Atom through Solid (PR 3b): `read(key)`'s accessor carries the gate's Atom, the Live-value helpers derive on core's Atom helpers when given one, and a ward's `style` follows a carried Atom directly.
 - **The dev setup:** both Solid majors under aliases (`solid-js-2`), a Vite plugin that compiles `src/unstable/v2` and `test/v2` with `@solidjs/babel-plugin` and resolves `solid-js` to Solid 2 for every importer (`vite.solid2.ts`), their own vitest projects (`v2-browser`, `v2-ssr`) and `tsconfig.v2.json`.
 - **A future Solid 2 RC** can change any of the behaviour above; each RC bump runs the v2 suites (Q9).
 
@@ -121,3 +121,23 @@ On the bench server, after `wardic-quiet`, Chromium 147 headless.
 - **Mutations** (`.tmp/209/mut2.py`, in a worktree, against the v2 suites and, for the shared modules, the Solid 1 binding's presence and layout files): 24 of 25 caught. Six survived the first run, and P9 and LY12–LY16 now pin five of them. The one left, `layoutScroll` not forwarded, survives the Solid 1 binding's three scroll suites too: since ADR-0012's *Amendment (Reorder)* the fold reads any scrollable ancestor's scroll, and `layoutScroll` only has the node sample it at measure, which none of them tells apart.
 - **`bun run bench:solid --base main`** (the Solid 1 binding on the shared modules, 11 paired reps, N = 1,000, warm; head / base): mount −0.2%, retarget +0.5%, rest retarget −1.1%, unmount −1.2%; bytes −0.4%. Every gate passes; the control reads −0.2%.
 
+## PR 3a: gestures, drag, sensors, typed keys
+
+Grilled 2026-10-20 (Q1–Q4, all A). PR 3 splits in two (Q3): this one has `whileHover`, `whileTap` and `whileDrag`, a ward's drag, the sensors, `fromAtom` and `streamToSignal`, and `read`/`atom` keys typed from the config. PR 3b has the Live-value helpers on carried Atoms (Q2) and Reorder.
+
+- **Sensors are refs that are also their reading, as a ward is (Q1):** `const hovered = createHover()`, given to `ref` (alone or in a ref array beside a ward), and `hovered()` reads it. The `create*` names stay. Given another element, a sensor lets the first go and follows the new one. Disposed with its owner, its recognizer ends. `createReducedMotion()` isn't a ref: it follows the Probe's preference through `fromAtom`. On a server a sensor reads its initial value and its ref does nothing.
+- **`read(key)` and `atom(key)` keys are typed from the config (Q4):** the keys of `initial`, `animate`, `exit`, every variant, `whileHover`, `whileTap`, `whileDrag` and `style`, plus `x`/`y` for the drag's axis, complete. Any other string is accepted (`keyof … | (string & {})`). A transform key reads a `number`; any other reads the type the config gives it, or `undefined`. A config typed as a plain `WardConfig` completes every key. `ward<const C>` infers the config's literal type; the types are in Solid-free `ward-keys.ts`.
+- **Shared, as the spine is:** the drag track moves into Solid-free `drag-track.ts`, run through a `run` each binding hands it for its one fiber (the Solid 1 binding's `runDragTrack` wraps it with `runScoped`); `createDrag`'s shaped recognizer into `drag-samples.ts`. The Solid 1 binding's suites pass as they were.
+- **A ward's recognizers start when its config first wants them,** at mount or later, once a mount (#87, ADR-0040): an effect watches `whileHover`/`whileTap` being set. Their fibers and the drag track's are the mount's: a ward moved to another element ends them and drops its gesture state, so the new element doesn't start hovered.
+- **Drag defaults (#36):** a kept ward's spread and `wardic.div` carry them in `style` and `draggable`, under the user's style, and a server renders them. A `wardic.create(Component)` wrap sets them on the element at mount too, since its component may pass neither on, as on the Solid 1 binding.
+- **`whileFocus` and `whileInView` stay unwired,** as on the Solid 1 binding: accepted and kept off the element.
+
+### Pinned by (PR 3a)
+
+- `gestures.browser.test.tsx` GE1–GE5: `whileHover` on `wardic.div`, `whileTap` through a kept ward, neither recognizer started when not wanted, one started when set after mount (and not twice), a ward moved to another element leaving its gesture state and its first element's recognizer behind.
+- `drag.browser.test.tsx` DG1–DG11: the follow, `whileDrag`, the axis lock, hard and elastic constraints, `dragSnapToOrigin`, `dragMomentum: false`, a `whileTap` `y` the drag moves staying where dropped (DG6b, ADR-0022), a layout drag through the projection, the defaults (by axis, under the user's style, through a spread and a wrap), a real-mouse flick (#139), a claiming `createDrag` refused and `claim: false` seeing the gesture, `dragPropagation` (#29).
+- `sensors.browser.test.tsx` SN1–SN10: each sensor, beside a ward, `createDrag`'s `bounds` (SN5b), re-attached, disposed, reduced motion, `fromAtom`/`streamToSignal`, `createInView`.
+- `server.ssr.test.tsx` SV11–SV12: drag defaults on a server; sensors reading their initial values.
+- `ward-keys.ssr.test.tsx` WK1–WK5: the typed keys, checked by `typecheck:tests` (`expectTypeOf`) and read on a server render.
+- **Mutations** (`.tmp/209/mut3.py`, in a worktree, against the v2 suites and, for the shared modules, the Solid 1 binding's drag and sensor files): all 35 caught. Three survived the first run. A moved ward's recognizer left running (GE5 entered the old element again while its recognizer still had it hovered, and a recognizer reports changes only: it now leaves first). `createDrag`'s `bounds` ignored (neither binding tested them: SN5b). And the drag track never run, which wasn't valid: it left a syntax error, so no test file imported and the script read it as a pass. The script now reports such a run as an error, and rewritten, the mutation is caught.
+- **`bun run bench:solid --base main`**: BENCH.
