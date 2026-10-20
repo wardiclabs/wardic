@@ -17,6 +17,7 @@
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
+import * as Projection from "@wardic/core/Projection"
 import type * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -47,6 +48,11 @@ export interface Spec {
   readonly machine: LazyArg<Machine.Machine<Frame.Frame<Values.Values>>>
   /** Played over and over: an infinite repeat, `machine` one cycle of it. */
   readonly infinite?: boolean | undefined
+  /**
+   * A layout node (ADR-0009, #245): drawn through its projection at rest, as the client draws it,
+   * its own `x` and `y` left out (the projection owns translate, ADR-0016).
+   */
+  readonly projected?: boolean | undefined
 }
 
 /** A spec's `@keyframes` rule. */
@@ -106,9 +112,11 @@ const names = new Map<string, string>()
 
 const NAMES_SIZE = 4096
 
-/** The rule's name for a spec: its key, tag and repeat, hashed (once a text: a server names each element's spec). */
-export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite">): string => {
-  const text = `${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}`
+/** The rule's name for a spec: its key, tag, repeat and projection, hashed (once a text: a server names each element's spec). */
+export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite" | "projected">): string => {
+  const text = `${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}${
+    Bool.match(spec.projected === true, { onTrue: () => "|projected", onFalse: () => "" })
+  }`
   return Option.getOrElse(Option.fromUndefinedOr(names.get(text)), () => {
     const name = `${PREFIX}${hash53(text)}`
     if (names.size >= NAMES_SIZE) names.clear()
@@ -359,12 +367,23 @@ interface Declarations {
   readonly supports: ReadonlyArray<string>
 }
 
+/** The transform keys a projection at rest doesn't draw: a layout node's own translate (ADR-0016). */
+const UNDRAWN_AT_REST: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY", "translateZ"])
+
+/** A Frame's values as a spec draws them: a layout node's without its own translate, which the sampler doesn't judge. */
+const drawnValues = (values: Values.Values, projected: boolean): Values.Values =>
+  Bool.match(projected, { onTrue: () => Rec.filter(values, (_, key) => Bool.not(UNDRAWN_AT_REST.has(key))), onFalse: () => values })
+
 /**
  * One Frame's declarations, or why it can't be one: a key SVG draws only as an attribute, or unsafe
- * text. An svg-inner element's attributes are drawn as their CSS properties where they have one.
+ * text. An svg-inner element's attributes are drawn as their CSS properties where they have one; a
+ * layout node through its projection at rest (#245).
  */
-const declarationsOf = (tag: string | undefined, values: Values.Values): Result.Result<Declarations, string> => {
-  const { attrs, style } = splitPatchForTag(tag, project(values))
+const declarationsOf = (tag: string | undefined, values: Values.Values, projected: boolean): Result.Result<Declarations, string> => {
+  const { attrs, style } = splitPatchForTag(
+    tag,
+    project(Bool.match(projected, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })),
+  )
   const drawn = Arr.filter(Rec.toEntries(attrs), ([name]) => Bool.not(SVG_FIXED.has(name)))
   const declarations = Arr.appendAll(
     Arr.map(Rec.toEntries(style), ([key, value]) => `${dashCase(key)}:${trimNumbers(String(value))}`),
@@ -398,7 +417,9 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
     onNone: () => Result.fail(`longer than ${MAX_SECONDS} s`),
     onSome: (frames) => {
       const last = frames.length - 1
-      const { kept, end, jumps } = thin(frames, spec.tag)
+      const projected = spec.projected === true
+      // A layout node's own translate isn't drawn: it isn't judged, though the spec settles with it.
+      const { kept, end, jumps } = thin(Arr.map(frames, (frame) => drawnValues(frame, projected)), spec.tag)
       const name = nameOf(spec)
       /** A kept stop's Frame: the end drawn as the settled Frame. */
       const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values
@@ -413,7 +434,7 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
           onFalse: () => [{ offset: stop, frame: frameAt(stop) }],
         }))
       return Result.map(
-        Result.all(Arr.map(stops, ({ frame }) => declarationsOf(spec.tag, frame))),
+        Result.all(Arr.map(stops, ({ frame }) => declarationsOf(spec.tag, frame, projected))),
         (declarations): Keyframes => ({
           name,
           duration: end * Machine.CATCH_UP_DT,
@@ -566,7 +587,7 @@ export const find = (element: Element): Option.Option<Animation> =>
   })
 
 /** Whether `animation` is `spec`'s: the rule the server sampled from the same spec. */
-export const matches = (animation: Animation, spec: Pick<Spec, "key" | "tag" | "infinite">): boolean =>
+export const matches = (animation: Animation, spec: Pick<Spec, "key" | "tag" | "infinite" | "projected">): boolean =>
   Option.exists(nameOfAnimation(animation), (name) => name === nameOf(spec))
 
 /** How far `animation` has got, in seconds since it started (its delay included): 0 before it has. */
@@ -582,6 +603,17 @@ export const delayOf = (animation: Animation): number =>
     onNone: () => 0,
     onSome: (effect) => Option.getOrElse(Option.filter(Option.some(effect.getTiming().delay), Predicate.isNumber), () => 0) / 1000,
   })
+
+/** What a slot's inline `animation` starts with: `var(--wardic-a`. */
+const SLOT_PREFIX = `var(--${PREFIX}a`
+
+/**
+ * Whether `element`'s Appear animation runs, not yet handed off (#245): its inline style still names
+ * its slot, which `release` removes. A Measure pass asks it of each node, so a running animation's
+ * transform, which beats the inline one, stays out of the box it reads: a string read, no style
+ * resolved.
+ */
+export const pending = (element: ElementCSSInlineStyle): boolean => element.style.getPropertyValue("animation").startsWith(SLOT_PREFIX)
 
 /**
  * The Handoff's last step: the element's inline `animation` removed, in the task that writes the

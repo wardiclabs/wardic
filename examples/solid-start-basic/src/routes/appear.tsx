@@ -5,7 +5,7 @@
 // (src/appear-report.ts) judges each element marked `data-appear-k` two seconds after hydration.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
-import { For, type JSX, onMount } from "solid-js"
+import { createSignal, For, type JSX, onMount } from "solid-js"
 
 const box: JSX.CSSProperties = { width: "48px", height: "48px", background: "#3a7", "border-radius": "8px" }
 const row: JSX.CSSProperties = { display: "flex", gap: "16px", "align-items": "center", margin: "12px 0" }
@@ -14,6 +14,8 @@ const label: JSX.CSSProperties = { font: "13px system-ui, sans-serif", width: "1
 const items = { hidden: { opacity: 0, x: -40 }, shown: { opacity: 1, x: 0 } }
 
 export default function AppearRoute(): JSX.Element {
+  // The layout card's spacer (#245): Move it grows it, a layout change the card animates.
+  const [moved, setMoved] = createSignal(false)
   // The report judges once the route has mounted (src/appear-report.ts).
   onMount(() => window.dispatchEvent(new Event("wardic:appear-mounted")))
   return (
@@ -102,6 +104,25 @@ export default function AppearRoute(): JSX.Element {
               transition={{ type: "tween", duration: 2 }}
             />
           </svg>
+        </div>
+
+        <div style={row}>
+          <span style={label}>a layout card: scale and fade, its y not drawn (#245)</span>
+          <div>
+            <div style={{ width: `${Number(moved()) * 60}px`, display: "inline-block" }} />
+            <wardic.div
+              data-appear-k="layout"
+              layout
+              layoutDependency={moved()}
+              style={{ ...box, display: "inline-block" }}
+              initial={{ opacity: 0, scale: 0.5, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ type: "tween", duration: 1.5 }}
+            />
+          </div>
+          <button type="button" onClick={() => setMoved(!moved())}>
+            Move it
+          </button>
         </div>
 
         <div style={row}>

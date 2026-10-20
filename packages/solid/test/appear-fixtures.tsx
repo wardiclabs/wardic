@@ -2,10 +2,17 @@
 // project's `serverRenderPage` command, and hydrated in Chromium by appear.hydrate.browser.test.tsx.
 // Each element to watch carries `data-k`.
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid"
-import type { JSX } from "solid-js"
+import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { createSignal, type JSX } from "solid-js"
 
-const page = (children: () => JSX.Element): JSX.Element => <WardicProvider env={DomLive}>{children()}</WardicProvider>
+/** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
+let env: WardicEnv = DomLive
+/** Set the client Environment the fixtures hydrate under; reset it after. */
+export const setAppearEnv = (next: WardicEnv): void => {
+  env = next
+}
+
+const page = (children: () => JSX.Element): JSX.Element => <WardicProvider env={env}>{children()}</WardicProvider>
 
 /** A card rising in on the default spring. */
 export const A1 = (): JSX.Element => page(() => <wardic.div data-k="card" style={{ width: "40px", height: "40px" }} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} />)
@@ -76,3 +83,26 @@ export const A6 = (): JSX.Element =>
       <wardic.path data-k="line" d="M0 50L120 50" stroke="black" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ type: "tween", duration: 1.2 }} />
     </svg>
   ))
+
+/**
+ * A layout card entering with scale, opacity and its own y (#245): the y isn't drawn on a layout
+ * node (ADR-0016). `__a7grow()` grows the spacer above it, a layout change it animates.
+ */
+export const A7 = (): JSX.Element => {
+  const [grown, setGrown] = createSignal(false)
+  ;(globalThis as { __a7grow?: () => void }).__a7grow = () => setGrown(true)
+  return page(() => (
+    <div style={{ position: "relative", "padding-top": "10px" }}>
+      <div style={{ height: `${Number(grown()) * 60}px` }} />
+      <wardic.div
+        data-k="card"
+        layout
+        layoutDependency={grown()}
+        style={{ width: "40px", height: "40px", background: "teal" }}
+        initial={{ opacity: 0, scale: 0.5, y: 30 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "tween", duration: 1.2 }}
+      />
+    </div>
+  ))
+}

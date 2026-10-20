@@ -103,6 +103,7 @@ import {
   transformStyleFrom,
   transitionRunning,
 } from "./measure.ts"
+import { pending as appearRuns } from "./appear.ts"
 import { reportFailure } from "./report.ts"
 import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
 
@@ -2878,6 +2879,10 @@ export const makeProjectionSystem = (
     for (const node of ordered) {
       savedTransforms.push(node.element.style.transform)
       node.element.style.transform = ""
+      // A server's Appear animation not yet handed off (#245, ADR-0044 *Amendment (#245)*): its CSS
+      // transform beats an inline one, but not an important one. Its timeline runs on; the restore
+      // below gives the old value back, at its own priority.
+      if (appearRuns(node.element)) node.element.style.setProperty("transform", "none", "important")
     }
 
     // --- READ: no DOM writes until the next banner. ---------------------------
