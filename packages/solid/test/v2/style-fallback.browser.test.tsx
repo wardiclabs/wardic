@@ -11,7 +11,7 @@ import { DomLive } from "@wardic/dom"
 import { ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
 import type { JSX } from "@solidjs/web"
-import { type Component, createEffect, createSignal, flush } from "solid-js"
+import { type Component, createEffect, createSignal, flush, untrack } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -175,7 +175,7 @@ describe("the user's style is the fallback (ADR-0034)", () => {
   it("F8: a kept ward spread onto a component that reads props.style once animates its ref's element", async () => {
     let root!: HTMLElement
     const ReadsOnce: Component<{ readonly ref?: JSX.Ref<HTMLDivElement>; readonly style?: JSX.CSSProperties }> = (props) => {
-      const style = props.style
+      const style = untrack(() => props.style)
       return (
         <div ref={props.ref} style={style}>
           x

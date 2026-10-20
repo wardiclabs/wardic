@@ -16,6 +16,7 @@
     "@solidjs/start": "^1.3.2",
     "@wardic/core": "workspace:*",
     "@wardic/dom": "workspace:*",
+    "@wardic/example-hand-checks": "workspace:*",
     "@wardic/solid": "workspace:*",
     "solid-js": "^1.9.13",
     "vinxi": "^0.5.11"

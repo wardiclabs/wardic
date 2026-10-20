@@ -38,11 +38,11 @@ import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
-import { type Accessor, createEffect, createMemo, createSignal, onCleanup, onSettled, untrack } from "solid-js"
+import { type Accessor, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
 import { atomOf, type LiveSource, readLive, serverRegistryOf } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { followAtom } from "./bridge.ts"
-import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
 import { useWardicRuntime } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
@@ -248,7 +248,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   // Its elements are read once the render has settled: a ref given as `() => box` is set during the
   // render, after this effect's first compute, and isn't a signal, so nothing would read it again.
   const [settled, setSettled] = createSignal(false, { ownedWrite: true })
-  onSettled(() => {
+  onSettledClientOnly(() => {
     setSettled(true)
   })
   createEffect(

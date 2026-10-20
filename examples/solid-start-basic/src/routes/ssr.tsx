@@ -2,7 +2,7 @@
 // check, #41). Each element starts at a VISIBLE Starting style (faded, offset), so a load
 // with JavaScript disabled shows the server's paint; after hydration each animates to
 // rest. Its provider sets `appear={false}` (#48): /appear checks what plays before hydration. The `initial={false}` elements (#134) start at their animate instead and never move.
-// The hydration report (src/hydration-report.ts, client-only) judges each element marked
+// The hydration report (examples/hand-checks/src/hydration-report.ts, client-only) judges each element marked
 // `data-ssr-k` against SSR_EXPECTED (src/ssr-expected.ts).
 import { DomLive } from "@wardic/dom"
 import {

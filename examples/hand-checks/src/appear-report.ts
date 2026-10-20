@@ -1,7 +1,8 @@
-// The /appear route's report (#48, ADR-0044's hand check). Client-only, plain DOM: it renders
-// outside the hydrated tree, so it adds no hydration keys.
+// The /appear route's report (#48, ADR-0044's hand check), shared by the start examples (Solid 1's
+// and Solid 2's, #209). Client-only, plain DOM: it renders outside the hydrated tree, so it adds no
+// hydration keys.
 //
-// 1. `startAppearRecorder()` runs in entry-client.tsx BEFORE SolidStart mounts. Every frame, for
+// 1. `startAppearRecorder()` runs in the example's client entry BEFORE the app hydrates. Every frame, for
 //    each element marked `data-appear-k`, it records what the element draws (opacity, x, y,
 //    rotate; an SVG element's cx, r and stroke dash, #245) and whether its CSS animation still runs. It reads after the frame's callbacks (a
 //    task posted from the frame's rAF callback), so it sees what the engine drew that frame. A
@@ -19,10 +20,12 @@
 //    - SMOOTH: around the Handoff, the first frame its CSS animation is gone, no move per ms is more
 //      than twice the largest of the two frames' either side (per channel, give or take 0.5 px, 0.02,
 //      2° a frame): a motion that starts a frame before the Handoff has a still frame just before it.
-//      An `appear={false}` element has nothing to hand over from.
+//      An `appear={false}` element has nothing to hand over from. Under reduced motion a positional
+//      key snaps as its delay ends (ADR-0029): an element whose CSS was still in its delay the frame
+//      before the Handoff may step there in x, y and rotate, its delay having ended on that frame.
 //    - DONE: its CSS animation is gone, and its inline `animation` with it.
 //
-// "Save log" posts the rows and every frame to /api/save-log (examples/solid-start-basic/logs/).
+// "Save log" posts the rows and every frame to /api/save-log (the example's logs/, gitignored).
 
 interface Drawn {
   readonly opacity: number
@@ -82,7 +85,7 @@ const drawnOf = (el: Element): Drawn => {
   }
 }
 
-/** Start recording, before SolidStart mounts. Only on /appear. */
+/** Start recording, before the app hydrates. Only on /appear. */
 export const startAppearRecorder = (): void => {
   if (location.pathname !== "/appear") return
   const began = performance.now()
@@ -132,6 +135,9 @@ const CHANNELS = [
   ["dash", 0.02],
 ] as const
 
+/** The channels a positional key draws, which snap under reduced motion (ADR-0029). */
+const POSITIONAL: ReadonlySet<string> = new Set(["x", "y", "rotate"])
+
 /** The smallest angle between two, in degrees. */
 const turn = (a: number, b: number): number => Math.abs(((((a - b) % 360) + 540) % 360) - 180)
 
@@ -167,12 +173,16 @@ const judge = (): void => {
       const gap = (mine[i]?.at ?? 0) - (mine[i - 1]?.at ?? 0)
       return gap > 0 ? step(i, c) / gap : 0
     }
+    // Under reduced motion its positional keys snap as its delay ends: on the Handoff's frame when
+    // the CSS was still in its delay the frame before.
+    const snapsAtHandoff = reduced && mine[handoff - 1]?.drawn[k]?.waiting === true
     // An appear={false} element has no CSS to hand over from: its mount is its start.
     const smooth =
       held ||
       handoff <= 0 ||
       CHANNELS.every(
         ([c, eps]) =>
+          (snapsAtHandoff && POSITIONAL.has(c)) ||
           rate(handoff, c) <= 2 * Math.max(rate(handoff - 2, c), rate(handoff - 1, c), rate(handoff + 1, c), rate(handoff + 2, c)) + eps / 16.7,
       )
     const done = !el.getAnimations().length && el.style.getPropertyValue("animation") === ""

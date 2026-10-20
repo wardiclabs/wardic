@@ -16,7 +16,7 @@ export default defineConfig({
     include: ["test/v2/**/*.browser.test.{ts,tsx}"],
     // Hydration tests run in their own project, compiled hydratable (vitest.hydrate-v2.config.ts).
     exclude: [...configDefaults.exclude, "test/v2/**/*.hydrate.browser.test.{ts,tsx}"],
-    setupFiles: ["./test/browser-setup.ts"],
+    setupFiles: ["./test/browser-setup.ts", "./test/v2/diagnostics-setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),

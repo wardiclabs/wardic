@@ -9,7 +9,8 @@
  *   and `flush()` drains them at once. The gate runs them from its frame flush, outside any owner,
  *   where Solid 2 lets a signal be written.
  * - **A context value is its own provider** (`<WardicContext value={…}>`).
- * - **`onSettled`** opens the Hydration hold where Solid 1 had `onMount`.
+ * - **`onSettled`** opens the Hydration hold where Solid 1 had `onMount` (`onSettledClientOnly`: a
+ *   server starts nothing, so it takes no hydration id).
  * - **Appear animations' `<style>` goes through the head registry** (`useHead`, #209 PR 4a) where
  *   Solid 1 had `useAssets`. Registered on the server only, in its function form, which the server
  *   reads when it writes the head, once the shell has rendered: every element is entered then, with
@@ -30,7 +31,7 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { type HeadTag, isServer, type JSX, useHead } from "@solidjs/web"
-import { createContext, flush, isHydrating, onCleanup, onSettled, untrack, useContext } from "solid-js"
+import { createContext, flush, isHydrating, onCleanup, untrack, useContext } from "solid-js"
 import { type ServerAppear, serverAppear } from "../../appear.ts"
 import {
   type AnimateLayout,
@@ -46,6 +47,7 @@ import {
   type WardicRuntime,
   type WardicServices,
 } from "../../runtime.ts"
+import { onSettledClientOnly } from "./solid-reactivity.ts"
 
 /** A frame's Starting-style switches, applied and drained before the gate commits (ADR-0034): Solid 2's `batch`. */
 const applyAndFlush = (apply: () => void): void => {
@@ -169,7 +171,7 @@ export function runScoped<A, E>(runtime: WardicRuntime, effect: Effect.Effect<A,
   if (isHydrating()) {
     const latch = Latch.makeUnsafe(false)
     const held = runtime.runFork(Effect.andThen(latch.await, run))
-    onSettled(() => {
+    onSettledClientOnly(() => {
       Effect.runSync(latch.open)
     })
     onCleanup(() => {
