@@ -42,6 +42,7 @@ import { type Accessor, createEffect, createMemo, createSignal, onCleanup, onSet
 import { atomOf, type LiveSource, readLive, serverRegistryOf } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { followAtom } from "./bridge.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { useWardicRuntime } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
@@ -56,7 +57,7 @@ const mirrorOf = <A>(accessor: Accessor<A>, registry: AtomRegistry.AtomRegistry)
     (value) => {
       registry.set(atom, value)
     },
-    { defer: true },
+    CLIENT_ONLY_DEFERRED,
   )
   return atom
 }
@@ -114,7 +115,7 @@ export function createTransform(
   if (isServer) return () => fn(readOnServer(source))
   const atom = atomOf(source)
   // A plain accessor: mapped in a memo, as Solid maps it.
-  if (Predicate.isUndefined(atom)) return createMemo(() => fn((source as Accessor<unknown>)()))
+  if (Predicate.isUndefined(atom)) return createMemo(() => fn((source as Accessor<unknown>)()), CLIENT_ONLY)
   // On an Atom: derived on it, so it's set where its source is. What `fn` reads of Solid besides its
   // source is tracked here, and a change of it re-derives the Atom.
   const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
@@ -125,7 +126,7 @@ export function createTransform(
     () => {
       registry.update(version, (n) => n + 1)
     },
-    { defer: true },
+    CLIENT_ONLY_DEFERRED,
   )
   const derived = Atom.make((get) => {
     get(version)
@@ -275,6 +276,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
         closeScope(runtime, scope)
       }
     },
+    CLIENT_ONLY,
   )
   return Rec.map(outs, (atom) => followAtom(registry, atom)) as unknown as ScrollValues
 }

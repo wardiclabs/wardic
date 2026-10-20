@@ -39,6 +39,7 @@ import {
   type WardicStaggerConfig,
   type WardicVariantContextValue,
 } from "../../variant-tree.ts"
+import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
 /**
  * The variant context: the nearest element's names, transition and orchestration, `null` outside
@@ -117,15 +118,34 @@ const ownOrchestration = (
       if (!records.delete(record)) return
       if (!settled) countUnsettled(-1)
     }
-    return { index: () => record.index, total: () => record.total, setSettled, dispose }
+    return {
+      index: () => {
+        fresh()
+        return record.index
+      },
+      total: () => {
+        fresh()
+        return record.total
+      },
+      setSettled,
+      dispose,
+    }
   }
 
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(cfg().transition))
+  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(cfg().transition), CLIENT_ONLY)
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(cfg().transition, (t) => t.when)
 
   // Snapshot-at-trigger (ADR-0007): each child's index and total are recomputed only when this
   // element's variant changes, so a mount, unmount or reorder mid-transition doesn't reshuffle
-  // in-flight delays. `staggerDirection: -1` reverses the index.
+  // in-flight delays. `staggerDirection: -1` reverses the index. Taken at the first slot read after
+  // the change (#209 PR 4a): at mount this element's name is first computed in its setup, before
+  // its children register, and they read their slots at their first Retarget, once all have.
+  let stale = true
+  const fresh = (): void => {
+    if (!stale) return
+    stale = false
+    snapshotSlots()
+  }
   const snapshotSlots = (): void => {
     const n = records.size
     const direction = untrack(stagger).direction
@@ -141,9 +161,9 @@ const ownOrchestration = (
   const variant: Accessor<string | undefined> = createMemo((previous: string | undefined) => {
     const c = cfg()
     const next = handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
-    if (next !== previous) snapshotSlots()
+    if (next !== previous) stale = true
     return next
-  })
+  }, CLIENT_ONLY)
   const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // The name this element last settled at: `MOVING` while its own animation runs.
@@ -152,7 +172,7 @@ const ownOrchestration = (
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || settledAt() === variant()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
-  const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited))
+  const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited), CLIENT_ONLY)
 
   return {
     context: { variant, initial, transition, register, stagger, when, childrenMayStart, allChildrenSettled },

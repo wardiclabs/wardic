@@ -18,6 +18,7 @@ import { children, createContext, createEffect, onCleanup, onSettled, untrack, u
 import { makePresence } from "../../presence-controller.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
 import { useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
 /**
  * The nearest `<AnimatePresence>`'s registrar, `null` outside one: Solid 2 takes an `undefined`
@@ -60,9 +61,13 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // Resolved under the context, so the child's ward sees it.
   const Tracker = (): JSX.Element => {
     const resolved = children(() => props.children)
-    createEffect(resolved, (current) => {
-      presence.present(current)
-    })
+    createEffect(
+      resolved,
+      (current) => {
+        presence.present(current)
+      },
+      CLIENT_ONLY,
+    )
     return resolved as unknown as JSX.Element
   }
 

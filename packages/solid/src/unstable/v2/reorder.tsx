@@ -64,6 +64,7 @@ import { changesContext } from "../../variant-tree.ts"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { type Ward, type WardConfig, type WardStyle, wardWith } from "./ward.tsx"
 import { refsOf, wardic, type WardicProps } from "./wardic.tsx"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 
 /**
  * A **Reorder group**'s config: the app's `values` in order, `onReorder` to receive a new order (the
@@ -212,7 +213,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<Reorder
     () => {
       controller.valuesChanged()
     },
-    { defer: true },
+    CLIENT_ONLY_DEFERRED,
   )
   // The app's axis cleared: no Measure pass comes with that, so detect now.
   createEffect(
@@ -220,7 +221,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<Reorder
     (a) => {
       if (Predicate.isUndefined(a)) controller.resolve()
     },
-    { defer: true },
+    CLIENT_ONLY_DEFERRED,
   )
 
   const attach = (element: HTMLElement): void => {
@@ -361,6 +362,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
     ({ doc, text }) => {
       UndefinedOr.map(doc, (d) => setDescribedBy(DomAnnouncer.instructionsId(d, text)))
     },
+    CLIENT_ONLY,
   )
   const row = wardWith(wardConfig, {
     tag,
