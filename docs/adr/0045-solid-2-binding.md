@@ -238,6 +238,7 @@ Grilled 2026-10-20: one lab built two ways (Q1 A); PR 5 in two, 5a the build wit
 - **Found, and fixed here:**
   - **A Solid 2 layout node re-measured on every change of its config.** A Solid 2 effect applies on every re-run of its compute (its node doesn't compare values), and `() => cfg().layoutDependency` re-ran on any config change, a `style` among them. So a move with the dependency unchanged FLIPped, where Motion and Solid 1 paint it in place, and each change cost a Measure pass. The dependency is a memo now (`===`). Found by free play's content-only moves.
   - **Two reads Solid 2's dev build warns of, in the shared UI,** fixed for both builds: the frame stretch's first value read once, said so; and the timeline's mark and paint items read the run shown, where a kept item (`<For>` keeps one whose value stays) kept the times of the run it was made for.
+  - **Scenario 10's boxes parted under a burst of Runs,** on both builds (found by hand): Run toggled A and, 150 ms later, B's second cell, and a Run cancels the growth still pending, so two Runs closer than that toggled A twice and B once. B's cell now follows A's side.
 - **Logs record their binding** (`binding`, in the log and the saved file's name), and the header shows it.
 
 ### Pinned by (PR 5a)
