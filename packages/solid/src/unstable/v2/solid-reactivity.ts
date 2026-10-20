@@ -12,7 +12,7 @@
  *
  * @module
  */
-import { createEffect, createRoot, createSignal, type Owner, runWithOwner, untrack } from "solid-js"
+import { createEffect, createRoot, createSignal, createTrackedEffect, type Owner, runWithOwner, untrack } from "solid-js"
 import type { Reactivity } from "../../reactivity.ts"
 
 /**
@@ -24,6 +24,18 @@ import type { Reactivity } from "../../reactivity.ts"
 export const CLIENT_ONLY = { transparent: true } as const
 /** {@link CLIENT_ONLY}, deferred: an effect that skips its first run. */
 export const CLIENT_ONLY_DEFERRED = { transparent: true, defer: true } as const
+
+const SETTLED = { name: "onSettled", ...CLIENT_ONLY }
+
+/**
+ * `onSettled` for client-only code (#209 PR 4b): Solid 2's own, a tracked effect running `callback`
+ * untracked once the render has settled, made {@link CLIENT_ONLY}. Solid's takes a hydration id,
+ * and a server's `onSettled` takes the same one, but code that runs on the client only has no server
+ * call to take it: the keys after it would miss the server's markup. A tracked effect's declared
+ * options are only `name`; it passes them to its node, as every computation does, which reads
+ * `transparent` (`@solidjs/signals` rc.15, dev and prod builds).
+ */
+export const onSettledClientOnly = (callback: () => void | (() => void)): void => createTrackedEffect(() => untrack(callback), SETTLED)
 
 /** Solid 2's reactive primitives, a watch made under `owner`. */
 export const reactivityIn = (owner: Owner | null): Reactivity => ({

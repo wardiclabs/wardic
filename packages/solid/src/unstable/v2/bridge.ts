@@ -12,10 +12,11 @@ import * as Predicate from "effect/Predicate"
 import { AtomRegistry, type Atom } from "effect/reactivity"
 import * as Stream from "effect/Stream"
 import { isServer } from "@solidjs/web"
-import { type Accessor, createSignal, isHydrating, onCleanup, onSettled } from "solid-js"
+import { type Accessor, createSignal, isHydrating, onCleanup } from "solid-js"
 import { carry } from "../../live-style.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { runScoped, useWardicRuntime } from "./provider.tsx"
+import { onSettledClientOnly } from "./solid-reactivity.ts"
 
 /**
  * A core `Stream` as an accessor: `initial` until its first value, then its latest, the stream run
@@ -57,7 +58,7 @@ export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue
   }
   if (held && isHydrating()) {
     const [value, setValue] = createSignal<A>(options.serverValue as Exclude<A, Function>, { ownedWrite: true })
-    onSettled(() => {
+    onSettledClientOnly(() => {
       const registry = runtime.runSync(AtomRegistry.AtomRegistry)
       setValue(() => registry.get(atom))
       return registry.subscribe(atom, (next) => setValue(() => next))

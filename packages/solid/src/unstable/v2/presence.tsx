@@ -8,17 +8,17 @@
  * - **An effect tells the controller which element is present,** in its apply: after Solid 2's
  *   flush has applied the change, the leaving node removed. The controller puts it back before the
  *   flush ends, so no paint shows it gone.
- * - **`onSettled`** ends the first render, for `initial={false}` (#134).
+ * - **Once settled** (`onSettledClientOnly`), the first render has ended, for `initial={false}` (#134).
  *
  * @module
  */
 import { isServer, type JSX } from "@solidjs/web"
 import * as Option from "effect/Option"
-import { children, createContext, createEffect, onCleanup, onSettled, untrack, useContext } from "solid-js"
+import { children, createContext, createEffect, onCleanup, untrack, useContext } from "solid-js"
 import { makePresence } from "../../presence-controller.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
 import { useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
-import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
 
 /**
  * The nearest `<AnimatePresence>`'s registrar, `null` outside one: Solid 2 takes an `undefined`
@@ -55,7 +55,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     positionalKeys: useWardicPositionalKeys(),
     initial: () => untrack(() => props.initial),
   })
-  onSettled(presence.mounted)
+  onSettledClientOnly(presence.mounted)
   onCleanup(presence.teardown)
 
   // Resolved under the context, so the child's ward sees it.

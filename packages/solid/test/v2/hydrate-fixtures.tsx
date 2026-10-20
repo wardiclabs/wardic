@@ -3,9 +3,37 @@
 // Appear animations' A1–A8 are the Solid 1 binding's (`../appear-fixtures.tsx`) on Solid 2. Each
 // element to watch carries `data-k`. Not a test file itself.
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
+import {
+  AnimatePresence,
+  createDrag,
+  createFocus,
+  createHover,
+  createInView,
+  createPress,
+  createReducedMotion,
+  createScroll,
+  createSpring,
+  createTime,
+  createTransform,
+  createVelocity,
+  fromAtom,
+  LayoutGroup,
+  Reorder,
+  reorderGroup,
+  reorderItem,
+  streamToSignal,
+  useAnimateLayout,
+  useWardicFiber,
+  ward,
+  wardic,
+  type WardicEnv,
+  WardicProvider,
+} from "@wardic/solid/unstable/v2"
 import { type JSX, Loading } from "@solidjs/web"
-import { createSignal, For } from "solid-js"
+import * as Effect from "effect/Effect"
+import * as Stream from "effect/Stream"
+import { Atom } from "effect/reactivity"
+import { type Component, createSignal, For, Show } from "solid-js"
 
 /** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
 let env: WardicEnv = DomLive
@@ -160,3 +188,167 @@ export const W2 = (): JSX.Element =>
       <wardic.p data-k="after">after it</wardic.p>
     </main>
   ))
+
+/**
+ * Every v2 helper and component with a server branch, one a fixture (KH): it, then `After`, a
+ * component of its own, so its element's hydration key follows the ids the helper took. A helper
+ * taking an id on one side only moves it, and hydration misses the server's `after`.
+ */
+const keyed = (Helper: Component): JSX.Element =>
+  page(() => (
+    <main>
+      <Helper />
+      <After />
+    </main>
+  ))
+const After = (): JSX.Element => <p data-k="after">after</p>
+
+/** Sensors on an element, and the reduced-motion preference. */
+export const KSensors = (): JSX.Element =>
+  keyed(() => {
+    const hover = createHover()
+    const press = createPress()
+    const focus = createFocus()
+    const inView = createInView()
+    const drag = createDrag()
+    const reduced = createReducedMotion()
+    return (
+      <div ref={[hover, press, focus, inView, drag]}>
+        {String(hover())} {String(press())} {String(focus())} {String(inView())} {String(drag() === null)} {String(reduced())}
+      </div>
+    )
+  })
+
+/** `createTransform` on a signal and on a ward's `read`. */
+export const KTransform = (): JSX.Element =>
+  keyed(() => {
+    const [n] = createSignal(1)
+    const doubled = createTransform(n, (v: number) => v * 2)
+    const card = ward({ initial: { x: 0 }, animate: { x: 0 } })
+    const fade = createTransform(card.read("x"), [0, 10], [1, 0])
+    return (
+      <div {...card}>
+        {doubled()} {fade()}
+      </div>
+    )
+  })
+
+/** `createSpring`, `createVelocity` and `createTime`. */
+export const KSpring = (): JSX.Element =>
+  keyed(() => {
+    const [n] = createSignal(1)
+    const spring = createSpring(n)
+    const velocity = createVelocity(n)
+    const time = createTime()
+    return (
+      <span>
+        {Math.round(spring())} {Math.round(velocity())} {String(time() >= 0)}
+      </span>
+    )
+  })
+
+/** `createScroll`. */
+export const KScroll = (): JSX.Element =>
+  keyed(() => {
+    const { scrollY } = createScroll()
+    return <span>{String(scrollY() >= 0)}</span>
+  })
+
+/** `fromAtom` with a server value, and `streamToSignal`. */
+export const KAtom = (): JSX.Element =>
+  keyed(() => {
+    const count = fromAtom(Atom.make(3), { serverValue: 3 })
+    const streamed = streamToSignal(Stream.make(1), 1)
+    return (
+      <span>
+        {count()} {streamed()}
+      </span>
+    )
+  })
+
+/** `useWardicFiber`. */
+export const KFiber = (): JSX.Element =>
+  keyed(() => {
+    useWardicFiber(() => Effect.void)
+    return <span>fiber</span>
+  })
+
+/** `<LayoutGroup>` around a layout element, and `useAnimateLayout`. */
+export const KLayout = (): JSX.Element =>
+  keyed(() => {
+    useAnimateLayout()
+    return (
+      <LayoutGroup>
+        <wardic.div layout style={{ width: "40px", height: "10px" }} />
+      </LayoutGroup>
+    )
+  })
+
+/** `<AnimatePresence>` around a shown child, and with `initial={false}`. */
+export const KPresence = (): JSX.Element =>
+  keyed(() => (
+    <>
+      <AnimatePresence>
+        <Show when={true}>
+          <wardic.div exit={{ opacity: 0 }}>in</wardic.div>
+        </Show>
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        <Show when={true}>
+          <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            held
+          </wardic.div>
+        </Show>
+      </AnimatePresence>
+    </>
+  ))
+
+/** `Reorder.Group` and `Reorder.Item`. */
+export const KReorder = (): JSX.Element =>
+  keyed(() => {
+    const [items, setItems] = createSignal(["a", "b"])
+    return (
+      <Reorder.Group values={items()} onReorder={setItems}>
+        <For each={items()}>{(value) => <Reorder.Item value={value}>{value}</Reorder.Item>}</For>
+      </Reorder.Group>
+    )
+  })
+
+/** `reorderGroup` and `reorderItem`. */
+export const KReorderFactories = (): JSX.Element =>
+  keyed(() => {
+    const [items, setItems] = createSignal(["a", "b"])
+    const list = reorderGroup(() => ({ values: items(), onReorder: setItems }))
+    return (
+      <ul {...list}>
+        <For each={items()}>
+          {(value) => {
+            const row = reorderItem(list, { value })
+            return <li {...row}>{value}</li>
+          }}
+        </For>
+      </ul>
+    )
+  })
+
+/** A kept ward spread, one given to `ref`, `read(key)`, and its `Provider` around a Variant child. */
+export const KWard = (): JSX.Element =>
+  keyed(() => {
+    const card = ward({ initial: "a", animate: "b", variants: { a: { x: 0 }, b: { x: 0 } } })
+    const plain = ward({ animate: { opacity: 1 } })
+    const x = card.read("x")
+    return (
+      <div {...card}>
+        <card.Provider>
+          <wardic.span variants={{ a: { opacity: 1 }, b: { opacity: 1 } }}>{x()}</wardic.span>
+        </card.Provider>
+        <p ref={plain}>ref</p>
+      </div>
+    )
+  })
+
+const Wrapped = (props: { readonly ref?: JSX.Ref<HTMLDivElement> }): JSX.Element => <div ref={props.ref}>wrapped</div>
+const WardicWrapped = wardic.create(Wrapped)
+
+/** `wardic.create(Component)`. */
+export const KCreate = (): JSX.Element => keyed(() => <WardicWrapped animate={{ opacity: 1 }} />)
