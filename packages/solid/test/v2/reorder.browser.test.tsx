@@ -19,11 +19,14 @@
 // - RV11: an item is a ward: `row.read(key)`; a group given to `ref` alone sets its own
 //   `overflow-anchor`.
 // - RV12: an item's style stays reactive.
+// - RV13: the gesture's axis: in a y list a diagonal drag moves the item only on y.
+// - RV14: items rendered with `.map` log one warning per group when they remount; `<For>` logs none.
 import { DomLive } from "@wardic/dom"
 import { reorderGroup, reorderItem, WardicProvider } from "@wardic/solid/unstable/v2"
 import type * as CoreReorder from "@wardic/core/Reorder"
+import * as Bool from "effect/Boolean"
 import { type Accessor, createSignal, flush, For } from "solid-js"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { page } from "vitest/browser"
 import { until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -151,13 +154,16 @@ describe.each([
     const xy = await mountReorder({ factories, layout: "xy" })
     expect(xy.item("a").style.getPropertyValue("touch-action")).toBe("none")
     await resetScene()
-    const [axis, setAxis] = createSignal<CoreReorder.Axis | undefined>("x")
-    const s = await mountReorder({ factories, axis })
-    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
-    setAxis(undefined)
-    flush()
-    await settle()
+    // A row given "y": the controller detects nothing while the app gives the axis, so clearing it
+    // has to detect the row's "x" then.
+    const [axis, setAxis] = createSignal<CoreReorder.Axis | undefined>("y")
+    const s = await mountReorder({ factories, layout: "x", axis })
     expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-x")
+    setAxis(undefined)
+    // At once: in the flush that clears it (the detection), and the next (the style), before any frame.
+    flush()
+    flush()
+    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
   })
 
   it("RV8: the group's overflow-anchor is none, and the user's style wins", async () => {
@@ -180,6 +186,16 @@ describe.each([
       return settled
     })
     expect(b.getBoundingClientRect().width).toBeCloseTo(220, 0)
+  })
+
+  it("RV13: the gesture's axis: in a y list a diagonal drag moves the item only on y", async () => {
+    const s = await mountReorder({ factories })
+    const b = s.item("b")
+    const start = b.getBoundingClientRect()
+    await drag(s, "b", 40, 20, 10)
+    const now = b.getBoundingClientRect()
+    expect(Math.abs(now.left - start.left), "x").toBeLessThan(0.5)
+    expect(now.top - start.top, "y").toBeCloseTo(20, 0)
   })
 
   it("RV12: an item's style stays reactive", async () => {
@@ -249,5 +265,57 @@ describe("reorderGroup and reorderItem", () => {
     await settle()
     expect(group.style.getPropertyValue("overflow-anchor")).toBe("none")
     expect(opacityOfB()).toBe(0.5)
+  })
+
+  it("RV14: items rendered with .map log one warning per group when they remount; <For> logs none", async () => {
+    const lines: Array<string> = []
+    const methods = ["log", "info", "warn", "error", "debug", "group", "groupCollapsed"] as const
+    const spies = methods.map((m) =>
+      vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+        lines.push(args.map(String).join(" "))
+      }),
+    )
+    const scene = (keyed: boolean) => {
+      const [values, setValues] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+      const List = () => {
+        const list = reorderGroup(() => ({ values: values(), onReorder: setValues }))
+        const row = (value: string) => {
+          const item = reorderItem(list, { value, style: { height: "30px" } })
+          return <li {...item}>{value}</li>
+        }
+        return (
+          <ul {...list}>
+            {Bool.match(keyed, { onTrue: () => <For each={values()}>{row}</For>, onFalse: () => values().map(row) })}
+          </ul>
+        )
+      }
+      const { unmount } = mount(() => (
+        <WardicProvider env={DomLive}>
+          <List />
+        </WardicProvider>
+      ))
+      return { setValues, unmount }
+    }
+    try {
+      const mapped = scene(false)
+      await settle()
+      mapped.setValues(["b", "a", "c"])
+      flush()
+      await settle()
+      mapped.setValues(["c", "b", "a"])
+      flush()
+      await settle()
+      expect(lines.filter((l) => l.includes("<For>")), "one warning, naming <For>").toHaveLength(1)
+      mapped.unmount()
+      lines.length = 0
+      const keyed = scene(true)
+      await settle()
+      keyed.setValues(["b", "a", "c"])
+      flush()
+      await settle()
+      expect(lines.filter((l) => l.includes("<For>"))).toHaveLength(0)
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+    }
   })
 })

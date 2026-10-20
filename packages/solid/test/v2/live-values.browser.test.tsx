@@ -15,10 +15,12 @@
 // - LV8: a container accessor: 0s until its ref is there, then its scroll, and a new element's.
 // - LV9: `createVelocity`: 0 at rest, the change a second while it moves, 0 once it stops.
 // - LV10: `createTime`: milliseconds of frames, ending with its owner.
+// - LV11: a helper whose owner is disposed under a live provider ends its run: its Atom stops.
 import { DomLive } from "@wardic/dom"
 import * as ScrollOffset from "@wardic/dom/ScrollOffset"
-import { createScroll, createSpring, createTime, createTransform, createVelocity, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
-import { type Accessor, createSignal, flush } from "solid-js"
+import { createScroll, createSpring, createTime, createTransform, createVelocity, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { type Atom, AtomRegistry } from "effect/reactivity"
+import { type Accessor, createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { afterPaint, raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -367,5 +369,41 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
     await wait(100)
     flush()
     expect(time(), "nothing after its owner").toBe(ended)
+  })
+
+  it("LV11: a helper whose owner is disposed under a live provider ends its run: its Atom stops", async () => {
+    const [shown, setShown] = createSignal(true)
+    let time!: Accessor<number>
+    let registry!: AtomRegistry.AtomRegistry
+    const Scene = () => {
+      time = createTime()
+      return null
+    }
+    const Probe = () => {
+      registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
+      return null
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Probe />
+        <Show when={shown()}>
+          <Scene />
+        </Show>
+      </WardicProvider>
+    ))
+    await settle()
+    // The Atom the accessor carries, kept mounted here so the registry keeps its value.
+    const atom = (time as unknown as Record<symbol, Atom.Atom<number>>)[Symbol.for("@wardic/solid/carried")]!
+    const stop = registry.subscribe(atom, () => {})
+    try {
+      setShown(false)
+      flush()
+      await settle()
+      const ended = registry.get(atom)
+      await wait(150)
+      expect(registry.get(atom), "no frame sets it after its owner").toBe(ended)
+    } finally {
+      stop()
+    }
   })
 })
