@@ -686,6 +686,30 @@ describe("the Frame loop: afterTick (ADR-0033)", () => {
     expect(events).toEqual(["first", "second", "second"])
   })
 
+  it("a run a hook starts in the tick that ends the burst steps at the next tick and settles (#209)", async () => {
+    // The flush gate's hook runs a binding's batch, which can start a Retarget: Solid 2 runs its
+    // pending effects there. The burst used to end with the tick's own runs, interrupting it.
+    const h = await makeHarness()
+    let started: ReturnType<typeof h.start> | undefined
+    let settled = false
+    addHook(h, () => {
+      if (started === undefined && settled) started = h.start(counting(2))
+      return undefined
+    })
+    h.start(counting(1), (frame) => {
+      settled = frame.done
+    })
+    await endOfTask()
+    h.frames.fire(1000) // a settles: the tick's last run, and the hook starts another
+    expect(started).toBeDefined()
+    expect(started!.fiber.pollUnsafe()).toBeUndefined()
+    h.frames.fire(1016)
+    h.frames.fire(1032)
+    expect(started!.received.map((frame) => frame.done)).toEqual([false, true])
+    const exit = started!.fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.isSuccess(exit)).toBe(true)
+  })
+
   it("a hook that throws fails the tick: every run on the loop fails with the defect", async () => {
     const h = await makeHarness()
     let throws = true
