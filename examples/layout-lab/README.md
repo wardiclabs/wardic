@@ -59,9 +59,11 @@ pre-bundle cache. `bun run typecheck` checks both (`tsconfig.v2.json`).
 The Solid 2 scenarios keep Solid 1's ids, trigger paths and expectations, with
 their writes as a Solid 2 app makes them: Solid 2 applies a signal write at its
 flush, a microtask straight after the handler, observer or rAF callback that made
-it, still in the same task. Each rationale says where. So far they are scenarios 1
-to 10 and free play; 11 to 19 come next. The header shows which binding the page
-runs, and every saved log records it (`binding`).
+it, still in the same task. Each rationale says where. Every scenario runs on both.
+On Solid 2, scenario 14 has a **form** select: Motion's components
+(`Reorder.Group` / `Reorder.Item`, the default) or the binding's own factories
+(`reorderGroup` / `reorderItem`). The header shows which binding the page runs, and
+every saved log records it (`binding`).
 
 ## Method
 

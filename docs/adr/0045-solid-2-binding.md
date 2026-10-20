@@ -249,3 +249,20 @@ Grilled 2026-10-20: one lab built two ways (Q1 A); PR 5 in two, 5a the build wit
 - **The lab, headless** (`.tmp/209/lab`): every trigger scenario on both builds, cold and warm (Keep Clock warm), under both scheduler modes: clean, at its expected held frames, and the two builds alike; and free play's 30 timing × mutation × path combinations, identical on both. No console warning on either page.
 - **By hand,** on the Solid 2 build (the user, Windows, Chrome 155): 15 runs of scenarios 1 to 10, all clean at their expected held frames, s7 in its four container modes; s10's two seeding passes, its step ratio 0.83. s7 ran one Measure pass, where its rationale says two: Solid 1 does too now (its logs of 15 to 17 October show two), so that changed on main since.
 - Found on main, not by the binding: free play's first run after the other cards have run reads `wrong-origin`. Their results grow the cards above it, moving its box 20 px down the page with no size change, and the next layout change FLIPs from the box measured before (`originOffset` −19.9 px). A Motion parity question for the engine: #261.
+
+## PR 5b: the layout lab on Solid 2, scenarios 11 to 19
+
+Grilled 2026-10-20: scenario 14's Solid 2 card drives both Reorder forms, by a select (A). PR 5b changes no binding code: every scenario now runs on both builds.
+
+- **Scenarios 11 to 19 on the v2 binding,** with Solid 1's ids, cells, controls and expectations. `onMount` becomes `onSettled`, whose cleanup is returned (a Solid 2 settle callback owns nothing, so an `onCleanup` in it has no owner); `batch` goes; each rationale says where Solid 2 applies its writes.
+- **Scenario 14's form select:** Motion's components (`Reorder.Group` / `Reorder.Item`, the default, so runs compare with Solid 1's) or the binding's own factories (`reorderGroup` on a `<ul>`, `reorderItem` on each `<li>`, each made in a component's body). A factories run records it in its mode.
+- **A ward's style derived from the ward itself.** s18's swipe card fades with its own `x`. Solid 1's `createWard` took the element's style after the ward was made; a Solid 2 ward takes its style in its config, which names an opacity made from the ward's own `read("x")`. So the config is an accessor naming the opacity once it's made: the ward reads its style when it renders and follows its Live values from its mount, both after the component's body, so the opacity still carries the ward's Atom ("same frame" passes). Motion makes the `x` value first (`useMotionValue`), so no cycle arises. A cleaner form for this is an API question left open.
+- Solid 2's JSX types `aria-pressed` as an enumerated string, not a boolean (s19).
+
+### Pinned by (PR 5b)
+
+- **The lab, headless, on both builds** (`.tmp/209/lab`), judged by the cards' own lines and the lab's `boardChecksOf`, with no console warning on either page:
+  - s11 to s13: 24 drags a build (both schedulers, cold and warm), s11 in reorder mode, s12's X at rest, s13's item with Z mid-drag and with the twin, its free box flung with momentum, without, and in bounds on the grid: every line passing.
+  - s14: in the y list, x row and xy grid, a drag and a keyboard reorder each; components on both builds give the same orders, every line passing, focus kept, the same announcements; the factories the same on Solid 2; and in a scroll container on the CSS card (moved by C) and on the draggable card, on each form.
+  - s15 and s16: every cell and toggle, 37 and 18 board runs, all passing; s17 in its rationale's sequence, the same verdicts (wrong-origin 30 px where it says so) and callbacks lines on both; s18 and s19: 9 and 8 Live-value runs, all passing, the swipe card in the same frame.
+  - Every trigger scenario, now with s17 on Solid 2 too: clean at its expected held frames, cold and warm, under both scheduler modes, the two builds alike.
