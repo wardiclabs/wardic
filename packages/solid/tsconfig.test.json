@@ -9,5 +9,6 @@
     "composite": false,
     "rootDir": "."
   },
-  "include": ["src", "test", "bench"]
+  "include": ["src", "test", "bench"],
+  "exclude": ["src/unstable", "test/v2"]
 }

@@ -98,19 +98,8 @@ const realTouch: BrowserCommand<[
   })
 }
 
-export default defineConfig({
-  // Run via `--config` (not as a project), so anchor the root at this package so
-  // `test/**` resolves to packages/solid/test (mirrors how the project config's
-  // root is its own dir).
-  root: import.meta.dirname,
-  plugins: [solidPlugin()],
-  resolve: {
-    conditions: ["development", "browser"],
-  },
-  // Pre-bundled up front: Vite otherwise discovers a test's first import of it mid-run
-  // and reloads the page, failing that file (the provider imports it, ADR-0021).
-  optimizeDeps: {
-    include: [
+/** Pre-bundled up front, here and in the Solid 2 project (vitest.browser-v2.config.ts, #209). */
+export const PREBUNDLED: ReadonlyArray<string> = [
       "effect/Array",
       "effect/Boolean",
       "effect/Cause",
@@ -145,13 +134,29 @@ export default defineConfig({
       "effect/String",
       "effect/UndefinedOr",
       "effect/reactivity",
-    ],
+]
+
+/** The real-input commands, shared with the Solid 2 project (#209). */
+export const BROWSER_COMMANDS = { emulateReducedMotion, realKey, realMouse, realTouch, report }
+
+export default defineConfig({
+  // Run via `--config` (not as a project), so anchor the root at this package so
+  // `test/**` resolves to packages/solid/test (mirrors how the project config's
+  // root is its own dir).
+  root: import.meta.dirname,
+  plugins: [solidPlugin()],
+  resolve: {
+    conditions: ["development", "browser"],
   },
+  // Pre-bundled up front: Vite otherwise discovers a test's first import of it mid-run
+  // and reloads the page, failing that file (the provider imports it, ADR-0021).
+  optimizeDeps: { include: [...PREBUNDLED] },
   test: {
     name: "browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],
     // The hydration tests need the hydratable compile: they're vitest.hydrate.config.ts's.
-    exclude: [...configDefaults.exclude, "test/**/*.hydrate.browser.test.tsx"],
+    // The Solid 2 binding's are vitest.browser-v2.config.ts's (#209).
+    exclude: [...configDefaults.exclude, "test/**/*.hydrate.browser.test.tsx", "test/v2/**"],
     // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).
     setupFiles: ["./test/browser-setup.ts"],
     server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },
@@ -160,7 +165,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { emulateReducedMotion, realKey, realMouse, realTouch, report },
+      commands: BROWSER_COMMANDS,
     },
   },
 })

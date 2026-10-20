@@ -34,6 +34,8 @@ export default defineConfig({
         },
       },
       "packages/solid/vitest.ssr.config.ts",
+      // The Solid 2 binding's server renders, `@wardic/solid/unstable/v2` (#209).
+      "packages/solid/vitest.ssr-v2.config.ts",
     ],
   },
 })

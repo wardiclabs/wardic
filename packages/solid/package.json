@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --build",
-    "typecheck:tests": "tsc -p tsconfig.test.json"
+    "typecheck:tests": "tsc -p tsconfig.test.json && tsc -p tsconfig.v2.json"
   },
   "dependencies": {
     "@solid-primitives/refs": "^1.1.3",
@@ -27,8 +27,14 @@
     "solid-js": "^1.9.13"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7",
+    "@solidjs/babel-plugin": "2.0.0-rc.15",
+    "@solidjs/web": "2.0.0-rc.15",
+    "@types/babel__core": "^7.20.5",
     "@wardic/test": "workspace:*",
     "effect": "4.0.5",
-    "solid-js": "^1.9.13"
+    "solid-js": "^1.9.13",
+    "solid-js-2": "npm:solid-js@2.0.0-rc.15"
   }
 }
