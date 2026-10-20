@@ -30,7 +30,8 @@
  */
 import { createUniqueId, type Accessor } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { runSpine, type WardConfig } from "./create-ward.tsx"
+import { runSpine } from "./create-ward.tsx"
+import type { WardConfig } from "./config.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 

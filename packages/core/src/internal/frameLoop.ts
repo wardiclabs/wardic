@@ -24,7 +24,8 @@
  *   starts while the ending burst resumes its runs (#81).
  * - **The end of a tick** calls each `afterTick` hook, after every step and sink and the
  *   continuations of the runs that settled in it, the tick that ends a burst included. The flush
- *   gate flushes there, so a value paints in the Refresh frame that computed it (ADR-0033).
+ *   gate flushes there, so a value paints in the Refresh frame that computed it (ADR-0033). A run
+ *   a hook starts keeps the burst: whether it ends is counted after the hooks (#209).
  *
  * Observability: a span per run, named after its Primitive (`machine.span`), and one per burst
  * (`wardic.frameloop`). Per tick, no span or log: a gauge of running animations and a histogram
@@ -328,7 +329,9 @@ export const make = () =>
         // `tickMs`, which stays the cost of the steps alone.
         const ended = hooks
         for (let i = 0; i < ended.length; i++) ended[i].hook()
-        return kept === 0
+        // The burst ends with no run left, counted after the hooks: one a hook started (the flush
+        // gate's, running a binding's batch, #209) takes its first step at the next tick.
+        return entries.length + lastEntries.length === 0
       }
 
       const afterTick = (hook: () => undefined): Effect.Effect<void, never, Scope.Scope> => {

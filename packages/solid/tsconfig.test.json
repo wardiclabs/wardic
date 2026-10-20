@@ -9,5 +9,6 @@
     "composite": false,
     "rootDir": "."
   },
-  "include": ["src", "test", "bench"]
+  "include": ["src", "test", "bench", "babel-modules.d.ts"],
+  "exclude": ["src/unstable", "test/v2", "bench/page-v2.tsx"]
 }

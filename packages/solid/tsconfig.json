@@ -6,5 +6,7 @@
     "jsxImportSource": "solid-js"
   },
   "include": ["src"],
+  "// exclude": "The Solid 2 binding is tsconfig.v2.json's (#209): it compiles against Solid 2.",
+  "exclude": ["src/unstable"],
   "references": [{ "path": "../core" }, { "path": "../dom" }]
 }

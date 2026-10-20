@@ -35,6 +35,11 @@
  * each frame (`?kind=live`) against N plain divs whose style binds the same signal (`?kind=live-plain`),
  * paired per rep. It reports the mount, the set task and the frame after it (see `page.tsx`), and the
  * unmount, Wardic's against plain Solid's, ungated: a base before Live values can't run the page.
+ *
+ * `--v2` (#209, ADR-0045) runs `--head` alone too: the Solid 2 binding's page (`page-v2.tsx`, the
+ * same N `wardic.div`s, built with Solid 2's compile) against the Solid 1 binding's, paired per rep.
+ * It reports each task and the first frame after the mount, where every element's Starting-style
+ * switch goes through the binding's `batch`, ungated.
  */
 import { execSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
@@ -43,6 +48,8 @@ import { fileURLToPath } from "node:url"
 import { chromium, type Page } from "playwright"
 import { build, type Plugin } from "vite"
 import solid from "vite-plugin-solid"
+import * as Option from "effect/Option"
+import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -71,8 +78,9 @@ const n = Number(arg("n", "1000"))
 const rounds = Number(arg("rounds", "4"))
 const allocReps = Number(arg("alloc-reps", "3"))
 const liveMode = process.argv.includes("--live")
+const v2Mode = process.argv.includes("--v2")
 
-type Side = "base" | "head"
+type Side = "base" | "head" | "v2"
 type Kind = "wardic" | "plain" | "live" | "live-plain"
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
@@ -107,8 +115,12 @@ const fill = (side: Side, commit: string | undefined): string => {
     execSync(`git archive ${commit} ${PACKAGES.map((pkg) => `packages/${pkg}/src`).join(" ")} | tar -x -C ${JSON.stringify(root)}`, { cwd: REPO })
   }
   cpSync(join(BENCH, "page.tsx"), join(root, "page.tsx"))
+  cpSync(join(BENCH, "page-v2.tsx"), join(root, "page-v2.tsx"))
   return root
 }
+
+/** A `@wardic/*` subpath that's a folder, not a module: its index. */
+const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index.ts" }
 
 /**
  * Resolve `@wardic/*` to the side's sources, and every other bare import as the importing package
@@ -121,7 +133,16 @@ const sideResolver = (root: string, deps: string): Plugin => ({
     const wardic = /^@wardic\/(core|dom|solid)(?:\/(.+))?$/.exec(source)
     if (wardic !== null) {
       const [, pkg, sub] = wardic
-      return join(root, "packages", pkg!, "src", UndefinedOr.match(sub, { onUndefined: () => "index.ts", onDefined: (name) => `${name}.ts` }))
+      return join(
+        root,
+        "packages",
+        pkg!,
+        "src",
+        UndefinedOr.match(sub, {
+          onUndefined: () => "index.ts",
+          onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => `${name}.ts`),
+        }),
+      )
     }
     if (importer === undefined || !importer.startsWith(root)) return null
     if (source.startsWith(".") || source.startsWith("/") || source.startsWith("\0")) return null
@@ -134,18 +155,25 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
   const root = fill(side, commit)
   // vite-plugin-solid's Babel reads the JSX import source from a package's own node_modules.
   if (!existsSync(join(root, "node_modules"))) symlinkSync(join(deps, "packages/solid/node_modules"), join(root, "node_modules"))
+  // The Solid 2 page builds with Solid 2's compile, without its dev checks, as an app ships it.
+  const v2 = side === "v2"
   await build({
     configFile: false,
     logLevel: "warn",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), solid()],
+    plugins: [sideResolver(root, deps), Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist"),
       emptyOutDir: true,
       minify: true,
-      lib: { entry: join(root, "page.tsx"), formats: ["iife"], name: "benchSolid", fileName: () => "page.js" },
+      lib: {
+        entry: join(root, Bool.match(v2, { onTrue: () => "page-v2.tsx", onFalse: () => "page.tsx" })),
+        formats: ["iife"],
+        name: "benchSolid",
+        fileName: () => "page.js",
+      },
     },
   })
   return readFileSync(join(root, "dist/page.js"), "utf8")
@@ -168,9 +196,10 @@ const headLabel = UndefinedOr.match(headCommit, {
   onDefined: (commit) => `${headRef} (${commit.slice(0, 7)})`,
 })
 const headScript = await bundle("head", headCommit, headDeps)
-// `--live` runs the head alone: its pages can't run on a base before Live values.
-const baseScript = await Bool.match(liveMode, { onTrue: () => Promise.resolve(headScript), onFalse: () => bundle("base", baseCommit, baseDeps) })
-const scripts: Record<Side, string> = { base: baseScript, head: headScript }
+// `--live` and `--v2` run the head alone: their pages can't run on a base before them.
+const baseScript = await Bool.match(Bool.or(liveMode, v2Mode), { onTrue: () => Promise.resolve(headScript), onFalse: () => bundle("base", baseCommit, baseDeps) })
+const v2Script = await Bool.match(v2Mode, { onTrue: () => bundle("v2", headCommit, headDeps), onFalse: () => Promise.resolve("") })
+const scripts: Record<Side, string> = { base: baseScript, head: headScript, v2: v2Script }
 
 const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] })
 /** A page of `side`'s build for `kind`, its script loaded, and the errors it throws. */
@@ -261,23 +290,51 @@ if (liveMode) {
   process.exit(0)
 }
 
+if (v2Mode) {
+  // Head alone: the Solid 2 binding's page against the Solid 1 binding's, paired per rep.
+  console.log(`bench:solid --v2: ${headLabel}, Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps\n`)
+  const V2_TASKS = ["mount", "firstFrame", "retarget", "restRetarget", "unmount"] as const
+  const pagesOf: Record<"head" | "v2", Array<ReadonlyArray<Round>>> = { head: [], v2: [] }
+  for (let r = 0; r < reps; r++) {
+    const order: ReadonlyArray<"head" | "v2"> = Bool.match(r % 2 === 0, {
+      onTrue: (): ReadonlyArray<"head" | "v2"> => ["head", "v2"],
+      onFalse: (): ReadonlyArray<"head" | "v2"> => ["v2", "head"],
+    })
+    for (const side of order) pagesOf[side].push(await runPage(side, "wardic"))
+    process.stderr.write(`rep ${r + 1}/${reps}\r`)
+  }
+  await browser.close()
+  const warmOf = (page: ReadonlyArray<Round>, task: (typeof V2_TASKS)[number]): number => median(page.slice(1).map((round) => round[task]))
+  console.log(`warm (ms, median across reps; Solid 2 / Solid 1 paired per rep: median [p25 – p75])`)
+  console.log(`  ${"task".padEnd(14)}${"solid 1".padEnd(10)}${"solid 2".padEnd(10)}ratio`)
+  for (const task of V2_TASKS) {
+    const ratios = pagesOf.v2.map((page, r) => warmOf(page, task) / warmOf(pagesOf.head[r]!, task))
+    console.log(
+      `  ${task.padEnd(14)}${median(pagesOf.head.map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+        `${median(pagesOf.v2.map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+        `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`,
+    )
+  }
+  process.exit(0)
+}
+
 console.log(`bench:solid: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}`)
 if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
 if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
 console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes\n`)
 
 /** Rep `r`'s order: base first on even reps, head first on odd ones. */
-const orderOf = (r: number): ReadonlyArray<Side> => {
+const orderOf = (r: number): ReadonlyArray<"base" | "head"> => {
   if (r % 2 === 0) return ["base", "head"]
   return ["head", "base"]
 }
-const runs: Record<"wardic" | "plain", Record<Side, Array<ReadonlyArray<Round>>>> = { wardic: { base: [], head: [] }, plain: { base: [], head: [] } }
+const runs: Record<"wardic" | "plain", Record<"base" | "head", Array<ReadonlyArray<Round>>>> = { wardic: { base: [], head: [] }, plain: { base: [], head: [] } }
 for (let r = 0; r < reps; r++) {
   const order = orderOf(r)
   for (const kind of ["wardic", "plain"] as const) for (const side of order) runs[kind][side].push(await runPage(side, kind))
   process.stderr.write(`rep ${r + 1}/${reps}\r`)
 }
-const allocated: Record<Side, Array<number>> = { base: [], head: [] }
+const allocated: Record<"base" | "head", Array<number>> = { base: [], head: [] }
 for (let r = 0; r < allocReps; r++) {
   const order = orderOf(r)
   for (const side of order) allocated[side].push(await allocatedPage(side))

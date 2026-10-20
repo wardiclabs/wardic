@@ -1,0 +1,14 @@
+{
+  "// note": "The Solid 2 binding, `@wardic/solid/unstable/v2` (#209): its sources and tests against Solid 2, with `solid-js` mapped to the `solid-js-2` alias for every importer (`@solidjs/web` too) and `@solidjs/web` as the JSX source. No emit; run via `bun run typecheck:tests`.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "noEmit": true,
+    "composite": false,
+    "rootDir": ".",
+    "paths": { "solid-js": ["./node_modules/solid-js-2/types/index.d.ts"] }
+  },
+  "include": ["src/unstable/v2", "test/v2", "bench/page-v2.tsx", "vite.solid2.ts", "babel-modules.d.ts"]
+}

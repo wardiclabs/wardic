@@ -19,5 +19,7 @@ export default defineConfig({
     name: "ssr",
     environment: "node",
     include: ["test/**/*.ssr.test.tsx"],
+    // The Solid 2 binding's are vitest.ssr-v2.config.ts's (#209).
+    exclude: ["test/v2/**", "**/node_modules/**"],
   },
 })

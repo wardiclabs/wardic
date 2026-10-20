@@ -18,6 +18,8 @@ export default defineConfig({
       "packages/dom/vitest.browser.config.ts",
       "packages/solid/vitest.browser.config.ts",
       "packages/solid/vitest.hydrate.config.ts",
+      // The Solid 2 binding in Chromium, `@wardic/solid/unstable/v2` (#209).
+      "packages/solid/vitest.browser-v2.config.ts",
     ],
   },
 })

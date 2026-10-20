@@ -1,159 +1,31 @@
 /**
- * An element's place in variant orchestration (ADR-0007, #50), shared by every Wardic surface:
- * `createWard` (so `wardic.*` and `<Reorder.Item>`), `wardic.create(Component)` and the directives.
- *
- * Motion's rule (CONTEXT.md, **Variant child**):
- * - An element that names its own `initial` or `animate` hands its children those names, and an
- *   `initial={false}` with them (#134). Any other passes its parent's through, unless it sets
- *   `inherit={false}`, which passes none.
- * - A **Variant child** (`variants`, no names of its own, `inherit` not `false`) inherits its
- *   ancestor's names and default transition, takes a stagger slot among the ancestor's variant
- *   children, and counts for the ancestor's `when`.
- * - An element with variants of its own (`variants`, or a name) is what its Variant children
- *   join: it owns their registry, their stagger and their `when`. Any other element passes its
- *   parent's context through, so a Variant child joins its nearest such ancestor; it renders no
- *   Provider unless it sets `inherit={false}` ({@link changesContext}).
+ * An element's place in variant orchestration on the Solid 1 binding (ADR-0007, #50), shared by
+ * every Wardic surface: `createWard` (so `wardic.*` and `<Reorder.Item>`), `wardic.create(Component)`
+ * and the directives. The rules it runs are Solid-free, in `variant-tree.ts` (#209).
  *
  * Membership is decided once, at setup, as `initial` is read. The names stay reactive.
- *
- * A server render builds the same context with the same names, once, and inert orchestration
- * (ADR-0021): stagger and `when` are timing, and never change the markup.
  */
 import * as Stagger from "@wardic/core/Stagger"
-import type * as Values from "@wardic/core/Values"
-import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
-import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
+import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
-import type { WardicTransition } from "./create-ward.tsx"
-import type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "./variants.ts"
-
-/** The part of an element's config its place in variant orchestration reads. */
-export interface VariantConfig {
-  readonly initial?: object | string | false | undefined
-  readonly animate?: object | string | undefined
-  readonly variants?: object | undefined
-  readonly inherit?: boolean | undefined
-  readonly transition?: WardicTransition | undefined
-}
-
-/** An `initial` an element hands its children: a variant name, `false` (#134), or `undefined` for a values map or nothing. */
-const initialNameOf = (entry: object | string | false | undefined): string | false | undefined =>
-  Bool.match(entry === false, { onTrue: () => false as const, onFalse: () => nameOf(entry as object | string | undefined) })
-
-/** A variant name, or `undefined` for a values map or nothing. */
-const nameOf = (entry: object | string | undefined): string | undefined =>
-  Bool.match(Predicate.isString(entry), { onTrue: () => entry as string, onFalse: constUndefined })
-
-/** Whether `config` names its own variants: its `initial` or `animate` is a name (Motion's `isControllingVariants`). */
-export const namesOwnVariants = (config: VariantConfig): boolean =>
-  Predicate.isString(config.initial) || Predicate.isString(config.animate)
-
-/** Whether an element has variants of its own, so Variant children join it (Motion's `isVariantNode`). */
-export const hasOwnVariants = (config: VariantConfig): boolean =>
-  Predicate.isNotUndefined(config.variants) || namesOwnVariants(config)
-
-/**
- * Whether an element changes what its children read, so it renders its variant context's
- * Provider (#50): it has variants of its own, or it sets `inherit={false}`. Any other element hands
- * its children its parent's context as it is, so it renders none. Decided once, at setup, from the
- * same props on a server and on the client, so the nesting never changes after mount.
- */
-export const changesContext = (config: VariantConfig): boolean => hasOwnVariants(config) || config.inherit === false
-
-/** Whether an element is a **Variant child** (CONTEXT.md). */
-export const isVariantChild = (config: VariantConfig): boolean =>
-  Predicate.isNotUndefined(config.variants) && !namesOwnVariants(config) && config.inherit !== false
-
-/** The context an element inherits names and its default transition from: its parent's, for a Variant child. */
-export const inheritedContext = (
-  config: VariantConfig,
-  parent: WardicVariantContextValue | undefined,
-): WardicVariantContextValue | undefined => Bool.match(isVariantChild(config), { onFalse: constUndefined, onTrue: () => parent })
-
-/**
- * The `initial` an element's Starting style resolves: its own, else the `initial` name (or `false`) of
- * the context it inherits from (#50, #134). Read once, as every `initial` is.
- */
-export const initialOf = (
-  config: VariantConfig,
-  inherited: WardicVariantContextValue | undefined,
-): object | string | false | undefined =>
-  UndefinedOr.match(config.initial, {
-    onDefined: (initial) => initial,
-    onUndefined: () => UndefinedOr.match(inherited, { onUndefined: constUndefined, onDefined: (context) => context.initial }),
-  })
-
-/** The `animate` an element starts at with `initial={false}`: its own, else the name its context hands down (#134). Read once. */
-const animateOf = (config: VariantConfig, inherited: WardicVariantContextValue | undefined): object | string | undefined =>
-  UndefinedOr.match(config.animate, {
-    onDefined: (animate) => animate,
-    onUndefined: () => UndefinedOr.match(inherited, { onUndefined: constUndefined, onDefined: (context) => untrack(context.variant) }),
-  })
-
-/**
- * Whether an element starts at its `animate`, with nothing animating at mount (#134, Motion's
- * `isInitialAnimationBlocked`): its `initial` (own or inherited) is `false`, or it renders with an
- * `<AnimatePresence initial={false}>`'s first render (`presenceBlocks`).
- */
-export const startsAtAnimate = (
-  config: VariantConfig,
-  inherited: WardicVariantContextValue | undefined,
-  presenceBlocks: boolean,
-): boolean => presenceBlocks || initialOf(config, inherited) === false
-
-/**
- * The values an element starts from, its Starting style's input (ADR-0003): its `initial` (own, else
- * inherited, #50), or, when it {@link startsAtAnimate}, its `animate` (own, else inherited), as
- * Motion's `initial={false}` (#134). Read once.
- */
-export const startingValuesOf = (
-  config: VariantConfig,
-  inherited: WardicVariantContextValue | undefined,
-  presenceBlocks: boolean,
-): Values.Values =>
-  Style.resolveInitial({
-    initial: Bool.match(startsAtAnimate(config, inherited, presenceBlocks), {
-      onTrue: () => false as const,
-      onFalse: () => initialOf(config, inherited),
-    }),
-    animate: animateOf(config, inherited),
-    variants: config.variants as Readonly<Record<string, object | undefined>> | undefined,
-  })
-
-/**
- * A name an element hands its children (Motion's `getCurrentTreeVariants`): `own` if it names its own
- * variants, else `fromParent` unless it sets `inherit={false}`.
- */
-const handedDown = <A extends string | false>(config: VariantConfig, own: () => A | undefined, fromParent: () => A | undefined): A | undefined =>
-  Bool.match(namesOwnVariants(config), {
-    onTrue: own,
-    onFalse: () => Bool.match(config.inherit === false, { onTrue: constUndefined, onFalse: fromParent }),
-  })
-
-/** An element's own transition, else the one it inherits. */
-export const ownOrInherited = (own: WardicTransition | undefined, inherited: WardicVariantContextValue | undefined): WardicTransition | undefined =>
-  UndefinedOr.match(own, { onUndefined: () => UndefinedOr.map(inherited, (context) => context.transition()), onDefined: identity })
-
-/** The stagger config an element's `transition` gives its Variant children. */
-const staggerOf = (transition: WardicTransition | undefined): WardicStaggerConfig =>
-  UndefinedOr.match(transition, { onUndefined: () => staggerWith({}), onDefined: staggerWith })
-
-/** The stagger config of a transition's stagger keys, each defaulted. */
-const staggerWith = ({ staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1 }: WardicTransition): WardicStaggerConfig => ({
-  amount: staggerChildren,
-  delayChildren,
-  from,
-  direction: staggerDirection,
-})
-
-/** What an element provides when it has no variants of its own: its parent's context, unless `inherit={false}`. */
-const passedThrough = (
-  config: VariantConfig,
-  parent: WardicVariantContextValue | undefined,
-): WardicVariantContextValue | undefined => Bool.match(config.inherit === false, { onTrue: constUndefined, onFalse: () => parent })
+import type { WardicTransition } from "./config.ts"
+import {
+  handedDown,
+  hasOwnVariants,
+  inheritedContext,
+  initialNameOf,
+  nameOf,
+  ownOrInherited,
+  passedThrough,
+  staggerOf,
+  type VariantConfig,
+  type WardicChildRegistration,
+  type WardicStaggerConfig,
+  type WardicVariantContextValue,
+} from "./variant-tree.ts"
 
 /** An element's place in variant orchestration, on the client. */
 export interface VariantNode {
@@ -294,48 +166,5 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVa
       reportJoined(done)
       reportOwn(done)
     },
-  }
-}
-
-/** A registration that does nothing: a server render has no orchestration to join. */
-export const INERT_REGISTRATION: WardicChildRegistration = Object.freeze({
-  index: () => 0,
-  total: () => 1,
-  setSettled: () => {},
-  dispose: () => {},
-})
-
-/** An element's place in variant orchestration during a server render (ADR-0021). */
-export interface ServerVariantNode {
-  /** What its children read: the same context the client builds, with inert orchestration. */
-  readonly provided: WardicVariantContextValue | undefined
-  /** The context it inherits from: its parent's, for a Variant child. */
-  readonly inherited: WardicVariantContextValue | undefined
-}
-
-/**
- * {@link createVariantNode} during a server render: the same names, read once, and orchestration
- * that does nothing. No runtime, no signals.
- */
-export const serverVariantNode = (config: VariantConfig, parent: WardicVariantContextValue | undefined): ServerVariantNode => {
-  const inherited = inheritedContext(config, parent)
-  const own = (): WardicVariantContextValue => {
-    const variant = handedDown(config, () => nameOf(config.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
-    const transition = ownOrInherited(config.transition, inherited)
-    const stagger = staggerOf(config.transition)
-    return {
-      variant: () => variant,
-      initial: handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial)),
-      transition: () => transition,
-      register: () => INERT_REGISTRATION,
-      stagger: () => stagger,
-      when: () => UndefinedOr.map(config.transition, (t) => t.when),
-      childrenMayStart: constTrue,
-      allChildrenSettled: constTrue,
-    }
-  }
-  return {
-    provided: Bool.match(hasOwnVariants(config), { onTrue: own, onFalse: () => passedThrough(config, parent) }),
-    inherited,
   }
 }

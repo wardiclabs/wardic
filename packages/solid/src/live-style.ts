@@ -16,6 +16,8 @@
  * (`whenRouted`): from then on, a change of a routed key's value, a new source for it, or its
  * leaving the style, is told to the spine, which writes it while nothing else owns the key. An Atom is subscribed; an accessor gets its own
  * computation, one per key, so a change runs only that.
+ *
+ * Solid-free: both bindings run it, each giving its own Solid as a {@link Reactivity} (#209).
  */
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Values from "@wardic/core/Values"
@@ -28,7 +30,7 @@ import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createComputed, createRoot, on, untrack } from "solid-js"
+import type { Accessor, Reactivity } from "./reactivity.ts"
 
 /** A Live value as Solid takes it: an `effect/reactivity` Atom, or an accessor (a signal, a memo). */
 export type LiveSource<A> = Atom.Atom<A> | Accessor<A>
@@ -46,7 +48,7 @@ export const isLive = (value: unknown): value is LiveSource<unknown> => Bool.or(
 export const isTransformKey = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))
 
 /** A style value, read now: an Atom through `registry`, an accessor untracked, anything else as it is. */
-export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegistry): unknown => {
+export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegistry, untrack: Reactivity["untrack"]): unknown => {
   if (Atom.isAtom(value)) return registry().get(value)
   if (Predicate.isFunction(value)) return untrack(value as Accessor<unknown>)
   return value
@@ -85,10 +87,14 @@ export const split = (user: StyleInput): Split => {
 }
 
 /** The routed keys' values, read now: the numbers and strings among them, as a values map. */
-export const valuesOf = (routed: Readonly<Record<string, unknown>>, registry: () => AtomRegistry.AtomRegistry): Values.Values =>
+export const valuesOf = (
+  routed: Readonly<Record<string, unknown>>,
+  registry: () => AtomRegistry.AtomRegistry,
+  untrack: Reactivity["untrack"],
+): Values.Values =>
   Bool.match(routed === NOTHING_ROUTED, {
     onTrue: () => NO_VALUES,
-    onFalse: () => Style.toValues(Rec.map(routed, (value) => readLive(value, registry))),
+    onFalse: () => Style.toValues(Rec.map(routed, (value) => readLive(value, registry, untrack))),
   })
 
 /** What the spine hears while it follows. */
@@ -130,12 +136,15 @@ export interface LiveStyleOptions {
   readonly registry: () => AtomRegistry.AtomRegistry
   /** Called once, the first time a `transform` string is dropped for the transform keys. */
   readonly onDroppedTransform?: (() => void) | undefined
+  /** The binding's Solid: accessors are read untracked, and watched, through it (#209). */
+  readonly reactivity: Reactivity
 }
 
 /** A {@link LiveStyle}'s state: one object per element, its methods on {@link Proto}. */
 interface State extends LiveStyle {
   readonly registry: () => AtomRegistry.AtomRegistry
   readonly onDroppedTransform: (() => void) | undefined
+  readonly reactivity: Reactivity
   routed: Readonly<Record<string, unknown>>
   seen: StyleInput
   last: StyleInput
@@ -156,14 +165,7 @@ const watch = (self: State, key: string, source: unknown, to: Follower): void =>
     self.watching.set(key, self.registry().subscribe(source, (value) => to.change(key, value)))
     return
   }
-  const accessor = source as Accessor<unknown>
-  self.watching.set(
-    key,
-    createRoot((dispose) => {
-      createComputed(on(accessor, (value) => to.change(key, value), { defer: true }))
-      return dispose
-    }),
-  )
+  self.watching.set(key, self.reactivity.watch(source as Accessor<unknown>, (value) => to.change(key, value)))
 }
 
 const unwatch = (self: State, key: string): void => {
@@ -205,7 +207,7 @@ const reconcile = (self: State, next: Readonly<Record<string, unknown>>): void =
     if (Bool.and(Object.hasOwn(prev, key), prev[key] === source)) return
     unwatch(self, key)
     watch(self, key, source, to)
-    to.change(key, readLive(source, self.registry))
+    to.change(key, readLive(source, self.registry, self.reactivity.untrack))
   })
 }
 
@@ -224,19 +226,19 @@ const Proto: Omit<LiveStyle, never> & ThisType<State> = {
     return this.last
   },
   values() {
-    return valuesOf(this.routed, this.registry)
+    return valuesOf(this.routed, this.registry, this.reactivity.untrack)
   },
   routes(key) {
     return Object.hasOwn(this.routed, key)
   },
   valueOf(key) {
-    return Option.map(Option.liftPredicate(this.routed, (routed) => Object.hasOwn(routed, key)), (routed) => readLive(routed[key], this.registry))
+    return Option.map(Option.liftPredicate(this.routed, (routed) => Object.hasOwn(routed, key)), (routed) => readLive(routed[key], this.registry, this.reactivity.untrack))
   },
   isLive(key) {
     return Bool.and(Object.hasOwn(this.routed, key), isLive(this.routed[key]))
   },
   read(value) {
-    return readLive(value, this.registry)
+    return readLive(value, this.registry, this.reactivity.untrack)
   },
   whenRouted(setup) {
     if (Rec.isEmptyRecord(this.routed)) {
@@ -263,6 +265,7 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   const state: Omit<State, keyof LiveStyle> = {
     registry: options.registry,
     onDroppedTransform: options.onDroppedTransform,
+    reactivity: options.reactivity,
     routed: NOTHING_ROUTED,
     seen: undefined,
     last: undefined,

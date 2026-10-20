@@ -17,7 +17,7 @@ import type * as Values from "@wardic/core/Values"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
-import type { WardicTransition } from "../src/create-ward.tsx"
+import type { WardicTransition } from "../src/config.ts"
 import { type Follows, type Leg, legsOf } from "../src/retarget-legs.ts"
 
 const positionalKeys = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* ReducedMotion.PositionalKeys }), ReducedMotion.transformsOnly))

@@ -674,6 +674,43 @@ describe("makeFlushGate — the keys held on an element (ADR-0034)", () => {
   })
 })
 
+describe("makeFlushGate — the keys held, heard in the binding's batch (ADR-0034, *Amendment (#209)*)", () => {
+  it("GH4: every element's keys held are heard in one batch, after the restores and before any commit", () => {
+    const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
+    try {
+      const events: Array<string> = []
+      // A binding that applies its updates at the end of its batch, as Solid 2's flush does.
+      const gate = internalGate.makeFlushGate(runtime, {
+        batch: (apply) => {
+          events.push("batch")
+          apply()
+          events.push("end")
+        },
+      })
+      for (const id of ["a", "b"]) {
+        gate.register(
+          id,
+          sinkOf((p) => void events.push(`commit ${id} ${JSON.stringify(p)}`), {
+            onHeld: (keys) => void events.push(`held ${id} ${keys.join(",")}`),
+          }),
+        )
+      }
+      gate.write("a", { x: 1 })
+      gate.write("b", { y: 2 })
+      fireFrame()
+      expect(events).toEqual(["batch", "held a x", "held b y", "end", 'commit a {"x":1}', 'commit b {"y":2}'])
+      events.length = 0
+      // A frame that keeps every key runs no batch.
+      gate.write("a", { x: 3 })
+      fireFrame()
+      expect(events).toEqual(['commit a {"x":3}'])
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+})
+
 describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
   /** A gate on a still loop, and the registry its outputs live in. */
   const harness = () => {
