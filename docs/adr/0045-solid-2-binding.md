@@ -41,7 +41,7 @@ Decided while building, from what Solid 2 does, measured with probes (`test/v2/p
 4. **The spine is shared.** Its Retarget, its returns to Base values, its Handoff and its Live-value follower move from `create-ward.tsx` into Solid-free `spine.ts`, which both bindings drive (`makeElementSpine`). The variant rules move into `variant-tree.ts`, the presence record into `presence-record.ts`, the runtime into `runtime.ts`, the config types into `config.ts`, the motion props into `motion-props.ts`.
    - `live-style.ts` and `element-style.ts` take the binding's Solid as a `Reactivity`: `untrack`, a trigger, and a watch of an accessor. `element-style.ts` keeps its state in plain variables, so it reads the same with Solid 2's lagging reads.
    - The Solid 1 binding's behaviour doesn't change: its suites pass as they were.
-5. **A ward mounts in an effect.** Every primitive is made at setup, under the ward's owner. The ref, called during render (no owner, element not yet connected), sets the element; one effect, tracking the element, the target and the `when` gate, mounts it (registers it with the gate, builds its spine) in its apply and Retargets. A Live value's watch is a root made under the ward's owner (`reactivityIn(owner)`): Solid 2 disposes a root with the computation it's made in, and refuses one with no owner inside an apply.
+5. **A ward mounts in an effect.** Every primitive is made at setup, under the ward's owner. The ref, called during render (no owner, element not yet connected), sets the element; one effect, tracking the element, the target and the `when` gate, mounts it (registers it with the gate, builds its spine) in its apply and Retargets. The gate is a memo: an element with variants of its own reads its `when` off its config, and read straight from the effect it re-ran the effect, and Retargeted, on every change of the config (a mutation found it). A Live value's watch is a root made under the ward's owner (`reactivityIn(owner)`): Solid 2 disposes a root with the computation it's made in, and refuses one with no owner inside an apply.
 6. **The variant node writes nothing a child reads from an effect.** Solid 2 orders effects' applies by graph height, and a write in one is read by the others' computes a pass later.
    - **Stagger slots** are plain fields, taken in the memo that computes the handed-down name, as it changes. Every Variant child reads that memo for its target, so the slots are taken before any child's Retarget.
    - **`beforeChildren`** compares the name handed down with the one the element last settled at (written from its frames, outside any flush), both read in the child's compute.
@@ -65,15 +65,16 @@ Decided while building, from what Solid 2 does, measured with probes (`test/v2/p
 `packages/solid/test/v2/`:
 
 - `provider.browser.test.tsx`: the runtime, the error outside a provider, disposal, `runScoped`.
-- `ward.browser.test.tsx` W1–W6: a kept ward spread and a ward in a `<For>` callback (Starting style, animation), `ref={ward(…)}` alone and in an array, an accessor config Retargeting while a `style` change doesn't, the keys a spread applies.
+- `ward.browser.test.tsx` W1–W8: a kept ward spread and a ward in a `<For>` callback (Starting style, animation), `ref={ward(…)}` alone and in an array, an accessor config Retargeting while a `style` change doesn't (W8: on a ward with variants of its own too), the keys a spread applies, an unmount ending its legs.
 - `ward-tracked.browser.test.tsx` WT1: `{...ward(config)}` throws `REMADE` into `<Errored>`.
-- `stagger-when.browser.test.tsx` SW-a–f (the Solid 1 binding's), SW-h (`beforeChildren` holds again at a second flip), SW-i (a reversed stagger's order at each flip).
+- `stagger-when.browser.test.tsx` SW-a–f (the Solid 1 binding's), SW-h (`beforeChildren` holds again at a second flip), SW-i (a reversed stagger's order at each flip), SW-j (a new name with the same values still Retargets, so `beforeChildren` releases).
 - `variants.browser.test.tsx` V1–V3, VB1–VB5: names through a ward's `.Provider` and through `wardic.*`.
 - `wardic.browser.test.tsx` WC1–WC10, WCC1–WCC3: the element, the merge policy, the proxy, tracked props, a reactive user style, `wardic.create(Component)`.
 - `gate.browser.test.tsx` G1–G3 and `style-fallback.browser.test.tsx` F1–F9: Solid 2's batching against the gate; F9 is a one-frame take of a key the user's style sets.
 - `spine.browser.test.tsx` SP1–SP7: string keys, a `var()` end, a return to `style`, a Live value, `read`, `onUpdate`, a transition change.
 - `server.ssr.test.tsx` SV1–SV8: the server render.
 - core `frame-loop.test.ts` and dom `gate.node.test.ts` GH4: the two engine fixes.
+- **Mutations** (`.tmp/209/mut1.py`, in a worktree, each against the v2 browser and server suites and core's and dom's): 30 of 31 caught. The one left, `sameResolution` without its base layer, is equivalent in PR 1: with no gesture layer, the resolved values are the base's. W9 (a ward's spine left running at unmount) and S1 (`sameResolution` without the variant name) survived the first run, and W7 and SW-j now pin them; S1's survival also found the gate memo (*Built* 5), pinned by W8.
 
 ## Implementation (PR 1)
 

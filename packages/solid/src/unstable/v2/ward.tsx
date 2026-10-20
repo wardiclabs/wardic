@@ -296,10 +296,14 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     }
   }
 
-  // Mount, then Retarget on each change of the target or of the `when` gate (ADR-0007): both are
-  // read here, so a gate's flip re-runs it and releases a held Retarget.
+  // Whether the `when` gate lets a Retarget start (ADR-0007), as a memo: an element with variants of
+  // its own reads its `when` off its config, and only a flip of the gate may re-run the effect.
+  const open = createMemo(() => node.canStart())
+
+  // Mount, then Retarget on each change of the target or of the `when` gate: both are read here,
+  // so a gate's flip re-runs it and releases a held Retarget.
   createEffect(
-    () => ({ el: element(), resolution: target(), open: node.canStart() }),
+    () => ({ el: element(), resolution: target(), open: open() }),
     ({ el, resolution }) => {
       if (Predicate.isUndefined(el)) return
       if (Predicate.isUndefined(mounted) || mounted.element !== el) {

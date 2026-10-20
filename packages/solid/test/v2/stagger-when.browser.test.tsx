@@ -6,6 +6,8 @@
 // - SW-h: `beforeChildren` holds its child again at a second flip, until the parent settles there.
 // - SW-i: the stagger slots are taken at the trigger, before any child's Retarget: a re-flip with
 //   `staggerDirection: -1` reverses the order, the first time and the next.
+// - SW-j: a parent flipping to a name whose values are its last's still Retargets and settles there
+//   (`sameResolution` compares the name), so `beforeChildren` releases its child.
 import { DomLive } from "@wardic/dom"
 import { WardicProvider, ward } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -215,4 +217,37 @@ it("SW-i: the stagger slots are taken at the trigger: a reversed stagger holds i
   expect(down[1]!).toBeGreaterThan(down[2]!)
   expect(down[0]!).toBeGreaterThan(down[1]!)
   expect(allAt(els, 0)).toBe(true)
+})
+
+it("SW-j: a new name with the same values still Retargets, so beforeChildren releases the child", async () => {
+  const [name, setNameSignal] = createSignal("open")
+  let parentEl!: HTMLElement
+  let childEl!: HTMLElement
+  const Child = () => {
+    const child = ward({ initial: { opacity: 0 }, variants: { open: { opacity: 1 }, again: { opacity: 0.3 } } })
+    return <div ref={[child, (n: HTMLElement) => (childEl = n)]}>c</div>
+  }
+  const App = () => {
+    // "open" and "again" are the same values for the parent: only the name changes.
+    const parent = ward(() => ({ initial: { opacity: 1 }, variants: { open: { opacity: 1 }, again: { opacity: 1 } }, animate: name(), transition: { when: "beforeChildren" as const } }))
+    return (
+      <div ref={[parent, (n: HTMLElement) => (parentEl = n)]}>
+        <parent.Provider>
+          <Child />
+        </parent.Provider>
+      </div>
+    )
+  }
+  mount(() => (
+    <WardicProvider env={DomLive}>
+      <App />
+    </WardicProvider>
+  ))
+  await until(() => op(childEl) >= 0.99)
+  expect(op(childEl)).toBeGreaterThan(0.99)
+  setNameSignal("again")
+  flush()
+  await until(() => Math.abs(op(childEl) - 0.3) < 0.02)
+  expect(op(childEl)).toBeCloseTo(0.3, 1)
+  expect(parentEl).toBeDefined()
 })

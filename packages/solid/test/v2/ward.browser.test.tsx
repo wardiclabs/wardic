@@ -10,9 +10,14 @@
 // - W4: `ref={[card, myRef]}`: the user's ref gets the element too.
 // - W5: an accessor config Retargets on a change; a `style` change in it, resolving the same target, doesn't.
 // - W6: the props a spread applies are `ref`, `style` and attributes only: `read`, `atom` and `Provider` aren't.
+// - W7: unmounting a ward ends its legs: an endless tween leaves the Frame loop with nothing running.
+// - W8: a ward with variants of its own, whose `when` gate reads its config: a `style` change in
+//   that config still doesn't Retarget.
 import { DomLive } from "@wardic/dom"
 import { WardicProvider, ward } from "@wardic/solid/unstable/v2"
-import { createSignal, flush, For } from "solid-js"
+import * as Effect from "effect/Effect"
+import * as Metric from "effect/Metric"
+import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -135,5 +140,63 @@ describe("ward(config) on Solid 2", () => {
     expect(typeof card!.read).toBe("function")
     expect(typeof card!.atom).toBe("function")
     expect(typeof card!.Provider).toBe("function")
+  })
+
+  it("W7: unmounting a ward ends its legs: an endless tween leaves the Frame loop with nothing running", async () => {
+    const running = (): number | undefined =>
+      (Effect.runSync(Metric.snapshot).find((m) => m.id === "wardic_frameloop_animations")?.state as Metric.GaugeState<number> | undefined)?.value
+    const [shown, setShown] = createSignal(true)
+    let el!: HTMLElement
+    const Card = () => {
+      const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { type: "tween", duration: 0.4, repeat: Infinity } })
+      return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Show when={shown()}>
+          <Card />
+        </Show>
+      </WardicProvider>
+    ))
+    await until(() => Number(el.style.opacity) > 0.2)
+    expect(running()).toBeGreaterThan(0)
+    setShown(false)
+    flush()
+    await until(() => running() === 0, 1000)
+    expect(running()).toBe(0)
+  })
+
+  it("W8: a ward with variants of its own: a style change in its config doesn't Retarget", async () => {
+    const [color, setColor] = createSignal("red")
+    let commits = 0
+    let el!: HTMLElement
+    const Card = () => {
+      const card = ward(() => ({
+        initial: "hidden",
+        animate: "shown",
+        variants: { hidden: { opacity: 0 }, shown: { opacity: 1 } },
+        transition: { when: "beforeChildren" as const },
+        style: { color: color() },
+        onUpdate: () => {
+          commits++
+        },
+      }))
+      return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Card />
+      </WardicProvider>
+    ))
+    await until(() => el.style.opacity === "1")
+    await raf()
+    await raf()
+    const before = commits
+    setColor("blue")
+    flush()
+    await raf()
+    await raf()
+    expect(el.style.color).toBe("blue")
+    expect(commits).toBe(before)
   })
 })
