@@ -9,6 +9,9 @@ import type { ScenarioDef } from "../scenarios/types.ts"
 import { freePlay } from "./free-play.tsx"
 import { s1 } from "./s1-click-layout-dependency.tsx"
 import { s10 } from "./s10-sibling-resize-mid-flight.tsx"
+import { s11 } from "./s11-drag-slot-moves.tsx"
+import { s12 } from "./s12-drag-children.tsx"
+import { s13 } from "./s13-drag-release.tsx"
 import { s2 } from "./s2-ro-content-growth.tsx"
 import { s3 } from "./s3-app-ro-signal.tsx"
 import { s4 } from "./s4-raf-change.tsx"
@@ -18,5 +21,5 @@ import { s7 } from "./s7-layout-id-switch.tsx"
 import { s8 } from "./s8-effect-in-gate-batch.tsx"
 import { s9 } from "./s9-cold-spring.tsx"
 
-/** Every Solid 2 scenario, in display order (s11 to s19 are PR 5b's). */
-export const scenarios: ReadonlyArray<ScenarioDef> = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, freePlay]
+/** Every Solid 2 scenario, in display order. */
+export const scenarios: ReadonlyArray<ScenarioDef> = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, freePlay]
