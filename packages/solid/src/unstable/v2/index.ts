@@ -23,6 +23,7 @@ export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "..
  * `.read(key)` and `.atom(key)` for its values.
  */
 export { type Ward, type WardConfig, type WardProps, type WardRead, type WardStyle, ward } from "./ward.tsx"
+export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 
 /** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */
 export { useVariantContext, WardicVariantContext } from "./variant-node.ts"
@@ -49,4 +50,24 @@ export type { PresenceContextValue, PresenceRecord } from "../../presence-record
  */
 export { LayoutGroup } from "./layout.tsx"
 export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
+
+/**
+ * Sensors (#209 PR 3's Q1): each a ref that's also its reading. `createHover`, `createPress`,
+ * `createFocus`, `createInView` and `createDrag` attach to the element they're given as a ref;
+ * `createReducedMotion` follows the user's preference.
+ */
+export {
+  type CreateDragOptions,
+  createDrag,
+  createFocus,
+  createHover,
+  createInView,
+  createPress,
+  createReducedMotion,
+  type Sensor,
+} from "./sensors.ts"
+
+/** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
+export { fromAtom, streamToSignal } from "./bridge.ts"
+export type { WardicDragTransition } from "../../config.ts"
 

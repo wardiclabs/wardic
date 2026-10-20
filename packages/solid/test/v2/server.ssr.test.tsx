@@ -13,9 +13,11 @@
 // - SV8: `wardic.create(Component)` hands the component its Starting style through `style`.
 // - SV9: a layout node's Starting style is drawn through its projection at rest: its own `x` left out (#245).
 // - SV10: `<AnimatePresence initial={false}>` renders its child at its `animate`; without it, at `initial`.
+// - SV11: a drag element's defaults (#36) render on the server: through a kept ward and `wardic.div`.
+// - SV12: a sensor on the server reads its initial value, and given to `ref` does nothing.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createDrag, createFocus, createHover, createInView, createPress, createReducedMotion, ward, wardic } from "@wardic/solid/unstable/v2"
 import * as Effect from "effect/Effect"
 import type { JSX } from "@solidjs/web"
 import { createSignal } from "solid-js"
@@ -159,5 +161,45 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
       </AnimatePresence>
     ))
     expect(named(entering, "div")[0]?.style.opacity).toBe("0")
+  })
+
+  it("SV11: a drag element's defaults render on the server, through a kept ward and wardic.div", () => {
+    const Card = () => {
+      const card = ward({ drag: "x", style: { color: "blue" } })
+      return <div {...card} data-kept />
+    }
+    const html = serve(() => (
+      <>
+        <Card />
+        <wardic.div data-tag drag style={{ "user-select": "text" }} />
+        <wardic.div data-still animate={{ opacity: 1 }} />
+      </>
+    ))
+    const [kept, tag, still] = named(html, "div")
+    expect(kept?.style["touch-action"]).toBe("pan-y")
+    expect(kept?.style["user-select"]).toBe("none")
+    expect(kept?.style.color).toBe("blue")
+    expect(kept?.attrs.draggable).toBe("false")
+    expect(tag?.style["touch-action"]).toBe("none")
+    expect(tag?.style["user-select"], "the user's style over the default").toBe("text")
+    expect(tag?.attrs.draggable).toBe("false")
+    expect(still?.style["touch-action"]).toBeUndefined()
+    expect(still?.attrs.draggable).toBeUndefined()
+  })
+
+  it("SV12: a sensor on the server reads its initial value, and given to ref does nothing", () => {
+    const readings: Array<unknown> = []
+    const Probe = () => {
+      const hovered = createHover()
+      const pressed = createPress()
+      const focused = createFocus()
+      const seen = createInView()
+      const dragged = createDrag()
+      readings.push(hovered(), pressed(), focused(), seen(), dragged(), createReducedMotion()())
+      return <div ref={[hovered, pressed, focused, seen, dragged]} />
+    }
+    const [div] = named(serve(() => <Probe />), "div")
+    expect(div?.name).toBe("div")
+    expect(readings).toEqual([false, false, false, false, null, false])
   })
 })
