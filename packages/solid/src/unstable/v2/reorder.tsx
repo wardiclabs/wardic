@@ -473,7 +473,7 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupCompo
   const rest = omit(props as unknown as Record<string, unknown>, ...GROUP_OWN)
   return (
     <GroupContext value={list as ReorderGroup<unknown>}>
-      <Tag {...rest} style={pipe(local.style, Style.over(ReorderController.GROUP_STYLE))} ref={refsOf(local.ref, [list])}>
+      <Tag {...rest} style={pipe(local.style, Style.over(ReorderController.GROUP_STYLE))} ref={refsOf(local, [list])}>
         {local.children}
       </Tag>
     </GroupContext>
@@ -499,7 +499,7 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemCompone
   const Element = dynamic(() => tag)
   const rest = omit(props as unknown as Record<string, unknown>, ...ITEM_OWN)
   const element = (): JSX.Element => (
-    <Element {...rest} {...row} ref={refsOf(local.ref, [row])}>
+    <Element {...rest} {...row} ref={refsOf(local, [row])}>
       {local.children}
     </Element>
   )

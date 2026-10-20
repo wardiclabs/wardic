@@ -87,7 +87,7 @@ export default defineConfig({
   test: {
     name: "v2-hydrate",
     include: ["test/v2/**/*.hydrate.browser.test.{ts,tsx}"],
-    setupFiles: ["./test/browser-setup.ts", "./test/v2/hydrate-setup.ts"],
+    setupFiles: ["./test/browser-setup.ts", "./test/v2/diagnostics-setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),

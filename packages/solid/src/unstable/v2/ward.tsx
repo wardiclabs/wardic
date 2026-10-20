@@ -527,7 +527,11 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
         unmount()
         mounted = mount(el)
       }
-      mounted.spine.retarget(resolution)
+      // The spine reads the variant context (its gates, its stagger, what it inherits) at the
+      // Retarget, once: untracked, so said (Solid 2's dev build warns of a reactive read in an
+      // effect's apply, STRICT_READ_UNTRACKED). The effect's compute is what re-runs it.
+      const spine = mounted.spine
+      untrack(() => spine.retarget(resolution))
     },
     CLIENT_ONLY,
   )

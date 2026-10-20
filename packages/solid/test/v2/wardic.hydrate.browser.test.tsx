@@ -28,7 +28,7 @@ afterEach(() => {
 
 /**
  * Hydrate `name`, failing on any error hydration throws or reports, and give back which nodes it
- * claimed. A key it missed fails the test too (hydrate-setup.ts): an element with a template
+ * claimed. A key it missed fails the test too (diagnostics-setup.ts): an element with a template
  * doesn't throw on a miss, it warns and makes a detached copy, leaving the server's node on the page.
  */
 const hydrated = async (name: string, code: typeof F.W1) => {

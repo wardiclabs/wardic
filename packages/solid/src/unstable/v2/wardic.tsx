@@ -55,9 +55,13 @@ const configOf = (props: WardicMotionProps & RefStyle): (() => WardConfig) => {
   return () => Option.match(Option.fromUndefinedOr(props.style), { onNone: motion, onSome: (style) => ({ ...motion(), style }) })
 }
 
-/** The element's refs: the user's (one, or an array), then the ward's. */
-export const refsOf = (user: unknown, own: ReadonlyArray<(element: HTMLElement) => void>): ReadonlyArray<unknown> =>
-  Arr.appendAll(Arr.filter(Arr.flatten([Arr.ensure(user)]), Predicate.isNotUndefined), own)
+/**
+ * The element's refs: the user's from `props` (one, or an array), then the ward's. Solid 2 applies a
+ * ref once, as the element is made, and reads a component's `ref` in its body: read once, untracked,
+ * so said (through spread props it's a reactive read, which Solid 2's dev build warns of).
+ */
+export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(element: HTMLElement) => void>): ReadonlyArray<unknown> =>
+  Arr.appendAll(Arr.filter(Arr.flatten([Arr.ensure(untrack(() => props.ref))]), Predicate.isNotUndefined), own)
 
 /**
  * `wardic.create(tag | Component)`: a component with the element's (or the component's) props and
@@ -87,7 +91,7 @@ const tagComponent = (tag: string): Component<Record<string, unknown>> => {
     const cfg = configOf(own)
     const ward = wardWith(cfg, { tag })
     const rest = omit(props, ...PASSED_OVER)
-    const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own.ref, [ward])} />
+    const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own, [ward])} />
     return Bool.match(changesContext(untrack(cfg)), {
       onFalse: element,
       onTrue: () => <ward.Provider>{element()}</ward.Provider>,
@@ -118,7 +122,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
           "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
       )
     })
-    const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own.ref, [ward, seen])} />
+    const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own, [ward, seen])} />
     return Bool.match(changesContext(untrack(cfg)), {
       onFalse: element,
       onTrue: () => <ward.Provider>{element()}</ward.Provider>,
