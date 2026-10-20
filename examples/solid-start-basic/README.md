@@ -57,8 +57,8 @@ with that variable):
    no jump to its end and back, and the `initial={false}` three don't move. Every report
    row is OK.
 3. **Reduced motion emulated** (Rendering → Emulate CSS prefers-reduced-motion: reduce),
-   reload: the readout is `false` in the server's paint and `true` after mount; no
-   MISMATCH.
+   reload: the readout is `false` in the server's paint and `true` after mount; an `x`
+   offset snaps to rest, as ADR-0029 asks, and every row is OK.
 4. **Drag** the `drag="x"` card, **reorder** the list, toggle the `AnimatePresence` child and
    resize the layout element. Toggle the `AnimatePresence initial={false}` child out and
    back in: it comes back as a later entry, and fades in from faded and to the left.

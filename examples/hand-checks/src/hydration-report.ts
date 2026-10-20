@@ -9,7 +9,8 @@
 //    again: is it the same node, did hydration change its attributes (other than style),
 //    what does the first paint after hydration show, and where does it settle.
 // 3. Verdicts: MISMATCH when hydration replaced the node or changed its attributes; FLASH
-//    when the first paint jumped away from the server's paint; MOVED when an element that
+//    when the first paint jumped away from the server's paint (under reduced motion, an `x`
+//    snapping to its target doesn't count: ADR-0029); MOVED when an element that
 //    should hold still (`initial={false}`, #134) wasn't painted where it holds, or moved
 //    in any frame after hydration; else OK.
 //
@@ -145,6 +146,7 @@ const judge = async (expected: Readonly<Record<string, SsrExpected>>): Promise<R
   const afterHydrate = new Map([...snapshots.keys()].map((k) => [k, now(k)]))
   const firstPaint = await beforeNextPaint(() => new Map([...snapshots.keys()].map((k) => [k, now(k)] as const).map(([k, el]) => [k, el === null ? undefined : seen(el)])))
   const held = [...snapshots.keys()].filter((k) => expected[k]?.holds !== undefined)
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches
   const ranges = await rangesOver(held, 2500)
   const rows: Array<ReportRow> = []
   for (const [k, snap] of snapshots) {
@@ -164,9 +166,11 @@ const judge = async (expected: Readonly<Record<string, SsrExpected>>): Promise<R
     let note = expects.note ?? ""
     if (!sameNode || attrsChanged.length > 0) verdict = "MISMATCH"
     else if (expects.starting && fp !== undefined) {
+      // Under reduced motion a positional key snaps to its target (ADR-0029): `x` jumping there is
+      // the preference honoured, not a flash. Opacity still animates.
       const jumped =
         Math.abs(fp.opacity - snap.opacity) > 0.15 ||
-        Math.abs(fp.x - snap.x) > 8 ||
+        (!reduced && Math.abs(fp.x - snap.x) > 8) ||
         (fp.cx !== undefined && snap.cx !== undefined && Math.abs(fp.cx - snap.cx) > 12)
       if (jumped) verdict = "FLASH"
     }
@@ -176,7 +180,7 @@ const judge = async (expected: Readonly<Record<string, SsrExpected>>): Promise<R
       note = [note, ...failures].filter(Boolean).join("; ")
     }
     if (k === "reduced-motion") {
-      const live = String(matchMedia("(prefers-reduced-motion: reduce)").matches)
+      const live = String(reduced)
       if (snap.text !== "false") verdict = "MISMATCH"
       if (settled?.text !== live) {
         verdict = "MISMATCH"
