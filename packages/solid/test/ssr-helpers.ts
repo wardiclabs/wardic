@@ -6,30 +6,9 @@ import { WardicProvider, type WardicEnv } from "@wardic/solid"
 import { createComponent, type JSX } from "solid-js"
 import { renderToString } from "solid-js/web"
 import { expect } from "vitest"
+import type { Tag } from "./markup.ts"
 
-/** One opening tag in server markup: its name, attributes and parsed inline style. */
-export interface Tag {
-  readonly name: string
-  readonly attrs: Readonly<Record<string, string>>
-  readonly style: Readonly<Record<string, string>>
-}
-
-/** Every opening tag in `html`, in document order, with its attributes and its parsed inline style. */
-export const tagsOf = (html: string): ReadonlyArray<Tag> =>
-  [...html.matchAll(/<([a-z][a-z0-9]*)((?:\s+[^\s=>]+(?:="[^"]*")?)*)\s*\/?>/g)].map(([, name, rest]) => {
-    const attrs = Object.fromEntries([...rest!.matchAll(/([^\s=>]+)(?:="([^"]*)")?/g)].map(([, k, v]) => [k!, v ?? ""]))
-    const style = Object.fromEntries(
-      (attrs.style ?? "")
-        .split(";")
-        .map((d) => d.trim())
-        .filter((d) => d !== "")
-        .map((d) => {
-          const i = d.indexOf(":")
-          return [d.slice(0, i).trim(), d.slice(i + 1).trim()]
-        }),
-    )
-    return { name: name!, attrs, style }
-  })
+export { type Tag, tagsOf } from "./markup.ts"
 
 /**
  * Server-render `ui` inside `<WardicProvider env={env}>` (DomLive by default, as an app
