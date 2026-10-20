@@ -17,7 +17,8 @@ import type { Plugin } from "vite"
 /** Where `solid-js-2` resolves from: this package. */
 const FROM = join(import.meta.dirname, "package.json")
 
-export const solid2 = (options: { readonly hydratable?: boolean } = {}): Plugin => ({
+/** `dev` (default `true`) keeps Solid's dev checks in the output; `bench:solid --v2` builds without them. */
+export const solid2 = (options: { readonly hydratable?: boolean; readonly dev?: boolean } = {}): Plugin => ({
   name: "wardic:solid2",
   enforce: "pre",
   async resolveId(source, _importer, resolveOptions) {
@@ -33,7 +34,7 @@ export const solid2 = (options: { readonly hydratable?: boolean } = {}): Plugin 
       configFile: false,
       sourceMaps: true,
       presets: [[typescript, { isTSX: true, allExtensions: true }]],
-      plugins: [[solid, { generate: transformOptions?.ssr === true ? "ssr" : "dom", hydratable: options.hydratable === true, dev: true }]],
+      plugins: [[solid, { generate: transformOptions?.ssr === true ? "ssr" : "dom", hydratable: options.hydratable === true, dev: options.dev !== false }]],
     })
     return result === null ? null : { code: result.code ?? "", map: result.map }
   },

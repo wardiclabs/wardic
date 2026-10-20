@@ -6,6 +6,9 @@
  *
  * Per round, each timed as the synchronous JS of one task started after a paint:
  * - **mount:** `setShown(true)`, N elements' setup and 2N Leg starts.
+ * - **firstFrame:** the frame after it, from its first rAF callback to just after its paint: the
+ *   Legs' first step, the gate's first commits with each element's Starting-style switch in the
+ *   binding's `batch` (#209, `--v2`), and rendering. Reported by `--v2` only.
  * - **retarget:** one signal Retargeting all N mid-flight, 2N interrupts and 2N starts.
  * - **restRetarget:** the same once every Leg has settled. It waits 90 frames, not until the
  *   colours read their target: a colour rounds to its target while its spring's tail still runs,
@@ -119,9 +122,10 @@ const until = async (done: () => boolean, timeoutMs = 10000): Promise<void> => {
   }
 }
 
-/** One round's four tasks, in ms. */
+/** One round's tasks, in ms. */
 export interface Round {
   readonly mount: number
+  readonly firstFrame: number
   readonly retarget: number
   readonly restRetarget: number
   readonly unmount: number
@@ -130,9 +134,12 @@ export interface Round {
 const round = async (): Promise<Round> => {
   setTarget({ o: 1, c: WHITE })
   await afterPaint()
+  // The frame's rAF first, then the mount, so the frame is timed from before the Clock's tick.
+  const first = nextFrame()
   const mount = timed(() => setShown(true))
   if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
-  await frames(8)
+  const firstFrame = await first
+  await frames(7)
   if (kind === "wardic" && !boxes().some((el) => Number(el.style.opacity) > 0 && Number(el.style.opacity) < 1)) {
     throw new Error("bench:solid: not mid-flight at the Retarget")
   }
@@ -148,7 +155,7 @@ const round = async (): Promise<Round> => {
   if (boxes().length !== 0) throw new Error("bench:solid: still mounted")
   // The loop drops its Clock subscription, and the Clock idles, before the next round's mount.
   await frames(6)
-  return { mount, retarget, restRetarget, unmount }
+  return { mount, firstFrame, retarget, restRetarget, unmount }
 }
 
 /** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */
