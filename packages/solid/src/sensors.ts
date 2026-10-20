@@ -13,18 +13,19 @@
  * through the bridges and read the runtime from context).
  */
 import * as Drag from "@wardic/core/Drag"
-import type * as InputSource from "@wardic/core/InputSource"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as Bool from "effect/Boolean"
 import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
-import type * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
 import { fromAtom, streamToSignal } from "./bridge.ts"
+import { type CreateDragOptions, dragSamples } from "./drag-samples.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
+
+export type { CreateDragOptions } from "./drag-samples.ts"
 
 /**
  * `true` while the pointer is inside `target`, `false` once it leaves. Wraps the
@@ -75,38 +76,6 @@ export const createInView = (
   options?: { readonly once?: boolean },
 ): Accessor<boolean> => streamToSignal(Recognizer.inView(target, options), false)
 
-/** The axis, claim and bounds options for {@link createDrag}. */
-export interface CreateDragOptions {
-  /** Keep the drag to a single axis, zeroing the off-axis components; it claims only that axis. */
-  readonly axis?: "x" | "y"
-  /**
-   * `false`: take no **Drag claim** (ADR-0019, *Amendment (#29)*), so watching a pan over an area
-   * blocks no draggable inside it, and a draggable inside it blocks nothing here. Default `true`.
-   */
-  readonly claim?: boolean
-  /** Constrain `offset` to a static numeric region (optionally elastic). */
-  readonly bounds?: Drag.Bounds
-  /** Rubber-band resistance past `bounds` (0 = hard clamp, 1 = free). */
-  readonly elastic?: number
-}
-
-/**
- * The core `drag` recognizer on `target` with `options`' axis and claim, then `withinBounds`
- * when `bounds` is present (the off-axis is zeroed before clamping), keeping the requirement
- * set (`InputSource`) untouched.
- */
-const shapedDrag = (target: unknown, options: CreateDragOptions = {}): Stream.Stream<Drag.Sample, never, InputSource.InputSource> => {
-  const { axis = "xy", claim = true } = options
-  const recognized = Recognizer.drag(target, { axis, claim })
-  return UndefinedOr.match(options.bounds, {
-    onUndefined: () => recognized,
-    onDefined: (bounds) =>
-      recognized.pipe(
-        Drag.withinBounds(bounds, UndefinedOr.map(options.elastic, (elastic) => ({ elastic }))),
-      ),
-  })
-}
-
 /**
  * Latest `Drag.Sample` from a drag gesture on `target`, or `null` before the first sample.
  * Wraps the core `drag` recognizer with `options`' axis and claim, then `withinBounds` when
@@ -115,7 +84,7 @@ const shapedDrag = (target: unknown, options: CreateDragOptions = {}): Stream.St
  * for that gesture.
  */
 export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> =>
-  streamToSignal<Drag.Sample | null>(shapedDrag(target, options), null)
+  streamToSignal<Drag.Sample | null>(dragSamples(target, options), null)
 
 /**
  * Reactive `prefers-reduced-motion` preference as a boolean `Accessor`. Resolves
