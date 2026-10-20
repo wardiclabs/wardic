@@ -37,16 +37,21 @@
  *
  * @module
  */
+import * as Recognizer from "@wardic/core/Recognizer"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constFalse, constUndefined, identity, pipe } from "effect/Function"
+import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
+import { constUndefined, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom } from "effect/reactivity"
 import { isServer, type JSX } from "@solidjs/web"
@@ -62,7 +67,10 @@ import {
   runWithOwner,
   untrack,
 } from "solid-js"
-import type { WardConfig as SharedWardConfig, WardicTransformShorthands, WardicValues } from "../../config.ts"
+import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
+import { driveDragTrack } from "../../drag-track.ts"
+import { reported, type WardicServices } from "../../runtime.ts"
+import type { WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
@@ -70,6 +78,8 @@ import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-m
 import { presenceBlocksInitial } from "../../presence-record.ts"
 import {
   accessorOf,
+  applyDragDefaults,
+  dragAxisOf,
   drawnAtRest,
   type ElementSpine,
   flagStartingStyle,
@@ -77,6 +87,7 @@ import {
   makeElementSpine,
   makeReuse,
   presenceRecordOf,
+  recordFrameOf,
   registryOf,
   type Resolution,
   resolutionOf,
@@ -112,10 +123,12 @@ export interface WardConfig extends SharedWardConfig {
   readonly style?: WardStyle | string | undefined
 }
 
-/** {@link Ward.read}: a transform key is always a number or a string; any other key may have no value. */
-export interface WardRead {
-  <A extends number | string = number>(key: keyof WardicTransformShorthands): Accessor<A>
-  <A extends number | string = number>(key: string): Accessor<A | undefined>
+/**
+ * {@link Ward.read} (#209 PR 3's Q4): completion offers the keys its config animates, and any other
+ * key is accepted; a transform key reads a number, any other the type its config gives it.
+ */
+export interface WardRead<C> {
+  <K extends WardKey<C>>(key: K): Accessor<WardValueOf<C, K & string>>
 }
 
 /** The props a spread of a {@link Ward} applies. */
@@ -133,11 +146,11 @@ export interface WardProps {
  * One element's motion binding: a ref carrying its props (see the module). Spread it, or give it
  * to `ref` (alone, or in an array with your own).
  */
-export interface Ward extends WardProps {
+export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
   /** The ward itself, as a spread's `merge` reads it. */
-  (previous?: unknown): Ward
+  (previous?: unknown): Ward<C>
   /**
    * Hands this element's variant context to the subtree (ADR-0007, #50): its Variant children
    * inherit its variant name and transition, and join its stagger and `when`.
@@ -148,22 +161,25 @@ export interface Ward extends WardProps {
    * for it, whoever moves it, as a number for a transform key (`x`, not its `transform`). At rest
    * outside the gate, its `initial`, else its `style` value, else a transform key's identity. One
    * accessor a key, made at the first ask. Read, not `value` (the Solid 1 ward's name): a spread
-   * would give it to `<li>`'s and `<input>`'s `value`.
+   * would give it to `<li>`'s and `<input>`'s `value`. Its keys are typed from the config.
    */
-  readonly read: WardRead
+  readonly read: WardRead<C>
   /** The element's value for `key` as an `effect/reactivity` Atom, `undefined` while the gate doesn't hold the key. */
-  readonly atom: (key: string) => Atom.Atom<unknown>
+  readonly atom: <K extends WardKey<C>>(key: K) => Atom.Atom<WardValueOf<C, K & string> | undefined>
 }
 
-/** What a `wardic.<tag>` adds to a ward: its tag, so an SVG element's attribute keys render as attributes. */
+/** What a `wardic.*` component adds to a ward. Internal. */
 export interface WardInternals {
+  /** Its tag, so an SVG element's attribute keys render as attributes. */
   readonly tag?: string | undefined
+  /**
+   * Set a drag element's defaults on the element at mount: a `wardic.create(Component)` wrap's,
+   * whose component may not pass `style` and `draggable` on (as on the Solid 1 binding).
+   */
+  readonly defaultsOnElement?: boolean | undefined
 }
 
 const NO_INTERNALS: WardInternals = {}
-
-/** The Override stack's gesture layers: none until Solid 2's gestures (PR 3 of #209). */
-const NO_GESTURES = { hovered: false, pressed: false, dragged: false, dragging: false } as const
 
 /** Whether a ward's call is Solid applying it as a ref. */
 const isElement = (value: unknown): value is HTMLElement => Predicate.hasProperty(value, "nodeType")
@@ -173,10 +189,11 @@ const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantC
 
 /**
  * A ward: `config` read once, or reactively through an accessor or getters. Call it where you'd
- * make a signal, in a component or a root, under a `WardicProvider`.
+ * make a signal, in a component or a root, under a `WardicProvider`. Its config's type is kept, so
+ * `read` and `atom` complete the keys it animates.
  */
-export function ward(config: WardConfig | Accessor<WardConfig>): Ward {
-  return wardWith(config, NO_INTERNALS)
+export function ward<const C extends WardConfig>(config: C | Accessor<C>): Ward<C> {
+  return wardWith(config, NO_INTERNALS) as Ward<C>
 }
 
 /**
@@ -231,6 +248,11 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = Svg.splitPatchForTag(internal.tag, startingPatch)
 
+  // Its drag axis and a drag element's defaults (ADR-0004, ADR-0019 *Amendment (Reorder)*), under
+  // the user's style: `drag` is read once, as on the Solid 1 binding.
+  const dragAxis = dragAxisOf(initialConfig)
+  const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
+
   // Its routed `style` keys (#130, ADR-0043), and its `style`, switched by the gate's hooks.
   const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
@@ -241,7 +263,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     startingWith: (routed: Values.Values): Renderer.Patch =>
       Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...start.initialValues }, layoutNode))).style,
     live,
-    defaults: undefined,
+    defaults: dragDefaults,
     reactivity,
   })
 
@@ -268,18 +290,54 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const layoutMember = wantsLayoutNode(initialConfig)
   const dragTransition = dragTransitionOf(initialConfig.dragElastic, initialConfig.dragTransition)
 
+  // Its gesture layers' states (ADR-0005): the hover and press recognizers, each started on its
+  // element the first time its `while*` target is set (#87, ADR-0040), and the drag's.
+  const [hovered, setHovered] = createSignal(false, { ownedWrite: true })
+  const [pressed, setPressed] = createSignal(false, { ownedWrite: true })
+  const [dragging, setDragging] = createSignal(false, { ownedWrite: true })
+  const wantsHover = createMemo(() => Predicate.isNotUndefined(cfg().whileHover))
+  const wantsPress = createMemo(() => Predicate.isNotUndefined(cfg().whileTap))
+
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
-  const target = createMemo<Resolution>(() => resolutionOf(cfg(), node.inherited, start.initialLink, NO_GESTURES), { equals: sameResolution })
+  const target = createMemo<Resolution>(
+    () => {
+      const held = dragging()
+      return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: hovered(), pressed: pressed(), dragged: held, dragging: held })
+    },
+    { equals: sameResolution },
+  )
 
   // The element, set by the ref during render.
   const [element, setElement] = createSignal<HTMLElement | undefined>(undefined, { ownedWrite: true })
 
-  // The mounted element: registered with the gate, its layout node, its spine built over it.
+  // The mounted element: registered with the gate, its layout node, its spine built over it, and the
+  // fibers of its recognizers and drag track.
   interface Mounted {
     readonly element: HTMLElement
     readonly spine: ElementSpine
     readonly layout: ProjectionSystem.NodeHandle | undefined
+    readonly fibers: Array<Fiber.Fiber<unknown, unknown>>
+    hover: boolean
+    press: boolean
     readonly dispose: () => void
+  }
+  /** Run a recognizer's or the drag track's fiber on the provider's runtime, for the mount's life. */
+  const runFor = (m: { readonly fibers: Array<Fiber.Fiber<unknown, unknown>> }, effect: Effect.Effect<void, unknown, WardicServices>): void => {
+    m.fibers.push(runtime.runFork(reported(effect)))
+  }
+  /** A State recognizer's values into `set`. */
+  const recognized = (stream: Stream.Stream<boolean, never, WardicServices>, set: (value: boolean) => void): Effect.Effect<void> =>
+    Stream.runForEach(stream, (value) => Effect.sync(() => set(value))) as Effect.Effect<void>
+  /** Start the hover and press recognizers its config now wants, each once a mount. */
+  const startRecognizers = (m: Mounted): void => {
+    if (Bool.and(untrack(wantsHover), Bool.not(m.hover))) {
+      m.hover = true
+      runFor(m, recognized(Recognizer.hover(m.element), setHovered))
+    }
+    if (Bool.and(untrack(wantsPress), Bool.not(m.press))) {
+      m.press = true
+      runFor(m, recognized(Recognizer.press(m.element), setPressed))
+    }
   }
   let mounted: Mounted | undefined
   const unmount = (): void => {
@@ -312,6 +370,30 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
         projection.register(registrationOf(layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: false }))),
       onFalse: constUndefined,
     })
+    const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
+    if (internal.defaultsOnElement === true) UndefinedOr.map(dragDefaults, (defaults) => applyDragDefaults(el, defaults))
+    // The drag track (ADR-0004): the pointer direct-sets `x`/`y` while the spring drives the rest and
+    // `whileDrag`; on a layout node it feeds the projection (ADR-0016).
+    UndefinedOr.map(dragAxis, (axis) =>
+      driveDragTrack({
+        run: (track) => runFor({ fibers }, track),
+        gate,
+        id,
+        element: el,
+        snapshot,
+        recordFrame: recordFrameOf(presenceRecord),
+        setDragging,
+        config: {
+          axis,
+          constraints: initialConfig.dragConstraints,
+          elastic: initialConfig.dragElastic,
+          momentum: initialConfig.dragMomentum,
+          snapToOrigin: initialConfig.dragSnapToOrigin,
+          propagation: initialConfig.dragPropagation,
+          transition: dragTransition,
+        },
+        ...UndefinedOr.match(layout, { onUndefined: () => ({}), onDefined: (projectionNode) => ({ projection: projectionNode }) }),
+      }))
     const spine = makeElementSpine({
       runtime,
       gate,
@@ -333,23 +415,42 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       live,
       presence: presenceRecord,
       projected: Predicate.isNotUndefined(layout),
-      dragAxis: undefined,
+      dragAxis,
       handoff: undefined,
     })
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
-    spine.follow({ resolved: () => untrack(target).resolved, dragging: constFalse })
-    return {
+    spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
+    const m: Mounted = {
       element: el,
       spine,
       layout,
+      fibers,
+      hover: false,
+      press: false,
       dispose: () => {
         spine.dispose()
+        Arr.forEach(fibers, (fiber) => runtime.runFork(Fiber.interrupt(fiber)))
         UndefinedOr.map(layout, (node) => node.dispose())
         unregisterValues()
         unregister()
+        // Its gestures end with it.
+        setHovered(false)
+        setPressed(false)
+        setDragging(false)
       },
     }
+    startRecognizers(m)
+    return m
   }
+
+  // A `while*` target set after mount starts its recognizer then (#87, ADR-0040).
+  createEffect(
+    () => wantsHover() || wantsPress(),
+    (wanted) => {
+      if (wanted) UndefinedOr.map(mounted, startRecognizers)
+    },
+    { defer: true },
+  )
 
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
   if (layoutMember) {
@@ -416,6 +517,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     ref: { value: self, enumerable: true },
     style: { get: (): JSX.CSSProperties => elementStyle.style(userStyle()) as JSX.CSSProperties, enumerable: true },
     ...attributesOf(seed.attrs),
+    ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
     Provider: { value: Provider },
     read: { value: read },
     atom: { value: (key: string) => gate.valueOf(id, key) },
@@ -450,14 +552,21 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
     <WardicVariantContext value={contextOf(node.provided)}>{props.children}</WardicVariantContext>
   )
-  // Its routed keys' values join the Starting style, under `initial`'s (#130).
+  // Its routed keys' values join the Starting style, under `initial`'s (#130); a drag element's
+  // defaults go under the user's style.
   const parts = split(c.style)
-  const style = pipe(serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack), Style.over(parts.css)) as JSX.CSSProperties
+  const dragDefaults = UndefinedOr.map(dragAxisOf(c), Style.dragDefaults)
+  const style = pipe(
+    serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
+    Style.over(parts.css),
+    Style.over(dragDefaults),
+  ) as JSX.CSSProperties
   const self = ((): Ward => self) as Ward
   Object.defineProperties(self, {
     ref: { value: noRef, enumerable: true },
     style: { value: style, enumerable: true },
     ...attributesOf(seed.attrs),
+    ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
     Provider: { value: Provider },
     read: { value: (key: string) => () => restingOf(key, initialValues, c.style, readServerStyle) },
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },

@@ -101,7 +101,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
   return (props) => {
     const own = props as WardicMotionProps & RefStyle
     const cfg = configOf(own)
-    const ward = wardWith(cfg, {})
+    const ward = wardWith(cfg, { defaultsOnElement: true })
     const rest = omit(props, ...PASSED_OVER)
     // ADR-0008's ref-forwarding contract: a component that never forwards its ref leaves the ward no
     // element to drive. Fail loudly, once it has settled.
