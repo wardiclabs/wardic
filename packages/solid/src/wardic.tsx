@@ -52,10 +52,13 @@ import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, split } from "./live-style.ts"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
-import { dragAxisOf, drawnAtRest, flagStartingStyle, isLayoutNode, renderServerElement, serverAppearOfWard, registryOf, runSpine, serverAppearOf, serverStartingStyle, warnDroppedTransform, createWardWith, type WardStyle, type WardUserProps } from "./create-ward.tsx"
+import { renderServerElement, serverAppearOfWard, runSpine, serverAppearOf, createWardWith, type WardStyle, type WardUserProps } from "./create-ward.tsx"
+import { dragAxisOf, drawnAtRest, flagStartingStyle, isLayoutNode, registryOf, serverStartingStyle, warnDroppedTransform } from "./spine.ts"
+import { reactivity } from "./solid-reactivity.ts"
 import type { WardConfig, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
-import { changesContext, createVariantNode, serverVariantNode, startingValuesOf } from "./variant-node.ts"
+import { createVariantNode } from "./variant-node.ts"
+import { changesContext, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { setsAnimation } from "./appear.ts"
 import { useVariantContext, WardicVariantContext } from "./variants.ts"
 
@@ -373,7 +376,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // While hydrating it's what the server rendered, the DOM's project (the Hydration
       // hold, ADR-0021 decision 2); otherwise the Environment's Renderer's.
       const config = untrack(cfg)
-      const initialValues = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
+      const initialValues = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
       // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
       const layoutNode = isLayoutNode(config)
       const projected = runtime.runSync(Renderer.Renderer).project(drawnAtRest(initialValues, layoutNode))
@@ -385,10 +388,10 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       const userStyle = (): JSX.CSSProperties | string | undefined => (refStyle as { style?: JSX.CSSProperties | string }).style
       // Its routed `style` keys (#130, ADR-0043): Live values and transform keys, which the gate
       // writes from mount, and the Starting style carries until then, under `initial`'s.
-      const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id) })
+      const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
       const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => runtime.runSync(Renderer.Renderer).project })
       const startingWith = (routed: Values.Values): Renderer.Patch => projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode))
-      const elementStyle = createElementStyle({ userStyle, starting, startingWith, live, defaults: dragDefaults })
+      const elementStyle = createElementStyle({ userStyle, starting, startingWith, live, defaults: dragDefaults, reactivity })
 
       // The gate commits each frame onto the forwarded element (ADR-0034). The node wires
       // the variant orchestration (ADR-0007, #50) into the spine.
@@ -432,7 +435,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
       // Wardic didn't write included, and never CSS text, which Solid writes as
       // `cssText` over every inline key (ADR-0034).
       const userRef = (refStyle as { ref?: (el: HTMLElement) => void }).ref
-      const style = (): JSX.CSSProperties => elementStyle.style(userStyle())
+      const style = (): JSX.CSSProperties => elementStyle.style(userStyle()) as JSX.CSSProperties
       const element = (): JSX.Element => (
         <Dynamic
           component={Wrapped}
@@ -535,7 +538,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   const node = serverVariantNode(config, useVariantContext())
   const axis = dragAxisOf(config, undefined)
   const dragDefaults = UndefinedOr.map(axis, Style.dragDefaults)
-  const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  const initial = startingValuesOf(config, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
   // Its routed `style` keys' values join the Starting style, under `initial`'s (#130).
   const parts = split(props.style as object | string | undefined)
   // Its Appear animation (#48, ADR-0044), unless its own style sets an `animation`.
@@ -544,7 +547,7 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
   if (ownAnimation) appear.veto("its own style sets an animation")
   override(out, {
     style: pipe(
-      serverStartingStyle(undefined, Style.starting(undefined, drawnAtRest(initial, isLayoutNode(config))).style, initial, parts.routed, isLayoutNode(config)),
+      serverStartingStyle(undefined, Style.starting(undefined, drawnAtRest(initial, isLayoutNode(config))).style, initial, parts.routed, isLayoutNode(config), untrack),
       Style.over(parts.css),
       Style.over(dragDefaults),
       Style.over(Bool.match(ownAnimation, { onTrue: constUndefined, onFalse: () => appear.style })),

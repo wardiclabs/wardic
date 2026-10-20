@@ -53,57 +53,16 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
-import { constFalse, constUndefined, identity } from "effect/Function"
+import { constUndefined, identity } from "effect/Function"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
 import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import type { WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
+import type { PresenceContextValue, PresenceRecord } from "./presence-record.ts"
 
-/**
- * A child's live presence registration. `snapshot` / `exit` are MUTABLE ref
- * cells (`{ current }`) the child's spine writes to while alive; they outlive
- * the child's owner so the parent-driven exit reads them after the child leaves.
- */
-export interface PresenceRecord {
-  /** The child's root DOM element (the same `el` the spine wires). */
-  readonly element: HTMLElement
-  /** The latest emitted value-map, updated by the spine each frame. */
-  readonly snapshot: { current: Values.Values }
-  /** The exit target, kept current by the child while alive. */
-  readonly exit: { current: Values.Values }
-  /**
-   * Where an exit key with no value in `snapshot` starts (ADR-0022): its `style` value, else
-   * the element's Own value, read from the retained node at the exit, in the shape of `like`
-   * (the key's exit target). `undefined` starts it at its target. Optional: a record without
-   * it starts such a key at its target.
-   */
-  readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
-}
-
-/** The value `<AnimatePresence>` publishes to descendant `createWard` spines. */
-export interface PresenceContextValue {
-  /**
-   * Register a child's live record. Returns a disposer the registrant MAY call,
-   * but the child does NOT call it on its own `onCleanup` — `<AnimatePresence>`
-   * removes the registration after the exit completes.
-   */
-  readonly register: (rec: PresenceRecord) => () => void
-  /**
-   * Whether an element setting up now starts at its `animate`, with nothing animating at mount:
-   * `<AnimatePresence initial={false}>`, during its first render (#134, Motion's
-   * `presenceContext.initial`). A child that enters later animates in. Optional: left out, never.
-   */
-  readonly blocksInitial?: () => boolean
-}
-
-/** Whether `presence` holds an element setting up now at its `animate` ({@link PresenceContextValue.blocksInitial}). */
-export const presenceBlocksInitial = (presence: PresenceContextValue | undefined): boolean =>
-  UndefinedOr.match(presence, {
-    onUndefined: constFalse,
-    onDefined: (p) => UndefinedOr.match(p.blocksInitial, { onUndefined: constFalse, onDefined: (blocks) => blocks() }),
-  })
+export { type PresenceContextValue, type PresenceRecord, presenceBlocksInitial } from "./presence-record.ts"
 
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when

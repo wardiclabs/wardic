@@ -43,7 +43,7 @@ const accessorOf = <A>(source: LiveSource<A>): Accessor<A> =>
   Bool.match(Atom.isAtom(source), {
     onTrue: () =>
       Bool.match(isServer, {
-        onTrue: (): Accessor<A> => () => readLive(source, serverRegistryOf) as A,
+        onTrue: (): Accessor<A> => () => readLive(source, serverRegistryOf, untrack) as A,
         onFalse: () => fromAtom(source as Atom.Atom<A>),
       }),
     onFalse: () => source as Accessor<A>,

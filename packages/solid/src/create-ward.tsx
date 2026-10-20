@@ -27,40 +27,24 @@
  * string/color keys through `springBlend`, the same spring on a progress (both
  * writing into the same gate id) — see core's `Values.split`.
  */
-import * as BaseValue from "@wardic/core/BaseValue"
-import type * as Frame from "@wardic/core/Frame"
-import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Drag from "@wardic/core/Drag"
-import * as Override from "@wardic/core/Override"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
-import * as Supersede from "@wardic/core/Supersede"
-import * as Values from "@wardic/core/Values"
-import * as Machine from "@wardic/core/Machine"
-import * as Appear from "@wardic/dom/Appear"
+import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import * as OwnValues from "@wardic/dom/OwnValues"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
-import * as Variables from "@wardic/dom/Variables"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
-import * as FiberSet from "effect/FiberSet"
-import { constFalse, constUndefined, constVoid, identity, pipe } from "effect/Function"
-import * as Iter from "effect/Iterable"
-import * as Match from "effect/Match"
+import { constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { Atom, AtomRegistry } from "effect/reactivity"
+import { Atom } from "effect/reactivity"
 import {
   type Accessor,
   type Component,
@@ -76,18 +60,44 @@ import {
 import { fromAtom } from "./bridge.ts"
 import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
-import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split, valuesOf } from "./live-style.ts"
-import { createVariantNode, hasOwnVariants, ownOrInherited, type ServerVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
+import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
+import { createVariantNode } from "./variant-node.ts"
+import { hasOwnVariants, ownOrInherited, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
-import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
-import { enterServer, type Handoff, handoffOf, keyOf, type MountAnimation, repeatsForever, type ServerAppear, setsAnimation, startAtOf } from "./appear.ts"
-import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
+import { enterServer, handoffOf, type ServerAppear, setsAnimation } from "./appear.ts"
+import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
+import type { PresenceRecord } from "./presence-record.ts"
 import { createHover, createPress, createWhenWanted } from "./sensors.ts"
 import { useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
-import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
+import { reactivity } from "./solid-reactivity.ts"
+import {
+  accessorOf,
+  applyDragDefaults,
+  dragAxisOf,
+  drawnAtRest,
+  flagStartingStyle,
+  isLayoutNode,
+  makeElementSpine,
+  makeReuse,
+  presenceRecordOf,
+  recordFrameOf,
+  registryOf,
+  type Resolution,
+  resolutionOf,
+  restingOf,
+  serverStartingStyle,
+  serverTargetOf,
+  snapshotOf,
+  startLinksOf,
+  startOf,
+  warnDroppedTransform,
+  withOnUpdate,
+  releasingAppear,
+} from "./spine.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
-import type { WardConfig, WardicTransformShorthands, WardicTransition, WardicValues } from "./config.ts"
+import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
 
 /**
  * The Layout mode a `layout` prop names (ADR-0009, *Amendment (#42)*): a mode's name, else
@@ -184,82 +194,12 @@ export interface WardValue {
   <A extends number | string = number>(key: string): Accessor<A | undefined>
 }
 
-/**
- * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
- * to a clean core {@link Values} map. Both arms funnel through {@link toValues}
- * so `Override.resolve` / `Values.split` never receive `undefined`-valued keys.
- */
-const resolveValues = (
-  entry: WardicValues | string | undefined,
-  variants: Record<string, WardicValues> | undefined,
-): Values.Values => resolveEntry({ entry, variants })
-
-// Built once, at module load: a Retarget resolves its target per element (#69).
-const resolveEntry: (input: {
-  readonly entry: WardicValues | string | undefined
-  readonly variants: Record<string, WardicValues> | undefined
-}) => Values.Values = Match.type<{ readonly entry: WardicValues | string | undefined; readonly variants: Record<string, WardicValues> | undefined }>().pipe(
-  Match.when({ entry: Match.undefined }, (): Values.Values => ({})),
-  Match.when({ entry: Match.string }, ({ entry, variants }) => Style.toValues(UndefinedOr.map(variants, (byName) => byName[entry]))),
-  Match.orElse(({ entry }) => Style.toValues(entry as WardicValues)),
-)
-
 /** A `<Reorder>` item's additions when there are none: a plain element's. */
 const NO_INTERNALS: SpineInternals = {}
 
 /** A `ward()` call's user props when it's given none. */
 const NO_USER_PROPS: WardUserProps = {}
 
-/** A config given as a value or as an accessor, as an accessor. A config is always an object, so a function is the accessor. */
-export const accessorOf = <A extends object>(config: A | Accessor<A>): Accessor<A> =>
-  Bool.match(Predicate.isFunction(config), { onTrue: () => config as Accessor<A>, onFalse: () => () => config as A })
-
-/** A transition's `delay`, 0 without one. */
-const delayOf = (transition: WardicTransition | undefined): number =>
-  UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: ({ delay = 0 }) => delay })
-
-/** The keys a drag of `axis` moves directly. Built once, at module load. */
-const dragMovesOf: (axis: boolean | "x" | "y") => ReadonlyArray<string> = Match.type<boolean | "x" | "y">().pipe(
-  Match.when("x", (): ReadonlyArray<string> => ["x"]),
-  Match.when("y", (): ReadonlyArray<string> => ["y"]),
-  Match.orElse((): ReadonlyArray<string> => ["x", "y"]),
-)
-
-/** Whether a start link's value takes its target's shape: both numbers, or both strings. */
-const isSameKind = (value: number | string, like: number | string): boolean => Predicate.isNumber(value) === Predicate.isNumber(like)
-
-/** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
-const TRANSLATE_KEYS: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY"])
-const TRANSLATE_KEY_LIST: ReadonlyArray<string> = Arr.fromIterable(TRANSLATE_KEYS)
-
-/** Whether a value map has any key. */
-const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
-
-/** Whether a leg FiberSet still holds a fiber: a leg its Retarget's token didn't reach (#200). */
-const holdsFibers = (set: FiberSet.FiberSet<void, never>): boolean => {
-  if (set.state._tag === "Closed") return false
-  return set.state.backing.size > 0
-}
-
-/** Whether two transitions have the same keys, each holding the same value (`===`). */
-const sameFields = (a: WardicTransition, b: WardicTransition): boolean => {
-  const ra = a as Readonly<Record<string, unknown>>
-  const rb = b as Readonly<Record<string, unknown>>
-  const keys = Rec.keys(ra)
-  return Bool.and(keys.length === Rec.keys(rb).length, Arr.every(keys, (key) => Bool.and(key in rb, ra[key] === rb[key])))
-}
-
-/** The Override stack resolved: the spine effect's input. */
-interface Resolution {
-  /** Each key's value from the highest active layer. */
-  readonly resolved: Values.Values
-  /** The base layer, the first link of a key's Base value (ADR-0022). */
-  readonly base: Values.Values
-  /** Whether a drag holds the translate keys (ADR-0004's strip). */
-  readonly dragging: boolean
-}
-
-/** Options for the internal {@link runSpine} helper. */
 /**
  * What a `<Reorder>` item adds to the spine (ADR-0020; internal, D9: nothing in
  * {@link WardConfig}):
@@ -383,14 +323,6 @@ export interface RunSpineOptions {
  */
 export function runSpine(opts: RunSpineOptions): void {
   const { canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
-  // The element's Appear animation, while hydrating (#48, ADR-0044 decision 6): found at mount,
-  // taken over by its first Retarget that starts, and removed in its first commit.
-  let handoff: Handoff | undefined
-  // A `style` value read now: a Live value's current value (#130), anything else as it is.
-  const readStyle = (raw: unknown): unknown => {
-    if (Predicate.isUndefined(live)) return raw
-    return live.read(raw)
-  }
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -407,38 +339,12 @@ export function runSpine(opts: RunSpineOptions): void {
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
   // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
   // frame 1 flows continuously out of it (no snap).
-  const initialConfig = untrack(cfg)
-  // With `initial={false}` (its own, inherited, or an `<AnimatePresence initial={false}>`'s first
-  // render) the seed is its `animate`, and nothing animates at mount (#134).
-  const presenceBlocks = presenceBlocksInitial(presence)
-  const startedAtAnimate = startsAtAnimate(initialConfig, parent, presenceBlocks)
-  const initialValues = startingValuesOf(initialConfig, parent, presenceBlocks)
-  // Its `initial` link in the Base-value chain and its fallback base layer, or, having started at
-  // `animate`, none: those values come after `style`, as Motion's `baseTarget` (ADR-0022, #134).
-  const initialLink: Values.Values = Bool.match(startedAtAnimate, { onTrue: () => ({}), onFalse: () => initialValues })
-  const startedLink: Values.Values = Bool.match(startedAtAnimate, { onTrue: () => initialValues, onFalse: () => ({}) })
-
-  // Plain (non-reactive) Snapshot ref: each key's last emitted value, a number or a
-  // string, + the numeric velocities, seeded from the SSR initial (velocities 0). Used
-  // to retarget from where each key is, with momentum carried across the seam
-  // (ADR-0005, ADR-0024).
-  const snapshot: { values: Values.Values; velocities: Record<string, number> } = {
-    values: { ...initialValues },
-    velocities: {},
-  }
-
-  // The transition this element's last Retarget ran on (#66): a Retarget's that has the same
-  // fields is that object, so core's decode cache hits when the object is rebuilt with the same
-  // values (a staggered child's, ADR-0007, or one Solid rebuilds as it reads a signal).
-  let lastTransition: WardicTransition | undefined
-  const reused = (transition: WardicTransition): WardicTransition =>
-    Option.fromUndefinedOr(lastTransition).pipe(
-      Option.filter((last) => sameFields(last, transition)),
-      Option.getOrElse(() => {
-        lastTransition = transition
-        return transition
-      }),
-    )
+  const start = startOf(untrack(cfg), parent, presenceBlocksInitial(presence), untrack)
+  const snapshot = snapshotOf(start)
+  const reuse = makeReuse()
+  // The config and the user's style, as the spine reads them: untracked.
+  const configNow = (): WardConfig => untrack(cfg)
+  const styleNow = UndefinedOr.map(styleOf, (of) => () => untrack(of))
 
   // Start everything once the element mounts. createEffect(on(el, ...)) re-runs
   // only when the element identity changes; the spine inner-effect lives under
@@ -450,9 +356,11 @@ export function runSpine(opts: RunSpineOptions): void {
 
       // Register the element with the caller-supplied sink (ADR-0006): each
       // flushed frame's Patch is committed onto it (ADR-0034). An element with `onUpdate` at mount
-      // is told each committed frame (#233); any other never joins the gate's tells.
-      if (hydrating === true) handoff = Option.getOrUndefined(handoffOf(element))
-      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, cfg), handoff, element))
+      // is told each committed frame (#233); any other never joins the gate's tells. While
+      // hydrating, its Appear animation is found here, taken over by its first Retarget that
+      // starts, and removed in its first commit (#48, ADR-0044 decision 6).
+      const handoff = Bool.match(hydrating === true, { onTrue: () => Option.getOrUndefined(handoffOf(element)), onFalse: constUndefined })
+      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element))
       onCleanup(unregister)
 
       // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
@@ -481,44 +389,20 @@ export function runSpine(opts: RunSpineOptions): void {
         if (Predicate.isNotUndefined(dragAxis)) applyDragDefaults(element, Style.dragDefaults(dragAxis))
       }
 
-      // --- Base values (ADR-0022) ---------------------------------------------
-      // A key with no value starts from its `style` value, else its Own value; a key no
-      // layer sets any more returns to its Base value (`initial`, `style`, Own value). The
-      // Own value is read from the element once per key, at first need (D3): this runs after
-      // mount, so never on a server (ADR-0021). Each link is coerced to the shape of the
-      // key's target (`like`).
-      const ownValue = OwnValues.of(element)
-      // Its Variable values (#55, ADR-0035 *Amendment (#55)*): the Key rule bound to this element,
-      // added to each leg it starts, so a `var()` end blends what it resolves to here.
-      const elementRules = [Variables.values(element)]
-      const linksFor = (like: number | string) => ({
-        style: (key: string) =>
-          Option.flatMap(Option.fromUndefinedOr(styleOf), (of) =>
-            Option.flatMap(OwnValues.styleValueOf(untrack(of), key), (raw) => OwnValues.valueLike(readStyle(raw), like)),
-          ),
-        own: (key: string) => Option.flatMap(ownValue(key), (raw) => OwnValues.valueLike(raw, like)),
-      })
-      const startLinkOf = (key: string, like: number | string) => BaseValue.start(key, linksFor(like))
+      // Base values (ADR-0022): a key with no value starts from its `style` value, else its Own
+      // value, read from the element once per key, at first need (D3).
+      const links = startLinksOf(element, styleNow, live)
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
       // this element's exit after Solid disposes its owner. `snapshot.current` is
       // updated to the latest emitted value-map EACH FRAME (so the exit departs
       // continuously from where the element rests); `exit.current` tracks
-      // cfg().exit reactively. Seed the snapshot with the SSR initial so an exit
-      // that fires before any frame still has a sensible `from`. The child does
-      // NOT call the disposer on its own onCleanup — <AnimatePresence> removes the
-      // registration after the exit settles.
+      // cfg().exit reactively. The child does NOT call the disposer on its own
+      // onCleanup — <AnimatePresence> removes the registration after the exit settles.
       let presenceRec: PresenceRecord | undefined
       if (Predicate.isNotUndefined(presence)) {
-        const rec: PresenceRecord = {
-          element,
-          snapshot: { current: { ...initialValues } },
-          exit: { current: Style.toValues(untrack(cfg).exit) },
-          // An exit key with no value starts from its Base value's start links (ADR-0022),
-          // read from the retained node at the exit.
-          startOf: (key, like) => Option.getOrUndefined(Option.map(startLinkOf(key, like), (start) => start.value)),
-        }
+        const rec = presenceRecordOf(element, start, Style.toValues(untrack(cfg).exit), links)
         presenceRec = rec
         presence.register(rec)
         // Keep exit.current current while the child is alive.
@@ -526,58 +410,7 @@ export function runSpine(opts: RunSpineOptions): void {
           rec.exit.current = Style.toValues(cfg().exit)
         })
       }
-
-      // Merge an emitted frame's value-map into the presence snapshot (no-op
-      // without a presence). The accumulator mirrors what the gate accumulates,
-      // so the exit departs from the element's actual resting value-map.
-      const recordFrame = (value: Values.Values): void => {
-        if (Predicate.isNotUndefined(presenceRec)) Object.assign(presenceRec.snapshot.current, value)
-      }
-
-      // A routed key a return handed back: written by the follower from now on (#130). Set below,
-      // with the follower; a return settles a tick after this runs at the earliest.
-      let handBack: (key: string) => void = constVoid
-
-      // A Retarget's returns have settled (ADR-0022, D4). A key back at its `style` value is
-      // handed back to the element's style, so a later style change shows at rest and the
-      // next gesture starts from it; any other key rests inline at its Base value and leaves
-      // the target. A key a later Retarget took over is left alone. A routed key (#130) stays
-      // in the gate, handed to the follower, which writes its value from now on.
-      const settleReturns = (returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): void => {
-        // The returns still this Retarget's: a later one took over the rest.
-        const settled = Arr.filter(returns, ([key, source]) => returning.get(key) === source)
-        Arr.forEach(settled, ([key]) => {
-          returning.delete(key)
-          driven.delete(key)
-        })
-        const toStyle = Arr.map(Arr.filter(settled, ([, source]) => source === "style"), ([key]) => key)
-        const routedNow = (key: string): boolean => UndefinedOr.match(live, { onUndefined: constFalse, onDefined: (routes) => routes.routes(key) })
-        Arr.forEach(Arr.filter(toStyle, routedNow), (key) => handBack(key))
-        const handedBack = Arr.filter(toStyle, Predicate.not(routedNow))
-        if (Arr.isReadonlyArrayEmpty(handedBack)) return
-        // The gate writes the user's current value back, as the element's `style` would
-        // (ADR-0034). A key gone from the user's style by now is cleared, not restored stale.
-        const restore = UndefinedOr.map(styleOf, (of) => {
-          const style = untrack(of)
-          return Object.fromEntries(
-            Arr.map(handedBack, (key) => [key, Option.match(OwnValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })]),
-          ) as Record<string, string>
-        })
-        gate.release(id, handedBack, restore)
-        Arr.forEach(handedBack, (key) => {
-          delete snapshot.values[key]
-          delete snapshot.velocities[key]
-          if (Predicate.isNotUndefined(presenceRec)) delete presenceRec.snapshot.current[key]
-        })
-      }
-
-      // Cold path: once per Retarget that started a key from its Base value or returned one,
-      // run at the head of that Retarget's first leg (no fiber of its own: forking one per
-      // element cost 10-20 µs each at a 1000-element mount).
-      const baseLog = (started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
-        Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
-          Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
-        )
+      const recordFrame = recordFrameOf(presenceRec)
 
       // Every element's values, by element, for the projection (ADR-0012 *Amendment (#137)*): a twin's
       // flight follows the translate and scale Wardic animates on its ancestors each frame.
@@ -630,7 +463,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // When cfg().drag is truthy, run the binding-orchestrated drag track: the
       // pointer DIRECT-SETS x/y (1:1, not sprung) while the spring keeps driving
       // every other key + whileDrag. `dragging` is the ONLY reactive piece (it
-      // gates the whileDrag override + the translate-key strip below); the drag
+      // gates the whileDrag override + the translate-key strip); the drag
       // CONFIG is static — read ONCE here (untrack), since drag config is a
       // document. The track's single fiber is scoped to this owner's onCleanup.
       const dragCfg = dragAxisOf(untrack(cfg), internal)
@@ -676,83 +509,47 @@ export function runSpine(opts: RunSpineOptions): void {
         () => createPress(element),
       )
 
-      // The keys a Retarget drove, each with its last target value (its shape), and the
-      // ones returning to their Base value until that return settles (ADR-0022). Both are
-      // the spine effect's: a Retarget mid-return carries them again, so a return is never
-      // frozen half-way, and a key that settled has left them, so a Retarget of the same
-      // target (a `when` gate reopening, ADR-0007) leaves it be. The translate keys never
-      // return on a projected element (the projection owns them, ADR-0016). On a drag
-      // element, the keys the drag moves leave the return while it runs, so they stay where
-      // it dropped them (C9) until a layer sets them again.
-      const driven = new Map<string, number | string>()
-      let returning = new Map<string, BaseValue.BaseSource>()
-      const projected = Predicate.isNotUndefined(layoutHandle)
-      const dragMoves: ReadonlyArray<string> = Bool.match(projected, {
-        onTrue: (): ReadonlyArray<string> => [],
-        onFalse: () => UndefinedOr.match(dragCfg, { onUndefined: (): ReadonlyArray<string> => [], onDefined: dragMovesOf }),
-      })
-
-      // Override stack (ascending priority): base (animate, or initial when no
-      // animate) -> whileHover -> whileTap. Override.resolve picks the last
-      // active entry per key. The memo DEPENDS on cfg() (read inside), so a
-      // reactive config change recomputes target() and drives a Retarget. Pure: the
-      // returns, the drag strip and every read are the spine effect's.
+      // The Override stack (`resolutionOf`). The memo DEPENDS on cfg() (read inside), so a
+      // reactive config change recomputes target() and drives a Retarget; a recognizer's or the
+      // drag's flip does too. A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
+      const lifted = internal.lifted
       const target = createMemo<Resolution>(() => {
-        const c = cfg()
-        // Read each field directly off the whole-config snapshot. Reactivity is
-        // via cfg() itself: a signal touched inside the config accessor recomputes
-        // cfg(), recomputes this memo, and drives a Retarget. `variants` is shared
-        // by base + overrides.
-        const animate = c.animate
-        const variants = c.variants
-        // Base target resolution priority (ADR-0007):
-        //   (1) local `animate` (a Values map or a variant name) — overrides any
-        //       inherited variant entirely;
-        //   (2) else an INHERITED variant name from the parent context, resolved
-        //       against THIS child's OWN `variants` (a child's "open" != its
-        //       sibling's "open"); read parent.variant() here so a parent flip
-        //       recomputes this memo and retargets;
-        //   (3) else the SSR-seeded `initial`.
-        const base = UndefinedOr.match(animate, {
-          onDefined: (own) => resolveValues(own, variants),
-          onUndefined: () =>
-            UndefinedOr.match(
-              UndefinedOr.map(parent, (p) => p.variant()),
-              { onDefined: (inheritedName) => resolveValues(inheritedName, variants), onUndefined: () => initialLink },
-            ),
+        const held = dragging()
+        return resolutionOf(cfg(), parent, start.initialLink, {
+          hovered: hovered(),
+          pressed: pressed(),
+          dragged: Bool.or(held, Predicate.isNotUndefined(lifted) && lifted()),
+          dragging: held,
         })
-        const resolved = Override.resolve([
-          { active: true, values: base },
-          { active: hovered(), values: Style.toValues(c.whileHover) },
-          { active: pressed(), values: Style.toValues(c.whileTap) },
-          // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
-          // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
-          // after release. Read dragging() so a flip recomputes this memo; a keyboard
-          // lift turns it on too (ADR-0037).
-          { active: Bool.or(dragging(), Predicate.isNotUndefined(internal.lifted) && internal.lifted()), values: Style.toValues(c.whileDrag) },
-        ])
-        return { resolved, base, dragging: dragging() }
       })
 
-      // The spine: on each target change, end the running legs and reseed a fresh primitive
-      // from the Snapshot (velocity-preserving). Every leg runs in this element's FiberSet (#76)
-      // and joins its Retarget's token: a Retarget ends the token before it starts its own legs,
-      // and the element's teardown ends it and closes its Scope. Both end the legs in the calling
-      // task: each leg's run leaves the loop at once, and its fiber ends Superseded, inline
-      // (ADR-0027, decision 5, *Amendment (#200)*). A leg the token didn't reach is interrupted,
-      // by the FiberSet's clear or the Scope's close. The same shape as the projection system's
-      // end-of-task holds.
-      const legScope = Scope.makeUnsafe()
-      const legFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(legScope)))
-      // The running legs' token (#200, ADR-0027 *Amendment (#200)*): a Retarget ends it and starts
-      // its own, so its legs are Superseded, not interrupted: off the loop at once, their fibers
-      // ended normally, at about a sixth of an interrupt's cost.
-      let generation = Supersede.make()
-      onCleanup(() => {
-        // The legs end normally first, so closing the Scope has nothing left to interrupt.
-        Supersede.end(generation)
-        runtime.runFork(Scope.close(legScope, Exit.void))
+      // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh
+      // primitive from the Snapshot (velocity-preserving), into the gate.
+      const spine = makeElementSpine({
+        runtime,
+        gate,
+        id,
+        element,
+        tag,
+        config: configNow,
+        parent,
+        canStart,
+        extraDelay,
+        onFrame,
+        reducedMotion,
+        positionalKeys,
+        start,
+        snapshot,
+        reuse,
+        links,
+        styleNow,
+        live,
+        presence: presenceRec,
+        projected: Predicate.isNotUndefined(layoutHandle),
+        dragAxis: dragCfg,
+        handoff,
       })
+      onCleanup(spine.dispose)
 
       // The spine effect depends on BOTH `target` and `canStart` (ADR-0007 `when`):
       // Solid's `on` runs its callback under `untrack`, so the gate accessor MUST
@@ -768,366 +565,15 @@ export function runSpine(opts: RunSpineOptions): void {
             if (Predicate.isNotUndefined(canStart)) canStart()
             return t
           },
-          ({ resolved, base, dragging: held }) => {
-            Supersede.end(generation)
-            generation = Supersede.make()
-            // One options object for this Retarget's legs, each joining its token.
-            const runOptions = { supersede: generation }
-            // A leg its token didn't reach (one not on the loop) is interrupted, as before.
-            if (holdsFibers(legFibers)) runtime.runFork(FiberSet.clear(legFibers))
-
-            // `when` start-gate (ADR-0007): when canStart() is false, freeze at the
-            // snapshot (the previous legs are already interrupted) and bail; the
-            // effect re-runs once the gate flips true (tracked above).
-            if (Predicate.isNotUndefined(canStart) && !canStart()) {
-              // Report NOT settled: a gated child sits at its snapshot, still
-              // owing an animation, so it must not count as settled (afterChildren).
-              if (Predicate.isNotUndefined(onFrame)) onFrame(false)
-              return
-            }
-
-            // A key a Retarget drove and no layer sets now returns to its Base value
-            // (ADR-0022); with none, it stays where it is (as before #47).
-            const t: Values.Values = { ...resolved }
-            Arr.forEach(Rec.keys(resolved), (key) => {
-              if (Bool.not(projected && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key])
-            })
-            if (held) Arr.forEach(dragMoves, (key) => driven.delete(key))
-            returning = new Map()
-            // Over the Map itself: copying it into an array first costs ~20 times the walk, per element
-            // per Retarget (#69's PR 4). Deleting the entry being visited is safe in a Map's iteration.
-            Iter.forEach(driven, ([key, like]) => {
-              // A translate key the strip below holds back returns once the drag lets go.
-              if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) return
-              Option.match(BaseValue.of(key, { base, initial: initialLink, started: startedLink, ...linksFor(like) }), {
-                onNone: () => {
-                  driven.delete(key)
-                },
-                onSome: (r) => {
-                  t[key] = r.value
-                  returning.set(key, r.source)
-                },
-              })
-            })
-            // MULTI-OWNER strip (ADR-0004): while dragging, x/y are DIRECT-SET by the
-            // drag track, so strip the translate keys from the spring's target — the
-            // spring must never fight the direct-set. Once dragging() is false the
-            // keys re-enter normally (post-drag handoff: the spring continues x/y only
-            // if `animate` sets them, from the snapshot's rested position).
-            if (held) Arr.forEach(TRANSLATE_KEY_LIST, (key) => delete t[key])
-            // Every key's Own value is read at its first need, before anything writes it, so a
-            // return later finds the element's value, not Wardic's (ADR-0022, D3). The read is
-            // kept: a later need is a lookup. A transform key reads nothing.
-            Arr.forEach(Rec.keys(t), (key) => {
-              if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
-            })
-            // Each key starts from its Snapshot value, coerced to its target's shape (ADR-0024,
-            // D1). A key with no value yet, or one whose value can't take that shape, starts
-            // from its Base value's start links, read here at its first need (ADR-0022, D3);
-            // with none, it starts at its target (no motion).
-            const started: Record<string, string> = {}
-            Arr.forEach(Rec.keys(t), (key) => {
-              const like = t[key]
-              const coerced = OwnValues.valueLike(snapshot.values[key], like)
-              if (Option.isSome(coerced)) {
-                snapshot.values[key] = coerced.value
-                return
-              }
-              Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
-                onSome: (s) => {
-                  snapshot.values[key] = s.value
-                  started[key] = s.source
-                },
-                onNone: () => {
-                  snapshot.values[key] = like
-                  started[key] = "target"
-                },
-              })
-            })
-            const from: Values.Values = Rec.map(t, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
-            // The keys this Retarget returns; once every leg settles, a key back at its
-            // `style` value is handed back to the element's style (D4) and the rest rest inline.
-            const returns = [...returning]
-            // Each leg: the base-value log at the head of the first, and, once the leg's run
-            // settles, a count toward settling the returns, so the per-frame handlers stay as
-            // they were.
-            let pendingLog = Bool.match(returns.length > 0 || Bool.not(Rec.isEmptyRecord(started)), {
-              onTrue: (): Effect.Effect<void> | undefined => baseLog(started, returns),
-              onFalse: constUndefined,
-            })
-            let legs = 0
-            const legDone = Effect.sync(() => {
-              if (--legs === 0) settleReturns(returns)
-            })
-            // A leg's end, told apart (ADR-0027, decision 7): a settle counts toward the returns;
-            // a Superseded end (a Retarget, an unmount, #200) or an interruption (a leg its token
-            // didn't reach) is nothing; anything else (a step or a sink that threw, the Frame loop's
-            // own failure) is logged and reported (ADR-0030, decision 4), and doesn't count.
-            const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
-              Exit.match(exit, {
-                // A Superseded leg (#200) counts toward nothing: the next Retarget's legs settle the returns.
-                onSuccess: (end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.void, onFalse: () => legDone }),
-                onFailure: (cause) => Report.failure("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
-              })
-            // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
-            // numeric one, so each leg's frames report, and only the last leg's settle reports done.
-            let reporting = 0
-            let settled = 0
-            const report = (done: boolean): void => {
-              if (done) settled++
-              if (Predicate.isNotUndefined(onFrame)) onFrame(settled === reporting)
-            }
-            const leg = <R,>(program: Effect.Effect<unknown, never, R>): Effect.Effect<void, never, R> => {
-              legs++
-              const log = pendingLog
-              pendingLog = undefined
-              return UndefinedOr.match(log, {
-                onUndefined: () => program,
-                onDefined: (head) => Effect.andThen(head, program),
-              }).pipe(Effect.onExit(legEnded), Effect.asVoid)
-            }
-            // Start a leg in this element's FiberSet: forked on the provider's runtime, which runs
-            // it inline up to its add on the loop, so every leg started in a task is on the loop by
-            // the end of that task and takes its first step at the next tick (ADR-0027 decision 5,
-            // ADR-0033). Not `FiberSet.run`: forked from
-            // a `runSync`, a leg would inherit that call's scheduler (ADR-0027, decision 6).
-            const runLeg = <R extends WardicServices>(program: Effect.Effect<unknown, never, R>): void =>
-              FiberSet.addUnsafe(legFibers, runtime.runFork(leg(program)))
-            // Read transition from cfg() at retarget time so transition changes
-            // apply to the next retarget. (Read inside this effect run; the effect
-            // is gated on `target`, which already depends on cfg().) A child with
-            // no local transition inherits the parent context's (ADR-0007).
-            const baseTransition = ownOrInherited(cfg().transition, parent)
-            // Fold the per-child stagger delay (ADR-0007) into the effective
-            // transition.delay = base.delay + computedDelay. extraDelay() is read
-            // at Retarget time so a re-snapshot before this start is reflected.
-            const extra = UndefinedOr.match(extraDelay, { onUndefined: () => 0, onDefined: (delay) => delay() })
-            const transition = UndefinedOr.map(
-              Bool.match(extra !== 0, {
-                onTrue: (): WardicTransition | undefined => ({ ...baseTransition, delay: delayOf(baseTransition) + extra }) as WardicTransition,
-                onFalse: () => baseTransition,
-              }),
-              reused,
-            )
-            // The legs (#48, ADR-0044 decision 8): one pure builder, which a server render's Appear
-            // animation samples too, so the two can't drift. Built here; each leg's machine is built
-            // in its own fiber, so a transition core rejects (#66, ADR-0025 *Amendment (#66)*) fails
-            // that leg alone, reported as any leg's failure is, while the element's other legs run on.
-            // The returns to a moving Live value (#130, ADR-0043 decision 6): a number's follows it,
-            // in a leg of its own, and lands on it; the rest return to where it is now. Looked for
-            // only when this Retarget returns a key.
-            let follow: Follows | undefined
-            if (returning.size > 0 && Predicate.isNotUndefined(live)) {
-              const routes = live
-              follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
-            }
-            const reduce = reducedMotion()
-            let retargetLegs = legsOf(from, t, transition, reduce, positionalKeys, snapshot.velocities, follow)
-            // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
-            // animation up as far in as its CSS has got, read at the legs' first tick.
-            if (Predicate.isNotUndefined(handoff)) {
-              const taken = handoff
-              handoff = undefined
-              checkHandoff(runtime, id, taken, { tag, from, to: t, transition: baseTransition, reduced: reduce, layout: isLayoutNode(untrack(cfg)) })
-              const at = startAtOf(taken, baseTransition, delayOf(transition))
-              retargetLegs = Arr.map(retargetLegs, (leg) => startingAt(leg, at))
-            }
-            reporting = retargetLegs.length
-            // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
-            // built for the leg that needs it (#69's PR 2: a Retarget is per element).
-            Arr.forEach(retargetLegs, (leg: Leg): void => {
-              if (leg._tag === "Follow") {
-                const key = leg.key
-                const out: Record<string, number> = { [key]: 0 }
-                runLeg(
-                  Effect.suspend(() =>
-                    leg.machine().pipe(
-                      Machine.run((frame) => {
-                        out[key] = frame.value
-                        snapshot.values[key] = frame.value
-                        snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
-                        gate.write(id, out)
-                        recordFrame(out)
-                        report(frame.done)
-                        return undefined
-                      }, runOptions),
-                    )),
-                )
-                return
-              }
-              if (leg._tag === "Numbers") {
-                runLeg(
-                  Effect.suspend(() =>
-                    leg.machine().pipe(
-                      Machine.run((frame) => {
-                        // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys into the snapshot
-                        // rather than replacing it, so the drag's direct-set x/y survive alongside the
-                        // spring's keys (drag owns x/y, spring owns the rest) and the post-drag
-                        // handoff continues from the rested position.
-                        snapshot.values = { ...snapshot.values, ...frame.value }
-                        snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
-                        gate.write(id, frame.value)
-                        recordFrame(frame.value)
-                        report(frame.done)
-                        return undefined
-                      }, runOptions),
-                    )),
-                )
-                return
-              }
-              // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are.
-              const sink = (frame: Frame.Frame<Values.Values>): undefined => {
-                snapshot.values = { ...snapshot.values, ...frame.value }
-                gate.write(id, frame.value)
-                recordFrame(frame.value)
-                report(frame.done)
-                return undefined
-              }
-              if (leg._tag === "Snap") {
-                // A snapped key comes to rest, so a later spring starts it at rest.
-                snapshot.velocities = { ...snapshot.velocities, ...Rec.fromEntries(Arr.map(leg.keys, (key) => [key, 0] as const)) }
-                runLeg(Effect.suspend(() => leg.machine().pipe(Machine.run(sink, runOptions))))
-                return
-              }
-              runLeg(
-                Effect.suspend(leg.machine).pipe(
-                  InterpolatorRegistry.withKeyRules(elementRules),
-                  Effect.flatMap(Machine.run(sink, runOptions)),
-                ),
-              )
-            })
-          },
+          spine.retarget,
         ),
       )
 
-      // --- Live values in `style` (#130, ADR-0043) ------------------------------
-      // A routed key (a Live value, or a transform key) is its `style` link, live: while no layer of
-      // the Override stack sets it, no return is running to it and no drag moves it, the element
-      // follows it, written through the gate on every change. A return hands it back here when it
-      // settles (`settleReturns`). The Starting style showed each one's value at render; from mount
-      // the gate holds them.
-      if (Predicate.isNotUndefined(live)) {
-        const routes = live
-        // Built at the first routed key, at mount or later: an element whose `style` routes none builds nothing.
-        routes.whenRouted(() => {
-          const dragHolds = Bool.and(Bool.not(projected), Predicate.isNotUndefined(dragCfg))
-          // Whether something other than the follower moves `key` now.
-          const owned = (key: string): boolean =>
-            Bool.some([
-              driven.has(key),
-              Object.hasOwn(untrack(target).resolved, key),
-              // The drag direct-sets both translate keys while it, and its release, run (ADR-0004).
-              Bool.and(dragHolds, Bool.and(untrack(dragging), Bool.or(key === "x", key === "y"))),
-            ])
-          // Written as any frame is: into the gate, the Snapshot (at rest) and the presence record.
-          const put = (values: Values.Values): void => {
-            Arr.forEach(Rec.keys(values), (key) => {
-              snapshot.values[key] = UndefinedOr.getOrThrow(values[key])
-              delete snapshot.velocities[key]
-            })
-            gate.write(id, values)
-            recordFrame(values)
-          }
-          handBack = (key) => {
-            Option.match(Option.filter(routes.valueOf(key), isValue), {
-              onNone: constVoid,
-              onSome: (value) => put({ [key]: value }),
-            })
-          }
-          // Every routed key nothing owns, with, before anything's committed, the values the Override
-          // stack's keys start from, so a held start (a `when` gate) keeps showing them.
-          const first = Rec.filter(routes.values(), (_, key) => Bool.not(owned(key)))
-          if (hasKeys(first)) put({ ...Values.pick(snapshot.values, untrack(target).resolved), ...first })
-          return {
-            change: (key, value) => {
-              if (Bool.or(owned(key), Bool.not(isValue(value)))) return
-              put({ [key]: value as number | string })
-            },
-            removed: (key) => {
-              if (owned(key)) return
-              delete snapshot.values[key]
-              delete snapshot.velocities[key]
-              if (Predicate.isNotUndefined(presenceRec)) delete presenceRec.snapshot.current[key]
-              // Gone from `style`: the element's own value comes back, or the key's CSS value now.
-              const restore = Option.match(OwnValues.styleValueOf(UndefinedOr.match(styleOf, { onUndefined: constUndefined, onDefined: untrack }), key), {
-                onNone: () => "",
-                onSome: String,
-              })
-              gate.release(id, [key], { [key]: restore })
-            },
-          }
-        })
-        onCleanup(() => routes.stop())
-      }
+      // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
+      spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
     }),
   )
 }
-
-/**
- * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had
- * one at mount; `sink` as it is otherwise.
- */
-const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], cfg: Accessor<WardConfig>): FlushGate.Sink => {
-  // Per element at mount: most have none, and pay a check.
-  if (Predicate.isUndefined(atMount)) return sink
-  return {
-    ...sink,
-    onCommit: (latest) => {
-      const onUpdate = untrack(cfg).onUpdate
-      if (Predicate.isNotUndefined(onUpdate)) onUpdate(latest as Readonly<Record<string, number | string>>)
-    },
-  }
-}
-
-
-/**
- * `sink`, removing the element's Appear animation in its first commit (#48, ADR-0044 decision 6):
- * in the task that writes the engine's first frame, so no paint falls between. Without one, `sink`.
- */
-const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefined, element: HTMLElement): FlushGate.Sink => {
-  if (Predicate.isUndefined(handoff)) return sink
-  const before = sink.beforeFirstCommit
-  return {
-    ...sink,
-    beforeFirstCommit: () => {
-      Appear.release(element)
-      if (Predicate.isNotUndefined(before)) before()
-    },
-  }
-}
-
-/**
- * A Handoff whose Appear animation the server sampled from another mount animation than the
- * client's: the app rendered differently on the server, or a function it gave has no easing name.
- * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
- */
-const checkHandoff = (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation): void => {
-  const same = Option.exists(keyOf(mount), (key) =>
-    Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition), projected: mount.layout }))
-  if (same) return
-  runtime.runFork(
-    Effect.logDebug("wardic.hydration: the server's Appear animation was sampled from another mount animation than this element's; it goes on from the same time").pipe(
-      Effect.annotateLogs({ id }),
-    ),
-  )
-}
-
-/** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
-const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
-  Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
-
-/** Where `key`'s Live value is now, a number; where it last was when it's none (#130). */
-const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => number) => {
-  let last = start
-  return () => {
-    const now = Option.flatMap(routes.valueOf(key), (raw) => OwnValues.valueLike(raw, last))
-    if (Option.isSome(now)) last = now.value as number
-    return last
-  }
-}
-
-/** Whether a value is one an element can take: a number or a string. */
-const isValue = (value: unknown): value is number | string => Bool.or(Predicate.isNumber(value), Predicate.isString(value))
 
 /**
  * Create a **Ward**, one element's motion binding (ADR-0042): spread it onto the element
@@ -1179,7 +625,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // name for a Variant child that has none (#50). It's the `style` until the first
   // commit, so pre-mount render carries the initial style (no flash).
   const initialConfig = untrack(cfg)
-  const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
   // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
   const layoutNode = isLayoutNode(initialConfig)
   const drawnStart = drawnAtRest(initialValues, layoutNode)
@@ -1199,7 +645,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
 
   // Its routed `style` keys (#130, ADR-0043): its Live values and transform keys, which the gate
   // writes from mount, and the Starting style carries until then, under `initial`'s.
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id) })
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   const startingWith = (routed: Values.Values): Renderer.Patch =>
     Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode))).style
@@ -1221,6 +667,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     live,
     defaults: dragDefaults,
     base: baseStyle,
+    reactivity,
   })
 
   // The element, available only after ref-mount. The spine is gated on it.
@@ -1288,7 +735,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
         // Starting style over the user's until the first commit, then the user's without the
         // keys the gate holds (ADR-0034). It never changes per frame.
         get style() {
-          return elementStyle.style(userProps.style)
+          return elementStyle.style(userProps.style) as JSX.CSSProperties
         },
         ...seed.attrs,
         ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }),
@@ -1299,62 +746,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   return ward
 }
 
-/**
- * Where `key` rests outside the gate (#130): its `initial`, else its `style` value (a Live value's
- * now), else a transform key's identity, else `undefined`.
- */
-const restingOf = (key: string, initial: Values.Values, style: object | string | undefined, read: (value: unknown) => unknown): unknown =>
-  Option.getOrUndefined(
-    Option.fromUndefinedOr(initial[key]).pipe(
-      Option.orElse((): Option.Option<unknown> => Option.flatMap(OwnValues.styleValueOf(style, key), (raw) => Option.fromNullishOr(read(raw)))),
-      Option.orElse((): Option.Option<unknown> => BaseValue.transformIdentity(key)),
-    ),
-  )
-
-/** A provider runtime's `AtomRegistry`, read on first need: an element with no Atom never reads it. */
-export const registryOf = (runtime: WardicRuntime): (() => AtomRegistry.AtomRegistry) => {
-  let registry: AtomRegistry.AtomRegistry | undefined
-  return () => {
-    if (Predicate.isUndefined(registry)) registry = runtime.runSync(AtomRegistry.AtomRegistry)
-    return registry
-  }
-}
-
-/** Log, once per element, that a `transform` string gave way to the transform keys in its `style` (#130). */
-export const warnDroppedTransform = (runtime: WardicRuntime, id: string): void => {
-  runtime.runFork(
-    Effect.logWarning(
-      "wardic.style: a `transform` string is dropped while `style` sets a transform key (x, scale, rotate…); " +
-        "the keys win, as Motion's do. Give the transform as keys, or drop them",
-    ).pipe(Effect.annotateLogs({ id })),
-  )
-}
-
 /** A server's output Atom: nothing is written there, so it stays `undefined`. */
 const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
-
-/**
- * Log, at debug level, the keys whose Starting style the Environment's Renderer projects
- * differently from the DOM's `project`, which rendered the server markup. Hydration keeps
- * the server's values (the Hydration hold); the Renderer's take over at the first frame.
- * Hydration only, once per element. Internal.
- */
-export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Renderer.Patch, client: Renderer.Patch): void => {
-  const keys = Arr.appendAll(
-    Arr.filter(Rec.keys(server), (key) => String(server[key]) !== String(client[key])),
-    Arr.filter(Rec.keys(client), (key) => Bool.not(key in server)),
-  )
-  if (Arr.isReadonlyArrayEmpty(keys)) return
-  const pick = (patch: Renderer.Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
-  runtime.runFork(
-    Effect.logDebug(
-      "wardic.hydration: the Environment's Renderer projects the Starting style differently from the DOM's; " +
-        "hydration keeps the server's until the first frame, and an element that never animates keeps it",
-    ).pipe(
-      Effect.annotateLogs({ id, keys, server: pick(server), client: pick(client) }),
-    ),
-  )
-}
 
 /**
  * {@link createWardWith} during a server render (ADR-0021, decisions 1 and 4): the element's
@@ -1372,10 +765,10 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())
   const layoutNode = isLayoutNode(c)
-  const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext())), layoutNode))
+  const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack), layoutNode))
   const dragAxis = dragAxisOf(c, internal)
   const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
-  const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()))
+  const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
   const appear = serverAppearOf(c, internal.tag, initialValues, node)
@@ -1395,7 +788,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
       return {
         ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
         style: pipe(
-          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode),
+          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
           Style.over(parts.css),
           Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
           Style.over(dragDefaults),
@@ -1496,68 +889,8 @@ export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialVa
     },
   })
 
-/** An element's targets at mount on a server: its `animate`, else an inherited variant name resolved against its own `variants`. */
-const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Values.Values> =>
-  UndefinedOr.match(c.animate, {
-    onDefined: (own) => Option.some(resolveValues(own, c.variants)),
-    onUndefined: () =>
-      Option.map(
-        Option.flatMap(Option.fromUndefinedOr(inherited), (context) => Option.fromUndefinedOr(context.variant())),
-        (name) => resolveValues(name, c.variants),
-      ),
-  })
-
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
-const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf)
-
-/**
- * A server's Starting style for an element whose `style` has routed keys (#130): the projected
- * `initial` with their values under it. With none, its Starting style as it was.
- */
-export const serverStartingStyle = (
-  tag: string | undefined,
-  starting: Renderer.Patch,
-  initialValues: Values.Values,
-  routed: Readonly<Record<string, unknown>>,
-  layout: boolean,
-): Renderer.Patch =>
-  Bool.match(Rec.isEmptyRecord(routed), {
-    onTrue: () => starting,
-    onFalse: () => Style.starting(tag, drawnAtRest({ ...valuesOf(routed, serverRegistryOf), ...initialValues }, layout)).style,
-  })
-
-/** Whether a config makes its element a layout node: `layout` (or a mode), or a `layoutId`. */
-export const isLayoutNode = (c: WardConfig): boolean =>
-  Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId))
-
-/**
- * The values a layout node's Starting style is drawn from (#245, ADR-0044 *Amendment (#245)*):
- * through its projection at rest, as its first commit draws it, its own `x` and `y` left out (the
- * projection owns translate, ADR-0016). Any other element's, as they are.
- */
-export const drawnAtRest = (values: Values.Values, layout: boolean): Readonly<Record<string, unknown>> =>
-  Bool.match(layout, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })
+const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf, untrack)
 
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = (): void => {}
-
-/**
- * The drag axis a spine runs with: its static `drag` config, else `true` for a
- * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
- */
-export const dragAxisOf = (config: WardConfig, internal: SpineInternals = NO_INTERNALS): boolean | "x" | "y" | undefined =>
-  Option.getOrUndefined(
-    Option.orElse(Option.filter(Option.fromUndefinedOr(config.drag), (drag) => drag !== false), () =>
-      Option.map(Option.fromUndefinedOr(internal.dragAxis), (): true => true)),
-  )
-
-/**
- * Set each of a drag element's defaults its inline style doesn't already set, and
- * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
- */
-const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
-  Arr.forEach(Rec.keys(defaults), (key) => {
-    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, UndefinedOr.getOrThrow(defaults[key]))
-  })
-  if (!element.hasAttribute("draggable")) element.setAttribute("draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
-}
