@@ -59,7 +59,8 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { runScoped, useWardicGate, useWardicProjection, useWardicRuntime, type WardicRuntime } from "./provider.tsx"
+import { runScoped, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import type { WardicRuntime } from "./runtime.ts"
 import { accessorOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig } from "./config.ts"
 import { isServer } from "./server.ts"

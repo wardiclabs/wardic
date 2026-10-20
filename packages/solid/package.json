@@ -10,7 +10,8 @@
   },
   "exports": {
     "./package.json": "./package.json",
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./unstable/v2": "./src/unstable/v2/index.ts"
   },
   "scripts": {
     "build": "tsc --build",

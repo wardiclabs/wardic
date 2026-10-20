@@ -57,7 +57,8 @@ import { constFalse, constUndefined, identity } from "effect/Function"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
-import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import type { WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
 
 /**

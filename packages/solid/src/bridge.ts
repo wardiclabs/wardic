@@ -21,7 +21,8 @@ import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import { AtomRegistry, type Atom } from "effect/reactivity"
 import { type Accessor, createSignal, from, onCleanup, onMount } from "solid-js"
-import { runScoped, useWardicRuntime, type WardicServices } from "./provider.tsx"
+import { runScoped, useWardicRuntime } from "./provider.tsx"
+import type { WardicServices } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 
 /**

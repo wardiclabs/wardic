@@ -5,7 +5,8 @@ import { DomLive } from "@wardic/dom"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Layer from "effect/Layer"
 import { createEffect, createRoot, createSignal, on } from "solid-js"
-import { useWardicGate, WardicProvider, type WardicEnv } from "../src/provider.tsx"
+import { useWardicGate, WardicProvider } from "../src/provider.tsx"
+import type { WardicEnv } from "../src/runtime.ts"
 
 /**
  * The flush gate is `@wardic/dom`'s (ADR-0031): its logic is pinned in dom's `gate.node.test.ts`

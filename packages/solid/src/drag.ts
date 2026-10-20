@@ -56,7 +56,8 @@ import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { runScoped, type WardicRuntime } from "./provider.tsx"
+import { runScoped } from "./provider.tsx"
+import type { WardicRuntime } from "./runtime.ts"
 import type { WardicDragTransition } from "./config.ts"
 
 /**

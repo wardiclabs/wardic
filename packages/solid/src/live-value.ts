@@ -34,7 +34,8 @@ import { type Accessor, createComputed, createEffect, createMemo, createSignal, 
 import { fromAtom } from "./bridge.ts"
 import type { LiveSource } from "./live-style.ts"
 import { readLive, serverRegistryOf } from "./live-style.ts"
-import { useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
+import { useWardicRuntime } from "./provider.tsx"
+import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
 
 /** A Live value as an accessor: an accessor as it is, an Atom read through the provider's registry. */

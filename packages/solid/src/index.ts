@@ -26,7 +26,7 @@ export {
   useWardicRuntime,
   WardicProvider,
 } from "./provider.tsx"
-export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./provider.tsx"
+export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
 export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
 
 /**
