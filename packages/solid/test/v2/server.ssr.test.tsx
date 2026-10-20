@@ -11,9 +11,11 @@
 // - SV6: a Live value in `style` renders its value now, under `initial`'s.
 // - SV7: a ward's `read(key)` gives where the key rests; its `atom(key)` holds nothing.
 // - SV8: `wardic.create(Component)` hands the component its Starting style through `style`.
+// - SV9: a layout node's Starting style is drawn through its projection at rest: its own `x` left out (#245).
+// - SV10: `<AnimatePresence initial={false}>` renders its child at its `animate`; without it, at `initial`.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import { ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
 import * as Effect from "effect/Effect"
 import type { JSX } from "@solidjs/web"
 import { createSignal } from "solid-js"
@@ -129,5 +131,33 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     const [div] = named(serve(() => <W initial={{ opacity: 0.3 }} animate={{ opacity: 1 }} style={{ color: "red" }} />), "div")
     expectStartingStyle(div, { opacity: 0.3 })
     expect(div?.style.color).toBe("red")
+  })
+
+  it("SV9: a layout node's Starting style is drawn through its projection at rest, its own x left out", () => {
+    const html = serve(() => (
+      <>
+        <wardic.div data-plain initial={{ x: 20, opacity: 0.5 }} animate={{ x: 0 }} />
+        <wardic.div data-layout layout initial={{ x: 20, opacity: 0.5 }} animate={{ x: 0 }} />
+      </>
+    ))
+    const [plain, layout] = named(html, "div")
+    expect(plain?.style.transform).toContain("translateX(20px)")
+    expect(layout?.style.transform ?? "", "the projection owns translate").not.toContain("translateX")
+    expect(layout?.style.opacity).toBe("0.5")
+  })
+
+  it("SV10: AnimatePresence initial={false} renders its child at its animate; without it, at initial", () => {
+    const held = serve(() => (
+      <AnimatePresence initial={false}>
+        <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
+      </AnimatePresence>
+    ))
+    expect(named(held, "div")[0]?.style.opacity).toBe("1")
+    const entering = serve(() => (
+      <AnimatePresence>
+        <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
+      </AnimatePresence>
+    ))
+    expect(named(entering, "div")[0]?.style.opacity).toBe("0")
   })
 })

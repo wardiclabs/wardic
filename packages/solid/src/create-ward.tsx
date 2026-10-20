@@ -392,7 +392,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // onCleanup — <AnimatePresence> removes the registration after the exit settles.
       let presenceRec: PresenceRecord | undefined
       if (Predicate.isNotUndefined(presence)) {
-        const rec = presenceRecordOf(element, start, Style.toValues(untrack(cfg).exit), links)
+        const rec = presenceRecordOf(element, start, { current: Style.toValues(untrack(cfg).exit) }, links)
         presenceRec = rec
         presence.register(rec)
         // Keep exit.current current while the child is alive.
