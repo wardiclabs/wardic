@@ -40,9 +40,10 @@
  *     also removes a key its last patch had and this one doesn't (a dragged node's `z-index`
  *     once its raise is dropped, ADR-0016 *Amendment (Reorder)*), restoring the element's own
  *     inline value, saved before the gate first wrote the key. Two hooks reach the binding,
- *     outside the commits: the Starting-style switch before an element's first commit
- *     (`beforeFirstCommit`, run in the binding's `batch`), and the keys the gate holds on the
- *     element whenever they change (`onHeld`), so the binding's `style` leaves them to Wardic.
+ *     outside the commits, each in the binding's `batch` (ADR-0034, *Amendment (#209)*): the
+ *     Starting-style switch before an element's first commit (`beforeFirstCommit`), and the keys
+ *     the gate holds on the element whenever they change (`onHeld`), so the binding's `style`
+ *     leaves them to Wardic.
  *
  * Observability (CONTEXT.md convention): the hot path (`write`/`flush`) is the
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
@@ -82,9 +83,10 @@ export interface FlushSink {
    * Called with every key the gate now holds on the element, each time that set changes
    * (ADR-0034): after the gate restores a key it dropped, and before the commit that first
    * writes a key. A binding whose `style` prop reaches the element leaves these keys out of it,
-   * so its framework never writes over Wardic's value (`style` is a key's fallback). The gate
-   * never flushes inside the binding's own update, so the binding applies what it changes
-   * before this returns.
+   * so its framework never writes over Wardic's value (`style` is a key's fallback). Called in
+   * the binding's `batch`, with every other element's whose keys changed that flush (ADR-0034,
+   * *Amendment (#209)*), so what the binding changes reaches the element before the commit, a
+   * framework that applies an update later (Solid 2) included.
    */
   readonly onHeld?: ((keys: ReadonlyArray<string>) => void) | undefined
   /**
@@ -116,6 +118,8 @@ interface Entry {
   outputs: Map<string, Output> | undefined
   /** The values its sink's `onCommit` is told, one object reused, made on the first call. */
   latest: Record<string, unknown> | undefined
+  /** Its patch, projected this flush and committed once the binding has heard the keys held. */
+  patch: Renderer.Patch | undefined
 }
 
 /** One key's live output: its Atom, the value last set on it, and its mount in the registry. */
@@ -198,11 +202,13 @@ export interface FlushGateRuntime {
 /** What a binding hands its flush gate. */
 export interface FlushGateOptions {
   /**
-   * Apply a frame flush's Starting-style switches (`beforeFirstCommit`) together: run `apply`,
-   * and return once every update inside it has reached the elements, before the gate commits
-   * (ADR-0031, decision 3; ADR-0034). Solid 1 passes its `batch`; React would pass `flushSync`
-   * (inferred). A binding with no switch passes `(apply) => apply()`. Called once per frame
-   * flush that has a first commit.
+   * Apply a flush's hooks together: run `apply`, and return once every update inside it has
+   * reached the elements, before the gate commits (ADR-0031, decision 3; ADR-0034). Solid 1 passes
+   * its `batch`; Solid 2 runs `apply` then `flush()`; React would pass `flushSync` (inferred). A
+   * binding with no hook passes `(apply) => apply()`. Called at most twice a flush: once for the
+   * Starting-style switches (`beforeFirstCommit`) when an element commits for the first time,
+   * before anything is read off the elements, and once for the keys held (`onHeld`) when an
+   * element's change (*Amendment (#209)*).
    */
   readonly batch: (apply: () => void) => void
 }
@@ -246,14 +252,22 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   let recording: Set<string> | undefined
   // The entries committed since the last frame flush whose sink has an `onCommit` (#233).
   const committedSince = new Set<Entry>()
+  // A frame flush's entries, in order, prepared and waiting for their commit; and those whose
+  // keys held changed, which the binding hears first. Reused each flush: the per-frame path.
+  const prepared: Array<Entry> = []
+  const heldChanged: Array<Entry> = []
 
   /**
-   * Project and commit one dirty entry (once per element per flush), marking it clean. Plain
-   * calls only: this is the per-frame path (ADR-0034).
+   * Project one dirty entry's patch and restore the keys it dropped (once per element per flush),
+   * marking it clean: into `into`, and into `held` when the keys it holds change and its sink
+   * hears them. Its commit waits for the binding's `batch` of those (ADR-0034, *Amendment
+   * (#209)*). Plain calls only: this is the per-frame path.
    */
-  const apply = (entry: Entry): void => {
+  const prepare = (entry: Entry, into: Array<Entry>, held: Array<Entry>): void => {
     const patch = project(entry.values)
     entry.dirty = false
+    entry.patch = patch
+    into.push(entry)
     const sink = entry.sink
     const target = sink.target
     const committed = entry.committed
@@ -281,11 +295,36 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     }
     if (Predicate.isNotUndefined(restore)) commit(target, restore)
     // The keys held changed (the usual frame changes none): the binding hears before the commit.
-    if ((added || Predicate.isNotUndefined(restore)) && Predicate.isNotUndefined(sink.onHeld)) {
-      sink.onHeld(Array.from(committed.keys()))
+    if ((added || Predicate.isNotUndefined(restore)) && Predicate.isNotUndefined(sink.onHeld)) held.push(entry)
+  }
+
+  /** Commit a prepared entry's patch onto its element. */
+  const commitPrepared = (entry: Entry): void => {
+    const patch = entry.patch
+    if (Predicate.isUndefined(patch)) return
+    entry.patch = undefined
+    commit(entry.sink.target, patch)
+    if (Predicate.isNotUndefined(entry.sink.onCommit)) committedSince.add(entry)
+  }
+
+  /**
+   * The prepared entries, committed, after the binding has heard the keys held change, together, in
+   * its `batch` (#209); both lists emptied for the next flush.
+   */
+  const commitAll = (entries: Array<Entry>, held: Array<Entry>): void => {
+    if (held.length > 0) batch(() => tellHeld(held))
+    for (let i = 0; i < entries.length; i++) commitPrepared(entries[i])
+    entries.length = 0
+    held.length = 0
+  }
+
+  /** Each entry's `onHeld`, with every key the gate holds on its element now. */
+  const tellHeld = (held: ReadonlyArray<Entry>): void => {
+    for (let i = 0; i < held.length; i++) {
+      const entry = held[i]
+      const onHeld = entry.sink.onHeld
+      if (Predicate.isNotUndefined(onHeld)) onHeld(Array.from(entry.committed.keys()))
     }
-    commit(target, patch)
-    if (Predicate.isNotUndefined(sink.onCommit)) committedSince.add(entry)
   }
 
   /**
@@ -347,12 +386,16 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const flush = (): void => {
     scheduled = false
     try {
+      // The switches first: an element's own inline values are read once its Starting style is gone.
       if (firstCommits.size > 0) batch(runFirstCommits)
       // Every dirty element, once. No auto-reschedule — the next write() does. A write()
       // from an effect a sink's hook runs requests the next frame (it isn't stranded).
-      for (const entry of accumulator.values()) if (entry.dirty) apply(entry)
+      for (const entry of accumulator.values()) if (entry.dirty) prepare(entry, prepared, heldChanged)
+      commitAll(prepared, heldChanged)
       if (committedSince.size > 0) tellCommitted()
     } catch (defect) {
+      prepared.length = 0
+      heldChanged.length = 0
       runtime.runFork(reportFailure("wardic.gate: a flush failed", Cause.die(defect)))
     }
   }
@@ -375,7 +418,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const register: FlushGate["register"] = (id, sink) => {
-    const entry: Entry = { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined }
+    const entry: Entry = { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined, patch: undefined }
     accumulator.set(id, entry)
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {
@@ -450,10 +493,14 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     // dropping the Starting style then would leave its animated keys unset until the frame
     // flush (a frame later for an element mounted inside a frame). The frame flush switches.
     // A commit here is told at the frame flush (#233): the write that made it scheduled that flush.
+    // Its own lists: a pass may run from a hook the frame flush's `batch` runs.
+    const entries: Array<Entry> = []
+    const held: Array<Entry> = []
     for (const id of written) {
       const entry = accumulator.get(id)
-      if (Predicate.isNotUndefined(entry) && entry.dirty) apply(entry)
+      if (Predicate.isNotUndefined(entry) && entry.dirty) prepare(entry, entries, held)
     }
+    commitAll(entries, held)
   }
 
   const release: FlushGate["release"] = (id, keys, restore) => {
