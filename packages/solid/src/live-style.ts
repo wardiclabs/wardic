@@ -44,12 +44,32 @@ type StyleInput = object | string | undefined
 /** Whether a style value is live: an Atom, or an accessor. */
 export const isLive = (value: unknown): value is LiveSource<unknown> => Bool.or(Atom.isAtom(value), Predicate.isFunction(value))
 
+/** Where an accessor keeps the Atom it carries (#209 PR 3's Q2). */
+const CARRIED = Symbol.for("@wardic/solid/carried")
+
+/**
+ * `accessor`, carrying `atom`: the Atom it reads, so a `style` that's given it follows the Atom
+ * itself, set where the Atom is, rather than the accessor through Solid (#209 PR 3's Q2). On Solid
+ * 2 an accessor's change shows at Solid's flush, after the gate's write: a value derived from a
+ * ward's would paint a frame late. Both must give the same value.
+ */
+export const carry = <A>(accessor: Accessor<A>, atom: Atom.Atom<A>): Accessor<A> =>
+  Object.defineProperty(accessor, CARRIED, { value: atom })
+
+/** The Atom a Live value is, or carries: `undefined` for a plain accessor or a plain value. Per key, per change: guards, no matcher. */
+export const atomOf = (value: unknown): Atom.Atom<unknown> | undefined => {
+  if (Atom.isAtom(value)) return value as Atom.Atom<unknown>
+  if (Bool.not(Predicate.isFunction(value))) return undefined
+  return (value as { readonly [CARRIED]?: Atom.Atom<unknown> })[CARRIED]
+}
+
 /** Whether `key` is a transform key, composed into `transform` (`x`, `scale`, `rotate`…). */
 export const isTransformKey = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))
 
-/** A style value, read now: an Atom through `registry`, an accessor untracked, anything else as it is. */
+/** A style value, read now: an Atom (or the one an accessor carries) through `registry`, an accessor untracked, anything else as it is. */
 export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegistry, untrack: Reactivity["untrack"]): unknown => {
-  if (Atom.isAtom(value)) return registry().get(value)
+  const atom = atomOf(value)
+  if (Predicate.isNotUndefined(atom)) return registry().get(atom)
   if (Predicate.isFunction(value)) return untrack(value as Accessor<unknown>)
   return value
 }
@@ -157,12 +177,16 @@ interface State extends LiveStyle {
   watching: Map<string, () => void> | undefined
 }
 
-/** Watch `key`'s live source for `to`: an Atom subscribed, an accessor in a computation of its own. */
+/**
+ * Watch `key`'s live source for `to`: an Atom, or the one an accessor carries, subscribed; any
+ * other accessor in a computation of its own.
+ */
 const watch = (self: State, key: string, source: unknown, to: Follower): void => {
   if (Bool.not(isLive(source))) return
   if (Predicate.isUndefined(self.watching)) self.watching = new Map()
-  if (Atom.isAtom(source)) {
-    self.watching.set(key, self.registry().subscribe(source, (value) => to.change(key, value)))
+  const atom = atomOf(source)
+  if (Predicate.isNotUndefined(atom)) {
+    self.watching.set(key, self.registry().subscribe(atom, (value) => to.change(key, value)))
     return
   }
   self.watching.set(key, self.reactivity.watch(source as Accessor<unknown>, (value) => to.change(key, value)))
