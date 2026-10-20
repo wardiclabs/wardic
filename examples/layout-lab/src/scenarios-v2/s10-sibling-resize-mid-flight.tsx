@@ -14,11 +14,14 @@
  * or back when a second cell is added or removed, as in scenario 2.
  *
  * Run marks the `click` trigger and moves A. {@link SIBLING_DELAY_MS} later a timer
- * drops a `grow-sibling` note and adds or removes B's second cell. Only the
+ * drops a `grow-sibling` note and gives B its second cell when A went right, or takes
+ * it away when A went left. Only the
  * engine's shared ResizeObserver sees that, and it delivers after the frame's gate
  * flush, so the second Measure pass of the run runs while A is still moving. The
  * run watches A only, so its `passStepRatio` says whether that pass changed A's
- * pace. Repeated runs alternate A's side and B's width.
+ * pace. Repeated runs alternate A's side and B's width, and B's width follows A's side
+ * however fast Run is pressed: a Run cancels the growth still pending, and its own timer
+ * sets B to match.
  *
  * @module
  */
@@ -87,7 +90,8 @@ const EXTRA_CELL_STYLE: JSX.CSSProperties = {
 /**
  * The scenario View. Run cancels a growth still pending from an earlier Run, marks
  * the `click` trigger inside the click handler, moves A, and starts the timer that
- * toggles B's second cell under `<Show>`.
+ * sets B's second cell (under `<Show>`) to match A's new side. B follows A's side rather
+ * than toggling, so a Run that cancels the last one's growth can't leave them out of step.
  */
 const View: ScenarioDef["View"] = (props) => {
   const [atRight, setAtRight] = createSignal(false)
@@ -105,11 +109,12 @@ const View: ScenarioDef["View"] = (props) => {
   const run = (): void => {
     cancelGrowth()
     props.ctx.markTrigger("click")
-    setAtRight((r) => !r)
+    const right = !atRight()
+    setAtRight(right)
     timer = setTimeout(() => {
       timer = undefined
       props.ctx.mark("grow-sibling")
-      setGrown((g) => !g)
+      setGrown(right)
     }, SIBLING_DELAY_MS)
   }
 
