@@ -1,0 +1,15 @@
+{
+  "name": "@wardic/example-hand-checks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The start examples' shared hand checks (#209): the /ssr hydration report, the /appear report, and the save-log handler. Plain DOM and Node, no framework.",
+  "exports": {
+    "./hydration-report": "./src/hydration-report.ts",
+    "./appear-report": "./src/appear-report.ts",
+    "./save-log": "./src/save-log.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

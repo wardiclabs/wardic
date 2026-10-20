@@ -1,7 +1,8 @@
-// The /ssr route's hydration report (ADR-0021's hand check, #41). Client-only, plain DOM:
-// it renders outside the hydrated tree, so it adds no hydration keys.
+// The /ssr route's hydration report (ADR-0021's hand check, #41), shared by the start examples
+// (Solid 1's and Solid 2's, #209). Client-only, plain DOM: it renders outside the hydrated tree, so
+// it adds no hydration keys.
 //
-// 1. `snapshotServerMarkup()` runs in entry-client.tsx BEFORE SolidStart mounts: for every
+// 1. `snapshotServerMarkup()` runs in the example's client entry BEFORE the app hydrates: for every
 //    element marked `data-ssr-k`, it keeps the node, its attributes and what the server's
 //    paint shows (the visible opacity, the left edge on the page, an SVG cx).
 // 2. When the route has hydrated (its `wardic:ssr-hydrated` event), it reads each element
@@ -12,8 +13,23 @@
 //    should hold still (`initial={false}`, #134) wasn't painted where it holds, or moved
 //    in any frame after hydration; else OK.
 //
-// "Save log" posts the rows to /api/save-log (examples/solid-start-basic/logs/, gitignored).
-import { SSR_EXPECTED } from "./ssr-expected.ts"
+// What each element should do is the example's (`reportWhenHydrated(expected)`): its route renders
+// its own elements. "Save log" posts the rows to /api/save-log (the example's logs/, gitignored).
+
+/** What the report expects of each `data-ssr-k` element. */
+export interface SsrExpected {
+  /** The server paints the Starting style on this element (else, by design, it doesn't). */
+  readonly starting: boolean
+  /** The settled opacity, if it animates. */
+  readonly settledOpacity?: number
+  /**
+   * The opacity it holds from the server's paint on (`initial={false}`, #134): the server
+   * paints it there, and it never moves after hydration.
+   */
+  readonly holds?: number
+  /** Why a row is special, shown in the report. */
+  readonly note?: string
+}
 
 interface Seen {
   readonly opacity: number
@@ -59,7 +75,7 @@ const seen = (el: Element): Seen => {
 
 const attrsOf = (el: Element): Record<string, string> => Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]))
 
-/** Keep what the server's paint shows, before SolidStart hydrates it. */
+/** Keep what the server's paint shows, before the app hydrates it. */
 export const snapshotServerMarkup = (): void => {
   for (const el of document.querySelectorAll("[data-ssr-k]")) {
     snapshots.set(el.getAttribute("data-ssr-k")!, { node: el, attrs: attrsOf(el), ...seen(el) })
@@ -122,17 +138,17 @@ const holdFailures = (holds: number, server: Seen, firstPaint: Seen | undefined,
   return failures
 }
 
-/** Judge every snapshotted element once the route has hydrated. */
-const judge = async (): Promise<ReadonlyArray<ReportRow>> => {
+/** Judge every snapshotted element once the route has hydrated, against what `expected` says of it. */
+const judge = async (expected: Readonly<Record<string, SsrExpected>>): Promise<ReadonlyArray<ReportRow>> => {
   const now = (k: string) => document.querySelector(`[data-ssr-k="${k}"]`)
   // Right after hydration: identity and attributes.
   const afterHydrate = new Map([...snapshots.keys()].map((k) => [k, now(k)]))
   const firstPaint = await beforeNextPaint(() => new Map([...snapshots.keys()].map((k) => [k, now(k)] as const).map(([k, el]) => [k, el === null ? undefined : seen(el)])))
-  const held = [...snapshots.keys()].filter((k) => SSR_EXPECTED[k]?.holds !== undefined)
+  const held = [...snapshots.keys()].filter((k) => expected[k]?.holds !== undefined)
   const ranges = await rangesOver(held, 2500)
   const rows: Array<ReportRow> = []
   for (const [k, snap] of snapshots) {
-    const expected = SSR_EXPECTED[k] ?? { starting: false }
+    const expects = expected[k] ?? { starting: false }
     const el = afterHydrate.get(k) ?? null
     const sameNode = el === snap.node
     const attrsChanged =
@@ -145,17 +161,17 @@ const judge = async (): Promise<ReadonlyArray<ReportRow>> => {
     const settledEl = now(k)
     const settled = settledEl === null ? undefined : seen(settledEl)
     let verdict: ReportRow["verdict"] = "OK"
-    let note = expected.note ?? ""
+    let note = expects.note ?? ""
     if (!sameNode || attrsChanged.length > 0) verdict = "MISMATCH"
-    else if (expected.starting && fp !== undefined) {
+    else if (expects.starting && fp !== undefined) {
       const jumped =
         Math.abs(fp.opacity - snap.opacity) > 0.15 ||
         Math.abs(fp.x - snap.x) > 8 ||
         (fp.cx !== undefined && snap.cx !== undefined && Math.abs(fp.cx - snap.cx) > 12)
       if (jumped) verdict = "FLASH"
     }
-    if (expected.holds !== undefined) {
-      const failures = holdFailures(expected.holds, snap, fp, ranges.get(k))
+    if (expects.holds !== undefined) {
+      const failures = holdFailures(expects.holds, snap, fp, ranges.get(k))
       if (failures.length > 0 && verdict === "OK") verdict = "MOVED"
       note = [note, ...failures].filter(Boolean).join("; ")
     }
@@ -167,8 +183,8 @@ const judge = async (): Promise<ReadonlyArray<ReportRow>> => {
         note = `${note}; expected ${live} after mount`
       }
     }
-    if (expected.settledOpacity !== undefined && settled !== undefined && Math.abs(settled.opacity - expected.settledOpacity) > 0.02) {
-      note = `${note}${note ? "; " : ""}not settled at opacity ${expected.settledOpacity}`
+    if (expects.settledOpacity !== undefined && settled !== undefined && Math.abs(settled.opacity - expects.settledOpacity) > 0.02) {
+      note = `${note}${note ? "; " : ""}not settled at opacity ${expects.settledOpacity}`
     }
     rows.push({ k, verdict, sameNode, attrsChanged, server: { opacity: snap.opacity, x: snap.x, cx: snap.cx, text: snap.text }, firstPaint: fp, settled, note })
   }
@@ -236,13 +252,16 @@ const renderPanel = (rows: ReadonlyArray<ReportRow>): void => {
   document.body.append(panel)
 }
 
-/** Judge the route once it has hydrated, then show the panel (and expose the rows for a headless check). */
-export const reportWhenHydrated = (): void => {
+/**
+ * Judge the route once it has hydrated, against what `expected` says of each element, then show the
+ * panel (and expose the rows for a headless check).
+ */
+export const reportWhenHydrated = (expected: Readonly<Record<string, SsrExpected>>): void => {
   if (snapshots.size === 0) return
   window.addEventListener(
     "wardic:ssr-hydrated",
     () => {
-      void judge().then((rows) => {
+      void judge(expected).then((rows) => {
         ;(window as { __wardicSsrReport?: ReadonlyArray<ReportRow> }).__wardicSsrReport = rows
         renderPanel(rows)
       })

@@ -1,12 +1,13 @@
 // @refresh reload
 import { mount, StartClient } from "@solidjs/start/client"
-import { markHydration, startAppearRecorder } from "./appear-report.ts"
-import { reportWhenHydrated, snapshotServerMarkup } from "./hydration-report.ts"
+import { markHydration, startAppearRecorder } from "@wardic/example-hand-checks/appear-report"
+import { reportWhenHydrated, snapshotServerMarkup } from "@wardic/example-hand-checks/hydration-report"
+import { SSR_EXPECTED } from "./ssr-expected.ts"
 
 // The /ssr route's hydration report (#41): keep what the server painted before hydrating,
 // then judge each element once the route has hydrated. Other routes have nothing to judge.
 snapshotServerMarkup()
-reportWhenHydrated()
+reportWhenHydrated(SSR_EXPECTED)
 // The /appear route's report (#48): every frame from first paint, judged after hydration.
 startAppearRecorder()
 

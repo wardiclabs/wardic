@@ -3,7 +3,7 @@
 // engine at hydration. `?hydrate=<ms>` delays hydration (entry-client.tsx), so the Handoff falls
 // mid-flight; with JavaScript off, everything plays to its end and holds. `?data=<ms>` (default 400)
 // is when the streamed list's data resolves on the server: its items come in a late chunk (#245). The report
-// (src/appear-report.ts) judges each element marked `data-appear-k` two seconds after hydration.
+// (examples/hand-checks/src/appear-report.ts) judges each element marked `data-appear-k` two seconds after hydration.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
 import { createAsync, useLocation } from "@solidjs/router"
@@ -22,7 +22,7 @@ export default function AppearRoute(): JSX.Element {
   const location = useLocation()
   const dataMs = Number.parseInt(new URLSearchParams(location.search).get("data") ?? "400", 10)
   const streamed = createAsync(() => new Promise<Array<number>>((resolve) => setTimeout(() => resolve([0, 1, 2, 3]), dataMs)))
-  // The report judges once the route has mounted (src/appear-report.ts).
+  // The report judges once the route has mounted (examples/hand-checks/src/appear-report.ts).
   onMount(() => window.dispatchEvent(new Event("wardic:appear-mounted")))
   return (
     <WardicProvider env={DomLive}>

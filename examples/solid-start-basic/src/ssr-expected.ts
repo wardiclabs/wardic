@@ -1,20 +1,6 @@
 // What the /ssr route's hydration report expects of each element marked `data-ssr-k`
 // (#41). Its own module so the client entry can read it without loading the route.
-
-/** What the report expects of each `data-ssr-k` element. */
-export interface SsrExpected {
-  /** The server paints the Starting style on this element (else, by design, it doesn't). */
-  readonly starting: boolean
-  /** The settled opacity, if it animates. */
-  readonly settledOpacity?: number
-  /**
-   * The opacity it holds from the server's paint on (`initial={false}`, #134): the server
-   * paints it there, and it never moves after hydration.
-   */
-  readonly holds?: number
-  /** Why a row is special, shown in the report. */
-  readonly note?: string
-}
+import type { SsrExpected } from "@wardic/example-hand-checks/hydration-report"
 
 export const SSR_EXPECTED: Readonly<Record<string, SsrExpected>> = {
   div: { starting: true, settledOpacity: 1 },
