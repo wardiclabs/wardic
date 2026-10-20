@@ -45,14 +45,14 @@ import * as Rec from "effect/Record"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Handoff, keyOf, type MountAnimation, repeatsForever, startAtOf } from "./appear.ts"
+import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, startAtOf } from "./appear.ts"
 import type { WardConfig, WardicTransition, WardicValues } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
-import { nameOf, ownOrInherited, startingValuesOf, startsAtAnimate, type WardicVariantContextValue } from "./variant-tree.ts"
+import { hasOwnVariants, nameOf, ownOrInherited, type ServerVariantNode, startingValuesOf, startsAtAnimate, type WardicVariantContextValue } from "./variant-tree.ts"
 
 /**
  * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
@@ -856,6 +856,74 @@ export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Re
     ),
   )
 }
+
+/** An element's Appear animation on a server (#48, ADR-0044), as both bindings' server wards and component wraps use it. */
+export interface ServerAppearOf {
+  /** Its inline `animation`, under the user's style: none when it plays none. */
+  readonly style: { readonly animation: string } | undefined
+  /** The context its children read: its variant node's, with its Appear group when it leads one. */
+  readonly provided: WardicVariantContextValue | undefined
+  /** Rules it out once it has rendered: its user style is read when `ward()` is called. */
+  readonly veto: (reason: string) => void
+  /**
+   * Rendered after the shell (#245): in a late chunk, and its root when no late element is around
+   * it, which puts the chunk's `<style>` after itself. `state` is the render's.
+   */
+  readonly late: boolean
+  readonly chunkRoot: boolean
+  readonly state: ServerAppear | undefined
+}
+
+/** No Appear animation: a provider with `appear={false}`. */
+const NO_APPEAR_ENTRY = (provided: WardicVariantContextValue | undefined): ServerAppearOf => ({
+  style: undefined,
+  provided,
+  veto: constVoid,
+  late: false,
+  chunkRoot: false,
+  state: undefined,
+})
+
+/**
+ * An element's entry in the server render's Appear animations (#48, ADR-0044): its starting
+ * values, its targets at mount (`animate`, or an inherited variant name against its `variants`),
+ * its transition, and its place in its parent's group. `state` is the provider's, `undefined` with
+ * `appear={false}`: each binding reads it from its own context.
+ */
+export const appearEntryOf = (
+  state: ServerAppear | undefined,
+  c: WardConfig,
+  tag: string | undefined,
+  initialValues: Values.Values,
+  node: ServerVariantNode,
+): ServerAppearOf =>
+  UndefinedOr.match(state, {
+    onUndefined: () => NO_APPEAR_ENTRY(node.provided),
+    onDefined: (state) => {
+      const entered = enterServer(state, {
+        appear: c.appear,
+        tag,
+        initial: initialValues,
+        to: serverTargetOf(c, node.inherited),
+        transition: ownOrInherited(c.transition, node.inherited),
+        layout: isLayoutNode(c),
+        group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
+        leads: hasOwnVariants(c),
+        ownTransition: c.transition,
+      })
+      return {
+        style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),
+        provided: Option.match(entered.group, {
+          onNone: () => node.provided,
+          onSome: (appearGroup) => UndefinedOr.map(node.provided, (provided): WardicVariantContextValue => ({ ...provided, appearGroup })),
+        }),
+        veto: entered.veto,
+        late: entered.late,
+        chunkRoot: entered.chunkRoot,
+        state,
+      }
+    },
+  })
 
 /** An element's targets at mount on a server: its `animate`, else an inherited variant name resolved against its own `variants`. */
 export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Values.Values> =>
