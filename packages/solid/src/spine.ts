@@ -275,13 +275,13 @@ export type StartLinks = ReturnType<typeof startLinksOf>
 
 /**
  * An element's presence record (ADR-0007 exit): seeded with its Starting values, so an exit that
- * fires before any frame still has a `from`, and its `exit` now. An exit key with no value starts
+ * fires before any frame still has a `from`, and its `exit` ref, which the ward keeps current. An exit key with no value starts
  * from its Base value's start links (ADR-0022), read from the retained node at the exit.
  */
-export const presenceRecordOf = (element: HTMLElement, start: Start, exit: Values.Values, links: StartLinks): PresenceRecord => ({
+export const presenceRecordOf = (element: HTMLElement, start: Start, exit: { current: Values.Values }, links: StartLinks): PresenceRecord => ({
   element,
   snapshot: { current: { ...start.initialValues } },
-  exit: { current: exit },
+  exit,
   startOf: (key, like) => Option.getOrUndefined(Option.map(links.startLinkOf(key, like), (s) => s.value)),
 })
 

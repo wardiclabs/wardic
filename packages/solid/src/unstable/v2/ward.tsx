@@ -29,12 +29,18 @@
  *   ward's.
  * - **Its target is compared by value** (`sameResolution`): a `style` or `transition` change in its
  *   config doesn't Retarget, as Motion's doesn't; a new variant name does.
+ * - **Presence and layout** (PR 2 of #209): under an `<AnimatePresence>` the mount registers its exit
+ *   record, kept current from its config's `exit`; a `layout`, `layoutId`, `layoutScroll` or
+ *   `layoutRoot` element registers one projection node (`layout-member.ts`), re-measured when its
+ *   `layoutDependency` changes. A layout node's Starting style is drawn through its projection at
+ *   rest, as its first commit draws it (#245).
  *
  * @module
  */
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import * as Bool from "effect/Boolean"
@@ -59,12 +65,18 @@ import {
 import type { WardConfig as SharedWardConfig, WardicTransformShorthands, WardicValues } from "../../config.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
+import { dragTransitionOf } from "../../drag-transition.ts"
+import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
+import { presenceBlocksInitial } from "../../presence-record.ts"
 import {
   accessorOf,
+  drawnAtRest,
   type ElementSpine,
   flagStartingStyle,
+  isLayoutNode,
   makeElementSpine,
   makeReuse,
+  presenceRecordOf,
   registryOf,
   type Resolution,
   resolutionOf,
@@ -80,6 +92,7 @@ import {
 import { serverVariantNode, type WardicVariantContextValue } from "../../variant-tree.ts"
 import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { reactivityIn } from "./solid-reactivity.ts"
+import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
 /**
@@ -197,17 +210,24 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   // Its place in variant orchestration (ADR-0007, #50).
   const node = createVariantNode(cfg, useVariantContext())
 
-  // The values it starts from, read once (ADR-0003): its `initial`, or the one it inherits.
+  // The nearest <AnimatePresence> (ADR-0007), or none.
+  const presence = usePresenceContext()
+
+  // The values it starts from, read once (ADR-0003): its `initial`, or the one it inherits, or its
+  // `animate` with `initial={false}` (its own, inherited, or its presence's first render, #134).
   const initialConfig = untrack(cfg)
-  const start = startOf(initialConfig, node.inherited, false, untrack)
+  const start = startOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
   const { project } = runtime.runSync(Renderer.Renderer)
 
   // The Starting style: the projected `initial`, carried by `style` until the gate's first commit
   // (ADR-0021 decision 6, ADR-0034); an svg-inner tag's attribute keys as attributes. While
-  // hydrating, what the server rendered, the DOM's project (the Hydration hold).
-  const projected = project(start.initialValues)
+  // hydrating, what the server rendered, the DOM's project (the Hydration hold). A layout node's is
+  // drawn through its projection at rest, as its first commit draws it (#245).
+  const layoutNode = isLayoutNode(initialConfig)
+  const drawnStart = drawnAtRest(start.initialValues, layoutNode)
+  const projected = project(drawnStart)
   const hydrating = isHydrating()
-  const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(start.initialValues), onFalse: () => projected })
+  const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(drawnStart), onFalse: () => projected })
   if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = Svg.splitPatchForTag(internal.tag, startingPatch)
 
@@ -218,7 +238,8 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const elementStyle = createElementStyle({
     userStyle,
     starting: seed.style,
-    startingWith: (routed: Values.Values): Renderer.Patch => Svg.splitPatchForTag(internal.tag, projectStarting({ ...routed, ...start.initialValues })).style,
+    startingWith: (routed: Values.Values): Renderer.Patch =>
+      Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...start.initialValues }, layoutNode))).style,
     live,
     defaults: undefined,
     reactivity,
@@ -229,16 +250,35 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const configNow = (): WardConfig => untrack(cfg)
   const styleNow = (): WardStyle | string | undefined => untrack(userStyle)
 
+  // Its exit target under an <AnimatePresence>, kept current while it's alive: the presence reads it
+  // after the ward is gone (ADR-0007).
+  const exit = { current: Style.toValues(initialConfig.exit) }
+  if (Predicate.isNotUndefined(presence)) {
+    createEffect(
+      () => Style.toValues(cfg().exit),
+      (values) => {
+        exit.current = values
+      },
+      { defer: true },
+    )
+  }
+
+  // Its layout node (ADR-0009): whether it has one, decided at setup, as `layout` is read once, and
+  // what a release runs on, its Release offset (ADR-0016, *Amendment (#140)*).
+  const layoutMember = wantsLayoutNode(initialConfig)
+  const dragTransition = dragTransitionOf(initialConfig.dragElastic, initialConfig.dragTransition)
+
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
   const target = createMemo<Resolution>(() => resolutionOf(cfg(), node.inherited, start.initialLink, NO_GESTURES), { equals: sameResolution })
 
   // The element, set by the ref during render.
   const [element, setElement] = createSignal<HTMLElement | undefined>(undefined, { ownedWrite: true })
 
-  // The mounted element: registered with the gate, its spine built over it.
+  // The mounted element: registered with the gate, its layout node, its spine built over it.
   interface Mounted {
     readonly element: HTMLElement
     readonly spine: ElementSpine
+    readonly layout: ProjectionSystem.NodeHandle | undefined
     readonly dispose: () => void
   }
   let mounted: Mounted | undefined
@@ -259,6 +299,19 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     const unregister = gate.register(id, withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow))
     // Its values, for the projection's flights (ADR-0012 *Amendment (#137)*).
     const unregisterValues = projection.registerValues(el, () => snapshot.values)
+    const links = startLinksOf(el, styleNow, live)
+    // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
+    const presenceRecord = UndefinedOr.map(presence, (registrar) => {
+      const record = presenceRecordOf(el, start, exit, links)
+      registrar.register(record)
+      return record
+    })
+    // Its one projection node (ADR-0009, ADR-0010), whose own `x`/`y` the projection then owns (ADR-0016).
+    const layout = Bool.match(layoutMember, {
+      onTrue: () =>
+        projection.register(registrationOf(layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: false }))),
+      onFalse: constUndefined,
+    })
     const spine = makeElementSpine({
       runtime,
       gate,
@@ -275,11 +328,11 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       start,
       snapshot,
       reuse,
-      links: startLinksOf(el, styleNow, live),
+      links,
       styleNow,
       live,
-      presence: undefined,
-      projected: false,
+      presence: presenceRecord,
+      projected: Predicate.isNotUndefined(layout),
       dragAxis: undefined,
       handoff: undefined,
     })
@@ -288,12 +341,25 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     return {
       element: el,
       spine,
+      layout,
       dispose: () => {
         spine.dispose()
+        UndefinedOr.map(layout, (node) => node.dispose())
         unregisterValues()
         unregister()
       },
     }
+  }
+
+  // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
+  if (layoutMember) {
+    createEffect(
+      () => cfg().layoutDependency,
+      () => {
+        UndefinedOr.map(UndefinedOr.map(mounted, (m) => m.layout), (node) => node.notify())
+      },
+      { defer: true },
+    )
   }
 
   // Whether the `when` gate lets a Retarget start (ADR-0007), as a memo: an element with variants of
@@ -378,14 +444,15 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
   createUniqueId()
   const c = untrack(accessorOf(config))
   const node = serverVariantNode(c, useVariantContext())
-  const initialValues = startOf(c, node.inherited, false, untrack).initialValues
-  const seed = Style.starting(internal.tag, initialValues)
+  const initialValues = startOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack).initialValues
+  const layoutNode = isLayoutNode(c)
+  const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode))
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
     <WardicVariantContext value={contextOf(node.provided)}>{props.children}</WardicVariantContext>
   )
   // Its routed keys' values join the Starting style, under `initial`'s (#130).
   const parts = split(c.style)
-  const style = pipe(serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, false, untrack), Style.over(parts.css)) as JSX.CSSProperties
+  const style = pipe(serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack), Style.over(parts.css)) as JSX.CSSProperties
   const self = ((): Ward => self) as Ward
   Object.defineProperties(self, {
     ref: { value: noRef, enumerable: true },

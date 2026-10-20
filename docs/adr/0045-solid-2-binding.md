@@ -101,3 +101,23 @@ On the bench server, after `wardic-quiet`, Chromium 147 headless.
 - `packages/solid/src/unstable/v2/`: `provider.tsx`, `ward.tsx`, `variant-node.ts`, `solid-reactivity.ts`, `wardic.tsx`, `index.ts`.
 - Shared, Solid-free: `spine.ts`, `variant-tree.ts`, `presence-record.ts`, `runtime.ts`, `config.ts`, `motion-props.ts`, `reactivity.ts`; `live-style.ts` and `element-style.ts` on a `Reactivity`. The Solid 1 binding's instance is `solid-reactivity.ts`.
 - The package exports `./unstable/v2`.
+
+## PR 2: presence and layout
+
+`<AnimatePresence>`, `<LayoutGroup>`, and a ward's `exit` and layout node (`layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `layoutDependency`, the layout callbacks), on the Solid 1 binding's engine.
+
+- **Shared, as the spine is:** presence's work moves into Solid-free `presence-controller.ts` (the retained node, its exit, the twins it hands back, a re-entry's interrupt); a layout node's registration and its options from a ward's config into `layout-member.ts`; the drag transition a node's Release offset runs on into `drag-transition.ts`. Each binding's `AnimatePresence` and `useLayoutMember` keep only their Solid: resolving the child, the tracking effect, the first render's end, the cleanup, the context. The Solid 1 binding's suites pass as they were.
+- **`AnimatePresence` tells the controller what's present from an effect's apply,** which runs after Solid 2's flush has applied the change, the leaving node already removed. The controller puts it back before the flush ends, so no paint shows it gone (P1 checks it's connected right after the flush). `onSettled` ends its first render, for `initial={false}`.
+- **A ward registers its exit record and its layout node at its mount,** in the effect's apply: neither makes a Solid primitive. What's reactive is made at setup: an effect keeps the record's `exit` current from the config (the presence reads it after the ward is gone), and one re-measures the node when `layoutDependency` changes. A layout node's Starting style is drawn through its projection at rest (#245), on a server and on the client.
+- **`animateLayout` needs nothing of its own.** Its second measurement is a Measure pass on a microtask the call schedules after the callback returns, and Solid 2 queues its flush at the callback's first write, so the flush applies the change first (LY11).
+
+### Pinned by (PR 2)
+
+- `presence.browser.test.tsx` P1–P8: an exit on the retained node, none, a re-entry, a kept ward's exit, an `exit` changed while alive, `initial={false}`, a twin handed back, the presence unmounted mid-close.
+- `layout.browser.test.tsx` LY1–LY11: a FLIP through `wardic.div` and through a kept ward, `LayoutGroup`'s reflow, a `layoutId` swap and crossfade, a lone `layoutId` exit, Layout modes, the callbacks, the `layout` transition key, a `layoutRoot`'s snap, `animateLayout`.
+- `presence.browser.test.tsx` P9: a re-entry ends the running exit, its node gone at once.
+- `layout.browser.test.tsx` LY12–LY16: a layout node's Starting style on the client, the projection owning its translate, `LayoutGroup`'s dependency as the only trigger, `layoutScroll`, `layoutAnchor={false}` (a child on a slower spring than its parent falls behind it).
+- `server.ssr.test.tsx` SV9–SV10: a layout node's Starting style drawn at rest; `AnimatePresence initial={false}` on a server.
+- **Mutations** (`.tmp/209/mut2.py`, in a worktree, against the v2 suites and, for the shared modules, the Solid 1 binding's presence and layout files): 24 of 25 caught. Six survived the first run, and P9 and LY12–LY16 now pin five of them. The one left, `layoutScroll` not forwarded, survives the Solid 1 binding's three scroll suites too: since ADR-0012's *Amendment (Reorder)* the fold reads any scrollable ancestor's scroll, and `layoutScroll` only has the node sample it at measure, which none of them tells apart.
+- **`bun run bench:solid --base main`** (the Solid 1 binding on the shared modules, 11 paired reps, N = 1,000, warm; head / base): mount −0.2%, retarget +0.5%, rest retarget −1.1%, unmount −1.2%; bytes −0.4%. Every gate passes; the control reads −0.2%.
+

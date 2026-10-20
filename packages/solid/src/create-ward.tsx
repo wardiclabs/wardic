@@ -28,7 +28,6 @@
  * writing into the same gate id) — see core's `Values.split`.
  */
 import type * as Drag from "@wardic/core/Drag"
-import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -64,6 +63,7 @@ import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegis
 import { createVariantNode } from "./variant-node.ts"
 import { hasOwnVariants, ownOrInherited, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
+import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { enterServer, handoffOf, type ServerAppear, setsAnimation } from "./appear.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import type { PresenceRecord } from "./presence-record.ts"
@@ -98,16 +98,6 @@ import {
 } from "./spine.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
-
-/**
- * The Layout mode a `layout` prop names (ADR-0009, *Amendment (#42)*): a mode's name, else
- * `true` (`layout`, or a node a `layoutId`, `layoutScroll` or `layoutRoot` gives).
- */
-const layoutModeOf = (layout: WardConfig["layout"]): Projection.LayoutMode =>
-  Option.getOrElse(Option.liftPredicate(layout, isModeName), (): Projection.LayoutMode => true)
-
-/** Whether a `layout` prop names a Layout mode (a string), not `true` / `false`. */
-const isModeName = (layout: WardConfig["layout"]): layout is Exclude<WardConfig["layout"], boolean | undefined> => Predicate.isString(layout)
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -402,7 +392,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // onCleanup — <AnimatePresence> removes the registration after the exit settles.
       let presenceRec: PresenceRecord | undefined
       if (Predicate.isNotUndefined(presence)) {
-        const rec = presenceRecordOf(element, start, Style.toValues(untrack(cfg).exit), links)
+        const rec = presenceRecordOf(element, start, { current: Style.toValues(untrack(cfg).exit) }, links)
         presenceRec = rec
         presence.register(rec)
         // Keep exit.current current while the child is alive.
@@ -427,35 +417,15 @@ export function runSpine(opts: RunSpineOptions): void {
       // read once — the reserved props layoutRoot/layoutAnchor remain typed-but-no-op
       // (P4).
       const c0 = untrack(cfg)
-      const layoutId = c0.layoutId
       // layout / layoutId / layoutScroll / layoutRoot each warrant a node; layoutAnchor
       // alone does not (it only tunes a node that already projects), but is forwarded.
       let layoutHandle: ProjectionSystem.NodeHandle | undefined
       // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
-      if (c0.layout === true || Predicate.isString(c0.layout) || Predicate.isNotUndefined(layoutId) || c0.layoutScroll === true || c0.layoutRoot === true) {
-        layoutHandle = useLayoutMember({
-          id,
-          element,
-          layoutDependency: () => cfg().layoutDependency,
-          transition: () => ownOrInherited(cfg().transition, parent),
-          dragTransition: () => dragTransition,
-          // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
-          layoutMode: () => layoutModeOf(cfg().layout),
-          // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
-          ownScale: () => DomRenderer.ownScaleOf(snapshot.values),
-          // And its own rotate and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*).
-          ownRotate: () => DomRenderer.ownRotateOf(snapshot.values),
-          ownOpacity: () => DomRenderer.ownOpacityOf(snapshot.values),
-          // The app's layout animation callbacks, read when they fire (#191, ADR-0039).
-          onLayoutAnimationStart: () => cfg().onLayoutAnimationStart,
-          onLayoutAnimationComplete: () => cfg().onLayoutAnimationComplete,
-          ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
-          ...Bool.match(c0.layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
-          ...Bool.match(c0.layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
-          ...UndefinedOr.match(c0.layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),
-          ...Bool.match(internal.raiseWhileDragged === true, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
-        })
+      if (wantsLayoutNode(c0)) {
+        layoutHandle = useLayoutMember(
+          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
+        )
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
 
