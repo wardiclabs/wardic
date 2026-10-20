@@ -37,6 +37,7 @@
  *
  * @module
  */
+import type * as Drag from "@wardic/core/Drag"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
@@ -48,7 +49,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constUndefined, identity, pipe } from "effect/Function"
+import { constFalse, constUndefined, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
@@ -169,7 +170,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
   readonly atom: <K extends WardKey<C>>(key: K) => Atom.Atom<WardValueOf<C, K & string> | undefined>
 }
 
-/** What a `wardic.*` component adds to a ward. Internal. */
+/** What a `wardic.*` component or a `<Reorder>` item adds to a ward. Internal. */
 export interface WardInternals {
   /** Its tag, so an SVG element's attribute keys render as attributes. */
   readonly tag?: string | undefined
@@ -178,6 +179,24 @@ export interface WardInternals {
    * whose component may not pass `style` and `draggable` on (as on the Solid 1 binding).
    */
   readonly defaultsOnElement?: boolean | undefined
+  /**
+   * A `<Reorder>` item's drag (ADR-0019 *Amendment (Reorder)*, ADR-0020): the gesture's axis, read
+   * at each drag's start and held until its end (`true` = free); it makes the element draggable
+   * with no `drag` in its config.
+   */
+  readonly dragAxis?: (() => boolean | "x" | "y") | undefined
+  /** A `<Reorder>` item's: each drag sample, after its projection write. */
+  readonly onDragSample?: ((sample: Drag.Sample) => void) | undefined
+  /** A `<Reorder>` item's: its projection node's handle, once registered; what it returns is called at unmount. */
+  readonly onLayoutHandle?: ((handle: ProjectionSystem.NodeHandle) => () => void) | undefined
+  /** A `<Reorder>` item's: its node raised while dragged. */
+  readonly raiseWhileDragged?: boolean | undefined
+  /** A `<Reorder>` item's: whether a **Keyboard reorder** has it lifted (ADR-0037), which turns its `whileDrag` on. */
+  readonly lifted?: Accessor<boolean> | undefined
+  /** A `<Reorder>` item's base style (its `touch-action`), under the user's style, over the drag defaults. */
+  readonly baseStyle?: (() => object | undefined) | undefined
+  /** Told the element at mount; what it returns is called at unmount. */
+  readonly onMount?: ((element: HTMLElement) => () => void) | undefined
 }
 
 const NO_INTERNALS: WardInternals = {}
@@ -251,7 +270,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
 
   // Its drag axis and a drag element's defaults (ADR-0004, ADR-0019 *Amendment (Reorder)*), under
   // the user's style: `drag` is read once, as on the Solid 1 binding.
-  const dragAxis = dragAxisOf(initialConfig)
+  const dragAxis = dragAxisOf(initialConfig, internal)
   const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
 
   // Its routed `style` keys (#130, ADR-0043), and its `style`, switched by the gate's hooks.
@@ -265,6 +284,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...start.initialValues }, layoutNode))).style,
     live,
     defaults: dragDefaults,
+    base: internal.baseStyle,
     reactivity,
   })
 
@@ -300,10 +320,12 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const wantsPress = createMemo(() => Predicate.isNotUndefined(cfg().whileTap))
 
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
+  // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
+  const lifted = UndefinedOr.match(internal.lifted, { onUndefined: () => constFalse, onDefined: identity })
   const target = createMemo<Resolution>(
     () => {
       const held = dragging()
-      return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: hovered(), pressed: pressed(), dragged: held, dragging: held })
+      return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: hovered(), pressed: pressed(), dragged: Bool.or(held, lifted()), dragging: held })
     },
     { equals: sameResolution },
   )
@@ -368,9 +390,15 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     // Its one projection node (ADR-0009, ADR-0010), whose own `x`/`y` the projection then owns (ADR-0016).
     const layout = Bool.match(layoutMember, {
       onTrue: () =>
-        projection.register(registrationOf(layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: false }))),
+        projection.register(
+          registrationOf(
+            layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
+          ),
+        ),
       onFalse: constUndefined,
     })
+    // A `<Reorder>` item's group registers the node, until the unmount.
+    const handedOver = UndefinedOr.map(layout, (handle) => UndefinedOr.map(internal.onLayoutHandle, (onHandle) => onHandle(handle)))
     const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
     if (internal.defaultsOnElement === true) UndefinedOr.map(dragDefaults, (defaults) => applyDragDefaults(el, defaults))
     // The drag track (ADR-0004): the pointer direct-sets `x`/`y` while the spring drives the rest and
@@ -394,6 +422,8 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
           transition: dragTransition,
         },
         ...UndefinedOr.match(layout, { onUndefined: () => ({}), onDefined: (projectionNode) => ({ projection: projectionNode }) }),
+        ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
+        ...UndefinedOr.match(internal.onDragSample, { onUndefined: () => ({}), onDefined: (onSample) => ({ onSample }) }),
       }))
     const spine = makeElementSpine({
       runtime,
@@ -429,8 +459,11 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       hover: false,
       press: false,
       dispose: () => {
+        UndefinedOr.map(mountedHook, (end) => end())
         spine.dispose()
         Arr.forEach(fibers, (fiber) => runtime.runFork(Fiber.interrupt(fiber)))
+        // The group lets go of the node before it's disposed.
+        UndefinedOr.map(handedOver, (release) => release())
         UndefinedOr.map(layout, (node) => node.dispose())
         unregisterValues()
         unregister()
@@ -441,6 +474,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       },
     }
     startRecognizers(m)
+    const mountedHook = UndefinedOr.map(internal.onMount, (onMount) => onMount(el))
     return m
   }
 
@@ -566,13 +600,14 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
     <WardicVariantContext value={contextOf(node.provided)}>{props.children}</WardicVariantContext>
   )
-  // Its routed keys' values join the Starting style, under `initial`'s (#130); a drag element's
-  // defaults go under the user's style.
+  // Its routed keys' values join the Starting style, under `initial`'s (#130); a `<Reorder>` item's
+  // base style, then a drag element's defaults, go under the user's style.
   const parts = split(c.style)
-  const dragDefaults = UndefinedOr.map(dragAxisOf(c), Style.dragDefaults)
+  const dragDefaults = UndefinedOr.map(dragAxisOf(c, internal), Style.dragDefaults)
   const style = pipe(
     serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
     Style.over(parts.css),
+    Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
     Style.over(dragDefaults),
   ) as JSX.CSSProperties
   const self = ((): Ward => self) as Ward

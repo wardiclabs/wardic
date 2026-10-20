@@ -88,3 +88,21 @@ export {
   type ScrollValues,
 } from "./live-value.ts"
 export type { Live, LiveSource } from "../../live-style.ts"
+
+/**
+ * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,
+ * refs carrying their props as a ward is, and Motion's `Reorder.Group` / `Reorder.Item` on them.
+ */
+export {
+  Reorder,
+  type ReorderElementTag,
+  type ReorderGroup,
+  type ReorderGroupComponentProps,
+  type ReorderGroupConfig,
+  type ReorderGroupProps,
+  reorderGroup,
+  type ReorderItemComponentProps,
+  type ReorderItemConfig,
+  type ReorderItemLayout,
+  reorderItem,
+} from "./reorder.tsx"
