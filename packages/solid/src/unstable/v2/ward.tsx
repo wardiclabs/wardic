@@ -72,7 +72,7 @@ import { driveDragTrack } from "../../drag-track.ts"
 import { reported, type WardicServices } from "../../runtime.ts"
 import type { WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
-import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
+import { carry, createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
 import { presenceBlocksInitial } from "../../presence-record.ts"
@@ -110,9 +110,10 @@ import { createVariantNode, useVariantContext, WardicVariantContext } from "./va
  * A Wardic element's `style` (#130, ADR-0043): every CSS property and the transform keys (`x`,
  * `scale`, `rotate`…), each a value or a **Live value**: an `effect/reactivity` Atom, or an
  * accessor, uncalled (a signal, a memo, a ward's `read(key)`). A called value is a resting value:
- * the element shows it at rest, and a return goes to where it is then.
+ * the element shows it at rest, and a return goes to where it is then. A Live value reading
+ * `undefined` (a ward's `read(key)` for a key with no value) leaves the key where it is.
  */
-export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string> | undefined }
+export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string | undefined> | undefined }
 
 /** A ward's config (ADR-0042): the element's motion, and its `style`. */
 export interface WardConfig extends SharedWardConfig {
@@ -487,20 +488,33 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   )
 
   // The element's value per key (#130, ADR-0043 decision 5): the gate's output while it holds the
-  // key, else where the key rests. One accessor a key, made on first ask, under the ward's owner.
+  // key, else where the key rests. One accessor a key, made on first ask, under the ward's owner. It
+  // carries its Atom (#209 PR 3's Q2): a `style` given it follows the Atom, set at the gate's write,
+  // so a key derived from it paints in the same frame. Where the key rests is Solid's (the user's
+  // style), mirrored into an Atom of its own.
   const registry = registryOf(runtime)
   let reads: Map<string, Accessor<unknown>> | undefined
   const read = (key: string): Accessor<unknown> => {
     if (Predicate.isUndefined(reads)) reads = new Map()
     const known = reads.get(key)
     if (Predicate.isNotUndefined(known)) return known
-    const atom = gate.valueOf(id, key)
-    const shown = runWithOwner(owner, () => {
-      const [value, setValue] = createSignal<unknown>(registry().get(atom), { ownedWrite: true })
-      onCleanup(registry().subscribe(atom, (next) => setValue(() => next)))
-      return value
+    const output = gate.valueOf(id, key)
+    const accessor = runWithOwner(owner, () => {
+      const resting = createMemo(() => restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw)))
+      const restingAtom = Atom.make<unknown>(untrack(resting))
+      onCleanup(registry().mount(restingAtom))
+      createEffect(
+        resting,
+        (value) => {
+          registry().set(restingAtom, value)
+        },
+        { defer: true },
+      )
+      const shown = Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity }))
+      const [value, setValue] = createSignal<unknown>(registry().get(shown), { ownedWrite: true })
+      onCleanup(registry().subscribe(shown, (next) => setValue(() => next)))
+      return carry(value, shown)
     })
-    const accessor = (): unknown => UndefinedOr.match(shown(), { onUndefined: () => restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw)), onDefined: identity })
     reads.set(key, accessor)
     return accessor
   }

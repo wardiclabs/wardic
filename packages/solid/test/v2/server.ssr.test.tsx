@@ -15,9 +15,26 @@
 // - SV10: `<AnimatePresence initial={false}>` renders its child at its `animate`; without it, at `initial`.
 // - SV11: a drag element's defaults (#36) render on the server: through a kept ward and `wardic.div`.
 // - SV12: a sensor on the server reads its initial value, and given to `ref` does nothing.
+// - SV13: the Live-value helpers on a server: their source's value now, mapped, or 0s; a `style`
+//   derived from another ward's `read(key)` renders that value in the Starting style.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import { AnimatePresence, createDrag, createFocus, createHover, createInView, createPress, createReducedMotion, ward, wardic } from "@wardic/solid/unstable/v2"
+import {
+  AnimatePresence,
+  createDrag,
+  createFocus,
+  createHover,
+  createInView,
+  createPress,
+  createReducedMotion,
+  createScroll,
+  createSpring,
+  createTime,
+  createTransform,
+  createVelocity,
+  ward,
+  wardic,
+} from "@wardic/solid/unstable/v2"
 import * as Effect from "effect/Effect"
 import type { JSX } from "@solidjs/web"
 import { createSignal } from "solid-js"
@@ -201,5 +218,35 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     const [div] = named(serve(() => <Probe />), "div")
     expect(div?.name).toBe("div")
     expect(readings).toEqual([false, false, false, false, null, false])
+  })
+
+  it("SV13: the Live-value helpers give their source's value now, mapped, or 0s; a derived style renders in the Starting style", () => {
+    const readings: Array<unknown> = []
+    const Scene = () => {
+      const [x] = createSignal(50)
+      const card = ward({ initial: { x: 100 } })
+      const opacity = createTransform(card.read("x"), [0, 200], [1, 0])
+      const label = ward({ style: { opacity } })
+      const scroll = createScroll()
+      readings.push(
+        opacity(),
+        createTransform(x, (v) => v * 2)(),
+        createTransform(x, [0, 100], ["rgb(0, 0, 0)", "rgb(255, 255, 255)"])(),
+        createSpring(x)(),
+        createVelocity(x)(),
+        createTime()(),
+        scroll.scrollY(),
+        scroll.scrollYProgress(),
+      )
+      return (
+        <>
+          <div {...card} data-card />
+          <div {...label} data-label />
+        </>
+      )
+    }
+    const [, label] = named(serve(() => <Scene />), "div")
+    expect(readings).toEqual([0.5, 100, "rgb(128, 128, 128)", 50, 0, 0, 0, 0])
+    expect(label?.style.opacity).toBe("0.5")
   })
 })

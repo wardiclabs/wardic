@@ -71,3 +71,20 @@ export {
 export { fromAtom, streamToSignal } from "./bridge.ts"
 export type { WardicDragTransition } from "../../config.ts"
 
+
+/**
+ * Live values (#130, ADR-0043; #209 PR 3's Q2): core's `LiveValue` helpers as accessors. One derived
+ * on an Atom (a ward's `read(key)`, another helper's) carries it, so a `style` given it is written in
+ * the frame its source moves.
+ */
+export {
+  createScroll,
+  createSpring,
+  createTime,
+  createTransform,
+  createVelocity,
+  type ElementSource,
+  type ScrollOptions,
+  type ScrollValues,
+} from "./live-value.ts"
+export type { Live, LiveSource } from "../../live-style.ts"
