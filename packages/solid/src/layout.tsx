@@ -30,7 +30,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { createEffect, type JSX, on, onCleanup } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
 import { isServer } from "./server.ts"
-import type { WardicTransition } from "./create-ward.tsx"
+import type { WardicTransition } from "./config.ts"
 import { type MotionTransition, motionOf } from "./retarget-legs.ts"
 
 /** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */

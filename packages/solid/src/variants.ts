@@ -22,7 +22,7 @@
 import type { AppearGroup } from "./appear.ts"
 import type * as Stagger from "@wardic/core/Stagger"
 import { type Accessor, createContext, useContext } from "solid-js"
-import type { WardicTransition } from "./create-ward.tsx"
+import type { WardicTransition } from "./config.ts"
 
 /**
  * The handle a child receives from {@link WardicVariantContextValue.register}

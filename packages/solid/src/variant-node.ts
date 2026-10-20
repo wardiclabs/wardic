@@ -27,7 +27,7 @@ import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
-import type { WardicTransition } from "./create-ward.tsx"
+import type { WardicTransition } from "./config.ts"
 import type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "./variants.ts"
 
 /** The part of an element's config its place in variant orchestration reads. */

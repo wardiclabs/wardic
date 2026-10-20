@@ -52,26 +52,8 @@ import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, split } from "./live-style.ts"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { isHydrating, isServer } from "./server.ts"
-import {
-  dragAxisOf,
-  drawnAtRest,
-  flagStartingStyle,
-  isLayoutNode,
-  renderServerElement,
-  serverAppearOfWard,
-  registryOf,
-  runSpine,
-  serverAppearOf,
-  serverStartingStyle,
-  warnDroppedTransform,
-  createWardWith,
-  type WardConfig,
-  type WardicDragTransition,
-  type WardicTransition,
-  type WardicValues,
-  type WardStyle,
-  type WardUserProps,
-} from "./create-ward.tsx"
+import { dragAxisOf, drawnAtRest, flagStartingStyle, isLayoutNode, renderServerElement, serverAppearOfWard, registryOf, runSpine, serverAppearOf, serverStartingStyle, warnDroppedTransform, createWardWith, type WardStyle, type WardUserProps } from "./create-ward.tsx"
+import type { WardConfig, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { changesContext, createVariantNode, serverVariantNode, startingValuesOf } from "./variant-node.ts"
 import { setsAnimation } from "./appear.ts"

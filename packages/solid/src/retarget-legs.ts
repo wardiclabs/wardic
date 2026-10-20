@@ -31,7 +31,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardicTransition } from "./create-ward.tsx"
+import type { WardicTransition } from "./config.ts"
 
 /** A Retarget's returns that follow a moving Live value (#130, ADR-0043 decision 6). */
 export interface Follows {

@@ -83,20 +83,15 @@ export type { Live, LiveSource } from "./live-style.ts"
  * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable
  * `Ward` to spread onto a JSX element (`<div {...ward()}>`).
  */
-export {
-  type Ward,
-  type WardConfig,
-  type WardStyle,
-  type WardValue,
-  type WardicDragTransition,
-  type WardicReducedMotion,
-  type WardicTransformShorthands,
-  type WardicTransition,
-  type WardicValues,
-  type WardProps,
-  type WardUserProps,
-  createWard,
-} from "./create-ward.tsx"
+export { type Ward, type WardStyle, type WardValue, type WardProps, type WardUserProps, createWard } from "./create-ward.tsx"
+export type {
+  WardConfig,
+  WardicDragTransition,
+  WardicReducedMotion,
+  WardicTransformShorthands,
+  WardicTransition,
+  WardicValues,
+} from "./config.ts"
 
 /**
  * `<Reorder>` (ADR-0020, ADR-0008 Tier 1): `Reorder.Group` / `Reorder.Item`, built on the

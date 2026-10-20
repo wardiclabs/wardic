@@ -33,7 +33,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardicTransition } from "./create-ward.tsx"
+import type { WardicTransition } from "./config.ts"
 import { type Leg, legsOf } from "./retarget-legs.ts"
 
 // --- The mount animation, on both sides -------------------------------------------------------
