@@ -97,7 +97,6 @@ import {
   resolutionOf,
   restingOf,
   sameResolution,
-  type ServerAppearOf,
   serverStartingStyle,
   snapshotOf,
   startLinksOf,
@@ -615,24 +614,25 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
   // children join when it leads one.
   const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node)
   // A late chunk's root (#245): the chunk's Appear rules go through the head registry, read once
-  // the chunk has rendered and streamed with it as a head patch.
+  // the chunk has rendered and streamed with it as a head patch. A late element under another late
+  // one registers too: the first read writes the batch, and any other finds it written and adds no
+  // tag, so Solid 1's `within` (which kept a chunk to one `<style>` node) isn't needed.
   if (appear.chunkRoot) UndefinedOr.map(appear.state, (state) => useHead(appearStyle(state.chunkCss)))
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
     <WardicVariantContext value={contextOf(appear.provided)}>{props.children}</WardicVariantContext>
   )
   // Its routed keys' values join the Starting style, under `initial`'s (#130); a `<Reorder>` item's
-  // base style, then a drag element's defaults, go under the user's style. A user style with its own
-  // `animation` keeps it: the element's Appear animation would take its place.
+  // base style, a drag element's defaults, then its Appear slot go under the user's style. A user
+  // style with its own `animation` keeps it, over the slot, and the slot is left undefined.
   const parts = split(c.style)
-  const ownAnimation = setsAnimation(parts.css)
-  if (ownAnimation) appear.veto("its own style sets an animation")
+  if (setsAnimation(parts.css)) appear.veto("its own style sets an animation")
   const dragDefaults = UndefinedOr.map(dragAxisOf(c, internal), Style.dragDefaults)
   const style = pipe(
     serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
     Style.over(parts.css),
     Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
     Style.over(dragDefaults),
-    Style.over(Bool.match(ownAnimation, { onTrue: constUndefined, onFalse: () => appear.style })),
+    Style.over(appear.style),
   ) as JSX.CSSProperties
   const self = ((): Ward => self) as Ward
   Object.defineProperties(self, {
@@ -643,23 +643,8 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
     Provider: { value: Provider },
     read: { value: (key: string) => () => restingOf(key, initialValues, c.style, readServerStyle) },
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },
-    [SERVER_APPEAR]: { value: appear },
   })
   return self
-}
-
-/** Where a server ward keeps its Appear entry, for the `wardic.<tag>` that renders it (#245). */
-const SERVER_APPEAR = Symbol("wardic.serverAppear")
-
-/**
- * Render a `wardic.*` element's subtree inside its Appear entry (#245): an element rendered under a
- * late one isn't its chunk's root. Per element on a server: an element in the shell, nearly all,
- * renders as it is. Internal.
- */
-export const renderWithin = <A,>(ward: Ward, render: () => A): A => {
-  const appear = (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
-  if (Predicate.isUndefined(appear) || Bool.not(appear.late) || Predicate.isUndefined(appear.state)) return render()
-  return appear.state.within(true, render)
 }
 
 /** A server render's `ref`: Solid never calls it there. */

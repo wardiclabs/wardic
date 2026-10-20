@@ -23,7 +23,7 @@ import { dynamic, type JSX } from "@solidjs/web"
 import { type Component, omit, onSettled, untrack } from "solid-js"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "../../motion-props.ts"
 import { changesContext } from "../../variant-tree.ts"
-import { renderWithin, type WardConfig, type WardStyle, wardWith } from "./ward.tsx"
+import { type WardConfig, type WardStyle, wardWith } from "./ward.tsx"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and the motion props, with a `style` that
@@ -87,8 +87,7 @@ const tagComponent = (tag: string): Component<Record<string, unknown>> => {
     const cfg = configOf(own)
     const ward = wardWith(cfg, { tag })
     const rest = omit(props, ...PASSED_OVER)
-    // A late element's subtree renders inside its Appear entry (#245).
-    const element = (): JSX.Element => renderWithin(ward, () => <Element {...rest} {...ward} ref={refsOf(own.ref, [ward])} />)
+    const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own.ref, [ward])} />
     return Bool.match(changesContext(untrack(cfg)), {
       onFalse: element,
       onTrue: () => <ward.Provider>{element()}</ward.Provider>,
@@ -119,7 +118,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
           "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
       )
     })
-    const element = (): JSX.Element => renderWithin(ward, () => <Element {...rest} {...ward} ref={refsOf(own.ref, [ward, seen])} />)
+    const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own.ref, [ward, seen])} />
     return Bool.match(changesContext(untrack(cfg)), {
       onFalse: element,
       onTrue: () => <ward.Provider>{element()}</ward.Provider>,
