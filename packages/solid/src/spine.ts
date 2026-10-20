@@ -33,6 +33,7 @@ import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
 import * as FiberSet from "effect/FiberSet"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
@@ -51,7 +52,7 @@ import type { PresenceRecord } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
-import { ownOrInherited, startingValuesOf, startsAtAnimate, type WardicVariantContextValue } from "./variant-tree.ts"
+import { nameOf, ownOrInherited, startingValuesOf, startsAtAnimate, type WardicVariantContextValue } from "./variant-tree.ts"
 
 /**
  * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
@@ -120,7 +121,22 @@ export interface Resolution {
   readonly base: Values.Values
   /** Whether a drag holds the translate keys (ADR-0004's strip). */
   readonly dragging: boolean
+  /** The variant name the base layer resolved: its own `animate`'s, else the one it inherits; none for a values map. */
+  readonly variant: string | undefined
 }
+
+/** Two values maps with the same keys, each holding the same value. Built once, at module load. */
+const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(Equivalence.strictEqual<number | string>())
+
+/**
+ * Whether two resolutions are the same target (#209): the same values for the same keys, in the
+ * base layer and resolved, the same drag, and the same variant name. Motion's rule: a config that
+ * resolves to the same values doesn't animate (a `transition` change applies from the next
+ * change), and a new variant name does, even to the same values. The Solid 2 binding's target memo
+ * compares with it, so a `style` or `transition` change in a ward's config doesn't Retarget.
+ */
+export const sameResolution = (a: Resolution, b: Resolution): boolean =>
+  Bool.every([a.dragging === b.dragging, a.variant === b.variant]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base)
 
 /** Which layers of the Override stack are active now, as the binding reads them. */
 export interface Active {
@@ -153,13 +169,10 @@ export const resolutionOf = (
   //       sibling's "open"); read parent.variant() here so a parent flip
   //       recomputes the memo and retargets;
   //   (3) else the SSR-seeded `initial`.
+  const variant = UndefinedOr.match(c.animate, { onDefined: nameOf, onUndefined: () => UndefinedOr.map(parent, (p) => p.variant()) })
   const base = UndefinedOr.match(c.animate, {
     onDefined: (own) => resolveValues(own, variants),
-    onUndefined: () =>
-      UndefinedOr.match(
-        UndefinedOr.map(parent, (p) => p.variant()),
-        { onDefined: (inheritedName) => resolveValues(inheritedName, variants), onUndefined: () => initialLink },
-      ),
+    onUndefined: () => UndefinedOr.match(variant, { onDefined: (inheritedName) => resolveValues(inheritedName, variants), onUndefined: () => initialLink }),
   })
   const resolved = Override.resolve([
     { active: true, values: base },
@@ -170,7 +183,7 @@ export const resolutionOf = (
     // after release.
     { active: active.dragged, values: Style.toValues(c.whileDrag) },
   ])
-  return { resolved, base, dragging: active.dragging }
+  return { resolved, base, dragging: active.dragging, variant }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
