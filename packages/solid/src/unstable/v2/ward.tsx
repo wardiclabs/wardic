@@ -73,7 +73,7 @@ import { driveDragTrack } from "../../drag-track.ts"
 import { reported, type WardicServices } from "../../runtime.ts"
 import type { WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
-import { carry, createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
+import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
 import { presenceBlocksInitial } from "../../presence-record.ts"
@@ -102,6 +102,7 @@ import {
   withOnUpdate,
 } from "../../spine.ts"
 import { serverVariantNode, type WardicVariantContextValue } from "../../variant-tree.ts"
+import { followAtom } from "./bridge.ts"
 import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { reactivityIn } from "./solid-reactivity.ts"
 import { usePresenceContext } from "./presence.tsx"
@@ -544,10 +545,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
         },
         { defer: true },
       )
-      const shown = Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity }))
-      const [value, setValue] = createSignal<unknown>(registry().get(shown), { ownedWrite: true })
-      onCleanup(registry().subscribe(shown, (next) => setValue(() => next)))
-      return carry(value, shown)
+      return followAtom(registry(), Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity })))
     })
     reads.set(key, accessor)
     return accessor

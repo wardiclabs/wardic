@@ -2,7 +2,8 @@
  * Reactive bridges on Solid 2 (#209, ADR-0006), as the Solid 1 binding's: `streamToSignal` runs a
  * core `Stream` into a signal for as long as its owner lives, and `fromAtom` reads an Effect `Atom`
  * through the provider's registry. Their signals are written from outside Solid (a fiber, the
- * registry), so a change shows at Solid 2's next flush.
+ * registry), so a change shows at Solid 2's next flush. `fromAtom`'s accessor carries its Atom
+ * (#209 PR 3's Q2), so a `style` given it follows the Atom itself, in the frame the Atom is set.
  *
  * @module
  */
@@ -12,6 +13,7 @@ import { AtomRegistry, type Atom } from "effect/reactivity"
 import * as Stream from "effect/Stream"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, isHydrating, onCleanup, onSettled } from "solid-js"
+import { carry } from "../../live-style.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { runScoped, useWardicRuntime } from "./provider.tsx"
 
@@ -28,10 +30,23 @@ export const streamToSignal = <A>(stream: Stream.Stream<A, never, WardicServices
 }
 
 /**
+ * `atom` as an accessor carrying it: a signal set from `registry` at each change, unsubscribed when
+ * the owner is disposed. Every Atom the binding hands to Solid goes through it (a ward's `read`, the
+ * Live-value helpers, `fromAtom`). Call it where you'd make a signal.
+ */
+export const followAtom = <A>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>): Accessor<A> => {
+  const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>, { ownedWrite: true })
+  onCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
+  return carry(value, atom)
+}
+
+/**
  * An Effect `Atom` as an accessor, read through the provider runtime's `AtomRegistry` and followed
- * until the owner is disposed. A server builds no registry (ADR-0021): give `serverValue` for an
- * atom read during a server render, which a hydrating client keeps until it has settled (the
- * Hydration hold), then reads and follows the atom.
+ * until the owner is disposed; it carries the Atom, so a `style` given it follows the Atom itself. A
+ * server builds no registry (ADR-0021): give `serverValue` for an atom read during a server render,
+ * which a hydrating client keeps until it has settled (the Hydration hold), then reads and follows
+ * the atom. That held accessor carries nothing: until it has settled it doesn't read what its Atom
+ * holds.
  */
 export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
@@ -49,8 +64,5 @@ export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue
     })
     return value
   }
-  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
-  const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>, { ownedWrite: true })
-  onCleanup(registry.subscribe(atom, (next) => setValue(() => next)))
-  return value
+  return followAtom(runtime.runSync(AtomRegistry.AtomRegistry), atom)
 }

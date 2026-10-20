@@ -39,19 +39,13 @@ import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createEffect, createMemo, createSignal, onCleanup, onSettled, untrack } from "solid-js"
-import { atomOf, carry, type LiveSource, readLive, serverRegistryOf } from "../../live-style.ts"
+import { atomOf, type LiveSource, readLive, serverRegistryOf } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
+import { followAtom } from "./bridge.ts"
 import { useWardicRuntime } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
 const readOnServer = <A>(source: LiveSource<A>): A => readLive(source, serverRegistryOf, untrack) as A
-
-/** `atom` as an accessor carrying it: a signal set from it, unsubscribed with its owner. */
-const carried = <A>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>): Accessor<A> => {
-  const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>, { ownedWrite: true })
-  onCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
-  return carry(value, atom)
-}
 
 /** An accessor as an Atom, set at each of its changes (at Solid's flush), held in `registry` until its owner's disposal. */
 const mirrorOf = <A>(accessor: Accessor<A>, registry: AtomRegistry.AtomRegistry): Atom.Writable<A> => {
@@ -84,7 +78,7 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
   const scope = Scope.makeUnsafe()
   onCleanup(() => closeScope(runtime, scope))
   const out = runtime.runSync((live as Effect.Effect<Atom.Atom<A>, never, WardicServices | Scope.Scope>).pipe(Scope.provide(scope)))
-  return carried(runtime.runSync(AtomRegistry.AtomRegistry), out)
+  return followAtom(runtime.runSync(AtomRegistry.AtomRegistry), out)
 }
 
 /**
@@ -137,7 +131,7 @@ export function createTransform(
     get(version)
     return untrack(() => fn(get(atom)))
   })
-  return carried(registry, derived)
+  return followAtom(registry, derived)
 }
 
 /**
@@ -282,5 +276,5 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
       }
     },
   )
-  return Rec.map(outs, (atom) => carried(registry, atom)) as unknown as ScrollValues
+  return Rec.map(outs, (atom) => followAtom(registry, atom)) as unknown as ScrollValues
 }

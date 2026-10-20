@@ -16,10 +16,12 @@
 // - LV9: `createVelocity`: 0 at rest, the change a second while it moves, 0 once it stops.
 // - LV10: `createTime`: milliseconds of frames, ending with its owner.
 // - LV11: a helper whose owner is disposed under a live provider ends its run: its Atom stops.
+// - LV12: `fromAtom` carries its Atom too: B's `x` from `fromAtom` of an Atom derived from A's `x` paints
+//   in A's frame (through Solid, a derived Atom's change shows a frame late).
 import { DomLive } from "@wardic/dom"
 import * as ScrollOffset from "@wardic/dom/ScrollOffset"
-import { createScroll, createSpring, createTime, createTransform, createVelocity, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
-import { type Atom, AtomRegistry } from "effect/reactivity"
+import { createScroll, createSpring, createTime, createTransform, createVelocity, fromAtom, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { Atom, AtomRegistry } from "effect/reactivity"
 import { type Accessor, createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { afterPaint, raf, until } from "../browser-helpers.ts"
@@ -129,6 +131,35 @@ describe("Live values carry their Atom (#209 PR 3's Q2)", () => {
     flush()
     await until(() => Math.abs(translateXOf(b) - 50) < 0.01)
     expect(translateXOf(b), "re-derived on the factor").toBeCloseTo(50, 3)
+  })
+
+  it("LV12: fromAtom carries its Atom: B's x from fromAtom of an Atom derived from A's x paints in A's frame", async () => {
+    let a!: HTMLElement
+    let b!: HTMLElement
+    const [to, setTo] = createSignal(0)
+    const Scene = () => {
+      const card = ward(() => ({ animate: { x: to() }, transition: { type: "tween", duration: 0.5 }, style: BOX }))
+      const follower = ward({ style: { ...BOX, x: fromAtom(Atom.map(card.atom("x"), (x) => (x ?? 0) as number)) } })
+      return (
+        <>
+          <div {...card} ref={[card, (n: HTMLElement) => (a = n)]} />
+          <div {...follower} ref={[follower, (n: HTMLElement) => (b = n)]} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    const frames = sampleFrames(() => ({ a: translateXOf(a), b: translateXOf(b) }))
+    setTo(200)
+    flush()
+    await wait(700)
+    const moving = frames.stop().filter((f) => f.a > 1 && f.a < 199)
+    expect(moving.length, "frames mid-flight").toBeGreaterThan(5)
+    for (const f of moving) expect(f.b, `B in A's frame (A at ${f.a})`).toBeCloseTo(f.a, 3)
   })
 
   it("LV3: createSpring follows a signal and rests on it; createTransform maps ranges and colours", async () => {
