@@ -225,3 +225,24 @@ Grilled 2026-10-20: Q1 A, PR 4 in two (4a the binding, 4b `examples/solid2-start
   - With the page reading `wardic.div` once in an owner that lives as long as the page, main measures what the head does: mount −2.5% / −2.9%, first frame −28.0% / −29.2%. An app whose first `wardic.<tag>` stays mounted paid this on main too.
   - Located by benching each change alone; neither the strict-read `untrack`s nor the client-only settle moved it. Two other hydration-safe forms of the tag, a `dynamic()` per element and a static one with a memo of its own, measured −2.2% and −2.3%. On plain Solid 2's production build, none of these forms differs by more than about 0.3 ms per 1,000 elements.
   - PRs 1 to 4a's mount figures (about −12%) were the same artifact.
+
+## PR 5a: the layout lab on Solid 2, scenarios 1 to 10
+
+Grilled 2026-10-20: one lab built two ways (Q1 A); PR 5 in two, 5a the build with scenarios 1 to 10 and free play, 5b scenarios 11 to 19 (Q2 A); and the Solid 2 scenarios write as a Solid 2 app writes, their expectations re-derived and any difference explained (Q3 A).
+
+- **One lab, two builds.** `bun dev` builds `examples/layout-lab` on Solid 1, `bun dev:v2` on Solid 2 (`vite.v2.config.ts`, with `@wardic/solid`'s own Solid 2 compile, `vite.solid2.ts`). The UI, probes and judging are one source; each build picks its scenarios and binding through `package.json`'s `imports` (`#scenarios`, `#binding`) under a `solid2` condition, which Vite (`resolve.conditions`) and TypeScript (`customConditions`, `tsconfig.v2.json`) both resolve. One `WardicProvider` per page, as before.
+  - Rejected: a second lab app (its UI duplicated and drifting); and Solid 2 scenarios as islands in the Solid 1 page, which is possible (Solid 1 delegates `$$click`, Solid 2 `_$$click`, so neither runs the other's handlers) but gives each island a runtime of its own, so the Clock-idle and held-frame readings wouldn't compare.
+  - `vite.solid2.ts` now resolves `@solidjs/web` from `packages/solid` for every importer, as it did `solid-js`: an app outside the package gets the copy the binding imports. The Solid 2 build pre-bundles no Solid (a pre-bundled `@solidjs/web` would find Solid 1) and keeps its own pre-bundle cache, so both dev servers run at once.
+  - The shared UI keeps to what both Solids have: `#binding` gives it the binding, `render`, `JSX` and `batch` (a call on Solid 2, which batches anyway), and `classOf` stands for `classList`, which Solid 2 dropped.
+- **The scenarios keep Solid 1's ids, trigger paths and expectations.** Solid 2 applies a signal write at its flush, a microtask straight after the handler, observer or rAF callback that made it, still in the same task and before the Measure pass it queues: no expectation changed. s8's driver is a kept `ward`, its effect Solid 2's split one, run by the `flush()` the gate drains its Starting-style switches with (where Solid 1 runs it in the gate's `batch()`).
+- **Found, and fixed here:**
+  - **A Solid 2 layout node re-measured on every change of its config.** A Solid 2 effect applies on every re-run of its compute (its node doesn't compare values), and `() => cfg().layoutDependency` re-ran on any config change, a `style` among them. So a move with the dependency unchanged FLIPped, where Motion and Solid 1 paint it in place, and each change cost a Measure pass. The dependency is a memo now (`===`). Found by free play's content-only moves.
+  - **Two reads Solid 2's dev build warns of, in the shared UI,** fixed for both builds: the frame stretch's first value read once, said so; and the timeline's mark and paint items read the run shown, where a kept item (`<For>` keeps one whose value stays) kept the times of the run it was made for.
+- **Logs record their binding** (`binding`, in the log and the saved file's name), and the header shows it.
+
+### Pinned by (PR 5a)
+
+- `layout.browser.test.tsx` LY17: a `style` move with `layoutDependency` unchanged paints in place, and a move with its change FLIPs. It fails without the memo.
+- `drag-run.test.ts`, `Lab.log`: the log's `binding`, Solid 1's when not given.
+- **The lab, headless** (`.tmp/209/lab`): every trigger scenario on both builds, cold and warm (Keep Clock warm), under both scheduler modes: clean, at its expected held frames, and the two builds alike; and free play's 30 timing × mutation × path combinations, identical on both. No console warning on either page.
+- Found on main, not by the binding: free play's first run after the other cards have run reads `wrong-origin`. Their results grow the cards above it, moving its box 20 px down the page with no size change, and the next layout change FLIPs from the box measured before (`originOffset` −19.9 px). A Motion parity question for the engine: #261.
