@@ -5,7 +5,8 @@
  *
  * @module
  */
-import { For, type JSX } from "solid-js"
+import type { JSX } from "#binding"
+import { For } from "solid-js"
 
 /** One select option: the value used in the trigger label, and its display text. */
 export interface Option<T extends string> {

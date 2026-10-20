@@ -14,11 +14,11 @@
  */
 import { frameTrace } from "./probe/frame-trace.ts"
 import "./styles.css"
-import { render } from "solid-js/web"
+import { BINDING, render } from "#binding"
+import { scenarios } from "#scenarios"
 import { type Lab, makeLab } from "./lab/lab.ts"
 import { makePaintSampler, startPostPaintTicker } from "./probe/paint-sampler.ts"
 import { makeTimeline } from "./probe/timeline.ts"
-import { scenarios } from "./scenarios/index.ts"
 import { App } from "./ui/App.tsx"
 
 declare global {
@@ -34,7 +34,7 @@ const timeline = makeTimeline()
 // already in the paint log when the lab computes that run's framesToMeasure.
 ticker.onPostPaint((t) => timeline.notePaint(t))
 const sampler = makePaintSampler(ticker)
-const lab = makeLab({ ticker, sampler, timeline, frameTrace, scenarios })
+const lab = makeLab({ ticker, sampler, timeline, frameTrace, scenarios, binding: BINDING })
 
 window.__layoutLab = { lab, log: lab.log }
 

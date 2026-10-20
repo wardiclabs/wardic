@@ -26,7 +26,7 @@ import {
   formatDragPasses,
   type Point,
 } from "../src/lab/drag-run.ts"
-import { makeLab } from "../src/lab/lab.ts"
+import { type LabBinding, makeLab } from "../src/lab/lab.ts"
 import type { FrameTrace } from "../src/probe/frame-trace.ts"
 import type { PaintSampler, PostPaintTicker } from "../src/probe/paint-sampler.ts"
 import { makeTimeline, type SpanRecord } from "../src/probe/timeline.ts"
@@ -908,25 +908,44 @@ describe("the gesture ends line (#31)", () => {
   })
 })
 
+/**
+ * A lab over a real timeline, with the per-frame probes stubbed (a drag run, and the log, use none
+ * of them); on `binding` when given (#209 PR 5).
+ */
+const labWith = (def: ScenarioDef, binding?: LabBinding) => {
+  const ticker: PostPaintTicker = { onPostPaint: () => () => {}, frame: () => 0, stop: () => {} }
+  const sampler: PaintSampler = {
+    begin: () => {},
+    retarget: () => {},
+    cancel: () => {},
+    onRunEnd: () => () => {},
+    activeScenarioId: () => undefined,
+  }
+  const frameTrace: FrameTrace = { window: () => ({ callbacks: [], observers: [], inputs: [] }) }
+  const timeline = makeTimeline()
+  return { lab: makeLab({ ticker, sampler, timeline, frameTrace, scenarios: [def], ...(binding === undefined ? {} : { binding }) }), timeline }
+}
+
+describe("Lab.log", () => {
+  const def: ScenarioDef = { id: "log-test", index: 99, title: "Log test", mechanism: "None.", prediction: "unknown", rationale: "", View: () => null }
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("records the binding the page runs: Solid 1's when not given, else the one given (#209 PR 5)", () => {
+    // The log reads the page's device pixel ratio: root `bun run test` runs this file in Node too.
+    vi.stubGlobal("window", { devicePixelRatio: 1 })
+    const meta = { frameStretchMs: 0, keepClockWarm: false }
+    expect(labWith(def).lab.log(meta).binding).toBe("solid1")
+    expect(labWith(def, "solid2").lab.log(meta).binding).toBe("solid2")
+  })
+})
+
 describe("Lab.recordDragRun", () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  /** A lab over a real timeline, with the per-frame probes stubbed (a drag run uses none of them). */
-  const labWith = (def: ScenarioDef) => {
-    const ticker: PostPaintTicker = { onPostPaint: () => () => {}, frame: () => 0, stop: () => {} }
-    const sampler: PaintSampler = {
-      begin: () => {},
-      retarget: () => {},
-      cancel: () => {},
-      onRunEnd: () => () => {},
-      activeScenarioId: () => undefined,
-    }
-    const frameTrace: FrameTrace = { window: () => ({ callbacks: [], observers: [], inputs: [] }) }
-    const timeline = makeTimeline()
-    return { lab: makeLab({ ticker, sampler, timeline, frameTrace, scenarios: [def] }), timeline }
-  }
   const def: ScenarioDef = {
     id: "drag-test",
     index: 99,

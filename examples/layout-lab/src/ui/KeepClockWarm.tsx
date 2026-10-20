@@ -12,8 +12,8 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid"
-import { createSignal, type JSX, onCleanup, Show } from "solid-js"
+import { type JSX, wardic } from "#binding"
+import { createSignal, onCleanup, Show } from "solid-js"
 
 /** How often the background spring is retargeted, in ms: well inside its settle time. */
 const RETARGET_MS = 2000

@@ -8,7 +8,8 @@
  *
  * @module
  */
-import { createSignal, type JSX, Show } from "solid-js"
+import type { JSX } from "#binding"
+import { createSignal, Show } from "solid-js"
 import type { Lab, LabLog } from "../lab/lab.ts"
 
 /** Must match `SAVE_LOG_ROUTE` in `vite.config.ts` (not imported: it pulls in `node:fs`). */
@@ -97,7 +98,7 @@ export const CopyLog = (props: CopyLogProps): JSX.Element => {
         {status()}
       </p>
       <Show when={fallback()}>
-        {(json) => <textarea class="log-fallback" readOnly value={json()} rows={10} />}
+        {(json) => <textarea class="log-fallback" readonly value={json()} rows={10} />}
       </Show>
     </section>
   )

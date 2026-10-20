@@ -9,7 +9,8 @@
  *
  * @module
  */
-import { type JSX, onCleanup } from "solid-js"
+import type { JSX } from "#binding"
+import { onCleanup, untrack } from "solid-js"
 import type { PostPaintTicker } from "../probe/paint-sampler.ts"
 
 /** The slider's upper bound, in ms. */
@@ -26,8 +27,9 @@ export interface FrameStretchProps {
 /** Renders the slider and installs the post-paint busy-wait. */
 export const FrameStretch = (props: FrameStretchProps): JSX.Element => {
   // Read by the per-frame subscriber; kept in a plain variable so the hot path
-  // never touches Solid's reactive graph.
-  let stretchMs = props.value
+  // never touches Solid's reactive graph. The prop's first value, once (the input
+  // keeps it current after).
+  let stretchMs = untrack(() => props.value)
   const unsubscribe = props.ticker.onPostPaint(() => {
     if (stretchMs <= 0) return
     const until = performance.now() + stretchMs

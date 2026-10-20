@@ -191,10 +191,15 @@ export interface FlashCounts {
  */
 export type EffectScheduler = "setTimeout-fallback" | "setImmediate"
 
+/** Which Solid binding the page runs: `@wardic/solid` on Solid 1, or `@wardic/solid/unstable/v2` on Solid 2 (#209 PR 5). */
+export type LabBinding = "solid1" | "solid2"
+
 /** The copy-log payload: environment metadata plus every kept run and drag run. */
 export interface LabLog {
   /** When the log was produced (ISO 8601). */
   readonly createdAt: string
+  /** Which binding the page runs (`bun dev` or `bun dev:v2`). */
+  readonly binding: LabBinding
   readonly userAgent: string
   readonly devicePixelRatio: number
   /** The frame-stretch busy-wait in effect when the log was produced, in ms. */
@@ -227,6 +232,8 @@ export interface LabOptions {
   /** The page's frame trace (`probe/frame-trace.ts`), installed before any other module evaluated. */
   readonly frameTrace: FrameTrace
   readonly scenarios: ReadonlyArray<ScenarioDef>
+  /** Which binding the page runs, recorded in the log (`#binding`'s `BINDING`). Solid 1 when not given. */
+  readonly binding?: LabBinding
 }
 
 /** The lab orchestrator (see the module doc). */
@@ -335,7 +342,7 @@ const framesToMeasureOfWith =
 
 /** Builds the lab. Call it once. */
 export const makeLab = (options: LabOptions): Lab => {
-  const { ticker, sampler, timeline, frameTrace, scenarios } = options
+  const { ticker, sampler, timeline, frameTrace, scenarios, binding = "solid1" } = options
   // Recorded once, at startup: Effect chose its scheduler when its module loaded,
   // which happened before this module ran (see index.html).
   const scheduler: EffectScheduler = typeof globalThis.setImmediate === "function" ? "setImmediate" : "setTimeout-fallback"
@@ -578,6 +585,7 @@ export const makeLab = (options: LabOptions): Lab => {
     },
     log: ({ frameStretchMs, keepClockWarm }) => ({
       createdAt: new Date().toISOString(),
+      binding,
       userAgent: navigator.userAgent,
       devicePixelRatio: window.devicePixelRatio,
       frameStretchMs,

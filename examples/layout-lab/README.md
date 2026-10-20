@@ -34,9 +34,34 @@ A drag card (issue #26) has no Run button: drag its item by hand and read its
 checks (see **Drag runs** under Method).
 
 To share a session, press **Save log to repo**. The dev server writes the whole
-log to `examples/layout-lab/logs/<timestamp>-<scheduler mode>.json` (gitignored),
-with no size limit, unlike a paste. The button only exists under `bun run dev`.
-**Copy log JSON** still works anywhere.
+log to `examples/layout-lab/logs/<timestamp>-<binding>-<scheduler mode>.json`
+(gitignored), with no size limit, unlike a paste. The button only exists under the
+dev servers. **Copy log JSON** still works anywhere.
+
+### On Solid 2
+
+The same lab runs on the Solid 2 binding, `@wardic/solid/unstable/v2` (#209):
+
+```sh
+direnv exec . bun run --filter='@wardic/example-layout-lab' dev:v2
+```
+
+It's one lab built two ways: the UI, probes and judging are one source, compiled
+by Solid 1 (`dev`, `vite.config.ts`) or by Solid 2 (`dev:v2`,
+`vite.v2.config.ts`, with `@wardic/solid`'s own Solid 2 compile). Each build
+picks its scenarios and binding through `package.json`'s `imports`: `#scenarios`
+is `src/scenarios` or `src/scenarios-v2`, and `#binding` is `src/binding/solid1.ts`
+or `solid2.ts`, under the Solid 2 build's `solid2` condition. The shared UI keeps
+to what both Solids have (`classOf` for Solid 1's `classList`, `#binding`'s
+`batch`). Both dev servers can run at once: the Solid 2 one keeps its own
+pre-bundle cache. `bun run typecheck` checks both (`tsconfig.v2.json`).
+
+The Solid 2 scenarios keep Solid 1's ids, trigger paths and expectations, with
+their writes as a Solid 2 app makes them: Solid 2 applies a signal write at its
+flush, a microtask straight after the handler, observer or rAF callback that made
+it, still in the same task. Each rationale says where. So far they are scenarios 1
+to 10 and free play; 11 to 19 come next. The header shows which binding the page
+runs, and every saved log records it (`binding`).
 
 ## Method
 

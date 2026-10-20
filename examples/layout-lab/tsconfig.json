@@ -1,7 +1,8 @@
 {
   // Standalone on purpose: NOT extending tsconfig.base.json, NOT composite, and NOT
   // listed in the root tsconfig.json references. The lab is bundler-built (Vite)
-  // and typechecked on its own via `bun run typecheck` in this package.
+  // and typechecked on its own via `bun run typecheck` in this package, on Solid 1
+  // here and on Solid 2 by tsconfig.v2.json (#209 PR 5).
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -23,5 +24,7 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "test", "vite.config.ts"]
+  "include": ["src", "test", "vite.config.ts", "vite.save-log.ts"],
+  // The Solid 2 build's own (tsconfig.v2.json).
+  "exclude": ["src/scenarios-v2", "src/binding/solid2.ts"]
 }
