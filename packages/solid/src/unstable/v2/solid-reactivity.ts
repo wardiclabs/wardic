@@ -15,6 +15,16 @@
 import { createEffect, createRoot, createSignal, type Owner, runWithOwner, untrack } from "solid-js"
 import type { Reactivity } from "../../reactivity.ts"
 
+/**
+ * The options of every computation the binding makes (#209 PR 4a): transparent to Solid 2's
+ * hydration ids. A memo or an effect otherwise takes its owner's next child id, and adopts the
+ * server's serialized value while hydrating; the binding makes them on the client only (a server
+ * ward is lean, ADR-0021), so the client's later ids would miss the server's markup.
+ */
+export const CLIENT_ONLY = { transparent: true } as const
+/** {@link CLIENT_ONLY}, deferred: an effect that skips its first run. */
+export const CLIENT_ONLY_DEFERRED = { transparent: true, defer: true } as const
+
 /** Solid 2's reactive primitives, a watch made under `owner`. */
 export const reactivityIn = (owner: Owner | null): Reactivity => ({
   untrack,
@@ -27,7 +37,7 @@ export const reactivityIn = (owner: Owner | null): Reactivity => ({
       createRoot((dispose) => {
         createEffect(accessor, (value) => {
           onChange(value)
-        }, { defer: true })
+        }, CLIENT_ONLY_DEFERRED)
         return dispose
-      })),
+      }, CLIENT_ONLY)),
 })

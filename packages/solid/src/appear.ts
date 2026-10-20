@@ -263,9 +263,14 @@ export interface ServerAppear {
   /** Render a late element's subtree: an element inside it isn't a chunk's root (#245). */
   readonly within: <A>(late: boolean, render: () => A) => A
   /**
-   * A late chunk's `<style>` (#245), as server text: the rules and timings of every element
-   * entered since the last write, those the head sent left out; "" for none. A chunk's root's
-   * thunk asks for it once the chunk has rendered.
+   * A late chunk's CSS (#245): the rules and timings of every element entered since the last
+   * write, those the head sent left out; "" for none. The Solid 2 binding hands it to `useHead`,
+   * which streams it with the chunk as a head patch (#209 PR 4a).
+   */
+  readonly chunkCss: () => string
+  /**
+   * A late chunk's `<style>` (#245), as server text: {@link chunkCss} in a `<style>`. The Solid 1
+   * binding's chunk root's thunk asks for it once the chunk has rendered.
    */
   readonly chunk: () => string
   /** Why each element that doesn't play doesn't: for the debug log. */
@@ -317,6 +322,7 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
   }
   const plays = (animation: Entry["plays"]): boolean =>
     Bool.or(Option.exists(animation.normal, Result.isSuccess), Option.exists(animation.reduced, Result.isSuccess))
+  const chunkCss = (): string => write(nextBatch())
   return {
     reducedMotion,
     enter: (animation, group) => {
@@ -338,7 +344,8 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
         lateDepth--
       }
     },
-    chunk: () => Appear.chunkStyle(write(nextBatch())),
+    chunkCss,
+    chunk: () => Appear.chunkStyle(chunkCss()),
     group: (leader, transition) => {
       const { staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1, when } = UndefinedOr.match(transition, {
         onUndefined: () => NO_TRANSITION,

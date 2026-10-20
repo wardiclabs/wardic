@@ -38,7 +38,7 @@ import * as Svg from "@wardic/dom/Svg"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constUndefined, constVoid, identity, pipe } from "effect/Function"
+import { constUndefined, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -61,10 +61,10 @@ import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
-import { hasOwnVariants, ownOrInherited, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
+import { type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
-import { enterServer, handoffOf, type ServerAppear, setsAnimation } from "./appear.ts"
+import { handoffOf, setsAnimation } from "./appear.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createHover, createPress, createWhenWanted } from "./sensors.ts"
@@ -88,13 +88,14 @@ import {
   resolutionOf,
   restingOf,
   serverStartingStyle,
-  serverTargetOf,
   snapshotOf,
   startLinksOf,
   startOf,
   warnDroppedTransform,
   withOnUpdate,
   releasingAppear,
+  appearEntryOf,
+  type ServerAppearOf,
 } from "./spine.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
@@ -778,33 +779,6 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   return ward
 }
 
-/** An element's Appear animation on a server (#48, ADR-0044), as `serverWard` and a component wrap use it. */
-export interface ServerAppearOf {
-  /** Its inline `animation`, under the user's style: none when it plays none. */
-  readonly style: { readonly animation: string } | undefined
-  /** The context its children read: its variant node's, with its Appear group when it leads one. */
-  readonly provided: WardicVariantContextValue | undefined
-  /** Rules it out once it has rendered: its user style is read when `ward()` is called. */
-  readonly veto: (reason: string) => void
-  /**
-   * Rendered after the shell (#245): in a late chunk, and its root when no late element is around
-   * it, which puts the chunk's `<style>` after itself. `state` is the render's.
-   */
-  readonly late: boolean
-  readonly chunkRoot: boolean
-  readonly state: ServerAppear | undefined
-}
-
-/** No Appear animation: a provider with `appear={false}`. */
-const NO_APPEAR = (provided: WardicVariantContextValue | undefined): ServerAppearOf => ({
-  style: undefined,
-  provided,
-  veto: constVoid,
-  late: false,
-  chunkRoot: false,
-  state: undefined,
-})
-
 /**
  * A server element's subtree, rendered inside its Appear entry (#245): a late chunk's root puts the
  * chunk's `<style>` after itself, server text its client doesn't render (the provider moves it into
@@ -825,39 +799,9 @@ const SERVER_APPEAR = Symbol("wardic.serverAppear")
 /** A server ward's Appear entry (#245); `undefined` for a client one. Internal. */
 export const serverAppearOfWard = (ward: Ward): ServerAppearOf | undefined => (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
 
-/**
- * An element's entry in the server render's Appear animations (#48, ADR-0044): its starting
- * values, its targets at mount (`animate`, or an inherited variant name against its `variants`),
- * its transition, and its place in its parent's group.
- */
+/** {@link appearEntryOf} with this provider's Appear state (#48, ADR-0044). */
 export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode): ServerAppearOf =>
-  UndefinedOr.match(useWardicAppear(), {
-    onUndefined: () => NO_APPEAR(node.provided),
-    onDefined: (state) => {
-      const entered = enterServer(state, {
-        appear: c.appear,
-        tag,
-        initial: initialValues,
-        to: serverTargetOf(c, node.inherited),
-        transition: ownOrInherited(c.transition, node.inherited),
-        layout: isLayoutNode(c),
-        group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
-        leads: hasOwnVariants(c),
-        ownTransition: c.transition,
-      })
-      return {
-        style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),
-        provided: Option.match(entered.group, {
-          onNone: () => node.provided,
-          onSome: (appearGroup) => UndefinedOr.map(node.provided, (provided): WardicVariantContextValue => ({ ...provided, appearGroup })),
-        }),
-        veto: entered.veto,
-        late: entered.late,
-        chunkRoot: entered.chunkRoot,
-        state,
-      }
-    },
-  })
+  appearEntryOf(useWardicAppear(), c, tag, initialValues, node)
 
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
 const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf, untrack)

@@ -8,6 +8,7 @@
 import { isServer, type JSX } from "@solidjs/web"
 import { createEffect } from "solid-js"
 import { useWardicProjection } from "./provider.tsx"
+import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 
 /**
  * A grouping boundary for layout elements. Its `layoutDependency`, a value whose change requests a
@@ -23,7 +24,7 @@ export function LayoutGroup(props: { readonly children?: JSX.Element; readonly l
     () => {
       projection.notify()
     },
-    { defer: true },
+    CLIENT_ONLY_DEFERRED,
   )
   return props.children
 }

@@ -10,25 +10,28 @@
  *   where Solid 2 lets a signal be written.
  * - **A context value is its own provider** (`<WardicContext value={…}>`).
  * - **`onSettled`** opens the Hydration hold where Solid 1 had `onMount`.
- * - **A server render starts no Appear animation yet.** Solid 2's `@solidjs/web` has no
- *   `useAssets` for the head's `<style>`; elements keep their Starting style until mount, as with
- *   `appear={false}`. PR 4 of #209 brings it.
+ * - **Appear animations' `<style>` goes through the head registry** (`useHead`, #209 PR 4a) where
+ *   Solid 1 had `useAssets`. Registered on the server only, in its function form, which the server
+ *   reads when it writes the head, once the shell has rendered: every element is entered then, with
+ *   its timing. A client never registers it, and leaves the server's in the head. A late chunk's
+ *   elements register their own, which streams with the chunk as a head patch (`ward.tsx`).
  *
  * @module
  */
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constUndefined } from "effect/Function"
+import { constUndefined, identity } from "effect/Function"
 import * as Latch from "effect/Latch"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import { isServer, type JSX } from "@solidjs/web"
+import { type HeadTag, isServer, type JSX, useHead } from "@solidjs/web"
 import { createContext, flush, isHydrating, onCleanup, onSettled, untrack, useContext } from "solid-js"
-import type { ServerAppear } from "../../appear.ts"
+import { type ServerAppear, serverAppear } from "../../appear.ts"
 import {
   type AnimateLayout,
   animateLayoutOf,
@@ -68,10 +71,16 @@ const contextValue = (): WardicContextValue | undefined => Option.getOrUndefined
 export function WardicProvider(props: {
   readonly env: WardicEnv
   readonly reducedMotion?: ReducedMotion.Config | undefined
+  /**
+   * Appear animations (#48, ADR-0044), default `true`: a server render starts each element's mount
+   * animation in CSS from first paint, and the client takes it over at mount (the **Handoff**).
+   * `false` renders every element at its Starting style until mount. Read on the server, once.
+   */
+  readonly appear?: boolean | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
   const value = Bool.match(isServer, {
-    onTrue: () => serverContext(props.env, undefined),
+    onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion)),
     onFalse: () => clientContext(props.env, applyAndFlush, () => untrack(() => props.reducedMotion)),
   })
   // Disposing the runtime closes its Scope: the projection system, then the gate (#132).
@@ -79,7 +88,42 @@ export function WardicProvider(props: {
   return <WardicContext value={value}>{props.children}</WardicContext>
 }
 
-/** A server render's Appear animations; none yet on Solid 2 (see the module). Internal. */
+/**
+ * A server render's Appear animations (#48, ADR-0044), with the head's `<style>` registered for
+ * them, or `undefined` with `appear={false}`. Each element takes a slot as it renders; the head
+ * gets every rule and timing once the shell has rendered.
+ */
+const serverAppearOf = (appear: boolean | undefined, reducedMotion: ReducedMotion.Config | undefined): ServerAppear | undefined => {
+  if (appear === false) return undefined
+  const state = serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: () => "user" as const, onDefined: identity }))
+  useHead(appearStyle(() => {
+    const css = state.css()
+    const reasons = state.reasons()
+    if (reasons.length > 0) {
+      Effect.runSync(Effect.logDebug("wardic.hydration: elements keep their Starting style until mount").pipe(Effect.annotateLogs({ reasons })))
+    }
+    return css
+  }))
+  return state
+}
+
+/**
+ * The head tags for an Appear `<style>` whose CSS `css` gives, in `useHead`'s function form: read
+ * when the server writes the head, and once, so a second read can't find it written already. No
+ * tag when there's none to write. Internal: the provider's, and a late chunk's (`ward.tsx`).
+ */
+export const appearStyle = (css: () => string): (() => Array<HeadTag>) => {
+  let tags: Array<HeadTag> | undefined
+  return () => {
+    if (Predicate.isUndefined(tags)) tags = styleTags(css())
+    return tags
+  }
+}
+
+const styleTags = (css: string): Array<HeadTag> =>
+  Bool.match(css === "", { onTrue: (): Array<HeadTag> => [], onFalse: (): Array<HeadTag> => [{ tag: "style", props: { "data-wardic-appear": "", children: css } }] })
+
+/** A server render's Appear animations; `undefined` on the client, or with `appear={false}`. Internal. */
 export function useWardicAppear(): ServerAppear | undefined {
   return UndefinedOr.match(contextValue(), { onUndefined: constUndefined, onDefined: (value) => value.appear })
 }

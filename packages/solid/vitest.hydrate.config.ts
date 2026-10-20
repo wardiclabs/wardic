@@ -1,6 +1,6 @@
 import { playwright } from "@vitest/browser-playwright"
 import solidPlugin from "vite-plugin-solid"
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand } from "vitest/node"
 
 // Server render → hydration test project for @wardic/solid (ADR-0021, decision 10).
@@ -144,6 +144,8 @@ export default defineConfig({
   test: {
     name: "hydrate",
     include: ["test/**/*.hydrate.browser.test.tsx"],
+    // The Solid 2 binding's hydration tests run in their own project (vitest.hydrate-v2.config.ts).
+    exclude: [...configDefaults.exclude, "test/v2/**"],
     // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).
     setupFiles: ["./test/browser-setup.ts"],
     server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },

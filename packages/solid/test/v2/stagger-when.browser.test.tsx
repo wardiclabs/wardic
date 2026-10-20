@@ -8,6 +8,9 @@
 //   `staggerDirection: -1` reverses the order, the first time and the next.
 // - SW-j: a parent flipping to a name whose values are its last's still Retargets and settles there
 //   (`sameResolution` compares the name), so `beforeChildren` releases its child.
+// - SW-k: a stagger on mount, with no flip: each child waits its own delay (#209 PR 4a). The slots
+//   are taken at the first child's Retarget, after all have registered; taken at the parent's setup,
+//   before any had, every child started at once.
 import { DomLive } from "@wardic/dom"
 import { WardicProvider, ward } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -251,3 +254,37 @@ it("SW-j: a new name with the same values still Retargets, so beforeChildren rel
   expect(op(childEl)).toBeCloseTo(0.3, 1)
   expect(parentEl).toBeDefined()
 })
+
+it("SW-k: a stagger on mount: each child waits its own delay", async () => {
+  const els: Array<HTMLElement> = []
+  const Child = (p: { readonly i: number }) => {
+    const child = ward({ variants: VARIANTS })
+    return <div ref={[child, (node: HTMLElement) => (els[p.i] = node)]}>c</div>
+  }
+  const App = () => {
+    const parent = ward({ initial: "closed", animate: "open", variants: VARIANTS, transition: { type: "tween", duration: 0.5, staggerChildren: 0.12 } })
+    return (
+      <div {...parent}>
+        <parent.Provider>{Array.from({ length: 3 }, (_, i) => <Child i={i} />)}</parent.Provider>
+      </div>
+    )
+  }
+  const mounted = performance.now()
+  mount(() => (
+    <WardicProvider env={DomLive}>
+      <App />
+    </WardicProvider>
+  ))
+  // When each first leaves 0, in ms after the mount.
+  const left = [-1, -1, -1]
+  while (left.includes(-1) && performance.now() - mounted < 2000) {
+    await raf()
+    els.forEach((el, i) => {
+      if (left[i] === -1 && op(el) > 0.01) left[i] = performance.now() - mounted
+    })
+  }
+  expect(left.every((t) => t >= 0), `each moved: ${left.join(", ")}`).toBe(true)
+  expect(left[1]! - left[0]!, "the second waits its 0.12 s").toBeGreaterThan(80)
+  expect(left[2]! - left[0]!, "the third its 0.24 s").toBeGreaterThan(200)
+})
+

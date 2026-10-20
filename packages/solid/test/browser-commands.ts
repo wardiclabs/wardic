@@ -1,5 +1,6 @@
 // The browser commands registered in packages/solid/vitest.browser.config.ts (and
-// `serverRender`, in packages/solid/vitest.hydrate.config.ts), typed
+// `serverRender`, in packages/solid/vitest.hydrate.config.ts; `serverRender2` and `serverStream2`, in
+// vitest.hydrate-v2.config.ts), typed
 // once for every test file that imports this module (a second `declare module` block
 // with a different signature wouldn't compile).
 import type {} from "vitest/browser"
@@ -46,6 +47,17 @@ declare module "vitest/browser" {
      * error's first line (the hydrate project only).
      */
     serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
+    /**
+     * The Solid 2 binding's server render (#209 PR 4a, the v2-hydrate project): `exportName` from
+     * `file` with `@solidjs/web`'s server build under `renderId`; its head tags (`onHead`) as `head`.
+     */
+    serverRender2: (file: string, exportName: string, renderId: string) => Promise<ServerRender & { readonly head: string }>
+    /** `serverRender2` streamed (`renderToStream`): the head, then each write as the stream sent it. */
+    serverStream2: (
+      file: string,
+      exportName: string,
+      renderId: string,
+    ) => Promise<{ readonly writes: ReadonlyArray<string>; readonly head: string; readonly script: string; readonly error: string }>
     /** `serverRender` as a page with a head: what the render put before `</head>` as `head` (#48). */
     serverRenderPage: (file: string, exportName: string, renderId: string) => Promise<ServerRender & { readonly head: string }>
     /** `exportName` streamed as a page with a head (#245): each write as `renderToStream` sends it. */
