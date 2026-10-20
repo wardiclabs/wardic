@@ -265,6 +265,8 @@ A server render gives every element its starting style (its `initial`), and the 
 
 The rules go in the head through Solid's `useAssets` (SolidStart's document renders them; a render with no `</head>` leaves its elements at their starting style). A key that starts from the element's own value (no `initial`), and an `auto` or `var()` value, wait for hydration. A `layout` element plays too, drawn as the client draws it: its own `x` and `y` aren't (its layout animation owns its translate), from the server's starting style on. Each element costs a server render about 8 µs more.
 
+Content streamed after the page's shell (a `Suspense` boundary waiting on data) plays too: its chunk brings its own rules, which the provider moves into the head before the chunk hydrates, and its animations start when it lands.
+
 On SVG, the attributes that are also CSS properties play too: `opacity`, `fill`, `stroke` and its width and dash (so a line drawing itself with `pathLength`), and the stop and flood colours. `cx`, `cy`, `r`, `rx`, `ry` and `attrX`/`attrY` play where the browser draws them from CSS (Chrome, Firefox; a browser that doesn't keeps the element, and what it orchestrates, at its starting style). `width`, `height` and `d` wait for hydration.
 
 ### Imperative primitives for fine-grained control

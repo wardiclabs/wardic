@@ -107,7 +107,7 @@ This amends ADR-0003 and ADR-0021.
 - **Not covered:**
   - a key an SVG element draws as an attribute (ADR-0014) can't be animated in CSS, so that element keeps its Starting style (since *Amendment (#245)*, only one with no CSS property: `width`, `height`, `d`);
   - a mount animation longer than 60 s;
-  - a streamed `Suspense` chunk.
+  - a streamed `Suspense` chunk (since *Amendment (#245)*, only one whose late elements are all `createWard` spreads).
 
 ## Pinned by
 
@@ -251,3 +251,23 @@ This amends ADR-0003 and ADR-0021.
   - `Spec.projected`: the sampler projects each stop with `AT_REST`, judges only the keys a projection draws (not `x`, `y` or the `translate*` keys), and names the rule apart.
 - **solid:** `isLayoutNode` and `drawnAtRest` give every Starting style site, client and server, `createWard` and the component wrap, a layout node's values with `AT_REST`; `MountAnimation.layout` reaches the server's spec and the client's Handoff check; the refusal is gone.
 
+
+### Pinned by (PR 3, streamed chunks)
+
+- `packages/dom/test/appear.node.test.ts`, **AP17:** a sheet's `css()` writes what's new since its last call, a rule the head sent not again, the slots defined since; `chunkStyle` wraps it, "" for none.
+- `packages/dom/test/appear.browser.test.ts`, **HA8:** a chunk's `<style>` adopted into the head, its node gone, its element's animation the same one, running on; in an iframe document still loading, a chunk landing later is moved as it lands, and after `DOMContentLoaded` nothing watches.
+- `packages/solid/test/appear.ssr.test.tsx`, **AR14** (`renderToStream`, piped): one keyless `<style>` in the chunk, after its first root; the rules the head didn't send; the shell group's late children staggered among themselves from 0; a group led in the chunk as in the shell; the head holding none of the chunk's slots.
+- `packages/solid/test/appear.hydrate.browser.test.tsx`, **AH12:** a list's items streamed in a chunk that lands before the JS (`serverStreamPage`, the chunk placed by its own `$df` script): each plays from the landing, every frame the machine through the Handoff; no `<style>` among the items after hydration; a later list update keeps them in order.
+
+### Implementation (PR 3, streamed chunks)
+
+- **dom:** `Sheet.css()` writes what's new since its last call. `chunkStyle(css)` is a late chunk's `<style data-wardic-appear-chunk>` as server text. `adoptChunks(document)`, once a document, moves each into a head `<style>`, those already there at once, and while the document is loading a `MutationObserver` the rest, until `DOMContentLoaded`.
+- **solid, server:** `serverAppear` writes a batch at a time. Its `css()`, the head's, marks the shell flushed. An element entered after is late, and the chunk's root when no late element is around it (`within` counts the late elements a render is inside). `wardic.<tag>` and `wardic.create` render a root as `[element, thunk]`, the thunk `{ t: chunk() }`, server text with no hydration key. `timings` takes the batch: a group's children are those in it, and a leader outside it is waited on by no one.
+- **solid, client:** the provider calls `adoptChunks(document)` while hydrating, before its subtree hydrates.
+- **Server cost,** the 100-element render of PR 1's measure, five rounds interleaved with main: level, Appear on and off. A first build cost about +0.4 µs an element both ways: a `WeakMap` from each server ward to its entry, and a closure, an `Option` and a `Bool.match` per element for what only a late element needs. The ward keeps its entry under a symbol now, and an element in the shell, nearly all, renders through guards that allocate nothing.
+- **An equivalent mutation:** making a second `adoptChunks` call skip its sweep once the document is watched survives every test, and changes nothing a page sees. The guard holds only while the document loads, when the observer moves each chunk as it's inserted.
+- **Not covered:** a chunk whose late elements are all `createWard` spreads has no root to write its style: those elements keep their Starting style until hydration, as before.
+- **Seen on the way:** a chunk landing after hydration mounts its items as late joiners, with no stagger of their own (index 0, total 1), yet they stagger as the CSS did. The Handoff starts each run its CSS delay in (`startAtOf`), a negative start, which holds it.
+- **The hand check:** `/appear` gained a list its shell leads, its items streamed `?data=<ms>` after. On a production build, headless (`.tmp/245/drive-stream.ts`, `.tmp/245/trace-late.ts`):
+  - the chunk before the JS (`?data=300&hydrate=1500`), reduced motion too: every item OK, no chunk style left, the list's children only its items;
+  - after the JS (`?data=1200`): the style landed in the list and was moved before the chunk hydrated, and the items faded in staggered.

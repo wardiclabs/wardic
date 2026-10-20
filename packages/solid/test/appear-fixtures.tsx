@@ -3,7 +3,7 @@
 // Each element to watch carries `data-k`.
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
-import { createSignal, type JSX } from "solid-js"
+import { createResource, createSignal, For, type JSX, Suspense } from "solid-js"
 
 /** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
 let env: WardicEnv = DomLive
@@ -106,3 +106,27 @@ export const A7 = (): JSX.Element => {
     </div>
   ))
 }
+
+/**
+ * A list its shell leads, its items streamed in a late `Suspense` chunk (#245): staggered by 0.12 s
+ * on a tween. `__a8add()` adds an item, a list update after hydration.
+ */
+export const A8 = (): JSX.Element => {
+  const items = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  const [data, { mutate }] = createResource(() => new Promise<Array<number>>((resolve) => setTimeout(() => resolve([0, 1, 2]), 30)))
+  ;(globalThis as { __a8add?: () => void }).__a8add = () => void mutate((list) => [...(list ?? []), (list ?? []).length])
+  return page(() => (
+    <wardic.ul
+      data-k="list"
+      initial="hidden"
+      animate="shown"
+      variants={{ hidden: {}, shown: {} }}
+      transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}
+    >
+      <Suspense fallback={<li>loading</li>}>
+        <For each={data()}>{(i) => <wardic.li data-k={`s${i}`} variants={items} style={{ height: "10px" }} />}</For>
+      </Suspense>
+    </wardic.ul>
+  ))
+}
+

@@ -1,11 +1,13 @@
 // /appear: Appear animations (#48, ADR-0044's hand check). Each element's mount animation is
 // sampled on the server into the head's <style>, plays from first paint, and is taken over by the
 // engine at hydration. `?hydrate=<ms>` delays hydration (entry-client.tsx), so the Handoff falls
-// mid-flight; with JavaScript off, everything plays to its end and holds. The report
+// mid-flight; with JavaScript off, everything plays to its end and holds. `?data=<ms>` (default 400)
+// is when the streamed list's data resolves on the server: its items come in a late chunk (#245). The report
 // (src/appear-report.ts) judges each element marked `data-appear-k` two seconds after hydration.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX, onMount } from "solid-js"
+import { createAsync, useLocation } from "@solidjs/router"
+import { createSignal, For, type JSX, onMount, Suspense } from "solid-js"
 
 const box: JSX.CSSProperties = { width: "48px", height: "48px", background: "#3a7", "border-radius": "8px" }
 const row: JSX.CSSProperties = { display: "flex", gap: "16px", "align-items": "center", margin: "12px 0" }
@@ -16,6 +18,10 @@ const items = { hidden: { opacity: 0, x: -40 }, shown: { opacity: 1, x: 0 } }
 export default function AppearRoute(): JSX.Element {
   // The layout card's spacer (#245): Move it grows it, a layout change the card animates.
   const [moved, setMoved] = createSignal(false)
+  // The streamed list's items (#245): resolved on the server `?data=<ms>` in, after the shell.
+  const location = useLocation()
+  const dataMs = Number.parseInt(new URLSearchParams(location.search).get("data") ?? "400", 10)
+  const streamed = createAsync(() => new Promise<Array<number>>((resolve) => setTimeout(() => resolve([0, 1, 2, 3]), dataMs)))
   // The report judges once the route has mounted (src/appear-report.ts).
   onMount(() => window.dispatchEvent(new Event("wardic:appear-mounted")))
   return (
@@ -123,6 +129,23 @@ export default function AppearRoute(): JSX.Element {
           <button type="button" onClick={() => setMoved(!moved())}>
             Move it
           </button>
+        </div>
+
+        <div style={row}>
+          <span style={label}>a list streamed after the page (#245): ?data=&lt;ms&gt;</span>
+          <wardic.ul
+            style={{ margin: 0, padding: 0, "list-style": "none", display: "flex", gap: "6px", "min-height": "20px" }}
+            initial="hidden"
+            animate="shown"
+            variants={{ hidden: {}, shown: {} }}
+            transition={{ type: "tween", duration: 0.6, staggerChildren: 0.2 }}
+          >
+            <Suspense fallback={<li style={{ font: "12px system-ui, sans-serif" }}>loading…</li>}>
+              <For each={streamed()}>
+                {(i) => <wardic.li data-appear-k={`late${i}`} style={{ ...box, width: "20px", height: "20px", background: "#c63" }} variants={items} />}
+              </For>
+            </Suspense>
+          </wardic.ul>
         </div>
 
         <div style={row}>

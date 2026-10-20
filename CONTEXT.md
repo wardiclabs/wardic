@@ -330,6 +330,9 @@ _Avoid_: optimised appear, pre-hydration animation, server animation.
 
 **Handoff**:
 The engine taking over an **Appear animation** at mount: the element's run starts as far in as the CSS has got, read in the frame that draws its first Frame, and that frame's commit removes the CSS animation, with no paint between (ADR-0044). Motion's word for the same step.
+
+**Late chunk**:
+Server markup a streamed render sends after its shell: a `Suspense` boundary's content, once its data has resolved. A **Late chunk** brings its own **Appear animation** rules, which the client moves into the page's head before it hydrates the chunk, and its animations start when it lands, not at the page's first paint (#245, ADR-0044 *Amendment (#245)*).
 _Avoid_: resume, takeover, sync.
 
 **Live value**:

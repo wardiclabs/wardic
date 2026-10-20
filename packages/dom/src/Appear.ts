@@ -13,7 +13,10 @@
  * `@wardic/dom/Appear` (ADR-0041).
  */
 export {
+  adoptChunks,
   animationOf,
+  CHUNK_ATTRIBUTE,
+  chunkStyle,
   delayOf,
   elapsedOf,
   find,

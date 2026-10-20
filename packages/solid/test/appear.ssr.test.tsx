@@ -21,6 +21,10 @@
 // - AR12 (#245): an svg-inner element's attributes play as CSS; a group whose rules write SVG
 //   geometry is defined, whole, under one `@supports`, its reduced block too; one that writes none
 //   isn't; `width` still keeps its Starting style.
+// - AR14 (#245): a stream's late chunk brings its own rules: one keyless `<style>` after its first
+//   root, with the rules the head didn't send and the chunk's slots; a late Variant child of a
+//   group the shell led is timed as a fresh mount (stagger among the late ones); a group led in
+//   the chunk as in the shell; the head holds none of the chunk's slots.
 // - AR13 (#245): a layout node plays, drawn through its projection at rest as the client draws it:
 //   its Starting style and its rule leave its own `x` and `y` out, keep its rotate and opacity, and
 //   its rule is named apart from a plain element's.
@@ -28,8 +32,8 @@ import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
 import { createWard, wardic, WardicProvider } from "@wardic/solid"
-import type { JSX } from "solid-js"
-import { renderToString } from "solid-js/web"
+import { createResource, For, type JSX, Suspense } from "solid-js"
+import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
 import { tagsOf } from "./ssr-helpers.ts"
 import { keyOf } from "../src/appear.ts"
@@ -328,5 +332,88 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     // Only its own x animating: nothing it draws moves, one stop at rest.
     expect(div("slide")?.style.transform).toBe("none")
     expect(ruleOf("slide").body).toBe("0%,100%{transform:none}")
+  })
+
+  it("AR14: a stream's late chunk brings its own rules, after its first root, keyless (#245)", async () => {
+    const items = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
+    const writes: Array<string> = []
+    await new Promise<void>((resolve) => {
+      renderToStream(() => {
+        const [data] = createResource(() => new Promise<Array<number>>((r) => setTimeout(() => r([0, 1, 2]), 20)))
+        const [later] = createResource(() => new Promise<string>((r) => setTimeout(() => r("later"), 60)))
+        return (
+          <html>
+            <head>
+              <title>t</title>
+            </head>
+            <body>
+              <WardicProvider env={DomLive}>
+                <wardic.h1 data-k="title" {...rise} />
+                <wardic.ul
+                  data-k="list"
+                  initial="hidden"
+                  animate="shown"
+                  variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
+                  transition={{ type: "tween", duration: 0.3, staggerChildren: 0.1, when: "beforeChildren" }}
+                >
+                  <wardic.li data-k="shell" variants={items} />
+                  <Suspense fallback={<li>loading</li>}>
+                    <For each={data()}>{(i) => <wardic.li data-k={`late${i}`} variants={items} />}</For>
+                    <wardic.h1 data-k="late-title" {...rise} />
+                    <wardic.ol initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ staggerChildren: 0.05 }}>
+                      <For each={[0, 1]}>
+                        {(i) => (
+                          <div>
+                            <wardic.li data-k={`own${i}`} variants={items} />
+                          </div>
+                        )}
+                      </For>
+                    </wardic.ol>
+                  </Suspense>
+                </wardic.ul>
+                <Suspense fallback={<p>loading</p>}>
+                  <wardic.p data-k="second" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
+                    {later()}
+                  </wardic.p>
+                </Suspense>
+              </WardicProvider>
+            </body>
+          </html>
+        )
+      }).pipe({ write: (v: string) => void writes.push(v), end: () => resolve() } as unknown as { write: (v: string) => void; end: () => void })
+    })
+    const shell = writes[0]!
+    const chunks = writes.slice(1).filter((w) => w.includes("<template"))
+    expect(chunks, "two chunks, one a boundary").toHaveLength(2)
+    const chunk = chunks.find((w) => w.includes('data-k="late0"'))!
+    // The later chunk has its own style: its element is its root too.
+    const second = chunks.find((w) => w.includes('data-k="second"'))!
+    const secondCss = /<style data-wardic-appear-chunk>([\s\S]*?)<\/style>/.exec(second)?.[1] ?? ""
+    const secondTag = tagsOf(second).find((t) => t.attrs["data-k"] === "second")
+    expect(timing(secondCss, propertyOf(secondTag?.style.animation)).normal, "the later chunk's own style").not.toBe("")
+    expect(chunk, "the chunk came after the shell").toBeDefined()
+    const head = headCss(shell)
+    const styles = [...chunk.matchAll(/<style([^>]*)>([\s\S]*?)<\/style>/g)]
+    expect(styles, "one style a chunk").toHaveLength(1)
+    const [, attributes, css] = styles[0]!
+    expect(attributes, "server text: no hydration key").toBe(` ${Appear.CHUNK_ATTRIBUTE}`)
+    expect(chunk.indexOf("<style"), "after its first root").toBeGreaterThan(chunk.indexOf('data-k="late0"'))
+    const tag = (k: string) => tagsOf(chunk).find((t) => t.attrs["data-k"] === k) ?? tagsOf(shell).find((t) => t.attrs["data-k"] === k)
+    const late = (k: string) => timing(css!, propertyOf(tag(k)?.style.animation))
+    // The late title shares the shell title's rule: not sent again.
+    const titleRule = timing(head, propertyOf(tag("title")?.style.animation)).normal.split(" ")[0]!
+    expect(late("late-title").normal.split(" ")[0]).toBe(titleRule)
+    expect(css).not.toContain(`@keyframes ${titleRule}{`)
+    // The shell's group: its own child waits for the leader (`beforeChildren`); its late children are
+    // a fresh mount from the chunk's landing, staggered among themselves, waiting on no one.
+    expect(delayOf(timing(head, propertyOf(tag("shell")?.style.animation)).normal), "the shell child waits").toBeGreaterThan(0.29)
+    expect(["late0", "late1", "late2"].map((k) => delayOf(late(k).normal))).toEqual([0, 0.1, 0.2])
+    expect(["late0", "late1", "late2"].map((k) => late(k).reduced), "the reduced block too").not.toContain("")
+    // A group led in the chunk, as in the shell: its items, each in a plain wrapper, are timed together
+    // (the chunk's root is the group's leader, not each item).
+    expect(["own0", "own1"].map((k) => delayOf(late(k).normal))).toEqual([0, 0.05])
+    // The head holds the shell's slots only.
+    expect(timing(head, propertyOf(tag("shell")?.style.animation)).normal).not.toBe("")
+    for (const k of ["late0", "late-title", "own0"]) expect(timing(head, propertyOf(tag(k)?.style.animation)).normal, k).toBe("")
   })
 })

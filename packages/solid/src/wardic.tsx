@@ -57,6 +57,8 @@ import {
   drawnAtRest,
   flagStartingStyle,
   isLayoutNode,
+  renderServerElement,
+  serverAppearOfWard,
   registryOf,
   runSpine,
   serverAppearOf,
@@ -570,18 +572,19 @@ const serverComponent = (Wrapped: Component<Record<string, unknown> & WardicWrap
     component: Wrapped,
   })
   // The client's nesting: the variant context's Provider when the wrap changes what its
-  // children read (#50), then the component.
+  // children read (#50), then the component; a late chunk's root then its chunk's style (#245).
   const element = (): JSX.Element => createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
-  return Bool.match(changesContext(config), {
-    onFalse: element,
-    onTrue: () =>
-      createComponent(WardicVariantContext.Provider, {
-        value: appear.provided,
-        get children() {
-          return element()
-        },
-      }),
-  })
+  return renderServerElement(appear, () =>
+    Bool.match(changesContext(config), {
+      onFalse: element,
+      onTrue: () =>
+        createComponent(WardicVariantContext.Provider, {
+          value: appear.provided,
+          get children() {
+            return element()
+          },
+        }),
+    }))
 }
 
 /**
@@ -598,17 +601,19 @@ const serverElement = (tag: string, props: Record<string, unknown>): JSX.Element
   const ward = createWardWith(cfg, { tag })
   override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component: tag })
   // The client's nesting: the element's `ward.Provider` when it changes what its children read
-  // (#50), then the element.
+  // (#50), then the element; a late chunk's root then its chunk's style (#245).
   const element = (): JSX.Element => createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
-  return Bool.match(changesContext(cfg()), {
-    onFalse: element,
-    onTrue: () =>
-      createComponent(ward.Provider, {
-        get children() {
-          return element()
-        },
-      }),
-  })
+  const render = (): JSX.Element =>
+    Bool.match(changesContext(cfg()), {
+      onFalse: element,
+      onTrue: () =>
+        createComponent(ward.Provider, {
+          get children() {
+            return element()
+          },
+        }),
+    })
+  return renderServerElement(serverAppearOfWard(ward), render)
 }
 
 /**
