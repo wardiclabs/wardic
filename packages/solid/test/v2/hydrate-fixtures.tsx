@@ -135,3 +135,28 @@ export const A8 = (): JSX.Element => {
     </wardic.ul>
   ))
 }
+
+/**
+ * A heading on a tag no other fixture uses (`hgroup`), so its `wardic.<tag>` component is made the
+ * first time this fixture renders on each side, inside the render (WH1).
+ */
+export const W1 = (): JSX.Element =>
+  page(() => (
+    <main>
+      <wardic.hgroup data-k="w" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        first use
+      </wardic.hgroup>
+      <wardic.p data-k="after">after it</wardic.p>
+    </main>
+  ))
+
+/** W1 on a tag of its own (`address`), for a client that made its component before hydrating (WH2). */
+export const W2 = (): JSX.Element =>
+  page(() => (
+    <main>
+      <wardic.address data-k="w" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        first use
+      </wardic.address>
+      <wardic.p data-k="after">after it</wardic.p>
+    </main>
+  ))

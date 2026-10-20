@@ -20,7 +20,7 @@ import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { dynamic, type JSX } from "@solidjs/web"
-import { type Component, omit, onSettled, untrack } from "solid-js"
+import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "../../motion-props.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { type WardConfig, type WardStyle, wardWith } from "./ward.tsx"
@@ -133,13 +133,20 @@ export type Wardic = { readonly create: typeof create } & {
 
 const cache = new Map<string, Component<Record<string, unknown>>>()
 
-/** `wardic.<tag>` (cached, so `wardic.div === wardic.div`) and `wardic.create`. */
+/**
+ * `wardic.<tag>` (cached, so `wardic.div === wardic.div`) and `wardic.create`.
+ *
+ * A tag's component is made on its first use, often inside a render, and kept for the module's
+ * life: a server makes it on its first request only, a page on every load. So it's made outside any
+ * owner. Under the render's, `dynamic()`'s memo would take a hydration id on one side only, and every
+ * later request's keys would miss the page's (`Unable to find DOM nodes for hydration key`, WH1–WH2).
+ */
 export const wardic: Wardic = new Proxy({} as Wardic, {
   get(_, prop) {
     if (prop === "create") return create
     if (!Predicate.isString(prop)) return undefined
     return Option.getOrElse(Option.fromUndefinedOr(cache.get(prop)), () => {
-      const component = create(prop)
+      const component = runWithOwner(null, () => create(prop))
       cache.set(prop, component)
       return component
     })

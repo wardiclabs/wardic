@@ -43,6 +43,8 @@ export interface Hydrated2 {
   readonly head: string
   /** The head nodes the server's tags became on the page. */
   readonly headNodes: ReadonlyArray<Node>
+  /** Whether hydration claimed the server's `[data-k]` element `k`: it's still the one on the page. */
+  readonly claimed: (k: string) => boolean
   readonly dispose: () => void
 }
 
@@ -54,6 +56,7 @@ export const hydrateFixture2 = async (name: string, code: () => JSX.Element): Pr
   const host = document.createElement("div")
   host.innerHTML = html
   document.body.append(host)
+  const server = new Map([...host.querySelectorAll<HTMLElement>("[data-k]")].map((el) => [el.dataset.k!, el]))
   injectHydrationScript(script)
   // Every test shares one page: a hydration marks it done (`_$HY.done`), and `hydrate` then renders
   // afresh over the server's markup. Each hydrates as a page's first would.
@@ -68,5 +71,6 @@ export const hydrateFixture2 = async (name: string, code: () => JSX.Element): Pr
     for (const node of headNodes) if (node.parentNode !== null) node.parentNode.removeChild(node)
   }
   cleanups.push(cleanup)
-  return { host, html, head, headNodes, dispose: cleanup }
+  const claimed = (k: string): boolean => server.has(k) && host.querySelector(`[data-k="${k}"]`) === server.get(k)
+  return { host, html, head, headNodes, claimed, dispose: cleanup }
 }
