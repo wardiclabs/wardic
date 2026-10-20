@@ -10,7 +10,7 @@
  * @module
  */
 import { DomLive } from "@wardic/dom"
-import type { WardicEnv } from "@wardic/solid"
+import type { WardicEnv } from "#binding"
 import * as Layer from "effect/Layer"
 import type { Timeline } from "./probe/timeline.ts"
 

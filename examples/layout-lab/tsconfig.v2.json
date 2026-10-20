@@ -1,0 +1,22 @@
+{
+  // The lab on Solid 2 (#209 PR 5), typechecked as `bun run typecheck` runs it: the shared UI,
+  // probes and judging, and the Solid 2 binding's scenarios (src/scenarios-v2), against Solid 2.
+  // `#binding` and `#scenarios` resolve under the `solid2` condition, as vite.v2.config.ts builds
+  // them; `solid-js` and `@solidjs/web` map to packages/solid's Solid 2 for every importer, as
+  // packages/solid/tsconfig.v2.json does.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsxImportSource": "@solidjs/web",
+    "customConditions": ["solid2"],
+    // Node's types for `globalThis.setImmediate` (lab.ts), which Solid 1's graph brings in.
+    "types": ["vite/client", "node"],
+    "paths": {
+      "solid-js": ["../../packages/solid/node_modules/solid-js-2/types/index.d.ts"],
+      "@solidjs/web": ["../../packages/solid/node_modules/@solidjs/web/types/index.d.ts"],
+      "@solidjs/web/jsx-runtime": ["../../packages/solid/node_modules/@solidjs/web/types/jsx.d.ts"],
+      "@solidjs/web/jsx-dev-runtime": ["../../packages/solid/node_modules/@solidjs/web/types/jsx.d.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/scenarios", "src/binding/solid1.ts"]
+}

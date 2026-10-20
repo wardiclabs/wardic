@@ -20,6 +20,9 @@
 // - LY15: `layoutScroll` folds a container's scroll out: a re-measure after scrolling isn't a FLIP.
 // - LY16: `layoutAnchor={false}` projects a child absolutely: on a slower transition than its
 //   parent's, it falls behind it, where a relative child stays glued.
+// - LY17 (#209 PR 5): only a change of `layoutDependency`'s value re-measures a layout node, as on
+//   Motion and Solid 1: a `style` move with it unchanged paints in place (the lab's free play found
+//   a Solid 2 effect re-measuring on every change of the config).
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
@@ -462,6 +465,33 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     }
     expect(jumpedBack, "no FLIP back to the unscrolled place").toBe(false)
     expect(Math.abs(topOf(item) - scrolled)).toBeLessThan(2)
+  })
+
+  it("LY17: only a change of layoutDependency's value re-measures: a style move with it unchanged paints in place, as Motion's", async () => {
+    const [left, setLeft] = createSignal(0)
+    const [dep, setDep] = createSignal(0)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "relative", width: "600px", height: "200px" }}>
+          <wardic.div
+            data-box
+            layout
+            layoutDependency={dep()}
+            style={{ position: "absolute", top: "0px", left: `${left()}px`, width: "100px", height: "100px" }}
+          />
+        </div>
+      </WardicProvider>
+    ))
+    const box = host.querySelector("[data-box]")!
+    await frames(2)
+    const base = leftOf(box)
+    // The style moves it, the dependency stays: no Measure pass, so it's painted where it now is.
+    const painted = await paintsAfter(() => flushed(setLeft)(200), () => leftOf(box), 4)
+    expect(painted.map((x) => Math.round(x - base))).toEqual([200, 200, 200, 200])
+    // A move with the dependency's change FLIPs.
+    setLeft(400)
+    flushed(setDep)(1)
+    expect(await flips(() => leftOf(box), base + 200, 200)).toBe(true)
   })
 
   it("LY16: layoutAnchor={false} projects a child absolutely: on a slower transition, it falls behind its parent", async () => {

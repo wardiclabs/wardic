@@ -17,7 +17,8 @@
  *
  * @module
  */
-import { For, type JSX, Show } from "solid-js"
+import type { JSX } from "#binding"
+import { For, Show } from "solid-js"
 import type { LabRun } from "../lab/lab.ts"
 import type { SpanRecord, TimelineWindow } from "../probe/timeline.ts"
 import { formatHeld } from "./ScenarioCard.tsx"
@@ -160,13 +161,15 @@ const TimelineChart = (props: { readonly selection: TimelineSelection }): JSX.El
         {/* The trigger (t = 0) through every lane. */}
         <line class="tl-zero" x1={layout().x(0)} x2={layout().x(0)} y1={0} y2={LANES.length * LANE_H} />
 
+        {/* A mark or paint item is kept while its value is (the windows of nearby runs share them), so
+            its time is read from the run shown now, not the one it was made for. */}
         <For each={props.selection.window.marks}>
           {(mark) => {
-            const t = mark.t - layout().t0
+            const t = (): number => mark.t - layout().t0
             return (
               <g class={mark.kind === "trigger" ? "tl-trigger" : "tl-note"}>
-                <line x1={layout().x(t)} x2={layout().x(t)} y1={laneY("marks") + 3} y2={laneY("marks") + LANE_H - 3} />
-                <title>{`${mark.kind} ${mark.label} ${ms(t)}`}</title>
+                <line x1={layout().x(t())} x2={layout().x(t())} y1={laneY("marks") + 3} y2={laneY("marks") + LANE_H - 3} />
+                <title>{`${mark.kind} ${mark.label} ${ms(t())}`}</title>
               </g>
             )
           }}
@@ -174,19 +177,19 @@ const TimelineChart = (props: { readonly selection: TimelineSelection }): JSX.El
 
         <For each={props.selection.window.paints}>
           {(p) => {
-            const t = p - layout().t0
-            const early =
+            const t = (): number => p - layout().t0
+            const early = (): boolean =>
               p > layout().t0 && layout().firstMeasureStart !== undefined && p < (layout().firstMeasureStart ?? 0)
-            const flash = layout().flashT === p
+            const flash = (): boolean => layout().flashT === p
             return (
               <line
-                class={flash ? "tl-paint flash" : early ? "tl-paint early" : "tl-paint"}
-                x1={layout().x(t)}
-                x2={layout().x(t)}
+                class={flash() ? "tl-paint flash" : early() ? "tl-paint early" : "tl-paint"}
+                x1={layout().x(t())}
+                x2={layout().x(t())}
                 y1={laneY("paints") + 5}
                 y2={laneY("paints") + LANE_H - 5}
               >
-                <title>{`paint ${ms(t)}${flash ? " (flash frame)" : early ? " (before measure)" : ""}`}</title>
+                <title>{`paint ${ms(t())}${flash() ? " (flash frame)" : early() ? " (before measure)" : ""}`}</title>
               </line>
             )
           }}

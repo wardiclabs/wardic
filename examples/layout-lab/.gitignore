@@ -1,2 +1,4 @@
-# Logs written by the lab's "Save log to repo" button (see vite.config.ts).
+# Logs written by the lab's "Save log to repo" button (see vite.save-log.ts).
 logs/
+# The Solid 2 build's output (vite.v2.config.ts); the root ignores dist/.
+dist-v2/

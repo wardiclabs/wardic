@@ -16,8 +16,8 @@
  *
  * @module
  */
-import { WardicProvider } from "@wardic/solid"
-import { batch, createSignal, For, type JSX, onCleanup } from "solid-js"
+import { BINDING, batch, type JSX, WardicProvider } from "#binding"
+import { createSignal, For, onCleanup } from "solid-js"
 import { makeLabEnv } from "../env.ts"
 import type { BoardRunInput } from "../lab/base-values-board.ts"
 import type { DragRun } from "../lab/drag-run.ts"
@@ -144,6 +144,8 @@ const LabHeader = (): JSX.Element => {
         </p>
       </div>
       <div class="lab-scheduler">
+        {/* Which binding this build runs: `bun dev` (Solid 1) or `bun dev:v2` (Solid 2, #209 PR 5). */}
+        <span class="pill">{BINDING === "solid2" ? "Solid 2: @wardic/solid/unstable/v2" : "Solid 1: @wardic/solid"}</span>
         <span class={`pill scheduler-${mode}`}>
           {mode === "microtask" ? "scheduler: microtask (test-harness timing)" : "scheduler: default (real-app timing)"}
         </span>

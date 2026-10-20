@@ -8,6 +8,8 @@
 //   for every importer, `@solidjs/web` among them: Bun installs it alone in its own folder, where
 //   a plain `solid-js` would find Solid 1. Resolved as this package would import `solid-js-2`, so
 //   its export conditions (browser, node, development) pick the build as they would for an app.
+//   `@solidjs/web` too, from this package, for every importer: an app outside it (the layout lab's
+//   Solid 2 build, #209 PR 5) gets the one copy the binding imports.
 import { transformAsync } from "@babel/core"
 import typescript from "@babel/preset-typescript"
 import solid from "@solidjs/babel-plugin"
@@ -22,9 +24,10 @@ export const solid2 = (options: { readonly hydratable?: boolean; readonly dev?: 
   name: "wardic:solid2",
   enforce: "pre",
   async resolveId(source, _importer, resolveOptions) {
-    const match = /^solid-js(\/.*)?$/.exec(source)
+    const match = /^(solid-js|@solidjs\/web)(\/.*)?$/.exec(source)
     if (match === null) return null
-    return this.resolve(`solid-js-2${match[1] ?? ""}`, FROM, { ...resolveOptions, skipSelf: true })
+    const name = match[1] === "solid-js" ? "solid-js-2" : match[1]
+    return this.resolve(`${name}${match[2] ?? ""}`, FROM, { ...resolveOptions, skipSelf: true })
   },
   async transform(code, id, transformOptions) {
     if (!/\.[jt]sx$/.test(id.replace(/\?.*$/, ""))) return null

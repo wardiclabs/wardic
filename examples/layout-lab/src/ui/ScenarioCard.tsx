@@ -20,7 +20,9 @@
  *
  * @module
  */
-import { createMemo, For, type JSX, Show } from "solid-js"
+import type { JSX } from "#binding"
+import { classOf } from "./class-of.ts"
+import { createMemo, For, Show } from "solid-js"
 import { BOARD_CHECK_NAMES, type BoardCheck, type BoardRunInput, boardChecksOf } from "../lab/base-values-board.ts"
 import { DRAG_CHECK_NAMES, type DragExpect, type DragRun, dragChecksOf, FLING_CHECK_NAMES, type FlingExpect, flingChecksOf } from "../lab/drag-run.ts"
 import { REORDER_CHECK_NAMES, type ReorderExpect, reorderChecksOf } from "../lab/reorder-run.ts"
@@ -56,7 +58,7 @@ export const ScenarioCard = (props: ScenarioCardProps): JSX.Element => {
   const drag = def.kind === "drag"
   const board = def.kind === "board"
   return (
-    <article class="card" classList={{ selected: props.selected }}>
+    <article class={classOf("card", { selected: props.selected })}>
       <header class="card-head">
         <span class="card-index">{def.index === 0 ? "∗" : def.index}</span>
         <div class="card-titles">
@@ -114,7 +116,7 @@ const TriggerResult = (props: { readonly def: ScenarioDef; readonly lastRun: Lab
       </div>
       <div class="result-cell">
         <span class="result-label">held</span>
-        <span class="result-value" classList={{ "held-miss": heldMissed(props.lastRun, def.expectedHeld) }}>
+        <span class={classOf("result-value", { "held-miss": heldMissed(props.lastRun, def.expectedHeld) })}>
           {formatHeld(props.lastRun, def.expectedHeld)}
         </span>
       </div>
@@ -186,7 +188,7 @@ const DragResult = (props: DragResultProps): JSX.Element => {
           return (
             <div class="result-cell">
               <span class="result-label">{name}</span>
-              <span class="result-value" classList={{ "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) }} title={check()?.text}>
+              <span class={classOf("result-value", { "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) })} title={check()?.text}>
                 {check()?.text ?? "–"}
               </span>
             </div>
@@ -215,7 +217,7 @@ const RestResult = (props: { readonly run: RestRun | undefined; readonly expect:
           return (
             <div class="result-cell">
               <span class="result-label">{name}</span>
-              <span class="result-value" classList={{ "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) }} title={check()?.text}>
+              <span class={classOf("result-value", { "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) })} title={check()?.text}>
                 {check()?.text ?? "–"}
               </span>
             </div>
@@ -244,7 +246,7 @@ const BoardResult = (props: { readonly run: BoardRunInput | undefined; readonly 
           return (
             <div class="result-cell">
               <span class="result-label">{name}</span>
-              <span class="result-value" classList={{ "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) }} title={check()?.text}>
+              <span class={classOf("result-value", { "check-miss": check()?.ok === false, wraps: WRAPPING_LINES.has(name) })} title={check()?.text}>
                 {check()?.text ?? "–"}
               </span>
             </div>

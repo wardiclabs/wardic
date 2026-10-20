@@ -503,9 +503,12 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   )
 
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
+  // Only a change of its value: a memo, since a Solid 2 effect applies on every re-run of its compute,
+  // and `cfg()` is re-read on any of the config's changes (a `style` change re-measured, #209 PR 5's lab).
   if (layoutMember) {
+    const dependency = createMemo(() => cfg().layoutDependency, CLIENT_ONLY)
     createEffect(
-      () => cfg().layoutDependency,
+      dependency,
       () => {
         UndefinedOr.map(UndefinedOr.map(mounted, (m) => m.layout), (node) => node.notify())
       },
