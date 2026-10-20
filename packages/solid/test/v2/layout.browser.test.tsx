@@ -13,6 +13,13 @@
 // - LY9: the `layout` transition key gives layout its own transition.
 // - LY10: a `layoutRoot` self-snaps: no FLIP of its own.
 // - LY11: `animateLayout` animates a keyed `<For>`'s reorder, and returns its callback's result.
+// - LY12: a layout node's Starting style on the client is drawn through its projection at rest (#245).
+// - LY13: the projection owns a layout node's translate (ADR-0016): its own `x` isn't returned when
+//   `animate` drops it.
+// - LY14: `<LayoutGroup>`'s dependency alone re-measures: a node a plain sibling pushed FLIPs.
+// - LY15: `layoutScroll` folds a container's scroll out: a re-measure after scrolling isn't a FLIP.
+// - LY16: `layoutAnchor={false}` projects a child absolutely: on a slower transition than its
+//   parent's, it falls behind it, where a relative child stays glued.
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
@@ -373,5 +380,106 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     expect(result).toBe("done")
     expect(tops[0]!, "the first frame: still near where it was").toBeLessThan(20)
     expect(tops.at(-1)!, "lands at its new place, 100 px down").toBeCloseTo(100, 1)
+  })
+
+  it("LY12: a layout node's Starting style on the client is drawn through its projection at rest", () => {
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div data-plain initial={{ x: 20, opacity: 0.5 }} animate={{ opacity: 0.5 }} />
+        <wardic.div data-layout layout initial={{ x: 20, opacity: 0.5 }} animate={{ opacity: 0.5 }} />
+      </WardicProvider>
+    ))
+    const plain = host.querySelector<HTMLElement>("[data-plain]")!
+    const layout = host.querySelector<HTMLElement>("[data-layout]")!
+    expect(plain.style.transform).toContain("translateX(20px)")
+    expect(layout.style.transform, "the projection owns translate").not.toContain("translateX")
+    expect(layout.style.opacity).toBe("0.5")
+  })
+
+  it("LY13: the projection owns a layout node's translate: its own x isn't returned when animate drops it", async () => {
+    const [on, setOn] = createSignal(true)
+    let card!: ReturnType<typeof ward>
+    const Box = () => {
+      card = ward(() => ({ layout: true, animate: Bool.match(on(), { onTrue: () => ({ x: 50, opacity: 1 }), onFalse: () => ({ opacity: 1 }) }), transition: { type: "tween", duration: 0.1 } }))
+      return <div {...card} style={{ width: "40px", height: "40px" }} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    const x = card.read("x")
+    await until(() => x() === 50)
+    flushed(setOn)(false)
+    await frames(20)
+    expect(x(), "not returned to 0").toBe(50)
+  })
+
+  it("LY14: LayoutGroup's dependency alone re-measures: a node a plain sibling pushed FLIPs", async () => {
+    const [grown, setGrown] = createSignal(false)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <style>{CSS}</style>
+        <LayoutGroup layoutDependency={grown()}>
+          <div class="col">
+            <div class={{ "row-a": true, tall: grown() }} />
+            <wardic.div data-b class="row-b" layout />
+          </div>
+        </LayoutGroup>
+      </WardicProvider>
+    ))
+    const b = host.querySelector("[data-b]")!
+    await frames(2)
+    const top0 = topOf(b)
+    flushed(setGrown)(true)
+    expect(await flips(() => topOf(b), top0, 100)).toBe(true)
+  })
+
+  it("LY15: layoutScroll folds a container's scroll out: a re-measure after scrolling isn't a FLIP", async () => {
+    const [dep, setDep] = createSignal(0)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div data-sc layoutScroll style={{ position: "absolute", top: "0", left: "0", width: "120px", height: "80px", overflow: "auto" }}>
+          <div style={{ position: "relative", height: "400px" }}>
+            <wardic.div data-it layout layoutDependency={dep()} style={{ position: "absolute", top: "150px", left: "10px", width: "50px", height: "30px" }} />
+          </div>
+        </wardic.div>
+      </WardicProvider>
+    ))
+    const sc = host.querySelector<HTMLElement>("[data-sc]")!
+    const item = host.querySelector<HTMLElement>("[data-it]")!
+    await frames(2)
+    const before = topOf(item)
+    sc.scrollTop = 50
+    await raf()
+    const scrolled = topOf(item)
+    expect(before - scrolled).toBeCloseTo(50, 0)
+    flushed(setDep)(1)
+    let jumpedBack = false
+    for (let i = 0; i < 12; i++) {
+      await raf()
+      if (Math.abs(topOf(item) - before) < 10) jumpedBack = true
+    }
+    expect(jumpedBack, "no FLIP back to the unscrolled place").toBe(false)
+    expect(Math.abs(topOf(item) - scrolled)).toBeLessThan(2)
+  })
+
+  it("LY16: layoutAnchor={false} projects a child absolutely: on a slower transition, it falls behind its parent", async () => {
+    const [moved, setMoved] = createSignal(false)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <style>{CSS}</style>
+        <div style={{ position: "relative", width: "600px", height: "200px" }}>
+          <wardic.div data-par class={{ "lf-box": true, moved: moved() }} layout layoutDependency={moved()} transition={{ type: "tween", duration: 0.15 }}>
+            <wardic.div data-kid layout layoutAnchor={false} transition={{ type: "spring", stiffness: 20, damping: 10 }} style={{ position: "absolute", top: "10px", left: "10px", width: "20px", height: "20px" }} />
+          </wardic.div>
+        </div>
+      </WardicProvider>
+    ))
+    const par = host.querySelector("[data-par]")!
+    const kid = host.querySelector("[data-kid]")!
+    await frames(2)
+    const offsets = await paintsAfter(() => flushed(setMoved)(true), () => leftOf(kid) - leftOf(par), 20)
+    expect(Math.max(...offsets.map((o) => Math.abs(o - 10))), "off its parent's offset mid-flight, px").toBeGreaterThan(20)
   })
 })

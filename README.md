@@ -291,7 +291,7 @@ function Card(props: { open: boolean }) {
 - `{...ward(config)}` inline doesn't work: Solid 2 runs a spread's expression again on every update, making a new ward each time, and Wardic throws when it sees one. Keep the ward in a variable.
 - A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`.
 - Motion's components are there too: `<wardic.div animate={…}>` and `wardic.create(Component)`. There are no directives in Solid 2, so no `use:wardic`.
-- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, and server rendering of the starting style. Presence and layout, gestures and drag, Reorder, and Appear animations follow.
+- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit`, layout (`layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>`, `useAnimateLayout`), and server rendering of the starting style. Gestures and drag, Reorder, and Appear animations follow.
 
 ### Imperative primitives for fine-grained control
 

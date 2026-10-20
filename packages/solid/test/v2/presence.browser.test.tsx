@@ -10,6 +10,7 @@
 // - P7: a leaving child hands back the twin inside it: the twin crossfades back onto its other twin,
 //   and the child stays until the handover ends (#181, the Solid 1 binding's PH1).
 // - P8: the presence unmounted mid-close: the child and its twin go at once (PH5).
+// - P9: a child re-entering while the last one's exit runs ends that exit: the old node goes at once.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -174,6 +175,29 @@ describe("AnimatePresence on Solid 2: a single child, a parent-driven exit", () 
     expect(opacityOf(tracked(host)), "a later one starts at its initial").toBe(0)
     await until(() => opacityOf(tracked(host)) >= 0.99)
     expect(opacityOf(tracked(host))).toBeCloseTo(1, 1)
+  })
+})
+
+describe("AnimatePresence on Solid 2: a re-entry", () => {
+  it("P9: a child re-entering while the last one's exit runs ends that exit: the old node goes at once", async () => {
+    const [visible, setVisible] = createSignal(true)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <AnimatePresence>
+          <Show when={visible()}>
+            <wardic.div data-presence initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    const first = tracked(host)!
+    await until(() => opacityOf(first) >= 0.99)
+    flushed(setVisible)(false)
+    for (let i = 0; i < 3; i++) await raf()
+    expect(first.isConnected, "exiting").toBe(true)
+    flushed(setVisible)(true)
+    expect(first.isConnected, "the old node goes with the re-entry").toBe(false)
+    expect(tracked(host)).not.toBe(first)
   })
 })
 
