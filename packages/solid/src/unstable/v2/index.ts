@@ -71,3 +71,38 @@ export {
 export { fromAtom, streamToSignal } from "./bridge.ts"
 export type { WardicDragTransition } from "../../config.ts"
 
+
+/**
+ * Live values (#130, ADR-0043; #209 PR 3's Q2): core's `LiveValue` helpers as accessors. One derived
+ * on an Atom (a ward's `read(key)`, another helper's) carries it, so a `style` given it is written in
+ * the frame its source moves.
+ */
+export {
+  createScroll,
+  createSpring,
+  createTime,
+  createTransform,
+  createVelocity,
+  type ElementSource,
+  type ScrollOptions,
+  type ScrollValues,
+} from "./live-value.ts"
+export type { Live, LiveSource } from "../../live-style.ts"
+
+/**
+ * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,
+ * refs carrying their props as a ward is, and Motion's `Reorder.Group` / `Reorder.Item` on them.
+ */
+export {
+  Reorder,
+  type ReorderElementTag,
+  type ReorderGroup,
+  type ReorderGroupComponentProps,
+  type ReorderGroupConfig,
+  type ReorderGroupProps,
+  reorderGroup,
+  type ReorderItemComponentProps,
+  type ReorderItemConfig,
+  type ReorderItemLayout,
+  reorderItem,
+} from "./reorder.tsx"

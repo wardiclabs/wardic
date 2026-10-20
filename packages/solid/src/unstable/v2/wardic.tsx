@@ -56,7 +56,7 @@ const configOf = (props: WardicMotionProps & RefStyle): (() => WardConfig) => {
 }
 
 /** The element's refs: the user's (one, or an array), then the ward's. */
-const refsOf = (user: unknown, own: ReadonlyArray<(element: HTMLElement) => void>): ReadonlyArray<unknown> =>
+export const refsOf = (user: unknown, own: ReadonlyArray<(element: HTMLElement) => void>): ReadonlyArray<unknown> =>
   Arr.appendAll(Arr.filter(Arr.flatten([Arr.ensure(user)]), Predicate.isNotUndefined), own)
 
 /**
