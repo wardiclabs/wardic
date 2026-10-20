@@ -34,6 +34,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
 import { useAssets } from "solid-js/web"
+import * as Appear from "@wardic/dom/Appear"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -159,6 +160,11 @@ export function WardicProvider(props: {
       </WardicContext.Provider>
     )
   }
+
+  // A streamed page's late chunks bring their own Appear rules (#245): moved into the head before
+  // the chunks hydrate, those already here now (this provider hydrates before its subtree), and
+  // each later one as it lands, until the stream ends.
+  if (isHydrating()) Appear.adoptChunks(document)
 
   // Made ONCE — props.env is read a single time at construction. The runtime owns the
   // Layer's scope for the component's lifetime, and builds itself on its first run (it's

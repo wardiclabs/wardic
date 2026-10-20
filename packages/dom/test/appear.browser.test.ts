@@ -12,6 +12,9 @@
 // - HA6: a delay holds the first stop, counts toward the elapsed time, and reads back (delayOf).
 // - HA7 (#245): an svg-inner element's attributes, drawn as their CSS properties under `@supports`:
 //   it plays the machine, and at the Handoff the engine's attributes take over value for value.
+// - HA8 (#245): a late chunk's `<style>` adopted into the head: its node gone, its element's
+//   animation the same one, running on; in a document still loading, one that lands later is
+//   moved as it lands, and none after `DOMContentLoaded` (the observer is gone).
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
@@ -142,9 +145,10 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     const pathSlot = sheet.slot()
     expect(Result.isSuccess(circleSlot.define({ spec: circleSpec, delay: 0 }))).toBe(true)
     expect(Result.isSuccess(pathSlot.define({ spec: pathSpec, delay: 0 }))).toBe(true)
-    expect(sheet.css()).toContain("@supports (cx:0px) and (r:0px){")
+    const css = sheet.css()
+    expect(css).toContain("@supports (cx:0px) and (r:0px){")
     const style = document.createElement("style")
-    style.textContent = sheet.css()
+    style.textContent = css
     document.head.append(style)
     // The server's markup: each Starting value an attribute, the slot inline.
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
@@ -197,6 +201,56 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     expect(Math.abs(handoff.dash[1] - handoff.dash[0])).toBeLessThanOrEqual(0.0011)
     expect(circle.getAnimations()).toHaveLength(0)
     expect(path.getAnimations()).toHaveLength(0)
+  })
+
+  it("HA8: a late chunk's style is adopted into the head, its animation running on (#245)", async () => {
+    const spec = { key: "HA8", tag: "div", machine: () => rise() }
+    const sheet = Appear.sheet()
+    expect(sheet.css(), "the head: nothing yet").toBe("")
+    const slot = sheet.slot()
+    slot.define({ spec, delay: 0 })
+    // The chunk as a stream lands it: its element, then its style, in the body.
+    const host = document.createElement("div")
+    host.innerHTML = `<div data-k="late" style="width: 40px; height: 40px; transform: translateY(40px); opacity: 0; animation: ${slot.animation}"></div>${Appear.chunkStyle(sheet.css())}`
+    document.body.append(host)
+    const element = host.querySelector<HTMLElement>("[data-k=late]")!
+    cleanups.push(() => {
+      host.remove()
+      for (const style of document.head.querySelectorAll("style[data-wardic-appear]")) style.remove()
+    })
+    await wait(120)
+    const animation = found(element)
+    const before = Number(animation.currentTime)
+    Appear.adoptChunks(document)
+    expect(host.querySelector(`style[${Appear.CHUNK_ATTRIBUTE}]`), "the node is gone").toBeNull()
+    expect(document.head.querySelector("style[data-wardic-appear]")?.textContent).toContain(`@keyframes ${Appear.nameOf(spec)}{`)
+    await raf()
+    expect(found(element), "the same animation").toBe(animation)
+    expect(Number(animation.currentTime)).toBeGreaterThan(before)
+    expect(drawn(element).opacity, "still drawn by it").toBeGreaterThan(0.05)
+    // Another call, as a second provider hydrating makes: what's there now is moved too.
+    host.insertAdjacentHTML("beforeend", Appear.chunkStyle("@keyframes ha8-second{to{opacity:1}}"))
+    Appear.adoptChunks(document)
+    expect(host.querySelector(`style[${Appear.CHUNK_ATTRIBUTE}]`), "moved on the second call").toBeNull()
+    // A document still loading: a chunk landing later is moved as it lands; after DOMContentLoaded, none is.
+    const frame = document.createElement("iframe")
+    document.body.append(frame)
+    cleanups.push(() => frame.remove())
+    const doc = frame.contentDocument!
+    doc.open()
+    doc.write("<!doctype html><html><head></head><body>")
+    expect(doc.readyState).toBe("loading")
+    Appear.adoptChunks(doc)
+    doc.write(`<p>later</p>${Appear.chunkStyle("@keyframes ha8-late{to{opacity:1}}")}`)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(doc.querySelector(`body style[${Appear.CHUNK_ATTRIBUTE}]`), "moved as it landed").toBeNull()
+    expect(doc.head.textContent).toContain("ha8-late")
+    doc.write("</body></html>")
+    doc.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    doc.body.insertAdjacentHTML("beforeend", Appear.chunkStyle("@keyframes ha8-after{to{opacity:1}}"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(doc.querySelector(`body style[${Appear.CHUNK_ATTRIBUTE}]`), "after DOMContentLoaded nothing watches").not.toBeNull()
   })
 
   it("HA4: a finished animation still fills, and is still found, past its end", async () => {

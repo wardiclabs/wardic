@@ -506,10 +506,14 @@ export interface Slot {
   readonly define: (play: Play, reduced?: Play | undefined, supports?: ReadonlyArray<string>) => Result.Result<void, string>
 }
 
-/** One render's Appear rules: a slot per element, and the `<style>` text for the head. */
+/** One render's Appear rules: a slot per element, and the `<style>` text for the head and each late chunk. */
 export interface Sheet {
   readonly slot: () => Slot
-  /** The head's CSS: each rule once, each defined slot's custom property, the reduced ones under the media query. */
+  /**
+   * The CSS since the last call: each rule this render hasn't written yet, and the custom property
+   * of each slot defined since, the reduced ones under the media query. Called once, the head's;
+   * called again for each chunk a stream sends after its shell (#245), only what that chunk adds.
+   */
   readonly css: () => string
 }
 
@@ -534,13 +538,15 @@ const blocksCss = (blocks: Blocks): string =>
 /** A sheet for one render. */
 export const sheet = (): Sheet => {
   let slots = 0
+  // The rules to write, and the names of those written: a chunk doesn't send a rule the head has.
   const rules = new Map<string, string>()
+  const written = new Set<string>()
   const blocks: Blocks = new Map()
   const reducedBlocks: Blocks = new Map()
   /** A play's rule added to the sheet: its `animation` value, and the geometry properties it writes. */
   const animationFor = (play: Play): Result.Result<{ readonly animation: string; readonly supports: ReadonlyArray<string> }, string> =>
     Result.map(keyframes(play.spec), (rule) => {
-      rules.set(rule.name, rule.css)
+      if (Bool.not(written.has(rule.name))) rules.set(rule.name, rule.css)
       return { animation: animationOf(rule, play.delay), supports: rule.supports }
     })
   return {
@@ -563,14 +569,64 @@ export const sheet = (): Sheet => {
           ),
       }
     },
-    css: () =>
-      `${Array.from(rules.values()).join("")}${blocksCss(blocks)}${
+    css: () => {
+      const text = `${Array.from(rules.values()).join("")}${blocksCss(blocks)}${
         Bool.match(reducedBlocks.size === 0, {
           onTrue: () => "",
           onFalse: () => `@media (prefers-reduced-motion: reduce){${blocksCss(reducedBlocks)}}`,
         })
-      }`,
+      }`
+      Arr.forEach(Array.from(rules.keys()), (name) => written.add(name))
+      rules.clear()
+      blocks.clear()
+      reducedBlocks.clear()
+      return text
+    },
   }
+}
+
+// --- A late chunk's rules ----------------------------------------------------------------------
+
+/**
+ * The attribute a late chunk's `<style>` carries (#245, ADR-0044 *Amendment (#245)*): a chunk a
+ * stream sends after its shell brings its own rules, in a node its client doesn't render.
+ */
+export const CHUNK_ATTRIBUTE = "data-wardic-appear-chunk"
+
+/** A late chunk's `<style>` for `css`, as server text; "" for none. */
+export const chunkStyle = (css: string): string =>
+  Bool.match(css === "", { onTrue: () => "", onFalse: () => `<style ${CHUNK_ATTRIBUTE}>${css}</style>` })
+
+/** The documents {@link adoptChunks} watches, or has: one observer a document. */
+const watched = new WeakSet<Document>()
+
+/**
+ * Move each late chunk's Appear rules into the head (#245): its `<style data-wardic-appear-chunk>`
+ * text into a head `<style>`, then the node out, before the chunk hydrates (a hydrating client
+ * expects no node it doesn't render, and leaving it would shift sibling selectors). The text goes
+ * first, so the rule a running animation plays is never missing from a style update. Chunks
+ * already in the document are moved at once; while it's still loading (a stream still coming),
+ * a MutationObserver moves each as it lands, until `DOMContentLoaded`. Every call moves what's there (each provider
+ * hydrating asks before its subtree hydrates); one observer a document.
+ */
+export const adoptChunks = (doc: Document): void => {
+  const adopt = (): void =>
+    Arr.forEach(Array.from(doc.querySelectorAll(`style[${CHUNK_ATTRIBUTE}]`)), (node) => {
+      const style = doc.createElement("style")
+      style.setAttribute("data-wardic-appear", "")
+      style.textContent = node.textContent
+      doc.head.append(style)
+      node.remove()
+    })
+  adopt()
+  if (Bool.or(doc.readyState !== "loading", watched.has(doc))) return
+  watched.add(doc)
+  const observer = new MutationObserver(adopt)
+  observer.observe(doc.documentElement, { childList: true, subtree: true })
+  doc.addEventListener("DOMContentLoaded", () => {
+    adopt()
+    observer.disconnect()
+  }, { once: true })
 }
 
 // --- The Handoff -------------------------------------------------------------------------------

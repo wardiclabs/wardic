@@ -64,6 +64,29 @@ const serverRenderPage: BrowserCommand<[file: string, exportName: string, render
   }
 }
 
+/**
+ * Stream `exportName` as a page with a head (#245): `renderToStream` piped, each write as the stream
+ * sends it. The first is the shell (its head with `useAssets`' injection, its scripts); a late
+ * `Suspense` chunk follows as its `<template>` and then the script that places it (`$df`).
+ */
+const serverStreamPage: BrowserCommand<[file: string, exportName: string, renderId: string]> = async (ctx, file, exportName, renderId) => {
+  const vite = ctx.project.vite
+  const web = await vite.ssrLoadModule("solid-js/web")
+  try {
+    const mod = await vite.ssrLoadModule(file)
+    const writes: Array<string> = []
+    await new Promise<void>((resolve) => {
+      web.renderToStream(() => web.ssr(["<head></head>", ""], mod[exportName]()), { renderId }).pipe({
+        write: (chunk: string) => void writes.push(chunk),
+        end: () => resolve(),
+      })
+    })
+    return { writes, script: web.generateHydrationScript() as string, error: "" }
+  } catch (e) {
+    return { writes: [] as Array<string>, script: "", error: String(e).split("\n")[0] ?? String(e) }
+  }
+}
+
 /** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames. */
 const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
   await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
@@ -129,7 +152,7 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
-      commands: { emulateReducedMotion, serverRender, serverRenderPage },
+      commands: { emulateReducedMotion, serverRender, serverRenderPage, serverStreamPage },
     },
   },
 })

@@ -81,7 +81,7 @@ import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegis
 import { createVariantNode, hasOwnVariants, ownOrInherited, type ServerVariantNode, serverVariantNode, startingValuesOf, startsAtAnimate } from "./variant-node.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
-import { enterServer, type Handoff, handoffOf, keyOf, type MountAnimation, repeatsForever, setsAnimation, startAtOf } from "./appear.ts"
+import { enterServer, type Handoff, handoffOf, keyOf, type MountAnimation, repeatsForever, type ServerAppear, setsAnimation, startAtOf } from "./appear.ts"
 import { type PresenceRecord, presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import { createHover, createPress, createWhenWanted } from "./sensors.ts"
 import { useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, type WardicRuntime, type WardicServices } from "./provider.tsx"
@@ -1731,7 +1731,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   )
   const read = (value: unknown): unknown => readServerStyle(value)
   let lastStyle: WardUserProps["style"]
-  return Object.assign(
+  const ward = Object.assign(
     (userProps: WardUserProps = NO_USER_PROPS): WardProps => {
       lastStyle = userProps.style
       // Its routed keys' values join the Starting style, under `initial`'s (#130).
@@ -1756,8 +1756,10 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
       Provider,
       value: ((key: string) => () => restingOf(key, initialValues, lastStyle, read)) as WardValue,
       atom: (): Atom.Atom<unknown> => NO_OUTPUT,
+      [SERVER_APPEAR]: appear,
     },
   )
+  return ward
 }
 
 /** An element's Appear animation on a server (#48, ADR-0044), as `serverWard` and a component wrap use it. */
@@ -1768,10 +1770,44 @@ export interface ServerAppearOf {
   readonly provided: WardicVariantContextValue | undefined
   /** Rules it out once it has rendered: its user style is read when `ward()` is called. */
   readonly veto: (reason: string) => void
+  /**
+   * Rendered after the shell (#245): in a late chunk, and its root when no late element is around
+   * it, which puts the chunk's `<style>` after itself. `state` is the render's.
+   */
+  readonly late: boolean
+  readonly chunkRoot: boolean
+  readonly state: ServerAppear | undefined
 }
 
 /** No Appear animation: a provider with `appear={false}`. */
-const NO_APPEAR = (provided: WardicVariantContextValue | undefined): ServerAppearOf => ({ style: undefined, provided, veto: constVoid })
+const NO_APPEAR = (provided: WardicVariantContextValue | undefined): ServerAppearOf => ({
+  style: undefined,
+  provided,
+  veto: constVoid,
+  late: false,
+  chunkRoot: false,
+  state: undefined,
+})
+
+/**
+ * A server element's subtree, rendered inside its Appear entry (#245): a late chunk's root puts the
+ * chunk's `<style>` after itself, server text its client doesn't render (the provider moves it into
+ * the head before the chunk hydrates, `Appear.adoptChunks`). Per element on a server: an element in
+ * the shell, most, renders as it is, with guards and no allocation.
+ */
+export const renderServerElement = (appear: ServerAppearOf | undefined, render: () => JSX.Element): JSX.Element => {
+  if (Predicate.isUndefined(appear) || Bool.not(appear.late) || Predicate.isUndefined(appear.state)) return render()
+  const state = appear.state
+  const element = state.within(true, render)
+  if (Bool.not(appear.chunkRoot)) return element
+  return [element, () => ({ t: state.chunk() })] as unknown as JSX.Element
+}
+
+/** Where a server ward keeps its Appear entry, for the `wardic.<tag>` that renders it (#245). Internal. */
+const SERVER_APPEAR = Symbol("wardic.serverAppear")
+
+/** A server ward's Appear entry (#245); `undefined` for a client one. Internal. */
+export const serverAppearOfWard = (ward: Ward): ServerAppearOf | undefined => (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
 
 /**
  * An element's entry in the server render's Appear animations (#48, ADR-0044): its starting
@@ -1800,6 +1836,9 @@ export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialVa
           onSome: (appearGroup) => UndefinedOr.map(node.provided, (provided): WardicVariantContextValue => ({ ...provided, appearGroup })),
         }),
         veto: entered.veto,
+        late: entered.late,
+        chunkRoot: entered.chunkRoot,
+        state,
       }
     },
   })

@@ -243,11 +243,31 @@ export interface ServerAppear {
   readonly enter: (
     animation: { readonly normal: Option.Option<Result.Result<MountAnimation, string>>; readonly reduced: Option.Option<Result.Result<MountAnimation, string>> },
     group: Option.Option<AppearGroup>,
-  ) => { readonly entry: Entry; readonly animation: Option.Option<string> }
+  ) => {
+    readonly entry: Entry
+    readonly animation: Option.Option<string>
+    /**
+     * Entered after the shell was flushed, so in a chunk a stream sends later (#245), and no late
+     * element around it: the chunk's root, which puts the chunk's `<style>` after itself.
+     */
+    readonly chunkRoot: boolean
+    readonly late: boolean
+  }
   /** A variant parent's group, its children to come. */
   readonly group: (leader: Entry, transition: WardicTransition | undefined) => AppearGroup
-  /** The head's CSS, once the render is done: every element's timing worked out, and the rules. */
+  /**
+   * The head's CSS, once the shell is done: every element entered so far, its timing worked out,
+   * and the rules. Called once, by the provider's `useAssets`: what enters after is late (#245).
+   */
   readonly css: () => string
+  /** Render a late element's subtree: an element inside it isn't a chunk's root (#245). */
+  readonly within: <A>(late: boolean, render: () => A) => A
+  /**
+   * A late chunk's `<style>` (#245), as server text: the rules and timings of every element
+   * entered since the last write, those the head sent left out; "" for none. A chunk's root's
+   * thunk asks for it once the chunk has rendered.
+   */
+  readonly chunk: () => string
   /** Why each element that doesn't play doesn't: for the debug log. */
   readonly reasons: () => ReadonlyArray<string>
 }
@@ -260,6 +280,41 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
   const sheet = Appear.sheet()
   const entries: Array<Entry> = []
   const reasons: Array<string> = []
+  // The shell is flushed once the head's CSS is asked for: what enters after is late (#245).
+  let flushed = false
+  // The entries written so far, and how deep the render is in late elements.
+  let written = 0
+  let lateDepth = 0
+  /** The entries since the last write, now written. */
+  const nextBatch = (): ReadonlyArray<Entry> => {
+    const batch = entries.slice(written)
+    written = entries.length
+    return batch
+  }
+  /** A batch's timing, each slot defined, and the sheet's CSS for them (decision 5). */
+  const write = (batch: ReadonlyArray<Entry>): string => {
+    const resolve = (pick: "normal" | "reduced") => timings(batch, pick)
+    const normal = Bool.match(reducedMotion === "always", { onTrue: () => resolve("reduced"), onFalse: () => resolve("normal") })
+    const reduced = Bool.match(reducedMotion === "user", { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Timings>() })
+    const settings = Arr.prepend(Option.toArray(reduced), normal)
+    // Most renders write no SVG geometry: no group pass.
+    const supports = Bool.match(Arr.some(settings, (byEntry) => byEntry.geometry), {
+      onTrue: () => groupSupports(batch, settings),
+      onFalse: () => () => NO_SUPPORTS,
+    })
+    Arr.forEach(batch, (entry) =>
+      Option.map(entry.slot, (slot) => {
+        const play = UndefinedOr.getOrThrow(normal.get(entry))
+        const reducedPlay = Option.map(reduced, (byEntry) => UndefinedOr.getOrThrow(byEntry.get(entry)))
+        const defined = Result.flatMap(play, (p) =>
+          Option.match(reducedPlay, {
+            onNone: () => slot.define(p, undefined, supports(entry)),
+            onSome: (r) => Result.flatMap(r, (rp) => slot.define(p, rp, supports(entry))),
+          }))
+        Result.match(defined, { onFailure: (reason) => reasons.push(reason), onSuccess: () => undefined })
+      }))
+    return sheet.css()
+  }
   const plays = (animation: Entry["plays"]): boolean =>
     Bool.or(Option.exists(animation.normal, Result.isSuccess), Option.exists(animation.reduced, Result.isSuccess))
   return {
@@ -271,8 +326,19 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
       const entry: Entry = { plays: animation, slot, group, vetoes: [] }
       entries.push(entry)
       Option.map(group, (g) => g.children.push(entry))
-      return { entry, animation: Option.map(slot, (s) => s.animation) }
+      return { entry, animation: Option.map(slot, (s) => s.animation), late: flushed, chunkRoot: Bool.and(flushed, lateDepth === 0) }
     },
+    within: (late, render) => {
+      // Per element on a server: a guard, no allocation.
+      if (Bool.not(late)) return render()
+      lateDepth++
+      try {
+        return render()
+      } finally {
+        lateDepth--
+      }
+    },
+    chunk: () => Appear.chunkStyle(write(nextBatch())),
     group: (leader, transition) => {
       const { staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1, when } = UndefinedOr.match(transition, {
         onUndefined: () => NO_TRANSITION,
@@ -281,27 +347,8 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
       return { leader, stagger: { amount: staggerChildren, delayChildren, from, direction: staggerDirection }, when, children: [] }
     },
     css: () => {
-      const resolve = (pick: "normal" | "reduced") => timings(entries, pick)
-      const normal = Bool.match(reducedMotion === "always", { onTrue: () => resolve("reduced"), onFalse: () => resolve("normal") })
-      const reduced = Bool.match(reducedMotion === "user", { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Timings>() })
-      const settings = Arr.prepend(Option.toArray(reduced), normal)
-      // Most renders write no SVG geometry: no group pass.
-      const supports = Bool.match(Arr.some(settings, (byEntry) => byEntry.geometry), {
-        onTrue: () => groupSupports(entries, settings),
-        onFalse: () => () => NO_SUPPORTS,
-      })
-      Arr.forEach(entries, (entry) =>
-        Option.map(entry.slot, (slot) => {
-          const play = UndefinedOr.getOrThrow(normal.get(entry))
-          const reducedPlay = Option.map(reduced, (byEntry) => UndefinedOr.getOrThrow(byEntry.get(entry)))
-          const defined = Result.flatMap(play, (p) =>
-            Option.match(reducedPlay, {
-              onNone: () => slot.define(p, undefined, supports(entry)),
-              onSome: (r) => Result.flatMap(r, (rp) => slot.define(p, rp, supports(entry))),
-            }))
-          Result.match(defined, { onFailure: (reason) => reasons.push(reason), onSuccess: () => undefined })
-        }))
-      return sheet.css()
+      flushed = true
+      return write(nextBatch())
     },
     reasons: () => reasons,
   }
@@ -312,10 +359,24 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
  * child starts after its stagger (`delayChildren` plus its place, ADR-0007), and after its parent
  * settles under `when: "beforeChildren"`; a parent under `"afterChildren"` starts once its last
  * child settles. A start that depends on an element with no rule has none.
+ *
+ * Timed a batch at a time (#245): the shell's, then each late chunk's, whose CSS starts when the
+ * chunk lands. A late Variant child of a group led earlier is a fresh mount from then: its stagger
+ * is among that group's children in its batch, and it doesn't wait on the leader (decision 5 of
+ * *Amendment (#245)*). The shell's batch is every entry, so nothing changes for it.
  */
 const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Timings => {
   const memo = new Map<Entry, Result.Result<{ readonly play: TimedPlay; readonly settled: number }, string>>()
   let geometry = false
+  const inBatch = new Set(entries)
+  // Each group's children in this batch, once a group.
+  const batchChildren = new Map<AppearGroup, ReadonlyArray<Entry>>()
+  const childrenOf = (g: AppearGroup): ReadonlyArray<Entry> =>
+    Option.getOrElse(Option.fromUndefinedOr(batchChildren.get(g)), () => {
+      const children = Arr.filter(g.children, (child) => inBatch.has(child))
+      batchChildren.set(g, children)
+      return children
+    })
   /** An entry's spec and rule, or why it has none; a missing play (nothing animates) is a rule of 0 s. */
   const ruleOf = (entry: Entry): Result.Result<Option.Option<{ readonly spec: Appear.Spec; readonly rule: Appear.Keyframes }>, string> =>
     Arr.match(entry.vetoes, {
@@ -348,9 +409,10 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Tim
     })
   /** When `entry` starts: its stagger, after its parent under `beforeChildren`, after its children under `afterChildren`. */
   const startOf = (entry: Entry): Result.Result<number, string> =>
-    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + staggerOf(entry)))
+    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + staggerOf(entry, childrenOf)))
+  // A leader written earlier started at first paint: a late child doesn't wait on it.
   const afterParent = (entry: Entry): Result.Result<number, string> =>
-    Option.match(Option.filter(entry.group, (g) => g.when === "beforeChildren"), {
+    Option.match(Option.filter(entry.group, (g) => Bool.and(g.when === "beforeChildren", inBatch.has(g.leader))), {
       onNone: () => Result.succeed(0),
       onSome: (g) =>
         Result.flatMap(
@@ -366,7 +428,7 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Tim
           onFalse: () => Result.succeed(0),
           onTrue: () =>
             Result.mapError(
-              Result.map(Result.all(Arr.map(g.children, timingOf)), (kids) => Arr.reduce(kids, 0, (latest, t) => Math.max(latest, t.settled))),
+              Result.map(Result.all(Arr.map(childrenOf(g), timingOf)), (kids) => Arr.reduce(kids, 0, (latest, t) => Math.max(latest, t.settled))),
               (reason) => `a child has no rule (${reason})`,
             ),
         }),
@@ -426,13 +488,17 @@ const groupSupports = (
     })
 }
 
-/** A Variant child's stagger: its parent's `delayChildren` plus its place (ADR-0007), as the client works it out. */
-const staggerOf = (entry: Entry): number =>
+/**
+ * A Variant child's stagger: its parent's `delayChildren` plus its place (ADR-0007), as the client
+ * works it out, among the group's children in its batch (`childrenOf`, #245).
+ */
+const staggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<Entry>): number =>
   Option.match(entry.group, {
     onNone: () => 0,
     onSome: (g) => {
-      const n = g.children.length
-      const i = g.children.indexOf(entry)
+      const children = childrenOf(g)
+      const n = children.length
+      const i = children.indexOf(entry)
       const index = Bool.match(g.stagger.direction === -1, { onTrue: () => n - 1 - i, onFalse: () => i })
       return g.stagger.delayChildren + Stagger.make(g.stagger.amount, { from: g.stagger.from })(index, n)
     },
@@ -466,7 +532,14 @@ export interface ServerElement {
 export const enterServer = (
   appear: ServerAppear,
   el: ServerElement,
-): { readonly animation: Option.Option<string>; readonly group: Option.Option<AppearGroup>; readonly veto: (reason: string) => void } => {
+): {
+  readonly animation: Option.Option<string>
+  readonly group: Option.Option<AppearGroup>
+  readonly veto: (reason: string) => void
+  /** Rendered after the shell (#245): in a late chunk, and that chunk's root when no late element is around it. */
+  readonly late: boolean
+  readonly chunkRoot: boolean
+} => {
   // Its starts and targets once, both plays sharing them (and so their key's text, `keyOf`).
   const mount = Option.flatMap(el.to, (to) =>
     Bool.match(Rec.isEmptyRecord(Rec.filter(to, (target, key) => Bool.not(el.initial[key] === target))), {
@@ -475,8 +548,10 @@ export const enterServer = (
     }))
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
     Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout })))
-  const { entry, animation: inline } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
+  const { entry, animation: inline, late, chunkRoot } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
   return {
+    late,
+    chunkRoot,
     animation: inline,
     group: Option.liftPredicate(entry, () => el.leads).pipe(Option.map((leader) => appear.group(leader, el.ownTransition))),
     veto: (reason) => {

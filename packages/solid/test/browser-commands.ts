@@ -48,6 +48,12 @@ declare module "vitest/browser" {
     serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
     /** `serverRender` as a page with a head: what the render put before `</head>` as `head` (#48). */
     serverRenderPage: (file: string, exportName: string, renderId: string) => Promise<ServerRender & { readonly head: string }>
+    /** `exportName` streamed as a page with a head (#245): each write as `renderToStream` sends it. */
+    serverStreamPage: (
+      file: string,
+      exportName: string,
+      renderId: string,
+    ) => Promise<{ readonly writes: ReadonlyArray<string>; readonly script: string; readonly error: string }>
     /** Emulate `prefers-reduced-motion: reduce`, or clear it. */
     emulateReducedMotion: (reduce: boolean) => Promise<void>
   }

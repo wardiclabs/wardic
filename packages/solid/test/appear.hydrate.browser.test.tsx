@@ -23,6 +23,10 @@
 // - AH11 (#245): a layout card's entrance (scale, opacity, its own y): drawn as the client draws a
 //   layout node, its y left out, from first paint; handed off mid-flight; and its next layout change
 //   animates from its true box, measured past the CSS at mount.
+// - AH12 (#245): a list's items streamed in a late chunk that lands before the JS: each plays its
+//   CSS from the chunk's landing, staggered among the late ones, and is handed off with no step;
+//   the chunk's `<style>` is gone from the list after hydration, its rules in the head; a later
+//   list update leaves the items in order, nothing between them.
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
@@ -38,7 +42,7 @@ import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6, A7, setAppearEnv } from "./appear-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, A8, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
 const FILE = "./test/appear-fixtures.tsx"
@@ -185,6 +189,95 @@ const run = async (
   })
   counting = false
   return { frames, startOf, host, hydratedStyle }
+}
+
+/** Run each `<script>` under `root` as the parser would: an `innerHTML` one doesn't. */
+const runScripts = (root: ParentNode): void => {
+  for (const old of [...root.querySelectorAll("script")]) {
+    const script = document.createElement("script")
+    script.textContent = old.textContent
+    old.replaceWith(script)
+  }
+}
+
+/**
+ * Stream `name` (#245): its head and shell on the page, its later writes (a late chunk's
+ * `<template>` and the script that places it) landing `chunkAfter` ms later as the stream would,
+ * and hydration `hydrateAfter` ms after the shell. Each frame finds the `data-k` elements afresh:
+ * a chunk's come later.
+ */
+const runStreamed = async (
+  name: string,
+  code: () => JSX.Element,
+  options: { readonly chunkAfter: number; readonly hydrateAfter: number; readonly forMs: number },
+): Promise<Run> => {
+  const renderId = `${name}-${runs++}`
+  const { writes, script, error } = await commands.serverStreamPage(FILE, name, renderId)
+  if (error !== "") throw new Error(`stream of ${name} failed: ${error}`)
+  if ((globalThis as { _$HY?: unknown })._$HY === undefined) {
+    const tag = document.createElement("script")
+    tag.textContent = /<script[^>]*>([\s\S]*?)<\/script>/.exec(script)?.[1] ?? ""
+    document.head.append(tag)
+  }
+  const [shell = "", ...later] = writes
+  const holder = document.createElement("div")
+  holder.innerHTML = /^<head>([\s\S]*?)<\/head>/.exec(shell)?.[1] ?? ""
+  const styles = [...holder.children]
+  document.head.append(...styles)
+  const host = document.createElement("div")
+  host.innerHTML = shell.replace(/^<head>[\s\S]*?<\/head>/, "")
+  document.body.append(host)
+  runScripts(host)
+  const landed: Array<Element> = []
+  let hydrated = false
+  let dispose = (): void => {}
+  cleanups.push(() => {
+    dispose()
+    host.remove()
+    for (const node of [...styles, ...landed]) node.remove()
+    for (const style of document.head.querySelectorAll("style[data-wardic-appear]")) style.remove()
+  })
+  const chunk = setTimeout(() => {
+    for (const write of later) {
+      const box = document.createElement("div")
+      box.innerHTML = write
+      for (const node of [...box.children]) {
+        document.body.append(node)
+        landed.push(node)
+      }
+      runScripts(document.body)
+    }
+  }, options.chunkAfter)
+  cleanups.push(() => clearTimeout(chunk))
+  const hydration = setTimeout(() => {
+    ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
+    sharedConfig.done = false
+    dispose = hydrate(code, host, { renderId })
+    hydrated = true
+  }, options.hydrateAfter)
+  cleanups.push(() => clearTimeout(hydration))
+  const startOf: Record<string, number> = {}
+  const frames: Array<Recorded> = []
+  const begun = performance.now()
+  await new Promise<void>((resolve) => {
+    const frame = (now: number): void => {
+      setTimeout(() => {
+        const drawn: Record<string, Drawn> = {}
+        for (const el of host.querySelectorAll("[data-k]")) {
+          const k = (el as HTMLElement).dataset.k!
+          Option.map(Appear.find(el), (animation) => {
+            if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
+          })
+          drawn[k] = drawnOf(el)
+        }
+        frames.push({ at: now, hydrated, drawn })
+      }, 0)
+      if (performance.now() - begun < options.forMs) requestAnimationFrame(frame)
+      else setTimeout(resolve, 20)
+    }
+    requestAnimationFrame(frame)
+  })
+  return { frames, startOf, host, hydratedStyle: {} }
 }
 
 /** The machine's values `seconds` in, as `Machine.startAt` draws them. */
@@ -399,5 +492,30 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     expect(first.width, "its true size: no jump to the box the CSS drew at mount").toBeCloseTo(40, 0)
     expect(first.top - rest.top, "from where it was, not jumped").toBeLessThan(15)
     expect(r.frames.at(-1)!.drawn.card!.top - rest.top, "landing 60 px down").toBeGreaterThan(30)
+  })
+
+  it("AH12: a list's items streamed in a chunk that lands before the JS: played from the landing, handed off, the chunk's style adopted (#245)", async () => {
+    const r = await runStreamed("A8", A8, { chunkAfter: 120, hydrateAfter: 650, forMs: 1500 })
+    const items = ["s0", "s1", "s2"]
+    for (const k of items) expect(r.startOf[k], `${k} played its CSS`).toBeDefined()
+    // Each from its chunk's landing, staggered among the late ones (a fresh mount, decision 5).
+    expect(Math.abs(r.startOf.s0! - r.startOf.s2!), "one chunk, one landing").toBeLessThan(20)
+    const before = r.frames.filter((f) => !f.hydrated && f.drawn.s0 !== undefined && f.drawn.s0.css)
+    expect(before.some((f) => f.drawn.s0!.opacity > 0.1 && f.drawn.s0!.opacity < 0.95), "it moved before hydration").toBe(true)
+    items.forEach((k, i) => {
+      const machine = tween({ opacity: 0, x: -30 }, { opacity: 1, x: 0 }, { duration: 0.5, delay: 0.12 * i })
+      expect(followsMachine(r, k, (s) => {
+        const v = machineAt(machine, s)
+        return { opacity: v.opacity as number, x: v.x as number }
+      }), k).toBeGreaterThan(20)
+    })
+    // The chunk's style: out of the list, its rules in the head.
+    const list = r.host.querySelector("[data-k=list]")!
+    expect(list.querySelector("style"), "no style among the items").toBeNull()
+    expect([...document.head.querySelectorAll("style[data-wardic-appear]")].some((s) => s.textContent!.includes(":root{")), "its rules in the head").toBe(true)
+    // A later list update: the items in order, nothing between them.
+    ;(globalThis as { __a8add?: () => void }).__a8add!()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect([...list.children].map((el) => (el as HTMLElement).dataset.k)).toEqual(["s0", "s1", "s2", "s3"])
   })
 })

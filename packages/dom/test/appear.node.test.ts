@@ -23,6 +23,8 @@
 //   ones its binding passes (its group's), the reduced block too.
 // - AP16 (#245): a layout node's spec is drawn through its projection at rest: its own translate
 //   left out and not judged, though the spec settles with it; named apart from a plain one.
+// - AP17 (#245): a sheet's `css()` writes what's new since its last call: a late chunk's rules
+//   the head didn't send, and the slots defined since; `chunkStyle` wraps it, "" for none.
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
@@ -393,6 +395,33 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     const radius = { key: "AP15 radius", tag: "circle", machine: () => Machine.springValues({ r: 20 }, {}, { r: 4 }) }
     both.define({ spec: radius, delay: 0 }, undefined, ["cx"])
     expect(two.css()).toContain(`@supports (cx:0px) and (r:0px){:root{${property(both)}:`)
+  })
+
+  it("AP17: css() writes what's new since its last call; chunkStyle wraps it (#245)", () => {
+    const sheet = Appear.sheet()
+    const spec = { key: "AP17", tag: "div", machine: () => rise() }
+    const other = { key: "AP17 other", tag: "div", machine: () => Machine.springValues({ opacity: 1 }, {}, { opacity: 0 }) }
+    const property = (slot: Appear.Slot) => slot.animation.slice(4, -1)
+    const a = sheet.slot()
+    a.define({ spec, delay: 0 })
+    const rule = ok(Appear.keyframes(spec))
+    const head = sheet.css()
+    expect(head).toContain(`@keyframes ${rule.name}{`)
+    expect(head).toContain(`${property(a)}:`)
+    // A chunk: one slot on the same rule, one on a new one. The head's rule isn't sent again.
+    const b = sheet.slot()
+    const c = sheet.slot()
+    b.define({ spec, delay: 0.1 })
+    c.define({ spec: other, delay: 0 })
+    const chunk = sheet.css()
+    expect(chunk).not.toContain(`@keyframes ${rule.name}{`)
+    expect(chunk).toContain(`@keyframes ${ok(Appear.keyframes(other)).name}{`)
+    expect(chunk).not.toContain(`${property(a)}:`)
+    expect(chunk).toContain(`:root{${property(b)}:${Appear.animationOf(rule, 0.1)};${property(c)}:`)
+    // Nothing since: nothing.
+    expect(sheet.css()).toBe("")
+    expect(Appear.chunkStyle("")).toBe("")
+    expect(Appear.chunkStyle(chunk)).toBe(`<style ${Appear.CHUNK_ATTRIBUTE}>${chunk}</style>`)
   })
 
   it("AP12: an empty sheet writes nothing", () => {
