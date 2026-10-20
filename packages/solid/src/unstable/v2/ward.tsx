@@ -55,7 +55,7 @@ import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom } from "effect/reactivity"
-import { isServer, type JSX } from "@solidjs/web"
+import { isServer, type JSX, useHead } from "@solidjs/web"
 import {
   type Accessor,
   createEffect,
@@ -77,8 +77,10 @@ import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } f
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
 import { presenceBlocksInitial } from "../../presence-record.ts"
+import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
   accessorOf,
+  appearEntryOf,
   applyDragDefaults,
   dragAxisOf,
   drawnAtRest,
@@ -90,10 +92,12 @@ import {
   presenceRecordOf,
   recordFrameOf,
   registryOf,
+  releasingAppear,
   type Resolution,
   resolutionOf,
   restingOf,
   sameResolution,
+  type ServerAppearOf,
   serverStartingStyle,
   snapshotOf,
   startLinksOf,
@@ -103,8 +107,16 @@ import {
 } from "../../spine.ts"
 import { serverVariantNode, type WardicVariantContextValue } from "../../variant-tree.ts"
 import { followAtom } from "./bridge.ts"
-import { useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
-import { reactivityIn } from "./solid-reactivity.ts"
+import {
+  appearStyle,
+  useWardicAppear,
+  useWardicGate,
+  useWardicPositionalKeys,
+  useWardicProjection,
+  useWardicReducedMotion,
+  useWardicRuntime,
+} from "./provider.tsx"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
@@ -303,7 +315,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       (values) => {
         exit.current = values
       },
-      { defer: true },
+      CLIENT_ONLY_DEFERRED,
     )
   }
 
@@ -317,8 +329,8 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const [hovered, setHovered] = createSignal(false, { ownedWrite: true })
   const [pressed, setPressed] = createSignal(false, { ownedWrite: true })
   const [dragging, setDragging] = createSignal(false, { ownedWrite: true })
-  const wantsHover = createMemo(() => Predicate.isNotUndefined(cfg().whileHover))
-  const wantsPress = createMemo(() => Predicate.isNotUndefined(cfg().whileTap))
+  const wantsHover = createMemo(() => Predicate.isNotUndefined(cfg().whileHover), CLIENT_ONLY)
+  const wantsPress = createMemo(() => Predicate.isNotUndefined(cfg().whileTap), CLIENT_ONLY)
 
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
   // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
@@ -328,7 +340,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       const held = dragging()
       return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: hovered(), pressed: pressed(), dragged: Bool.or(held, lifted()), dragging: held })
     },
-    { equals: sameResolution },
+    { equals: sameResolution, transparent: true },
   )
 
   // The element, set by the ref during render.
@@ -377,8 +389,11 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const mount = (el: HTMLElement): Mounted => {
     if (justLeft.has(el)) throw new Error(REMADE)
     // The gate commits each frame onto the element (ADR-0006, ADR-0034); the hooks switch its
-    // `style`. An element with `onUpdate` at mount is told each committed frame (#233).
-    const unregister = gate.register(id, withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow))
+    // `style`. An element with `onUpdate` at mount is told each committed frame (#233). While
+    // hydrating, its Appear animation is found here, taken over by its first Retarget that starts,
+    // and removed in its first commit (the Handoff, ADR-0044 decision 6).
+    const handoff = Bool.match(hydrating, { onTrue: () => Option.getOrUndefined(handoffOf(el)), onFalse: constUndefined })
+    const unregister = gate.register(id, releasingAppear(withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow), handoff, el))
     // Its values, for the projection's flights (ADR-0012 *Amendment (#137)*).
     const unregisterValues = projection.registerValues(el, () => snapshot.values)
     const links = startLinksOf(el, styleNow, live)
@@ -448,7 +463,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       presence: presenceRecord,
       projected: Predicate.isNotUndefined(layout),
       dragAxis,
-      handoff: undefined,
+      handoff,
     })
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
@@ -485,7 +500,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     (wanted) => {
       if (wanted) UndefinedOr.map(mounted, startRecognizers)
     },
-    { defer: true },
+    CLIENT_ONLY_DEFERRED,
   )
 
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
@@ -495,13 +510,13 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       () => {
         UndefinedOr.map(UndefinedOr.map(mounted, (m) => m.layout), (node) => node.notify())
       },
-      { defer: true },
+      CLIENT_ONLY_DEFERRED,
     )
   }
 
   // Whether the `when` gate lets a Retarget start (ADR-0007), as a memo: an element with variants of
   // its own reads its `when` off its config, and only a flip of the gate may re-run the effect.
-  const open = createMemo(() => node.canStart())
+  const open = createMemo(() => node.canStart(), CLIENT_ONLY)
 
   // Mount, then Retarget on each change of the target or of the `when` gate: both are read here,
   // so a gate's flip re-runs it and releases a held Retarget.
@@ -515,6 +530,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
       }
       mounted.spine.retarget(resolution)
     },
+    CLIENT_ONLY,
   )
 
   // `<card.Provider>` hands down what this element hands its children (#50).
@@ -535,7 +551,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     if (Predicate.isNotUndefined(known)) return known
     const output = gate.valueOf(id, key)
     const accessor = runWithOwner(owner, () => {
-      const resting = createMemo(() => restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw)))
+      const resting = createMemo(() => restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw)), CLIENT_ONLY)
       const restingAtom = Atom.make<unknown>(untrack(resting))
       onCleanup(registry().mount(restingAtom))
       createEffect(
@@ -543,7 +559,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
         (value) => {
           registry().set(restingAtom, value)
         },
-        { defer: true },
+        CLIENT_ONLY_DEFERRED,
       )
       return followAtom(registry(), Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity })))
     })
@@ -595,18 +611,28 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
   const initialValues = startOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack).initialValues
   const layoutNode = isLayoutNode(c)
   const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode))
+  // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
+  // children join when it leads one.
+  const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node)
+  // A late chunk's root (#245): the chunk's Appear rules go through the head registry, read once
+  // the chunk has rendered and streamed with it as a head patch.
+  if (appear.chunkRoot) UndefinedOr.map(appear.state, (state) => useHead(appearStyle(state.chunkCss)))
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
-    <WardicVariantContext value={contextOf(node.provided)}>{props.children}</WardicVariantContext>
+    <WardicVariantContext value={contextOf(appear.provided)}>{props.children}</WardicVariantContext>
   )
   // Its routed keys' values join the Starting style, under `initial`'s (#130); a `<Reorder>` item's
-  // base style, then a drag element's defaults, go under the user's style.
+  // base style, then a drag element's defaults, go under the user's style. A user style with its own
+  // `animation` keeps it: the element's Appear animation would take its place.
   const parts = split(c.style)
+  const ownAnimation = setsAnimation(parts.css)
+  if (ownAnimation) appear.veto("its own style sets an animation")
   const dragDefaults = UndefinedOr.map(dragAxisOf(c, internal), Style.dragDefaults)
   const style = pipe(
     serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
     Style.over(parts.css),
     Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
     Style.over(dragDefaults),
+    Style.over(Bool.match(ownAnimation, { onTrue: constUndefined, onFalse: () => appear.style })),
   ) as JSX.CSSProperties
   const self = ((): Ward => self) as Ward
   Object.defineProperties(self, {
@@ -617,8 +643,23 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInt
     Provider: { value: Provider },
     read: { value: (key: string) => () => restingOf(key, initialValues, c.style, readServerStyle) },
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },
+    [SERVER_APPEAR]: { value: appear },
   })
   return self
+}
+
+/** Where a server ward keeps its Appear entry, for the `wardic.<tag>` that renders it (#245). */
+const SERVER_APPEAR = Symbol("wardic.serverAppear")
+
+/**
+ * Render a `wardic.*` element's subtree inside its Appear entry (#245): an element rendered under a
+ * late one isn't its chunk's root. Per element on a server: an element in the shell, nearly all,
+ * renders as it is. Internal.
+ */
+export const renderWithin = <A,>(ward: Ward, render: () => A): A => {
+  const appear = (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
+  if (Predicate.isUndefined(appear) || Bool.not(appear.late) || Predicate.isUndefined(appear.state)) return render()
+  return appear.state.within(true, render)
 }
 
 /** A server render's `ref`: Solid never calls it there. */

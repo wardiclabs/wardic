@@ -9,6 +9,7 @@ import { defineConfig } from "vitest/config"
 //     components + projection/FLIP against real layout (vite-plugin-solid).
 //   - hydrate        (packages/solid/vitest.hydrate.config.ts) — fixtures rendered on
 //     the server in Node, then hydrated in Chromium (ADR-0021).
+//   - v2-browser and v2-hydrate — the Solid 2 binding's, `@wardic/solid/unstable/v2` (#209).
 //
 // The fast node tier (`bun run test`, vitest.config.ts) stays pure logic:
 // @wardic/core, @wardic/test and the layout lab's classifier. Both gates must pass in CI.
@@ -20,6 +21,8 @@ export default defineConfig({
       "packages/solid/vitest.hydrate.config.ts",
       // The Solid 2 binding in Chromium, `@wardic/solid/unstable/v2` (#209).
       "packages/solid/vitest.browser-v2.config.ts",
+      // The Solid 2 binding's server render to hydration, Appear animations among them (#209 PR 4a).
+      "packages/solid/vitest.hydrate-v2.config.ts",
     ],
   },
 })
