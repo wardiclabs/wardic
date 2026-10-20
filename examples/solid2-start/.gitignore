@@ -1,0 +1,4 @@
+# The production build (vite build).
+dist/
+# Logs written by the hand checks' "Save log to repo" buttons (src/routes/api/save-log.ts).
+logs/
