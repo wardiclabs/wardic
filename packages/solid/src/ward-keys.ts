@@ -11,11 +11,20 @@ import type { Atom } from "effect/reactivity"
 import type { WardicTransformShorthands } from "./config.ts"
 import type { Accessor } from "./reactivity.ts"
 
-/** A layer's values map: nothing for a variant name, `false`, an accessor or none. */
-type MapOf<V> = V extends object ? (V extends (...args: never) => unknown ? never : V) : never
+/** A key's value through its accessor, the Solid 2 binding's per-key form (#259): what it returns. */
+type Unwrap<V> = V extends (...args: never) => infer R ? R : V
+
+/** A layer's values map: nothing for a variant name, `false` or none; an accessor's, what it returns. */
+type MapOf<V> = Unwrap<V> extends infer U ? (U extends object ? (U extends (...args: never) => unknown ? never : U) : never) : never
 
 /** Every variant's values map. */
-type VariantMaps<C> = C extends { readonly variants?: infer Vs } ? (Vs extends object ? MapOf<Exclude<Vs, undefined>[keyof Exclude<Vs, undefined>]> : never) : never
+type VariantMaps<C> = C extends { readonly variants?: infer Ws }
+  ? Unwrap<Ws> extends infer Vs
+    ? Vs extends object
+      ? MapOf<Exclude<Vs, undefined>[keyof Exclude<Vs, undefined>]>
+      : never
+    : never
+  : never
 
 /** Every values map a config animates or styles with. */
 type Layers<C> =
@@ -31,8 +40,11 @@ type Layers<C> =
 /** The keys of each member of a union. */
 type KeysOf<U> = U extends unknown ? keyof U & string : never
 
+/** A config's `drag`, through its accessor. */
+type DragOf<C> = C extends { readonly drag: infer D } ? Unwrap<D> : never
+
 /** The keys a drag moves: its axis's, or both. */
-type DragKeys<C> = C extends { readonly drag: "x" } ? "x" : C extends { readonly drag: "y" } ? "y" : C extends { readonly drag: true } ? "x" | "y" : never
+type DragKeys<C> = [DragOf<C>] extends ["x"] ? "x" : [DragOf<C>] extends ["y"] ? "y" : [DragOf<C>] extends [true] ? "x" | "y" : never
 
 /** The keys a config animates. */
 export type AnimatedKey<C> = KeysOf<Layers<C>> | DragKeys<C>

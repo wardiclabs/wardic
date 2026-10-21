@@ -472,14 +472,14 @@ const View: ScenarioDef["View"] = (props) => {
     </Reorder.Item>
   )
 
-  /** The factories' item: a `reorderItem` on its group, made in the item's body. */
+  /** The factories' item: a `reorderItem` on its group, made in the item's body, its config read per key (#259). */
   const FactoryItem = (p: { readonly list: ReorderGroup<string>; readonly value: string }): JSX.Element => {
-    const row = reorderItem(p.list, () => ({
-      value: p.value,
-      layout: itemLayout() === "position" ? ("position" as const) : (true as const),
-      whileDrag: lift() ? LIFT : NO_LIFT,
-      style: itemStyle(layout(), touchAuto(), variable() ? order().indexOf(p.value) : undefined),
-    }))
+    const row = reorderItem(p.list, {
+      value: () => p.value,
+      layout: () => (itemLayout() === "position" ? ("position" as const) : (true as const)),
+      whileDrag: () => (lift() ? LIFT : NO_LIFT),
+      style: () => itemStyle(layout(), touchAuto(), variable() ? order().indexOf(p.value) : undefined),
+    })
     return (
       <li {...row} class="box" data-value={p.value} data-action="drag">
         {itemContent(p.value)}
@@ -489,7 +489,7 @@ const View: ScenarioDef["View"] = (props) => {
 
   /** The factories' group: a `reorderGroup` on a `<ul>`, made in its body. */
   const FactoryGroup = (): JSX.Element => {
-    const g = reorderGroup<string>(() => ({ values: order(), onReorder, style: groupStyle(layout(), card() !== "none") }))
+    const g = reorderGroup<string>({ values: order, onReorder, style: () => groupStyle(layout(), card() !== "none") })
     return (
       <ul {...g} ref={[g, (el: HTMLElement) => (group = el)]}>
         {viaMap() ? (

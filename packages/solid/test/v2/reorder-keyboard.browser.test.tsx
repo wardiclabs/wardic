@@ -71,7 +71,7 @@ const mountList = async (options: MountOptions = {}) => {
     </Reorder.Group>
   )
   const Factories = () => {
-    const list = reorderGroup(() => ({ values: values(), onReorder: setValues, ...settings, style: GROUP_STYLE }))
+    const list = reorderGroup({ values, onReorder: setValues, ...settings, style: GROUP_STYLE })
     move = list.move
     return (
       <ul {...list}>

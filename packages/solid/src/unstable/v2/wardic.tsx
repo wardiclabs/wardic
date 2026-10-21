@@ -6,8 +6,9 @@
  * component, made with it. The `use:wardic` directive is gone
  * (Solid 2 removed directives): `ref={ward(config)}` is its place.
  *
- * Props are values: write a tracked expression (`animate={open() ? a : b}`). The component reads
- * each motion prop through its getter in the ward's config accessor, so a change re-resolves the
+ * Props are values: write a tracked expression (`animate={open() ? a : b}`). The component's props
+ * are the ward's config, read per key (#259): each motion prop is read through its getter where the
+ * ward needs it, so a change re-runs only what reads that prop. An `animate` change re-resolves the
  * target, and Retargets when it resolves a different one.
  *
  * The user's `style` goes to the ward (the Starting style over it until the first commit, then it
@@ -21,9 +22,9 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { dynamic, type JSX } from "@solidjs/web"
 import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
-import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "../../motion-props.ts"
+import { MOTION_PROPS, type WardicMotionProps } from "../../motion-props.ts"
 import { changesContext } from "../../variant-tree.ts"
-import { type WardConfig, type WardStyle, wardWith } from "./ward.tsx"
+import { type WardConfig, wardConfigView, type WardStyle, wardWith } from "./ward.tsx"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and the motion props, with a `style` that
@@ -49,11 +50,8 @@ interface RefStyle {
 /** The props a component passes through to its element: all but the motion props, `ref` and `style`. */
 const PASSED_OVER = [...MOTION_PROPS, "ref", "style"] as const
 
-/** A ward's config from a component's props: each motion prop and `style` read through its getter, so it tracks. */
-const configOf = (props: WardicMotionProps & RefStyle): (() => WardConfig) => {
-  const motion = motionToConfig(props)
-  return () => Option.match(Option.fromUndefinedOr(props.style), { onNone: motion, onSome: (style) => ({ ...motion(), style }) })
-}
+/** Whether an element hands its children a variant context of its own (#50), read from its props at setup. */
+const providesContext = (props: WardicMotionProps & RefStyle): boolean => untrack(() => changesContext(wardConfigView(props as WardConfig)))
 
 /**
  * The element's refs: the user's from `props` (one, or an array), then the ward's. Solid 2 applies a
@@ -88,11 +86,10 @@ const tagComponent = (tag: string): Component<Record<string, unknown>> => {
   const Element = dynamic(() => tag)
   return (props) => {
     const own = props as WardicMotionProps & RefStyle
-    const cfg = configOf(own)
-    const ward = wardWith(cfg, { tag })
+    const ward = wardWith(own as WardConfig, { tag })
     const rest = omit(props, ...PASSED_OVER)
     const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own, [ward])} />
-    return Bool.match(changesContext(untrack(cfg)), {
+    return Bool.match(providesContext(own), {
       onFalse: element,
       onTrue: () => <ward.Provider>{element()}</ward.Provider>,
     })
@@ -104,8 +101,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
   const Element = dynamic(() => Wrapped)
   return (props) => {
     const own = props as WardicMotionProps & RefStyle
-    const cfg = configOf(own)
-    const ward = wardWith(cfg, { defaultsOnElement: true })
+    const ward = wardWith(own as WardConfig, { defaultsOnElement: true })
     const rest = omit(props, ...PASSED_OVER)
     // ADR-0008's ref-forwarding contract: a component that never forwards its ref leaves the ward no
     // element to drive. Fail loudly, once it has settled.
@@ -123,7 +119,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
       )
     })
     const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own, [ward, seen])} />
-    return Bool.match(changesContext(untrack(cfg)), {
+    return Bool.match(providesContext(own), {
       onFalse: element,
       onTrue: () => <ward.Provider>{element()}</ward.Provider>,
     })

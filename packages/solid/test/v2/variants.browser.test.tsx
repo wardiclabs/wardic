@@ -23,7 +23,7 @@ const nameOf = (open: boolean): string => Bool.match(open, { onTrue: () => "open
 
 /** A parent ward flipping between "open" and "closed", its Provider around `children`. */
 const Parent = (props: { readonly open: () => boolean; readonly children: unknown }) => {
-  const parent = ward(() => ({ variants: OPEN_CLOSED, animate: nameOf(props.open()) }))
+  const parent = ward({ variants: OPEN_CLOSED, animate: () => nameOf(props.open()) })
   return (
     <div {...parent}>
       <parent.Provider>{props.children as never}</parent.Provider>

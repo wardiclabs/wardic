@@ -70,15 +70,23 @@
  * at the first frame. A toggle back to `none` is also judged on what it rests at: `none` itself,
  * not a zero like `blur(0px)`.
  *
+ * And one cell on the Solid 2 build only (#259), the style opacity cell's twin with its config a Solid 2
+ * store, read per key:
+ *
+ * - **store config**: `ward(config)` over a shallow store (`createStore(…, { shallow: true })`)
+ *   holding its `style` (opacity 0.5), `whileHover` and `whileTap` (`{ opacity: 1 }`). Store style
+ *   replaces the store's `style` between 0.5 and 0.8, and the change shows at once; a hover (or a
+ *   tap, on a phone) goes to 1 and back to the store's value.
+ *
  * Each gesture is one board run, judged by `lab/base-values-board.ts` (`start`, `end`) and
  * saved under `boardRuns`. Before #47's fix every scale grew from 0 and stayed, every
  * opacity started at 0, the fade rose from 0 and the exit vanished at once.
  *
  * @module
  */
-import { AnimatePresence, wardic, type WardicValues } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, ward, wardic, type WardicValues } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
-import { createSignal, For, onCleanup, Show } from "solid-js"
+import { createSignal, createStore, For, onCleanup, Show } from "solid-js"
 import type { BoardRunKind } from "../lab/base-values-board.ts"
 import type { ScenarioContext, ScenarioDef } from "../scenarios/types.ts"
 
@@ -94,7 +102,7 @@ document.head.append(sheet)
 const GRID: JSX.CSSProperties = {
   display: "grid",
   "grid-template-columns": "repeat(3, 1fr)",
-  "grid-template-rows": "repeat(6, 1fr)",
+  "grid-template-rows": "repeat(7, 1fr)",
   width: "100%",
   height: "100%",
 }
@@ -109,7 +117,7 @@ const LEVEL_SVG = { fill: "var(--lab-accent, rgb(0, 102, 204))", opacity: "var(-
 const HALF_LEVEL = { "--brandLevel": 0.5 } as WardicValues
 const BUTTONS: JSX.CSSProperties = { display: "flex", "flex-wrap": "wrap", gap: "6px", "margin-top": "6px" }
 /** Six rows of cells, three across, each wide enough for its label on one line. */
-const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "480px" }
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "420px", "--stage-h": "560px" }
 
 /** The Variable value cells' two themes (#55): the custom properties the row's container defines. */
 const THEMES = [
@@ -384,6 +392,15 @@ const makeRecorder = (ctx: ScenarioContext) => {
 const View: ScenarioDef["View"] = (props) => {
   const recorder = makeRecorder(props.ctx)
   const [styleOpacity, setStyleOpacity] = createSignal(0.5)
+  // The store config cell (#259): the style opacity cell's twin, its config a shallow store the ward
+  // reads per key. A `style` set restyles at rest; the hover (or a tap) reads its own keys.
+  const [storeConfig, setStoreConfig] = createStore<{
+    style: JSX.CSSProperties
+    whileHover: { opacity: number }
+    whileTap: { opacity: number }
+  }>({ style: { ...BOX, opacity: 0.5 }, whileHover: { opacity: 1 }, whileTap: { opacity: 1 } }, { shallow: true })
+  const storeCell = ward(storeConfig)
+  const storeOpacity = (): number => Number(storeConfig.style.opacity)
   const [fadeKey, setFadeKey] = createSignal(0)
   const [shown, setShown] = createSignal(true)
   // The three `initial={false}` cells (#134): remounted together; the presence child's later entry.
@@ -446,6 +463,16 @@ const View: ScenarioDef["View"] = (props) => {
     const next = styleOpacity() === 0.5 ? 0.8 : 0.5
     setStyleOpacity(next)
     if (el !== null) recorder.start("style opacity", "style change", () => opacityOf(el), next, next, before).end()
+  }
+
+  const flipStore = (): void => {
+    const el = document.querySelector<HTMLElement>(`[data-scenario="${ID}"] [data-cell="store"]`)
+    const before = el === null ? Number.NaN : opacityOf(el)
+    const next = storeOpacity() === 0.5 ? 0.8 : 0.5
+    setStoreConfig((draft) => {
+      draft.style = { ...BOX, opacity: next }
+    })
+    if (el !== null) recorder.start("store config", "style change", () => opacityOf(el), next, next, before).end()
   }
 
   const remount = (): void => {
@@ -703,11 +730,22 @@ const View: ScenarioDef["View"] = (props) => {
               </div>
             )}
           </For>
+          <div style={CELL}>
+            <div
+              data-cell="store"
+              {...storeCell}
+              ref={[storeCell, (el: HTMLElement) => gestureOn(el, "store config", opacityOf, storeOpacity, 1, "hover")]}
+            />
+            <span style={LABEL}>store config {storeOpacity()}</span>
+          </div>
         </div>
       </div>
       <div style={BUTTONS}>
         <button type="button" class="btn secondary small" data-action="style" onClick={flipStyle}>
           Style 0.5 ↔ 0.8
+        </button>
+        <button type="button" class="btn secondary small" data-action="store" onClick={flipStore}>
+          Store style 0.5 ↔ 0.8
         </button>
         <button type="button" class="btn secondary small" data-action="remount" onClick={remount}>
           Remount fade
@@ -749,7 +787,7 @@ export const s15: ScenarioDef = {
   kind: "board",
   title: "base values (a key no initial sets)",
   mechanism:
-    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property); the fifth row grows a shadow, a blur and a fill from none and back (Toggle none) and hovers a stylesheet shadow; the sixth blends backgrounds between var()s the row's container defines (Toggle variables) and switches their theme at rest (Switch theme). Each run is judged on its start and its end, a run back to none or to a var() on what it rests at, and a var() flip on painting no fallback frame.",
+    "Hover, press, Remount and Exit drive keys only a gesture, an initial-less animate or an exit sets; the third row is initial={false} (Remount no-mount, Leave/Enter presence); the fourth animates a camelCase custom property its opacity reads (Remount custom property); the fifth row grows a shadow, a blur and a fill from none and back (Toggle none) and hovers a stylesheet shadow; the sixth blends backgrounds between var()s the row's container defines (Toggle variables) and switches their theme at rest (Switch theme); the seventh is the style opacity cell with its config a Solid 2 store (Store style). Each run is judged on its start and its end, a run back to none or to a var() on what it rests at, and a var() flip on painting no fallback frame.",
   prediction: "safe",
   rationale:
     "Solid 2 applies each button's change at its flush, a microtask of its click, before the frame paints, as " +
@@ -762,6 +800,8 @@ export const s15: ScenarioDef = {
     "var(--brandLevel) follows it from the element's own 1 (#151, Motion's). A shadow, filter or fill grows from " +
     "its Animatable none and rests at none on the way back, and a stylesheet shadow blends both ways (#61). A var() is text, so " +
     "var(--gray-500) → var(--gray-600) never passes through an undefined var(--gray-550) (#158). A var() end blends what it " +
-    "resolves to on the element, once, and rests as the var(), so a theme switch at rest shows at once (#55, Motion's).",
+    "resolves to on the element, once, and rests as the var(), so a theme switch at rest shows at once (#55, Motion's). " +
+    "The store config cell reads its config per key (#259): a store's style set shows at once, and its hover " +
+    "goes to 1 and back to the store's value, as the style opacity cell's does.",
   View,
 }

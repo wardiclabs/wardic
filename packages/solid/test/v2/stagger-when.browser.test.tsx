@@ -58,7 +58,7 @@ const renderStagger = (parentTransition: Record<string, unknown>, n: number) => 
     return <div ref={[child, (node: HTMLElement) => (els[p.i] = node)]}>c</div>
   }
   const App = () => {
-    const parent = ward(() => ({ variants: VARIANTS, animate: nameOf(open()), transition: parentTransition }))
+    const parent = ward({ variants: VARIANTS, animate: () => nameOf(open()), transition: parentTransition })
     return (
       <div {...parent}>
         <parent.Provider>{Array.from({ length: n }, (_, i) => <Child i={i} />)}</parent.Provider>
@@ -87,7 +87,7 @@ const renderWhen = (when: "beforeChildren" | "afterChildren") => {
     return <div ref={[child, (n: HTMLElement) => (childEl = n)]}>c</div>
   }
   const App = () => {
-    const parent = ward(() => ({ initial: { opacity: 0 }, variants: VARIANTS, animate: nameOf(open()), transition: { when } }))
+    const parent = ward({ initial: { opacity: 0 }, variants: VARIANTS, animate: () => nameOf(open()), transition: { when } })
     return (
       <div ref={[parent, (n: HTMLElement) => (parentEl = n)]}>
         <parent.Provider>
@@ -158,12 +158,12 @@ it("SW-e: an element with no Variant children is unaffected by its own when and 
   const [open, setOpen] = createSignal(false)
   let loneEl!: HTMLElement
   const App = () => {
-    const lone = ward(() => ({
+    const lone = ward({
       initial: { opacity: 0 },
       variants: VARIANTS,
-      animate: nameOf(open()),
+      animate: () => nameOf(open()),
       transition: { when: "beforeChildren" as const, staggerChildren: 0.5 },
-    }))
+    })
     return <div ref={[lone, (n: HTMLElement) => (loneEl = n)]}>lone</div>
   }
   mount(() => (
@@ -232,7 +232,7 @@ it("SW-j: a new name with the same values still Retargets, so beforeChildren rel
   }
   const App = () => {
     // "open" and "again" are the same values for the parent: only the name changes.
-    const parent = ward(() => ({ initial: { opacity: 1 }, variants: { open: { opacity: 1 }, again: { opacity: 1 } }, animate: name(), transition: { when: "beforeChildren" as const } }))
+    const parent = ward({ initial: { opacity: 1 }, variants: { open: { opacity: 1 }, again: { opacity: 1 } }, animate: name, transition: { when: "beforeChildren" as const } })
     return (
       <div ref={[parent, (n: HTMLElement) => (parentEl = n)]}>
         <parent.Provider>

@@ -1,11 +1,16 @@
 /// <reference types="node" />
 /**
- * `bun run bench:solid [--base <ref>] [--head <ref>] [--reps 11] [--n 1000] [--rounds 4] [--alloc-reps 3]`
+ * `bun run bench:solid [--base <ref>] [--head <ref>] [--binding 1|2] [--reps 11] [--n 1000] [--rounds 4] [--alloc-reps 3]`
  *
- * The binding's start-cost bench (#87, ADR-0040, decision 6): `--head`'s core, dom and solid
+ * The bindings' start-cost bench (#87, ADR-0040, decision 6): `--head`'s core, dom and solid
  * (default: the working tree) against `--base`'s (default: `main`), at N `wardic.div`s in
- * production Chromium, on `page.tsx`. It times a task's synchronous JS: a mount, a mid-flight
+ * production Chromium, on `page.tsx` (the Solid 1 binding) and `page-v2.tsx` (the Solid 2 binding,
+ * `@wardic/solid/unstable/v2`, #259). It times a task's synchronous JS: a mount, a mid-flight
  * Retarget, an at-rest Retarget and an unmount. `bench:core` times the frames in between.
+ *
+ * - **Both bindings are gated,** each head against its base, by the same rules (#259, ADR-0045).
+ *   The Solid 2 page is skipped when the base or the head has no Solid 2 binding. `--binding 1` or
+ *   `--binding 2` runs one; the noise control runs either way.
  *
  * - **Each side is built as an app ships it:** Vite and vite-plugin-solid, production mode,
  *   minified, from that side's `packages/{core,dom,solid}/src`. A bare import resolves as the
@@ -23,7 +28,7 @@
  *   `--expose-gc`, and the page collects before it starts a task's clock, so a task times its own JS.
  *   Without it a task's time was bimodal, with a scavenge inside it or not, and a side's share of
  *   scavenges moved with where its allocation left the young generation, not with its cost.
- * - **Bytes gate:** `--alloc-reps` paired pages per side run the same rounds under V8's sampling
+ * - **Bytes gate:** `--alloc-reps` paired pages per side and binding run the same rounds under V8's sampling
  *   heap profiler, objects freed by either GC counted: what a side allocates per element per round,
  *   its tasks and the frames between them together. It fails as a task does (+5% median, 25th
  *   percentile above 0), so what the GC per task leaves out of the times is still held.
@@ -48,6 +53,7 @@ import { fileURLToPath } from "node:url"
 import { chromium, type Page } from "playwright"
 import { build, type Plugin } from "vite"
 import solid from "vite-plugin-solid"
+import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
 import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
@@ -79,8 +85,12 @@ const rounds = Number(arg("rounds", "4"))
 const allocReps = Number(arg("alloc-reps", "3"))
 const liveMode = process.argv.includes("--live")
 const v2Mode = process.argv.includes("--v2")
+const bindingArg = arg("binding", "both")
+if (Bool.not(["1", "2", "both"].includes(bindingArg))) throw new Error(`bench:solid: --binding is 1, 2 or both, not ${bindingArg}`)
 
-type Side = "base" | "head" | "v2"
+/** A build: a side's Solid 1 page (`base`, `head`) or its Solid 2 page (`v2Base`, `v2Head`). */
+type Side = "base" | "head" | "v2Base" | "v2Head"
+const isV2 = (side: Side): boolean => Bool.or(side === "v2Base", side === "v2Head")
 type Kind = "wardic" | "plain" | "live" | "live-plain"
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
@@ -88,6 +98,22 @@ const commitOf = (ref: string): string =>
   execSync(`git rev-parse --verify ${JSON.stringify(`${ref}^{commit}`)}`, { cwd: REPO }).toString().trim()
 
 const installedLock = readFileSync(join(REPO, "bun.lock"), "utf8")
+
+/** The Solid 2 binding's entry, which a commit before #209 doesn't have. */
+const V2_ENTRY = "packages/solid/src/unstable/v2/index.ts"
+/** Whether `commit` (the working tree when undefined) has the Solid 2 binding. */
+const hasV2 = (commit: string | undefined): boolean =>
+  UndefinedOr.match(commit, {
+    onUndefined: () => existsSync(join(REPO, V2_ENTRY)),
+    onDefined: (c) => {
+      try {
+        execSync(`git cat-file -e ${c}:${V2_ENTRY}`, { cwd: REPO, stdio: "ignore" })
+        return true
+      } catch {
+        return false
+      }
+    },
+  })
 
 /** Where a commit's dependencies come from: the repo's own install, or `bench:core`'s checkout of it. */
 const depsOf = (commit: string): string => {
@@ -156,7 +182,7 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
   // vite-plugin-solid's Babel reads the JSX import source from a package's own node_modules.
   if (!existsSync(join(root, "node_modules"))) symlinkSync(join(deps, "packages/solid/node_modules"), join(root, "node_modules"))
   // The Solid 2 page builds with Solid 2's compile, without its dev checks, as an app ships it.
-  const v2 = side === "v2"
+  const v2 = isV2(side)
   await build({
     configFile: false,
     logLevel: "warn",
@@ -195,11 +221,20 @@ const headLabel = UndefinedOr.match(headCommit, {
   onUndefined: () => `the working tree${when(dirty, " (modified)")}`,
   onDefined: (commit) => `${headRef} (${commit.slice(0, 7)})`,
 })
-const headScript = await bundle("head", headCommit, headDeps)
 // `--live` and `--v2` run the head alone: their pages can't run on a base before them.
-const baseScript = await Bool.match(Bool.or(liveMode, v2Mode), { onTrue: () => Promise.resolve(headScript), onFalse: () => bundle("base", baseCommit, baseDeps) })
-const v2Script = await Bool.match(v2Mode, { onTrue: () => bundle("v2", headCommit, headDeps), onFalse: () => Promise.resolve("") })
-const scripts: Record<Side, string> = { base: baseScript, head: headScript, v2: v2Script }
+const headAlone = Bool.or(liveMode, v2Mode)
+const runSolid1 = Bool.or(headAlone, bindingArg !== "2")
+const wantSolid2 = Bool.and(Bool.not(liveMode), Bool.or(v2Mode, bindingArg !== "1"))
+// The Solid 2 page, head against base (#259), when both have the binding; `--v2`'s head alone.
+const runSolid2 = Bool.and(wantSolid2, Bool.and(hasV2(headCommit), Bool.or(headAlone, hasV2(baseCommit))))
+const headScript = await bundle("head", headCommit, headDeps)
+const baseScript = await Bool.match(headAlone, { onTrue: () => Promise.resolve(headScript), onFalse: () => bundle("base", baseCommit, baseDeps) })
+const v2HeadScript = await Bool.match(runSolid2, { onTrue: () => bundle("v2Head", headCommit, headDeps), onFalse: () => Promise.resolve("") })
+const v2BaseScript = await Bool.match(Bool.and(runSolid2, Bool.not(headAlone)), {
+  onTrue: () => bundle("v2Base", baseCommit, baseDeps),
+  onFalse: () => Promise.resolve(""),
+})
+const scripts: Record<Side, string> = { base: baseScript, head: headScript, v2Base: v2BaseScript, v2Head: v2HeadScript }
 
 const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] })
 /** A page of `side`'s build for `kind`, its script loaded, and the errors it throws. */
@@ -294,11 +329,12 @@ if (v2Mode) {
   // Head alone: the Solid 2 binding's page against the Solid 1 binding's, paired per rep.
   console.log(`bench:solid --v2: ${headLabel}, Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps\n`)
   const V2_TASKS = ["mount", "firstFrame", "retarget", "restRetarget", "unmount"] as const
-  const pagesOf: Record<"head" | "v2", Array<ReadonlyArray<Round>>> = { head: [], v2: [] }
+  if (Bool.not(runSolid2)) throw new Error("bench:solid --v2: the head has no Solid 2 binding")
+  const pagesOf: Record<"head" | "v2Head", Array<ReadonlyArray<Round>>> = { head: [], v2Head: [] }
   for (let r = 0; r < reps; r++) {
-    const order: ReadonlyArray<"head" | "v2"> = Bool.match(r % 2 === 0, {
-      onTrue: (): ReadonlyArray<"head" | "v2"> => ["head", "v2"],
-      onFalse: (): ReadonlyArray<"head" | "v2"> => ["v2", "head"],
+    const order: ReadonlyArray<"head" | "v2Head"> = Bool.match(r % 2 === 0, {
+      onTrue: (): ReadonlyArray<"head" | "v2Head"> => ["head", "v2Head"],
+      onFalse: (): ReadonlyArray<"head" | "v2Head"> => ["v2Head", "head"],
     })
     for (const side of order) pagesOf[side].push(await runPage(side, "wardic"))
     process.stderr.write(`rep ${r + 1}/${reps}\r`)
@@ -308,10 +344,10 @@ if (v2Mode) {
   console.log(`warm (ms, median across reps; Solid 2 / Solid 1 paired per rep: median [p25 – p75])`)
   console.log(`  ${"task".padEnd(14)}${"solid 1".padEnd(10)}${"solid 2".padEnd(10)}ratio`)
   for (const task of V2_TASKS) {
-    const ratios = pagesOf.v2.map((page, r) => warmOf(page, task) / warmOf(pagesOf.head[r]!, task))
+    const ratios = pagesOf.v2Head.map((page, r) => warmOf(page, task) / warmOf(pagesOf.head[r]!, task))
     console.log(
       `  ${task.padEnd(14)}${median(pagesOf.head.map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
-        `${median(pagesOf.v2.map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+        `${median(pagesOf.v2Head.map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
         `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`,
     )
   }
@@ -321,23 +357,39 @@ if (v2Mode) {
 console.log(`bench:solid: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}`)
 if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
 if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
-console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes\n`)
+console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes`)
+console.log(
+  `bindings: ${Arr.join(
+    Arr.filter([when(runSolid1, "Solid 1"), when(runSolid2, "Solid 2"), when(Bool.and(wantSolid2, Bool.not(runSolid2)), "(Solid 2 skipped: no binding on one side)")], (x) => x.length > 0),
+    ", ",
+  )}\n`,
+)
 
 /** Rep `r`'s order: base first on even reps, head first on odd ones. */
 const orderOf = (r: number): ReadonlyArray<"base" | "head"> => {
   if (r % 2 === 0) return ["base", "head"]
   return ["head", "base"]
 }
-const runs: Record<"wardic" | "plain", Record<"base" | "head", Array<ReadonlyArray<Round>>>> = { wardic: { base: [], head: [] }, plain: { base: [], head: [] } }
+/** A binding's two builds: Solid 1's `base` and `head`, Solid 2's `v2Base` and `v2Head`. */
+const SIDES = {
+  solid1: { base: "base", head: "head" },
+  solid2: { base: "v2Base", head: "v2Head" },
+} as const satisfies Record<string, Record<"base" | "head", Side>>
+type Binding = keyof typeof SIDES
+const bindings: ReadonlyArray<Binding> = Arr.filter(["solid1", "solid2"] as const, (b) => Bool.match(b === "solid1", { onTrue: () => runSolid1, onFalse: () => runSolid2 }))
+const emptySides = (): Record<"base" | "head", Array<ReadonlyArray<Round>>> => ({ base: [], head: [] })
+const runs: Record<Binding | "plain", Record<"base" | "head", Array<ReadonlyArray<Round>>>> = { solid1: emptySides(), solid2: emptySides(), plain: emptySides() }
 for (let r = 0; r < reps; r++) {
   const order = orderOf(r)
-  for (const kind of ["wardic", "plain"] as const) for (const side of order) runs[kind][side].push(await runPage(side, kind))
+  for (const binding of bindings) for (const side of order) runs[binding][side].push(await runPage(SIDES[binding][side], "wardic"))
+  // The noise control: plain divs on Solid 1's compile, whichever bindings run.
+  for (const side of order) runs.plain[side].push(await runPage(side, "plain"))
   process.stderr.write(`rep ${r + 1}/${reps}\r`)
 }
-const allocated: Record<"base" | "head", Array<number>> = { base: [], head: [] }
+const allocated: Record<Binding, Record<"base" | "head", Array<number>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
 for (let r = 0; r < allocReps; r++) {
   const order = orderOf(r)
-  for (const side of order) allocated[side].push(await allocatedPage(side))
+  for (const binding of bindings) for (const side of order) allocated[binding][side].push(await allocatedPage(SIDES[binding][side]))
   process.stderr.write(`bytes ${r + 1}/${allocReps}\r`)
 }
 await browser.close()
@@ -351,32 +403,37 @@ const control = median(controlRatios)
 const noisy = Math.abs(control - 1) > NOISE
 console.log(`control (plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${when(noisy, "  too noisy: rerun on a quiet host")}\n`)
 
+const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid)", solid2: "Solid 2 (@wardic/solid/unstable/v2)" }
 let failed = false
-for (const [label, pick, gated] of [["warm", warm, true], ["cold", cold, false]] as const) {
-  console.log(`${label} (ms, median across reps; head / base paired per rep: median [p25 – p75])${when(!gated, ", not gated")}`)
-  console.log(`  ${"task".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
-  for (const task of TASKS) {
-    const ratios = runs.wardic.head.map((page, r) => pick(page, task) / pick(runs.wardic.base[r]!, task))
-    const fails = gated && quantile(ratios, 0.5) > GATE && quantile(ratios, 0.25) > 1
-    failed ||= fails
-    console.log(
-      `  ${task.padEnd(14)}${median(runs.wardic.base.map((page) => pick(page, task))).toFixed(1).padEnd(10)}` +
-        `${median(runs.wardic.head.map((page) => pick(page, task))).toFixed(1).padEnd(10)}` +
-        `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
-    )
+for (const binding of bindings) {
+  const pages = runs[binding]
+  console.log(`== ${TITLES[binding]}\n`)
+  for (const [label, pick, gated] of [["warm", warm, true], ["cold", cold, false]] as const) {
+    console.log(`${label} (ms, median across reps; head / base paired per rep: median [p25 – p75])${when(!gated, ", not gated")}`)
+    console.log(`  ${"task".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
+    for (const task of TASKS) {
+      const ratios = pages.head.map((page, r) => pick(page, task) / pick(pages.base[r]!, task))
+      const fails = gated && quantile(ratios, 0.5) > GATE && quantile(ratios, 0.25) > 1
+      failed ||= fails
+      console.log(
+        `  ${task.padEnd(14)}${median(pages.base.map((page) => pick(page, task))).toFixed(1).padEnd(10)}` +
+          `${median(pages.head.map((page) => pick(page, task))).toFixed(1).padEnd(10)}` +
+          `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
+      )
+    }
+    console.log("")
   }
-  console.log("")
+  const bytes = allocated[binding]
+  const allocRatios = bytes.head.map((b, r) => b / bytes.base[r]!)
+  const allocFails = quantile(allocRatios, 0.5) > GATE && quantile(allocRatios, 0.25) > 1
+  failed ||= allocFails
+  console.log("allocated (KB per element per round, tasks and frames; head / base paired per rep: median [p25 – p75])")
+  console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
+  console.log(
+    `  ${"bytes".padEnd(14)}${(median(bytes.base) / 1024).toFixed(1).padEnd(10)}${(median(bytes.head) / 1024).toFixed(1).padEnd(10)}` +
+      `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${when(allocFails, "  FAIL")}\n`,
+  )
 }
-
-const allocRatios = allocated.head.map((bytes, r) => bytes / allocated.base[r]!)
-const allocFails = quantile(allocRatios, 0.5) > GATE && quantile(allocRatios, 0.25) > 1
-failed ||= allocFails
-console.log("allocated (KB per element per round, tasks and frames; head / base paired per rep: median [p25 – p75])")
-console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
-console.log(
-  `  ${"bytes".padEnd(14)}${(median(allocated.base) / 1024).toFixed(1).padEnd(10)}${(median(allocated.head) / 1024).toFixed(1).padEnd(10)}` +
-    `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${when(allocFails, "  FAIL")}\n`,
-)
 
 if (noisy) process.exit(2)
 process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))

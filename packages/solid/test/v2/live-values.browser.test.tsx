@@ -69,7 +69,7 @@ describe("Live values carry their Atom (#209 PR 3's Q2)", () => {
     let b!: HTMLElement
     const [to, setTo] = createSignal(0)
     const Scene = () => {
-      const card = ward(() => ({ animate: { x: to() }, transition: { type: "tween", duration: 0.5 }, style: BOX }))
+      const card = ward({ animate: () => ({ x: to() }), transition: { type: "tween", duration: 0.5 }, style: BOX })
       const x = card.read("x")
       const follower = ward({ style: { ...BOX, x, opacity: createTransform(x, [0, 200], [1, 0]) } })
       return (
@@ -105,7 +105,7 @@ describe("Live values carry their Atom (#209 PR 3's Q2)", () => {
     const [to, setTo] = createSignal(0)
     const [factor, setFactor] = createSignal(0.5)
     const Scene = () => {
-      const card = ward(() => ({ animate: { x: to() }, transition: { type: "tween", duration: 0.5 }, style: BOX }))
+      const card = ward({ animate: () => ({ x: to() }), transition: { type: "tween", duration: 0.5 }, style: BOX })
       const follower = ward({ style: { ...BOX, x: createTransform(card.read("x"), (x) => x * factor()) } })
       return (
         <>
@@ -138,7 +138,7 @@ describe("Live values carry their Atom (#209 PR 3's Q2)", () => {
     let b!: HTMLElement
     const [to, setTo] = createSignal(0)
     const Scene = () => {
-      const card = ward(() => ({ animate: { x: to() }, transition: { type: "tween", duration: 0.5 }, style: BOX }))
+      const card = ward({ animate: () => ({ x: to() }), transition: { type: "tween", duration: 0.5 }, style: BOX })
       const follower = ward({ style: { ...BOX, x: fromAtom(Atom.map(card.atom("x"), (x) => (x ?? 0) as number)) } })
       return (
         <>
@@ -215,7 +215,7 @@ describe("Live values carry their Atom (#209 PR 3's Q2)", () => {
     let read!: Accessor<number | undefined>
     const [opacity, setOpacity] = createSignal(0.4)
     const Scene = () => {
-      const card = ward(() => ({ style: { ...BOX, opacity: opacity() } }))
+      const card = ward({ style: () => ({ ...BOX, opacity: opacity() }) })
       read = card.read("opacity")
       const follower = ward({ style: { ...BOX, opacity: card.read("opacity") } })
       return (

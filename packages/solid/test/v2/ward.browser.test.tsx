@@ -8,7 +8,7 @@
 // - W2: a ward made in a `<For>` callback, spread: the same, per item.
 // - W3: `ref={ward(config)}`, inline: it animates once mounted.
 // - W4: `ref={[card, myRef]}`: the user's ref gets the element too.
-// - W5: an accessor config Retargets on a change; a `style` change in it, resolving the same target, doesn't.
+// - W5: a key's accessor Retargets on a change; a `style` change, resolving the same target, doesn't (#259).
 // - W6: the props a spread applies are `ref`, `style` and attributes only: `read`, `atom` and `Provider` aren't.
 // - W7: unmounting a ward ends its legs: an endless tween leaves the Frame loop with nothing running.
 // - W8: a ward with variants of its own, whose `when` gate reads its config: a `style` change in
@@ -86,19 +86,19 @@ describe("ward(config) on Solid 2", () => {
     expect(opacity(el)).toBeCloseTo(0.5, 2)
   })
 
-  it("W5: an accessor config Retargets on a change; a style change resolving the same target doesn't", async () => {
+  it("W5: a key's accessor Retargets on a change; a style change resolving the same target doesn't", async () => {
     const [open, setOpen] = createSignal(false)
     const [color, setColor] = createSignal("red")
     let retargets = 0
     const Card = () => {
-      const card = ward(() => ({
+      const card = ward({
         initial: { opacity: 0 },
-        animate: { opacity: Number(open()) },
-        style: { color: color() },
+        animate: () => ({ opacity: Number(open()) }),
+        style: () => ({ color: color() }),
         onUpdate: () => {
           retargets++
         },
-      }))
+      })
       return <div {...card} />
     }
     const { host } = mount(() => (
@@ -171,16 +171,16 @@ describe("ward(config) on Solid 2", () => {
     let commits = 0
     let el!: HTMLElement
     const Card = () => {
-      const card = ward(() => ({
+      const card = ward({
         initial: "hidden",
         animate: "shown",
         variants: { hidden: { opacity: 0 }, shown: { opacity: 1 } },
         transition: { when: "beforeChildren" as const },
-        style: { color: color() },
+        style: () => ({ color: color() }),
         onUpdate: () => {
           commits++
         },
-      }))
+      })
       return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
     }
     mount(() => (

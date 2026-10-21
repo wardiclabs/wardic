@@ -318,7 +318,7 @@ export const KReorder = (): JSX.Element =>
 export const KReorderFactories = (): JSX.Element =>
   keyed(() => {
     const [items, setItems] = createSignal(["a", "b"])
-    const list = reorderGroup(() => ({ values: items(), onReorder: setItems }))
+    const list = reorderGroup({ values: items, onReorder: setItems })
     return (
       <ul {...list}>
         <For each={items()}>

@@ -269,3 +269,66 @@ Grilled 2026-10-20: scenario 14's Solid 2 card drives both Reorder forms, by a s
   - s15 and s16: every cell and toggle, 37 and 18 board runs, all passing; s17 in its rationale's sequence, the same verdicts (wrong-origin 30 px where it says so) and callbacks lines on both; s18 and s19: 9 and 8 Live-value runs, all passing, the swipe card in the same frame.
   - Every trigger scenario, now with s17 on Solid 2 too: clean at its expected held frames, cold and warm, under both scheduler modes, the two builds alike.
 - **By hand,** on the Solid 2 build (the user, Windows, Chrome 155): 40 drag runs, 6 rest runs and 9 s17 runs as expected; 142 of 144 board runs, the other two the cut-short runs above.
+
+## Amendment (#259, 2026-10-21): a config read per key, and the Solid 2 page gated
+
+`bench:solid --v2` showed the Solid 2 binding's unmount growing from +14% to about +30% against Solid 1's after PR 1, and its Retarget a few points up. Nothing had gated it: every PR ran `--base main`, which benched the Solid 1 page only.
+
+**Found** (the bench server, N = 1,000, warm, `.tmp/259`):
+- **One PR made the step.** `--v2 --head <merge>` at each Solid 2 merge, with page-v2 unchanged since PR 1. Solid 1's times are flat at every merge (unmount 7.0–7.1 ms, Retarget 22.5–22.8). The Solid 2 page's rose at PR 3a (#255): unmount 8.1 → 9.1 ms, rest Retarget 18.8 → 19.6. PR 4b's mount change is the artifact it fixed.
+- **What in PR 3a.** Each element gained:
+  - two "wants" memos (does the config have `whileHover` / `whileTap`?) and their effect;
+  - three gesture signals linked into the target memo;
+  - three resets at unmount.
+
+  Each part was worth about 0.3 ms of unmount, and the memos most of rest Retarget's step: each re-ran on every config change.
+- **Why every config change re-ran them:** the ward's config was an accessor of the whole object. `wardic.<tag>` built it with `motionToConfig`, a copy of every motion prop per call, and about five computations an element (the target memo, the "wants" memos, the variant node's stagger and transition) each called it. So an `animate` change rebuilt the config five times an element and re-ran every reader.
+
+**Decided** (grilled 2026-10-21; Q3 after a discussion in which the user raised Solid's stores):
+1. **Q1 A: `bench:solid --base` gates the Solid 2 page too,** head against base, by Solid 1's rules (times and bytes), skipped when a side has no Solid 2 binding. `--binding 1|2` runs one; the noise control runs either way. `--v2` stays the Solid 2 against Solid 1 report.
+2. **Q2 A: fix the drift, and profile the rest of the unmount gap.** Anything structural there goes to its own issue.
+3. **Q3: a config is read per key.** Each key is a value, or an accessor of it: a getter, a store's property (`ward(store)`), a component's prop (`ward(props)`), or a function, called as it's read.
+   - **The callbacks** (`onUpdate`, the layout animation callbacks, `onReorder`) are functions as they are.
+   - **A plain value is a constant,** as a literal prop is.
+   - **`initial`, `drag` and its settings, and `layout` and its keys are read at setup,** as before; a Layout mode at each layout animation's start, as before (ADR-0009, *Amendment (#42)*).
+   - **The whole config as an accessor (`ward(() => ({ … }))`) is refused,** with a message naming the per-key forms. A key's accessor derives state as the whole one did, and is read only where that key is. The user first liked the whole accessor for derived state, then chose this: Solid's signal style, with performance first.
+
+**Built:**
+- **`config-view.ts`:** a view per config kind (ward, Reorder group, Reorder item), a class whose prototype has a getter a key. Reading a key reads the source's key where it's read, so Solid tracks it alone, and calls a function there. Making one allocates no getters. Setup reads a plain copy, untracked (Solid 2's dev build flags a reactive read in a component body), and the mount runs untracked, as the Retarget does.
+- **`wardic.<tag>`, `wardic.create` and `Reorder.Group` / `Reorder.Item` pass their props;** `motionToConfig` is no longer on the Solid 2 path. A Reorder item fixes its `layout` over its config as an accessor (its Layout mode, read at each start).
+- **The gestures:** one signal for the three, so the target memo reads one; a ward disposed with its owner resets nothing (a remount still does); the recognizers' watch reads the two keys, with no memos.
+- **The REMADE check** (PR 1) queued a microtask per element at unmount, about 0.25 ms an unmount of 1,000; one a task now clears a set.
+
+**Measured** (`bench:solid --base main`, 11 paired reps, N = 1,000, warm; the Solid 2 page, head / base):
+
+| | mount | Retarget | rest Retarget | unmount | bytes |
+|---|---|---|---|---|---|
+| per-key config + gestures | −3.3% | −10.5% | −14.6% | −6.0% | −3.3% |
+| + the REMADE check batched | −1.7% | −15.2% | −13.8% | −8.8% | |
+
+The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid 1) after both: mount −3.3%, first frame −30.5%, Retarget −3.0%, rest Retarget −3.5%, unmount +13.8%. The Solid 2 binding is now as fast as Solid 1's or faster everywhere but unmount, which is back at PR 1's level (+13.7% to +14.4%).
+
+**The rest of the unmount gap** (a CPU profile of the warm unmount task on both pages, `console.profile` around it, `.tmp/259/profile.ts`): Solid 2's own disposal (`disposeChildren`, `markDisposal`, `unlinkSubs`, about 1.7 ms against Solid 1's `cleanNode`, 1.2) and Effect's fiber interrupts (about 2.5 ms against 2.2). Both are per element and not the binding's code: no issue filed.
+
+**A store as the config** (the bench page's 1,000 elements, each `ward(config)` over one store whose `animate` is replaced, `--v2`, 9 reps, the Solid 2 page's own times):
+- **A shallow store is faster** (`createStore(config, { shallow: true })`, its values plain, replaced whole): it mounts in 33.5 ms against a deep store's 35.6, Retargets in 22.2 ms against 23.0, and rest-Retargets in 16.9 against 18.2. A deep store reads its values through proxies, key by key. Unmount is alike (7.7 ms).
+- **A deep set works too** (`draft.animate.opacity = 1`, CK2). The README recommends the shallow store.
+
+**Pinned by:**
+- `test/v2/config-per-key.browser.test.tsx` CK1–CK9:
+  - a key's accessor re-read alone (CK1);
+  - a store, deep and shallow (CK2, CK2b);
+  - props (CK3), getters (CK4), the callbacks (CK5), the keys read once (CK6);
+  - the whole accessor refused for the ward and both Reorder factories (CK7);
+  - `wardic.div` per key (CK8);
+  - a Reorder item's Layout mode read at each start (CK9).
+- `test/v2/ward-tracked.browser.test.tsx` WT2: an element a ward left takes a new ward in a later task.
+- **Mutations:** 14 single-point mutations, all caught:
+  - the view's call, callbacks, fixed values;
+  - setup reading the live view;
+  - the mount, the context read, both Reorder views tracked;
+  - the guard, the gesture reset, the recognizers' watch;
+  - an item's frozen layout;
+  - the REMADE record never cleared or never kept.
+- Every Solid 2 test and the lab's s14 and s18 rewritten per key.
+- **The lab:** s15 on the Solid 2 build gains a **store config** cell, the style opacity cell's twin with its config a shallow store: Store style replaces the store's `style` (0.5 ↔ 0.8) and shows at once, and a hover (or a phone's tap) goes to 1 and back to the store's value. Its three board runs pass headless; every other card is unchanged on both builds.

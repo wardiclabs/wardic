@@ -228,15 +228,15 @@ const View: ScenarioDef["View"] = (props) => {
   // --- the swipe card ---
   let card!: HTMLElement
   // Its opacity is derived from its own x. Solid 1's createWard took the element's style after the
-  // ward was made; a Solid 2 ward takes it in its config, so the config is an accessor naming the
-  // opacity once it's made, below, from the ward's read("x"). The ward reads its style when it
-  // renders and follows its Live values from its mount, both after this body has run (#264).
+  // ward was made; a Solid 2 ward takes it in its config, so its `style` key is an accessor naming the
+  // opacity once it's made, below, from the ward's read("x"). The ward reads its style, per key (#259),
+  // when it renders and follows its Live values from its mount, both after this body has run (#264).
   let swipeOpacity: Accessor<number> | undefined
-  const swipe = ward(() => ({
-    drag: "x" as const,
+  const swipe = ward({
+    drag: "x",
     dragSnapToOrigin: true,
-    style: { ...BOX, position: "absolute" as const, left: "120px", ...(swipeOpacity === undefined ? {} : { opacity: swipeOpacity }) },
-  }))
+    style: () => ({ ...BOX, position: "absolute" as const, left: "120px", ...(swipeOpacity === undefined ? {} : { opacity: swipeOpacity }) }),
+  })
   swipeOpacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
   const swipeSpec: CellSpec = {
     cell: "swipe card",
