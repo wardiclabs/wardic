@@ -23,6 +23,8 @@
 // - LY17 (#209 PR 5): only a change of `layoutDependency`'s value re-measures a layout node, as on
 //   Motion and Solid 1: a `style` move with it unchanged paints in place (the lab's free play found
 //   a Solid 2 effect re-measuring on every change of the config).
+// - LY18 (#257's audit): `<LayoutGroup>` keeps its children reactive: returned from its body, they were
+//   read once, and a conditional child never switched (Solid 2 logged STRICT_READ_UNTRACKED).
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
@@ -492,6 +494,19 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     setLeft(400)
     flushed(setDep)(1)
     expect(await flips(() => leftOf(box), base + 200, 200)).toBe(true)
+  })
+
+  it("LY18: LayoutGroup keeps its children reactive: a conditional child switches (#257's audit)", () => {
+    const [show, setShow] = createSignal(true)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <LayoutGroup>{Bool.match(show(), { onTrue: () => <span>a</span>, onFalse: () => <span>b</span> })}</LayoutGroup>
+      </WardicProvider>
+    ))
+    expect(host.textContent).toBe("a")
+    setShow(false)
+    flush()
+    expect(host.textContent).toBe("b")
   })
 
   it("LY16: layoutAnchor={false} projects a child absolutely: on a slower transition, it falls behind its parent", async () => {

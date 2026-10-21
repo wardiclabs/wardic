@@ -70,10 +70,12 @@ export function LayoutGroup(props: {
   readonly layoutDependency?: unknown
 }): JSX.Element {
   // A server render has no projection system to re-measure (ADR-0021).
-  if (isServer) return props.children
+  if (isServer) return <>{props.children}</>
   const projection = useWardicProjection()
   // A group-level dependency change re-measures the whole tree (Q5). `defer: true`
   // skips the mount read (nodes seed themselves on registration).
   createEffect(on(() => props.layoutDependency, () => projection.notify(), { defer: true }))
-  return props.children
+  // Its children in JSX, so they're read where they track: returned from the body, they were read
+  // once, and `<LayoutGroup>{open() ? a : b}</LayoutGroup>` never switched (#257's audit).
+  return <>{props.children}</>
 }

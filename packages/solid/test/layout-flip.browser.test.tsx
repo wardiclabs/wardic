@@ -8,6 +8,7 @@ import { LayoutGroup, measureLayoutBox, wardic, WardicProvider } from "@wardic/s
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
 import { createSignal } from "solid-js"
+import * as Bool from "effect/Boolean"
 import { leftOf, raf, topOf, until, widthOf } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -91,6 +92,18 @@ it("LayoutGroup sibling reflow: growing A pushes B, and B FLIPs to its new posit
   })
   expect(sawMid).toBe(true) // B animated through the reflow (sibling reflow via whole-tree measure)
   expect(Math.abs(topOf(b) - (bTop0 + 100))).toBeLessThan(2)
+})
+
+it("LayoutGroup keeps its children reactive: a conditional child switches (#257's audit)", () => {
+  const [show, setShow] = createSignal(true)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <LayoutGroup>{Bool.match(show(), { onTrue: () => <span>a</span>, onFalse: () => <span>b</span> })}</LayoutGroup>
+    </WardicProvider>
+  ))
+  expect(container.textContent).toBe("a")
+  setShow(false)
+  expect(container.textContent).toBe("b")
 })
 
 it("nested treeScale: a scaling layout parent keeps its layout child's rendered size constant (counter-scale)", async () => {
