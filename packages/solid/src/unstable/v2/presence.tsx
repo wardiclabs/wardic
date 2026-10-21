@@ -13,12 +13,16 @@
  * @module
  */
 import { isServer, type JSX } from "@solidjs/web"
+import * as Bool from "effect/Boolean"
+import { constUndefined } from "effect/Function"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, onCleanup, untrack, useContext } from "solid-js"
 import { makePresence } from "../../presence-controller.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
 import { useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
+import { hasRef, makePresenceHandle, type Presence, serverPresenceHandle } from "./presence-handle.ts"
 
 /**
  * The nearest `<AnimatePresence>`'s registrar, `null` outside one: Solid 2 takes an `undefined`
@@ -38,6 +42,11 @@ export interface AnimatePresenceProps {
    * animates in from its `initial`. Exits are unchanged (#134).
    */
   readonly initial?: boolean
+  /**
+   * Its exits, heard (#257, ADR-0046): a `createPresence()` handle, or a callback handed the
+   * presence's own handle. Optional: left out, no handle is made. Read once.
+   */
+  readonly ref?: ((presence: Presence) => void) | undefined
 }
 
 /**
@@ -49,13 +58,18 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // A server render has no exit to drive: the same boundaries, a context that registers nothing.
   // eslint-disable-next-line solid/components-return-once -- `isServer` is a constant: the component takes one path for its life
   if (isServer) return serverPresence(props)
+  // Its own handle, made only when `ref` is given (#257): its exits are told to it, and it's handed to `ref`.
+  const ref = untrack(() => props.ref)
+  const own = Bool.match(hasRef(ref), { onTrue: makePresenceHandle, onFalse: constUndefined })
   const presence = makePresence({
     runtime: useWardicRuntime(),
     projection: useWardicProjection(),
     reducedMotion: useWardicReducedMotion(),
     positionalKeys: useWardicPositionalKeys(),
     initial: () => untrack(() => props.initial),
+    events: UndefinedOr.map(own, (handle) => handle.events),
   })
+  UndefinedOr.map(own, (handle) => (ref as (presence: Presence) => void)(handle.handle))
   onSettledClientOnly(presence.mounted)
   onCleanup(presence.teardown)
 
@@ -81,6 +95,9 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
 
 /** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
 const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
+  // A `ref` is handed the server's handle, on which nothing exits (#257).
+  const ref = untrack(() => props.ref)
+  if (hasRef(ref)) ref(serverPresenceHandle())
   // A server renders once: every child is set up with the first render (#134).
   const context: PresenceContextValue = { register: () => () => {}, blocksInitial: () => untrack(() => props.initial) === false }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element

@@ -21,11 +21,14 @@
 //   settles: nothing animates there (#257).
 // - SV15: `wardRef` on a server hands over the component's ward, and renders no attribute (#257).
 // - SV16: a ward's `each(name)` on a server ends at once: nothing happens there (#257).
+// - SV17: a presence handle on a server (#257): `createPresence()` reads not exiting, its `each` ends
+//   at once, and `<AnimatePresence ref>` hands a callback the server's handle.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
   AnimatePresence,
   createDrag,
+  createPresence,
   createFocus,
   createHover,
   createInView,
@@ -181,6 +184,24 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     })
     const seen: Array<unknown> = []
     for await (const release of card!.each("dragEnd")) seen.push(release)
+    expect(seen).toEqual([])
+  })
+
+  it("SV17: a presence handle reads not exiting, its each ends at once, and a ref callback is handed one", async () => {
+    let made: ReturnType<typeof createPresence> | undefined
+    let handed: ReturnType<typeof createPresence> | undefined
+    serve(() => {
+      made = createPresence()
+      return (
+        <AnimatePresence ref={(p) => (handed = p)}>
+          <div />
+        </AnimatePresence>
+      )
+    })
+    expect(made!.exiting()).toBe(false)
+    expect(handed!.exiting()).toBe(false)
+    const seen: Array<unknown> = []
+    for await (const event of made!.each("exitComplete")) seen.push(event)
     expect(seen).toEqual([])
   })
 

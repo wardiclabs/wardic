@@ -16,7 +16,6 @@
  *
  * @module
  */
-import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import { constUndefined } from "effect/Function"
@@ -28,6 +27,7 @@ import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } fro
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { eachOf, Waiters } from "./waiters.ts"
 
 /** The gesture layers that were on for an animation: `whileHover`'s, `whileTap`'s and `whileDrag`'s (a drag, or a keyboard reorder's lift). */
 export interface WardGestures {
@@ -106,16 +106,8 @@ export interface WardEvents {
 /** What `next(name)` waits for. */
 export type WardEvent = keyof WardEvents
 
-interface Waiter {
-  readonly resolve: (value: never) => void
-  readonly reject: (reason: DOMException) => void
-}
-
-/** The rejection of a `next` the ward's disposal cut off. */
-const aborted = (): DOMException => new DOMException("The ward was disposed before its next event.", "AbortError")
-
-/** The end of an `each`. */
-const ENDED: IteratorReturnResult<undefined> = { value: undefined, done: true }
+/** The `AbortError`'s message for a `next` the ward's disposal cut off. */
+const GONE = "The ward was disposed before its next event."
 
 /** The gesture whose recognizer an event needs: `next("tap")` needs the press one running. */
 const GESTURE_OF: Partial<Record<WardEvent, "hover" | "press">> = {
@@ -163,8 +155,8 @@ export class Lifecycle implements AnimationHooks {
   private setCount: ((count: number) => void) | undefined = undefined
   private memo: Accessor<WardSettled | undefined> | undefined = undefined
   private waiting: ((landing: WardSettled) => void) | undefined = undefined
-  // The `next(name)` calls waiting, by name, made at the first; and whether the ward is gone.
-  private waiters: Map<WardEvent, Array<Waiter>> | undefined = undefined
+  // The `next(name)` calls waiting, made at the first; and whether the ward is gone.
+  private events: Waiters<WardEvents> | undefined = undefined
   private disposed = false
   // The gestures a `next` has asked for, whose recognizers the ward runs from then on.
   private hover = false
@@ -202,7 +194,7 @@ export class Lifecycle implements AnimationHooks {
     this.landedPrevious = previous
     this.last = undefined
     const resolve = this.waiting
-    if (Bool.and(Predicate.isUndefined(resolve), Predicate.isUndefined(this.waiters))) return
+    if (Bool.and(Predicate.isUndefined(resolve), Predicate.isUndefined(this.events))) return
     this.waiting = undefined
     if (Predicate.isNotUndefined(resolve)) resolve(this.lastLanding() as WardSettled)
     this.tell("settled", this.landing)
@@ -210,13 +202,13 @@ export class Lifecycle implements AnimationHooks {
 
   /** A hover's start or end (#257). */
   hovered(transition: Recognizer.Transition): void {
-    if (Predicate.isUndefined(this.waiters)) return
+    if (Predicate.isUndefined(this.events)) return
     this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "hoverStart", onFalse: () => "hoverEnd" }), () => ({ point: viewportOf(transition.event) }))
   }
 
   /** A press's start or end (#257): a press a drag took over tells nothing. */
   pressed(press: Recognizer.PressEvent): void {
-    if (Predicate.isUndefined(this.waiters)) return
+    if (Predicate.isUndefined(this.events)) return
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
     this.tell(name, () => ({ point: viewportOf(press.event) }))
@@ -224,7 +216,7 @@ export class Lifecycle implements AnimationHooks {
 
   /** A drag's sample (#257): its start and its end are told. */
   dragged(sample: Drag.Sample): void {
-    if (Predicate.isUndefined(this.waiters)) return
+    if (Predicate.isUndefined(this.events)) return
     const name = DRAG_EVENT[sample.phase]
     if (Predicate.isUndefined(name)) return
     this.tell(name, () => ({
@@ -246,14 +238,8 @@ export class Lifecycle implements AnimationHooks {
   }
 
   /** Resolve the `next(name)` calls waiting, with `value()`, made once there are any. */
-  private tell(name: WardEvent, value: () => unknown): void {
-    const waiters = this.waiters
-    if (Predicate.isUndefined(waiters)) return
-    const due = waiters.get(name)
-    if (Predicate.isUndefined(due)) return
-    waiters.delete(name)
-    const told = value() as never
-    Arr.forEach(due, (waiter) => waiter.resolve(told))
+  private tell<E extends WardEvent>(name: E, value: () => WardEvents[E]): void {
+    UndefinedOr.map(this.events, (events) => events.tell(name, value))
   }
 
   /** The last landing, for {@link tell}. */
@@ -270,18 +256,14 @@ export class Lifecycle implements AnimationHooks {
    * gesture's recognizer, if the ward doesn't run it already.
    */
   wait<E extends WardEvent>(name: E): Promise<WardEvents[E]> {
-    return new Promise<WardEvents[E]>((resolve, reject) => {
-      if (this.disposed) return reject(aborted())
-      if (Predicate.isUndefined(this.waiters)) this.waiters = new Map()
-      const waiters = this.waiters
-      const waiter: Waiter = { resolve: resolve as (value: never) => void, reject }
-      UndefinedOr.match(waiters.get(name), {
-        onUndefined: () => waiters.set(name, [waiter]),
-        onDefined: (waiting) => waiting.push(waiter),
-      })
-      const gesture = GESTURE_OF[name]
-      if (Predicate.isNotUndefined(gesture)) this.wanted(gesture)
-    })
+    if (Predicate.isUndefined(this.events)) {
+      this.events = new Waiters<WardEvents>(GONE)
+      if (this.disposed) this.events.dispose()
+    }
+    const waited = this.events.wait(name)
+    const gesture = GESTURE_OF[name]
+    if (Bool.and(Predicate.isNotUndefined(gesture), Bool.not(this.disposed))) this.wanted(gesture as "hover" | "press")
+    return waited
   }
 
   /**
@@ -290,16 +272,13 @@ export class Lifecycle implements AnimationHooks {
    * would miss it. It ends, rather than rejecting, once the ward is disposed.
    */
   each<E extends WardEvent>(name: E): AsyncIterable<WardEvents[E]> {
-    return { [Symbol.asyncIterator]: () => new Each(this, name) }
+    return eachOf<WardEvents, E>(this, name)
   }
 
   /** The ward is gone: every `next` waiting is rejected, and any asked later at once. */
   dispose(): void {
     this.disposed = true
-    const waiters = this.waiters
-    if (Predicate.isUndefined(waiters)) return
-    this.waiters = undefined
-    waiters.forEach((due) => Arr.forEach(due, (waiter) => waiter.reject(aborted())))
+    UndefinedOr.map(this.events, (events) => events.dispose())
   }
 
   /** A gesture a `next` needs: its recognizer is started the first time. */
@@ -338,29 +317,5 @@ export class Lifecycle implements AnimationHooks {
     }, CLIENT_ONLY)
     if (this.starts !== this.landed) queueMicrotask(() => set(this.starts))
     return memo
-  }
-}
-
-/** An `each(name)`'s iterator: each step the next `name`, the end once the ward is disposed. */
-class Each<E extends WardEvent> implements AsyncIterator<WardEvents[E], undefined> {
-  private readonly lifecycle: Lifecycle
-  private readonly name: E
-
-  constructor(lifecycle: Lifecycle, name: E) {
-    this.lifecycle = lifecycle
-    this.name = name
-  }
-
-  next(): Promise<IteratorResult<WardEvents[E], undefined>> {
-    // A wait rejects only at the ward's disposal (its AbortError): the iteration's end.
-    return this.lifecycle.wait(this.name).then(
-      (value): IteratorResult<WardEvents[E], undefined> => ({ value, done: false }),
-      () => ENDED,
-    )
-  }
-
-  /** A `break` out of the loop: nothing waits between steps, so nothing is left behind. */
-  return(): Promise<IteratorResult<WardEvents[E], undefined>> {
-    return Promise.resolve(ENDED)
   }
 }

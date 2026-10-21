@@ -45,6 +45,7 @@ export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-prop
  * `initial={false}` starts the child present at its first render at its `animate` (#134).
  */
 export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
+export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
 export type { PresenceContextValue, PresenceRecord } from "../../presence-record.ts"
 
 /**

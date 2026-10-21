@@ -165,6 +165,35 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(reports).toEqual(["blend broke"])
   })
 
+  it("presence's onExitComplete (#257): one that throws is logged at Error with its cause, reported once, and the presence goes on", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const [shown, setShown] = createSignal(true)
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <AnimatePresence
+          onExitComplete={() => {
+            throw new Error("the app's onExitComplete broke")
+          }}
+        >
+          <Show when={shown()}>
+            <wardic.div data-leaving initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.1 }}>
+              x
+            </wardic.div>
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    await until(() => opacityOf(container.querySelector<HTMLElement>("[data-leaving]")!) === 1)
+    setShown(false)
+    await until(() => reports.length > 0)
+    const failed = errorsNamed(logs, "wardic.presence: onExitComplete failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("the app's onExitComplete broke")
+    expect(reports).toEqual(["the app's onExitComplete broke"])
+    expect(container.querySelector("[data-leaving]"), "removed").toBeNull()
+  })
+
   it("runScoped, through useWardicFiber: logged at Error with its cause, and reported", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []

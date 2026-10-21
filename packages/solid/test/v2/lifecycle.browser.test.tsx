@@ -7,6 +7,7 @@
 //   returns, built then, with the gesture layers its resolution was made with.
 // - LF3: a landing's definition is the variant name only when the variant changed since the Retarget
 //   before it; a gesture's Retarget over the same variant hands over its values.
+// - LF5: two `next` calls waiting on the same event both resolve at it (the shared Waiters, #257).
 // - LF4: a gesture's event is told at its viewport point, its `x`/`y` less the scroll its hold
 //   counted into them; a press a drag took over tells nothing, nor does a drag's move.
 import * as InputSource from "@wardic/core/InputSource"
@@ -94,5 +95,16 @@ describe("a ward's lifecycle (#257)", () => {
     // The dragged press told neither: the cancel waits on, until the disposal.
     dispose()
     expect(await cancel.then(() => "resolved", (error: unknown) => (error as DOMException).name)).toBe("AbortError")
+  })
+
+  it("LF5: two next calls waiting on the same event both resolve at it", async () => {
+    const { lifecycle, dispose } = lifecycleIn()
+    const a = resolution({ opacity: 1 })
+    const first = lifecycle.wait("settled")
+    const second = lifecycle.wait("settled")
+    lifecycle.started(a)
+    lifecycle.settled(a, undefined)
+    expect((await Promise.all([first, second])).map((landing) => landing.target)).toEqual([{ opacity: 1 }, { opacity: 1 }])
+    dispose()
   })
 })
