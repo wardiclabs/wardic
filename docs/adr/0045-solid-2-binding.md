@@ -258,6 +258,7 @@ Grilled 2026-10-20: scenario 14's Solid 2 card drives both Reorder forms, by a s
 - **Scenario 14's form select:** Motion's components (`Reorder.Group` / `Reorder.Item`, the default, so runs compare with Solid 1's) or the binding's own factories (`reorderGroup` on a `<ul>`, `reorderItem` on each `<li>`, each made in a component's body). A factories run records it in its mode.
 - **A ward's style derived from the ward itself.** s18's swipe card fades with its own `x`. Solid 1's `createWard` took the element's style after the ward was made; a Solid 2 ward takes its style in its config, which names an opacity made from the ward's own `read("x")`. So the config is an accessor naming the opacity once it's made: the ward reads its style when it renders and follows its Live values from its mount, both after the component's body, so the opacity still carries the ward's Atom ("same frame" passes). Motion makes the `x` value first (`useMotionValue`), so no cycle arises. A cleaner form for this is an API question left open.
 - Solid 2's JSX types `aria-pressed` as an enumerated string, not a boolean (s19).
+- **A Live-value run cut short by the cell's next gesture** (found by hand: a hover let go and entered again within 0.5 s) never lands, so it failed follows and returns, on both builds. The recorder now marks it `superseded`, and those two lines read "cut short by the next gesture, not judged", as for a run cut off at the time limit; the next run is judged on its own.
 
 ### Pinned by (PR 5b)
 
@@ -266,3 +267,4 @@ Grilled 2026-10-20: scenario 14's Solid 2 card drives both Reorder forms, by a s
   - s14: in the y list, x row and xy grid, a drag and a keyboard reorder each; components on both builds give the same orders, every line passing, focus kept, the same announcements; the factories the same on Solid 2; and in a scroll container on the CSS card (moved by C) and on the draggable card, on each form.
   - s15 and s16: every cell and toggle, 37 and 18 board runs, all passing; s17 in its rationale's sequence, the same verdicts (wrong-origin 30 px where it says so) and callbacks lines on both; s18 and s19: 9 and 8 Live-value runs, all passing, the swipe card in the same frame.
   - Every trigger scenario, now with s17 on Solid 2 too: clean at its expected held frames, cold and warm, under both scheduler modes, the two builds alike.
+- **By hand,** on the Solid 2 build (the user, Windows, Chrome 155): 40 drag runs, 6 rest runs and 9 s17 runs as expected; 142 of 144 board runs, the other two the cut-short runs above.
