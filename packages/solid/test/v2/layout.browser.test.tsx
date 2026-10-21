@@ -117,7 +117,7 @@ describe("layout on Solid 2: FLIPs and their triggers", () => {
     const [moved, setMoved] = createSignal(false)
     let box!: HTMLElement
     const Box = () => {
-      const card = ward(() => ({ layout: true, layoutDependency: moved() }))
+      const card = ward({ layout: true, layoutDependency: moved })
       return <div {...card} ref={[card, (n: HTMLElement) => (box = n)]} class={{ "lf-box": true, moved: moved() }} />
     }
     mount(() => (
@@ -403,7 +403,7 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     const [on, setOn] = createSignal(true)
     let card!: ReturnType<typeof ward>
     const Box = () => {
-      card = ward(() => ({ layout: true, animate: Bool.match(on(), { onTrue: () => ({ x: 50, opacity: 1 }), onFalse: () => ({ opacity: 1 }) }), transition: { type: "tween", duration: 0.1 } }))
+      card = ward({ layout: true, animate: () => Bool.match(on(), { onTrue: () => ({ x: 50, opacity: 1 }), onFalse: () => ({ opacity: 1 }) }), transition: { type: "tween", duration: 0.1 } })
       return <div {...card} style={{ width: "40px", height: "40px" }} />
     }
     mount(() => (

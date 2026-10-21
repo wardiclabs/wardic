@@ -79,7 +79,6 @@ import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-m
 import { presenceBlocksInitial } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
-  accessorOf,
   appearEntryOf,
   applyDragDefaults,
   dragAxisOf,
@@ -116,6 +115,7 @@ import {
   useWardicRuntime,
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
+import { configView, type Fixed, type PerKey } from "./config-view.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
@@ -128,14 +128,72 @@ import { createVariantNode, useVariantContext, WardicVariantContext } from "./va
  */
 export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string | undefined> | undefined }
 
-/** A ward's config (ADR-0042): the element's motion, and its `style`. */
-export interface WardConfig extends SharedWardConfig {
+/** A ward's config values (ADR-0042): the element's motion, and its `style`. */
+export interface WardConfigValues extends SharedWardConfig {
   /**
    * The element's style: Wardic's animated keys go over it, and a key no layer of the Override
    * stack sets returns to it (ADR-0022). Its Live values are followed through the gate (#130).
    */
   readonly style?: WardStyle | string | undefined
 }
+
+/** The config keys whose values are functions: read as they are, never called as accessors (#259). */
+type WardCallbackKey = "onLayoutAnimationStart" | "onLayoutAnimationComplete" | "onUpdate"
+
+/**
+ * A ward's config (ADR-0042, #259): each key a value, or an accessor of it, read per key. A getter,
+ * a store's property or a component's prop is tracked as it's read, and an accessor is called as
+ * it's read, so a change re-runs only what reads that key; a plain value is a constant. `initial`,
+ * `drag` and its settings, and `layout` and the rest of its keys are read once, at setup.
+ */
+export type WardConfig = PerKey<WardConfigValues, WardCallbackKey>
+
+/** Every key a ward reads, its callbacks among them. */
+const WARD_KEYS = [
+  "initial",
+  "animate",
+  "variants",
+  "inherit",
+  "whileHover",
+  "whileTap",
+  "drag",
+  "whileDrag",
+  "dragConstraints",
+  "dragElastic",
+  "dragMomentum",
+  "dragSnapToOrigin",
+  "dragTransition",
+  "dragPropagation",
+  "transition",
+  "exit",
+  "layout",
+  "layoutDependency",
+  "layoutId",
+  "layoutScroll",
+  "layoutRoot",
+  "layoutAnchor",
+  "onLayoutAnimationStart",
+  "onLayoutAnimationComplete",
+  "onUpdate",
+  "appear",
+  "style",
+] as const satisfies ReadonlyArray<keyof WardConfigValues>
+/** Types only: a key `WardConfigValues` gains and {@link WARD_KEYS} misses fails here. */
+type UnreadKey = Exclude<keyof WardConfigValues, (typeof WARD_KEYS)[number]>
+const everyKeyRead: [UnreadKey] extends [never] ? true : UnreadKey = true
+void everyKeyRead
+
+/** A ward's config read per key (#259). */
+const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onLayoutAnimationStart", "onLayoutAnimationComplete", "onUpdate"])
+
+/** `config` read per key (#259), for a read outside a ward: a `wardic.<tag>`'s props at setup. Internal. */
+export const wardConfigView = (config: WardConfig): WardConfigValues => WARD_VIEW.of(config)
+
+/** A config given whole as an accessor, which the Solid 2 binding no longer reads (#259). */
+const WHOLE_ACCESSOR =
+  "ward(config) takes its config as an object, read per key (#259): make a key reactive with an accessor " +
+  "(`ward({ animate: () => ({ x: x() }) })`), a getter, a store or a component's props, not the whole config " +
+  "(`ward(() => ({ … }))`)."
 
 /**
  * {@link Ward.read} (#209 PR 3's Q4): completion offers the keys its config animates, and any other
@@ -209,9 +267,19 @@ export interface WardInternals {
   readonly baseStyle?: (() => object | undefined) | undefined
   /** Told the element at mount; what it returns is called at unmount. */
   readonly onMount?: ((element: HTMLElement) => () => void) | undefined
+  /** Values fixed over the config's, read as its own are: a `<Reorder>` item's `layout`, its Layout mode. */
+  readonly fixed?: Fixed<WardConfigValues> | undefined
 }
 
 const NO_INTERNALS: WardInternals = {}
+
+/** Which gesture layers are on: one value, so the target memo reads one signal for the three (#259). */
+interface Gestures {
+  readonly hovered: boolean
+  readonly pressed: boolean
+  readonly dragging: boolean
+}
+const NO_GESTURES: Gestures = { hovered: false, pressed: false, dragging: false }
 
 /** Whether a ward's call is Solid applying it as a ref. */
 const isElement = (value: unknown): value is HTMLElement => Predicate.hasProperty(value, "nodeType")
@@ -220,11 +288,12 @@ const isElement = (value: unknown): value is HTMLElement => Predicate.hasPropert
 const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantContextValue | null => Option.getOrNull(Option.fromUndefinedOr(value))
 
 /**
- * A ward: `config` read once, or reactively through an accessor or getters. Call it where you'd
- * make a signal, in a component or a root, under a `WardicProvider`. Its config's type is kept, so
- * `read` and `atom` complete the keys it animates.
+ * A ward: `config` read per key (#259), each key a value, or an accessor of it, a getter, a store's
+ * property or a component's prop (`ward(props)`). Call it where you'd make a signal, in a component
+ * or a root, under a `WardicProvider`. Its config's type is kept, so `read` and `atom` complete the
+ * keys it animates.
  */
-export function ward<const C extends WardConfig>(config: C | Accessor<C>): Ward<C> {
+export function ward<const C extends WardConfig>(config: C): Ward<C> {
   return wardWith(config, NO_INTERNALS) as Ward<C>
 }
 
@@ -242,7 +311,8 @@ const REMADE =
 const justLeft = new WeakSet<Element>()
 
 /** {@link ward} with a `wardic.<tag>`'s additions. Internal. */
-export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: WardInternals): Ward {
+export function wardWith(config: WardConfig, internal: WardInternals): Ward {
+  if (Predicate.isFunction(config)) throw new Error(WHOLE_ACCESSOR)
   const runtime = useWardicRuntime()
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
@@ -254,17 +324,20 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const reactivity = reactivityIn(owner)
   // SSR/hydration-stable: the server ward makes the same one call.
   const id = createUniqueId()
-  const cfg = accessorOf(config)
+  // Its config, read per key where it's read (#259): a change re-runs only what reads the key.
+  const view = WARD_VIEW.of(config, internal.fixed)
+  const cfg = (): WardConfigValues => view
+  // The config at setup, a plain copy read untracked: what setup reads, the keys read once among it.
+  const initialConfig = WARD_VIEW.snapshotOf(view)
 
   // Its place in variant orchestration (ADR-0007, #50).
-  const node = createVariantNode(cfg, useVariantContext())
+  const node = createVariantNode(cfg, initialConfig, useVariantContext())
 
   // The nearest <AnimatePresence> (ADR-0007), or none.
   const presence = usePresenceContext()
 
   // The values it starts from, read once (ADR-0003): its `initial`, or the one it inherits, or its
   // `animate` with `initial={false}` (its own, inherited, or its presence's first render, #134).
-  const initialConfig = untrack(cfg)
   const start = startOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
   const { project } = runtime.runSync(Renderer.Renderer)
 
@@ -302,7 +375,7 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
 
   const snapshot = snapshotOf(start)
   const reuse = makeReuse()
-  const configNow = (): WardConfig => untrack(cfg)
+  const configNow = (): WardConfigValues => view
   const styleNow = (): WardStyle | string | undefined => untrack(userStyle)
 
   // Its exit target under an <AnimatePresence>, kept current while it's alive: the presence reads it
@@ -323,21 +396,30 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
   const layoutMember = wantsLayoutNode(initialConfig)
   const dragTransition = dragTransitionOf(initialConfig.dragElastic, initialConfig.dragTransition)
 
-  // Its gesture layers' states (ADR-0005): the hover and press recognizers, each started on its
-  // element the first time its `while*` target is set (#87, ADR-0040), and the drag's.
-  const [hovered, setHovered] = createSignal(false, { ownedWrite: true })
-  const [pressed, setPressed] = createSignal(false, { ownedWrite: true })
-  const [dragging, setDragging] = createSignal(false, { ownedWrite: true })
-  const wantsHover = createMemo(() => Predicate.isNotUndefined(cfg().whileHover), CLIENT_ONLY)
-  const wantsPress = createMemo(() => Predicate.isNotUndefined(cfg().whileTap), CLIENT_ONLY)
+  // Its gesture layers' states (ADR-0005), one signal for the three, so the target reads one (#259):
+  // the hover and press recognizers, each started on its element the first time its `while*` target
+  // is set (#87, ADR-0040), and the drag's. A write that changes nothing keeps the same object.
+  const [gestures, setGestures] = createSignal<Gestures>(NO_GESTURES, { ownedWrite: true })
+  const setHovered = (hovered: boolean): void => {
+    setGestures((g) => Bool.match(g.hovered === hovered, { onTrue: () => g, onFalse: () => ({ ...g, hovered }) }))
+  }
+  const setPressed = (pressed: boolean): void => {
+    setGestures((g) => Bool.match(g.pressed === pressed, { onTrue: () => g, onFalse: () => ({ ...g, pressed }) }))
+  }
+  const setDragging = (dragging: boolean): void => {
+    setGestures((g) => Bool.match(g.dragging === dragging, { onTrue: () => g, onFalse: () => ({ ...g, dragging }) }))
+  }
+  const dragging = (): boolean => gestures().dragging
+  const wantsHover = (): boolean => Predicate.isNotUndefined(cfg().whileHover)
+  const wantsPress = (): boolean => Predicate.isNotUndefined(cfg().whileTap)
 
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
   // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
   const lifted = UndefinedOr.match(internal.lifted, { onUndefined: () => constFalse, onDefined: identity })
   const target = createMemo<Resolution>(
     () => {
-      const held = dragging()
-      return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: hovered(), pressed: pressed(), dragged: Bool.or(held, lifted()), dragging: held })
+      const g = gestures()
+      return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: g.hovered, pressed: g.pressed, dragged: Bool.or(g.dragging, lifted()), dragging: g.dragging })
     },
     { equals: sameResolution, transparent: true },
   )
@@ -482,10 +564,6 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
         UndefinedOr.map(layout, (node) => node.dispose())
         unregisterValues()
         unregister()
-        // Its gestures end with it.
-        setHovered(false)
-        setPressed(false)
-        setDragging(false)
       },
     }
     startRecognizers(m)
@@ -493,7 +571,8 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     return m
   }
 
-  // A `while*` target set after mount starts its recognizer then (#87, ADR-0040).
+  // A `while*` target set after mount starts its recognizer then (#87, ADR-0040). Its compute reads
+  // the two keys, so only their changes re-run it (#259).
   createEffect(
     () => wantsHover() || wantsPress(),
     (wanted) => {
@@ -527,8 +606,13 @@ export function wardWith(config: WardConfig | Accessor<WardConfig>, internal: Wa
     ({ el, resolution }) => {
       if (Predicate.isUndefined(el)) return
       if (Predicate.isUndefined(mounted) || mounted.element !== el) {
+        // A new element starts with no gesture on: one on the element it left ended with it. A ward
+        // disposed with its owner resets nothing (#259).
+        if (Predicate.isNotUndefined(mounted)) setGestures(NO_GESTURES)
         unmount()
-        mounted = mount(el)
+        // Its config is read at mount (its layout node's options, its `onUpdate`, its spine's) through
+        // the per-key view (#259): untracked, so said, as the Retarget below.
+        mounted = untrack(() => mount(el))
       }
       // The spine reads the variant context (its gates, its stagger, what it inherits) at the
       // Retarget, once: untracked, so said (Solid 2's dev build warns of a reactive read in an
@@ -610,9 +694,9 @@ const readServerStyle = (value: unknown): unknown => readLive(value, serverRegis
  * render puts them, and its `.Provider` renders the same nesting, with the same names and inert
  * orchestration. No Appear animation yet (PR 4 of #209).
  */
-const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: WardInternals): Ward => {
+const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   createUniqueId()
-  const c = untrack(accessorOf(config))
+  const c = WARD_VIEW.snapshotOf(WARD_VIEW.of(config, internal.fixed))
   const node = serverVariantNode(c, useVariantContext())
   const initialValues = startOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack).initialValues
   const layoutNode = isLayoutNode(c)

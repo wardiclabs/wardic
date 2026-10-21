@@ -87,10 +87,10 @@ const MOVING: unique symbol = Symbol("wardic.moving")
  */
 const ownOrchestration = (
   cfg: Accessor<VariantConfig>,
+  config: VariantConfig,
   parent: WardicVariantContextValue | undefined,
   inherited: WardicVariantContextValue | undefined,
 ): OwnOrchestration => {
-  const config = untrack(cfg)
   // Children in mount order (a Set keeps insertion order), snapshotted at each trigger. Kept with a
   // count of the unsettled ones rather than a signal of the records, so a child's mount, unmount or
   // settle costs the same at 1,000 children as at 1. The count is plain, and the signal its copy:
@@ -185,18 +185,18 @@ const ownOrchestration = (
 }
 
 /**
- * An element's place in variant orchestration on the client, from its config and the nearest
- * context (`useVariantContext()`). Call within a Solid owner.
+ * An element's place in variant orchestration on the client, from its config (`cfg`, read where it
+ * tracks; `config`, the ward's plain copy at setup, #259) and the nearest context
+ * (`useVariantContext()`). Call within a Solid owner.
  */
-export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVariantContextValue | undefined): VariantNode => {
-  const config = untrack(cfg)
+export const createVariantNode = (cfg: Accessor<VariantConfig>, config: VariantConfig, parent: WardicVariantContextValue | undefined): VariantNode => {
   const inherited = inheritedContext(config, parent)
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)
   const own = Bool.match(hasOwnVariants(config), {
     onFalse: constUndefined,
-    onTrue: () => ownOrchestration(cfg, parent, inherited),
+    onTrue: () => ownOrchestration(cfg, config, parent, inherited),
   })
   // The spine reports on every frame (the per-frame path, docs/agents/effect-first.md): both
   // reports are resolved here, once, so a frame makes two plain calls and allocates nothing.

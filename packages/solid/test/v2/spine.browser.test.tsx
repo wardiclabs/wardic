@@ -56,11 +56,11 @@ describe("the shared spine, through the Solid 2 ward", () => {
     let el!: HTMLElement
     const [on, setOn] = createSignal(false)
     const Card = () => {
-      const card = ward(() => ({
+      const card = ward({
         initial: { "background-color": "#ff0000" } as WardicValues,
-        animate: Bool.match(on(), { onTrue: () => ({ "background-color": "var(--brand)" }) as WardicValues, onFalse: () => ({ "background-color": "#ff0000" }) as WardicValues }),
+        animate: () => Bool.match(on(), { onTrue: () => ({ "background-color": "var(--brand)" }) as WardicValues, onFalse: () => ({ "background-color": "#ff0000" }) as WardicValues }),
         transition: TWEEN,
-      }))
+      })
       return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
     }
     mount(() => (
@@ -88,11 +88,11 @@ describe("the shared spine, through the Solid 2 ward", () => {
     let el!: HTMLElement
     const [dim, setDim] = createSignal(true)
     const Card = () => {
-      const card = ward(() => ({
-        animate: Bool.match(dim(), { onTrue: () => ({ opacity: 0.2 }), onFalse: () => ({}) }),
+      const card = ward({
+        animate: () => Bool.match(dim(), { onTrue: () => ({ opacity: 0.2 }), onFalse: () => ({}) }),
         style: { opacity: 0.8 },
         transition: TWEEN,
-      }))
+      })
       return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
     }
     mount(() => (
@@ -184,7 +184,7 @@ describe("the shared spine, through the Solid 2 ward", () => {
     let el!: HTMLElement
     const [duration, setDuration] = createSignal(0.6)
     const Card = () => {
-      const card = ward(() => ({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { type: "tween", duration: duration(), ease: "linear" } as const }))
+      const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: () => ({ type: "tween", duration: duration(), ease: "linear" }) as const })
       return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
     }
     const start = performance.now()

@@ -12,9 +12,10 @@
 import { DomLive } from "@wardic/dom"
 import { ward, wardic, type WardConfig, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
+import { constUndefined } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Tracer from "effect/Tracer"
-import { type Accessor, createSignal, flush, Show } from "solid-js"
+import { createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -44,7 +45,7 @@ const takes = async (el: Element, event: () => Event, done: () => boolean, what:
 }
 
 /** One element with a kept ward on `config`, in a provider over `env`. */
-const box = (env: WardicEnv, config: Accessor<WardConfig>) => {
+const box = (env: WardicEnv, config: WardConfig) => {
   let el!: HTMLElement
   const [shown, setShown] = createSignal(true)
   const Box = () => {
@@ -73,7 +74,7 @@ describe("a ward's gestures on Solid 2", () => {
   })
 
   it("GE2: whileTap through a kept ward: a press animates to it, its release returns", async () => {
-    const b = box(DomLive, () => ({ initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileTap: { opacity: 1 } }))
+    const b = box(DomLive, { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileTap: { opacity: 1 } })
     await until(() => Math.abs(opacityOf(b.el()) - 0.2) < 0.01)
     await takes(b.el(), () => new PointerEvent("pointerdown", { ...mouse, button: 0, buttons: 1 }), () => opacityOf(b.el()) > 0.3, "press takes")
     b.el().dispatchEvent(new PointerEvent("pointerup", { ...mouse, button: 0, buttons: 0 }))
@@ -83,7 +84,7 @@ describe("a ward's gestures on Solid 2", () => {
 
   it("GE3: with neither set, neither recognizer starts, and the element still animates", async () => {
     const { env, count } = recording()
-    const b = box(env, () => ({ initial: { opacity: 0 }, animate: { opacity: 1 } }))
+    const b = box(env, { initial: { opacity: 0 }, animate: { opacity: 1 } })
     await until(() => opacityOf(b.el()) >= 0.99)
     expect(opacityOf(b.el())).toBeGreaterThan(0.99)
     b.el().dispatchEvent(new PointerEvent("pointerenter", mouse))
@@ -95,7 +96,7 @@ describe("a ward's gestures on Solid 2", () => {
   it("GE4: whileHover set after mount starts hover once; unset and set again, it isn't started twice", async () => {
     const { env, count } = recording()
     const [hoverable, setHoverable] = createSignal(false)
-    const b = box(env, () => ({ initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, ...Bool.match(hoverable(), { onTrue: () => ({ whileHover: { opacity: 1 } }), onFalse: () => ({}) }) }))
+    const b = box(env, { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileHover: () => Bool.match(hoverable(), { onTrue: () => ({ opacity: 1 }), onFalse: constUndefined }) })
     await until(() => Math.abs(opacityOf(b.el()) - 0.2) < 0.01)
     expect(count("wardic.hover"), "not wanted yet").toBe(0)
     setHoverable(true)

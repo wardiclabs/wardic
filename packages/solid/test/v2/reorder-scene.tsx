@@ -197,13 +197,13 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     </Reorder.Group>
   )
   const Factories = (): JSX.Element => {
-    const list = reorderGroup(() => ({ values: order(), onReorder, axis: o.axis?.(), style: { ...groupCss(o), ...o.groupStyle?.() } }))
+    const list = reorderGroup({ values: order, onReorder, axis: () => o.axis?.(), style: () => ({ ...groupCss(o), ...o.groupStyle?.() }) })
     move = list.move
     return (
       <ul {...list} ref={[list, (el: HTMLElement) => (groupEl = el)]}>
         <For each={order()}>
           {(value) => {
-            const row = reorderItem(list, () => ({ value, style: { ...itemCss(o), ...o.itemStyle?.() }, ...optional("whileDrag", o.whileDrag) }))
+            const row = reorderItem(list, { value, style: () => ({ ...itemCss(o), ...o.itemStyle?.() }), ...optional("whileDrag", o.whileDrag) })
             return (
               <li {...row} data-value={value}>
                 {value}

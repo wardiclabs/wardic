@@ -240,7 +240,7 @@ describe("reorderGroup and reorderItem", () => {
     let group!: HTMLElement
     let opacityOfB!: Accessor<number | undefined>
     const List = () => {
-      const list = reorderGroup(() => ({ values: values(), onReorder: setValues }))
+      const list = reorderGroup({ values, onReorder: setValues })
       return (
         <ul ref={[list, (el: HTMLElement) => (group = el)]} style={{ position: "absolute", left: "40px", top: "40px", width: "200px", margin: "0", padding: "0" }}>
           <For each={values()}>
@@ -278,7 +278,7 @@ describe("reorderGroup and reorderItem", () => {
     const scene = (keyed: boolean) => {
       const [values, setValues] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
       const List = () => {
-        const list = reorderGroup(() => ({ values: values(), onReorder: setValues }))
+        const list = reorderGroup({ values, onReorder: setValues })
         const row = (value: string) => {
           const item = reorderItem(list, { value, style: { height: "30px" } })
           return <li {...item}>{value}</li>

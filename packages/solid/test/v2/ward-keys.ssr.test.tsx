@@ -6,7 +6,7 @@
 // - WK1: the keys a config animates, from every layer, and its drag axis's.
 // - WK2: a transform key reads a number; any other the type its config gives it, or `undefined`.
 // - WK3: a key the config doesn't animate is accepted, read as any value.
-// - WK4: an accessor config's keys, and a Live value's in `style`, read through.
+// - WK4: a key's accessor (#259), and a Live value's in `style`, read through.
 // - WK5: a plain `WardConfig` offers every key, and `atom(key)` follows `read(key)`'s type.
 import { type AnimatedKey, ward, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
@@ -15,7 +15,7 @@ import { describe, expect, expectTypeOf, it } from "vitest"
 import { serve } from "./ssr.ts"
 
 /** `ward(config)`'s ward, made in a server render's owner. */
-const wardOn = <const C extends WardConfig>(config: C | Accessor<C>) => {
+const wardOn = <const C extends WardConfig>(config: C) => {
   let made!: ReturnType<typeof ward<C>>
   serve(() => {
     made = ward(config)
@@ -65,9 +65,9 @@ describe("a ward's keys, typed from its config (#209)", () => {
     card.read(1)
   })
 
-  it("WK4: an accessor config's keys, and a Live value's in style, read through", () => {
+  it("WK4: a key's accessor (#259), and a Live value's in style, read through", () => {
     const [x] = createSignal(30)
-    const fromAccessor = wardOn(() => ({ animate: { opacity: 1 } }))
+    const fromAccessor = wardOn({ animate: () => ({ opacity: 1 }) })
     expectTypeOf(fromAccessor.read("opacity")).toEqualTypeOf<Accessor<number | undefined>>()
     const live = wardOn({ style: { left: x } })
     expectTypeOf(live.read("left")).toEqualTypeOf<Accessor<number | undefined>>()
