@@ -17,6 +17,7 @@
 // - CK9: a `<Reorder>` item's `layout` is its Layout mode, read at each layout animation's start
 //   (ADR-0009, *Amendment (#42)*): switched to `"position"` before a reorder, its new width paints at once.
 import { DomLive } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import { reorderGroup, reorderItem, ward, wardic, WardicProvider, type WardConfig } from "@wardic/solid/unstable/v2"
 import { createSignal, createStore, flush, For } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -150,7 +151,7 @@ describe("a ward's config, read per key (#259)", () => {
     }
     const { host } = mount(() => (
       <WardicProvider env={DomLive}>
-        <Card animate={{ opacity: open() ? 1 : 0.25 }} class="card">
+        <Card animate={{ opacity: Bool.match(open(), { onTrue: () => 1, onFalse: () => 0.25 }) }} class="card">
           text
         </Card>
       </WardicProvider>
