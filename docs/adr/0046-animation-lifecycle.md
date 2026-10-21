@@ -4,7 +4,7 @@ An app can now hear when an element's animation starts and when it lands. Solid 
 
 It lands in four PRs:
 1. The spine's signal and Solid 1's callbacks (this ADR's *Built (PR 1)*).
-2. Solid 2's `card.settled()` and `card.next(name)`, with the gesture events.
+2. Solid 2's `card.settled()` and `card.next(name)`, in two: `settled()` and `next("settled")` (*Built (PR 2a)*), then the gesture events, which need core's recognizers to report a pointer and to tell a tap from a cancel.
 3. Solid 2's layout callbacks moving to async.
 4. Presence exits, on both bindings.
 
@@ -47,9 +47,39 @@ It lands in four PRs:
 - **Solid 1's `wardic.*` props:** Motion's `onAnimationStart` replaces the DOM's CSS `animationstart` handler in their type, as on a Motion component, where it's a motion prop (`valid-prop.ts:22-23`) and never reaches the DOM.
 - **On Solid 2,** neither name is a motion prop or a config key. `onAnimationStart` on a `wardic.div` is the DOM's CSS event, and the ward's own animations call neither. `MOTION_PROPS_V2` and `WardicMotionPropsV2` are the Solid 2 binding's lists.
 
+## `settled()` before the first landing (grilled 2026-10-21, PR 2's Q1: B)
+
+`settled()` is ready from its first read: `undefined` before the first landing. A Retarget in flight makes it pending, so `isPending(() => card.settled())` is "animating", the entrance included, and a read keeps the last landing meanwhile.
+
+- **Why not pending until the entrance lands,** as every Solid 2 async value starts? A probe with a mock ward showed where it fails:
+  - **Read with no `<Loading>` above it,** an async value defers its root's mount. The ward mounts in an effect, so it never mounted, its entrance never started, and the read never resolved: the page stayed blank for good. Solid's dev build warns (`ASYNC_OUTSIDE_LOADING_BOUNDARY`), but nothing recovers. A fetch resolves on its own; this value waits for the mount it holds back.
+  - The same goes for anything mounted with its reader, such as a modal holding both the card and a reader with no `<Loading>` between.
+  - **With `<Loading>` around the reader,** the fallback shows until the entrance lands, as intended. Around the card too, the entrance plays hidden and the content shows landed.
+- **So the trade:** `<Loading>`'s fallback can't wait for an entrance. `<Show when={!isPending(() => card.settled())}>` can.
+- **A first read during an animation isn't pending either.** It reads the last landing, and the Retarget in flight is set from a microtask, so it pends from there. Set in the read's own flush, Solid applied the write there, and the first read was pending (SE7).
+- **Probed too:**
+  - after a landing, a change leaves the rest of the page updating at once, the reader keeping the last landing and `isPending` true until it lands;
+  - `await resolve(() => card.settled())` right after a write returns the previous landing unless it's `flush()`ed first, so `await card.next("settled")` is the wait to use in a handler;
+  - a pending read whose memo is disposed never settles in Solid (`resolve()` hangs), so the `AbortError` is `next()`'s;
+  - a bare read outside `<Loading>` still gets Solid's dev warning once a Retarget pends, and nothing else; a read beside `isPending` gets none.
+- Rejected: pending until the first landing (above).
+
+## Built (PR 2a)
+
+- **`card.settled()`** is an async memo of the last landing: `{ definition, target, gestures }`.
+  - **`definition`** is Solid 1's (`definitionOf`): the variant name when the variant changed, else the target values.
+  - **`target`** is every key the Retarget animated.
+  - **`gestures`** (`{ hover, tap, drag }`) are the layers its target was resolved with: `Resolution` now keeps the `Active` it was made from, so nothing is read at the start. `drag` includes a **Keyboard reorder**'s lift, which turns `whileDrag` on.
+- **`card.next("settled")`** is a promise of the next landing after the call. A Retarget the next one interrupts doesn't land; it waits for one that does. It's rejected with a `DOMException` named `"AbortError"` when the ward's owner is disposed, and at once when asked after.
+- **One object a ward, built lazily** (`unstable/v2/lifecycle.ts`). The `Lifecycle` is the spine's hooks itself, and its disposal runs in the ward's own cleanup. Until `settled` is first read, a start and a landing are a count and a reference: a ward no one asks makes no signal and no memo, and a landing's record is built when it's asked for. Then a signal of the start count and a memo over it are made, under the ward's owner. The first build (closures for its parts, a cleanup of its own, the gestures read at each start) cost the Solid 2 page about 2% of mount and 4% of unmount; this one leaves mount +1.1% (IQR +0.1% to +2.1%) and the rest within noise (`bench:solid --base main`, N = 1,000).
+- **A settle told for a Retarget no longer in flight** lands nothing: it waits for the gate's flush, and a later Retarget may have started by then.
+- **A ward on a server:** `settled()` is `undefined`, and `next` never settles. Nothing animates there.
+- **Only a ward hands them over:** `ward()`, and so `reorderItem()`. `wardic.<tag>`, `wardic.create` and `Reorder.Item` don't expose their ward yet.
+
 ## Consequences
 
 - **New public API:**
+  - Solid 2: `Ward.settled` and `Ward.next`, and the `WardSettled`, `WardGestures`, `WardEvent` and `WardicAnimationDefinition` types;
   - Solid 1: `onAnimationStart` / `onAnimationComplete` on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicAnimationDefinition` type;
   - dom: `FlushGate.afterFlush`.
 - **Per Retarget:** two assignments and a guard, plus a read of each callback key when it starts and when it settles. A settle with hooks queues one call on the gate.
@@ -68,6 +98,20 @@ It lands in four PRs:
   - two legs completing once;
   - a hover over a variant.
 - **solid (Solid 2):** `test/v2/wardic.browser.test.tsx` WC11: `onAnimationStart` is the DOM's event.
+- **solid (Solid 2), PR 2a:**
+  - `test/v2/settled.browser.test.tsx` SE1–SE10:
+    - `undefined` and no fallback at first, pending through the entrance, then its landing with the element at its value;
+    - a variant change, pending, the last landing kept;
+    - `next` past an interrupted Retarget;
+    - a hover's landing and its return's;
+    - the `AbortError`, pending and asked after;
+    - a Retarget with nothing to animate, never pending;
+    - a first read mid-entrance, not pending;
+    - no `<Loading>` at all, mounted and landed;
+    - not spread;
+    - a keyboard lift's `drag`.
+  - `test/v2/lifecycle.browser.test.tsx` LF1–LF3: a stale settle, a landing before the first read, and the definition across a gesture.
+  - `test/v2/server.ssr.test.tsx` SV14.
 - **dom:**
   - `test/gate.browser.test.ts` GA1–GA3: after the flush with the value committed, a flush of its own, a throw reported, and dropped at dispose;
   - `test/services.browser.test.ts` DS4: the inert gate's `afterFlush`.

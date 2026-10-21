@@ -124,6 +124,8 @@ export interface Resolution {
   readonly dragging: boolean
   /** The variant name the base layer resolved: its own `animate`'s, else the one it inherits; none for a values map. */
   readonly variant: string | undefined
+  /** The layers it was resolved with (#257): a landing's gestures are the ones its Retarget started with. */
+  readonly active: Active
 }
 
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
@@ -233,7 +235,7 @@ export const resolutionOf = (
     // after release.
     { active: active.dragged, values: Style.toValues(c.whileDrag) },
   ])
-  return { resolved, base, dragging: active.dragging, variant }
+  return { resolved, base, dragging: active.dragging, variant, active }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */

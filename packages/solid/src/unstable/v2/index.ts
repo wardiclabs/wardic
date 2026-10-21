@@ -23,6 +23,8 @@ export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "..
  * `.read(key)` and `.atom(key)` for its values.
  */
 export { type Ward, type WardConfig, type WardProps, type WardRead, type WardStyle, ward } from "./ward.tsx"
+export type { WardEvent, WardGestures, WardSettled } from "./lifecycle.ts"
+export type { WardicAnimationDefinition } from "../../config.ts"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 
 /** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */

@@ -116,6 +116,7 @@ import {
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { configView, type Fixed, type PerKey } from "./config-view.ts"
+import { Lifecycle, type WardEvent, type WardSettled } from "./lifecycle.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
@@ -238,6 +239,21 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
   readonly read: WardRead<C>
   /** The element's value for `key` as an `effect/reactivity` Atom, `undefined` while the gate doesn't hold the key. */
   readonly atom: <K extends WardKey<C>>(key: K) => Atom.Atom<WardValueOf<C, K & string> | undefined>
+  /**
+   * The element's last landing (#257, ADR-0046), as an async value: `undefined` before the first,
+   * ready from its first read, and pending while a Retarget runs, keeping the last landing meanwhile.
+   * `isPending(() => card.settled())` is "animating"; `card.settled()?.definition` is what landed:
+   * the variant name `animate` changed to, else the target values. Solid 1's
+   * `onAnimationStart` / `onAnimationComplete` have no place here.
+   */
+  readonly settled: Accessor<WardSettled | undefined>
+  /**
+   * A promise of the element's next landing after the call (#257, ADR-0046): `await
+   * card.next("settled")` in a handler or an action. A Retarget the next one interrupts doesn't
+   * land; the promise waits for one that does. Rejected with a `DOMException` named `"AbortError"`
+   * once the ward is disposed.
+   */
+  readonly next: (name: WardEvent) => Promise<WardSettled>
 }
 
 /** What a `wardic.*` component or a `<Reorder>` item adds to a ward. Internal. */
@@ -446,6 +462,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     { equals: sameResolution, transparent: true },
   )
 
+  // Its Retargets' starts and landings (#257, ADR-0046): `settled()` and `next("settled")`, each with
+  // the gesture layers its target was resolved with.
+  const lifecycle = new Lifecycle(owner)
+
 
   // The mounted element: registered with the gate, its layout node, its spine built over it, and the
   // fibers of its recognizers and drag track.
@@ -485,7 +505,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (justLeft.size === 0) queueMicrotask(forgetJustLeft)
     justLeft.add(left)
   }
-  onCleanup(unmount)
+  // Its element's mount goes, and its lifecycle's waits are rejected (#257): one cleanup.
+  onCleanup(() => {
+    unmount()
+    lifecycle.dispose()
+  })
 
   const mount = (el: HTMLElement): Mounted => {
     if (justLeft.has(el)) throw new Error(REMADE)
@@ -565,6 +589,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       projected: Predicate.isNotUndefined(layout),
       dragAxis,
       handoff,
+      animation: lifecycle,
     })
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
@@ -691,6 +716,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     Provider: { value: Provider },
     read: { value: read },
     atom: { value: (key: string) => gate.valueOf(id, key) },
+    settled: { value: () => lifecycle.read() },
+    next: { value: (name: WardEvent) => lifecycle.wait(name) },
   })
   return self
 }
@@ -752,9 +779,15 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     Provider: { value: Provider },
     read: { value: (key: string) => () => restingOf(key, initialValues, c.style, readServerStyle) },
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },
+    // Nothing animates on a server: nothing has landed, and nothing will.
+    settled: { value: constUndefined },
+    next: { value: neverLands },
   })
   return self
 }
 
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = constUndefined
+
+/** A server's `next`: nothing lands there, and nothing disposes it. */
+const neverLands = (): Promise<WardSettled> => new Promise<WardSettled>(constUndefined)

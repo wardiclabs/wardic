@@ -17,6 +17,8 @@
 // - SV12: a sensor on the server reads its initial value, and given to `ref` does nothing.
 // - SV13: the Live-value helpers on a server: their source's value now, mapped, or 0s; a `style`
 //   derived from another ward's `read(key)` renders that value in the Starting style.
+// - SV14: a ward's `settled()` on a server is `undefined`, ready, and its `next("settled")` never
+//   settles: nothing animates there (#257).
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -141,6 +143,24 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     expect(card!.read("opacity")()).toBe(0.4)
     expect(card!.read("color")()).toBe("blue")
     expect(card!.read("x")()).toBe(0)
+  })
+
+  it("SV14: settled() is undefined, and next never settles", async () => {
+    let card: ReturnType<typeof ward> | undefined
+    const Card = () => {
+      card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+      return <div {...card} />
+    }
+    serve(() => <Card />)
+    expect(card!.settled()).toBeUndefined()
+    const outcome = await Promise.race([
+      card!.next("settled").then(
+        () => "resolved",
+        () => "rejected",
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("pending"), 50)),
+    ])
+    expect(outcome).toBe("pending")
   })
 
   it("SV8: wardic.create(Component) hands the component its Starting style through style", () => {
