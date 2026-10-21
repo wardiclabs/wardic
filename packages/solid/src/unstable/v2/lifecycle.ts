@@ -19,6 +19,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
+import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
@@ -90,6 +91,16 @@ export interface WardEvents {
   readonly dragStart: WardDragInfo
   /** That drag ended at its release (Motion's `onDragEnd`). */
   readonly dragEnd: WardDragInfo
+  /**
+   * A layout animation of the element started, at the frame it takes its first step, after that
+   * frame is painted (Motion's `onLayoutAnimationStart`, ADR-0039). A restart starts again.
+   */
+  readonly layoutStart: undefined
+  /**
+   * A layout animation of the element landed on its own (Motion's `onLayoutAnimationComplete`): not
+   * one a restart interrupted, a window resize finished early, or an unmount cut off.
+   */
+  readonly layoutComplete: undefined
 }
 
 /** What `next(name)` waits for. */
@@ -222,6 +233,16 @@ export class Lifecycle implements AnimationHooks {
       delta: sample.delta,
       velocity: sample.velocity,
     }))
+  }
+
+  /** A layout animation's start (#257): the projection calls it after its first frame is painted. */
+  layoutStarted(): void {
+    this.tell("layoutStart", constUndefined)
+  }
+
+  /** A layout animation's landing (#257). */
+  layoutCompleted(): void {
+    this.tell("layoutComplete", constUndefined)
   }
 
   /** Resolve the `next(name)` calls waiting, with `value()`, made once there are any. */
