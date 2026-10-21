@@ -257,6 +257,8 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
    * - `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"`: a drag's, with its `point`,
    *   `offset`, `delta` and `velocity`; `"dragTransitionEnd"`, its release at rest. A ward that
    *   doesn't drag never has one.
+   * - `"panSessionStart"` (with its `point`), `"panStart"`, `"pan"`, `"panEnd"`: a pan's (#273), as a
+   *   drag's. A pan moves nothing; once started, a press it took over is neither a tap nor a cancel.
    *
    * A gesture's event starts its recognizer, if its `while*` hasn't. Rejected with a
    * `DOMException` named `"AbortError"` once the ward is disposed.
@@ -499,6 +501,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     readonly fibers: Array<Fiber.Fiber<unknown, unknown>>
     hover: boolean
     press: boolean
+    pan: boolean
     readonly dispose: () => void
   }
   /** Run a recognizer's or the drag track's fiber on the provider's runtime, for the mount's life. */
@@ -509,8 +512,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const recognized = <A,>(stream: Stream.Stream<A, never, WardicServices>, on: (value: A) => void): Effect.Effect<void> =>
     Stream.runForEach(stream, (value) => Effect.sync(() => on(value))) as Effect.Effect<void>
   /**
-   * Start the hover and press recognizers its config or a `next` now wants, each once a mount: each
-   * transition sets its gesture layer, and is told to the lifecycle for `next` (#257).
+   * Start the hover, press and pan recognizers its config or a `next` now wants, each once a mount:
+   * each hover or press transition sets its gesture layer, and every event is told to the lifecycle
+   * for `next` (#257, #273).
    */
   const startRecognizers = (m: Mounted): void => {
     if (Bool.and(Bool.or(untrack(wantsHover), lifecycle.wantsHover), Bool.not(m.hover))) {
@@ -532,6 +536,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
           lifecycle.pressed(press)
         }),
       )
+    }
+    // A pan sets no layer: only a `next` wants it (#273).
+    if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
+      m.pan = true
+      runFor(m, recognized(Recognizer.pan(m.element), (sample) => lifecycle.panned(sample)))
     }
   }
   let mounted: Mounted | undefined
@@ -658,6 +667,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       fibers,
       hover: false,
       press: false,
+      pan: false,
       dispose: () => {
         UndefinedOr.map(mountedHook, (end) => end())
         spine.dispose()

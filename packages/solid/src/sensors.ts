@@ -40,24 +40,61 @@ export const createHover = (target: unknown): Accessor<boolean> => streamToSigna
  */
 export const createPress = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.press(target), false)
 
+/** Whether an element's config wants each of its gesture recognizers (#87, #273). */
+export interface Wants<C> {
+  readonly hover: (config: C) => boolean
+  readonly press: (config: C) => boolean
+  readonly pan: (config: C) => boolean
+}
+
+/** Each gesture recognizer's start: hover's and press's state signals, and pan's fiber (it sets no layer). */
+export interface Starts {
+  readonly hover: () => Accessor<boolean>
+  readonly press: () => Accessor<boolean>
+  readonly pan: () => void
+}
+
+/** A started recognizer's state, `false` until it starts. */
+const startedOf = (started: Accessor<boolean> | undefined): boolean =>
+  UndefinedOr.match(started, { onUndefined: constFalse, onDefined: (state) => state() })
+
 /**
- * A State recognizer an element starts only once it wants it (#87, ADR-0040): `false` until
- * `wanted()` is first true, then `make()`'s signal, kept from then on. Motion's rule: its hover
- * and tap features attach only once their props are set. An element that never wants it starts
- * no fiber and no subscription; one that stops wanting it keeps the recognizer, so a prop that
- * toggles starts it once. A pointer already resting on the element when it starts counts from
- * its next entry, as Motion's does.
+ * An element's gesture recognizers, each started only once its config wants it (#87, ADR-0040;
+ * #273): hover and press read `false` until then, then their start's signal, kept from then on.
+ * Motion's rule: its hover, tap and pan features attach only once their props are set. An element
+ * that never wants one starts no fiber and no subscription; one that stops wanting it keeps the
+ * recognizer, so a prop that toggles starts it once. A pointer already resting on the element when
+ * hover starts counts from its next entry, as Motion's does.
  *
- * `make` runs under the caller's owner, not this hook's computation, so the recognizer lives
- * and ends with the caller (its `onCleanup`), not with the next change of `wanted`.
+ * One computation reads `config()` once a change for all three: a `wardic.*` element's config is
+ * rebuilt at each read. Each start runs under the caller's owner, not this computation, so its
+ * recognizer lives and ends with the caller (its `onCleanup`), not with the next change.
  */
-export const createWhenWanted = (wanted: Accessor<boolean>, make: () => Accessor<boolean>): Accessor<boolean> => {
+export const createWhenWanted = <C,>(
+  config: Accessor<C>,
+  wants: Wants<C>,
+  starts: Starts,
+): { readonly hovered: Accessor<boolean>; readonly pressed: Accessor<boolean> } => {
   const owner = getOwner()
-  const [sensor, setSensor] = createSignal<Accessor<boolean> | undefined>(undefined)
+  const [hover, setHover] = createSignal<Accessor<boolean> | undefined>(undefined)
+  const [press, setPress] = createSignal<Accessor<boolean> | undefined>(undefined)
+  let panning = false
   createComputed(() => {
-    if (Bool.and(Predicate.isUndefined(untrack(sensor)), wanted())) setSensor(() => runWithOwner(owner, make))
+    const c = config()
+    if (Predicate.isUndefined(untrack(hover))) {
+      if (wants.hover(c)) setHover(() => runWithOwner(owner, starts.hover))
+    }
+    if (Predicate.isUndefined(untrack(press))) {
+      if (wants.press(c)) setPress(() => runWithOwner(owner, starts.press))
+    }
+    if (Bool.not(panning)) {
+      if (wants.pan(c)) {
+        panning = true
+        runWithOwner(owner, starts.pan)
+      }
+    }
   })
-  return () => UndefinedOr.match(sensor(), { onUndefined: constFalse, onDefined: (started) => started() })
+  return { hovered: () => startedOf(hover()), pressed: () => startedOf(press()) }
 }
 
 /**

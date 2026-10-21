@@ -375,6 +375,20 @@ export interface WardConfig {
   /** The drag's release came to rest on its own: its momentum or its spring back, or at once in place. Not one a grab stopped. */
   readonly onDragTransitionEnd?: () => void
   /**
+   * A pan's session began: a primary pointer went down on the element (Motion's pan). A pan moves
+   * nothing; once started, it counts as a drag for the element's press and hover: a press it took
+   * over is neither a tap nor a cancel (Wardic's rule, ADR-0047). It sets no `touch-action`: on a
+   * touch screen, give the element one (`pan-y` for a sideways pan in a scrolling page), or the
+   * browser's scroll cancels it.
+   */
+  readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** That pan started, past its threshold. */
+  readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** That pan moved: its start, and each move after. */
+  readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** That pan ended at its release, or was cancelled. Only a pan that started. */
+  readonly onPanEnd?: (event: PointerEvent, info: WardicDragInfo) => void
+  /**
    * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
    * frame where it takes its first step, after that frame is painted. A restart fires it again;
    * restarts in one task are one. A handover's is the new Lead's. No call when nothing animates (a

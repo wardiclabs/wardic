@@ -20,6 +20,9 @@
 // - GX10: `dragTransitionEnd` (#273): once the release rests, a free drag's and a layout node's.
 // - GX11: Solid 1's gesture callbacks aren't Solid 2's: `wardic.div`'s `onDragStart` is the DOM's own,
 //   and a ward's config takes no `onDragStart` (its events are `next(name)`'s).
+// - GX12 (#273): `panSessionStart` starts the pan recognizer and resolves at the down; `panStart`,
+//   `each("pan")` and `panEnd`, with a drag's info; nothing moves.
+// - GX13: a pan that started is a drag for its press: `next("tap")` doesn't resolve (ADR-0047).
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -347,5 +350,68 @@ describe("a drag's moves and its release's rest on Solid 2 (#273)", () => {
     // @ts-expect-error Solid 2 hears a drag's start with `next("dragStart")`, not a callback.
     const config: WardConfig = { drag: true, onDragStart: () => {} }
     expect(config.drag).toBe(true)
+  })
+})
+
+describe("a ward's pan on Solid 2 (#273)", () => {
+  it("GX12: panSessionStart starts the recognizer and resolves at the down; panStart, each(\"pan\") and panEnd", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const session = await retrying(card.next("panSessionStart"), () => {
+      pointer(el, "pointerdown", 130, 140, 1)
+      pointer(document.body, "pointerup", 130, 140)
+    })
+    expect(session).toEqual({ point: { x: 130, y: 140 } })
+    const started = card.next("panStart")
+    const ended = card.next("panEnd")
+    const pans: Array<number> = []
+    const loop = (async () => {
+      for await (const moved of card.each("pan")) {
+        pans.push(moved.offset.x)
+        if (pans.length === 2) break
+      }
+    })()
+    await raf()
+    const top = el.getBoundingClientRect().top
+    pointer(el, "pointerdown", 130, 140, 1)
+    pointer(el, "pointermove", 150, 140, 1)
+    await raf()
+    pointer(el, "pointermove", 170, 140, 1)
+    await loop
+    pointer(document.body, "pointerup", 175, 140)
+    expect((await started).offset).toEqual({ x: 20, y: 0 })
+    expect(pans).toEqual([20, 40])
+    const end = await ended
+    expect(end.point).toEqual({ x: 175, y: 140 })
+    expect(end.offset).toEqual({ x: 45, y: 0 })
+    expect(el.getBoundingClientRect().top, "a pan moves nothing").toBe(top)
+  })
+
+  it("GX13: a pan that started is a drag for its press: next(\"tap\") doesn't resolve", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    await retrying(card.next("panSessionStart"), () => {
+      pointer(el, "pointerdown", 130, 140, 1)
+      pointer(document.body, "pointerup", 130, 140)
+    })
+    await retrying(card.next("pressStart"), () => {
+      pointer(el, "pointerdown", 130, 140, 1)
+      pointer(el, "pointerup", 130, 140)
+    })
+    const tapped = card.next("tap")
+    const cancelled = card.next("tapCancel")
+    const ended = card.next("panEnd")
+    pointer(el, "pointerdown", 130, 140, 1)
+    pointer(el, "pointermove", 150, 140, 1)
+    pointer(el, "pointerup", 150, 140)
+    await ended
+    expect(await settledWithin(tapped, 3), "no tap").toBe(false)
+    expect(await settledWithin(cancelled, 0), "no cancel").toBe(false)
+    // A press with no pan still taps.
+    pointer(el, "pointerdown", 130, 140, 1)
+    pointer(el, "pointerup", 130, 140)
+    expect(await tapped).toEqual({ point: { x: 130, y: 140 } })
   })
 })
