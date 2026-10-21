@@ -207,14 +207,18 @@ export const paintedBox = (el: Element, stage: HTMLElement): Box => {
 
 /**
  * `el`'s layout box, which transforms don't move, relative to `stage`'s padding box: its
- * offsets, less the scroll of the ancestors between it and the stage (offsets ignore it).
+ * offsets, less the scroll of its ancestors up to the stage, the stage's own included (offsets
+ * ignore it). A stage with `overflow: hidden` still scrolls: a focused item past its height is
+ * scrolled into view, and a drag's auto-scroll moves it. Read without the stage's own, an item at
+ * rest on its slot read off by that scroll (#267: 26 px, every reorder after the stage scrolled).
  */
 export const layoutBox = (el: HTMLElement, stage: HTMLElement): Box => {
   let x = 0
   let y = 0
-  for (let at = el.parentElement; at !== null && at !== stage; at = at.parentElement) {
+  for (let at = el.parentElement; at !== null; at = at.parentElement) {
     x -= at.scrollLeft
     y -= at.scrollTop
+    if (at === stage) break
   }
   let at: HTMLElement | null = el
   while (at !== null && at !== stage) {
