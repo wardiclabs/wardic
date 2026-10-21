@@ -10,14 +10,16 @@
  * - `next("settled")`: a promise of the next landing after the call. It rejects with a `DOMException`
  *   named `"AbortError"` once the ward is disposed, as Web Animations' `finished` does on a cancel.
  *
- * Nothing Solid is made until `settled` is first read: until then a start and a landing are counts
- * and a reference, so a ward no one asks costs no signal and no memo.
+ * One object a ward, the spine's hooks itself. Nothing Solid is made until `settled` is first read,
+ * and nothing is allocated for a start or a landing until someone asks: until then they're counts
+ * and references.
  *
  * @module
  */
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import { type Accessor, createMemo, createSignal, onCleanup, type Owner, runWithOwner } from "solid-js"
+import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
@@ -45,11 +47,11 @@ export interface WardSettled {
 /** What `next(name)` waits for. */
 export type WardEvent = "settled"
 
-/** A ward's lifecycle: the spine's hooks, and what the ward hands over. */
-export interface Lifecycle {
-  readonly hooks: AnimationHooks
-  readonly settled: Accessor<WardSettled | undefined>
-  readonly next: (name: WardEvent) => Promise<WardSettled>
+/** The ward's gesture state, as a Retarget reads it. */
+export interface GestureState {
+  readonly hovered: boolean
+  readonly pressed: boolean
+  readonly dragging: boolean
 }
 
 interface Waiter {
@@ -57,100 +59,125 @@ interface Waiter {
   readonly reject: (reason: DOMException) => void
 }
 
-const NO_GESTURES: WardGestures = { hover: false, tap: false, drag: false }
+const NO_STATE: GestureState = { hovered: false, pressed: false, dragging: false }
 
 /** The rejection of a `next` the ward's disposal cut off. */
 const aborted = (): DOMException => new DOMException("The ward was disposed before its next landing.", "AbortError")
 
 /**
- * Make a ward's lifecycle, under its `owner`: `gesturesNow` reads its gesture layers as a Retarget
- * starts. Its `next` calls are rejected when the owner is disposed.
+ * A ward's lifecycle, made under its `owner`. At each start it reads the ward's `gestures` and
+ * whether a **Keyboard reorder** has it `lifted` (which turns `whileDrag` on as a drag does),
+ * untracked, as the spine's Retarget is. It's the
+ * spine's {@link AnimationHooks}; the ward hands over {@link Lifecycle.read} as `settled` and
+ * {@link Lifecycle.wait} as `next`, and calls {@link Lifecycle.dispose} in its own cleanup.
  */
-export const makeLifecycle = (owner: Owner | null, gesturesNow: () => WardGestures): Lifecycle => {
+export class Lifecycle implements AnimationHooks {
   // The Retargets started and the last one landed, counted.
-  let started = 0
-  let landed = 0
-  // The Retarget in flight, and the gesture layers on as it started.
-  let flying: Resolution | undefined
-  let flyingGestures = NO_GESTURES
+  private starts = 0
+  private landed = 0
+  // The Retarget in flight, and the gesture state as it started.
+  private flying: Resolution | undefined = undefined
+  private flyingState = NO_STATE
+  private flyingLifted = false
   // The last landing, built when it's asked for: its resolution, the variant before it, its gestures.
-  let landedResolution: Resolution | undefined
-  let landedPrevious: string | undefined
-  let landedGestures = NO_GESTURES
-  let last: WardSettled | undefined
-  // Made at the first read of `settled`: the setter of the count it tracks, and its pending read's resolver.
-  let setCount: ((count: number) => void) | undefined
-  let waiting: ((landing: WardSettled) => void) | undefined
-  let accessor: Accessor<WardSettled | undefined> | undefined
-  // The `next("settled")` calls waiting, and whether the ward is gone.
-  let nexts: Array<Waiter> = []
-  let disposed = false
+  private landedResolution: Resolution | undefined = undefined
+  private landedPrevious: string | undefined = undefined
+  private landedState = NO_STATE
+  private landedLifted = false
+  private last: WardSettled | undefined = undefined
+  // Made at the first read: the setter of the count it tracks, its memo, and its pending read's resolver.
+  private setCount: ((count: number) => void) | undefined = undefined
+  private memo: Accessor<WardSettled | undefined> | undefined = undefined
+  private waiting: ((landing: WardSettled) => void) | undefined = undefined
+  // The `next("settled")` calls waiting, made at the first; and whether the ward is gone.
+  private nexts: Array<Waiter> | undefined = undefined
+  private disposed = false
+  private readonly owner: Owner | null
+  private readonly gestures: () => GestureState
+  private readonly lifted: () => boolean
 
-  const lastLanding = (): WardSettled | undefined => {
-    if (Predicate.isNotUndefined(last) || Predicate.isUndefined(landedResolution)) return last
-    last = { definition: definitionOf(landedResolution, landedPrevious) as WardicAnimationDefinition, target: landedResolution.resolved, gestures: landedGestures }
-    return last
+  constructor(owner: Owner | null, gestures: () => GestureState, lifted: () => boolean) {
+    this.owner = owner
+    this.gestures = gestures
+    this.lifted = lifted
   }
 
-  const hooks: AnimationHooks = {
-    started: (resolution) => {
-      started++
-      flying = resolution
-      flyingGestures = gesturesNow()
-      if (Predicate.isNotUndefined(setCount)) setCount(started)
-    },
-    settled: (resolution, previous) => {
-      // A landing told after a later Retarget started (a settle waits for the gate's flush) is stale.
-      if (resolution !== flying) return
-      landed = started
-      landedResolution = resolution
-      landedPrevious = previous
-      landedGestures = flyingGestures
-      last = undefined
-      if (Predicate.isUndefined(waiting) && nexts.length === 0) return
-      const landing = lastLanding() as WardSettled
-      const resolve = waiting
-      waiting = undefined
-      if (Predicate.isNotUndefined(resolve)) resolve(landing)
-      const due = nexts
-      nexts = []
-      Arr.forEach(due, (waiter) => waiter.resolve(landing))
-    },
+  started(resolution: Resolution): void {
+    this.starts++
+    this.flying = resolution
+    this.flyingState = this.gestures()
+    this.flyingLifted = this.lifted()
+    if (Predicate.isNotUndefined(this.setCount)) this.setCount(this.starts)
+  }
+
+  settled(resolution: Resolution, previous: string | undefined): void {
+    // A landing told after a later Retarget started (a settle waits for the gate's flush) is stale.
+    if (resolution !== this.flying) return
+    this.landed = this.starts
+    this.landedResolution = resolution
+    this.landedPrevious = previous
+    this.landedState = this.flyingState
+    this.landedLifted = this.flyingLifted
+    this.last = undefined
+    const resolve = this.waiting
+    const due = this.nexts
+    if (Bool.and(Predicate.isUndefined(resolve), Predicate.isUndefined(due))) return
+    const landing = this.lastLanding() as WardSettled
+    this.waiting = undefined
+    this.nexts = undefined
+    if (Predicate.isNotUndefined(resolve)) resolve(landing)
+    if (Predicate.isNotUndefined(due)) Arr.forEach(due, (waiter) => waiter.resolve(landing))
+  }
+
+  /** `settled()`: the last landing, made reactive at the first read. */
+  read(): WardSettled | undefined {
+    if (Predicate.isUndefined(this.memo)) this.memo = runWithOwner(this.owner, () => this.makeMemo())
+    return this.memo()
+  }
+
+  /** `next("settled")`: a promise of the next landing after the call. */
+  wait(_name: WardEvent): Promise<WardSettled> {
+    return new Promise<WardSettled>((resolve, reject) => {
+      if (this.disposed) return reject(aborted())
+      if (Predicate.isUndefined(this.nexts)) this.nexts = []
+      this.nexts.push({ resolve, reject })
+    })
+  }
+
+  /** The ward is gone: every `next` waiting is rejected, and any asked later at once. */
+  dispose(): void {
+    this.disposed = true
+    const due = this.nexts
+    if (Predicate.isUndefined(due)) return
+    this.nexts = undefined
+    Arr.forEach(due, (waiter) => waiter.reject(aborted()))
+  }
+
+  private lastLanding(): WardSettled | undefined {
+    const resolution = this.landedResolution
+    if (Bool.or(Predicate.isNotUndefined(this.last), Predicate.isUndefined(resolution))) return this.last
+    const state = this.landedState
+    this.last = {
+      definition: definitionOf(resolution as Resolution, this.landedPrevious) as WardicAnimationDefinition,
+      target: (resolution as Resolution).resolved,
+      gestures: { hover: state.hovered, tap: state.pressed, drag: Bool.or(state.dragging, this.landedLifted) },
+    }
+    return this.last
   }
 
   // The count of starts it tracks starts at the landed count, so its first read is never pending. A
   // Retarget in flight at that read is set from a microtask: a change in flight from there
   // (`isPending`), which a write in the read's own flush wouldn't be (Solid applies it there).
-  const makeSettled = (): Accessor<WardSettled | undefined> => {
-    const [count, set] = createSignal(landed)
-    setCount = set
+  private makeMemo(): Accessor<WardSettled | undefined> {
+    const [count, set] = createSignal(this.landed)
+    this.setCount = set
     const memo = createMemo((): WardSettled | undefined | PromiseLike<WardSettled> => {
-      if (count() === landed) return lastLanding()
+      if (count() === this.landed) return this.lastLanding()
       return new Promise<WardSettled>((resolve) => {
-        waiting = resolve
+        this.waiting = resolve
       })
     }, CLIENT_ONLY)
-    if (started !== landed) queueMicrotask(() => set(started))
+    if (this.starts !== this.landed) queueMicrotask(() => set(this.starts))
     return memo
   }
-
-  const settled = (): WardSettled | undefined => {
-    if (Predicate.isUndefined(accessor)) accessor = runWithOwner(owner, makeSettled)
-    return accessor()
-  }
-
-  const next = (_name: WardEvent): Promise<WardSettled> =>
-    new Promise<WardSettled>((resolve, reject) => {
-      if (disposed) return reject(aborted())
-      nexts.push({ resolve, reject })
-    })
-
-  onCleanup(() => {
-    disposed = true
-    const due = nexts
-    nexts = []
-    Arr.forEach(due, (waiter) => waiter.reject(aborted()))
-  })
-
-  return { hooks, settled, next }
 }

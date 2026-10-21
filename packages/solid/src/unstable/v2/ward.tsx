@@ -116,7 +116,7 @@ import {
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { configView, type Fixed, type PerKey } from "./config-view.ts"
-import { makeLifecycle, type WardEvent, type WardSettled } from "./lifecycle.ts"
+import { Lifecycle, type WardEvent, type WardSettled } from "./lifecycle.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
@@ -463,12 +463,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   )
 
   // Its Retargets' starts and landings (#257, ADR-0046): `settled()` and `next("settled")`, each with
-  // the gesture layers on as the Retarget started, read once.
-  const lifecycle = makeLifecycle(owner, () =>
-    untrack(() => {
-      const g = gestures()
-      return { hover: g.hovered, tap: g.pressed, drag: Bool.or(g.dragging, lifted()) }
-    }))
+  // the gesture layers on as the Retarget started.
+  const lifecycle = new Lifecycle(owner, gestures, lifted)
 
 
   // The mounted element: registered with the gate, its layout node, its spine built over it, and the
@@ -509,7 +505,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (justLeft.size === 0) queueMicrotask(forgetJustLeft)
     justLeft.add(left)
   }
-  onCleanup(unmount)
+  // Its element's mount goes, and its lifecycle's waits are rejected (#257): one cleanup.
+  onCleanup(() => {
+    unmount()
+    lifecycle.dispose()
+  })
 
   const mount = (el: HTMLElement): Mounted => {
     if (justLeft.has(el)) throw new Error(REMADE)
@@ -589,7 +589,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       projected: Predicate.isNotUndefined(layout),
       dragAxis,
       handoff,
-      animation: lifecycle.hooks,
+      animation: lifecycle,
     })
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
@@ -716,8 +716,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     Provider: { value: Provider },
     read: { value: read },
     atom: { value: (key: string) => gate.valueOf(id, key) },
-    settled: { value: lifecycle.settled },
-    next: { value: lifecycle.next },
+    settled: { value: () => lifecycle.read() },
+    next: { value: (name: WardEvent) => lifecycle.wait(name) },
   })
   return self
 }
