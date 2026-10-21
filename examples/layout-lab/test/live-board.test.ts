@@ -71,6 +71,13 @@ describe("liveChecksOf", () => {
     expect(failed(run({ ...SERIES(stuck), maxStep: 1, cut: true }))).toEqual([])
   })
 
+  it("a run the next gesture cut short before it landed isn't judged on follows or returns (#209 PR 5b)", () => {
+    // A hover let go and entered again 0.3 s later: its return was still on its way, never on the value.
+    const shortened = good().map((f) => (f.phase === "after" ? { ...f, shown: 0.27 } : f)).filter((f) => f.phase !== "rest")
+    expect(failed(run(SERIES(shortened)))).toEqual(["follows", "returns"])
+    expect(failed(run({ ...SERIES(shortened), superseded: true }))).toEqual([])
+  })
+
   it("returns fails a jump to the value, and a return that never lands", () => {
     const jumped = good().map((f) => (f.phase === "after" ? { ...f, shown: f.live } : f))
     expect(failed(run(SERIES(jumped)))).toEqual(["returns"])

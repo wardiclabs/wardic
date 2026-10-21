@@ -244,9 +244,10 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 7, layoutId switch: a click swaps two `layoutId` twins under `<Show>` —
  * on the page, in one `layoutScroll` box, across two, or into a scaled modal — and the new twin's mount
- * queues the Measure pass. Expected to be safe, holding 0, with a second Measure
- * pass that seeds nothing (the engine ResizeObserver's first delivery for the new
- * twin).
+ * queues the Measure pass. Expected to be safe, holding 0. The engine ResizeObserver's first
+ * delivery for the new twin is skipped where it reports the box the pass measured (#21, at
+ * DPR 1 and 1.35), and runs a second pass that seeds nothing where its rounding differs (at
+ * DPR 2.79, a phone).
  */
 export const s7: ScenarioDef = {
   id: ID,
@@ -262,9 +263,10 @@ export const s7: ScenarioDef = {
     "projection node and takes that seed. The registration queues a Measure pass, which runs at the end of the click " +
     "task, rebases the seed into the new twin's frame, FLIPs it from the leaver's painted box and flushes that seed " +
     "(ADR-0018), so the first painted frame is already one step along (held 0). The engine's ResizeObserver then " +
-    "makes its first delivery for the new twin after the next frame's tick, and the Measure pass it runs finds " +
-    "the running twin's box unchanged and leaves it alone: passes 2 (1 seeding), until that first delivery is " +
-    "filtered. In the scaled mode each twin's box leaves out the modal's scale, and the seed is converted between " +
+    "makes its first delivery for the new twin after the next frame's tick. Where it reports the box the pass " +
+    "measured, the engine skips it (ADR-0018, Amendment (#21)): passes 1, as at DPR 1 and 1.35. Where its rounding " +
+    "differs, as at DPR 2.79 (a phone), the pass it runs finds the running twin's box unchanged and leaves it " +
+    "alone: passes 2 (1 seeding). In the scaled mode each twin's box leaves out the modal's scale, and the seed is converted between " +
     "the twins as painted (ADR-0012, Amendment (#136)), so the switch runs straight between where they paint.",
   View,
 }
