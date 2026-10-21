@@ -31,9 +31,9 @@ import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
 import { ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
-import { type JSX, Loading, renderToStream, renderToString } from "@solidjs/web"
+import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
-import { createMemo, For, Show } from "solid-js"
+import { createMemo, For, Loading, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { keyOf } from "../../src/appear.ts"
 import { tagsOf } from "./ssr.ts"
@@ -127,6 +127,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
         <wardic.div {...rise} style={own} />
         <wardic.div {...rise} transition={{ type: "tween", easing: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
         <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
+        {/* eslint-disable-next-line solid/style-prop -- a string style is what this element checks */}
         <wardic.div {...rise} style="color: red; animation: spin 1s infinite" />
         <wardic.div initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff" }} />
       </>

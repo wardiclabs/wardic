@@ -10,7 +10,11 @@
  * closes both. The items' `touch-action` needs the axis before a touch starts, so after
  * every Measure pass the controller detects the axis from the items' boxes and reports
  * a change through `onAxis`; while the app sets the axis it detects nothing. Motion
- * detects on every item's every measurement (Group.tsx:121-133 at 16c6122).
+ * detects on every item's every measurement (Group.tsx:121-133 at 16c6122). When the app
+ * clears its axis, no Measure pass comes with that: a binding reads `detect()`, the axis
+ * from the boxes the items have now, in the computation that derives its axis, so whatever
+ * reads the axis follows in the same update (#257's audit: an effect that detected and
+ * reported it updated them a step late).
  *
  * It also runs each item's **Keyboard reorder** (ADR-0037), on by default: a key from the item
  * itself that the page didn't take (Space or Enter lifts and drops, Escape cancels, the arrows,
@@ -150,8 +154,11 @@ export interface ReorderController<V> {
   readonly item: (value: V, element: () => Option.Option<Element>, onLift?: (lifted: boolean) => void) => ReorderItemDriver
   /** Move `value` to `toIndex` in code (`Reorder.move`), and announce it (ADR-0037). */
   readonly move: (value: V, toIndex: number) => void
-  /** Detect the axis now (after the app's axis is cleared). */
-  readonly resolve: () => void
+  /**
+   * The axis now: the app's, else detected from the items' boxes as they are, reporting nothing.
+   * A binding derives its axis with it when the app's is cleared (#257's audit).
+   */
+  readonly detect: () => Reorder.Axis
   /** The app's values changed: re-measure, so the items animate to their slots. */
   readonly valuesChanged: () => void
   /** Stop listening to Measure passes and end Auto-scroll. */
@@ -431,7 +438,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           if (placement.moved) announceNow(say("move", value, placement))
         },
       }),
-    resolve,
+    detect: () => Reorder.resolveAxis(group),
     valuesChanged: () => {
       // The app changed `values` itself while an item is lifted: it's dropped at its new place.
       if (Option.isSome(Reorder.liftedValue(group)) && options.values() !== asked) dropLifted()
@@ -461,7 +468,7 @@ export const INERT_REORDER_CONTROLLER: ReorderController<never> = Object.freeze(
   attach: noop,
   item: () => ({ register: () => noop, dragAxis: () => "y" as const, onSample: noop, onKey: noop, onBlur: noop, onPress: noop, dispose: noop }),
   move: noop,
-  resolve: noop,
+  detect: () => "y" as const,
   valuesChanged: noop,
   dispose: noop,
 })

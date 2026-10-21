@@ -273,13 +273,19 @@ export interface WardInternals {
 
 const NO_INTERNALS: WardInternals = {}
 
-/** Which gesture layers are on: one value, so the target memo reads one signal for the three (#259). */
+/**
+ * Which gesture layers are on, and on which element: one value, so the target memo reads one signal
+ * for the three (#259), recorded on its element, so a ward moved to another reads none there.
+ */
 interface Gestures {
+  readonly element: HTMLElement | undefined
   readonly hovered: boolean
   readonly pressed: boolean
   readonly dragging: boolean
 }
-const NO_GESTURES: Gestures = { hovered: false, pressed: false, dragging: false }
+const NO_GESTURES: Gestures = { element: undefined, hovered: false, pressed: false, dragging: false }
+/** A gesture layer of {@link Gestures}. */
+type GestureLayer = "hovered" | "pressed" | "dragging"
 
 /** Whether a ward's call is Solid applying it as a ref. */
 const isElement = (value: unknown): value is HTMLElement => Predicate.hasProperty(value, "nodeType")
@@ -400,18 +406,30 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const layoutMember = wantsLayoutNode(initialConfig)
   const dragTransition = dragTransitionOf(initialConfig.dragElastic, initialConfig.dragTransition)
 
-  // Its gesture layers' states (ADR-0005), one signal for the three, so the target reads one (#259):
-  // the hover and press recognizers, each started on its element the first time its `while*` target
-  // is set (#87, ADR-0040), and the drag's. A write that changes nothing keeps the same object.
-  const [gestures, setGestures] = createSignal<Gestures>(NO_GESTURES, { ownedWrite: true })
-  const setHovered = (hovered: boolean): void => {
-    setGestures((g) => Bool.match(g.hovered === hovered, { onTrue: () => g, onFalse: () => ({ ...g, hovered }) }))
+  // The element, set by the ref during render. Its write is the one a ward makes in an owned scope: a
+  // ward called with its element in a component's body (WT2), not given to `ref`.
+  const [element, setElement] = createSignal<HTMLElement | undefined>(undefined, { ownedWrite: true })
+
+  // Its gesture layers' states (ADR-0005), one signal for the three, so the target reads one (#259),
+  // each recorded on its element: the hover and press recognizers, each started on its element the
+  // first time its `while*` target is set (#87, ADR-0040), and the drag's. A write that changes
+  // nothing keeps the same object.
+  const [gestureState, setGestureState] = createSignal<Gestures>(NO_GESTURES)
+  /** Set `layer` on `el`: a state recorded on another element starts again from none. */
+  const setGesture = (el: HTMLElement, layer: GestureLayer, on: boolean): void => {
+    setGestureState((g) => {
+      if (g.element !== el) return Bool.match(on, { onTrue: (): Gestures => ({ ...NO_GESTURES, element: el, [layer]: true }), onFalse: () => g })
+      if (g[layer] === on) return g
+      return { ...g, [layer]: on }
+    })
   }
-  const setPressed = (pressed: boolean): void => {
-    setGestures((g) => Bool.match(g.pressed === pressed, { onTrue: () => g, onFalse: () => ({ ...g, pressed }) }))
-  }
-  const setDragging = (dragging: boolean): void => {
-    setGestures((g) => Bool.match(g.dragging === dragging, { onTrue: () => g, onFalse: () => ({ ...g, dragging }) }))
+  // The layers on the element mounted now: a state recorded on one the ward has left reads as none, so
+  // a move resets nothing by writing (#257's audit: the reset, written in the mount's effect, fed the
+  // target memo and re-ran the effect, EFFECT_WRITES_OWN_SOURCE).
+  const gestures = (): Gestures => {
+    const g = gestureState()
+    if (g.element === element()) return g
+    return NO_GESTURES
   }
   const dragging = (): boolean => gestures().dragging
   const wantsHover = (): boolean => Predicate.isNotUndefined(cfg().whileHover)
@@ -428,8 +446,6 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     { equals: sameResolution, transparent: true },
   )
 
-  // The element, set by the ref during render.
-  const [element, setElement] = createSignal<HTMLElement | undefined>(undefined, { ownedWrite: true })
 
   // The mounted element: registered with the gate, its layout node, its spine built over it, and the
   // fibers of its recognizers and drag track.
@@ -453,11 +469,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const startRecognizers = (m: Mounted): void => {
     if (Bool.and(untrack(wantsHover), Bool.not(m.hover))) {
       m.hover = true
-      runFor(m, recognized(Recognizer.hover(m.element), setHovered))
+      runFor(m, recognized(Recognizer.hover(m.element), (on) => setGesture(m.element, "hovered", on)))
     }
     if (Bool.and(untrack(wantsPress), Bool.not(m.press))) {
       m.press = true
-      runFor(m, recognized(Recognizer.press(m.element), setPressed))
+      runFor(m, recognized(Recognizer.press(m.element), (on) => setGesture(m.element, "pressed", on)))
     }
   }
   let mounted: Mounted | undefined
@@ -512,7 +528,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         element: el,
         snapshot,
         recordFrame: recordFrameOf(presenceRecord),
-        setDragging,
+        setDragging: (on: boolean) => setGesture(el, "dragging", on),
         config: {
           axis,
           constraints: initialConfig.dragConstraints,
@@ -610,9 +626,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     ({ el, resolution }) => {
       if (Predicate.isUndefined(el)) return
       if (Predicate.isUndefined(mounted) || mounted.element !== el) {
-        // A new element starts with no gesture on: one on the element it left ended with it. A ward
-        // disposed with its owner resets nothing (#259).
-        if (Predicate.isNotUndefined(mounted)) setGestures(NO_GESTURES)
+        // A new element starts with no gesture on, read from its gesture state (#257's audit).
         unmount()
         // Its config is read at mount (its layout node's options, its `onUpdate`, its spine's) through
         // the per-key view (#259): untracked, so said, as the Retarget below.

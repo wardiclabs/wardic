@@ -173,16 +173,15 @@ describe("the Reorder controller (ADR-0020)", () => {
     e.dispose()
   })
 
-  it("RC3: while the app sets the axis no pass detects one; resolve() after it's cleared detects at once", async () => {
+  it("RC3: while the app sets the axis no pass detects one; detect() reads it from the boxes at once, and reports nothing (#257)", async () => {
     const e = makeEngine(makeSink().sink)
-    let override: Reorder.Axis | undefined = "x"
-    const list = await mountList(e, "column", { options: { axis: () => Option.fromUndefinedOr(override) } })
+    let override: Reorder.Axis | undefined = "y"
+    const list = await mountList(e, "row", { options: { axis: () => Option.fromUndefinedOr(override) } })
     expect(list.axes).toEqual([])
-    expect(list.c.axis()).toBe("x")
+    expect(list.c.detect(), "the app's axis while it sets one").toBe("y")
     override = undefined
-    list.c.resolve()
-    expect(list.axes).toEqual(["y"])
-    expect(list.c.axis()).toBe("y")
+    expect(list.c.detect(), "detected from the row's boxes").toBe("x")
+    expect(list.axes, "nothing reported").toEqual([])
     list.c.dispose()
     e.dispose()
   })

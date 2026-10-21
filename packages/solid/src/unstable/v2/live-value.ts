@@ -247,7 +247,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   Arr.forEach(SCROLL_KEYS, (key) => onCleanup(registry.mount(outs[key])))
   // Its elements are read once the render has settled: a ref given as `() => box` is set during the
   // render, after this effect's first compute, and isn't a signal, so nothing would read it again.
-  const [settled, setSettled] = createSignal(false, { ownedWrite: true })
+  const [settled, setSettled] = createSignal(false)
   onSettledClientOnly(() => {
     setSettled(true)
   })

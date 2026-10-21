@@ -181,12 +181,12 @@ describe("the gate and the projection system as services (#132)", () => {
     expect(() => {
       ReorderController.inert.attach(box("width:10px"))
       ReorderController.inert.move(undefined as never, 1)
-      ReorderController.inert.resolve()
       ReorderController.inert.valuesChanged()
       item.register({} as ProjectionSystem.NodeHandle)()
       item.dispose()
     }).not.toThrow()
     expect(ReorderController.inert.axis()).toBe("y")
+    expect(ReorderController.inert.detect()).toBe("y")
   })
 })
 

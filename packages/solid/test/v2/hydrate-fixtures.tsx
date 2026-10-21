@@ -29,11 +29,11 @@ import {
   type WardicEnv,
   WardicProvider,
 } from "@wardic/solid/unstable/v2"
-import { type JSX, Loading } from "@solidjs/web"
+import type { JSX } from "@solidjs/web"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { Atom } from "effect/reactivity"
-import { type Component, createSignal, For, Show } from "solid-js"
+import { type Component, createSignal, For, Loading, Show } from "solid-js"
 
 /** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
 let env: WardicEnv = DomLive
@@ -222,7 +222,7 @@ export const KSensors = (): JSX.Element =>
 /** `createTransform` on a signal and on a ward's `read`. */
 export const KTransform = (): JSX.Element =>
   keyed(() => {
-    const [n] = createSignal(1)
+    const n = (): number => 1
     const doubled = createTransform(n, (v: number) => v * 2)
     const card = ward({ initial: { x: 0 }, animate: { x: 0 } })
     const fade = createTransform(card.read("x"), [0, 10], [1, 0])
@@ -236,7 +236,7 @@ export const KTransform = (): JSX.Element =>
 /** `createSpring`, `createVelocity` and `createTime`. */
 export const KSpring = (): JSX.Element =>
   keyed(() => {
-    const [n] = createSignal(1)
+    const n = (): number => 1
     const spring = createSpring(n)
     const velocity = createVelocity(n)
     const time = createTime()

@@ -10,7 +10,7 @@
 // - WK5: a plain `WardConfig` offers every key, and `atom(key)` follows `read(key)`'s type.
 import { type AnimatedKey, ward, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
-import { type Accessor, createSignal } from "solid-js"
+import type { Accessor } from "solid-js"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import { serve } from "./ssr.ts"
 
@@ -66,7 +66,7 @@ describe("a ward's keys, typed from its config (#209)", () => {
   })
 
   it("WK4: a key's accessor (#259), and a Live value's in style, read through", () => {
-    const [x] = createSignal(30)
+    const x = (): number => 30
     const fromAccessor = wardOn({ animate: () => ({ opacity: 1 }) })
     expectTypeOf(fromAccessor.read("opacity")).toEqualTypeOf<Accessor<number | undefined>>()
     const live = wardOn({ style: { left: x } })

@@ -16,6 +16,7 @@ describe("Solid 2 in a browser", () => {
     const dispose = render(() => <p ref={tag("p")}>{label()}</p>, host)
     expect(host.textContent).toBe("one")
     setLabel("two")
+    // eslint-disable-next-line solid/reactivity -- read outside tracking on purpose: it lags its setter
     expect(label(), "a read lags its setter").toBe("one")
     flush()
     expect(host.textContent).toBe("two")

@@ -48,6 +48,7 @@ import {
   type Component,
   createContext,
   createEffect,
+  createMemo,
   createSignal,
   createUniqueId,
   type JSX,
@@ -169,21 +170,22 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
   )
   onCleanup(() => runtime.runSync(Scope.close(scope, Exit.void)))
-  const axis: Accessor<CoreReorder.Axis> = () => UndefinedOr.match(cfg().axis, { onUndefined: detected, onDefined: identity })
+  // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
+  // engine holds, so the items' touch-action follows in the same update (#257's audit: an effect that
+  // detected it wrote a signal the items read a step late). A Measure pass's change comes through `onAxis`.
+  const axis: Accessor<CoreReorder.Axis> = createMemo(() =>
+    UndefinedOr.match(cfg().axis, {
+      onDefined: identity,
+      onUndefined: () => {
+        detected()
+        return controller.detect()
+      },
+    }),
+  )
 
   // A `values` change re-measures, so the items animate to their new slots whoever
   // reordered them (as LayoutGroup's layoutDependency does).
   createEffect(on(() => cfg().values, () => controller.valuesChanged(), { defer: true }))
-  // The app's axis cleared: no Measure pass comes with that, so detect now.
-  createEffect(
-    on(
-      () => cfg().axis,
-      (a) => {
-        if (Predicate.isUndefined(a)) controller.resolve()
-      },
-      { defer: true },
-    ),
-  )
 
   const spread = (userProps: ReorderGroupUserProps = NO_GROUP_PROPS): ReorderGroupSpread => ({
     ref: mergeRefs(userProps.ref, (el: HTMLElement) => controller.attach(el)),
