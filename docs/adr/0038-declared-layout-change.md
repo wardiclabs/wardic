@@ -85,6 +85,7 @@ Defaults stated, not asked:
   - **Shuffle** declares a keyed reorder: clean.
   - **Shuffle, untriggered** snaps.
   - **Shuffle, triggered**, after **Grow panel** (a plain panel growing with no trigger), reads wrong-origin from a stale Measurement.
+    *Note (#261, 2026-10-21):* it still does after the **Page-size refresh** (ADR-0018, *Amendment (#261)*). The panel grows inside the stage's fixed height, so the page's size doesn't change.
   - **Two calls** is Motion's intersecting pair: clean.
 - **A limit of the lab's classifier, not of this:** a stale place along the item's own line of travel reads clean, so only the panel's perpendicular move shows the stale origin every time.
 

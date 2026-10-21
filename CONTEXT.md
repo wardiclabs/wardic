@@ -224,7 +224,7 @@ A layout-enabled element's entry in the **projection tree** — a parent link by
 _Avoid_: layout member (the prior flat name), FLIP node.
 
 **Measure pass**:
-The **Projection system**'s end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver reporting a size the engine hasn't measured, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. The nodes it seeded take their first step at the next tick, painted in that Refresh frame (ADR-0033). A running animation whose box didn't change is left alone. A dragged node and its subtree get a slot-only update (**Drag block**). After a window resize, the next pass is a **Resize block**. A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018). After a **Declared layout change**, a node's "before" is its Measurement taken at the call, not the one from the last pass.
+The **Projection system**'s end-of-task unit. Every layout trigger in a task (a node registering, the shared ResizeObserver reporting a size the engine hasn't measured, `layoutDependency` through `notify`) queues one Measure pass. It runs in a microtask at the end of that task. It resets every **Projection node**'s transform, reads every box, and seeds a FLIP for each node that moved. The flush gate then applies the writes it made (`flushPass`), so a new layout never paints without its projection. The nodes it seeded take their first step at the next tick, painted in that Refresh frame (ADR-0033). A running animation whose box didn't change is left alone. A dragged node and its subtree get a slot-only update (**Drag block**). After a window resize, the next pass is a **Resize block**; after a change to the page's size no pass read, a **Page-size refresh**. A trigger during the pass's own flush repeats the pass, at most 5 rounds (ADR-0018). After a **Declared layout change**, a node's "before" is its Measurement taken at the call, not the one from the last pass.
 _Avoid_: commit (the Renderer's write), layout update (Motion's name).
 
 **Declared layout change**:
@@ -270,6 +270,10 @@ _Avoid_: page frame, document frame (browser words for the same thing).
 **Resize block**:
 After a change of the window's width, running layout animations finish, and the next **Measure pass** (within 250 ms) updates every node's slot and starts no animation. If none runs, the engine runs one itself at 250 ms, or at a drag's start, so no box from before the resize is left (ADR-0018, *Amendment (#39)*).
 _Avoid_: resize freeze, blocked update (Motion's name).
+
+**Page-size refresh**:
+When the page's content (the body and its direct children) changes size with no **Measure pass** reading it, every **Projection node** is measured again at once, with the **Resize block**'s slot-only update: nothing starts, and a running animation moves with its box. A node that content elsewhere moved then starts its next layout animation from where it's painted. A move that leaves the page's size unchanged needs a **Declared layout change** (ADR-0018, *Amendment (#261)*).
+_Avoid_: re-measure, snapshot (reserved).
 
 ### Environment
 

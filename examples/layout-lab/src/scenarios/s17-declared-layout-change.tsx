@@ -8,7 +8,8 @@
  *   - **Shuffle, triggered** bumps the counter with it, as a plain `layoutDependency` change.
  *   - **Shuffle, untriggered** just writes it: moving the DOM nodes resizes nothing, so no trigger sees it.
  * - **The panel.** A plain element above it (no node), which Grow panel toggles, 30 px, with no
- *   trigger: everything below moves and no Measurement does, until a pass or a call.
+ *   trigger: everything below moves and no Measurement does, until a pass or a call. The stage's
+ *   height is fixed, so the page's size doesn't change, and no page-size refresh (#261) sees it.
  * - **The pair** (Motion's `parallel-calls-intersecting`). Two calls in one click: one grows A,
  *   which pushes B down; the other shifts B right. B is watched for that run.
  * - **The callbacks** (#191, ADR-0039). Every tile counts its `onLayoutAnimationStart` and
@@ -243,7 +244,8 @@ export const s17: ScenarioDef = {
     "animateLayout measures every node at the call, before its callback runs, and the Measure pass at the end of the " +
     "click's task animates what moved from there (ADR-0038): Shuffle is clean, held 0, after Grow panel too. Shuffle, " +
     "triggered is clean on fresh Measurements; after Grow panel it reads wrong-origin, since its pass animates from the Measurement " +
-    "taken before the panel grew, 30 px off where A was painted (the gap #4 closes). Shuffle, untriggered snaps: " +
+    "taken before the panel grew, 30 px off where A was painted (the gap #4 closes; the panel grows inside the stage's " +
+    "fixed height, so the page's size doesn't change and no page-size refresh reads it, #261). Shuffle, untriggered snaps: " +
     "moving the items' DOM nodes resizes nothing, so no trigger sees it. Two calls is clean: the shifted box animates " +
     "from before the grown one pushed it, as both calls share the first one's Measurements (Motion's " +
     "parallel-calls-intersecting). The callbacks line counts each run's onLayoutAnimationStart and " +
