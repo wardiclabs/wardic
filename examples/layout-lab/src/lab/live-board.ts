@@ -18,7 +18,8 @@
  *   is on it. A spring return chases a value that keeps moving, landing once it slows; a tween return
  *   lands on it at its end.
  * - A run the recorder cut off while its Live value still moved (`cut`) isn't judged on **follows**
- *   or **returns**: it never stood still.
+ *   or **returns**: it never stood still. Nor is one the cell's next gesture cut short before it
+ *   landed (`superseded`): that gesture's run takes over from there (#209 PR 5b, found by hand).
  * - **same frame** (the swipe card): a key derived from another's output paints with it: each
  *   frame, the derived key's painted value is what the mapping gives for the other's painted value.
  *
@@ -93,6 +94,8 @@ export interface LiveSeries {
   readonly tolerance: number
   /** The recorder cut the run off while its Live value still moved: it never stood still. */
   readonly cut?: boolean
+  /** The cell's next gesture began before this run landed, and ended it: its run takes over. */
+  readonly superseded?: boolean
   /** Where the key rests while its Live value stands still, for `moves` and `settles`. Default 0. */
   readonly rest?: number
   /** The key's rate a ms, for `ticks`. */
@@ -133,6 +136,7 @@ const onTime = (frames: ReadonlyArray<LiveFrame>): ReadonlyArray<LiveFrame> => f
 
 const followsOf = (s: LiveSeries): LiveCheck => {
   if (s.cut === true) return { name: "follows", ok: true, text: "cut off while its value still moved, not judged" }
+  if (s.superseded === true) return { name: "follows", ok: true, text: "cut short by the next gesture, not judged" }
   const rest = onTime(s.frames).filter((f) => f.phase === "rest")
   const after = onTime(s.frames).filter((f) => f.phase === "after")
   const landing = landingOf(after, s.tolerance)
@@ -168,6 +172,7 @@ const winsOf = (s: LiveSeries): LiveCheck => {
 
 const returnsOf = (s: LiveSeries): LiveCheck => {
   if (s.cut === true) return { name: "returns", ok: true, text: "cut off while its value still moved, not judged" }
+  if (s.superseded === true) return { name: "returns", ok: true, text: "cut short by the next gesture, not judged" }
   // From the last held frame on: no jump on the way back.
   const from = Math.max(0, s.frames.findIndex((f) => f.phase === "after") - 1)
   const way = s.frames.slice(from)

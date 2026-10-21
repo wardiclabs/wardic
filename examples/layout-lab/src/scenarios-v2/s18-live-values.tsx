@@ -99,6 +99,8 @@ interface Recording {
   movedAt: number
   /** Cut off at {@link MAX_MS} while its Live value still moved. */
   cut: boolean
+  /** Ended by the cell's next gesture before it landed. */
+  superseded: boolean
   readonly finish: () => void
 }
 
@@ -116,7 +118,12 @@ const MAX_MS = 60000
 const makeRecorder = (ctx: ScenarioContext) => {
   const running = new Map<string, Recording>()
   const start = (spec: CellSpec, phase: LiveFrame["phase"]): Recording => {
-    running.get(spec.cell)?.finish()
+    // The cell's next gesture ends the run still sampling, which never landed: its run takes over.
+    const previous = running.get(spec.cell)
+    if (previous !== undefined) {
+      previous.superseded = true
+      previous.finish()
+    }
     const channel = new MessageChannel()
     let done = false
     const rec: Recording = {
@@ -126,6 +133,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
       still: 0,
       movedAt: performance.now(),
       cut: false,
+      superseded: false,
       finish: () => {
         if (done) return
         done = true
@@ -151,6 +159,7 @@ const makeRecorder = (ctx: ScenarioContext) => {
             maxStep: spec.maxStep,
             tolerance: spec.tolerance,
             ...(rec.cut ? { cut: true } : {}),
+            ...(rec.superseded ? { superseded: true } : {}),
           },
         })
       },
