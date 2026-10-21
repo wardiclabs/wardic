@@ -307,8 +307,12 @@ const REMADE =
   "(`<div {...ward(config)} />`) again on every run of the element's props. Make it once, in the component's body, " +
   "and spread that: `const card = ward(config)` then `<div {...card} />`. Or give it to `ref={ward(config)}`, client-only."
 
-/** Elements a ward has left in this task: a ward mounting one is {@link REMADE}. */
-const justLeft = new WeakSet<Element>()
+/**
+ * Elements a ward has left in this task: a ward mounting one is {@link REMADE}. Cleared once, at the
+ * task's end, by one microtask however many leave (#259: one a ward cost 0.2 ms an unmount of 1,000).
+ */
+const justLeft = new Set<Element>()
+const forgetJustLeft = (): void => justLeft.clear()
 
 /** {@link ward} with a `wardic.<tag>`'s additions. Internal. */
 export function wardWith(config: WardConfig, internal: WardInternals): Ward {
@@ -462,8 +466,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const left = mounted.element
     mounted.dispose()
     mounted = undefined
+    if (justLeft.size === 0) queueMicrotask(forgetJustLeft)
     justLeft.add(left)
-    queueMicrotask(() => justLeft.delete(left))
   }
   onCleanup(unmount)
 
