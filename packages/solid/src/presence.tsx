@@ -38,8 +38,8 @@
  * goes once both have ended. Its exit's values reach the projection, so a twin
  * inside stays on its other twin while the exit moves or scales the child.
  */
-import { children, createContext, createEffect, type JSX, onCleanup, onMount, useContext } from "solid-js"
-import { makePresence } from "./presence-controller.ts"
+import { children, createContext, createEffect, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
+import { exitCompleteEvents, makePresence } from "./presence-controller.ts"
 import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
@@ -64,6 +64,11 @@ export interface AnimatePresenceProps {
    * animates in from its `initial`. Exits are unchanged (#134). On a server, the rendered child.
    */
   readonly initial?: boolean
+  /**
+   * Called once every exiting child has animated out and been removed (#257, Motion's prop): not
+   * when a child comes back mid-exit, nor when the presence itself goes. Read when it's called.
+   */
+  readonly onExitComplete?: (() => void) | undefined
 }
 
 /**
@@ -81,7 +86,15 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // boundaries, with a context that registers nothing (ADR-0021).
   if (isServer) return serverPresence(props)
   // The retained nodes, their exits and the twins they hand back (`presence-controller.ts`).
-  const presence = makePresence({ runtime, projection: useWardicProjection(), reducedMotion, positionalKeys, initial: () => props.initial })
+  const presence = makePresence({
+    runtime,
+    projection: useWardicProjection(),
+    reducedMotion,
+    positionalKeys,
+    initial: () => props.initial,
+    // Motion's `onExitComplete` (#257).
+    events: exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),
+  })
   // `initial={false}` (#134): the children set up with this first render start at their
   // `animate`; one that enters after it animates in.
   onMount(presence.mounted)

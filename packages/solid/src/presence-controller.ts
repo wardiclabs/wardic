@@ -19,9 +19,10 @@ import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constUndefined, identity } from "effect/Function"
+import { constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -56,6 +57,25 @@ export interface PresenceOptions {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** The presence's `initial` prop: `false` starts the child present at its first render at its `animate` (#134). */
   readonly initial: () => boolean | undefined
+  /** What its binding hears of its exits (#257); left out, nothing is told. */
+  readonly events?: PresenceEvents | undefined
+}
+
+/**
+ * A presence's exits, told to its binding (#257, ADR-0046): Solid 1's `onExitComplete`, Solid 2's
+ * presence handle. A child that leaves exits; a child with no record (not a Wardic element) leaves at
+ * once, its exit starting and ending together, as Motion's does.
+ */
+export interface PresenceEvents {
+  /** A child left, and its exit starts. */
+  readonly exitStart: () => void
+  /** Whether any child is exiting, at each change: on at an exit's start, off once none is left. */
+  readonly exiting: (exiting: boolean) => void
+  /**
+   * Every exiting child has animated out and been removed, the last by completing (Motion's
+   * `onExitComplete`). Not when the last ended by an interrupt: a re-entry, or the teardown.
+   */
+  readonly exitComplete: () => void
 }
 
 /** A presence's work, driven by its binding. */
@@ -72,6 +92,24 @@ export interface PresenceController {
   /** The presence's teardown: every exit in flight interrupted, every retained node removed. */
   readonly teardown: () => void
 }
+
+/**
+ * Solid 1's {@link PresenceEvents} (#257): only Motion's `onExitComplete`, read when it's called. One
+ * that throws is reported (`wardic.presence: onExitComplete failed`), and the presence goes on.
+ */
+export const exitCompleteEvents = (runtime: WardicRuntime, onExitComplete: () => (() => void) | undefined): PresenceEvents => ({
+  exitStart: constVoid,
+  exiting: constVoid,
+  exitComplete: () => {
+    const callback = onExitComplete()
+    if (Predicate.isUndefined(callback)) return
+    try {
+      callback()
+    } catch (defect) {
+      runtime.runFork(Report.failure("wardic.presence: onExitComplete failed", Cause.die(defect)))
+    }
+  },
+})
 
 /** A presence's work: see the module. */
 export const makePresence = (options: PresenceOptions): PresenceController => {
@@ -111,6 +149,27 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // `animate`; one that enters after it animates in.
   let firstRender = true
 
+  // The children exiting now, each told once at its end (#257): completed, or interrupted.
+  const leaving = new Set<HTMLElement>()
+  const events = options.events
+
+  /** A child's exit starts: told, and `exiting` turns on with the first. */
+  const leaveStarts = (el: HTMLElement): void => {
+    leaving.add(el)
+    if (Predicate.isUndefined(events)) return
+    if (leaving.size === 1) events.exiting(true)
+    events.exitStart()
+  }
+
+  /** A child's exit ended: with the last, `exiting` turns off, and a completion is told. */
+  const leaveEnds = (el: HTMLElement, completed: boolean): void => {
+    if (Bool.not(leaving.delete(el))) return
+    if (Predicate.isUndefined(events)) return
+    if (leaving.size > 0) return
+    events.exiting(false)
+    if (completed) events.exitComplete()
+  }
+
   const ctx: PresenceContextValue = {
     register: (rec) => {
       registry.set(rec.element, rec)
@@ -128,8 +187,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   // Remove a retained node from the DOM + drop its registration + clear its
-  // in-flight fiber bookkeeping. Idempotent.
-  const finishExit = (el: HTMLElement): void => {
+  // in-flight fiber bookkeeping. Idempotent. `completed`: its exit ended on its own (#257).
+  const finishExit = (el: HTMLElement, completed = true): void => {
     exiting.delete(el)
     registry.delete(el)
     pending.delete(el)
@@ -138,6 +197,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     exitValues.delete(el)
     if (Predicate.isNotUndefined(unregister)) unregister()
     el.remove()
+    // Told once the node is gone, as Motion's `onExitComplete` finds it (#257).
+    leaveEnds(el, completed)
   }
 
   // One of a leaving child's parts ended (#181): it goes with the last. A child already removed
@@ -155,6 +216,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // Interrupt an in-flight exit for `el` (re-entry / teardown) and remove the
   // retained node, the twins it handed back dropped with it. Idempotent.
   const interruptExit = (el: HTMLElement): void => {
+    // Told first, as interrupted: the exit's fiber, interrupted below, ends at once through
+    // `partDone`, which would tell it completed (#257).
+    leaveEnds(el, false)
     const fiber = exiting.get(el)
     if (Predicate.isNotUndefined(fiber)) {
       debug("exit: interrupt")
@@ -162,7 +226,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     }
     const drop = handovers.get(el)
     if (Predicate.isNotUndefined(drop)) drop()
-    finishExit(el)
+    finishExit(el, false)
   }
 
   // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
@@ -278,6 +342,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const teardown = (): void => {
     debug("teardown", { inflight: exiting.size, retained: pending.size })
     Arr.forEach(Arr.fromIterable(pending.keys()), (el) => interruptExit(el))
+    // A crossfading leaver is the projection's, not in `pending`: its exit ends here too, uncompleted (#257).
+    Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
   }
 
   const present = (current: unknown): void => {
@@ -288,7 +354,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // drive its exit.
     if (Predicate.isNotUndefined(prevEl) && currentEl !== prevEl) {
       const rec = registry.get(prevEl)
+      // A child with no record (not a Wardic element) has no exit: it's gone at once (#257).
+      if (Bool.and(Predicate.isUndefined(rec), Bool.not(leaving.has(prevEl)))) {
+        leaveStarts(prevEl)
+        leaveEnds(prevEl, true)
+      }
       if (Predicate.isNotUndefined(rec) && !exiting.has(prevEl)) {
+        leaveStarts(prevEl)
         // RE-INSERT: Solid's <Show> branch disposal may have already removed
         // the node. Re-append it (at its prior sibling position when available)
         // into the parent it lived in, so the parent-driven exit has a mounted

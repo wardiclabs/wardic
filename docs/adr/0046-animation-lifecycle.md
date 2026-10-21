@@ -6,7 +6,7 @@ It lands in four PRs:
 1. The spine's signal and Solid 1's callbacks (this ADR's *Built (PR 1)*).
 2. Solid 2's `card.settled()` and `card.next(name)`, in two: `settled()` and `next("settled")` (*Built (PR 2a)*), then the gesture events and `wardRef` (*Built (PR 2b)*), which needed core's recognizers to report a pointer and to tell a tap from a cancel.
 3. Solid 2's layout callbacks moving to async (*Built (PR 3)*).
-4. Presence exits, on both bindings.
+4. Presence exits, on both bindings (*Built (PR 4)*).
 
 ## Why
 
@@ -147,12 +147,39 @@ Solid's action sends a yielded promise's value back in (`it.next(v)`) and throws
 
   Read headless on both builds, the card gives the same verdicts and counts: Shuffle 3 starts, 3 completes, settled after the last; Two calls 2 and 2; Shuffle, untriggered 0 and 0; no console problem.
 
+## Presence exits (grilled 2026-10-21, PR 4)
+
+1. **Solid 2's handle comes from a factory, `createPresence()`, given to `<AnimatePresence ref>`** (A). It's a ref that carries its API, as `ward()` and the sensors are, so it's declared up front, typed, and read in JSX with no `let` and no `!`. `ref` is optional, and also takes a plain callback, which is handed the presence's own handle.
+   - Rejected: only a callback ref.
+2. **`exiting()` is a plain reactive boolean** (A). It turns on at an exit's start and off once no exiting child is left, at once when a child comes back mid-exit.
+   - Rejected: an async value as `settled()` is. An exit's end has nothing to hand over, and it would bring back `settled()`'s `<Loading>` concerns for nothing.
+3. **Two events, `next("exitStart")` and `next("exitComplete")`, both resolving with `undefined`** (all four as proposed):
+   - an exit a re-entry interrupts doesn't complete, so a waiting `next("exitComplete")` waits on for one that does;
+   - the handle's owner disposed: waiting calls reject with an `AbortError`, and an `each` ends.
+4. **Solid 1 gets only Motion's `onExitComplete`.**
+
+## Built (PR 4)
+
+- **The presence controller tells its exits** (`PresenceEvents`: `exitStart`, `exiting`, `exitComplete`). Solid 1's `onExitComplete` and Solid 2's handle both read them.
+  - **"Complete"** is Motion's: every exiting child has animated out and been removed, the last by completing. A re-entry's interrupt or the presence's teardown completes nothing.
+  - **A child with no record** (not a Wardic element) leaves at once: its exit starts and completes together, as Motion calls `onExitComplete` for a plain child.
+  - **An interrupted exit is told before its fiber is interrupted.** The fiber's interruption ends through `partDone`, which would otherwise have told it completed first (PX2 and EC2 caught it).
+  - **A completion is told once the node is removed,** so Solid 1's synchronous callback finds it gone (EC1).
+  - **The teardown also ends a crossfading leaver.** That leaver is the projection's, not among the exits it interrupts, so without this a handle outliving the presence would read `exiting()` on for good (PX7).
+- **Solid 1:** `<AnimatePresence onExitComplete>`, read when it's called. One that throws is reported (`wardic.presence: onExitComplete failed`), and the presence goes on.
+- **Solid 2:** `createPresence()` (`unstable/v2/presence-handle.ts`).
+  - The presence makes its own handle only when `ref` is given, tells it its exits, and hands it to `ref`. A `createPresence()` handle called with it hears it from then on.
+  - **`exiting()` writes only a change,** checked against the value last written: Solid 2 reads a write from its next flush, so the signal can't say. A hearer joining in the presence's body syncs to "not exiting", and writing even that there is a write Solid refuses (`REACTIVE_WRITE_IN_OWNED_SCOPE`, caught by the diagnostics gate).
+  - **The handle's waits go with its owner.** Its hearers stay, so a presence's teardown, which runs after, still tells them its exits are off.
+  - On a server the handle reads not exiting, its `next` never settles, and its `each` ends at once.
+- **`next` and `each` are one module now** (`unstable/v2/waiters.ts`): `Waiters`, and `eachOf` over anything waitable. The ward's lifecycle makes its `Waiters` at its first `next`, so a ward no one asks still costs one object.
+
 ## Consequences
 
 - **New public API:**
-  - Solid 2: `Ward.settled`, `Ward.next` and `Ward.each`, the `wardRef` prop, and the `WardSettled`, `WardGestures`, `WardEvent`, `WardEvents`, `WardPoint`, `WardPointInfo`, `WardDragInfo`, `WardRefProp` and `WardicAnimationDefinition` types;
+  - Solid 2: `createPresence()` and the `Presence`, `PresenceEvent` and `PresenceEvents` types, `<AnimatePresence ref>`; `Ward.settled`, `Ward.next` and `Ward.each`, the `wardRef` prop, and the `WardSettled`, `WardGestures`, `WardEvent`, `WardEvents`, `WardPoint`, `WardPointInfo`, `WardDragInfo`, `WardRefProp` and `WardicAnimationDefinition` types;
   - core: `PointerLikeEvent.scroll` and `.onTarget`, `NO_SCROLL`, `Drag.Sample.scroll`, `Recognizer.hoverEvents` / `pressEvents` and their `Transition`, `PressEvent` and `PressPhase` (an Environment fills the two fields);
-  - Solid 1: `onAnimationStart` / `onAnimationComplete` on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicAnimationDefinition` type;
+  - Solid 1: `<AnimatePresence onExitComplete>`; `onAnimationStart` / `onAnimationComplete` on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicAnimationDefinition` type;
   - dom: `FlushGate.afterFlush`.
 - **Per Retarget:** two assignments and a guard, plus a read of each callback key when it starts and when it settles. A settle with hooks queues one call on the gate.
 
@@ -184,6 +211,27 @@ Solid's action sends a yielded promise's value back in (`it.next(v)`) and throws
     - a keyboard lift's `drag`.
   - `test/v2/lifecycle.browser.test.tsx` LF1–LF3: a stale settle, a landing before the first read, and the definition across a gesture.
   - `test/v2/server.ssr.test.tsx` SV14.
+- **PR 4:**
+  - solid (Solid 2): `test/v2/presence-handle.browser.test.tsx` PX1–PX8:
+    - `exiting()` and the two events through an exit;
+    - a re-entry, with no completion;
+    - a callback `ref`;
+    - `each`, and the owner's disposal;
+    - a teardown mid-exit;
+    - a plain child;
+    - a crossfading leaver at the teardown;
+    - two leavers at once.
+
+    And SV17, the server.
+  - solid (Solid 1): `test/presence-exit-complete.browser.test.tsx` EC1–EC5:
+    - called once the node is gone;
+    - not for a re-entry;
+    - not at a teardown;
+    - one that throws;
+    - a plain child.
+
+    And `error-reporting.browser.test.tsx`'s `onExitComplete` case.
+  - The shared `Waiters`: LF5, two waits on one event.
 - **PR 3:** `test/v2/layout.browser.test.tsx`:
   - LY8: `next("layoutStart")`, then `next("layoutComplete")`, through `wardRef`;
   - LY11: `animateLayout` resolving with its callback's result once the reorder has landed;

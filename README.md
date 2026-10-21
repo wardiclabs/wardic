@@ -155,6 +155,7 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | `useTime()` | `createTime()` |
 | `onUpdate={(latest) => …}` | `onUpdate={(latest) => …}` |
 | `onAnimationStart={(definition) => …}`, `onAnimationComplete={(definition) => …}` | the same, with the variant name or the target values (ADR-0046); not on Solid 2 |
+| `<AnimatePresence onExitComplete={() => …}>` | the same, once every exiting child has animated out and been removed (ADR-0046); on Solid 2, a `createPresence()` handle |
 | a motion value that `drag` or `animate` writes into | `ward.value("x")`, the element's output |
 | Framer's optimised appear animations (`startOptimizedAppearAnimation`) | on by default for a server render: `<WardicProvider appear={false}>` or an element's `appear={false}` turns it off |
 
@@ -354,6 +355,17 @@ function Card(props: { open: boolean }) {
   }
   ```
 - Layout is async too (#257, ADR-0046). `useAnimateLayout()`'s call returns a promise of its callback's result, resolved once every layout animation the change started has ended: `await animateLayout(() => setItems(shuffled()))`, then re-enable the button. Calls in one task resolve together, and the provider's disposal rejects one still waiting with an `AbortError`. A layout element's animations are `next("layoutStart")` and `next("layoutComplete")` (and `each`), where Solid 1 has `onLayoutAnimationStart` / `onLayoutAnimationComplete` and `animateLayout`'s `onSettled`.
+- A presence's exits are heard through a handle, `createPresence()`, given to `<AnimatePresence ref>` (#257, ADR-0046). `presence.exiting()` is whether a child is exiting, a plain reactive boolean; `await presence.next("exitComplete")` waits until the exiting child has animated out and been removed (a child back mid-exit doesn't complete it), and `next("exitStart")` until a child leaves. `ref` is optional, and takes a plain callback too: `ref={(p) => (presence = p)}`.
+
+  ```tsx
+  const presence = createPresence()
+  <AnimatePresence ref={presence}><Show when={open()}><wardic.div exit={{ opacity: 0 }} /></Show></AnimatePresence>
+  <button disabled={presence.exiting()} onClick={async () => {
+    setOpen(false)
+    await presence.next("exitComplete")
+    await api.save()
+  }}>Close and save</button>
+  ```
 - So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit`, layout (`layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`), drag (`drag`, `dragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragTransition`), sensors, the Live value helpers, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
 - `examples/solid2-start` runs it in `@solidjs/vite-plugin`'s start mode (streaming server rendering, file routes, hydration), with the same hand checks as the Solid 1 example: `/ssr` for hydration and `/appear` for Appear animations.
 - `examples/layout-lab` runs on it too (`bun dev:v2`): the same lab built on Solid 2, every scenario on the Solid 2 binding, its Reorder card on the components or the factories.
