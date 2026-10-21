@@ -105,10 +105,31 @@ It lands in four PRs:
 - **`Recognizer.hoverEvents` and `Recognizer.pressEvents`:** each transition, with the event that turned it; a press's end as `"tap"`, `"cancel"` or `"dragged"` (a drag active at any of its owner's events since the down). `hover` and `press` are maps over them, so each gesture keeps one fold. The shell splits in two: `stateRecognizer` for the recognizers whose first report is a state (`focus`, `inView`), `transitionRecognizer` for the ones that start off.
 - **`card.next(name)`** takes `"settled"`, `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`, `"dragStart"` and `"dragEnd"`, typed by name (`WardEvents`). A hover or press event asked for starts that recognizer on the mounted element, and on later mounts, if its `while*` hasn't: one recognizer serves the layer and the events. A drag's events come from the drag track's samples. A ward that doesn't drag never has one; the promise rejects at unmount.
 
+## `card.each(name)` (after PR 2b, 2026-10-21)
+
+A ward's events as an async iterable: `for await (const release of card.each("dragEnd"))`. Asked for after #272 merged, while working through a swipe-to-dismiss card, whose loop over `next` read as an unbounded `for (;;)`.
+
+- **Each step is a `wait`.** One that comes while the loop's body runs is missed, as a `next` asked later would miss it. Nothing is queued: for a swipe card, a stale swipe replayed after a failed request would surprise.
+- **It ends, rather than rejecting, when the ward is disposed.** A `wait` rejects only then, so the iteration needs no `catch`.
+- **A `break` leaves nothing behind,** since nothing waits between steps.
+- **On a server,** it ends at once.
+
+**The swipe card, run end to end** (`test/v2/swipe-dismiss.browser.test.tsx`, SC1–SC4). It's the README's pattern:
+- `card.each("dragEnd")` decides at each release;
+- one Solid 2 `action` flies the card out with an optimistic write, `yield`s `card.next("settled")`, holds an undo window, then sends the request and refreshes the list.
+
+It settled what the pattern assumed:
+- the optimistic write inside the action reaches the ward;
+- a variant Retarget at the release beats `dragSnapToOrigin`'s return;
+- on success, the revert and the refreshed list commit together, with no flash back between the landing and the removal;
+- a failed request (a throw) and an undo (a `return`) both revert, and the card flies back with nothing written for it.
+
+Solid's action sends a yielded promise's value back in (`it.next(v)`) and throws a rejection at the `yield`, so `const undone: boolean = yield …` reads the value.
+
 ## Consequences
 
 - **New public API:**
-  - Solid 2: `Ward.settled` and `Ward.next`, the `wardRef` prop, and the `WardSettled`, `WardGestures`, `WardEvent`, `WardEvents`, `WardPoint`, `WardPointInfo`, `WardDragInfo`, `WardRefProp` and `WardicAnimationDefinition` types;
+  - Solid 2: `Ward.settled`, `Ward.next` and `Ward.each`, the `wardRef` prop, and the `WardSettled`, `WardGestures`, `WardEvent`, `WardEvents`, `WardPoint`, `WardPointInfo`, `WardDragInfo`, `WardRefProp` and `WardicAnimationDefinition` types;
   - core: `PointerLikeEvent.scroll` and `.onTarget`, `NO_SCROLL`, `Drag.Sample.scroll`, `Recognizer.hoverEvents` / `pressEvents` and their `Transition`, `PressEvent` and `PressPhase` (an Environment fills the two fields);
   - Solid 1: `onAnimationStart` / `onAnimationComplete` on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicAnimationDefinition` type;
   - dom: `FlushGate.afterFlush`.
@@ -154,6 +175,7 @@ It lands in four PRs:
     - `wardRef` on all three components.
 
     And SV15, `wardRef` on a server.
+  - solid (Solid 2), `card.each`: EA1–EA4 in `test/v2/gesture-events.browser.test.tsx` (releases in order and a `break`, one missed while the body runs, the end at disposal, landings), SV16, and the swipe card's SC1–SC4.
   - core: C1 (the builder's defaults), C29–C30 (`heldPointer`'s scroll and `onTarget`), RE1–RE2 (`hoverEvents`, `pressEvents`), A14 (a press a drag took over, in either subscription order), DS1 (a sample's scroll).
   - dom: PN3 and the input test's page-wide release, on a child and on the page.
 - **dom:**

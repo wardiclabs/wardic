@@ -262,6 +262,18 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
    * `DOMException` named `"AbortError"` once the ward is disposed.
    */
   readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
+  /**
+   * Every `name` from the call on, as an async iterable (#257), for `for await`: each step waits
+   * as `next(name)` does, so one that comes while the loop's body runs is missed. The loop ends
+   * once the ward is disposed, with no `AbortError`.
+   *
+   * ```tsx
+   * for await (const release of card.each("dragEnd")) {
+   *   if (Math.abs(release.offset.x) >= 120) await dismiss(release.offset.x < 0 ? "left" : "right")
+   * }
+   * ```
+   */
+  readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
 }
 
 /** What a `wardic.*` component or a `<Reorder>` item adds to a ward. Internal. */
@@ -751,6 +763,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     atom: { value: (key: string) => gate.valueOf(id, key) },
     settled: { value: () => lifecycle.read() },
     next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
+    each: { value: <E extends WardEvent>(name: E) => lifecycle.each(name) },
   })
   return self
 }
@@ -815,6 +828,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     // Nothing animates on a server: nothing has landed, and nothing will.
     settled: { value: constUndefined },
     next: { value: neverLands },
+    each: { value: () => NO_EVENTS },
   })
   return self
 }
@@ -824,3 +838,8 @@ const noRef = constUndefined
 
 /** A server's `next`: nothing happens there, and nothing disposes it. */
 const neverLands = (): Promise<never> => new Promise<never>(constUndefined)
+
+/** A server's `each`: nothing happens there, so it ends at once. */
+const NO_EVENTS: AsyncIterable<never> = {
+  [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true as const }) }),
+}

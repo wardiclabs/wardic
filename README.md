@@ -307,6 +307,52 @@ function Card(props: { open: boolean }) {
   const { point } = await photo.next("dragEnd")
   const folder = document.elementsFromPoint(point.x, point.y).find((el) => el instanceof HTMLElement && el.dataset.folder)
   ```
+
+  `card.each(name)` is every `name` from the call on, for `for await`; the loop ends when the ward is disposed. With Solid 2's `action` and optimistic values, a gesture, its animation and a request read as one sequence. A swipe-to-dismiss card that sends its request only once it has flown off, with an undo window, and flies back by itself if the request fails or is undone:
+
+  ```tsx
+  function NoticeCard(props: { notice: Notice; list: SourceAccessor<ReadonlyArray<Notice>> }) {
+    // Optimistic: shown at once, reverted when the action ends, whichever way it ends.
+    const [out, setOut] = createOptimistic<"left" | "right" | undefined>(undefined)
+    const [undoable, setUndoable] = createOptimistic(false)
+    const card = ward({
+      drag: "x",
+      dragSnapToOrigin: true,
+      variants: { shown: { x: 0, opacity: 1 }, left: { x: -420, opacity: 0 }, right: { x: 420, opacity: 0 } },
+      initial: "shown",
+      animate: () => out() ?? "shown",
+    })
+
+    let undoNow = () => {}
+    const dismiss = action(function* (side: "left" | "right") {
+      setOut(side)                                   // fly out
+      yield card.next("settled")                     // ...and land off screen
+      setUndoable(true)                              // "Dismissed · Undo", for 4 s
+      const undone: boolean = yield new Promise((resolve) => {
+        undoNow = () => resolve(true)
+        setTimeout(() => resolve(false), 4000)
+      })
+      if (undone) return                             // the revert flies it back in
+      yield api.dismiss(props.notice.id)             // only now, the request (a throw: it flies back)
+      refresh(props.list)                            // the list, without it
+    })
+
+    const swipes = async () => {
+      for await (const release of card.each("dragEnd")) {
+        const flung = Math.abs(release.offset.x) >= 120 || Math.abs(release.velocity.x) >= 600
+        if (flung) await dismiss(release.offset.x < 0 ? "left" : "right").catch(() => toast("Couldn't dismiss it"))
+      }
+    }
+    onSettled(() => void swipes())
+
+    return (
+      <>
+        <article {...card}>{props.notice.text}</article>
+        <Show when={undoable()}><p>Dismissed · <button onClick={() => undoNow()}>Undo</button></p></Show>
+      </>
+    )
+  }
+  ```
 - So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit`, layout (`layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`), drag (`drag`, `dragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragTransition`), sensors, the Live value helpers, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
 - `examples/solid2-start` runs it in `@solidjs/vite-plugin`'s start mode (streaming server rendering, file routes, hydration), with the same hand checks as the Solid 1 example: `/ssr` for hydration and `/appear` for Appear animations.
 - `examples/layout-lab` runs on it too (`bun dev:v2`): the same lab built on Solid 2, every scenario on the Solid 2 binding, its Reorder card on the components or the factories.
