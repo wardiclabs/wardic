@@ -4,9 +4,11 @@ import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 
@@ -387,4 +389,27 @@ it.effect("A13: a Stale gesture's end releases the claim (rule A)", () =>
     expect(phases(h.seen.outer!)).toBe("")
     expect(activity.isDragActive()).toBe(false)
     expect(Option.isSome(activity.claim(OUTER, "xy").pipe(Option.map((release) => release())))).toBe(true)
+  }))
+
+// A press a drag took over (#257, Motion's press: its end isn't a valid press event while a drag
+// is active, so neither `onTap` nor `onTapCancel`), in either subscription order.
+it.effect("A14 (#257): a press a drag took over ends dragged; one that stayed under the threshold taps", () =>
+  Effect.gen(function* () {
+    for (const pressFirst of [false, true]) {
+      const activity = DragActivity.make()
+      const streams = [Recognizer.drag(undefined), Recognizer.pressEvents(undefined)] as const
+      const h = yield* rig(activity, Bool.match(pressFirst, { onTrue: () => [streams[1], streams[0]], onFalse: () => [streams[0], streams[1]] }) as ReadonlyArray<Stream.Stream<unknown, never, InputSource.InputSource>>)
+      const phases = Effect.map(h.seen, (seen) => seen.filter((e): e is Recognizer.PressEvent => Predicate.hasProperty(e, "event")).map((e) => e.phase).join(" "))
+      // A drag: past the threshold, released on the target.
+      yield* h.push(ev("down", 0, 0, 0))
+      yield* h.push(ev("move", 10, 0, 10))
+      yield* h.push(ev("up", 10, 0, 20))
+      expect(yield* phases, `pressed ${Bool.match(pressFirst, { onTrue: () => "first", onFalse: () => "second" })}`).toBe("start dragged")
+      // A wobble under the threshold still taps.
+      yield* h.push(ev("down", 0, 0, 30))
+      yield* h.push(ev("move", 2, 0, 40))
+      yield* h.push(ev("up", 2, 0, 50))
+      expect(yield* phases).toBe("start dragged start tap")
+      for (const fiber of h.fibers) yield* Fiber.interrupt(fiber)
+    }
   }))

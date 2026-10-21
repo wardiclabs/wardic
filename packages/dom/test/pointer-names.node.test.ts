@@ -4,7 +4,8 @@
 //
 // - PN1: each `pointerType` to a Pointer kind, an unknown one to "other".
 // - PN2: each `button` to core's button: 0/1/2 main/middle/secondary, -1 none, the rest other.
-// - PN3: `toPointer` maps `buttons` to `pressed` (any bit), `isPrimary` to `primary`, and the rest.
+// - PN3: `toPointer` maps `buttons` to `pressed` (any bit), `isPrimary` to `primary`, and the rest; no
+//   scroll counted, and `onTarget` as its feed says (#257).
 import { describe, expect, it } from "vitest"
 import { buttonOf, kindOf, toPointer } from "../src/internal/input.ts"
 
@@ -30,7 +31,10 @@ describe("the DOM's pointer fields in core's names (#189)", () => {
       kind: "touch",
       button: "main",
       primary: true,
+      scroll: { x: 0, y: 0 },
+      onTarget: true,
     })
+    expect(toPointer("up", dom({}), false).onTarget, "a page-wide event says where it landed (#257)").toBe(false)
     expect([0, 1, 2, 4, 16].map((buttons) => toPointer("move", dom({ buttons, button: -1 })).pressed)).toEqual([false, true, true, true, true])
     expect(toPointer("move", dom({ isPrimary: false })).primary).toBe(false)
   })

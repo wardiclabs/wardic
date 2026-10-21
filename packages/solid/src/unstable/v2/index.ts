@@ -23,7 +23,7 @@ export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "..
  * `.read(key)` and `.atom(key)` for its values.
  */
 export { type Ward, type WardConfig, type WardProps, type WardRead, type WardStyle, ward } from "./ward.tsx"
-export type { WardEvent, WardGestures, WardSettled } from "./lifecycle.ts"
+export type { WardDragInfo, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "../../config.ts"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 
@@ -36,7 +36,7 @@ export type { WardicOrchestration, WardicReducedMotion, WardicTransformShorthand
  * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the
  * element's own props and the motion props; a `wardic.create(Component)` component forwards its `ref`.
  */
-export { type Wardic, type WardicProps, type WardicWrappable, wardic } from "./wardic.tsx"
+export { type Wardic, type WardicProps, type WardicWrappable, type WardRefProp, wardic } from "./wardic.tsx"
 export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 
 /**

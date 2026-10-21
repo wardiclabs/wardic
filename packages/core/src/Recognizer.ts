@@ -23,39 +23,30 @@ import * as Velocity from "./Velocity.ts"
 /**
  * One state recognizer's fold: a start state, a pure step per event, and the boolean
  * ("active") the recognizer emits for a state. `press` and `hover` fold a small state
- * (the pointer that owns a press, a deferred leave); `focus` and `inView` fold the
- * boolean itself.
+ * (the pointer that owns a press, whether a drag took it over, a deferred leave); `focus`
+ * and `inView` fold the boolean itself.
  */
 interface Fold<S, Ev> {
   readonly initial: S
   readonly step: (state: S, event: Ev) => S
   readonly active: (state: S) => boolean
-  /**
-   * Emit only when `active` changes, starting from the initial state's, so an event
-   * that changes nothing emits nothing (`hover`, `press`). Otherwise the first event's
-   * value is emitted too, then only changes (`focus`, and `inView`, whose first report
-   * says whether the target starts in view).
-   */
-  readonly fromInitial: boolean
 }
 
 /** No emission: shared, so an event that changes nothing allocates nothing. */
-const NONE: ReadonlyArray<boolean> = []
+const NONE: ReadonlyArray<never> = []
 
 /**
- * Shared shell for the boolean "state" recognizers (`hover`/`press`/`focus`/
- * `inView`). Each one resolves a service, subscribes to an event stream, and
- * folds events with a pure {@link Fold}. The shell owns the common machinery so the
- * recognizers reduce to a span name and the service-resolving `acquire`, which
- * returns the events and the fold:
+ * Shared shell for the boolean recognizers whose first report is a state (`focus`, and
+ * `inView`, whose first report says whether the target starts in view): each resolves a
+ * service, subscribes to an event stream, and folds events with a pure {@link Fold},
+ * emitting the first event's value, then only changes. The shell owns the common machinery,
+ * so the recognizers reduce to a span name and the service-resolving `acquire`:
  *
  * - `Stream.unwrap(Effect.gen)` — resolve the service then return the stream.
  * - annotated `logDebug("<span>: subscribe")` on subscribe (cold setup, not the
  *   hot path); per-event folding stays silent.
- * - `Stream.mapAccum` over the fold's state, seeded via a thunk (mirrors
- *   drag/scalar). A `fromInitial` fold emits the state's boolean only when it changes;
- *   any other emits it each event and `Stream.changes` dedups consecutive equal
- *   booleans. Either way only transitions are surfaced.
+ * - `Stream.mapAccum` over the fold's state, seeded via a thunk (mirrors drag/scalar),
+ *   and `Stream.changes` to dedup consecutive equal booleans.
  * - `Effect.annotateLogs(attributes)` + `Stream.withSpan(span, { attributes })`
  *   wrap the whole thing in observability, matching the `wardic.*` convention.
  */
@@ -68,32 +59,60 @@ const stateRecognizer = <Ev, S, R>(
     Effect.gen(function* () {
       yield* Effect.logDebug(`${span}: subscribe`).pipe(Effect.annotateLogs(attributes))
       const { events, fold } = yield* acquire
-      return Bool.match(fold.fromInitial, {
-        onTrue: () =>
-          events.pipe(
-            Stream.mapAccum(
-              () => fold.initial,
-              (state, ev) => {
-                const next = fold.step(state, ev)
-                const active = fold.active(next)
-                return [next, Bool.match(active === fold.active(state), { onTrue: () => NONE, onFalse: () => [active] })] as const
-              },
-            ),
-          ),
-        onFalse: () =>
-          events.pipe(
-            Stream.mapAccum(
-              () => fold.initial,
-              (state, ev) => {
-                const next = fold.step(state, ev)
-                return [next, [fold.active(next)]] as const
-              },
-            ),
-            Stream.changes,
-          ),
-      })
+      return events.pipe(
+        Stream.mapAccum(
+          () => fold.initial,
+          (state, ev) => {
+            const next = fold.step(state, ev)
+            return [next, [fold.active(next)]] as const
+          },
+        ),
+        Stream.changes,
+      )
     }).pipe(Effect.annotateLogs(attributes)),
   ).pipe(Stream.withSpan(span, { attributes, captureStackTrace: false }))
+
+/**
+ * Shared shell for the pointer gestures that start off (`hover`, `press`, #257): the fold's
+ * transitions, each emitted as `out` makes it of the state, the event that turned it and
+ * whether it's on now. An event that changes nothing emits nothing. Observability as
+ * {@link stateRecognizer}'s.
+ */
+const transitionRecognizer = <S, Out, R>(
+  span: string,
+  attributes: Record<string, unknown>,
+  acquire: Effect.Effect<
+    { readonly events: Stream.Stream<InputSource.PointerLikeEvent>; readonly fold: Fold<S, InputSource.PointerLikeEvent> },
+    never,
+    R
+  >,
+  out: (next: S, event: InputSource.PointerLikeEvent, active: boolean) => Out,
+): Stream.Stream<Out, never, R> =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      yield* Effect.logDebug(`${span}: subscribe`).pipe(Effect.annotateLogs(attributes))
+      const { events, fold } = yield* acquire
+      return events.pipe(
+        Stream.mapAccum(
+          () => fold.initial,
+          (state, ev) => {
+            const next = fold.step(state, ev)
+            const active = fold.active(next)
+            return [next, Bool.match(active === fold.active(state), { onTrue: (): ReadonlyArray<Out> => NONE, onFalse: () => [out(next, ev, active)] })] as const
+          },
+        ),
+      )
+    }).pipe(Effect.annotateLogs(attributes)),
+  ).pipe(Stream.withSpan(span, { attributes, captureStackTrace: false }))
+
+/**
+ * A gesture's transition (#257): whether it's on now, and the event that turned it, whose
+ * `x`/`y` (less its `scroll`) say where the pointer was.
+ */
+export interface Transition {
+  readonly active: boolean
+  readonly event: InputSource.PointerLikeEvent
+}
 
 /**
  * Hover's state: whether the pointer is inside the target, the pointer that went down
@@ -130,7 +149,6 @@ const endsPress: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.s
  */
 const hoverFold = (activity: DragActivity.Shape): Fold<HoverState, InputSource.PointerLikeEvent> => ({
   initial: noHover,
-  fromInitial: true,
   active: (s) => Bool.or(s.inside, s.deferred),
   step: (s, e) =>
     Match.value(e).pipe(
@@ -160,7 +178,14 @@ const hoverFold = (activity: DragActivity.Shape): Fold<HoverState, InputSource.P
  * transitions.
  */
 export const hover = (target: unknown): Stream.Stream<boolean, never, InputSource.InputSource> =>
-  stateRecognizer(
+  Stream.map(hoverEvents(target), activeOf)
+
+/**
+ * {@link hover}'s transitions with the event that turned each (#257): a hover's start and
+ * end, and where the pointer was (Motion's `onHoverStart` / `onHoverEnd`).
+ */
+export const hoverEvents = (target: unknown): Stream.Stream<Transition, never, InputSource.InputSource> =>
+  transitionRecognizer(
     "wardic.hover",
     {},
     Effect.gen(function* () {
@@ -168,32 +193,56 @@ export const hover = (target: unknown): Stream.Stream<boolean, never, InputSourc
       const activity = yield* DragActivity.DragActivity
       return { events: input.pointer(target), fold: hoverFold(activity) }
     }),
+    transitionOf,
   )
 
+/** A transition of the state it changed to (#257). */
+const transitionOf = (_next: unknown, event: InputSource.PointerLikeEvent, active: boolean): Transition => ({ active, event })
+
+/** Whether a transition turned its gesture on. */
+const activeOf = (transition: Transition): boolean => transition.active
+
 /**
- * Press's fold: the **Primary pointer** that pressed owns the press (`null` when none
- * does). It ends at that pointer's release, its cancel, or its first move with no button
- * pressed (a lost release, ADR-0019). No press starts while a drag is active. A second
- * down from the owner (a lost release) keeps it pressed.
+ * Press's state: the **Primary pointer** that pressed (`null` when none does), and whether a
+ * drag was active at any of its events since (#257): a press a drag took over is no tap.
  */
-const pressFold = (activity: DragActivity.Shape): Fold<number | null, InputSource.PointerLikeEvent> => ({
-  initial: null,
-  fromInitial: true,
-  active: Predicate.isNotNull,
-  step: (owner, e) =>
+interface PressState {
+  readonly owner: number | null
+  readonly dragged: boolean
+}
+
+const noPress: PressState = { owner: null, dragged: false }
+
+/**
+ * Press's fold: the **Primary pointer** that pressed owns the press. It ends at that pointer's
+ * release, its cancel, or its first move with no button pressed (a lost release, ADR-0019). No
+ * press starts while a drag is active. A second down from the owner (a lost release) keeps it
+ * pressed. Each of the owner's events notes whether a drag is active (#257).
+ */
+const pressFold = (activity: DragActivity.Shape): Fold<PressState, InputSource.PointerLikeEvent> => ({
+  initial: noPress,
+  active: (s) => Predicate.isNotNull(s.owner),
+  step: (s, e) =>
     Match.value(e).pipe(
-      Match.when(Predicate.not(InputSource.isPrimaryPointer), () => owner),
+      Match.when(Predicate.not(InputSource.isPrimaryPointer), () => s),
       Match.when({ type: "down" }, (down) =>
-        Bool.match(Bool.or(Predicate.isNotNull(owner), activity.isDragActive()), {
-          onTrue: () => owner,
-          onFalse: () => down.pointerId,
+        Bool.match(Bool.or(Predicate.isNotNull(s.owner), activity.isDragActive()), {
+          onTrue: () => s,
+          onFalse: (): PressState => ({ owner: down.pointerId, dragged: false }),
         }),
       ),
-      Match.orElse((other) =>
-        Bool.match(Bool.and(other.pointerId === owner, endsPress(other)), { onTrue: () => null, onFalse: () => owner }),
-      ),
+      Match.orElse((other) => Bool.match(other.pointerId === s.owner, { onTrue: () => ownersEvent(s, other, activity), onFalse: () => s })),
     ),
 })
+
+/** The press's owner's event, other than a down: the press ends at its end, and a drag active now is noted. */
+const ownersEvent = (s: PressState, e: InputSource.PointerLikeEvent, activity: DragActivity.Shape): PressState => {
+  const dragged = Bool.or(s.dragged, activity.isDragActive())
+  return Bool.match(endsPress(e), {
+    onTrue: (): PressState => ({ owner: null, dragged }),
+    onFalse: () => Bool.match(dragged === s.dragged, { onTrue: () => s, onFalse: (): PressState => ({ owner: s.owner, dragged }) }),
+  })
+}
 
 /**
  * Recognize press state on `target`: `true` while the primary pointer that pressed it is
@@ -202,7 +251,27 @@ const pressFold = (activity: DragActivity.Shape): Fold<number | null, InputSourc
  * release. No press starts while a drag is active (ADR-0019). Emits only on transitions.
  */
 export const press = (target: unknown): Stream.Stream<boolean, never, InputSource.InputSource> =>
-  stateRecognizer(
+  Stream.map(pressEvents(target), pressing)
+
+/**
+ * How a press began or ended (#257, Motion's press): `"start"` at its down; `"tap"`, a release
+ * on the target or inside it; `"cancel"`, a release elsewhere, a cancel, or a lost release;
+ * `"dragged"`, an end after a drag was active, which Motion tells as neither.
+ */
+export type PressPhase = "start" | "tap" | "cancel" | "dragged"
+
+/** A press's start or end (#257), and the event it came with. */
+export interface PressEvent {
+  readonly phase: PressPhase
+  readonly event: InputSource.PointerLikeEvent
+}
+
+/**
+ * {@link press}'s transitions, each with how it began or ended (#257): Motion's `onTapStart`,
+ * `onTap` and `onTapCancel`, and a press a drag took over, which Motion tells as neither.
+ */
+export const pressEvents = (target: unknown): Stream.Stream<PressEvent, never, InputSource.InputSource> =>
+  transitionRecognizer(
     "wardic.press",
     {},
     Effect.gen(function* () {
@@ -210,12 +279,28 @@ export const press = (target: unknown): Stream.Stream<boolean, never, InputSourc
       const activity = yield* DragActivity.DragActivity
       return { events: input.pointer(target), fold: pressFold(activity) }
     }),
+    pressEventOf,
   )
+
+/** A press's transition, with how it began or ended. */
+const pressEventOf = (next: PressState, event: InputSource.PointerLikeEvent, active: boolean): PressEvent => ({
+  phase: Bool.match(active, { onTrue: (): PressPhase => "start", onFalse: () => endOf(next, event) }),
+  event,
+})
+
+/** How a press ended: after a drag, in a release on the target, or otherwise. */
+const endOf = (ended: PressState, event: InputSource.PointerLikeEvent): PressPhase =>
+  Bool.match(ended.dragged, {
+    onTrue: (): PressPhase => "dragged",
+    onFalse: () => Bool.match(Bool.and(event.type === "up", event.onTarget), { onTrue: (): PressPhase => "tap", onFalse: () => "cancel" }),
+  })
+
+/** Whether a press event is its start. */
+const pressing = (event: PressEvent): boolean => event.phase === "start"
 
 /** The fold of a recognizer whose events already say whether it is active. */
 const booleanFold = <Ev>(activeOf: (event: Ev) => boolean): Fold<boolean, Ev> => ({
   initial: false,
-  fromInitial: false,
   step: (_active, event) => activeOf(event),
   active: (active) => active,
 })
@@ -281,6 +366,8 @@ interface DragState {
   readonly ownerId: number | null
   readonly origin: Point.Point
   readonly last: Point.Point
+  /** The scroll counted into `last` (#257): a sample at `last` carries it. */
+  readonly lastScroll: Point.Point
   readonly history: ReadonlyArray<Velocity.TimedPoint>
 }
 
@@ -289,6 +376,7 @@ const initState: DragState = {
   ownerId: null,
   origin: { x: 0, y: 0 },
   last: { x: 0, y: 0 },
+  lastScroll: InputSource.NO_SCROLL,
   history: [],
 }
 
@@ -344,6 +432,7 @@ const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number): Readonl
         velocity: { x: 0, y: 0 },
         phase: "end",
         timeStamp,
+        scroll: state.lastScroll,
       }
       staleEnds.set(sample, rule)
       return [sample]
@@ -356,6 +445,7 @@ const claimedBy = (event: InputSource.PointerLikeEvent, point: Point.Point): Dra
   ownerId: event.pointerId,
   origin: point,
   last: point,
+  lastScroll: event.scroll,
   history: [{ x: point.x, y: point.y, timeStamp: event.timeStamp }],
 })
 
@@ -402,6 +492,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
           velocity: windowVelocity(state.history),
           phase: "end",
           timeStamp: event.timeStamp,
+          scroll: state.lastScroll,
         }),
         onFalse: () => {
           const point = pointOf(event)
@@ -414,6 +505,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
             velocity: windowVelocity(history),
             phase: "end",
             timeStamp: event.timeStamp,
+            scroll: event.scroll,
           }
         },
       })
@@ -427,6 +519,7 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
   const history = pushHistory(state.history, { x: point.x, y: point.y, timeStamp: event.timeStamp })
   const offset: Point.Point = { x: point.x - state.origin.x, y: point.y - state.origin.y }
   const delta: Point.Point = { x: point.x - state.last.x, y: point.y - state.last.y }
+  const lastScroll = event.scroll
   const sample = (phase: Drag.Sample["phase"]): Drag.Sample => ({
     point,
     offset,
@@ -434,19 +527,20 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
     velocity: windowVelocity(history),
     phase,
     timeStamp: event.timeStamp,
+    scroll: lastScroll,
   })
   return Match.value(state.phase).pipe(
     Match.when("idle", (): Step =>
       Bool.match(dist(state.origin, point) <= THRESHOLD, {
         // Below threshold: keep origin fixed, advance last/history so velocity is
         // primed, but suppress output.
-        onTrue: (): Step => [{ ...state, last: point, history }, NO_SAMPLES],
+        onTrue: (): Step => [{ ...state, last: point, lastScroll, history }, NO_SAMPLES],
         // Crossing the threshold promotes the gesture and emits "start".
-        onFalse: (): Step => [{ ...state, phase: "active", last: point, history }, [sample("start")]],
+        onFalse: (): Step => [{ ...state, phase: "active", last: point, lastScroll, history }, [sample("start")]],
       }),
     ),
     // Active: every move emits.
-    Match.when("active", (): Step => [{ ...state, last: point, history }, [sample("move")]]),
+    Match.when("active", (): Step => [{ ...state, last: point, lastScroll, history }, [sample("move")]]),
     Match.exhaustive,
   )
 }

@@ -7,6 +7,9 @@
 //   returns, built then, with the gesture layers its resolution was made with.
 // - LF3: a landing's definition is the variant name only when the variant changed since the Retarget
 //   before it; a gesture's Retarget over the same variant hands over its values.
+// - LF4: a gesture's event is told at its viewport point, its `x`/`y` less the scroll its hold
+//   counted into them; a press a drag took over tells nothing, nor does a drag's move.
+import * as InputSource from "@wardic/core/InputSource"
 import type { Active, Resolution } from "../../src/spine.ts"
 import { Lifecycle } from "../../src/unstable/v2/lifecycle.ts"
 import { createRoot, getOwner } from "solid-js"
@@ -21,7 +24,7 @@ const lifecycleIn = () => {
   let disposeRoot!: () => void
   const lifecycle = createRoot((d) => {
     disposeRoot = d
-    return new Lifecycle(getOwner())
+    return new Lifecycle(getOwner(), () => {})
   })
   const dispose = (): void => {
     lifecycle.dispose()
@@ -70,5 +73,26 @@ describe("a ward's lifecycle (#257)", () => {
     hooks.settled(hovered, "rest")
     expect((await second).definition).toEqual({ opacity: 1 })
     dispose()
+  })
+
+  it("LF4: a gesture's event at its viewport point, less the scroll counted; a dragged press and a drag's move tell nothing", async () => {
+    const { lifecycle, dispose } = lifecycleIn()
+    const scrolled = InputSource.makePointerLikeEvent({ type: "up", x: 40, y: 260, scroll: { x: 0, y: 200 } })
+    const tap = lifecycle.wait("tap")
+    const cancel = lifecycle.wait("tapCancel")
+    lifecycle.pressed({ phase: "dragged", event: scrolled })
+    lifecycle.pressed({ phase: "tap", event: scrolled })
+    expect(await tap).toEqual({ point: { x: 40, y: 60 } })
+    const hoverEnd = lifecycle.wait("hoverEnd")
+    lifecycle.hovered({ active: false, event: scrolled })
+    expect(await hoverEnd).toEqual({ point: { x: 40, y: 60 } })
+    const dragEnd = lifecycle.wait("dragEnd")
+    const sample = { point: { x: 40, y: 260 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 }, timeStamp: 0, scroll: { x: 0, y: 200 } }
+    lifecycle.dragged({ ...sample, phase: "move", point: { x: 0, y: 0 } })
+    lifecycle.dragged({ ...sample, phase: "end" })
+    expect(await dragEnd).toEqual({ point: { x: 40, y: 60 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 } })
+    // The dragged press told neither: the cancel waits on, until the disposal.
+    dispose()
+    expect(await cancel.then(() => "resolved", (error: unknown) => (error as DOMException).name)).toBe("AbortError")
   })
 })

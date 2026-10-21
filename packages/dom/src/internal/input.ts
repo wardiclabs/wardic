@@ -47,7 +47,7 @@ import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { identity } from "effect/Function"
+import { constTrue, identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -98,8 +98,12 @@ export const buttonOf = (button: number): InputSource.PointerButton =>
     Match.orElse((): InputSource.PointerButton => "other"),
   )
 
-/** A DOM `PointerEvent` as core's pointer event, in core's names (ADR-0036, *Amendment (#189)*). */
-export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent): InputSource.PointerLikeEvent => ({
+/**
+ * A DOM `PointerEvent` as core's pointer event, in core's names (ADR-0036, *Amendment (#189)*):
+ * at its viewport point, with no scroll counted (`heldPointer` counts it), and `onTarget` as
+ * its feed says (#257).
+ */
+export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent, onTarget = true): InputSource.PointerLikeEvent => ({
   type,
   pointerId: UndefinedOr.match(ev.pointerId as number | undefined, { onUndefined: () => 1, onDefined: identity }),
   x: ev.clientX,
@@ -109,18 +113,34 @@ export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: Pointe
   kind: kindOf(ev.pointerType),
   button: buttonOf(ev.button),
   primary: ev.isPrimary,
+  scroll: InputSource.NO_SCROLL,
+  onTarget,
 })
 
 /**
  * A {@link PointerFeed} of `types` on `target`: each DOM event emitted as its
  * Like-event with the DOM event as `raw`; the returned function removes the listeners.
+ * `onTargetOf` says whether an event landed on the element the stream is for (#257): the
+ * target's own feed's always do; the page-wide feed's say.
  */
-const feedOf = (target: EventTarget, types: ReadonlyArray<string>, options?: AddEventListenerOptions): InputSource.PointerFeed =>
+const feedOf = (
+  target: EventTarget,
+  types: ReadonlyArray<string>,
+  options?: AddEventListenerOptions,
+  onTargetOf: (ev: Event) => boolean = constTrue,
+): InputSource.PointerFeed =>
 (emit) => {
-  const listener = (ev: Event): void => emit(toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev as PointerEvent), ev)
+  const listener = (ev: Event): void => emit(toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev as PointerEvent, onTargetOf(ev)), ev)
   Arr.forEach(types, (type) => target.addEventListener(type, listener, options))
   return () => Arr.forEach(types, (type) => target.removeEventListener(type, listener, options))
 }
+
+/** Whether a page-wide event landed on `target` or inside it (#257, Motion's `isNodeOrChild`). */
+const landedOn = (target: unknown) => (ev: Event): boolean =>
+  Bool.and(isNode(target), isNode(ev.target)) && (target as Node).contains(ev.target as Node)
+
+/** Whether `value` is a DOM node (by `nodeType`, so an iframe's nodes count too). */
+const isNode = (value: unknown): boolean => Predicate.isObjectOrArray(value) && Predicate.isNumber((value as { readonly nodeType?: unknown }).nodeType)
 
 /** The window an element's page-wide events reach: its own document's (an iframe's element has its own), else the page's. */
 const windowOf = (target: unknown): Window =>
@@ -288,7 +308,7 @@ const make = Effect.gen(function* () {
     Effect.succeed(
       InputSource.heldPointer({
         target: feedOf(target as EventTarget, POINTER_EVENTS),
-        global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE),
+        global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
         scroll: scrollFeedOf(target),
       }),
     )

@@ -24,6 +24,8 @@ describe("makePointerLikeEvent", () => {
       expect(event.timeStamp).toBe(0)
       expect(event.kind).toBe("mouse")
       expect(event.primary).toBe(true)
+      expect(event.scroll, "no scroll counted (#257)").toEqual({ x: 0, y: 0 })
+      expect(event.onTarget, "on its target (#257)").toBe(true)
     }
     expect(built.map((event) => event.button)).toEqual(["main", "none", "main", "none", "none", "none"])
     expect(built.map((event) => event.pressed)).toEqual([true, true, false, false, false, false])
@@ -38,6 +40,8 @@ describe("makePointerLikeEvent", () => {
       button: "secondary",
       pressed: false,
       primary: false,
+      scroll: { x: 1, y: 2 },
+      onTarget: false,
     })
     expect(overridden).toEqual({
       type: "down",
@@ -49,6 +53,8 @@ describe("makePointerLikeEvent", () => {
       button: "secondary",
       pressed: false,
       primary: false,
+      scroll: { x: 1, y: 2 },
+      onTarget: false,
     })
   })
 })

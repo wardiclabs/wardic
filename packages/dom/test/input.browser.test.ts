@@ -121,6 +121,28 @@ layer(InputDomLive)("InputDomLive", (it) => {
       el.remove()
     }))
 
+  it.effect("a held pointer's page-wide release says whether it landed on the target or inside it (#257)", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const el = document.createElement("div")
+      const child = document.createElement("span")
+      el.appendChild(child)
+      document.body.appendChild(el)
+      const sub = yield* subscribeIn(input.pointer(el))
+      const pointer = (type: string, at: EventTarget): void => {
+        at.dispatchEvent(new PointerEvent(type, { pointerId: 1, isPrimary: true, buttons: Match.value(type).pipe(Match.when("pointerdown", () => 1), Match.orElse(() => 0)), bubbles: true }))
+      }
+      // Released on a child: on the target. Released on the page: not.
+      pointer("pointerdown", el)
+      pointer("pointerup", child)
+      pointer("pointerdown", el)
+      pointer("pointerup", document.body)
+      const seen = yield* sub.collect(4)
+      expect(seen.map((e) => `${e.type} ${e.onTarget}`)).toEqual(["down true", "up true", "down true", "up false"])
+      yield* sub.close
+      el.remove()
+    }))
+
   it("keyOf names the browser's keys in core's names, and every other key other (#43)", () => {
     const keys = [" ", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "a", "Tab", "Spacebar", "Esc", "PageDown"]
     expect(keys.map(keyOf)).toEqual(["space", "enter", "escape", "left", "right", "up", "down", "home", "end", "other", "other", "other", "other", "other"])

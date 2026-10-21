@@ -28,6 +28,9 @@ import type * as Point from "./Point.ts"
  *   with an `"end"` at the last pressed point, no delta and no velocity.
  * - `timeStamp`: the time (ms) of the event that produced it (a scroll-driven move
  *   carries the scroll's; a Stale gesture's end carries the event that ended it).
+ * - `scroll`: the scroll the hold has counted into `point` since the down (the event's,
+ *   `InputSource.PointerLikeEvent.scroll`): `point - scroll` is where the pointer is on
+ *   the screen (#257).
  */
 export interface Sample {
   readonly point: Point.Point
@@ -36,6 +39,7 @@ export interface Sample {
   readonly velocity: Point.Point
   readonly phase: "start" | "move" | "end"
   readonly timeStamp: number
+  readonly scroll: Point.Point
 }
 
 /**

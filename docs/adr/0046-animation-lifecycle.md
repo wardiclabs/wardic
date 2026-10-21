@@ -4,7 +4,7 @@ An app can now hear when an element's animation starts and when it lands. Solid 
 
 It lands in four PRs:
 1. The spine's signal and Solid 1's callbacks (this ADR's *Built (PR 1)*).
-2. Solid 2's `card.settled()` and `card.next(name)`, in two: `settled()` and `next("settled")` (*Built (PR 2a)*), then the gesture events, which need core's recognizers to report a pointer and to tell a tap from a cancel.
+2. Solid 2's `card.settled()` and `card.next(name)`, in two: `settled()` and `next("settled")` (*Built (PR 2a)*), then the gesture events and `wardRef` (*Built (PR 2b)*), which needed core's recognizers to report a pointer and to tell a tap from a cancel.
 3. Solid 2's layout callbacks moving to async.
 4. Presence exits, on both bindings.
 
@@ -76,10 +76,40 @@ It lands in four PRs:
 - **A ward on a server:** `settled()` is `undefined`, and `next` never settles. Nothing animates there.
 - **Only a ward hands them over:** `ward()`, and so `reorderItem()`. `wardic.<tag>`, `wardic.create` and `Reorder.Item` don't expose their ward yet.
 
+## The gesture events (grilled 2026-10-21, PR 2b)
+
+1. **`point` is in the viewport** (B), as `clientX` / `clientY` and `getBoundingClientRect()` measure, not the page as Motion's `pageX` / `pageY`.
+   - **Why:** in an app, the next step after a tap or a drop is most often a DOM call in viewport terms: a hit test (`elementsFromPoint`), a box (`getBoundingClientRect`), a fixed popover, Floating UI's virtual element. Under page coordinates each needs the scroll taken out, a mistake that only shows once the page is scrolled. Document-anchored uses (pins on an article, analytics, absolute overlays) add the scroll back, once.
+   - Rejected: page coordinates, Motion's numbers for ported code.
+2. **Components hand over their ward through `wardRef`** (A): `<wardic.div wardRef={(card) => …}>`, and the same on `wardic.create(Component)` and `Reorder.Item`. It's read once, as `ref` is, and costs nothing when it isn't given.
+   - Rejected: `wardOf(element)`, a lookup every ward would register for; nothing, which leaves a component with no way to hear its animations on Solid 2.
+3. **Motion's semantics** (`.reference/motion` at `16c6122`, `motion-dom/src/gestures/press/index.ts:57-127`, `framer-motion/src/gestures/press.ts`, `hover.ts`):
+   - `pressStart` at a primary pointer's down with no drag active;
+   - `tap` at a release on the element or inside it (`isNodeOrChild`);
+   - `tapCancel` at a release elsewhere, a cancel, or a lost release;
+   - **a press a drag took over is neither:** Motion drops the end while a drag is active (`isValidPressEvent`), and its tests pin it (`press.test.tsx:288-333`): a wobble under the threshold still taps.
+   - `hoverStart` / `hoverEnd` at Wardic's hover transitions, which already follow Motion's `hover.ts` (ADR-0019).
+   - `dragStart` / `dragEnd` at the drag's start sample (past its threshold) and its end, with Motion's `PanInfo` fields.
+4. **Defaults stated, not asked:**
+   - the events resolve at the event itself, where Motion calls its callbacks after the frame's render, so `await card.next("tap")` chains without a frame's wait;
+   - a one-axis drag's `offset`, `delta` and `velocity` are the drag's, zeroed off its axis, where Motion's info is the pointer's;
+   - a keyboard reorder's lift isn't a `dragStart`: Motion has no keyboard reorder, and a lift moves no pointer.
+
+## Built (PR 2b)
+
+- **core's pointer event** gains two fields:
+  - `scroll`: the scroll the hold counted into `x`/`y` since the down, so `x - scroll.x` is where the pointer is on the screen. `heldPointer` sets it on each shifted event and each scroll's move; an event not held carries the shared `NO_SCROLL`.
+  - `onTarget`: whether it landed on the target or inside it. The target's own events do. dom's page-wide feed, built per target, checks `target.contains(event.target)`, only while a pointer is held. A lost release's ending move hasn't.
+  - `makePointerLikeEvent` fills both: no scroll, on the target.
+- **`Drag.Sample`** gains `scroll` too, from its event (the last move's, for a cancel's or a Stale gesture's end).
+- **`Recognizer.hoverEvents` and `Recognizer.pressEvents`:** each transition, with the event that turned it; a press's end as `"tap"`, `"cancel"` or `"dragged"` (a drag active at any of its owner's events since the down). `hover` and `press` are maps over them, so each gesture keeps one fold. The shell splits in two: `stateRecognizer` for the recognizers whose first report is a state (`focus`, `inView`), `transitionRecognizer` for the ones that start off.
+- **`card.next(name)`** takes `"settled"`, `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`, `"dragStart"` and `"dragEnd"`, typed by name (`WardEvents`). A hover or press event asked for starts that recognizer on the mounted element, and on later mounts, if its `while*` hasn't: one recognizer serves the layer and the events. A drag's events come from the drag track's samples. A ward that doesn't drag never has one; the promise rejects at unmount.
+
 ## Consequences
 
 - **New public API:**
-  - Solid 2: `Ward.settled` and `Ward.next`, and the `WardSettled`, `WardGestures`, `WardEvent` and `WardicAnimationDefinition` types;
+  - Solid 2: `Ward.settled` and `Ward.next`, the `wardRef` prop, and the `WardSettled`, `WardGestures`, `WardEvent`, `WardEvents`, `WardPoint`, `WardPointInfo`, `WardDragInfo`, `WardRefProp` and `WardicAnimationDefinition` types;
+  - core: `PointerLikeEvent.scroll` and `.onTarget`, `NO_SCROLL`, `Drag.Sample.scroll`, `Recognizer.hoverEvents` / `pressEvents` and their `Transition`, `PressEvent` and `PressPhase` (an Environment fills the two fields);
   - Solid 1: `onAnimationStart` / `onAnimationComplete` on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicAnimationDefinition` type;
   - dom: `FlushGate.afterFlush`.
 - **Per Retarget:** two assignments and a guard, plus a read of each callback key when it starts and when it settles. A settle with hooks queues one call on the gate.
@@ -112,6 +142,20 @@ It lands in four PRs:
     - a keyboard lift's `drag`.
   - `test/v2/lifecycle.browser.test.tsx` LF1–LF3: a stale settle, a landing before the first read, and the definition across a gesture.
   - `test/v2/server.ssr.test.tsx` SV14.
+- **PR 2b:**
+  - solid (Solid 2): `test/v2/gesture-events.browser.test.tsx` GX1–GX8:
+    - a hover's events on a ward with no `whileHover`;
+    - `pressStart` and a tap released on a child;
+    - a `tapCancel` released on the page;
+    - a press a drag took over, neither;
+    - `dragStart` and `dragEnd` info;
+    - a ward with no drag rejecting at unmount;
+    - one recognizer for `whileHover` and the events;
+    - `wardRef` on all three components.
+
+    And SV15, `wardRef` on a server.
+  - core: C1 (the builder's defaults), C29–C30 (`heldPointer`'s scroll and `onTarget`), RE1–RE2 (`hoverEvents`, `pressEvents`), A14 (a press a drag took over, in either subscription order), DS1 (a sample's scroll).
+  - dom: PN3 and the input test's page-wide release, on a child and on the page.
 - **dom:**
   - `test/gate.browser.test.ts` GA1–GA3: after the flush with the value committed, a flush of its own, a throw reported, and dropped at dispose;
   - `test/services.browser.test.ts` DS4: the inert gate's `afterFlush`.

@@ -11,6 +11,7 @@ const sample = (over: Partial<Drag.Sample> = {}): Drag.Sample => ({
   velocity: { x: 0, y: 0 },
   phase: "move",
   timeStamp: 0,
+  scroll: { x: 0, y: 0 },
   ...over,
 })
 

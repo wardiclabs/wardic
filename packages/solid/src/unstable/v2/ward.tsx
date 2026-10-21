@@ -116,7 +116,7 @@ import {
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { configView, type Fixed, type PerKey } from "./config-view.ts"
-import { Lifecycle, type WardEvent, type WardSettled } from "./lifecycle.ts"
+import { Lifecycle, type WardEvent, type WardEvents, type WardSettled } from "./lifecycle.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
@@ -248,12 +248,20 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
    */
   readonly settled: Accessor<WardSettled | undefined>
   /**
-   * A promise of the element's next landing after the call (#257, ADR-0046): `await
-   * card.next("settled")` in a handler or an action. A Retarget the next one interrupts doesn't
-   * land; the promise waits for one that does. Rejected with a `DOMException` named `"AbortError"`
-   * once the ward is disposed.
+   * A promise of the element's next `name` after the call (#257, ADR-0046), to `await` in a handler
+   * or an action:
+   * - `"settled"`: its next landing. A Retarget the next one interrupts doesn't land; it waits for
+   *   one that does.
+   * - `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`: Motion's hover and tap
+   *   events, with the pointer's `point` in the viewport. A press a drag took over is neither a
+   *   tap nor a cancel.
+   * - `"dragStart"`, `"dragEnd"`: a drag's, with its `point`, `offset`, `delta` and `velocity`. A
+   *   ward that doesn't drag never has one.
+   *
+   * A gesture's event starts its recognizer, if its `while*` hasn't. Rejected with a
+   * `DOMException` named `"AbortError"` once the ward is disposed.
    */
-  readonly next: (name: WardEvent) => Promise<WardSettled>
+  readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
 }
 
 /** What a `wardic.*` component or a `<Reorder>` item adds to a ward. Internal. */
@@ -464,7 +472,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // Its Retargets' starts and landings (#257, ADR-0046): `settled()` and `next("settled")`, each with
   // the gesture layers its target was resolved with.
-  const lifecycle = new Lifecycle(owner)
+  // A gesture's event asked for starts its recognizer on the mounted element (and on later mounts).
+  const lifecycle = new Lifecycle(owner, () => {
+    UndefinedOr.map(mounted, startRecognizers)
+  })
 
 
   // The mounted element: registered with the gate, its layout node, its spine built over it, and the
@@ -482,18 +493,33 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const runFor = (m: { readonly fibers: Array<Fiber.Fiber<unknown, unknown>> }, effect: Effect.Effect<void, unknown, WardicServices>): void => {
     m.fibers.push(runtime.runFork(reported(effect)))
   }
-  /** A State recognizer's values into `set`. */
-  const recognized = (stream: Stream.Stream<boolean, never, WardicServices>, set: (value: boolean) => void): Effect.Effect<void> =>
-    Stream.runForEach(stream, (value) => Effect.sync(() => set(value))) as Effect.Effect<void>
-  /** Start the hover and press recognizers its config now wants, each once a mount. */
+  /** A recognizer's values into `on`. */
+  const recognized = <A,>(stream: Stream.Stream<A, never, WardicServices>, on: (value: A) => void): Effect.Effect<void> =>
+    Stream.runForEach(stream, (value) => Effect.sync(() => on(value))) as Effect.Effect<void>
+  /**
+   * Start the hover and press recognizers its config or a `next` now wants, each once a mount: each
+   * transition sets its gesture layer, and is told to the lifecycle for `next` (#257).
+   */
   const startRecognizers = (m: Mounted): void => {
-    if (Bool.and(untrack(wantsHover), Bool.not(m.hover))) {
+    if (Bool.and(Bool.or(untrack(wantsHover), lifecycle.wantsHover), Bool.not(m.hover))) {
       m.hover = true
-      runFor(m, recognized(Recognizer.hover(m.element), (on) => setGesture(m.element, "hovered", on)))
+      runFor(
+        m,
+        recognized(Recognizer.hoverEvents(m.element), (transition) => {
+          setGesture(m.element, "hovered", transition.active)
+          lifecycle.hovered(transition)
+        }),
+      )
     }
-    if (Bool.and(untrack(wantsPress), Bool.not(m.press))) {
+    if (Bool.and(Bool.or(untrack(wantsPress), lifecycle.wantsPress), Bool.not(m.press))) {
       m.press = true
-      runFor(m, recognized(Recognizer.press(m.element), (on) => setGesture(m.element, "pressed", on)))
+      runFor(
+        m,
+        recognized(Recognizer.pressEvents(m.element), (press) => {
+          setGesture(m.element, "pressed", press.phase === "start")
+          lifecycle.pressed(press)
+        }),
+      )
     }
   }
   let mounted: Mounted | undefined
@@ -564,7 +590,14 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         },
         ...UndefinedOr.match(layout, { onUndefined: () => ({}), onDefined: (projectionNode) => ({ projection: projectionNode }) }),
         ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
-        ...UndefinedOr.match(internal.onDragSample, { onUndefined: () => ({}), onDefined: (onSample) => ({ onSample }) }),
+        // Its samples to a `<Reorder>` item's group, and to the lifecycle for `next("dragStart")` (#257).
+        onSample: UndefinedOr.match(internal.onDragSample, {
+          onUndefined: () => (sample: Drag.Sample) => lifecycle.dragged(sample),
+          onDefined: (onSample) => (sample: Drag.Sample) => {
+            onSample(sample)
+            lifecycle.dragged(sample)
+          },
+        }),
       }))
     const spine = makeElementSpine({
       runtime,
@@ -717,7 +750,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     read: { value: read },
     atom: { value: (key: string) => gate.valueOf(id, key) },
     settled: { value: () => lifecycle.read() },
-    next: { value: (name: WardEvent) => lifecycle.wait(name) },
+    next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
   })
   return self
 }
@@ -789,5 +822,5 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = constUndefined
 
-/** A server's `next`: nothing lands there, and nothing disposes it. */
-const neverLands = (): Promise<WardSettled> => new Promise<WardSettled>(constUndefined)
+/** A server's `next`: nothing happens there, and nothing disposes it. */
+const neverLands = (): Promise<never> => new Promise<never>(constUndefined)
