@@ -1,0 +1,47 @@
+/**
+ * The info a gesture event hands over (#257, #273): Motion's `EventInfo` / `TapInfo` and `PanInfo`,
+ * with the pointer's `point` in the viewport (`clientX` / `clientY`, as `getBoundingClientRect()`
+ * measures), not the page as Motion's: both bindings, grilled B on each (ADR-0046, ADR-0047). Solid 1's
+ * callbacks and Solid 2's `next(name)` both build it here.
+ *
+ * @module
+ */
+import type * as Drag from "@wardic/core/Drag"
+import type * as InputSource from "@wardic/core/InputSource"
+
+/** A point in the viewport. */
+export interface WardicPoint {
+  readonly x: number
+  readonly y: number
+}
+
+/** A hover's or a press's event: where the pointer was, in the viewport. */
+export interface WardicPointInfo {
+  readonly point: WardicPoint
+}
+
+/**
+ * A drag's event: where the pointer was, in the viewport, and the drag's `offset` from its down, its
+ * last `delta` and its `velocity` (px/s). A scroll during the drag counts as movement in `offset`, as
+ * Motion's does; `point` stays where the pointer is on the screen. A one-axis drag's are zeroed off
+ * its axis.
+ */
+export interface WardicDragInfo {
+  readonly point: WardicPoint
+  readonly offset: WardicPoint
+  readonly delta: WardicPoint
+  readonly velocity: WardicPoint
+}
+
+/** A hover's or a press's info: its event's point less the scroll its hold counted into it. */
+export const pointInfoOf = (event: InputSource.PointerLikeEvent): WardicPointInfo => ({
+  point: { x: event.x - event.scroll.x, y: event.y - event.scroll.y },
+})
+
+/** A drag sample's info: its point less the scroll its hold counted into it, and its own offset, delta and velocity. */
+export const dragInfoOf = (sample: Drag.Sample): WardicDragInfo => ({
+  point: { x: sample.point.x - sample.scroll.x, y: sample.point.y - sample.scroll.y },
+  offset: sample.offset,
+  delta: sample.delta,
+  velocity: sample.velocity,
+})

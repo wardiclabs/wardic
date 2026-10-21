@@ -16,6 +16,10 @@
 // - EA2: a release while the loop's body runs is missed, as a `next` asked later would miss it.
 // - EA3: the loop ends, with no error, when the ward is disposed while it waits.
 // - EA4: `each("settled")`: each landing.
+// - GX9: `drag` (#273): the drag's start and each move, with Motion's info; not its release.
+// - GX10: `dragTransitionEnd` (#273): once the release rests, a free drag's and a layout node's.
+// - GX11: Solid 1's gesture callbacks aren't Solid 2's: `wardic.div`'s `onDragStart` is the DOM's own,
+//   and a ward's config takes no `onDragStart` (its events are `next(name)`'s).
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -286,5 +290,62 @@ describe("a ward's events as an async iterable (#257): card.each(name)", () => {
     })()
     await loop
     expect(landed).toEqual([0.5, 1])
+  })
+})
+
+describe("a drag's moves and its release's rest on Solid 2 (#273)", () => {
+  it("GX9: drag at the drag's start and each move, with Motion's info; not at its release", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ drag: "x", style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const seen: Array<string> = []
+    const loop = (async () => {
+      for await (const moved of card.each("drag")) {
+        seen.push(`${moved.point.x} off ${moved.offset.x}`)
+        if (seen.length === 3) break
+      }
+    })()
+    await raf()
+    pointer(el, "pointerdown", 130, 140, 1)
+    for (const x of [150, 170, 190]) {
+      pointer(el, "pointermove", x, 140, 1)
+      await raf()
+    }
+    await loop
+    expect(seen).toEqual(["150 off 20", "170 off 40", "190 off 60"])
+    const after = card.next("drag")
+    pointer(document.body, "pointerup", 190, 140)
+    expect(await settledWithin(after, 3), "not at the release").toBe(false)
+  })
+
+  it("GX10: dragTransitionEnd once the release rests, a free drag's and a layout node's", async () => {
+    for (const layout of [false, true]) {
+      let el!: HTMLElement
+      const { card, unmount } = mountCard({ layout, drag: "x", dragSnapToOrigin: true, style: BOX }, (card) => (
+        <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
+      ))
+      for (let i = 0; i < 3; i++) await raf()
+      const home = el.getBoundingClientRect().left
+      const rested = card.next("dragTransitionEnd")
+      dragBy(el, 130, 140, 60)
+      expect(await settledWithin(rested, 2), `layout ${layout}: still flying`).toBe(false)
+      expect(await rested).toBeUndefined()
+      expect(Math.abs(el.getBoundingClientRect().left - home), `layout ${layout}: home when told`).toBeLessThan(0.5)
+      unmount()
+    }
+  })
+
+  it("GX11: wardic.div's onDragStart is the DOM's own; a ward's config takes no onDragStart", async () => {
+    const seen: Array<string> = []
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div data-at="native" onDragStart={(event: DragEvent) => seen.push(event.type)} style={BOX} />
+      </WardicProvider>
+    ))
+    host.querySelector("[data-at=native]")!.dispatchEvent(new DragEvent("dragstart", { bubbles: true }))
+    expect(seen).toEqual(["dragstart"])
+    // @ts-expect-error Solid 2 hears a drag's start with `next("dragStart")`, not a callback.
+    const config: WardConfig = { drag: true, onDragStart: () => {} }
+    expect(config.drag).toBe(true)
   })
 })

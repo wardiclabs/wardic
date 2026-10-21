@@ -10,6 +10,7 @@ import type * as Drag from "@wardic/core/Drag"
 import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
+import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 
 /** CSS properties as Solid types them: `csstype`'s hyphenated set, and custom properties. */
 export interface CSSProperties extends CSS.PropertiesHyphen {
@@ -351,6 +352,28 @@ export interface WardConfig {
    * Read at the Retarget that started it.
    */
   readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
+  // Motion's gesture callbacks (#273, ADR-0047): Motion's `(event, info)`, the DOM's `PointerEvent`
+  // first, called at the event, with `info.point` in the viewport (not Motion's page). A hover's or a
+  // tap's starts its recognizer, as a `while*` does, set at mount or later. Solid 1's: Solid 2 hears the
+  // same through `next(name)`. One that throws is reported, and the gesture goes on.
+  /** The pointer came over the element (touch never hovers). */
+  readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** It left, or a press held on it while it left was let go. */
+  readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** A press began on the element: a primary pointer's down, with no drag active. */
+  readonly onTapStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** That press ended in a release on the element or inside it. */
+  readonly onTap?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** It ended elsewhere, or was cancelled. A press a drag took over is neither a tap nor a cancel. */
+  readonly onTapCancel?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** A drag of the element started, past its threshold. */
+  readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** That drag moved: its start, and each move after. */
+  readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** That drag ended at its release. */
+  readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** The drag's release came to rest on its own: its momentum or its spring back, or at once in place. Not one a grab stopped. */
+  readonly onDragTransitionEnd?: () => void
   /**
    * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
    * frame where it takes its first step, after that frame is painted. A restart fires it again;

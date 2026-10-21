@@ -140,6 +140,13 @@ export interface DragTrackOptions {
    * sees this sample (internal: a `<Reorder>` item's group).
    */
   readonly onSample?: ((sample: Drag.Sample) => void) | undefined
+  /**
+   * The release came to rest on its own (#273, Motion's `onDragTransitionEnd`): its momentum or its
+   * spring back finished, or it was dropped where it rests. Told after the gate's flush of the rest
+   * value. Not for one a grab stopped. A free drag's only: a layout node's release is its Release
+   * offset, which the projection tells.
+   */
+  readonly onReleaseEnd?: (() => void) | undefined
 }
 
 /** A drag config's axis as core's: `true` (free) is `"xy"`. */
@@ -367,7 +374,13 @@ const release = (
     return undefined
   }
 
-  const done = Effect.sync(() => opts.setDragging(false))
+  // At rest, the drag hands back, then its release's end is told (#273) after the gate's next flush,
+  // with the rest value on the element, as Motion's comes with it set: only here, so a release a
+  // grab interrupted tells nothing.
+  const done = Effect.sync(() => {
+    opts.setDragging(false)
+    UndefinedOr.map(opts.onReleaseEnd, (ended) => opts.gate.afterFlush(ended))
+  })
   const { axis } = MutableRef.get(state)
   const edges = edgesOf(cfg)
   const v = releaseVelocity(cfg, velocity)

@@ -28,6 +28,7 @@
  * writing into the same gate id) — see core's `Values.split`.
  */
 import type * as Drag from "@wardic/core/Drag"
+import * as Recognizer from "@wardic/core/Recognizer"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -38,10 +39,12 @@ import * as Svg from "@wardic/dom/Svg"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
 import { constUndefined, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom } from "effect/reactivity"
 import {
@@ -56,7 +59,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js"
-import { fromAtom } from "./bridge.ts"
+import { fromAtom, streamToSignal } from "./bridge.ts"
 import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
@@ -67,7 +70,8 @@ import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import type { PresenceRecord } from "./presence-record.ts"
-import { createHover, createPress, createWhenWanted } from "./sensors.ts"
+import { createWhenWanted } from "./sensors.ts"
+import { type GestureCallbacks, gestureCallbacksOf, wantsHover, wantsPress } from "./gesture-callbacks.ts"
 import { useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
@@ -431,6 +435,14 @@ export function runSpine(opts: RunSpineOptions): void {
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
 
+      // The app's gesture callbacks (#273, ADR-0047), each read from the config when it's called: made
+      // at the first gesture that needs them, as most elements have none.
+      let gestures: GestureCallbacks | undefined
+      const gesturesOf = (): GestureCallbacks => {
+        if (Predicate.isUndefined(gestures)) gestures = gestureCallbacksOf(runtime, id, () => untrack(cfg))
+        return gestures
+      }
+
       // --- Drag track (ADR-0004) ----------------------------------------------
       // When cfg().drag is truthy, run the binding-orchestrated drag track: the
       // pointer DIRECT-SETS x/y (1:1, not sprung) while the spring keeps driving
@@ -465,20 +477,47 @@ export function runSpine(opts: RunSpineOptions): void {
           // pointer and FLIPs to its slot on release. Free drag (no handle) is unchanged.
           ...UndefinedOr.match(layoutHandle, { onUndefined: () => ({}), onDefined: (projection) => ({ projection }) }),
           ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
-          ...UndefinedOr.match(internal.onDragSample, { onUndefined: () => ({}), onDefined: (onSample) => ({ onSample }) }),
+          // Its samples to a `<Reorder>` item's group, and to the app's drag callbacks (#273).
+          onSample: UndefinedOr.match(internal.onDragSample, {
+            onUndefined: () => gesturesOf().dragged,
+            onDefined: (onSample) => {
+              const { dragged } = gesturesOf()
+              return (sample: Drag.Sample) => {
+                onSample(sample)
+                dragged(sample)
+              }
+            },
+          }),
+          onReleaseEnd: gesturesOf().released,
         })
       }
 
-      // Recognizers over the live element, each started the first time its `while*` target
-      // appears (#87, ADR-0040), its fiber scoped to this owner's onCleanup via
-      // streamToSignal -> runScoped. Until then it reads false.
+      // Recognizers over the live element, each started the first time its config wants it, as
+      // Motion's features are (#87, ADR-0040; #273): `whileHover` or a hover callback, `whileTap` or a
+      // tap callback. Each transition sets its layer and is told to the app's callbacks, at the event.
+      // Its fiber is scoped to this owner's onCleanup via streamToSignal -> runScoped. Until then it
+      // reads false.
       const hovered = createWhenWanted(
-        () => Predicate.isNotUndefined(cfg().whileHover),
-        () => createHover(element),
+        () => wantsHover(cfg()),
+        () =>
+          streamToSignal(
+            Recognizer.hoverEvents(element).pipe(
+              Stream.tap((transition) => Effect.sync(() => gesturesOf().hovered(transition))),
+              Stream.map((transition) => transition.active),
+            ),
+            false,
+          ),
       )
       const pressed = createWhenWanted(
-        () => Predicate.isNotUndefined(cfg().whileTap),
-        () => createPress(element),
+        () => wantsPress(cfg()),
+        () =>
+          streamToSignal(
+            Recognizer.pressEvents(element).pipe(
+              Stream.tap((press) => Effect.sync(() => gesturesOf().pressed(press))),
+              Stream.map((press) => press.phase === "start"),
+            ),
+            false,
+          ),
       )
 
       // The Override stack (`resolutionOf`). The memo DEPENDS on cfg() (read inside), so a

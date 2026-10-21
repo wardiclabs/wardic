@@ -44,7 +44,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
+import { $PROXY, type Accessor, type Component, createComponent, createSignal, createUniqueId, type JSX, onMount, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { wardicDirective } from "./directive.ts"
 import { createElementStyle } from "./element-style.ts"
@@ -70,7 +70,7 @@ import { useVariantContext, WardicVariantContext } from "./variants.ts"
  */
 export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
   // `onAnimationStart` is Motion's (#257), not the DOM's CSS `animationstart` event's, as on Motion.
-  & Omit<JSX.IntrinsicElements[Tag], "style" | "onAnimationStart">
+  & Omit<JSX.IntrinsicElements[Tag], "style" | "onAnimationStart" | "onDrag" | "onDragStart" | "onDragEnd">
   & WardicMotionProps
   & { readonly style?: WardStyle | string | undefined }
 
@@ -81,6 +81,13 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
  * ref, so the wrapped component owns its own root JSX.
  */
 export type WardicWrappable = { ref?: (el: HTMLElement) => void }
+
+/**
+ * A client element's config from its split-off motion props: their keys are fixed unless they're a
+ * proxy (over a reactive spread), so the gesture callbacks the element wasn't given are never read
+ * (#273).
+ */
+export const configOfMotion = (motion: WardicMotionProps): Accessor<WardConfig> => motionToConfig(motion, Bool.not($PROXY in motion))
 
 /**
  * `wardic.create(tag | Component)` — build a motion component.
@@ -127,7 +134,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
 
       // Reactive config accessor from the motion props (tracks changes ->
       // Retarget). motionToConfig reads each prop getter inside its accessor.
-      const cfg = motionToConfig(motion)
+      const cfg = configOfMotion(motion)
       // Its place in variant orchestration (ADR-0007, #50): the context it hands the
       // component's children, and, as a Variant child, the ancestor it inherits from and joins.
       const node = createVariantNode(cfg, useVariantContext())
@@ -229,7 +236,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
     // inside the accessor, so a changed `animate` / `whileHover` / `transition`
     // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
     // render its Starting style's attribute keys as attributes (ADR-0021).
-    const cfg = motionToConfig(motion)
+    const cfg = configOfMotion(motion)
     const ward = createWardWith(cfg, { tag })
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the

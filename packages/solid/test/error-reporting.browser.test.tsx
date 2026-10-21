@@ -194,6 +194,40 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(container.querySelector("[data-leaving]"), "removed").toBeNull()
   })
 
+  it("a gesture callback (#273): one that throws is logged at Error with its cause, reported once, and the gesture goes on", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    let calls = 0
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div
+          data-hover
+          initial={{ opacity: 0.2 }}
+          animate={{ opacity: 0.2 }}
+          whileHover={{ opacity: 1 }}
+          transition={{ type: "tween", duration: 0.05 }}
+          onHoverStart={() => {
+            calls++
+            throw new Error("the app's onHoverStart broke")
+          }}
+          style={{ width: "40px", height: "40px", "margin-top": "60px", "margin-left": "60px" }}
+        />
+      </WardicProvider>
+    ))
+    const el = container.querySelector<HTMLElement>("[data-hover]")!
+    await retryGesture(
+      () => el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, pointerType: "mouse", isPrimary: true })),
+      () => el.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, pointerType: "mouse", isPrimary: true })),
+      () => calls > 0,
+    )
+    await until(() => opacityOf(el) === 1)
+    expect(opacityOf(el), "whileHover still applies").toBe(1)
+    const failed = errorsNamed(logs, "wardic.gesture: onHoverStart failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("the app's onHoverStart broke")
+    expect(reports).toEqual(["the app's onHoverStart broke"])
+  })
+
   it("runScoped, through useWardicFiber: logged at Error with its cause, and reported", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []

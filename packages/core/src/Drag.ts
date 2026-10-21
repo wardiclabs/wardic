@@ -31,6 +31,8 @@ import type * as Point from "./Point.ts"
  * - `scroll`: the scroll the hold has counted into `point` since the down (the event's,
  *   `InputSource.PointerLikeEvent.scroll`): `point - scroll` is where the pointer is on
  *   the screen (#257).
+ * - `raw`: the platform's own event behind it (`InputSource.PointerLikeEvent.raw`, #273),
+ *   opaque to core: a binding hands it to an app's drag callback.
  */
 export interface Sample {
   readonly point: Point.Point
@@ -40,6 +42,7 @@ export interface Sample {
   readonly phase: "start" | "move" | "end"
   readonly timeStamp: number
   readonly scroll: Point.Point
+  readonly raw?: unknown
 }
 
 /**

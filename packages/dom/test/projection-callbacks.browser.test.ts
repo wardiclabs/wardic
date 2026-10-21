@@ -16,6 +16,14 @@
 // - LC6: a callback that throws is reported, and the frame goes on.
 // - LC7: `onSettled`: after a landing; after a restart cut the flight short; after an unmount; at
 //   the end of its pass when it started nothing; calls in one task together; a throw reported.
+// - LC8: `onReleaseEnd` (#273, Motion's `onDragTransitionEnd`): once, after the flush of the frame
+//   its Release offset rests in; not while it flies.
+// - LC8b: a release a grab stopped tells nothing, and the drag that follows tells once; one a grab
+//   with no drag paused, then let go on, tells once.
+// - LC8c: one released in place tells from a microtask, at rest; one an unmount cut off, flying or
+//   before that microtask, nothing.
+// - LC8d: one that throws is reported, and the frame goes on.
+// - LC8e: one that rests under a layout flight still running: told once, as the node stays active.
 // (A width change finishing a flight is RB11, in projection-resize-block.)
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
@@ -345,6 +353,134 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
     expect(calls).toEqual(["settled after"])
     await endOfTask()
     expect(e.logs.some((l) => l.message === "wardic.projection: onSettled failed")).toBe(true)
+    e.dispose()
+  })
+})
+
+describe("a drag's release coming to rest (#273, Motion's onDragTransitionEnd)", () => {
+  type Sink = ReturnType<typeof makeSink>
+
+  /** One node whose release ends log what it last painted on x. */
+  const mountReleasing = async (e: Engine, sk: Sink, onEnd: (sk: Sink) => void = (sk) => calls.push(`released at ${sk.of("n0").at(-1)?.tx ?? 0}`)) => {
+    const [h] = await mount(e, [absolute(stage(STAGE), 0)], () => ({ onReleaseEnd: () => Option.some(() => onEnd(sk)) }))
+    return h!
+  }
+
+  /** A drag by `dx`, released at once with no velocity: its Release offset springs back from `dx`. */
+  const dragOut = (h: ProjectionSystem.NodeHandle, dx: number): void => {
+    h.dragStart()
+    h.dragMove({ x: dx, y: 0 })
+    fireFrame()
+    h.dragEnd()
+  }
+
+  it("LC8: once, after the flush of the frame its Release offset rests in; not while it flies", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const h = await mountReleasing(e, sk)
+    dragOut(h, 80)
+    await endOfTask()
+    fireFrames(5)
+    expect(calls, "flying").toEqual([])
+    fireFrames(120)
+    expect(calls, "at rest, written").toEqual(["released at 0"])
+    e.dispose()
+  })
+
+  it("LC8b: a release a grab stopped tells nothing, and the drag that follows once; one paused and let go on, once", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const h = await mountReleasing(e, sk)
+    dragOut(h, 80)
+    await endOfTask()
+    fireFrames(5)
+    h.stopRelease()
+    dragOut(h, 60)
+    await endOfTask()
+    fireFrames(120)
+    expect(calls, "the second release's").toEqual(["released at 0"])
+    calls.length = 0
+    dragOut(h, 80)
+    await endOfTask()
+    fireFrames(5)
+    h.stopRelease()
+    fireFrames(5)
+    expect(calls, "paused").toEqual([])
+    h.resumeRelease()
+    fireFrames(120)
+    expect(calls, "let go on, once").toEqual(["released at 0"])
+    e.dispose()
+  })
+
+  it("LC8c: released in place: from a microtask, at rest; cut off by an unmount: nothing", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const h = await mountReleasing(e, sk)
+    h.dragStart()
+    h.dragMove({ x: 40, y: 0 })
+    fireFrame()
+    h.dragMove({ x: 0, y: 0 })
+    fireFrame()
+    h.dragEnd()
+    expect(calls, "not inside dragEnd").toEqual([])
+    await endOfTask()
+    expect(calls).toEqual(["released at 0"])
+    calls.length = 0
+    dragOut(h, 80)
+    await endOfTask()
+    fireFrames(5)
+    h.dispose()
+    fireFrames(120)
+    await endOfTask()
+    expect(calls).toEqual([])
+    // Released in place and unmounted in the same task: nothing.
+    const h2 = await mountReleasing(e, sk)
+    h2.dragStart()
+    h2.dragMove({ x: 0, y: 0 })
+    fireFrame()
+    h2.dragEnd()
+    h2.dispose()
+    await endOfTask()
+    expect(calls).toEqual([])
+    e.dispose()
+  })
+
+  it("LC8e: one that rests under a layout flight still running: told once", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const a = absolute(stage(STAGE), 0)
+    const SLOW: ProjectionSystem.LayoutTransition = { type: "tween", duration: 2, easing: Easing.linear }
+    const [h] = await mount(e, [a], () => ({ transition: () => Option.some(SLOW), onReleaseEnd: () => Option.some(() => calls.push("released")) }))
+    dragOut(h!, 80)
+    await endOfTask()
+    fireFrame()
+    // A slot move under the release: a 2 s flight, which outlasts it.
+    moveTo(a, h!, 100)
+    await endOfTask()
+    fireFrames(90)
+    expect(calls.filter((c) => c === "released"), "rested").toEqual(["released"])
+    expect(calls, "the flight still running").not.toContain("complete n0")
+    fireFrames(60)
+    expect(calls).toContain("complete n0")
+    expect(calls.filter((c) => c === "released"), "once").toEqual(["released"])
+    e.dispose()
+  })
+
+  it("LC8d: one that throws is reported, and the frame goes on", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const h = await mountReleasing(e, sk, () => {
+      throw new Error("boom")
+    })
+    dragOut(h, 80)
+    await endOfTask()
+    fireFrames(120)
+    await endOfTask()
+    expect(e.logs.some((l) => l.message === "wardic.projection: onDragTransitionEnd failed")).toBe(true)
+    dragOut(h, 40)
+    await endOfTask()
+    fireFrames(2)
+    expect(sk.of("n0").at(-1)!.tx, "the next release still runs").toBeGreaterThan(0)
     e.dispose()
   })
 })

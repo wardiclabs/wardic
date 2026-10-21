@@ -10,7 +10,24 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
+import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
+
+/** Motion's gesture callbacks (#273): Solid 1's, which most elements don't take. */
+const GESTURE_CALLBACKS = [
+  "onHoverStart",
+  "onHoverEnd",
+  "onTapStart",
+  "onTap",
+  "onTapCancel",
+  "onDragStart",
+  "onDrag",
+  "onDragEnd",
+  "onDragTransitionEnd",
+] as const
+
+/** One of {@link GESTURE_CALLBACKS}. */
+type GestureCallback = (typeof GESTURE_CALLBACKS)[number]
 
 /**
  * Every motion prop the HOC consumes off the props object so it never leaks to
@@ -47,6 +64,7 @@ export const MOTION_PROPS = [
   "layoutAnchor",
   "onAnimationStart",
   "onAnimationComplete",
+  ...GESTURE_CALLBACKS,
   "onLayoutAnimationStart",
   "onLayoutAnimationComplete",
   "onUpdate",
@@ -59,7 +77,18 @@ export const MOTION_PROPS = [
  * callbacks, which Solid 2 hands over as async values (`card.next("settled")`, `"layoutStart"`,
  * `"layoutComplete"`).
  */
-const SOLID_1_CALLBACKS = ["onAnimationStart", "onAnimationComplete", "onLayoutAnimationStart", "onLayoutAnimationComplete"] as const
+const SOLID_1_CALLBACKS = [
+  "onAnimationStart",
+  "onAnimationComplete",
+  "onLayoutAnimationStart",
+  "onLayoutAnimationComplete",
+  // Motion's gesture callbacks (#273): Solid 2 hears them through `next(name)`, so on a Solid 2
+  // element `onDrag`, `onDragStart` and `onDragEnd` are the DOM's HTML drag-and-drop events.
+  ...GESTURE_CALLBACKS,
+] as const
+
+/** The callbacks only Solid 1 takes (#257, #273): Solid 2's config and props leave them out. */
+export type SolidOneCallback = (typeof SOLID_1_CALLBACKS)[number]
 
 /** {@link MOTION_PROPS} on Solid 2 (#257): all but Solid 1's callbacks, so `onAnimationStart` on an element there is the DOM's. */
 export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.contains(SOLID_1_CALLBACKS, prop))) as ReadonlyArray<
@@ -167,6 +196,16 @@ export interface WardicMotionProps {
   readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
   /** Called when that animation lands, with its `definition` (#257, Motion's prop; see `WardConfig`). */
   readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
+  /** Motion's gesture callbacks (#273; see `WardConfig`): `(event, info)`, at the event, `point` in the viewport. */
+  readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onTapStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onTap?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onTapCancel?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
+  readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
+  readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
+  readonly onDragTransitionEnd?: () => void
   /**
    * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
    * frame where it takes its first step, after that frame is painted. A restart fires it again;
@@ -213,10 +252,18 @@ export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBA
  * Keys are only assigned when the value is defined — exactOptionalPropertyTypes
  * forbids an explicit `undefined` on the optional config fields, and an absent key
  * is exactly how a Ward reads "no field".
+ *
+ * `fixedKeys`: `motion`'s keys stay as they are (it isn't a proxy over a reactive spread), so the
+ * gesture callbacks it wasn't given are never read (#273). Without it, all are.
  */
-export const motionToConfig =
-  (motion: WardicMotionProps): Accessor<WardConfig> =>
-  () => {
+export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Accessor<WardConfig> => {
+  // The gesture callbacks the element was given (#273), found once: the config is rebuilt at each
+  // read, and most elements take none. Keys that can change (a proxy's) are all read.
+  const gestures: ReadonlyArray<GestureCallback> = Bool.match(fixedKeys, {
+    onTrue: () => Arr.filter(GESTURE_CALLBACKS, (key) => key in motion),
+    onFalse: () => GESTURE_CALLBACKS,
+  })
+  return () => {
     const config: { -readonly [K in keyof WardConfig]: WardConfig[K] } = {}
     // Read each (reactive) prop getter inside the accessor so it tracks.
     const initial = motion.initial
@@ -271,9 +318,16 @@ export const motionToConfig =
     if (Predicate.isNotUndefined(layoutAnchor)) config.layoutAnchor = layoutAnchor
     if (Predicate.isNotUndefined(onAnimationStart)) config.onAnimationStart = onAnimationStart
     if (Predicate.isNotUndefined(onAnimationComplete)) config.onAnimationComplete = onAnimationComplete
+    if (Arr.isReadonlyArrayNonEmpty(gestures)) {
+      Arr.forEach(gestures, (key) => {
+        const callback = motion[key]
+        if (Predicate.isNotUndefined(callback)) (config as Record<GestureCallback, unknown>)[key] = callback
+      })
+    }
     if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart
     if (Predicate.isNotUndefined(onLayoutAnimationComplete)) config.onLayoutAnimationComplete = onLayoutAnimationComplete
     if (Predicate.isNotUndefined(onUpdate)) config.onUpdate = onUpdate
     if (Predicate.isNotUndefined(appear)) config.appear = appear
     return config
   }
+}
