@@ -230,7 +230,7 @@ const View: ScenarioDef["View"] = (props) => {
   // Its opacity is derived from its own x. Solid 1's createWard took the element's style after the
   // ward was made; a Solid 2 ward takes it in its config, so the config is an accessor naming the
   // opacity once it's made, below, from the ward's read("x"). The ward reads its style when it
-  // renders and follows its Live values from its mount, both after this body has run.
+  // renders and follows its Live values from its mount, both after this body has run (#264).
   let swipeOpacity: Accessor<number> | undefined
   const swipe = ward(() => ({
     drag: "x" as const,
