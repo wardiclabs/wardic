@@ -81,7 +81,7 @@ A mount of 1,000 elements falls from 132 ms to 28 ms, a mid-flight Retarget from
      - core's SF1–SF3;
      - the lint rule;
      - the existing whileHover / whileTap, span, defect and check-frames tests, which still hold.
-   - **`bench:solid`:** `packages/solid/bench`, base against head at N = 1,000 in production Chromium, run on the bench server. Its tasks are mount, mid-flight Retarget, at-rest Retarget and unmount. Its gate and noise control follow `bench:core`'s: a task fails at a +5% median with its 25th percentile above 0. The `plain` page is the same code on both sides, so a run whose plain ratio is off by more than ±5% is too noisy to judge. Since #69, each task is timed after a full GC, and bytes per element per round are gated too (*Amendment (#69)*).
+   - **`bench:solid`:** `packages/solid/bench`, base against head at N = 1,000 in production Chromium, run on the bench server. Its tasks are mount, mid-flight Retarget, at-rest Retarget and unmount. Its gate and noise control follow `bench:core`'s: a task fails at a +5% median with its 25th percentile above 0. The `plain` page is the same code on both sides, so a run whose plain ratio is off by more than ±5% is too noisy to judge. Since #69, each task is timed after a full GC, and bytes per element per round are gated too (*Amendment (#69)*). *Note (#259, 2026-10-21):* the Solid 2 binding's page (`page-v2.tsx`) is gated the same way, head against base, in every `--base` run, and `--binding 1|2` runs one binding (ADR-0045, *Amendment (#259)*).
    - Rejected: tests only; a bench that reports without gating.
 7. **This ADR** (Q7).
 
