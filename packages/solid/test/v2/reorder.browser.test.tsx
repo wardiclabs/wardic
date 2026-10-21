@@ -154,16 +154,28 @@ describe.each([
     const xy = await mountReorder({ factories, layout: "xy" })
     expect(xy.item("a").style.getPropertyValue("touch-action")).toBe("none")
     await resetScene()
-    // A row given "y": the controller detects nothing while the app gives the axis, so clearing it
+    // A row given "xy": the controller detects nothing while the app gives the axis, so clearing it
     // has to detect the row's "x" then.
-    const [axis, setAxis] = createSignal<CoreReorder.Axis | undefined>("y")
+    const [axis, setAxis] = createSignal<CoreReorder.Axis | undefined>("xy")
     const s = await mountReorder({ factories, layout: "x", axis })
-    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-x")
+    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("none")
+    // Every touch-action the item is given on the way: an axis detected by an effect after the clear
+    // paints the last one detected ("y", pan-x) first (#257's audit, EFFECT_RELAY_TEAR).
+    // Each style write's record holds the touch-action it replaced.
+    const replaced: Array<string> = []
+    const probe = document.createElement("div")
+    const touchActionOf = (style: string | null): string => {
+      probe.setAttribute("style", style ?? "")
+      return probe.style.getPropertyValue("touch-action")
+    }
+    const watch = new MutationObserver((records) => replaced.push(...records.map((record) => touchActionOf(record.oldValue))))
+    watch.observe(s.item("a"), { attributes: true, attributeFilter: ["style"], attributeOldValue: true })
     setAxis(undefined)
-    // At once: in the flush that clears it (the detection), and the next (the style), before any frame.
     flush()
-    flush()
+    await Promise.resolve()
+    watch.disconnect()
     expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
+    expect(replaced, "one write, from none straight to the detected axis's").toEqual(["none"])
   })
 
   it("RV8: the group's overflow-anchor is none, and the user's style wins", async () => {

@@ -94,7 +94,8 @@ const ownOrchestration = (
   // Children in mount order (a Set keeps insertion order), snapshotted at each trigger. Kept with a
   // count of the unsettled ones rather than a signal of the records, so a child's mount, unmount or
   // settle costs the same at 1,000 children as at 1. The count is plain, and the signal its copy:
-  // two writes in one flush each see the other's.
+  // two writes in one flush each see the other's. A Variant child registers in its own body, an owned
+  // scope, as it renders: so this signal is written there (`ownedWrite`, #257's audit).
   const records = new Set<ChildRecord>()
   let unsettledCount = 0
   const [unsettled, setUnsettled] = createSignal(0, { ownedWrite: true })
@@ -167,7 +168,7 @@ const ownOrchestration = (
   const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // The name this element last settled at: `MOVING` while its own animation runs.
-  const [settledAt, setSettledAt] = createSignal<string | undefined | typeof MOVING>(MOVING, { ownedWrite: true })
+  const [settledAt, setSettledAt] = createSignal<string | undefined | typeof MOVING>(MOVING)
 
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || settledAt() === variant()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0

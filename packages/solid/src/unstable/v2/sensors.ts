@@ -48,7 +48,7 @@ const sensorOf = <A>(streamOf: (target: Element) => Stream.Stream<A, never, Ward
   // A server never calls a ref: the sensor rests where it starts.
   if (isServer) return ((): A => initial) as Sensor<A>
   const runtime = useWardicRuntime()
-  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>, { ownedWrite: true })
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
   // The element it's attached to, and the recognizer's fiber there.
   let attached: { readonly element: Element; readonly fiber: Fiber.Fiber<void, never> } | undefined
   const detach = (): void => {
@@ -62,6 +62,7 @@ const sensorOf = <A>(streamOf: (target: Element) => Stream.Stream<A, never, Ward
     const fiber = runtime.runFork(reported(Stream.runForEach(streamOf(element), (next) => Effect.sync(() => setValue(() => next)))))
     attached = { element, fiber }
   }
+  // eslint-disable-next-line solid/reactivity -- the sensor: a ref Solid calls with its element, and an accessor its caller reads where it tracks
   return ((element?: unknown): A | undefined => {
     if (isElement(element)) {
       attach(element)

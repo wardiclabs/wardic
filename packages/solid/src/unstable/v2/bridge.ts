@@ -25,7 +25,7 @@ import { onSettledClientOnly } from "./solid-reactivity.ts"
  */
 export const streamToSignal = <A>(stream: Stream.Stream<A, never, WardicServices>, initial: A): Accessor<A> => {
   const runtime = useWardicRuntime()
-  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>, { ownedWrite: true })
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
   runScoped(runtime, Stream.runForEach(stream, (next) => Effect.sync(() => setValue(() => next))))
   return value
 }
@@ -36,8 +36,9 @@ export const streamToSignal = <A>(stream: Stream.Stream<A, never, WardicServices
  * Live-value helpers, `fromAtom`). Call it where you'd make a signal.
  */
 export const followAtom = <A>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>): Accessor<A> => {
-  const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>, { ownedWrite: true })
+  const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>)
   onCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
+  // eslint-disable-next-line solid/reactivity -- the accessor itself is returned, for its caller to read where it tracks
   return carry(value, atom)
 }
 
@@ -57,7 +58,7 @@ export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue
     return () => serverValue
   }
   if (held && isHydrating()) {
-    const [value, setValue] = createSignal<A>(options.serverValue as Exclude<A, Function>, { ownedWrite: true })
+    const [value, setValue] = createSignal<A>(options.serverValue as Exclude<A, Function>)
     onSettledClientOnly(() => {
       const registry = runtime.runSync(AtomRegistry.AtomRegistry)
       setValue(() => registry.get(atom))

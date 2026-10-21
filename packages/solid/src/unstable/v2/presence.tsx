@@ -47,6 +47,7 @@ export interface AnimatePresenceProps {
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // A server render has no exit to drive: the same boundaries, a context that registers nothing.
+  // eslint-disable-next-line solid/components-return-once -- `isServer` is a constant: the component takes one path for its life
   if (isServer) return serverPresence(props)
   const presence = makePresence({
     runtime: useWardicRuntime(),

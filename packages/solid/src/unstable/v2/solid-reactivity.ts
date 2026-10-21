@@ -2,8 +2,10 @@
  * Solid 2's {@link Reactivity}, for the Solid-free modules the Solid 2 binding runs (#209), made
  * per ward under its owner.
  *
- * - A trigger's signal may be written from inside an owner (`ownedWrite`): Wardic's internal state,
- *   notified from the flush gate's hooks and from setup alike.
+ * - A trigger's signal is written where Solid 2 allows a write: the flush gate's hooks, an effect's
+ *   apply, an event. No internal signal is written in an owned scope but two, which say why
+ *   (`ownedWrite`, #257's audit): a Variant child's registration, and a ward given its element in a
+ *   component's body.
  * - A watch is an effect in a root of its own under the ward's owner, so it ends with the ward, or
  *   at its stop. Not under the computation it's made in: Solid 2 disposes a root with the
  *   computation it's made in (a 1.x root outlived it), and a `style` re-run must not end a Live
@@ -41,7 +43,7 @@ export const onSettledClientOnly = (callback: () => void | (() => void)): void =
 export const reactivityIn = (owner: Owner | null): Reactivity => ({
   untrack,
   trigger: () => {
-    const [track, notify] = createSignal<undefined>(undefined, { equals: false, ownedWrite: true })
+    const [track, notify] = createSignal<undefined>(undefined, { equals: false })
     return { track, notify: () => void notify(undefined) }
   },
   watch: (accessor, onChange) =>

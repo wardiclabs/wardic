@@ -56,7 +56,7 @@ import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { dynamic, isServer, type JSX } from "@solidjs/web"
-import { type Accessor, type Component, createContext, createEffect, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
+import { type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS, type WardicMotionProps } from "../../motion-props.ts"
 import { reported, type WardicRuntime } from "../../runtime.ts"
 import { changesContext } from "../../variant-tree.ts"
@@ -210,7 +210,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   const cfg = (): ReorderGroupConfigValues<V> => view
   const runtime = useWardicRuntime()
   if (isServer) return serverReorderGroup(cfg)
-  const [detected, setDetected] = createSignal<CoreReorder.Axis>("y", { ownedWrite: true })
+  const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
   // The group's controller, over the provider's projection system and the Environment's channel to
   // assistive technology (ADR-0037), in a Scope of the group's own, closed with its owner.
   const scope = runtime.runSync(Scope.make())
@@ -232,21 +232,27 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
     }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
   )
   onCleanupScope(runtime, scope)
-  const axis: Accessor<CoreReorder.Axis> = () => UndefinedOr.match(cfg().axis, { onUndefined: detected, onDefined: identity })
+  // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
+  // engine holds, so the items' touch-action follows in the same flush (#257's audit: an effect that
+  // detected it wrote a signal the items read a flush late, EFFECT_RELAY_TEAR). A Measure pass's change
+  // comes through `onAxis`.
+  const axis: Accessor<CoreReorder.Axis> = createMemo(
+    () =>
+      UndefinedOr.match(cfg().axis, {
+        onDefined: identity,
+        onUndefined: () => {
+          detected()
+          return controller.detect()
+        },
+      }),
+    CLIENT_ONLY,
+  )
 
   // A `values` change re-measures, so the items animate to their new slots whoever reordered them.
   createEffect(
     () => cfg().values,
     () => {
       controller.valuesChanged()
-    },
-    CLIENT_ONLY_DEFERRED,
-  )
-  // The app's axis cleared: no Measure pass comes with that, so detect now.
-  createEffect(
-    () => cfg().axis,
-    (a) => {
-      if (Predicate.isUndefined(a)) controller.resolve()
     },
     CLIENT_ONLY_DEFERRED,
   )
@@ -376,14 +382,14 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
   const runtime = useWardicRuntime()
   const value = untrack(() => own.value)
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
-  const [lifted, setLifted] = createSignal(false, { ownedWrite: true })
+  const [lifted, setLifted] = createSignal(false)
   let element: HTMLElement | undefined
   const driver = list.controller.item(value, () => Option.fromUndefinedOr(element), setLifted)
   // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture (and a lift).
   onCleanup(driver.dispose)
   // The instructions' id, once the element's document is known, and again when the text changes.
-  const [document, setDocument] = createSignal<Document | undefined>(undefined, { ownedWrite: true })
-  const [describedBy, setDescribedBy] = createSignal<string | undefined>(undefined, { ownedWrite: true })
+  const [document, setDocument] = createSignal<Document | undefined>(undefined)
+  const [describedBy, setDescribedBy] = createSignal<string | undefined>(undefined)
   createEffect(
     () => ({ doc: document(), text: list.instructions() }),
     ({ doc, text }) => {
@@ -410,6 +416,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
       }
     },
   })
+  // eslint-disable-next-line solid/reactivity -- handed to getters, which read it where the spread tracks them
   return Object.defineProperties(row, keyboardAttributes(list, cfg, describedBy))
 }
 

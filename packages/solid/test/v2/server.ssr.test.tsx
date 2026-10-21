@@ -37,7 +37,6 @@ import {
 } from "@wardic/solid/unstable/v2"
 import * as Effect from "effect/Effect"
 import type { JSX } from "@solidjs/web"
-import { createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr.ts"
 
@@ -123,7 +122,7 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
 
   it("SV6: a Live value in style renders its value now, under initial's", () => {
     const Card = () => {
-      const [x] = createSignal(30)
+      const x = (): number => 30
       const card = ward({ initial: { opacity: 0.4 }, style: { x, opacity: 1, color: "blue" } })
       return <div {...card} />
     }
@@ -223,7 +222,7 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
   it("SV13: the Live-value helpers give their source's value now, mapped, or 0s; a derived style renders in the Starting style", () => {
     const readings: Array<unknown> = []
     const Scene = () => {
-      const [x] = createSignal(50)
+      const x = (): number => 50
       const card = ward({ initial: { x: 100 } })
       const opacity = createTransform(card.read("x"), [0, 200], [1, 0])
       const label = ward({ style: { opacity } })

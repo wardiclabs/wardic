@@ -333,3 +333,40 @@ The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid
   - the REMADE record never cleared or never kept.
 - Every Solid 2 test and the lab's s14 and s18 rewritten per key.
 - **The lab:** s15 on the Solid 2 build gains a **store config** cell, the style opacity cell's twin with its config a shallow store: Store style replaces the store's `style` (0.5 ↔ 0.8) and shows at once, and a hover (or a phone's tap) goes to 1 and back to the store's value. Its three board runs pass headless; every other card is unchanged on both builds.
+
+## #257 item 9: the diagnostics audit (2026-10-21)
+
+#257 collects where the Solid 2 binding could lean on more of Solid 2. Item 9, the first taken, audits the binding against Solid 2's own tooling. It has three parts:
+- every suite run with Solid 2's attribution engine on, recording every diagnostic code;
+- `ownedWrite` taken off one signal at a time;
+- `eslint-plugin-solid`'s Solid 2 rules.
+
+**Found and fixed:**
+- **`<LayoutGroup>` read its children once,** on both bindings: a conditional child never switched. The lint found it. Fixed in PR #268 (see *PR 2*'s note).
+- **GE5, `EFFECT_WRITES_OWN_SOURCE`.**
+  - **What it was:** a ward moved to another element reset its gesture state in its mount effect. The target memo reads that state, so the effect re-ran itself, and one frame showed the old gestures.
+  - **Fixed by:** the state records the element it's on. The memo reads the layers of the element mounted now, so a ward on a new element reads none with nothing written.
+- **RV7, `EFFECT_RELAY_TEAR`, on both Reorder forms.**
+  - **What it was:** when the app cleared a group's `axis`, an effect ran the controller's detection, which wrote the detected-axis signal. The items' `touch-action` went through the last detected axis first, a step before the new one.
+  - **Fixed by:** the group's axis is a memo. When the app's is cleared, it reads the controller's new `detect()`, the axis from the boxes the engine holds, reporting nothing, in the same flush.
+  - **Changed in the dom API:** `ReorderController.resolve` is replaced by `detect`. The Solid 1 binding derives its axis the same way, though its synchronous updates never painted the stale step.
+- **`ownedWrite`:**
+  - **Unneeded on 12 of the 14 signals:** with it taken off each in turn, no suite wrote any of them in an owned scope. It's off them now, so Solid 2's dev build reports a new owned-scope write instead of the flag hiding it.
+  - **Kept on two, each saying why:**
+    - the variant node's unsettled count, which a Variant child writes as it registers in its own body;
+    - a ward's `element`, for a ward called with its element in a component's body (WT2).
+
+**Kept as a gate:**
+- **The Solid 2 test projects' setup** (`test/v2/diagnostics-setup.ts`) turns attribution on and fails a test on every code Solid 2 reports. The timing and size heuristics are left out (`HOT_SCOPE_*`, fan-in and fan-out, `GRAPH_GROWTH`, the hold and waterfall verdicts), since a loaded machine moves them. Before the fixes it failed exactly GE5 and RV7 on both forms.
+- **`eslint-plugin-solid` 0.18.1's `v2-strict` config** lints `src/unstable/v2` and `test/v2`. The plugin object is shared with the block that keeps the Solid 1 code's `solid/reactivity` directives quiet. Its four false positives in the source each carry a disable with the reason:
+  - an accessor returned, by `followAtom` and the sensors;
+  - an accessor handed to getters (a Reorder item's `describedBy`);
+  - an early return on the constant `isServer` (`AnimatePresence`).
+
+  Five never-written signals in the tests became plain accessors, and the sixth (the SSR smoke test's) is kept, with a disable that says why.
+
+**Pinned by:**
+- GE5 and RV7, under the enforced diagnostics.
+- RV7 now also records every `touch-action` write as the axis clears: one, from `none` straight to the detected axis's. A relay goes through `pan-x` first, which an effect behind the memo would do without a relay-tear code.
+- `test/reorder-controller.browser.test.ts` RC3: `detect()` reads the row's `x` at once, reporting nothing.
+- **Mutations:** the gestures not keyed by element (GE5), a memo that misses a pass's detection (RV7), and the axis detected by an effect behind the memo (RV7's writes) are all caught. Writing the old reset back is now harmless: with the state keyed by element, it changes no resolution.

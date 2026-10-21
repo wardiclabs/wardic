@@ -12,6 +12,8 @@ describe("Solid 2 on a server", () => {
 
   it("renders with Solid 2", () => {
     const Card = () => {
+      // A signal never written, on purpose: the smoke test renders a Solid 2 signal's read on a server.
+      // eslint-disable-next-line solid/no-unused-signal -- as above
       const [label] = createSignal("two")
       return <p class="card">{label()}</p>
     }
