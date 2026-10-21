@@ -130,7 +130,7 @@ import { createVariantNode, useVariantContext, WardicVariantContext } from "./va
 export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string | undefined> | undefined }
 
 /** A ward's config values (ADR-0042): the element's motion, and its `style`. */
-export interface WardConfigValues extends Omit<SharedWardConfig, "onAnimationStart" | "onAnimationComplete"> {
+export interface WardConfigValues extends Omit<SharedWardConfig, "onAnimationStart" | "onAnimationComplete" | "onLayoutAnimationStart" | "onLayoutAnimationComplete"> {
   /**
    * The element's style: Wardic's animated keys go over it, and a key no layer of the Override
    * stack sets returns to it (ADR-0022). Its Live values are followed through the gate (#130).
@@ -139,7 +139,7 @@ export interface WardConfigValues extends Omit<SharedWardConfig, "onAnimationSta
 }
 
 /** The config keys whose values are functions: read as they are, never called as accessors (#259). */
-type WardCallbackKey = "onLayoutAnimationStart" | "onLayoutAnimationComplete" | "onUpdate"
+type WardCallbackKey = "onUpdate"
 
 /**
  * A ward's config (ADR-0042, #259): each key a value, or an accessor of it, read per key. A getter,
@@ -173,8 +173,6 @@ const WARD_KEYS = [
   "layoutScroll",
   "layoutRoot",
   "layoutAnchor",
-  "onLayoutAnimationStart",
-  "onLayoutAnimationComplete",
   "onUpdate",
   "appear",
   "style",
@@ -185,7 +183,7 @@ const everyKeyRead: [UnreadKey] extends [never] ? true : UnreadKey = true
 void everyKeyRead
 
 /** A ward's config read per key (#259). */
-const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onLayoutAnimationStart", "onLayoutAnimationComplete", "onUpdate"])
+const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate"])
 
 /** `config` read per key (#259), for a read outside a ward: a `wardic.<tag>`'s props at setup. Internal. */
 export const wardConfigView = (config: WardConfig): WardConfigValues => WARD_VIEW.of(config)
@@ -567,13 +565,20 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       return record
     })
     // Its one projection node (ADR-0009, ADR-0010), whose own `x`/`y` the projection then owns (ADR-0016).
+    // Its layout animations' starts and landings go to the lifecycle, for `next("layoutStart")` and
+    // `next("layoutComplete")` (#257): Solid 2 has no props for them.
     const layout = Bool.match(layoutMember, {
-      onTrue: () =>
-        projection.register(
-          registrationOf(
-            layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
-          ),
-        ),
+      onTrue: () => {
+        const started = (): void => lifecycle.layoutStarted()
+        const completed = (): void => lifecycle.layoutCompleted()
+        return projection.register(
+          registrationOf({
+            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
+            onLayoutAnimationStart: () => started,
+            onLayoutAnimationComplete: () => completed,
+          }),
+        )
+      },
       onFalse: constUndefined,
     })
     // A `<Reorder>` item's group registers the node, until the unmount.

@@ -34,7 +34,6 @@ import { type HeadTag, isServer, type JSX, useHead } from "@solidjs/web"
 import { createContext, flush, isHydrating, onCleanup, untrack, useContext } from "solid-js"
 import { type ServerAppear, serverAppear } from "../../appear.ts"
 import {
-  type AnimateLayout,
   animateLayoutOf,
   clientContext,
   fromContext,
@@ -85,10 +84,24 @@ export function WardicProvider(props: {
     onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion)),
     onFalse: () => clientContext(props.env, applyAndFlush, () => untrack(() => props.reducedMotion)),
   })
-  // Disposing the runtime closes its Scope: the projection system, then the gate (#132).
-  onCleanup(() => void value.runtime.dispose())
+  // Disposing the runtime closes its Scope: the projection system, then the gate (#132). Its
+  // disposal rejects first, ending every `animateLayout` still waiting: their flights won't end (#257).
+  let abort = constUndefined as (reason: DOMException) => void
+  const disposed = new Promise<never>((_, reject) => {
+    abort = reject
+  })
+  // Each waiting call races it and handles it; with none, it's handled here.
+  disposed.catch(constUndefined)
+  disposals.set(value, disposed)
+  onCleanup(() => {
+    abort(new DOMException("The WardicProvider was disposed before its layout animations ended.", "AbortError"))
+    void value.runtime.dispose()
+  })
   return <WardicContext value={value}>{props.children}</WardicContext>
 }
+
+/** Each client provider's disposal (#257): a promise that rejects with an `AbortError` then. */
+const disposals = new WeakMap<WardicContextValue, Promise<never>>()
 
 /**
  * A server render's Appear animations (#48, ADR-0044), with the head's `<style>` registered for
@@ -155,9 +168,30 @@ export function useWardicProjection(): ProjectionSystem.Shape {
   return projectionOf(contextValue())
 }
 
-/** The provider's `animateLayout` (#4, ADR-0038): a **Declared layout change**. During a server render it just runs `fn`. */
+/**
+ * A **Declared layout change** on Solid 2 (#4, ADR-0038; #257, ADR-0046): `fn` runs at once, its
+ * throw thrown here, and the promise resolves with `fn`'s result once every layout animation its
+ * pass started has ended, however each ended (ADR-0039's `onSettled`, which this replaces). Calls in
+ * one task share a pass, so they resolve together. It rejects with an `AbortError` if the provider
+ * is disposed first. During a server render `fn` just runs, and nothing waits.
+ */
+export type AnimateLayout = <A>(fn: () => A) => Promise<Awaited<A>>
+
+/** The provider's {@link AnimateLayout}. */
 export function useAnimateLayout(): AnimateLayout {
-  return animateLayoutOf(contextValue())
+  const value = contextValue()
+  const declare = animateLayoutOf(value)
+  const disposed = UndefinedOr.match(value, { onUndefined: constUndefined, onDefined: (v) => disposals.get(v) })
+  return <A,>(fn: () => A): Promise<Awaited<A>> => {
+    let settle = constUndefined as () => void
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+    // A throw from `fn` is thrown here: `settled` is just dropped, unsettled.
+    const result = declare(fn, { onSettled: () => settle() })
+    const waiting = UndefinedOr.match(disposed, { onUndefined: () => settled, onDefined: (gone) => Promise.race([settled, gone]) })
+    return waiting.then(() => result) as Promise<Awaited<A>>
+  }
 }
 
 /**

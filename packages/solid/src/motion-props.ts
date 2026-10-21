@@ -54,10 +54,14 @@ export const MOTION_PROPS = [
   "transition",
 ] as const
 
-/** The motion props Solid 1 takes and Solid 2 doesn't (#257): Motion's animation callbacks, which Solid 2 hands over as async values. */
-const SOLID_1_CALLBACKS = ["onAnimationStart", "onAnimationComplete"] as const
+/**
+ * The motion props Solid 1 takes and Solid 2 doesn't (#257): Motion's animation and layout animation
+ * callbacks, which Solid 2 hands over as async values (`card.next("settled")`, `"layoutStart"`,
+ * `"layoutComplete"`).
+ */
+const SOLID_1_CALLBACKS = ["onAnimationStart", "onAnimationComplete", "onLayoutAnimationStart", "onLayoutAnimationComplete"] as const
 
-/** {@link MOTION_PROPS} on Solid 2 (#257): all but Solid 1's animation callbacks, so `onAnimationStart` on an element there is the DOM's. */
+/** {@link MOTION_PROPS} on Solid 2 (#257): all but Solid 1's callbacks, so `onAnimationStart` on an element there is the DOM's. */
 export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.contains(SOLID_1_CALLBACKS, prop))) as ReadonlyArray<
   Exclude<(typeof MOTION_PROPS)[number], (typeof SOLID_1_CALLBACKS)[number]>
 >
@@ -191,7 +195,7 @@ export interface WardicMotionProps {
   readonly appear?: boolean
 }
 
-/** {@link WardicMotionProps} on Solid 2 (#257): all but Solid 1's animation callbacks. */
+/** {@link WardicMotionProps} on Solid 2 (#257): all but Solid 1's callbacks. */
 export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBACKS)[number]>
 
 /**

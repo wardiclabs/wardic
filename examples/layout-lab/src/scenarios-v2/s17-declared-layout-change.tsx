@@ -15,16 +15,17 @@
  *   height is fixed, so the page's size doesn't change, and no page-size refresh (#261) sees it.
  * - **The pair** (Motion's `parallel-calls-intersecting`). Two calls in one click: one grows A,
  *   which pushes B down; the other shifts B right. B is watched for that run.
- * - **The callbacks** (#191, ADR-0039). Every tile counts its `onLayoutAnimationStart` and
- *   `onLayoutAnimationComplete` for the run, and a declared run passes `onSettled`: the `callbacks`
- *   line under the buttons shows them, judged on as many completes as starts and the settling after
- *   the last complete, and each settling is noted on the timeline panel. A saved log keeps runs
- *   only, so neither is in it. Shuffle and Two calls wait for their change to settle before they
- *   can run again.
+ * - **The callbacks**, as Solid 2 hears them (#257, ADR-0046): every tile counts its layout
+ *   animations' starts and landings for the run, through `wardRef` and `card.each("layoutStart")` /
+ *   `card.each("layoutComplete")`, and a declared run awaits `animateLayout`'s promise (Solid 1's
+ *   card uses the props and `onSettled`, ADR-0039). The `callbacks` line under the buttons shows
+ *   them, judged on as many completes as starts and the settling after the last complete, and each
+ *   settling is noted on the timeline panel. A saved log keeps runs only, so neither is in it.
+ *   Shuffle and Two calls wait for their change to settle before they can run again.
  *
  * @module
  */
-import { useAnimateLayout, wardic } from "@wardic/solid/unstable/v2"
+import { useAnimateLayout, type Ward, wardic } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, Show } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"
@@ -48,7 +49,7 @@ interface Tally {
   readonly starts: number
   readonly completes: number
   readonly lastCompleteAt: number | undefined
-  /** When `onSettled` was called, for a declared run; `undefined` until then, or for any other run. */
+  /** When its `animateLayout` resolved, for a declared run; `undefined` until then, or for any other run. */
   readonly settledAt: number | undefined
   readonly declared: boolean
 }
@@ -56,7 +57,7 @@ interface Tally {
 /** The `callbacks` line's text and verdict: as many completes as starts, settled after the last. */
 const callbacksLine = (t: Tally): { readonly text: string; readonly ok: boolean | undefined } => {
   const ms = (at: number | undefined): string => (at === undefined ? "–" : `${Math.round(at - t.at)} ms`)
-  const settled = t.declared ? `settled ${ms(t.settledAt)}` : "no onSettled (undeclared)"
+  const settled = t.declared ? `settled ${ms(t.settledAt)}` : "nothing to await (undeclared)"
   const text = `${t.source}: ${t.starts} start${t.starts === 1 ? "" : "s"} · ${t.completes} complete${t.completes === 1 ? "" : "s"} · ${settled}`
   if (!t.declared) return { text, ok: undefined }
   if (t.settledAt === undefined) return { text, ok: undefined }
@@ -107,14 +108,21 @@ const View: ScenarioDef["View"] = (props) => {
   const onStart = (): void => void setTally((t) => (t === undefined ? t : { ...t, starts: t.starts + 1 }))
   const onComplete = (): void =>
     void setTally((t) => (t === undefined ? t : { ...t, completes: t.completes + 1, lastCompleteAt: performance.now() }))
-  /** A declared run's `onSettled`: noted on the timeline, and the declared buttons free again. */
-  const settled = {
-    onSettled: (): void => {
-      setTally((t) => (t === undefined ? t : { ...t, settledAt: performance.now() }))
-      setSettling(false)
-      const t = tally()
-      if (t !== undefined) props.ctx.mark(`settled: ${t.starts} starts, ${t.completes} completes`)
-    },
+  /** A declared run settled: noted on the timeline, and the declared buttons free again. */
+  const settled = (): void => {
+    setTally((t) => (t === undefined ? t : { ...t, settledAt: performance.now() }))
+    setSettling(false)
+    const t = tally()
+    if (t !== undefined) props.ctx.mark(`settled: ${t.starts} starts, ${t.completes} completes`)
+  }
+  /** A tile's ward: each of its layout animations' starts and landings counted, until it's disposed. */
+  const hear = (card: Ward): void => {
+    void (async () => {
+      for await (const _start of card.each("layoutStart")) onStart()
+    })()
+    void (async () => {
+      for await (const _landing of card.each("layoutComplete")) onComplete()
+    })()
   }
 
   /** The row, one place on: A moves 100 px or more each time. */
@@ -124,11 +132,12 @@ const View: ScenarioDef["View"] = (props) => {
     props.ctx.markTrigger(source)
   }
 
-  const shuffle = (): void => {
+  const shuffle = async (): Promise<void> => {
     watchRow("declared")
     count("Shuffle", true)
     setSettling(true)
-    animateLayout(() => setItems(rotated()), settled)
+    await animateLayout(() => setItems(rotated()))
+    settled()
   }
   const shuffleTriggered = (): void => {
     watchRow("layoutDependency")
@@ -146,14 +155,14 @@ const View: ScenarioDef["View"] = (props) => {
     props.ctx.mark("grow panel (no trigger)")
     setTall((t) => !t)
   }
-  const twoCalls = (): void => {
+  const twoCalls = async (): Promise<void> => {
     if (pairB !== undefined) props.ctx.watch(pairB)
     props.ctx.markTrigger("two calls")
     count("Two calls", true)
     setSettling(true)
-    // The two calls share their task's pass, so they settle together: one onSettled tells it.
-    animateLayout(() => setGrown((g) => !g))
-    animateLayout(() => setShifted((s) => !s), settled)
+    // The two calls share their task's pass, so they resolve together.
+    await Promise.all([animateLayout(() => setGrown((g) => !g)), animateLayout(() => setShifted((s) => !s))])
+    settled()
   }
 
   return (
@@ -173,8 +182,7 @@ const View: ScenarioDef["View"] = (props) => {
                   data-item={value}
                   layout
                   layoutDependency={dep()}
-                  onLayoutAnimationStart={onStart}
-                  onLayoutAnimationComplete={onComplete}
+                  wardRef={hear}
                   style={tile(ACCENT)}
                 >
                   {value}
@@ -182,15 +190,14 @@ const View: ScenarioDef["View"] = (props) => {
               )}
             </For>
           </div>
-          <wardic.div data-pair="grow" layout onLayoutAnimationStart={onStart} onLayoutAnimationComplete={onComplete} style={tile(ALT, { height: grown() ? "80px" : "40px" })}>
+          <wardic.div data-pair="grow" layout wardRef={hear} style={tile(ALT, { height: grown() ? "80px" : "40px" })}>
             grow
           </wardic.div>
           <wardic.div
             ref={(el: HTMLElement) => (pairB = el)}
             data-pair="shift"
             layout
-            onLayoutAnimationStart={onStart}
-            onLayoutAnimationComplete={onComplete}
+            wardRef={hear}
             style={tile(ALT, { "margin-left": shifted() ? "120px" : "0px" })}
           >
             shift
@@ -198,7 +205,7 @@ const View: ScenarioDef["View"] = (props) => {
         </div>
       </div>
       <div style={BUTTONS}>
-        <button type="button" class="btn" data-action="run" disabled={settling()} onClick={shuffle}>
+        <button type="button" class="btn" data-action="run" disabled={settling()} onClick={() => void shuffle()}>
           Shuffle
         </button>
         <button type="button" class="btn secondary small" data-action="shuffle-triggered" onClick={shuffleTriggered}>
@@ -210,7 +217,7 @@ const View: ScenarioDef["View"] = (props) => {
         <button type="button" class="btn secondary small" data-action="grow-panel" onClick={growPanel}>
           Grow panel
         </button>
-        <button type="button" class="btn secondary small" data-action="two-calls" disabled={settling()} onClick={twoCalls}>
+        <button type="button" class="btn secondary small" data-action="two-calls" disabled={settling()} onClick={() => void twoCalls()}>
           Two calls
         </button>
       </div>
@@ -253,8 +260,9 @@ export const s17: ScenarioDef = {
     "fixed height, so the page's size doesn't change and no page-size refresh reads it, #261). Shuffle, untriggered snaps: " +
     "moving the items' DOM nodes resizes nothing, so no trigger sees it. Two calls is clean: the shifted box animates " +
     "from before the grown one pushed it, as both calls share the first one's Measurements (Motion's " +
-    "parallel-calls-intersecting). The callbacks line counts each run's onLayoutAnimationStart and " +
-    "onLayoutAnimationComplete, and a declared run's onSettled (#191, ADR-0039): as many completes as starts, " +
-    "settled after the last; Shuffle and Two calls wait for it.",
+    "parallel-calls-intersecting). The callbacks line counts each run's layout animation starts and " +
+    "landings, heard through each tile's card.each(\"layoutStart\" | \"layoutComplete\"), and when a declared run's " +
+    "animateLayout promise resolved (#257, ADR-0046): as many completes as starts, settled after the last; Shuffle " +
+    "and Two calls wait for it.",
   View,
 }

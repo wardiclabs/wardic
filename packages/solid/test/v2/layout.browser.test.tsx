@@ -9,10 +9,11 @@
 // - LY5: `layoutId` beside a live twin: a crossfade, the new twin leading, the old following.
 // - LY6: a lone `layoutId` leaving under `<AnimatePresence>` runs its exit.
 // - LY7: a Layout mode: `"position"` paints the new width at once and slides; `"size"` grows in place.
-// - LY8: the layout animation callbacks: start, then complete.
+// - LY8 (#257): a layout animation's `next("layoutStart")`, then `next("layoutComplete")`, through `wardRef`.
 // - LY9: the `layout` transition key gives layout its own transition.
 // - LY10: a `layoutRoot` self-snaps: no FLIP of its own.
-// - LY11: `animateLayout` animates a keyed `<For>`'s reorder, and returns its callback's result.
+// - LY11 (#257): `animateLayout` animates a keyed `<For>`'s reorder, and its promise resolves with its
+//   callback's result once the reorder has landed.
 // - LY12: a layout node's Starting style on the client is drawn through its projection at rest (#245).
 // - LY13: the projection owns a layout node's translate (ADR-0016): its own `x` isn't returned when
 //   `animate` drops it.
@@ -25,12 +26,18 @@
 //   a Solid 2 effect re-measuring on every change of the config).
 // - LY18 (#257's audit): `<LayoutGroup>` keeps its children reactive: returned from its body, they were
 //   read once, and a conditional child never switched (Solid 2 logged STRICT_READ_UNTRACKED).
+// - LY19 (#257): a throw from `animateLayout`'s callback is thrown at the call: nothing waits.
+// - LY20 (#257): two `animateLayout` calls in one task share its pass, and resolve together.
+// - LY21 (#257): a declared change that moves nothing resolves at its pass's end.
+// - LY22 (#257): the provider's disposal rejects a waiting `animateLayout` with an `AbortError`.
+// - LY23 (#257): `each("layoutComplete")`: each landing, a restart's interrupted flight not among them.
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
   LayoutGroup,
   useAnimateLayout,
   type AnimateLayout,
+  type Ward,
   ward,
   wardic,
   WardicProvider,
@@ -277,26 +284,28 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     expect(grew.filter((f) => f.width > 101 && f.width < 199).length, "frames growing").toBeGreaterThan(3)
   })
 
-  it("LY8: the layout animation callbacks: start, then complete", async () => {
+  it("LY8: a layout animation's next(\"layoutStart\"), then next(\"layoutComplete\"), through wardRef", async () => {
     const [moved, setMoved] = createSignal(false)
-    const calls: Array<string> = []
+    let card!: Ward
     mount(() => (
       <WardicProvider env={DomLive}>
         <div style={{ position: "relative", height: "100px" }}>
           <wardic.div
+            wardRef={(w) => (card = w)}
             layout
             layoutDependency={moved()}
             transition={{ type: "tween", duration: 0.15 }}
-            onLayoutAnimationStart={() => calls.push("start")}
-            onLayoutAnimationComplete={() => calls.push("complete")}
             style={{ position: "absolute", width: "40px", height: "40px", left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }) }}
           />
         </div>
       </WardicProvider>
     ))
     await frames(5)
+    const calls: Array<string> = []
+    const started = card.next("layoutStart").then(() => calls.push("start"))
+    const completed = card.next("layoutComplete").then(() => calls.push("complete"))
     flushed(setMoved)(true)
-    await until(() => calls.length === 2, 2000)
+    await Promise.all([started, completed])
     expect(calls).toEqual(["start", "complete"])
   })
 
@@ -353,7 +362,7 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     expect(Math.abs(leftOf(root) - base - 200)).toBeLessThan(2)
   })
 
-  it("LY11: animateLayout animates a keyed <For>'s reorder, and returns its callback's result", async () => {
+  it("LY11: animateLayout animates a keyed <For>'s reorder, and resolves with its callback's result once it has landed", async () => {
     const [items, setItems] = createSignal(["a", "b", "c"])
     let animateLayout!: AnimateLayout
     const Grab = () => {
@@ -371,20 +380,23 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     await frames(5)
     const a = (): HTMLElement => host.querySelector<HTMLElement>('[data-item="a"]')!
     const top = topOf(a())
-    let result: string | undefined
+    let result: Promise<string> | undefined
+    let landedAt: number | undefined
     const tops = await paintsAfter(
       () => {
         result = animateLayout(() => {
           setItems(["c", "b", "a"])
           return "done"
         })
+        void result.then(() => (landedAt = topOf(a()) - top))
       },
       () => topOf(a()) - top,
       60,
     )
-    expect(result).toBe("done")
+    expect(await result!).toBe("done")
     expect(tops[0]!, "the first frame: still near where it was").toBeLessThan(20)
     expect(tops.at(-1)!, "lands at its new place, 100 px down").toBeCloseTo(100, 1)
+    expect(landedAt, "resolved once landed").toBeCloseTo(100, 1)
   })
 
   it("LY12: a layout node's Starting style on the client is drawn through its projection at rest", () => {
@@ -526,5 +538,108 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     await frames(2)
     const offsets = await paintsAfter(() => flushed(setMoved)(true), () => leftOf(kid) - leftOf(par), 20)
     expect(Math.max(...offsets.map((o) => Math.abs(o - 10))), "off its parent's offset mid-flight, px").toBeGreaterThan(20)
+  })
+
+  /** Mount a layout list under a provider; `animateLayout`, its items, and the mount's `unmount`. */
+  const mountList = () => {
+    const [items, setItems] = createSignal(["a", "b"])
+    let animateLayout!: AnimateLayout
+    const Grab = () => {
+      animateLayout = useAnimateLayout()
+      return null
+    }
+    const mounted = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Grab />
+        <For each={items()}>{(value) => <wardic.div data-item={value} layout transition={{ type: "tween", duration: 0.3 }} style={{ width: "60px", height: "30px" }} />}</For>
+      </WardicProvider>
+    ))
+    return { ...mounted, items, setItems, animateLayout: (): AnimateLayout => animateLayout }
+  }
+
+  it("LY19: a throw from animateLayout's callback is thrown at the call: nothing waits", async () => {
+    const list = mountList()
+    await frames(3)
+    expect(() => list.animateLayout()(() => {
+      throw new Error("the app's change failed")
+    })).toThrow("the app's change failed")
+    // Nothing left waiting: the provider's disposal rejects nothing no one holds.
+    const unhandled: Array<unknown> = []
+    const note = (event: PromiseRejectionEvent): void => void unhandled.push(event.reason)
+    window.addEventListener("unhandledrejection", note)
+    list.unmount()
+    await frames(3)
+    window.removeEventListener("unhandledrejection", note)
+    expect(unhandled).toEqual([])
+  })
+
+  it("LY20: two animateLayout calls in one task share its pass, and resolve together", async () => {
+    const list = mountList()
+    const [grown, setGrown] = createSignal(false)
+    await frames(3)
+    const resolved: Array<string> = []
+    const one = list.animateLayout()(() => list.setItems(["b", "a"])).then(() => resolved.push(`one ${performance.now()}`))
+    const two = list.animateLayout()(() => setGrown(true)).then(() => resolved.push(`two ${performance.now()}`))
+    void grown
+    await Promise.all([one, two])
+    const [first, second] = resolved.map((r) => Number(r.split(" ")[1]))
+    expect(Math.abs(second! - first!), "in the same task").toBeLessThan(5)
+  })
+
+  it("LY21: a declared change that moves nothing resolves at its pass's end", async () => {
+    const list = mountList()
+    await frames(3)
+    const at = performance.now()
+    expect(await list.animateLayout()(() => 7)).toBe(7)
+    expect(performance.now() - at, "no flight to wait for").toBeLessThan(100)
+  })
+
+  it("LY22: the provider's disposal rejects a waiting animateLayout with an AbortError", async () => {
+    const list = mountList()
+    await frames(3)
+    const waiting = list.animateLayout()(() => list.setItems(["b", "a"]))
+    await frames(2)
+    list.unmount()
+    const reason = await waiting.then(
+      () => "resolved",
+      (error: unknown) => (error as DOMException).name,
+    )
+    expect(reason).toBe("AbortError")
+  })
+
+  it("LY23: each(\"layoutComplete\"): each landing, an interrupted flight not among them", async () => {
+    const [moved, setMoved] = createSignal(0)
+    let card!: Ward
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "relative", height: "60px" }}>
+          <wardic.div
+            wardRef={(w) => (card = w)}
+            layout
+            layoutDependency={moved()}
+            transition={{ type: "tween", duration: 0.2 }}
+            style={{ position: "absolute", width: "40px", height: "40px", left: `${moved() * 100}px` }}
+          />
+        </div>
+      </WardicProvider>
+    ))
+    await frames(5)
+    let landings = 0
+    const loop = (async () => {
+      for await (const _landing of card.each("layoutComplete")) {
+        landings++
+        if (landings === 2) break
+      }
+    })()
+    flushed(setMoved)(1)
+    await frames(4)
+    // Restarted mid-flight: the first flight never lands.
+    flushed(setMoved)(2)
+    await until(() => landings === 1, 2000)
+    await frames(4)
+    expect(landings, "the interrupted flight didn't land").toBe(1)
+    flushed(setMoved)(0)
+    await loop
+    expect(landings).toBe(2)
   })
 })

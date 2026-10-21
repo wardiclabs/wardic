@@ -14,7 +14,8 @@ export {
   useWardicRuntime,
   WardicProvider,
 } from "./provider.tsx"
-export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "../../runtime.ts"
+export type { WardicEnv, WardicRuntime, WardicServices } from "../../runtime.ts"
+export type { AnimateLayout } from "./provider.tsx"
 
 /**
  * `ward(config)`: a **Ward**, one element's motion, as a ref that carries its props. Spread it

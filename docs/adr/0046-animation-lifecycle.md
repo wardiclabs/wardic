@@ -5,7 +5,7 @@ An app can now hear when an element's animation starts and when it lands. Solid 
 It lands in four PRs:
 1. The spine's signal and Solid 1's callbacks (this ADR's *Built (PR 1)*).
 2. Solid 2's `card.settled()` and `card.next(name)`, in two: `settled()` and `next("settled")` (*Built (PR 2a)*), then the gesture events and `wardRef` (*Built (PR 2b)*), which needed core's recognizers to report a pointer and to tell a tap from a cancel.
-3. Solid 2's layout callbacks moving to async.
+3. Solid 2's layout callbacks moving to async (*Built (PR 3)*).
 4. Presence exits, on both bindings.
 
 ## Why
@@ -126,6 +126,27 @@ It settled what the pattern assumed:
 
 Solid's action sends a yielded promise's value back in (`it.next(v)`) and throws a rejection at the `yield`, so `const undone: boolean = yield …` reads the value.
 
+## Built (PR 3): Solid 2's layout, async
+
+- **`animateLayout(fn)`** (`useAnimateLayout()`) returns a promise of `fn`'s result (decision 5).
+  - **`fn` runs at once,** and a throw from it is thrown at the call.
+  - **It resolves once every flight the change's pass started has ended,** however each ended. That's ADR-0039's `onSettled`, which this replaces on Solid 2. Calls in one task share the pass, so they resolve together; a change that moves nothing resolves at its pass's end.
+  - **It rejects with an `AbortError` when the provider is disposed first.** The provider holds one disposal promise, and each call races its settling against it. So there's no bookkeeping per call: a throwing `fn` leaves nothing behind, and a resolved call has nothing to remove.
+  - The first build kept a set of each call's reject, which made two holes:
+    - a throw's leftover rejected an orphaned promise at disposal, an unhandled rejection;
+    - a resolved call never removed from the set grew it until the provider went.
+- **`next("layoutStart")` and `next("layoutComplete")`** (and `each`) replace `onLayoutAnimationStart` / `onLayoutAnimationComplete` on Solid 2.
+  - The ward routes its layout node's two callbacks to its lifecycle. They fire at ADR-0039's moments: a start after its first step's frame is painted, a complete only for a flight that lands on its own, and only the Lead's in a handover.
+  - Each resolves with `undefined`, as Motion's callbacks take nothing.
+  - Only a layout ward makes the two routing functions.
+- **The two props leave Solid 2's motion props and config.** Breaking, in `unstable/v2` only, as are `animateLayout`'s `onSettled` and its synchronous return.
+- **The lab's s17, Solid 2 build:**
+  - its tiles are heard through `wardRef` and `card.each("layoutStart" | "layoutComplete")`;
+  - Shuffle awaits `animateLayout`;
+  - Two calls awaits `Promise.all` of its two calls.
+
+  Read headless on both builds, the card gives the same verdicts and counts: Shuffle 3 starts, 3 completes, settled after the last; Two calls 2 and 2; Shuffle, untriggered 0 and 0; no console problem.
+
 ## Consequences
 
 - **New public API:**
@@ -163,6 +184,14 @@ Solid's action sends a yielded promise's value back in (`it.next(v)`) and throws
     - a keyboard lift's `drag`.
   - `test/v2/lifecycle.browser.test.tsx` LF1–LF3: a stale settle, a landing before the first read, and the definition across a gesture.
   - `test/v2/server.ssr.test.tsx` SV14.
+- **PR 3:** `test/v2/layout.browser.test.tsx`:
+  - LY8: `next("layoutStart")`, then `next("layoutComplete")`, through `wardRef`;
+  - LY11: `animateLayout` resolving with its callback's result once the reorder has landed;
+  - LY19: a throw at the call, leaving no unhandled rejection at the disposal;
+  - LY20: two calls resolving together;
+  - LY21: a change that moves nothing;
+  - LY22: the disposal's `AbortError`;
+  - LY23: `each("layoutComplete")` without an interrupted flight's.
 - **PR 2b:**
   - solid (Solid 2): `test/v2/gesture-events.browser.test.tsx` GX1–GX8:
     - a hover's events on a ward with no `whileHover`;
