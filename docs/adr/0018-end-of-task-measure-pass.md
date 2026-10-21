@@ -169,3 +169,63 @@ Both fail with the old forked writer, and RB1–RB12 don't, because the polyfill
 
 `test/services.browser.test.ts`'s DS2 and DS3 (#132) watched the engine's teardown through `window.removeEventListener("resize")`. They now watch its viewport subscription stop: the engine before the gate, and with its own Scope. A mutation that skips the unsubscribe fails both.
 
+
+## Amendment (#261, 2026-10-21): a page-size refresh
+
+A layout node that only **moved**, because content elsewhere in the page grew, kept the Measurement from before the move. Its size didn't change, so the observer didn't report it, and no trigger fired. Its next layout animation started from that old box, as far off as it had moved.
+- **The lab:** free play's first run after the other cards read `wrong-origin`, 4 times out of 4. Its box had moved 20 px down the page, and the first frame was 19.9 px off.
+- **Motion:** 0 px. It snapshots every box at `willUpdate`, so it starts from where the element is painted. A Motion probe on the same page shape (`.tmp/261`, framer-motion 13.4.0) grew a plain panel above a box, then moved the box: its first frames read (0, 0), (0, 0), (−3.7, 0).
+
+ADR-0005 (*Amendment (#3)*) keeps the retained Measurement as the "before", and ADR-0038 made `animateLayout` the opt-in read before a change. A change outside every trigger and every call is this one: content elsewhere resizing.
+
+Grilled 2026-10-21, all A:
+
+1. **When the page's content changes size, the engine reads every node again**, with the Resize block's slot-only update.
+   - It starts nothing, and a running animation keeps its delta: its origin moves with its box, so it moves with the content around it.
+   - The node's next layout animation starts from where it's painted.
+   - A move that leaves the page's size unchanged still needs `animateLayout` or a trigger, such as content growing inside a fixed-height container. Scenario 17's Grow panel is one: the panel grows inside a fixed-height stage, so Shuffle, triggered still reads `wrong-origin` there.
+2. **"The page's content" is what #239 watches** for `Probe.scroll`'s page: the body and its direct children, on the border box, kept current by a `MutationObserver` on the body's child list.
+   - A deep change counts once it resizes the body child it sits in. A body sized to the window (`height: 100%`) keeps its own size, but its children don't.
+   - **One helper, two users:** the watch moved out of `scroll.ts` into `internal/content-watch.ts`, with the observer shared by count (`counted`, `watchChildren`, `watchPage`).
+   - **The engine watches on its own shared observer,** beside its nodes, counting a box that is both a node and a page box. So a single delivery decides between them: a node's own resize runs a pass that animates (as before), and only a delivery with none refreshes.
+   - **What moves nothing doesn't count:**
+     - a page box that is absolutely or fixed positioned (one `getComputedStyle` per box, the first time it's seen);
+     - a new one with no area (an empty portal mount, a `<script>`).
+   - **A removal can resize nothing still watched.** Under a body sized to the window, a removed box's following siblings move up without changing size. So when the child list loses a box that took space, the list change itself refreshes.
+3. **Echoes are skipped, as #21 skips a node's.**
+   - Every Measure pass round records each in-flow page box's size as it reads the layout (`getBoundingClientRect`, a few boxes). A delivery reporting those sizes is that pass's echo, so a triggered change that grows the page reads once, not twice.
+   - Nothing refreshes while a pass is due: that pass reads every node, and what moved animates as triggered. Nor while a **Resize block** is pending: its own pass does the same read once the resize settles.
+   - **One exception:** an iframe its parent resizes lays out, and its observer delivers, before the iframe's own `resize` event. So a width change there refreshes once before the block is set, and the block's pass reads again. A window's `resize` event comes first.
+4. **The refresh is the Resize block's pass, run inside the delivery:**
+   - The delivery comes after the frame's layout and before its paint, so the reads force no layout and nothing else can change first.
+   - Each node's `layoutVersion` rises and the pass-end listeners run, as in any pass that measures. A **Reorder group** mid-drag re-checks against the moved boxes.
+   - It's traced as `wardic.projection.measure` with `blocked` and a new `refresh` attribute.
+5. **No option.** It runs only when the page's size changes.
+   - **Measured** (Chromium, this host, `.tmp/261`): 0.4–0.5 ms a refresh at 100 nodes and 1.5–1.6 ms at 1,000.
+   - **What pays:** a page whose content changes size every frame (a streaming log) pays that every frame, and so does a positioned tooltip appended to the body as an in-flow box.
+   - **A triggered pass costs the same as on `main`** (0.7–0.9 ms at 100 nodes, 3.0–3.3 ms at 1,000, on both), because the page record is a few reads.
+
+Rejected:
+- **A read of the moved node at each trigger** (Motion's `willUpdate`): ADR-0005 rejected a pre-change read per node (*Amendment (#3)*).
+- **Every node in every pass, animating only those whose own trigger fired:** every pass already reads every node (Q5). The stale box is read when the node's own trigger runs the first pass after the move, which is the lab's case.
+- **Documenting it:** it's a gap with Motion that any page with a growing panel or a loading image hits.
+- **The document element's box alone:** an app that sizes `html` and `body` to the window never changes it.
+- **The scroll size, read each frame:** a layout read every frame, idle included.
+- **Refreshing a frame later:** a change in between (a click in that frame) animates from the stale box again.
+- **An opt-out or an opt-in:** more API for a case nobody has reported, or a gap with Motion by default.
+
+Pinned by:
+- `packages/dom/test/projection-page-refresh.browser.test.ts` PG1–PG11, with the real observer and real frames:
+  - a box growing above a node refreshes once, and the node's next move starts where it's painted (PG1; 60 px off on `main`);
+  - a triggered change that grows the page reads once (PG2);
+  - a page change with a trigger in the same task, or a removal with one, runs one pass that animates the move (PG3, PG10);
+  - `layoutVersion` and the pass-end listeners (PG4);
+  - a running animation's delta (PG5);
+  - out-of-flow and empty boxes (PG6);
+  - a removal under a body sized to the window (PG7);
+  - the Resize block (PG8);
+  - a height-only window change growing a `vh` box (PG9);
+  - a node's own resize winning in a shared delivery (PG11).
+- **Mutations:** 10 single-point mutations of the engine's side, all caught: no refresh, no echo record, either guard, out-of-flow or empty boxes counting, no removal refresh, an unblocked refresh, a node's resize refreshing, and the page checked first. Two of the shared helper's, caught by `scroll.browser.test.ts` (PS9, PS11).
+- `test/projection-resize-block.browser.test.ts` takes its viewport helper from `test/viewport.ts`, which PG8 and PG9 share.
+- **The lab:** free play's first run after the other cards reads clean on both builds (it moved 20 px).
