@@ -24,7 +24,7 @@ import type * as Drag from "@wardic/core/Drag"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
-import { dragInfoOf, pointInfoOf, type WardicDragInfo, type WardicPoint, type WardicPointInfo } from "../../gesture-info.ts"
+import { dragInfoOf, pointInfoOf, pointOfSample, type WardicDragInfo, type WardicPoint, type WardicPointInfo } from "../../gesture-info.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { eachOf, Waiters } from "./waiters.ts"
@@ -87,6 +87,18 @@ export interface WardEvents {
    */
   readonly dragTransitionEnd: undefined
   /**
+   * A pan's session began: a primary pointer went down on the element (Motion's
+   * `onPanSessionStart`, #273). A pan moves nothing; once started, it counts as a drag for the
+   * element's press and hover (ADR-0047). It sets no `touch-action`: give the element one for touch.
+   */
+  readonly panSessionStart: WardPointInfo
+  /** That pan started, past its threshold (Motion's `onPanStart`). */
+  readonly panStart: WardDragInfo
+  /** That pan moved: its start and each move after (Motion's `onPan`). */
+  readonly pan: WardDragInfo
+  /** That pan ended at its release, or was cancelled (Motion's `onPanEnd`). Only a pan that started. */
+  readonly panEnd: WardDragInfo
+  /**
    * A layout animation of the element started, at the frame it takes its first step, after that
    * frame is painted (Motion's `onLayoutAnimationStart`, ADR-0039). A restart starts again.
    */
@@ -104,13 +116,20 @@ export type WardEvent = keyof WardEvents
 /** The `AbortError`'s message for a `next` the ward's disposal cut off. */
 const GONE = "The ward was disposed before its next event."
 
+/** A gesture whose recognizer the ward runs only once wanted (#87, #257, #273). */
+export type WantedGesture = "hover" | "press" | "pan"
+
 /** The gesture whose recognizer an event needs: `next("tap")` needs the press one running. */
-const GESTURE_OF: Partial<Record<WardEvent, "hover" | "press">> = {
+const GESTURE_OF: Partial<Record<WardEvent, WantedGesture>> = {
   hoverStart: "hover",
   hoverEnd: "hover",
   pressStart: "press",
   tap: "press",
   tapCancel: "press",
+  panSessionStart: "pan",
+  panStart: "pan",
+  pan: "pan",
+  panEnd: "pan",
 }
 
 /** Each press phase's event: a press a drag took over has none (Motion tells neither). */
@@ -121,11 +140,21 @@ const PRESS_EVENT: Record<Recognizer.PressPhase, WardEvent | undefined> = {
   dragged: undefined,
 }
 
+/** A drag's or a pan's start or end. */
+type MovementEvent = "dragStart" | "dragEnd" | "panStart" | "panEnd"
+
 /** Each drag phase's event: its end; its start, which `drag` hears too, is told on its own. */
-const DRAG_EVENT: Record<Drag.Sample["phase"], WardEvent | undefined> = {
+const DRAG_EVENT: Record<Drag.Sample["phase"], MovementEvent | undefined> = {
   start: "dragStart",
   move: undefined,
   end: "dragEnd",
+}
+
+/** Each pan phase's event past its session's start: as {@link DRAG_EVENT}, `pan` its every move. */
+const PAN_EVENT: Record<Drag.Sample["phase"], MovementEvent | undefined> = {
+  start: "panStart",
+  move: undefined,
+  end: "panEnd",
 }
 
 /**
@@ -153,11 +182,12 @@ export class Lifecycle implements AnimationHooks {
   // The gestures a `next` has asked for, whose recognizers the ward runs from then on.
   private hover = false
   private press = false
+  private pan = false
   private readonly owner: Owner | null
-  private readonly want: (gesture: "hover" | "press") => void
+  private readonly want: (gesture: WantedGesture) => void
 
   /** `want` starts a gesture's recognizer on the mounted element the first time a `next` needs it. */
-  constructor(owner: Owner | null, want: (gesture: "hover" | "press") => void) {
+  constructor(owner: Owner | null, want: (gesture: WantedGesture) => void) {
     this.owner = owner
     this.want = want
   }
@@ -170,6 +200,11 @@ export class Lifecycle implements AnimationHooks {
   /** Whether a `next` has asked for the press events. */
   get wantsPress(): boolean {
     return this.press
+  }
+
+  /** Whether a `next` has asked for the pan events (#273). */
+  get wantsPan(): boolean {
+    return this.pan
   }
 
   started(resolution: Resolution): void {
@@ -208,11 +243,17 @@ export class Lifecycle implements AnimationHooks {
 
   /** A drag's sample (#257, #273): its start, each move (its start among them) and its end are told. */
   dragged(sample: Drag.Sample): void {
+    this.moved(DRAG_EVENT[sample.phase], "drag", sample)
+  }
+
+  /** A pan's sample (#273): its session's start, then as a drag's. */
+  panned(sample: Recognizer.PanSample): void {
     if (Predicate.isUndefined(this.events)) return
-    const info = (): WardDragInfo => dragInfoOf(sample)
-    const name = DRAG_EVENT[sample.phase]
-    if (Predicate.isNotUndefined(name)) this.tell(name, info)
-    if (sample.phase !== "end") this.tell("drag", info)
+    if (sample.phase === "session") {
+      this.tell("panSessionStart", () => pointOfSample(sample))
+      return
+    }
+    this.moved(PAN_EVENT[sample.phase], "pan", sample as Drag.Sample)
   }
 
   /** The drag's release came to rest on its own (#273). */
@@ -228,6 +269,14 @@ export class Lifecycle implements AnimationHooks {
   /** A layout animation's landing (#257). */
   layoutCompleted(): void {
     this.tell("layoutComplete", constUndefined)
+  }
+
+  /** A drag's or a pan's sample past a pan's session's start: its start's or end's event (`named`), then `every` at its start and each move. */
+  private moved(named: MovementEvent | undefined, every: "drag" | "pan", sample: Drag.Sample): void {
+    if (Predicate.isUndefined(this.events)) return
+    const info = (): WardDragInfo => dragInfoOf(sample)
+    if (Predicate.isNotUndefined(named)) this.tell(named, info)
+    if (sample.phase !== "end") this.tell(every, info)
   }
 
   /** Resolve the `next(name)` calls waiting, with `value()`, made once there are any. */
@@ -255,7 +304,7 @@ export class Lifecycle implements AnimationHooks {
     }
     const waited = this.events.wait(name)
     const gesture = GESTURE_OF[name]
-    if (Bool.and(Predicate.isNotUndefined(gesture), Bool.not(this.disposed))) this.wanted(gesture as "hover" | "press")
+    if (Bool.and(Predicate.isNotUndefined(gesture), Bool.not(this.disposed))) this.wanted(gesture as WantedGesture)
     return waited
   }
 
@@ -275,11 +324,19 @@ export class Lifecycle implements AnimationHooks {
   }
 
   /** A gesture a `next` needs: its recognizer is started the first time. */
-  private wanted(gesture: "hover" | "press"): void {
-    const hover = gesture === "hover"
-    if (Bool.match(hover, { onTrue: () => this.hover, onFalse: () => this.press })) return
-    this.hover = Bool.or(this.hover, hover)
-    this.press = Bool.or(this.press, Bool.not(hover))
+  private wanted(gesture: WantedGesture): void {
+    if (gesture === "hover") {
+      if (this.hover) return
+      this.hover = true
+    }
+    if (gesture === "press") {
+      if (this.press) return
+      this.press = true
+    }
+    if (gesture === "pan") {
+      if (this.pan) return
+      this.pan = true
+    }
     this.want(gesture)
   }
 

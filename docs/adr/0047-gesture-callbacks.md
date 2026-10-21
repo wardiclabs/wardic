@@ -70,6 +70,34 @@ Each PR gives Solid 2 the matching `next()` names, so the two bindings hear the 
 
 A **free** drag's release that a grab with no drag stopped stays stopped, so the element rests where the grab caught it: with `dragSnapToOrigin`, 80 px off its origin in a probe. Motion restarts it from rest at the press's end, with `dragSnapToOrigin` or constraints (`resumeAnimation`, `VisualElementDragControls.ts:237-242`). Its `onDragTransitionEnd` then comes. A layout node's release already does this (ADR-0016, *Amendment (velocity family)*). It's a behaviour bug of the drag track, separate from the callbacks: #279.
 
+## Pan (grilled 2026-10-21, PR 2)
+
+Motion's pan (`gestures/pan/index.ts`, `PanSession.ts` at `16c6122`) runs its own pointer session per down, outside its drag lock. `onPanSessionStart` comes at a primary pointer's down, `onPanStart` past the 3 px threshold, `onPan` at the start and each move, and `onPanEnd` at the release or cancel of a pan that started (`this.startEvent`). It moves nothing.
+
+1. **A pan that has started counts as a drag for the element's other gestures** (Q1: B, a deliberate divergence). It's counted in the **Drag activity** from its start to its end, with no **Drag claim**. So a press it took over ends as neither a tap nor a cancel, on the panned element or anything inside it, and no hover starts meanwhile. A drag isn't stopped by it, and it isn't stopped by a drag.
+   - **Why:** in Motion, a pan is invisible to the press, which has no movement threshold of its own (`press/index.ts`: only an active drag lock stops a tap). So a swipe that's let go over the element taps it too. Every pan-plus-tap design guards against that by hand: a swipe-to-reveal row that also opens on tap, a carousel of tappable cards. Under B, `onTap` only comes for a real tap, and Solid 2's `next("tap")` likewise.
+   - **What it doesn't change:** a press that wobbles under the threshold still taps; the browser's own `click` still follows a swipe, as in Motion.
+   - **The cost:** a Motion port that relied on a tap after a pan would need a change. None could be found; every case found is the guard.
+   - Rejected: A, Motion's, invisible to the other gestures (recommended at first, for parity; asked with code examples, the user chose to improve on it).
+2. **A pan sets no `touch-action`** (Q2: A, as Motion). On a touch screen, the browser takes a finger's move for page scrolling and cancels the pan, unless the app's `touch-action` rules that out. Unlike a drag, a pan has no axis to choose a safe value from: the one value that works for every pan, `none`, would stop the page scrolling over every swipeable row of a list. The prop's doc says to set it (`pan-y` for a sideways pan in a scrolling page).
+   - Rejected: `touch-action: none` under the app's style whenever a pan callback is set.
+3. **Defaults stated, not asked:**
+   - `onPanSessionStart(event, { point })`, Motion's declared `EventInfo` (its runtime value is a whole `PanInfo` of zeros);
+   - the other three take a drag's info, `{ point, offset, delta, velocity }`;
+   - a scroll during a pan is a move, as for a drag: `onPan` hears it, and `offset` counts it, where Motion's pan session (given no element) sees a window scroll only at the next pointer move;
+   - Solid 2: `next("panSessionStart" | "panStart" | "pan" | "panEnd")`, and `each`.
+
+## Built (PR 2)
+
+- **core: `Recognizer.pan(target)`**, a stream of `PanSample`s: a drag's `Drag.Sample`, or `"session"`, at a **Primary pointer**'s down, at its point with no offset, delta or velocity.
+  - It runs the drag's own fold (`step`), and adds a session's start at each down that claims a gesture. That includes the second down that ends a lost one, after that one's end.
+  - It takes no claim. At its `"start"` it counts in the Drag activity, before anyone hears the start, and counts off at its `"end"`, or when it's interrupted mid-pan.
+  - A press on the same target sees the count whichever subscribed first: the press notes a drag active at any of its owner's events, the release included (as #272's A14 for a drag).
+  - The drag's `claim: false` couldn't serve: it has no session's start, and its count is the drag's own.
+- **Solid 1:** `onPanSessionStart`, `onPanStart`, `onPan` and `onPanEnd` on `WardConfig`, the `wardic.*` props and `createWard`'s config. Any one starts the pan recognizer (`wantsPan`). `onPan` and `onDrag` share their caller (`moved`): the start's or end's callback, then the one each start and move tell.
+- **One computation starts all three recognizers.** `createWhenWanted(config, wants, starts)` reads the config once a change, and starts whichever of hover, press and pan is newly wanted. It replaces one computation per gesture: each read of a `wardic.*` element's config rebuilds it, and a third computation would have added a rebuild per element at mount and at every change.
+- **Solid 2:** the four names on `next` and `each`. One asked for starts the pan recognizer on the mounted element, as a hover or press event does; a pan sets no layer.
+
 ## Consequences
 
 - **New public API:**
@@ -77,6 +105,7 @@ A **free** drag's release that a grab with no drag stopped stays stopped, so the
   - dom: `RegisterNodeOptions.onReleaseEnd`;
   - Solid 1: the nine callbacks on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicPoint`, `WardicPointInfo` and `WardicDragInfo` types;
   - Solid 2: the `"drag"` and `"dragTransitionEnd"` events.
+  - **PR 2:** core's `Recognizer.pan` and `PanSample`; Solid 1's four pan callbacks; Solid 2's four pan events.
 - **Breaking on Solid 1:** a `wardic.*` element's `onDrag`, `onDragStart` and `onDragEnd` are Motion's, no longer the DOM's drag-and-drop handlers. An app that needs those listens on the element itself.
 - **Cost:** one field more on each pointer event and drag sample. An element with a hover or tap callback runs that recognizer, as one with its `while*` does.
 
@@ -102,3 +131,19 @@ A **free** drag's release that a grab with no drag stopped stays stopped, so the
   - GX11: the DOM's `onDragStart` on `wardic.div`, and none in a ward's config.
 - **dom:** `test/projection-callbacks.browser.test.ts` LC8–LC8e: once after the flush it rests in; a grab's stop, and a pause let go on; in place from a microtask; an unmount, flying or before that microtask; a throw reported; a release resting under a layout flight that runs on, once. And PN3's `raw`.
 - **core:** `held-pointer-source.test.ts` C31 (a held pointer's own moves carry its last move's event); `packages/test`'s `drag.test.ts` DR1 (each sample's event).
+- **PR 2:**
+  - core: `packages/test`'s `pan.test.ts` PA1–PA7:
+    - the session at the down, then the start, moves and end;
+    - a session only below the threshold, and none for a right-click or a second finger;
+    - the Drag activity count, interrupted too;
+    - a press it took over, in either subscription order, and a wobble's tap;
+    - no claim, either way round;
+    - no hover meanwhile;
+    - a lost release.
+  - solid (Solid 1): `test/gesture-callbacks.browser.test.tsx` GC13–GC17, with the real mouse:
+    - the four callbacks and their info, nothing moved;
+    - a session only;
+    - no tap after a pan, on the element or a card inside, and a wobble's tap;
+    - no hover mid-pan;
+    - a pan callback set later.
+  - solid (Solid 2): `test/v2/gesture-events.browser.test.tsx` GX12–GX13.

@@ -7,7 +7,7 @@
  *
  * Which gestures an element runs follows Motion's features (`definitions.ts:5-24` @ `16c6122`): the
  * hover recognizer once `whileHover`, `onHoverStart` or `onHoverEnd` is set, the press recognizer once
- * `whileTap`, `onTap`, `onTapStart` or `onTapCancel` is.
+ * `whileTap`, `onTap`, `onTapStart` or `onTapCancel` is, the pan recognizer once a pan callback is.
  *
  * @module
  */
@@ -20,7 +20,7 @@ import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardConfig } from "./config.ts"
-import { dragInfoOf, pointInfoOf } from "./gesture-info.ts"
+import { dragInfoOf, pointInfoOf, pointOfSample } from "./gesture-info.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
 /**
@@ -41,6 +41,14 @@ export const wantsPress = (config: WardConfig): boolean => {
   return Predicate.isNotUndefined(config.onTapCancel)
 }
 
+/** Whether `config` runs the pan recognizer (Motion's pan feature, #273): as {@link wantsHover}. */
+export const wantsPan = (config: WardConfig): boolean => {
+  if (Predicate.isNotUndefined(config.onPan)) return true
+  if (Predicate.isNotUndefined(config.onPanStart)) return true
+  if (Predicate.isNotUndefined(config.onPanSessionStart)) return true
+  return Predicate.isNotUndefined(config.onPanEnd)
+}
+
 /** What tells an element's gestures to its config's callbacks. */
 export interface GestureCallbacks {
   readonly hovered: (transition: Recognizer.Transition) => void
@@ -48,6 +56,7 @@ export interface GestureCallbacks {
   readonly dragged: (sample: Drag.Sample) => void
   /** The drag's release came to rest on its own. */
   readonly released: () => void
+  readonly panned: (sample: Recognizer.PanSample) => void
 }
 
 /** Each press phase's callback: a press a drag took over has none (Motion tells neither). */
@@ -55,6 +64,12 @@ const PRESS_CALLBACK = { start: "onTapStart", tap: "onTap", cancel: "onTapCancel
 
 /** Each drag phase's callback, `onDrag` aside. */
 const DRAG_CALLBACK = { start: "onDragStart", move: undefined, end: "onDragEnd" } as const
+
+/** Each pan phase's callback past its session's start, `onPan` aside. */
+const PAN_CALLBACK = { start: "onPanStart", move: undefined, end: "onPanEnd" } as const
+
+/** A drag's or a pan's start or end callback. */
+type MovementCallback = "onDragStart" | "onDragEnd" | "onPanStart" | "onPanEnd"
 
 /** An element's callers, reading `config` at each call; `id` names it in a report. */
 export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: () => WardConfig): GestureCallbacks => {
@@ -67,6 +82,22 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       runtime.runFork(Report.failure(`wardic.gesture: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
     }
   }
+  /**
+   * A drag's or a pan's sample, past a pan's session's start: its start's or its end's callback
+   * (`named`), then `every`, which hears its start and each move (Motion's pan session runs `onMove`
+   * at the start too). The info is built once, for whichever is set.
+   */
+  const moved = (named: MovementCallback | undefined, every: "onDrag" | "onPan", sample: Drag.Sample): void => {
+    const c = config()
+    const own = UndefinedOr.map(named, (key) => c[key])
+    const moving = sample.phase !== "end"
+    const each = c[every]
+    if (Bool.and(Predicate.isUndefined(own), Bool.or(Bool.not(moving), Predicate.isUndefined(each)))) return
+    const raw = sample.raw as PointerEvent
+    const info = dragInfoOf(sample)
+    if (Predicate.isNotUndefined(named)) call(named, own, raw, info)
+    if (moving) call(every, each, raw, info)
+  }
   return {
     hovered: (transition) => {
       const name = Bool.match(transition.active, { onTrue: () => "onHoverStart" as const, onFalse: () => "onHoverEnd" as const })
@@ -77,19 +108,15 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       if (Predicate.isUndefined(name)) return
       call(name, config()[name], press.event.raw as PointerEvent, pointInfoOf(press.event))
     },
-    dragged: (sample) => {
-      const c = config()
-      const name = DRAG_CALLBACK[sample.phase]
-      const own = UndefinedOr.map(name, (named) => c[named])
-      // Motion's `onDrag`: the start and each move (its pan session's `onMove` runs at the start too).
-      const moving = sample.phase !== "end"
-      // The info is built once, for whichever is set.
-      if (Bool.and(Predicate.isUndefined(own), Bool.or(Bool.not(moving), Predicate.isUndefined(c.onDrag)))) return
-      const raw = sample.raw as PointerEvent
-      const info = dragInfoOf(sample)
-      if (Predicate.isNotUndefined(name)) call(name, own, raw, info)
-      if (moving) call("onDrag", c.onDrag, raw, info)
-    },
+    dragged: (sample) => moved(DRAG_CALLBACK[sample.phase], "onDrag", sample),
     released: () => call("onDragTransitionEnd", config().onDragTransitionEnd),
+    panned: (sample) => {
+      // Its session's start, at the down: Motion's `onPanSessionStart`, with the point only.
+      if (sample.phase === "session") {
+        call("onPanSessionStart", config().onPanSessionStart, sample.raw as PointerEvent, pointOfSample(sample))
+        return
+      }
+      moved(PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)
+    },
   }
 }

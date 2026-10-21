@@ -21,6 +21,13 @@
 //   listener.
 // - GC12: a `Reorder.Item`'s drag callbacks, beside its group's, and its `onDragTransitionEnd` once
 //   it lands on its new slot.
+// - GC13 (pan): `onPanSessionStart` at the down, `onPanStart`, `onPan` (its start and each move) and
+//   `onPanEnd`, with Motion's info; the element doesn't move.
+// - GC14: a press that never passed the threshold: its session only, no `onPanEnd`.
+// - GC15: a pan that started is a drag for the press it took over (Wardic's rule, ADR-0047): neither
+//   `onTap` nor `onTapCancel`, on the panned element or a card inside it; a wobble still taps.
+// - GC16: no hover starts while a pan is on.
+// - GC17: a pan callback set after mount starts the pan recognizer then, once.
 //
 // A callback that throws: error-reporting.browser.test.tsx.
 import { render } from "@solidjs/testing-library"
@@ -367,5 +374,134 @@ describe("Solid 1's gesture callbacks (#273)", () => {
     await frames(10)
     expect(order(), "the group reordered").toEqual(["b", "c", "a"])
     expect(calls).toEqual(["start a pointermove 10", "end a pointerup", `rest a ${last}`])
+  })
+
+  it("GC13: onPanSessionStart at the down, onPanStart, onPan (its start and each move) and onPanEnd; nothing moves", async () => {
+    const calls: Array<string> = []
+    const el = await mount((ref) => (
+      <wardic.div
+        ref={ref}
+        onPanSessionStart={(e, info) => calls.push(seen("session", e, info))}
+        onPanStart={(e, info) => calls.push(seenDrag("start", e, info))}
+        onPan={(e, info) => calls.push(seenDrag("pan", e, info))}
+        onPanEnd={(e, info) => calls.push(seenDrag("end", e, info))}
+        style={BOX}
+      />
+    ))
+    const box = el.getBoundingClientRect()
+    const c = centreOf(el)
+    await mouse.down(c)
+    await glide(c, add(c, 0, 60), 3)
+    await mouse.up(add(c, 0, 60))
+    await frames(2)
+    expect(calls).toEqual([
+      `session pointerdown true ${at(c)}`,
+      `start pointermove true ${at(add(c, 0, 20))} off 0,20 d 0`,
+      `pan pointermove true ${at(add(c, 0, 20))} off 0,20 d 0`,
+      `pan pointermove true ${at(add(c, 0, 40))} off 0,40 d 0`,
+      `pan pointermove true ${at(add(c, 0, 60))} off 0,60 d 0`,
+      // Playwright moves to the release's point first: a move that goes nowhere.
+      `pan pointermove true ${at(add(c, 0, 60))} off 0,60 d 0`,
+      `end pointerup true ${at(add(c, 0, 60))} off 0,60 d 0`,
+    ])
+    expect(el.getBoundingClientRect().top, "a pan moves nothing").toBe(box.top)
+  })
+
+  it("GC14: a press that never passed the threshold: its session only, no onPanEnd", async () => {
+    const calls: Array<string> = []
+    const el = await mount((ref) => (
+      <wardic.div ref={ref} onPanSessionStart={() => calls.push("session")} onPanStart={() => calls.push("start")} onPanEnd={() => calls.push("end")} style={BOX} />
+    ))
+    const c = centreOf(el)
+    await mouse.down(c)
+    await mouse.move(add(c, 2, 0))
+    await mouse.up(add(c, 2, 0))
+    await frames(2)
+    expect(calls).toEqual(["session"])
+  })
+
+  it("GC15: a pan that started is a drag for the press it took over: no tap, on the element or a card inside; a wobble taps", async () => {
+    const calls: Array<string> = []
+    let card!: HTMLElement
+    const el = await mount((ref) => (
+      <wardic.div ref={ref} onPan={() => {}} onTap={() => calls.push("row tap")} onTapCancel={() => calls.push("row cancel")} style={{ ...BOX, width: "200px" }}>
+        <wardic.div
+          ref={(n: HTMLElement) => (card = n)}
+          onTap={() => calls.push("card tap")}
+          onTapCancel={() => calls.push("card cancel")}
+          style={{ width: "40px", height: "40px", background: "white" }}
+        />
+      </wardic.div>
+    ))
+    // A swipe on the row, let go over the row.
+    const c = centreOf(el)
+    await mouse.down(c)
+    await glide(c, add(c, 60, 0), 4)
+    await mouse.up(add(c, 60, 0))
+    // A swipe that starts on a card and ends over it.
+    const k = centreOf(card)
+    await mouse.down(k)
+    await glide(k, add(k, 12, 0), 3)
+    await glide(add(k, 12, 0), k, 3)
+    await mouse.up(k)
+    await frames(2)
+    expect(calls, "no tap after a pan").toEqual([])
+    // A wobble under the threshold is still a tap.
+    await mouse.down(k)
+    await mouse.move(add(k, 2, 0))
+    await mouse.up(add(k, 2, 0))
+    expect(calls).toEqual(["card tap", "row tap"])
+  })
+
+  it("GC16: no hover starts while a pan is on", async () => {
+    const calls: Array<string> = []
+    let other!: HTMLElement
+    const el = await mount((ref) => (
+      <>
+        <wardic.div ref={ref} onPan={() => {}} style={BOX} />
+        <wardic.div ref={(n: HTMLElement) => (other = n)} onHoverStart={() => calls.push("hover")} style={{ ...BOX, "margin-top": "20px" }} />
+      </>
+    ))
+    const c = centreOf(el)
+    const o = centreOf(other)
+    await mouse.down(c)
+    await glide(c, o, 5)
+    await frames(2)
+    expect(calls, "mid-pan, over the other").toEqual([])
+    await mouse.up(o)
+    await mouse.move(PARK)
+    await mouse.move(o)
+    expect(calls, "after it").toEqual(["hover"])
+  })
+
+  it("GC17: a pan callback set after mount starts the pan recognizer then", async () => {
+    const calls: Array<string> = []
+    const [listening, setListening] = createSignal(false)
+    const config = (): WardConfig =>
+      Bool.match(listening(), { onTrue: () => ({ onPanSessionStart: () => calls.push("session") }), onFalse: () => ({}) })
+    const el = await mount((ref) => {
+      function C() {
+        const ward = createWard(config)
+        return <div {...ward({ ref })} style={BOX} />
+      }
+      return <C />
+    })
+    const c = centreOf(el)
+    await mouse.down(c)
+    await mouse.up(c)
+    expect(calls, "no recognizer yet").toEqual([])
+    setListening(true)
+    await settle()
+    await mouse.down(c)
+    await mouse.up(c)
+    expect(calls).toEqual(["session"])
+    // Unset and set again: started once, so each down is one session.
+    setListening(false)
+    await settle()
+    setListening(true)
+    await settle()
+    await mouse.down(c)
+    await mouse.up(c)
+    expect(calls).toEqual(["session", "session"])
   })
 })

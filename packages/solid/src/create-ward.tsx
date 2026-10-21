@@ -70,9 +70,9 @@ import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import type { PresenceRecord } from "./presence-record.ts"
-import { createWhenWanted } from "./sensors.ts"
-import { type GestureCallbacks, gestureCallbacksOf, wantsHover, wantsPress } from "./gesture-callbacks.ts"
-import { useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { createWhenWanted, type Wants } from "./sensors.ts"
+import { type GestureCallbacks, gestureCallbacksOf, wantsHover, wantsPan, wantsPress } from "./gesture-callbacks.ts"
+import { runScoped, useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
@@ -192,6 +192,9 @@ export interface WardValue {
 
 /** A `<Reorder>` item's additions when there are none: a plain element's. */
 const NO_INTERNALS: SpineInternals = {}
+
+/** Whether a config wants each gesture recognizer (#87, #273): shared by every element. */
+const WANTS: Wants<WardConfig> = { hover: wantsHover, press: wantsPress, pan: wantsPan }
 
 /** A `ward()` call's user props when it's given none. */
 const NO_USER_PROPS: WardUserProps = {}
@@ -494,12 +497,11 @@ export function runSpine(opts: RunSpineOptions): void {
 
       // Recognizers over the live element, each started the first time its config wants it, as
       // Motion's features are (#87, ADR-0040; #273): `whileHover` or a hover callback, `whileTap` or a
-      // tap callback. Each transition sets its layer and is told to the app's callbacks, at the event.
-      // Its fiber is scoped to this owner's onCleanup via streamToSignal -> runScoped. Until then it
-      // reads false.
-      const hovered = createWhenWanted(
-        () => wantsHover(cfg()),
-        () =>
+      // tap callback, a pan callback. Each hover and press transition sets its layer; each event is
+      // told to the app's callbacks, at the event. Their fibers are scoped to this owner's onCleanup
+      // (runScoped). Until started, hover and press read false.
+      const { hovered, pressed } = createWhenWanted(cfg, WANTS, {
+        hover: () =>
           streamToSignal(
             Recognizer.hoverEvents(element).pipe(
               Stream.tap((transition) => Effect.sync(() => gesturesOf().hovered(transition))),
@@ -507,10 +509,7 @@ export function runSpine(opts: RunSpineOptions): void {
             ),
             false,
           ),
-      )
-      const pressed = createWhenWanted(
-        () => wantsPress(cfg()),
-        () =>
+        press: () =>
           streamToSignal(
             Recognizer.pressEvents(element).pipe(
               Stream.tap((press) => Effect.sync(() => gesturesOf().pressed(press))),
@@ -518,7 +517,8 @@ export function runSpine(opts: RunSpineOptions): void {
             ),
             false,
           ),
-      )
+        pan: () => runScoped(runtime, Stream.runForEach(Recognizer.pan(element), (sample) => Effect.sync(() => gesturesOf().panned(sample)))),
+      })
 
       // The Override stack (`resolutionOf`). The memo DEPENDS on cfg() (read inside), so a
       // reactive config change recomputes target() and drives a Retarget; a recognizer's or the

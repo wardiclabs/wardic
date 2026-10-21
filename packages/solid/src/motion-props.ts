@@ -24,6 +24,10 @@ const GESTURE_CALLBACKS = [
   "onDrag",
   "onDragEnd",
   "onDragTransitionEnd",
+  "onPanSessionStart",
+  "onPanStart",
+  "onPan",
+  "onPanEnd",
 ] as const
 
 /** One of {@link GESTURE_CALLBACKS}. */
@@ -206,6 +210,10 @@ export interface WardicMotionProps {
   readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDragTransitionEnd?: () => void
+  readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
+  readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void
+  readonly onPanEnd?: (event: PointerEvent, info: WardicDragInfo) => void
   /**
    * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
    * frame where it takes its first step, after that frame is painted. A restart fires it again;

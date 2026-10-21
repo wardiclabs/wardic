@@ -1,7 +1,7 @@
 /**
  * The `Recognizer` module: CONTEXT.md's Recognizers, each a `Stream` of a gesture's state from an
- * Environment's input: `hover`, `press`, `focus`, `inView`, and `drag`, whose samples are
- * `Drag.Sample`s.
+ * Environment's input: `hover`, `press`, `focus`, `inView`, `drag`, whose samples are
+ * `Drag.Sample`s, and `pan`, whose are a drag's and its session's start.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -718,4 +718,78 @@ export const drag = (
       )
     }).pipe(Effect.annotateLogs(attributes)),
   ).pipe(Stream.withSpan("wardic.drag", { attributes, captureStackTrace: false }))
+}
+
+/**
+ * A pan's sample (#273, ADR-0047): a drag's, or its session's start (`"session"`, Motion's
+ * `onPanSessionStart`): at a **Primary pointer**'s down on the target, at its point, with no offset,
+ * delta or velocity.
+ */
+export interface PanSample extends Omit<Drag.Sample, "phase"> {
+  readonly phase: "session" | Drag.Sample["phase"]
+}
+
+/** A pan's fold step: the next state, and its samples. */
+type PanStep = readonly [DragState, ReadonlyArray<PanSample>]
+
+/** The session's start at `down`, the gesture's owner now. */
+const sessionOf = (down: InputSource.PointerLikeEvent): PanSample => ({
+  point: pointOf(down),
+  offset: { x: 0, y: 0 },
+  delta: { x: 0, y: 0 },
+  velocity: { x: 0, y: 0 },
+  phase: "session",
+  timeStamp: down.timeStamp,
+  scroll: down.scroll,
+  raw: down.raw,
+})
+
+/**
+ * The drag's fold, with a session's start at each down that claims a gesture: after the end of a
+ * lost one, which that down closes (rule B). A down the drag ignores (another pointer while one owns
+ * the gesture, or one that isn't primary) starts none.
+ */
+const panStep = (state: DragState, event: InputSource.PointerLikeEvent): PanStep => {
+  const [next, samples] = step(state, event)
+  if (event.type !== "down") return [next, samples]
+  if (next === state) return [next, samples]
+  return [next, Arr.append(samples, sessionOf(event))]
+}
+
+/**
+ * Recognize a pan on `target` (#273, ADR-0047, Motion's pan gesture): its session's start at each
+ * **Primary pointer**'s down, then a drag's `"start"` past its threshold, a `"move"` at each move, and
+ * an `"end"` at the release, a cancel or a lost release, for a pan that started. It moves nothing.
+ *
+ * A pan takes no **Drag claim**: it never stops a drag, nested or not, and none stops it. Once
+ * started it counts in the **Drag activity** until its end, so a press it took over ends as neither
+ * a tap nor a cancel, and no hover starts meanwhile. That's Wardic's rule, not Motion's: Motion's pan
+ * is invisible to its drag lock, so a swipe that's let go over a tappable element taps it too (ADR-0047).
+ */
+export const pan = (target: unknown): Stream.Stream<PanSample, never, InputSource.InputSource> => {
+  const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const activity = yield* DragActivity.DragActivity
+      yield* Effect.logDebug("wardic.pan: subscribe").pipe(Effect.annotateLogs(attributes))
+      // The started pan's count in the Drag activity, held from its "start" to its "end".
+      const held = MutableRef.make(Option.none<() => void>())
+      const release = (): void =>
+        Option.match(MutableRef.getAndSet(held, Option.none()), { onNone: constVoid, onSome: (releaseIt) => releaseIt() })
+      /** A sample's count: taken at its start, before anyone hears it; given back at its end. */
+      const counted = (sample: PanSample): void => {
+        if (sample.phase === "start") {
+          release()
+          MutableRef.set(held, Option.some(activity.count()))
+        }
+        if (sample.phase === "end") release()
+      }
+      return input.pointer(target).pipe(
+        Stream.mapAccum(() => initState, panStep),
+        Stream.tap((sample) => Effect.sync(() => counted(sample))),
+        Stream.ensuring(Effect.sync(release)),
+      )
+    }).pipe(Effect.annotateLogs(attributes)),
+  ).pipe(Stream.withSpan("wardic.pan", { attributes, captureStackTrace: false }))
 }
