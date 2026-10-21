@@ -79,6 +79,7 @@ import type * as Fiber from "effect/Fiber"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
+import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import { constFalse, constTrue, constVoid, identity } from "effect/Function"
@@ -88,21 +89,25 @@ import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { AtomRegistry } from "effect/reactivity"
 import {
+  type BoxSize,
   type Holdable,
   holdTransform,
   isHoldable,
   isScrollRoot,
   measureDocumentScroll,
   measureScroll,
+  readBoxSize,
   readLayoutBox,
   releaseTransforms,
   type ScrollStyle,
   scrollStyleFrom,
   type TransformHold,
   type TransformStyle,
+  takesFlowSpace,
   transformStyleFrom,
   transitionRunning,
 } from "./measure.ts"
+import { counted, watchPage, type Watched } from "./content-watch.ts"
 import { pending as appearRuns } from "./appear.ts"
 import { reportFailure } from "./report.ts"
 import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
@@ -1332,8 +1337,22 @@ export const makeProjectionSystem = (
   // Per-`layoutId` mount-order stack (ADR-0010): the newest live node is the Lead,
   // the rest are Followers. Crossfade is driven engine-side off this stack.
   const stacks = new Map<string, Array<NodeState>>()
-  // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe).
+  // One shared ResizeObserver for size triggers (created lazily; happy-dom/SSR-safe), each box on it
+  // counted by the reasons it's watched for: a layout node, a page box, or both.
   let ro: ResizeObserver | undefined
+  let watched: Watched | undefined
+  // The page's boxes (#261, ADR-0018 *Amendment (#261)*): the body and its direct children, on the
+  // shared observer. Whether each takes space in the flow (an absolutely or fixed positioned one moves
+  // nothing), read once; the size each one that does had when the last Measure pass round read the
+  // layout, so a delivery reporting it is that pass's echo; whether one removed since took space; and
+  // how to stop watching the list.
+  const pageBoxes = new Set<Element>()
+  const pageFlow = new WeakMap<Element, boolean>()
+  const pageSizes = new Map<Element, BoxSize>()
+  let pageSpaceFreed = false
+  let stopPage: () => void = constVoid
+  // Whether the next Measure pass is a page-size refresh (#261).
+  let refreshing = false
   // The layout nodes disposed this task, by element (#221), and the newest held Switch seed per
   // `layoutId`, in the Root frame (ADR-0010 *Amendment (#13)*): an enterer registering within the
   // task takes it (a twin already registered but unmeasured got it handed over directly). One
@@ -2911,6 +2930,8 @@ export const makeProjectionSystem = (
     let documentScroll: Point.Point
     try {
       documentScroll = measureDocumentScroll()
+      // The page's boxes as this round reads the layout (#261): a delivery reporting these sizes is its echo.
+      Iter.forEach(pageBoxes, recordPageBox)
       for (const node of ordered) {
         viewportBoxes.push(Box.fromBounds(readLayoutBox(node.element)))
         if (node.isScroll) {
@@ -3254,8 +3275,10 @@ export const makeProjectionSystem = (
     declared = false
     const seeded = new Set<NodeState>()
     const dragBlocked = new Set<NodeState>()
-    // The Resize block: this pass takes it and clears it.
-    const blocked = resizeBlocked
+    // The Resize block: this pass takes it and clears it. A page-size refresh is the same blocked pass (#261).
+    const refreshed = refreshing
+    refreshing = false
+    const blocked = Bool.or(resizeBlocked, refreshed)
     resizeBlocked = false
     runtime.runFork(FiberHandle.clear(resizeWait))
     let rounds = 0
@@ -3291,6 +3314,7 @@ export const makeProjectionSystem = (
       dragBlocked: dragBlocked.size,
       rounds,
       blocked,
+      refresh: refreshed,
     })
   }).pipe(Effect.withSpan("wardic.projection.measure", undefined, { captureStackTrace: false }))
 
@@ -3966,7 +3990,7 @@ export const makeProjectionSystem = (
     const cb = node.onLeaveDone
     node.onLeaveDone = undefined
     node.leaving = false
-    if (Predicate.isNotUndefined(ro)) ro.unobserve(node.element)
+    UndefinedOr.map(watched, (w) => w.unobserve(node.element))
     elementToNode.delete(node.element)
     if (Predicate.isNotUndefined(node.layoutId)) {
       const stack = stacks.get(node.layoutId)
@@ -4277,6 +4301,84 @@ export const makeProjectionSystem = (
       ),
     )
 
+  /** Whether a page box takes space in the flow (#261): read the first time it's asked, then kept. */
+  const takesSpace = (box: Element): boolean => {
+    const known = pageFlow.get(box)
+    if (Predicate.isNotUndefined(known)) return known
+    const flows = takesFlowSpace(box)
+    pageFlow.set(box, flows)
+    return flows
+  }
+
+  /** Record a page box's size as a Measure pass round reads the layout (#261), if it takes space. */
+  const recordPageBox = (box: Element): void => {
+    if (takesSpace(box)) pageSizes.set(box, readBoxSize(box))
+  }
+
+  /** Whether a box has an area: an empty one moves nothing, coming or going. */
+  const hasArea = (size: BoxSize): boolean => Bool.and(size.width > 0, size.height > 0)
+
+  /**
+   * Whether `entry` reports a page box whose size moved something since the last Measure pass round
+   * read the layout (#261, ADR-0018 *Amendment (#261)*): one that takes space in the flow, at a size
+   * other than the one recorded (read horizontally, as {@link alreadyMeasured} reads a node's), or with
+   * none recorded and an area (one added since).
+   */
+  const pageMoved = (entry: ResizeObserverEntry): boolean => {
+    const box = entry.target
+    if (Bool.not(pageBoxes.has(box))) return false
+    if (Bool.not(takesSpace(box))) return false
+    const size = entry.borderBoxSize[0]
+    if (Predicate.isUndefined(size)) return true
+    const reported: BoxSize = { width: size.inlineSize, height: size.blockSize }
+    return UndefinedOr.match(pageSizes.get(box), {
+      onUndefined: () => hasArea(reported),
+      onDefined: (recorded) =>
+        Bool.or(Math.abs(reported.width - recorded.width) > SIZE_EPSILON, Math.abs(reported.height - recorded.height) > SIZE_EPSILON),
+    })
+  }
+
+  /**
+   * The page's boxes on the shared observer (#261), each tracked as one. One that took space in the
+   * flow, removed, moved what followed it; its size changed nothing still watched, when the body is
+   * sized to the window.
+   */
+  const pageWatch = (shared: Watched): Watched => ({
+    observe: (box) => {
+      pageBoxes.add(box)
+      shared.observe(box)
+    },
+    unobserve: (box) => {
+      if (UndefinedOr.match(pageSizes.get(box), { onUndefined: constFalse, onDefined: hasArea })) pageSpaceFreed = true
+      pageBoxes.delete(box)
+      pageSizes.delete(box)
+      shared.unobserve(box)
+    },
+  })
+
+  /** A change to the body's children (#261): one removed that took space refreshes; one added is the observer's to report. */
+  const onPageChildren = (): void => {
+    if (Bool.not(pageSpaceFreed)) return
+    pageSpaceFreed = false
+    refresh()
+  }
+
+  /**
+   * A **page-size refresh** (#261, ADR-0018 *Amendment (#261)*): the page's content changed size since
+   * the last Measure pass read it, so a node may have moved with nothing telling the engine. The Resize
+   * block's pass runs now, inside the observer's delivery (after the frame's layout, before its paint):
+   * every node takes the slot-only update, nothing starts, a running animation keeps its delta, and the
+   * next layout animation starts from where its node is painted (Motion's snapshot at `willUpdate`).
+   * Its `layoutVersion`s rise and its pass-end listeners run, as any pass's. None while a pass is due,
+   * which reads every node and animates what moved as triggered, nor under a **Resize block**, whose
+   * own pass does this once the resize settles.
+   */
+  const refresh = (): void => {
+    if (Bool.some([disposed, inPass, passQueued, resizeBlocked, nodes.size === 0])) return
+    refreshing = true
+    runtime.runSync(measurePass.pipe(Effect.catchCause((cause) => reportFailure("wardic.projection: refresh failed", cause))))
+  }
+
   /**
    * Whether the engine has already measured `entry`'s size (#21, ADR-0018 *Amendment (#21)*): its
    * node's last Measurement is the border box the observer reports, read horizontally (inline as
@@ -4307,8 +4409,12 @@ export const makeProjectionSystem = (
    * its echo of a size a triggered pass already read, run none.
    */
   const onObserved = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
-    if (Arr.every(entries, alreadyMeasured)) return
-    scheduleMeasure()
+    // A node's own resize runs a pass, which reads the page as well.
+    if (Bool.not(Arr.every(entries, alreadyMeasured))) {
+      scheduleMeasure()
+      return
+    }
+    if (Arr.some(entries, pageMoved)) refresh()
   }
 
   const register: ProjectionSystem["register"] = (opts) => {
@@ -4405,6 +4511,9 @@ export const makeProjectionSystem = (
     const Observer = (globalThis as { readonly ResizeObserver?: typeof ResizeObserver }).ResizeObserver
     if (Predicate.isUndefined(ro) && Predicate.isNotUndefined(Observer)) {
       ro = new Observer(onObserved)
+      const shared = counted(ro, BORDER_BOX)
+      watched = shared
+      stopPage = watchPage(pageWatch(shared), onPageChildren)
     }
     if (!resizeListening) {
       // The Environment's viewport (ADR-0018, *Amendment (#45)*): its Probe writes it inside the
@@ -4416,7 +4525,7 @@ export const makeProjectionSystem = (
       lastWidth = registry.get(probe.viewport).width
       stopViewport = registry.subscribe(probe.viewport, (viewport) => onResize(viewport.width))
     }
-    if (Predicate.isNotUndefined(ro)) ro.observe(node.element, BORDER_BOX)
+    UndefinedOr.map(watched, (w) => w.observe(node.element))
     // Seed retained + write the identity projection on the next frame.
     scheduleMeasure()
 
@@ -4548,7 +4657,7 @@ export const makeProjectionSystem = (
         // Switch seed for a twin (ADR-0010 *Amendment (#13)*).
         if (Predicate.isNotUndefined(node.layoutId)) holdLeaver(node, node.layoutId)
         if (Predicate.isUndefined(node.layoutId)) holdNode(node)
-        if (Predicate.isNotUndefined(ro)) ro.unobserve(node.element)
+        UndefinedOr.map(watched, (w) => w.unobserve(node.element))
         elementToNode.delete(node.element)
         active.delete(node)
         nodes.delete(node)
@@ -4585,8 +4694,13 @@ export const makeProjectionSystem = (
     runtime.runFork(Scope.close(scope, Exit.void))
     seeds.clear()
     leavers.clear()
+    stopPage()
+    stopPage = constVoid
     if (Predicate.isNotUndefined(ro)) ro.disconnect()
     ro = undefined
+    watched = undefined
+    pageBoxes.clear()
+    pageSizes.clear()
     active.clear()
     nodes.clear()
     elementToNode.clear()

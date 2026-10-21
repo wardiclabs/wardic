@@ -64,6 +64,28 @@ export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
   }
 }
 
+/** A box's size, in CSS px. */
+export interface BoxSize {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * A page box's size as it renders (#261, ADR-0018 *Amendment (#261)*): a raw `getBoundingClientRect`,
+ * so a transformed one reads as painted, which the observer's border box doesn't (its echo then reads
+ * as a change, and costs one refresh).
+ */
+export const readBoxSize = (el: Element): BoxSize => {
+  const r = el.getBoundingClientRect()
+  return { width: r.width, height: r.height }
+}
+
+/** The positions that take a box out of its parent's flow, where its size moves nothing else. */
+const OUT_OF_FLOW: ReadonlyArray<string> = ["absolute", "fixed"]
+
+/** Whether `el` takes space in its parent's flow (#261): it isn't absolutely or fixed positioned. */
+export const takesFlowSpace = (el: Element): boolean => Bool.not(Arr.contains(OUT_OF_FLOW, getComputedStyle(el).position))
+
 /** An element's scroll offset (ADR-0012, Motion's `measureScroll`). */
 export const measureScroll = (el: HTMLElement): Point.Point => ({ x: el.scrollLeft, y: el.scrollTop })
 
