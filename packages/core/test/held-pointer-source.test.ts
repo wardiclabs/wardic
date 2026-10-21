@@ -483,6 +483,42 @@ describe("InputSource.heldPointer", () => {
         expect(seen.map(at).slice(3)).toEqual(["down1@30,40", "move1@31,71"])
         yield* Fiber.interrupt(fiber)
       }))
+
+    it.effect("C29: each shifted event, and a scroll's move, carries the scroll it counts; one not shifted, none (#257)", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        target.push(ev({ type: "down", x: 10, y: 20 }))
+        target.push(ev({ type: "move", x: 11, y: 21 }))
+        scroll.scrollTo(list, 0, 60, 40)
+        global.push(ev({ type: "up", x: 15, y: 25, pressed: false }), {})
+        yield* settle
+        expect(seen.map((event) => event.scroll)).toEqual([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 60 }, { x: 0, y: 60 }])
+        // Where the pointer was on the screen: its point less the scroll counted into it.
+        const up = seen[3]!
+        expect({ x: up.x - up.scroll.x, y: up.y - up.scroll.y }).toEqual({ x: 15, y: 25 })
+        expect(seen[0]!.scroll, "not shifted: the shared zero").toBe(InputSource.NO_SCROLL)
+        yield* Fiber.interrupt(fiber)
+      }))
+  })
+
+  describe("C30: whether an event landed on the target (#257)", () => {
+    it.effect("C30: a page-wide event keeps the onTarget its feed gave it; a lost release's ending move hasn't landed on it", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const { seen, fiber } = yield* start(target, global)
+        target.push(ev({ type: "down", x: 1 }))
+        global.push(ev({ type: "move", x: 40, onTarget: false }), {})
+        global.push(ev({ type: "move", x: 41, onTarget: true }), {})
+        // The release is lost; the same pointer goes down elsewhere on the page.
+        global.push(ev({ type: "down", x: 200, timeStamp: 50 }), {})
+        yield* settle
+        expect(seen.map((event) => `${key(event)} ${event.onTarget}`)).toEqual(["down1@1 true", "move1@40 false", "move1@41 true", "move1@41 false"])
+        yield* Fiber.interrupt(fiber)
+      }))
   })
 
   describe("C12: without global, and at the stream's end", () => {

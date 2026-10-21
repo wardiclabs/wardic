@@ -16,6 +16,7 @@ const sample = (x: number, y: number): Drag.Sample => ({
   velocity: { x, y },
   phase: "move",
   timeStamp: 0,
+  scroll: { x: 0, y: 0 },
 })
 const samples: Stream.Stream<Drag.Sample> = Stream.make(sample(10, 20), sample(-30, 250))
 const frames: Stream.Stream<Frame.Frame<Record<string, unknown>>> = Stream.make({ value: { x: 1 }, done: true })

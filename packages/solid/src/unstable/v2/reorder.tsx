@@ -63,7 +63,7 @@ import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { type Ward, type WardConfig, wardConfigView, type WardStyle, wardWith } from "./ward.tsx"
-import { refsOf, wardic, type WardicProps } from "./wardic.tsx"
+import { handOver, refsOf, wardic, type WardicProps, type WardRefProp } from "./wardic.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 
 /**
@@ -483,7 +483,7 @@ interface ItemLocal<V> {
 }
 
 const GROUP_OWN = ["values", "onReorder", "axis", "keyboard", "announcements", "instructions", "as", "ref", "style", "children"] as const
-const ITEM_OWN = [...MOTION_PROPS, "value", "as", "ref", "style", "children", "tabindex", "aria-describedby"] as const
+const ITEM_OWN = [...MOTION_PROPS, "value", "as", "ref", "style", "children", "tabindex", "aria-describedby", "wardRef"] as const
 
 /** The motion element for `tag` (`wardic[tag]`), as a plain component. */
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>
@@ -519,6 +519,8 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemCompone
   const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "li", onDefined: identity })
   // Its props are its config, read per key (#259); its `layout` is read as a Layout mode.
   const row = reorderItemWith<V>(list, local as unknown as ReorderItemConfig<V>, tag)
+  // Its ward, to the item's `wardRef` (#257).
+  handOver(local as WardRefProp, row)
   const Element = dynamic(() => tag)
   const rest = omit(props as unknown as Record<string, unknown>, ...ITEM_OWN)
   const element = (): JSX.Element => (

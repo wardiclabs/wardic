@@ -19,6 +19,7 @@
 //   derived from another ward's `read(key)` renders that value in the Starting style.
 // - SV14: a ward's `settled()` on a server is `undefined`, ready, and its `next("settled")` never
 //   settles: nothing animates there (#257).
+// - SV15: `wardRef` on a server hands over the component's ward, and renders no attribute (#257).
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -161,6 +162,14 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
       new Promise((resolve) => setTimeout(() => resolve("pending"), 50)),
     ])
     expect(outcome).toBe("pending")
+  })
+
+  it("SV15: wardRef hands over the component's ward, and renders no attribute", () => {
+    let handed: ReturnType<typeof ward> | undefined
+    const html = serve(() => <wardic.div wardRef={(w) => (handed = w)} initial={{ opacity: 0 }} />)
+    expect(handed!.settled()).toBeUndefined()
+    expect(html).not.toContain("wardRef")
+    expect(html.toLowerCase()).not.toContain("wardref")
   })
 
   it("SV8: wardic.create(Component) hands the component its Starting style through style", () => {

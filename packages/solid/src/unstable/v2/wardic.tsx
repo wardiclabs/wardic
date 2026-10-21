@@ -24,7 +24,7 @@ import { dynamic, type JSX } from "@solidjs/web"
 import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext } from "../../variant-tree.ts"
-import { type WardConfig, wardConfigView, type WardStyle, wardWith } from "./ward.tsx"
+import { type Ward, type WardConfig, wardConfigView, type WardStyle, wardWith } from "./ward.tsx"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and the motion props, with a `style` that
@@ -34,6 +34,23 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
   & Omit<JSX.IntrinsicElements[Tag], "style">
   & WardicMotionProps
   & { readonly style?: WardStyle | string | undefined }
+  & WardRefProp
+
+/**
+ * A component's ward, handed over (#257, ADR-0046): `wardRef={(card) => …}` gets the ward the
+ * component puts on its element, once, as it's made, as `ref` gets the element. Its `settled()` and
+ * `next(name)` are how a component's user hears its animations and gestures on Solid 2, which has no
+ * callbacks for them.
+ */
+export interface WardRefProp {
+  readonly wardRef?: ((ward: Ward) => void) | undefined
+}
+
+/** Hand `ward` to the props' `wardRef`, read once, untracked, as `ref` is. */
+export const handOver = (props: WardRefProp, ward: Ward): void => {
+  const give = untrack(() => props.wardRef)
+  if (Predicate.isNotUndefined(give)) give(ward)
+}
 
 /**
  * What `wardic.create(Component)` requires of a component: it forwards `ref` to its single root
@@ -47,8 +64,8 @@ interface RefStyle {
   readonly style?: WardStyle | string | undefined
 }
 
-/** The props a component passes through to its element: all but the motion props, `ref` and `style`. */
-const PASSED_OVER = [...MOTION_PROPS, "ref", "style"] as const
+/** The props a component passes through to its element: all but the motion props, `ref`, `style` and `wardRef`. */
+const PASSED_OVER = [...MOTION_PROPS, "ref", "style", "wardRef"] as const
 
 /** Whether an element hands its children a variant context of its own (#50), read from its props at setup. */
 const providesContext = (props: WardicMotionProps & RefStyle): boolean => untrack(() => changesContext(wardConfigView(props as WardConfig)))
@@ -72,7 +89,7 @@ export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(el
  *   A component that never forwards its ref is a clear error once it has settled.
  */
 export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): Component<WardicProps<Tag>>
-export function create<P>(component: Component<P & WardicWrappable>): Component<P & WardicMotionProps & { readonly style?: WardStyle | string | undefined }>
+export function create<P>(component: Component<P & WardicWrappable>): Component<P & WardicMotionProps & { readonly style?: WardStyle | string | undefined } & WardRefProp>
 export function create(tag: string): Component<WardicProps<keyof JSX.IntrinsicElements>>
 export function create(arg: string | Component<Record<string, unknown>>): Component<Record<string, unknown>> {
   return Bool.match(Predicate.isString(arg), {
@@ -85,8 +102,9 @@ export function create(arg: string | Component<Record<string, unknown>>): Compon
 const tagComponent = (tag: string): Component<Record<string, unknown>> => {
   const Element = dynamic(() => tag)
   return (props) => {
-    const own = props as WardicMotionProps & RefStyle
+    const own = props as WardicMotionProps & RefStyle & WardRefProp
     const ward = wardWith(own as WardConfig, { tag })
+    handOver(own, ward)
     const rest = omit(props, ...PASSED_OVER)
     const element = (): JSX.Element => <Element {...rest} {...ward} ref={refsOf(own, [ward])} />
     return Bool.match(providesContext(own), {
@@ -100,8 +118,9 @@ const tagComponent = (tag: string): Component<Record<string, unknown>> => {
 const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<Record<string, unknown>> => {
   const Element = dynamic(() => Wrapped)
   return (props) => {
-    const own = props as WardicMotionProps & RefStyle
+    const own = props as WardicMotionProps & RefStyle & WardRefProp
     const ward = wardWith(own as WardConfig, { defaultsOnElement: true })
+    handOver(own, ward)
     const rest = omit(props, ...PASSED_OVER)
     // ADR-0008's ref-forwarding contract: a component that never forwards its ref leaves the ward no
     // element to drive. Fail loudly, once it has settled.

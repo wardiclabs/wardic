@@ -247,3 +247,17 @@ it.effect("DV5: every sample reads what the whole gesture's history would, the r
       }
     }
   }))
+
+it.effect("DS1 (#257): each sample carries the scroll its event counted; a cancel's end, the last move's", () =>
+  Effect.gen(function* () {
+    const scrolled = (type: InputSource.PointerLikeEvent["type"], x: number, t: number, dy: number): InputSource.PointerLikeEvent =>
+      InputSource.makePointerLikeEvent({ type, x, y: dy, timeStamp: t, pressed: type !== "cancel", scroll: { x: 0, y: dy } })
+    const samples = (yield* collect([ev("down", 0, 0, 0), scrolled("move", 10, 10, 0), scrolled("move", 20, 20, 30), scrolled("cancel", 0, 30, 0)])) as ReadonlyArray<Drag.Sample>
+    expect(samples.map((s) => `${s.phase} ${s.scroll.y}`)).toEqual(["start 0", "move 30", "end 30"])
+    // Where the pointer was on the screen at its last move: its point less the scroll.
+    const end = samples.at(-1)!
+    expect({ x: end.point.x - end.scroll.x, y: end.point.y - end.scroll.y }).toEqual({ x: 20, y: 0 })
+    // Cancelled right after its start: the start's scroll.
+    const short = (yield* collect([ev("down", 0, 0, 0), scrolled("move", 10, 10, 40), scrolled("cancel", 0, 20, 0)])) as ReadonlyArray<Drag.Sample>
+    expect(short.map((s) => `${s.phase} ${s.scroll.y}`)).toEqual(["start 40", "end 40"])
+  }))

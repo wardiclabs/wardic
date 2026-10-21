@@ -44,7 +44,22 @@ export interface PointerLikeEvent {
    * isn't. Not the **Primary pointer** itself, which `isPrimaryPointer` decides from it (#189).
    */
   readonly primary: boolean
+  /**
+   * The scroll its pointer's hold has counted into `x`/`y` since its down (ADR-0019,
+   * *Amendment (Reorder)*): zero for a pointer that isn't held, or held with nothing scrolled.
+   * `x - scroll.x` is where the pointer is on the screen (#257). {@link heldPointer} sets it.
+   */
+  readonly scroll: Point.Point
+  /**
+   * Whether it landed on the target or inside it (#257): the target's own events do; a held
+   * pointer's page-wide ones say where they landed. A release that does is a tap (Motion's
+   * press, `isNodeOrChild`); one that doesn't, a tap's cancel.
+   */
+  readonly onTarget: boolean
 }
+
+/** No scroll counted: shared, so an event not held allocates nothing for it. */
+export const NO_SCROLL: Point.Point = { x: 0, y: 0 }
 
 /**
  * A **Pointer kind**, in core's own words (ADR-0036, *Amendment (#189)*): `"other"` for one core
@@ -61,7 +76,7 @@ export type PointerButton = "main" | "middle" | "secondary" | "other" | "none"
 /**
  * Build a {@link PointerLikeEvent} with a mouse's defaults: pointer 1 at `(0, 0)` and
  * time 0, kind `"mouse"`, primary, `button` `"main"` on a down or up and `"none"` otherwise,
- * and pressed on a down or move. Any field given wins.
+ * pressed on a down or move, no scroll counted, and on the target. Any field given wins.
  *
  * Tier 2 (ADR-0008): for test scripts and mouse-only Environments (ADR-0019).
  */
@@ -82,6 +97,8 @@ export const makePointerLikeEvent = (
     Match.when(Match.is("down", "move"), constTrue),
     Match.orElse(constFalse),
   ),
+  scroll: NO_SCROLL,
+  onTarget: true,
   ...init,
 })
 
@@ -246,11 +263,11 @@ interface Held {
   moved: boolean
 }
 
-/** `event` moved by `held`'s scroll shift: the same object when there is none. */
+/** `event` moved by `held`'s scroll shift, which it carries as its `scroll`: the same object when there is none. */
 const shifted = (held: Held, event: PointerLikeEvent): PointerLikeEvent =>
   Bool.match(Bool.and(held.dx === 0, held.dy === 0), {
     onTrue: () => event,
-    onFalse: () => ({ ...event, x: event.x + held.dx, y: event.y + held.dy }),
+    onFalse: () => ({ ...event, x: event.x + held.dx, y: event.y + held.dy, scroll: { x: held.dx, y: held.dy } }),
   })
 
 /** An event of one type. */
@@ -355,7 +372,7 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
                 h.dy += dy
                 // Until it has moved since its down, a scroll emits nothing for it.
                 if (h.moved) {
-                  const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, button: "none", timeStamp }
+                  const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, scroll: { x: h.dx, y: h.dy }, button: "none", timeStamp }
                   h.last = moved
                   Queue.offerUnsafe(queue, moved)
                 }
@@ -368,7 +385,8 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
             Match.when({ type: "down" }, (down) =>
               Iter.forEach(Arr.fromIterable(held), ([pointerId, h]) => {
                 if (supersedes(down, h.last)) {
-                  Queue.offerUnsafe(queue, { ...h.last, type: "move", pressed: false, button: "none", timeStamp: down.timeStamp })
+                  // Its release, wherever it was, isn't known to have landed on the target: no tap.
+                  Queue.offerUnsafe(queue, { ...h.last, type: "move", pressed: false, button: "none", onTarget: false, timeStamp: down.timeStamp })
                   unhold(pointerId)
                 }
               }),

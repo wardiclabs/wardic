@@ -116,6 +116,7 @@ const sample = (
   delta: { x: 0, y: 0 },
   velocity,
   timeStamp,
+  scroll: { x: 0, y: 0 },
 })
 
 /**
