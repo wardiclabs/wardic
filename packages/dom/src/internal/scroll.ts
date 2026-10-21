@@ -41,6 +41,7 @@ import type * as Scope from "effect/Scope"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as ScrollOffset from "../ScrollOffset.ts"
+import { counted, watchChildren, watchPage } from "./content-watch.ts"
 
 /** A container's listeners and the readers they measure for. */
 interface Container {
@@ -268,56 +269,29 @@ export const makeScroll = (registry: AtomRegistry.AtomRegistry): ((options?: Pro
     // Sizes (#239): a container's own box, its content's, and its readers' targets'. One observer,
     // each box counted by the reasons it's watched for (a target can be a child too).
     const sizes = new ResizeObserver(readAll)
-    const watched = new Map<Element, number>()
-    const observe = (box: Element): void => {
-      const count = Option.getOrElse(Option.fromUndefinedOr(watched.get(box)), () => 0)
-      watched.set(box, count + 1)
-      if (count === 0) sizes.observe(box)
-    }
-    const unobserve = (box: Element): void => {
-      const count = Option.getOrElse(Option.fromUndefinedOr(watched.get(box)), () => 0)
-      if (count === 0) return
-      if (count > 1) {
-        watched.set(box, count - 1)
-        return
-      }
-      watched.delete(box)
-      sizes.unobserve(box)
-    }
-    // A container's own resize changes its range; the page's is the window's.
-    if (Bool.not(page)) observe(element)
-    // Its content: the direct children (the page's, the body and the body's: a body sized to the
-    // window doesn't grow with what overflows it), kept as they come and go.
-    const parent = Bool.match(page, { onTrue: () => Option.fromNullOr(document.body), onFalse: () => Option.some(element) })
-    Option.map(parent, (content) => {
-      if (page) observe(content)
-      Arr.forEach(Array.from(content.children), observe)
+    const watched = counted(sizes)
+    // Its own resize changes a container's range (the page's is the window's), and so does its
+    // content's: its direct children, kept as they come and go. A removed child resizes nothing still
+    // watched, and changes the range all the same.
+    const stopChildren = Bool.match(page, {
+      onTrue: () => watchPage(watched, readAll),
+      onFalse: () => {
+        watched.observe(element)
+        return watchChildren(element, watched, readAll)
+      },
     })
-    const children = new MutationObserver((records) => {
-      Arr.forEach(records, (record) => {
-        Arr.forEach(Array.from(record.addedNodes), (node) => {
-          if (node instanceof Element) observe(node)
-        })
-        Arr.forEach(Array.from(record.removedNodes), (node) => {
-          if (node instanceof Element) unobserve(node)
-        })
-      })
-      // A removed child resizes nothing still watched, and changes the range all the same.
-      readAll()
-    })
-    Option.map(parent, (content) => children.observe(content, { childList: true }))
     const container: Container = {
       readers,
       count: 0,
       watch: (target) => {
-        observe(target)
-        return () => unobserve(target)
+        watched.observe(target)
+        return () => watched.unobserve(target)
       },
       remove: () => {
         scrolls.removeEventListener("scroll", readAll)
         window.removeEventListener("resize", readAll)
         sizes.disconnect()
-        children.disconnect()
+        stopChildren()
       },
     }
     containers.set(element, container)
