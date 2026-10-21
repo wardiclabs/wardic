@@ -10,6 +10,7 @@
 // And the Refresh frames (#52, ADR-0031 decision 6): dom and the bindings request frames from the
 // Environment's `RefreshFrameSource`, never from the browser's own functions.
 import { defineConfig } from "eslint/config"
+import solidV2Strict from "eslint-plugin-solid/configs/v2-strict"
 import tseslint from "typescript-eslint"
 
 const PAGE = "docs/agents/effect-first.md"
@@ -210,10 +211,11 @@ export default defineConfig([
     // The pipeable API's subpaths, for every package's code but core's source (which has its own block).
     files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
-    // solid's code carries eslint-plugin-solid's `solid/reactivity` directives, for an editor
-    // that runs the plugin; this lint doesn't, so the rule is named here, doing nothing, and its
+    // solid's code carries eslint-plugin-solid's `solid/reactivity` directives. The plugin is
+    // registered for every package's code, as the same object its `v2-strict` config registers (so the
+    // two blocks agree), with its rules on for the Solid 2 binding only (below); elsewhere its
     // directives aren't reported as unused.
-    plugins: { solid: { rules: { reactivity: { create: () => ({}) } } } },
+    plugins: { solid: solidV2Strict.plugins.solid },
     linterOptions: { reportUnusedDisableDirectives: "off" },
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS],
@@ -269,5 +271,13 @@ export default defineConfig([
         ),
       ],
     },
+  },
+  {
+    // The Solid 2 binding and its tests take eslint-plugin-solid's `v2-strict` rules (#257's audit):
+    // Solid 2's own reactivity rules, which found `LayoutGroup` reading its children once. The Solid 1
+    // binding keeps the rules above.
+    files: ["packages/solid/src/unstable/v2/**/*.{ts,tsx}", "packages/solid/test/v2/**/*.{ts,tsx}"],
+    ...solidV2Strict,
+    languageOptions: { ...solidV2Strict.languageOptions, parser: tseslint.parser },
   },
 ])
