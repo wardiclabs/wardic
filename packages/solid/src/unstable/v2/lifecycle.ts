@@ -21,10 +21,10 @@ import * as Predicate from "effect/Predicate"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "@wardic/core/Drag"
-import type * as InputSource from "@wardic/core/InputSource"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
+import { dragInfoOf, pointInfoOf, type WardicDragInfo, type WardicPoint, type WardicPointInfo } from "../../gesture-info.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { eachOf, Waiters } from "./waiters.ts"
@@ -50,28 +50,16 @@ export interface WardSettled {
 }
 
 /** A point in the viewport, as `clientX` / `clientY` and `getBoundingClientRect()` measure (#257). */
-export interface WardPoint {
-  readonly x: number
-  readonly y: number
-}
+export type WardPoint = WardicPoint
 
 /** A hover's or a press's event (#257, Motion's `EventInfo` / `TapInfo`): where the pointer was, in the viewport. */
-export interface WardPointInfo {
-  readonly point: WardPoint
-}
+export type WardPointInfo = WardicPointInfo
 
 /**
- * A drag's start or end (#257, Motion's `PanInfo`): where the pointer was, in the viewport, and
- * the drag's `offset` from its down, its last `delta` and its `velocity` (px/s). A scroll during
- * the drag counts as movement in `offset`, as Motion's does; `point` stays where the pointer is
- * on the screen. A one-axis drag's are zeroed off its axis.
+ * A drag's event (#257, Motion's `PanInfo`): where the pointer was, in the viewport, and the drag's
+ * `offset`, `delta` and `velocity` (`gesture-info.ts`).
  */
-export interface WardDragInfo {
-  readonly point: WardPoint
-  readonly offset: WardPoint
-  readonly delta: WardPoint
-  readonly velocity: WardPoint
-}
+export type WardDragInfo = WardicDragInfo
 
 /** What each of `next(name)`'s names resolves to (#257). */
 export interface WardEvents {
@@ -89,8 +77,15 @@ export interface WardEvents {
   readonly tapCancel: WardPointInfo
   /** A drag of the element started, past its threshold (Motion's `onDragStart`). */
   readonly dragStart: WardDragInfo
+  /** That drag moved: its start and each move after (Motion's `onDrag`, #273). */
+  readonly drag: WardDragInfo
   /** That drag ended at its release (Motion's `onDragEnd`). */
   readonly dragEnd: WardDragInfo
+  /**
+   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`, #273): its momentum
+   * or its spring back, or at once for one released in place. Not for one a grab stopped.
+   */
+  readonly dragTransitionEnd: undefined
   /**
    * A layout animation of the element started, at the frame it takes its first step, after that
    * frame is painted (Motion's `onLayoutAnimationStart`, ADR-0039). A restart starts again.
@@ -126,15 +121,12 @@ const PRESS_EVENT: Record<Recognizer.PressPhase, WardEvent | undefined> = {
   dragged: undefined,
 }
 
-/** Each drag phase's event: a move has none. */
+/** Each drag phase's event: its end; its start, which `drag` hears too, is told on its own. */
 const DRAG_EVENT: Record<Drag.Sample["phase"], WardEvent | undefined> = {
   start: "dragStart",
   move: undefined,
   end: "dragEnd",
 }
-
-/** An event's point in the viewport: its `x`/`y` less the scroll its hold counted into them. */
-const viewportOf = (event: InputSource.PointerLikeEvent): WardPoint => ({ x: event.x - event.scroll.x, y: event.y - event.scroll.y })
 
 /**
  * A ward's lifecycle, made under its `owner`. It's the spine's {@link AnimationHooks}; the ward
@@ -203,7 +195,7 @@ export class Lifecycle implements AnimationHooks {
   /** A hover's start or end (#257). */
   hovered(transition: Recognizer.Transition): void {
     if (Predicate.isUndefined(this.events)) return
-    this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "hoverStart", onFalse: () => "hoverEnd" }), () => ({ point: viewportOf(transition.event) }))
+    this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "hoverStart", onFalse: () => "hoverEnd" }), () => pointInfoOf(transition.event))
   }
 
   /** A press's start or end (#257): a press a drag took over tells nothing. */
@@ -211,20 +203,21 @@ export class Lifecycle implements AnimationHooks {
     if (Predicate.isUndefined(this.events)) return
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
-    this.tell(name, () => ({ point: viewportOf(press.event) }))
+    this.tell(name, () => pointInfoOf(press.event))
   }
 
-  /** A drag's sample (#257): its start and its end are told. */
+  /** A drag's sample (#257, #273): its start, each move (its start among them) and its end are told. */
   dragged(sample: Drag.Sample): void {
     if (Predicate.isUndefined(this.events)) return
+    const info = (): WardDragInfo => dragInfoOf(sample)
     const name = DRAG_EVENT[sample.phase]
-    if (Predicate.isUndefined(name)) return
-    this.tell(name, () => ({
-      point: { x: sample.point.x - sample.scroll.x, y: sample.point.y - sample.scroll.y },
-      offset: sample.offset,
-      delta: sample.delta,
-      velocity: sample.velocity,
-    }))
+    if (Predicate.isNotUndefined(name)) this.tell(name, info)
+    if (sample.phase !== "end") this.tell("drag", info)
+  }
+
+  /** The drag's release came to rest on its own (#273). */
+  released(): void {
+    this.tell("dragTransitionEnd", constUndefined)
   }
 
   /** A layout animation's start (#257): the projection calls it after its first frame is painted. */

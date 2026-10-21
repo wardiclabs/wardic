@@ -521,6 +521,44 @@ describe("InputSource.heldPointer", () => {
       }))
   })
 
+  describe("C31: the platform event a held pointer's own moves carry (#273)", () => {
+    it.effect("C31: a scroll's move and a lost release's move carry the last move's raw (Motion's lastMoveEvent), not an enter's or a leave's; the down's before any move", () =>
+      Effect.gen(function* () {
+        const target = makeFeed()
+        const global = makeFeed()
+        const list = { name: "list" }
+        const scroll = makeScrollFeed([[list, { x: 0, y: 0 }]])
+        const { seen, fiber } = yield* start(target, global, scroll)
+        const down = { name: "down" }
+        const move = { name: "move" }
+        target.push(ev({ type: "down", x: 10, raw: down }))
+        target.push(ev({ type: "move", x: 11, raw: move }))
+        // A scroll under the pointer: the browser's boundary events, then the scroll.
+        target.push(ev({ type: "leave", x: 11, raw: { name: "leave" } }))
+        target.push(ev({ type: "enter", x: 11, raw: { name: "enter" } }))
+        scroll.scrollTo(list, 0, 60, 30)
+        // The release is lost; the same pointer goes down elsewhere.
+        global.push(ev({ type: "down", x: 200, raw: { name: "down again" } }), {})
+        yield* settle
+        expect(seen.map((event) => `${event.type} ${(event.raw as { readonly name: string }).name}`)).toEqual([
+          "down down",
+          "move move",
+          "leave leave",
+          "enter enter",
+          "move move",
+          "move move",
+        ])
+        expect(seen[4]!.raw, "the very event").toBe(move)
+        // A hold that never moved: its lost release's move carries the down's.
+        target.push(ev({ type: "down", x: 20, raw: down }))
+        target.push(ev({ type: "leave", x: 20, raw: { name: "leave" } }))
+        global.push(ev({ type: "down", x: 300, raw: { name: "down again" } }), {})
+        yield* settle
+        expect(seen.slice(6).map((event) => `${event.type} ${(event.raw as { readonly name: string }).name}`)).toEqual(["down down", "leave leave", "move down"])
+        yield* Fiber.interrupt(fiber)
+      }))
+  })
+
   describe("C12: without global, and at the stream's end", () => {
     it.effect("C12: with no global, events pass through unchanged and interrupting unsubscribes target", () =>
       Effect.gen(function* () {

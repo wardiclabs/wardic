@@ -322,6 +322,7 @@ const releaseFrom = (offset: Point.Point, velocity: Point.Point, transition: Dra
     inertiaY,
     options,
     stopped: false,
+    told: false,
   }
 }
 
@@ -730,6 +731,13 @@ export interface RegisterNodeOptions {
    */
   readonly onLayoutAnimationComplete?: () => Option.Option<() => void>
   /**
+   * The app's `onDragTransitionEnd` (#273, Motion's), read when it fires: once a drag's release (its
+   * **Release offset**) comes to rest on its own, after that frame's flush; for a drag released in
+   * place at rest, which starts none, from a microtask after the release. Not for one a grab stopped
+   * and a drag took over, nor one an unmount or a resize ended. `None` when the app has none.
+   */
+  readonly onReleaseEnd?: () => Option.Option<() => void>
+  /**
    * The node's drag transition, read at each release (ADR-0016, *Amendment (#140)*): what its Release
    * offset runs on, or `None` for Motion's, {@link DEFAULT_DRAG_TRANSITION}.
    */
@@ -948,6 +956,8 @@ interface NodeState {
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart: () => Option.Option<() => void>
   readonly onLayoutAnimationComplete: () => Option.Option<() => void>
+  /** The app's `onDragTransitionEnd`, read when it fires (#273). */
+  readonly onReleaseEnd: () => Option.Option<() => void>
   /**
    * The value last written to the sink (#27): the coordinator's tick doesn't write one that draws the
    * same again, unless scale corrections go with it. `undefined` before the first write.
@@ -1133,6 +1143,8 @@ interface Release {
   /** Its drag transition with both edges at zero, for a restart from rest. */
   readonly options: Machine.InertiaOptions
   stopped: boolean
+  /** Whether its coming to rest has been told: once, at the first frame it's at rest (#273). */
+  told: boolean
 }
 
 /** A node's last pass, what a re-introduction draws it from: its content-frame box and paint deltas (#136). */
@@ -1384,6 +1396,8 @@ export const makeProjectionSystem = (
   // and whose flight landed, this tick, called after the tick's flush. Reused every tick.
   const flightStarts: Array<NodeState> = []
   const flightLands: Array<NodeState> = []
+  // The nodes whose Release offset came to rest this tick (#273), told after the tick's flush.
+  const releaseEnds: Array<NodeState> = []
   // This task's `animateLayout` onSettled callbacks, which its end-of-task pass takes, and the
   // settlings waiting on that pass's flights (#191).
   let settleCallbacks: Array<() => void> = []
@@ -3406,6 +3420,9 @@ export const makeProjectionSystem = (
     if (Arr.isArrayNonEmpty(flightLands)) {
       for (const node of flightLands.splice(0)) callAppIfAny(node.onLayoutAnimationComplete(), "onLayoutAnimationComplete")
     }
+    if (Arr.isArrayNonEmpty(releaseEnds)) {
+      for (const node of releaseEnds.splice(0)) callAppIfAny(node.onReleaseEnd(), "onDragTransitionEnd")
+    }
     checkSettlings()
     return undefined
   }
@@ -3641,6 +3658,7 @@ export const makeProjectionSystem = (
       const landed = stepFlight(node, dt)
       noteFlight(node, landed)
       const released = stepRelease(node, dt)
+      if (released) noteRelease(node)
       if (!landed) continue
       if (!released) continue
       settled.push(node)
@@ -3672,6 +3690,15 @@ export const makeProjectionSystem = (
     const t = Math.min(1, active / timing.duration)
     flight.position = timing.easing(t)
     return t >= 1
+  }
+
+  /** `node`'s Release offset at rest: its end told once, after this tick's flush (#273). Per frame: statement `if`s. */
+  const noteRelease = (node: NodeState): void => {
+    const release = node.release
+    if (Predicate.isUndefined(release)) return
+    if (release.told) return
+    release.told = true
+    releaseEnds.push(node)
   }
 
   /**
@@ -4030,6 +4057,7 @@ export const makeProjectionSystem = (
     // A Follower's callbacks never fire: a handover is its Lead's (#191).
     onLayoutAnimationStart: NO_CALLBACK,
     onLayoutAnimationComplete: NO_CALLBACK,
+    onReleaseEnd: NO_CALLBACK,
     lastWritten: undefined,
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
@@ -4426,6 +4454,7 @@ export const makeProjectionSystem = (
       transition: opts.transition,
       onLayoutAnimationStart: UndefinedOr.match(opts.onLayoutAnimationStart, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       onLayoutAnimationComplete: UndefinedOr.match(opts.onLayoutAnimationComplete, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
+      onReleaseEnd: UndefinedOr.match(opts.onReleaseEnd, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       lastWritten: undefined,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
@@ -4614,6 +4643,10 @@ export const makeProjectionSystem = (
           node.lastDelta = IDENTITY_DELTA
           active.delete(node)
           if (active.size === 0) stopTicking()
+          // No release runs, so it has ended (#273): told from a microtask, as Motion's instant one resolves.
+          queueMicrotask(() => {
+            if (nodes.has(node)) callAppIfAny(node.onReleaseEnd(), "onDragTransitionEnd")
+          })
           return
         }
         node.release = releaseOrLanded(offset, velocity, Option.getOrElse(dragTransition(), () => DEFAULT_DRAG_TRANSITION))

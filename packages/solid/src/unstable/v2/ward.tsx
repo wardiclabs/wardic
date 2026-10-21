@@ -69,6 +69,7 @@ import {
   untrack,
 } from "solid-js"
 import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
+import type { SolidOneCallback } from "../../motion-props.ts"
 import { driveDragTrack } from "../../drag-track.ts"
 import { reported, type WardicServices } from "../../runtime.ts"
 import type { WardKey, WardValueOf } from "../../ward-keys.ts"
@@ -130,7 +131,7 @@ import { createVariantNode, useVariantContext, WardicVariantContext } from "./va
 export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string | undefined> | undefined }
 
 /** A ward's config values (ADR-0042): the element's motion, and its `style`. */
-export interface WardConfigValues extends Omit<SharedWardConfig, "onAnimationStart" | "onAnimationComplete" | "onLayoutAnimationStart" | "onLayoutAnimationComplete"> {
+export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallback> {
   /**
    * The element's style: Wardic's animated keys go over it, and a key no layer of the Override
    * stack sets returns to it (ADR-0022). Its Live values are followed through the gate (#130).
@@ -253,8 +254,9 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
    * - `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`: Motion's hover and tap
    *   events, with the pointer's `point` in the viewport. A press a drag took over is neither a
    *   tap nor a cancel.
-   * - `"dragStart"`, `"dragEnd"`: a drag's, with its `point`, `offset`, `delta` and `velocity`. A
-   *   ward that doesn't drag never has one.
+   * - `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"`: a drag's, with its `point`,
+   *   `offset`, `delta` and `velocity`; `"dragTransitionEnd"`, its release at rest. A ward that
+   *   doesn't drag never has one.
    *
    * A gesture's event starts its recognizer, if its `while*` hasn't. Rejected with a
    * `DOMException` named `"AbortError"` once the ward is disposed.
@@ -565,17 +567,21 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       return record
     })
     // Its one projection node (ADR-0009, ADR-0010), whose own `x`/`y` the projection then owns (ADR-0016).
-    // Its layout animations' starts and landings go to the lifecycle, for `next("layoutStart")` and
-    // `next("layoutComplete")` (#257): Solid 2 has no props for them.
+    // Its layout animations' starts and landings, and its drag's release at rest, go to the lifecycle,
+    // for `next("layoutStart")`, `next("layoutComplete")` and `next("dragTransitionEnd")` (#257, #273):
+    // Solid 2 has no props for them.
     const layout = Bool.match(layoutMember, {
       onTrue: () => {
         const started = (): void => lifecycle.layoutStarted()
         const completed = (): void => lifecycle.layoutCompleted()
+        const released = (): void => lifecycle.released()
         return projection.register(
           registrationOf({
             ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
             onLayoutAnimationStart: () => started,
             onLayoutAnimationComplete: () => completed,
+            // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
+            onReleaseEnd: () => released,
           }),
         )
       },
@@ -615,6 +621,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
             lifecycle.dragged(sample)
           },
         }),
+        // Its release at rest, for `next("dragTransitionEnd")` (#273).
+        onReleaseEnd: () => lifecycle.released(),
       }))
     const spine = makeElementSpine({
       runtime,

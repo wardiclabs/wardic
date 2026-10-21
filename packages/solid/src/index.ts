@@ -43,6 +43,7 @@ export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGat
  * `AtomRegistry`).
  */
 export { fromAtom, streamToSignal } from "./bridge.ts"
+export type { WardicDragInfo, WardicPoint, WardicPointInfo } from "./gesture-info.ts"
 
 /**
  * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /

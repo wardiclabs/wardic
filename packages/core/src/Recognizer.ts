@@ -421,7 +421,7 @@ const NO_SAMPLES: ReadonlyArray<Drag.Sample> = []
  * no velocity (a lost release carries no Fling). A gesture that never started (below
  * the threshold) just resets and emits nothing.
  */
-const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number): ReadonlyArray<Drag.Sample> =>
+const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number, raw: unknown): ReadonlyArray<Drag.Sample> =>
   Bool.match(state.phase === "active", {
     onFalse: () => NO_SAMPLES,
     onTrue: () => {
@@ -433,6 +433,7 @@ const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number): Readonl
         phase: "end",
         timeStamp,
         scroll: state.lastScroll,
+        raw,
       }
       staleEnds.set(sample, rule)
       return [sample]
@@ -466,7 +467,7 @@ const onDown = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
     onSome: (owner) =>
       Bool.match(event.pointerId === owner, {
         // Rule B: the owner went down again, so its release was lost.
-        onTrue: () => [claimedBy(event, point), staleEnd(state, "second down", event.timeStamp)],
+        onTrue: () => [claimedBy(event, point), staleEnd(state, "second down", event.timeStamp, event.raw)],
         // Another pointer while one owns the gesture — ignore.
         onFalse: () => ignored(state),
       }),
@@ -493,6 +494,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
           phase: "end",
           timeStamp: event.timeStamp,
           scroll: state.lastScroll,
+          raw: event.raw,
         }),
         onFalse: () => {
           const point = pointOf(event)
@@ -506,6 +508,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
             phase: "end",
             timeStamp: event.timeStamp,
             scroll: event.scroll,
+            raw: event.raw,
           }
         },
       })
@@ -528,6 +531,7 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
     phase,
     timeStamp: event.timeStamp,
     scroll: lastScroll,
+    raw: event.raw,
   })
   return Match.value(state.phase).pipe(
     Match.when("idle", (): Step =>
@@ -549,7 +553,7 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
 const onOwner = (state: DragState, event: InputSource.PointerLikeEvent): Step =>
   Match.value(event).pipe(
     // Rule A: the owner moved with no button pressed, so its release was lost.
-    Match.when({ type: "move", pressed: false }, (e): Step => [initState, staleEnd(state, "unpressed move", e.timeStamp)]),
+    Match.when({ type: "move", pressed: false }, (e): Step => [initState, staleEnd(state, "unpressed move", e.timeStamp, e.raw)]),
     // Release / cancel from the owner: emit final "end", reset.
     Match.when({ type: Match.is("up", "cancel") }, (e) => onRelease(state, e)),
     // Movement from the owner.

@@ -56,6 +56,13 @@ export interface PointerLikeEvent {
    * press, `isNodeOrChild`); one that doesn't, a tap's cancel.
    */
   readonly onTarget: boolean
+  /**
+   * The platform's own event this one was mapped from (#273): opaque to core, which never reads it.
+   * A binding hands it to an app's gesture callback (Motion's `(event, info)`). A held pointer's
+   * scroll-driven move and a lost release's ending move carry its last move's, or its down's
+   * before it has moved (Motion's `lastMoveEvent`): never an enter's or a leave's.
+   */
+  readonly raw?: unknown
 }
 
 /** No scroll counted: shared, so an event not held allocates nothing for it. */
@@ -253,8 +260,9 @@ export interface HeldPointerOptions {
 }
 
 /**
- * A held pointer: its last event as forwarded, the scroll since its down (added to its
- * events), and whether it has moved since its down (until then a scroll emits nothing).
+ * A held pointer: its last move as forwarded (its down, until it moves), the scroll since its
+ * down (added to its events), and whether it has moved since its down (until then a scroll
+ * emits nothing).
  */
 interface Held {
   last: PointerLikeEvent
@@ -350,8 +358,11 @@ export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerL
           Bool.match(endsHold(event), {
             onTrue: () => unhold(event.pointerId),
             onFalse: () => {
+              // An enter or a leave doesn't move the pointer: a scroll's move carries the last
+              // move's event, as Motion's `lastMoveEvent` (#273).
+              if (event.type !== "move") return
               h.last = out
-              if (event.type === "move") h.moved = true
+              h.moved = true
             },
           })
         }

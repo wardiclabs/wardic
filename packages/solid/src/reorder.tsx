@@ -69,7 +69,7 @@ import { createVariantNode } from "./variant-node.ts"
 import { accessorOf } from "./spine.ts"
 import { changesContext } from "./variant-tree.ts"
 import { useVariantContext } from "./variants.ts"
-import { MOTION_PROPS, motionToConfig, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
+import { configOfMotion, MOTION_PROPS, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
 
 /**
  * A **Reorder group**'s config: the app's `values` in order, `onReorder` to receive a
@@ -566,7 +566,7 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V
     ["value", "as", "ref", "style", "children", "tabIndex", "aria-describedby"],
     MOTION_PROPS,
   )
-  const config = motionToConfig(motion as WardicMotionProps)
+  const config = configOfMotion(motion as WardicMotionProps)
   const item = createReorderItem<V>(group, () => ({ ...config(), layout: itemLayoutOf(config().layout), value: local.value }))
   const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "li", onDefined: identity })
   const userRef = local.ref

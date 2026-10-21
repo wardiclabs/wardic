@@ -115,6 +115,8 @@ export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: Pointe
   primary: ev.isPrimary,
   scroll: InputSource.NO_SCROLL,
   onTarget,
+  // The DOM's own event, for an app's gesture callback (#273).
+  raw: ev,
 })
 
 /**

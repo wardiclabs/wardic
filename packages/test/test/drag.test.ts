@@ -261,3 +261,20 @@ it.effect("DS1 (#257): each sample carries the scroll its event counted; a cance
     const short = (yield* collect([ev("down", 0, 0, 0), scrolled("move", 10, 10, 40), scrolled("cancel", 0, 20, 0)])) as ReadonlyArray<Drag.Sample>
     expect(short.map((s) => `${s.phase} ${s.scroll.y}`)).toEqual(["start 40", "end 40"])
   }))
+
+it.effect("DR1 (#273): each sample carries its own event's platform event; an end, the event that ended it", () =>
+  Effect.gen(function* () {
+    const withRaw = (type: InputSource.PointerLikeEvent["type"], x: number, t: number, pressed = true): InputSource.PointerLikeEvent =>
+      InputSource.makePointerLikeEvent({ type, x, timeStamp: t, pressed, raw: `${type}@${x}` })
+    const rawsOf = (samples: ReadonlyArray<unknown>): ReadonlyArray<string> => (samples as ReadonlyArray<Drag.Sample>).map((s) => `${s.phase} ${String(s.raw)}`)
+    // The start and each move, theirs; the release's end, the up's.
+    expect(rawsOf(yield* collect([withRaw("down", 0, 0), withRaw("move", 10, 10), withRaw("move", 20, 20), withRaw("up", 20, 30, false)]))).toEqual([
+      "start move@10",
+      "move move@20",
+      "end up@20",
+    ])
+    // A cancel's end, the cancel's; a lost release's, the unpressed move's or the second down's.
+    expect(rawsOf(yield* collect([withRaw("down", 0, 0), withRaw("move", 10, 10), withRaw("cancel", 0, 20, false)]))).toEqual(["start move@10", "end cancel@0"])
+    expect(rawsOf(yield* collect([withRaw("down", 0, 0), withRaw("move", 10, 10), withRaw("move", 12, 20, false)]))).toEqual(["start move@10", "end move@12"])
+    expect(rawsOf(yield* collect([withRaw("down", 0, 0), withRaw("move", 10, 10), withRaw("down", 50, 20)]))).toEqual(["start move@10", "end down@50"])
+  }))

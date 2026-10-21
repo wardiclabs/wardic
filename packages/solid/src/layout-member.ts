@@ -98,6 +98,8 @@ export interface UseLayoutMemberOptions {
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart?: () => (() => void) | undefined
   readonly onLayoutAnimationComplete?: () => (() => void) | undefined
+  /** The app's `onDragTransitionEnd` (#273): a drag's Release offset at rest, read when it fires. */
+  readonly onReleaseEnd?: () => (() => void) | undefined
 }
 
 /**
@@ -106,7 +108,7 @@ export interface UseLayoutMemberOptions {
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { dragTransition, element, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
+  const { dragTransition, element, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
   return {
     id,
     element,
@@ -131,6 +133,10 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     ...UndefinedOr.match(onLayoutAnimationComplete, {
       onUndefined: () => ({}),
       onDefined: (complete) => ({ onLayoutAnimationComplete: () => Option.fromUndefinedOr(complete()) }),
+    }),
+    ...UndefinedOr.match(onReleaseEnd, {
+      onUndefined: () => ({}),
+      onDefined: (ended) => ({ onReleaseEnd: () => Option.fromUndefinedOr(ended()) }),
     }),
   }
 }
@@ -189,6 +195,8 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     // The app's layout animation callbacks, read when they fire (#191, ADR-0039).
     onLayoutAnimationStart: () => config().onLayoutAnimationStart,
     onLayoutAnimationComplete: () => config().onLayoutAnimationComplete,
+    // The app's `onDragTransitionEnd` (#273): its Release offset at rest.
+    onReleaseEnd: () => config().onDragTransitionEnd,
     ...UndefinedOr.match(c0.layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
     ...Bool.match(c0.layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(c0.layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
