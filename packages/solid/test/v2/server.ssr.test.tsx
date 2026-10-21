@@ -20,6 +20,7 @@
 // - SV14: a ward's `settled()` on a server is `undefined`, ready, and its `next("settled")` never
 //   settles: nothing animates there (#257).
 // - SV15: `wardRef` on a server hands over the component's ward, and renders no attribute (#257).
+// - SV16: a ward's `each(name)` on a server ends at once: nothing happens there (#257).
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -170,6 +171,17 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     expect(handed!.settled()).toBeUndefined()
     expect(html).not.toContain("wardRef")
     expect(html.toLowerCase()).not.toContain("wardref")
+  })
+
+  it("SV16: each(name) ends at once", async () => {
+    let card: ReturnType<typeof ward> | undefined
+    serve(() => {
+      card = ward({ drag: true })
+      return <div {...card} />
+    })
+    const seen: Array<unknown> = []
+    for await (const release of card!.each("dragEnd")) seen.push(release)
+    expect(seen).toEqual([])
   })
 
   it("SV8: wardic.create(Component) hands the component its Starting style through style", () => {

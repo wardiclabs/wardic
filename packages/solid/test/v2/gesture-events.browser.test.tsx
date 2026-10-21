@@ -12,6 +12,10 @@
 // - GX7: with `whileHover` too, one recognizer serves both: the layer applies and the event comes.
 // - GX8: `wardRef` hands the component's ward over, on `wardic.div`, `wardic.create(Component)` and
 //   `Reorder.Item`, and isn't an attribute of the element.
+// - EA1: `each("dragEnd")` hands over each release in order, and a `break` ends it.
+// - EA2: a release while the loop's body runs is missed, as a `next` asked later would miss it.
+// - EA3: the loop ends, with no error, when the ward is disposed while it waits.
+// - EA4: `each("settled")`: each landing.
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -193,5 +197,94 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     expect(created.target).toEqual({ opacity: 1 })
     expect(typeof wards.item!.settled).toBe("function")
     for (const at of ["div", "item"]) expect(host.querySelector(`[data-at="${at}"]`)!.hasAttribute("wardref"), at).toBe(false)
+  })
+})
+
+/** A drag of `el` from (x, y) by `dx`, released on the page. */
+const dragBy = (el: HTMLElement, x: number, y: number, dx: number): void => {
+  pointer(el, "pointerdown", x, y, 1)
+  pointer(el, "pointermove", x + dx / 2, y, 1)
+  pointer(el, "pointermove", x + dx, y, 1)
+  pointer(document.body, "pointerup", x + dx, y)
+}
+
+describe("a ward's events as an async iterable (#257): card.each(name)", () => {
+  it("EA1: each release in order, and a break ends it", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ drag: "x", dragSnapToOrigin: true, style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const seen: Array<number> = []
+    const loop = (async () => {
+      for await (const release of card.each("dragEnd")) {
+        seen.push(release.offset.x)
+        if (seen.length === 2) break
+      }
+    })()
+    await raf()
+    dragBy(el, 130, 140, 30)
+    await raf()
+    dragBy(el, 130, 140, -50)
+    await loop
+    expect(seen).toEqual([30, -50])
+    // Broken out of: a later release isn't taken, and nothing waits on.
+    dragBy(el, 130, 140, 70)
+    await raf()
+    expect(seen).toEqual([30, -50])
+  })
+
+  it("EA2: a release while the loop's body runs is missed", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ drag: "x", dragSnapToOrigin: true, style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const seen: Array<number> = []
+    let release!: () => void
+    const busy = new Promise<void>((resolve) => (release = resolve))
+    const loop = (async () => {
+      for await (const r of card.each("dragEnd")) {
+        seen.push(r.offset.x)
+        if (seen.length === 1) await busy
+        if (seen.length === 2) break
+      }
+    })()
+    await raf()
+    dragBy(el, 130, 140, 30)
+    await raf()
+    // The body is busy: this one is missed.
+    dragBy(el, 130, 140, 40)
+    await raf()
+    release()
+    await raf()
+    dragBy(el, 130, 140, 50)
+    await loop
+    expect(seen).toEqual([30, 50])
+  })
+
+  it("EA3: the loop ends, with no error, when the ward is disposed while it waits", async () => {
+    const { card, unmount } = mountCard({ drag: true, style: BOX }, (card) => <div {...card} />)
+    await raf()
+    let ended = "no"
+    const loop = (async () => {
+      for await (const _release of card.each("dragEnd")) ended = "a release"
+      ended = "ended"
+    })()
+    await raf()
+    unmount()
+    await loop
+    expect(ended).toBe("ended")
+  })
+
+  it("EA4: each(\"settled\"): each landing", async () => {
+    const [to, setTo] = createSignal(0.5)
+    const { card } = mountCard({ initial: { opacity: 0 }, animate: () => ({ opacity: to() }), transition: { type: "tween", duration: 0.05 }, style: BOX }, (card) => <div {...card} />)
+    const landed: Array<unknown> = []
+    const loop = (async () => {
+      for await (const landing of card.each("settled")) {
+        landed.push(landing.target.opacity)
+        if (landed.length === 2) break
+        setTo(1)
+      }
+    })()
+    await loop
+    expect(landed).toEqual([0.5, 1])
   })
 })

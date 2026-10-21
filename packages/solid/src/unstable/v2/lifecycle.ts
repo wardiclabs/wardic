@@ -103,6 +103,9 @@ interface Waiter {
 /** The rejection of a `next` the ward's disposal cut off. */
 const aborted = (): DOMException => new DOMException("The ward was disposed before its next event.", "AbortError")
 
+/** The end of an `each`. */
+const ENDED: IteratorReturnResult<undefined> = { value: undefined, done: true }
+
 /** The gesture whose recognizer an event needs: `next("tap")` needs the press one running. */
 const GESTURE_OF: Partial<Record<WardEvent, "hover" | "press">> = {
   hoverStart: "hover",
@@ -260,6 +263,15 @@ export class Lifecycle implements AnimationHooks {
     })
   }
 
+  /**
+   * `each(name)`: every `name` from the call on, as an async iterable (#257): each step is a
+   * {@link wait}, so one that comes while the loop's body runs is missed, as a `next` asked later
+   * would miss it. It ends, rather than rejecting, once the ward is disposed.
+   */
+  each<E extends WardEvent>(name: E): AsyncIterable<WardEvents[E]> {
+    return { [Symbol.asyncIterator]: () => new Each(this, name) }
+  }
+
   /** The ward is gone: every `next` waiting is rejected, and any asked later at once. */
   dispose(): void {
     this.disposed = true
@@ -305,5 +317,29 @@ export class Lifecycle implements AnimationHooks {
     }, CLIENT_ONLY)
     if (this.starts !== this.landed) queueMicrotask(() => set(this.starts))
     return memo
+  }
+}
+
+/** An `each(name)`'s iterator: each step the next `name`, the end once the ward is disposed. */
+class Each<E extends WardEvent> implements AsyncIterator<WardEvents[E], undefined> {
+  private readonly lifecycle: Lifecycle
+  private readonly name: E
+
+  constructor(lifecycle: Lifecycle, name: E) {
+    this.lifecycle = lifecycle
+    this.name = name
+  }
+
+  next(): Promise<IteratorResult<WardEvents[E], undefined>> {
+    // A wait rejects only at the ward's disposal (its AbortError): the iteration's end.
+    return this.lifecycle.wait(this.name).then(
+      (value): IteratorResult<WardEvents[E], undefined> => ({ value, done: false }),
+      () => ENDED,
+    )
+  }
+
+  /** A `break` out of the loop: nothing waits between steps, so nothing is left behind. */
+  return(): Promise<IteratorResult<WardEvents[E], undefined>> {
+    return Promise.resolve(ENDED)
   }
 }
