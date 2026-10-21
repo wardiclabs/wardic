@@ -74,6 +74,7 @@ import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import {
   accessorOf,
+  animationCallbacks,
   applyDragDefaults,
   dragAxisOf,
   drawnAtRest,
@@ -519,6 +520,8 @@ export function runSpine(opts: RunSpineOptions): void {
         projected: Predicate.isNotUndefined(layoutHandle),
         dragAxis: dragCfg,
         handoff,
+        // Motion's onAnimationStart / onAnimationComplete (#257).
+        animation: animationCallbacks(runtime, id),
       })
       onCleanup(spine.dispose)
 

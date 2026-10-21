@@ -89,6 +89,7 @@ export type {
   WardicDragTransition,
   WardicReducedMotion,
   WardicTransformShorthands,
+  WardicAnimationDefinition,
   WardicTransition,
   WardicValues,
 } from "./config.ts"

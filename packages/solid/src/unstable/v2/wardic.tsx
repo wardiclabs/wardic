@@ -22,7 +22,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { dynamic, type JSX } from "@solidjs/web"
 import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
-import { MOTION_PROPS, type WardicMotionProps } from "../../motion-props.ts"
+import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { type WardConfig, wardConfigView, type WardStyle, wardWith } from "./ward.tsx"
 

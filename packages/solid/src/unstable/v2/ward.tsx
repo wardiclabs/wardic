@@ -129,7 +129,7 @@ import { createVariantNode, useVariantContext, WardicVariantContext } from "./va
 export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string | undefined> | undefined }
 
 /** A ward's config values (ADR-0042): the element's motion, and its `style`. */
-export interface WardConfigValues extends SharedWardConfig {
+export interface WardConfigValues extends Omit<SharedWardConfig, "onAnimationStart" | "onAnimationComplete"> {
   /**
    * The element's style: Wardic's animated keys go over it, and a key no layer of the Override
    * stack sets returns to it (ADR-0022). Its Live values are followed through the gate (#130).

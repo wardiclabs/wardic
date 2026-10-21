@@ -154,6 +154,7 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | `useVelocity(value)` | `createVelocity(value)` |
 | `useTime()` | `createTime()` |
 | `onUpdate={(latest) => …}` | `onUpdate={(latest) => …}` |
+| `onAnimationStart={(definition) => …}`, `onAnimationComplete={(definition) => …}` | the same, with the variant name or the target values (ADR-0046); not on Solid 2 |
 | a motion value that `drag` or `animate` writes into | `ward.value("x")`, the element's output |
 | Framer's optimised appear animations (`startOptimizedAppearAnimation`) | on by default for a server render: `<WardicProvider appear={false}>` or an element's `appear={false}` turns it off |
 
@@ -295,6 +296,7 @@ function Card(props: { open: boolean }) {
 - The Live value helpers (`createTransform`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
 - Reorder has factories that are refs too: `const list = reorderGroup({ values: items, onReorder: setItems })` goes on the `<ul>` (`<ul {...list}>`), and `reorderItem(list, { value })` on each `<li>`. Each item is a ward. An item's own `tabindex` and `aria-describedby` go in its config, so the keyboard reorder's instructions are kept. `Reorder.Group` and `Reorder.Item` are there too.
 - Motion's components are there too: `<wardic.div animate={…}>` and `wardic.create(Component)`. There are no directives in Solid 2, so no `use:wardic`.
+- Motion's `onAnimationStart` and `onAnimationComplete` aren't props or config keys here: an animation's start and landing come as async values instead (#257, ADR-0046). On `<wardic.div>`, `onAnimationStart` is the DOM's CSS `animationstart` event.
 - So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit`, layout (`layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`), drag (`drag`, `dragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragTransition`), sensors, the Live value helpers, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
 - `examples/solid2-start` runs it in `@solidjs/vite-plugin`'s start mode (streaming server rendering, file routes, hydration), with the same hand checks as the Solid 1 example: `/ssr` for hydration and `/appear` for Appear animations.
 - `examples/layout-lab` runs on it too (`bun dev:v2`): the same lab built on Solid 2, every scenario on the Solid 2 binding, its Reorder card on the components or the factories.

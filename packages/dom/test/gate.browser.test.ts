@@ -157,3 +157,57 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
     }
   })
 })
+
+describe("makeFlushGate — afterFlush (#257): a call after the gate's next flush, GA1–GA3", () => {
+  it("GA1: a call runs after the next flush, with what was written on the element; with nothing written it schedules one", () => {
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
+    try {
+      const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+      const el = document.createElement("div")
+      gate.register("el", { target: el })
+      const seen: Array<string> = []
+      gate.write("el", { opacity: 0.5 })
+      gate.afterFlush(() => seen.push(`after ${el.style.opacity}`))
+      expect(seen, "not before the flush").toEqual([])
+      fireFrame()
+      expect(seen).toEqual(["after 0.5"])
+      // Nothing written: the call still gets a flush of its own.
+      gate.afterFlush(() => seen.push("alone"))
+      fireFrame()
+      expect(seen).toEqual(["after 0.5", "alone"])
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("GA2: a call that throws is reported, and the next one still runs", () => {
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
+    try {
+      const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+      const seen: Array<string> = []
+      gate.afterFlush(() => {
+        throw new Error("a caller's failure")
+      })
+      gate.afterFlush(() => seen.push("ran"))
+      fireFrame()
+      expect(seen).toEqual(["ran"])
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+  it("GA3: a call waiting when the gate is disposed is dropped", () => {
+    const runtime = ManagedRuntime.make(withFrames(DomLive))
+    try {
+      const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+      const seen: Array<string> = []
+      gate.afterFlush(() => seen.push("ran"))
+      gate.dispose()
+      fireFrame()
+      expect(seen).toEqual([])
+    } finally {
+      void runtime.dispose()
+    }
+  })
+})

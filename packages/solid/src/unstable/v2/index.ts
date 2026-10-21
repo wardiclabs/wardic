@@ -35,7 +35,7 @@ export type { WardicOrchestration, WardicReducedMotion, WardicTransformShorthand
  * element's own props and the motion props; a `wardic.create(Component)` component forwards its `ref`.
  */
 export { type Wardic, type WardicProps, type WardicWrappable, wardic } from "./wardic.tsx"
-export type { WardicMotionProps } from "../../motion-props.ts"
+export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 
 /**
  * `<AnimatePresence>` (ADR-0007): a single child's exit before it's removed, from its ward's `exit`;

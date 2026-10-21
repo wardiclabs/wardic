@@ -69,7 +69,8 @@ import { useVariantContext, WardicVariantContext } from "./variants.ts"
  * takes the transform keys and Live values too ({@link WardStyle}, #130).
  */
 export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
-  & Omit<JSX.IntrinsicElements[Tag], "style">
+  // `onAnimationStart` is Motion's (#257), not the DOM's CSS `animationstart` event's, as on Motion.
+  & Omit<JSX.IntrinsicElements[Tag], "style" | "onAnimationStart">
   & WardicMotionProps
   & { readonly style?: WardStyle | string | undefined }
 
