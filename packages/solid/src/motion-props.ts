@@ -6,8 +6,10 @@
  * @module
  */
 import type * as Drag from "@wardic/core/Drag"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
 import type { Accessor } from "./reactivity.ts"
 
 /**
@@ -43,12 +45,22 @@ export const MOTION_PROPS = [
   "layoutScroll",
   "layoutRoot",
   "layoutAnchor",
+  "onAnimationStart",
+  "onAnimationComplete",
   "onLayoutAnimationStart",
   "onLayoutAnimationComplete",
   "onUpdate",
   "appear",
   "transition",
 ] as const
+
+/** The motion props Solid 1 takes and Solid 2 doesn't (#257): Motion's animation callbacks, which Solid 2 hands over as async values. */
+const SOLID_1_CALLBACKS = ["onAnimationStart", "onAnimationComplete"] as const
+
+/** {@link MOTION_PROPS} on Solid 2 (#257): all but Solid 1's animation callbacks, so `onAnimationStart` on an element there is the DOM's. */
+export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.contains(SOLID_1_CALLBACKS, prop))) as ReadonlyArray<
+  Exclude<(typeof MOTION_PROPS)[number], (typeof SOLID_1_CALLBACKS)[number]>
+>
 
 /**
  * The motion props a `wardic.*` element accepts, on top of the element's own
@@ -147,6 +159,10 @@ export interface WardicMotionProps {
    * anchors (0–1 per axis, default top-left). `false` forces absolute projection.
    */
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
+  /** Called when an animation of this element starts, with its `definition` (#257, Motion's prop; see `WardConfig`). */
+  readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
+  /** Called when that animation lands, with its `definition` (#257, Motion's prop; see `WardConfig`). */
+  readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
   /**
    * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
    * frame where it takes its first step, after that frame is painted. A restart fires it again;
@@ -174,6 +190,9 @@ export interface WardicMotionProps {
    */
   readonly appear?: boolean
 }
+
+/** {@link WardicMotionProps} on Solid 2 (#257): all but Solid 1's animation callbacks. */
+export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBACKS)[number]>
 
 /**
  * Build a reactive `Accessor<WardConfig>` from a split-off `motion` props
@@ -218,6 +237,8 @@ export const motionToConfig =
     const layoutScroll = motion.layoutScroll
     const layoutRoot = motion.layoutRoot
     const layoutAnchor = motion.layoutAnchor
+    const onAnimationStart = motion.onAnimationStart
+    const onAnimationComplete = motion.onAnimationComplete
     const onLayoutAnimationStart = motion.onLayoutAnimationStart
     const onLayoutAnimationComplete = motion.onLayoutAnimationComplete
     const onUpdate = motion.onUpdate
@@ -244,6 +265,8 @@ export const motionToConfig =
     if (Predicate.isNotUndefined(layoutScroll)) config.layoutScroll = layoutScroll
     if (Predicate.isNotUndefined(layoutRoot)) config.layoutRoot = layoutRoot
     if (Predicate.isNotUndefined(layoutAnchor)) config.layoutAnchor = layoutAnchor
+    if (Predicate.isNotUndefined(onAnimationStart)) config.onAnimationStart = onAnimationStart
+    if (Predicate.isNotUndefined(onAnimationComplete)) config.onAnimationComplete = onAnimationComplete
     if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart
     if (Predicate.isNotUndefined(onLayoutAnimationComplete)) config.onLayoutAnimationComplete = onLayoutAnimationComplete
     if (Predicate.isNotUndefined(onUpdate)) config.onUpdate = onUpdate

@@ -57,7 +57,7 @@ const NO_VALUE: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
 
 /**
  * The gate a server render gets (ADR-0021, decision 9): it flushes nothing, so `register` returns a
- * no-op unregister and the rest do nothing. Code that grabs the gate at setup and uses it after
+ * no-op unregister and the rest do nothing (an `afterFlush` call included: no flush comes). Code that grabs the gate at setup and uses it after
  * mount keeps working on a server.
  */
 export const inert: Shape = Object.freeze({
@@ -66,6 +66,7 @@ export const inert: Shape = Object.freeze({
   flushPass: noop,
   release: noop,
   valueOf: () => NO_VALUE,
+  afterFlush: noop,
 })
 
 /** `inert` as a Layer, for a binding whose server render runs an Effect program. */

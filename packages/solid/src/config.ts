@@ -176,6 +176,9 @@ export interface WardicDragTransition {
  * job ({@link "./wardic.tsx"} `MotionProps`), not `createWard`'s — at its
  * boundary a config field is always a plain value.
  */
+/** Motion's `definition` of an animation (#257): a variant name, or its target values. */
+export type WardicAnimationDefinition = string | WardicValues
+
 export interface WardConfig {
   /**
    * The per-mount seed — the *entry-from* state the animation departs from.
@@ -333,6 +336,21 @@ export interface WardConfig {
    * of relative projection (force absolute). Static (read once at mount).
    */
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
+  /**
+   * Called when an animation of this element starts (#257, Motion's prop): at each Retarget that
+   * starts one, a change of `animate` or of the variant it resolves (the entrance at mount
+   * included), or a gesture layer (`whileHover`, `whileTap`, `whileDrag`) turning on or off. With
+   * its `definition`: the variant name its base layer resolved when no gesture layer moved the
+   * target, else the target values. Not for a change that resolves the same target, a drag's
+   * momentum or return, or a layout animation (its own callbacks). Read at that Retarget.
+   */
+  readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
+  /**
+   * Called when that animation lands (#257, Motion's prop), with the same `definition`: once every
+   * key it moves has settled. Not for one the next Retarget interrupted, which completes instead.
+   * Read at the Retarget that started it.
+   */
+  readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
   /**
    * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
    * frame where it takes its first step, after that frame is painted. A restart fires it again;

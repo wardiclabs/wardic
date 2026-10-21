@@ -181,6 +181,14 @@ export interface FlushGate {
    */
   readonly valueOf: (id: string, key: string) => Atom.Atom<unknown>
   /**
+   * Call `fn` once, after the gate's next flush (#257): the end of the Frame loop's tick, for a call
+   * made in one, else the next Refresh frame's, so what was written before it is on the elements.
+   * It schedules that flush if none is pending. The spine tells a Retarget's settle here, as Motion's
+   * `onAnimationComplete` comes with the final value set. One that throws is reported, and the rest
+   * still run.
+   */
+  readonly afterFlush: (fn: () => void) => void
+  /**
    * Take the gate's hook off the Frame loop, cancel any pending frame and clear the
    * accumulator. Wired into the provider's `onCleanup`.
    */
@@ -246,6 +254,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   // Sinks waiting for their first commit's `beforeFirstCommit` (usually empty).
   const firstCommits = new Set<string>()
   let scheduled = false
+  // What `afterFlush` queued since the last flush, called at its end (#257).
+  let afterFlushes: Array<() => void> = []
   // The pending Refresh frame's handle, while `scheduled`.
   let frame: unknown
   // The ids written while a `flushPass` pass runs; `undefined` otherwise.
@@ -398,6 +408,25 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       heldChanged.length = 0
       runtime.runFork(reportFailure("wardic.gate: a flush failed", Cause.die(defect)))
     }
+    if (afterFlushes.length > 0) runAfterFlushes()
+  }
+
+  /** The calls `afterFlush` queued, each once, a new queue for any they make. */
+  const runAfterFlushes = (): void => {
+    const due = afterFlushes
+    afterFlushes = []
+    for (const fn of due) {
+      try {
+        fn()
+      } catch (defect) {
+        runtime.runFork(reportFailure("wardic.gate: an afterFlush call failed", Cause.die(defect)))
+      }
+    }
+  }
+
+  const afterFlush: FlushGate["afterFlush"] = (fn) => {
+    afterFlushes.push(fn)
+    scheduleFlush()
   }
 
   /**
@@ -531,6 +560,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     accumulator.clear()
     firstCommits.clear()
     committedSince.clear()
+    // The calls waiting on a flush that won't come: their provider is gone (#257).
+    afterFlushes = []
     for (const id of [...outputsById.keys()]) endOutputs(id)
   }
 
@@ -538,7 +569,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const ticks = Scope.makeUnsafe()
   runtime.runSync(afterTick(flushTicked).pipe(Scope.provide(ticks)))
 
-  return { register, write, flushPass, release, valueOf, dispose }
+  return { register, write, flushPass, release, valueOf, afterFlush, dispose }
 }
 
 

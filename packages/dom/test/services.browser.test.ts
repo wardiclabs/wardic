@@ -8,7 +8,7 @@
 //   written after.
 // - DS3: `ProjectionSystem.make` over a binding's own sink ends with its own Scope: its viewport
 //   watch stops when that Scope closes.
-// - DS4: `FlushGate.inert` does nothing, and `FlushGate.layerInert` provides it.
+// - DS4: `FlushGate.inert` does nothing (its `afterFlush` never calls), and `FlushGate.layerInert` provides it.
 //
 // The Reorder controller's scoped constructor (#132's PR 3):
 // - DS5: `ReorderController.make` runs over its context: a move is spoken through the context's
@@ -149,6 +149,9 @@ describe("the gate and the projection system as services (#132)", () => {
       FlushGate.inert.flushPass(() => {})
       FlushGate.inert.release("x", ["opacity"])
     }).not.toThrow()
+    let called = 0
+    FlushGate.inert.afterFlush(() => called++)
+    expect(called, "no flush, so no call").toBe(0)
     const runtime = ManagedRuntime.make(FlushGate.layerInert)
     expect(runtime.runSync(FlushGate.FlushGate)).toBe(FlushGate.inert)
     void Effect.runPromise(runtime.disposeEffect)

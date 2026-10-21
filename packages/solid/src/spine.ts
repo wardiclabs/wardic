@@ -32,6 +32,7 @@ import * as Style from "@wardic/dom/Style"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
@@ -46,7 +47,7 @@ import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, startAtOf } from "./appear.ts"
-import type { WardConfig, WardicTransition, WardicValues } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicTransition, WardicValues } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
@@ -137,6 +138,55 @@ const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(E
  */
 export const sameResolution = (a: Resolution, b: Resolution): boolean =>
   Bool.every([a.dragging === b.dragging, a.variant === b.variant]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base)
+
+/** Motion's `definition` of an animation (#257): a variant name, or its target values. */
+export type AnimationDefinition = string | Values.Values
+
+/**
+ * A Retarget's `definition`, as Motion's `onAnimationStart` / `onAnimationComplete` hand it over
+ * (#257): the variant name its base layer resolved, when that name differs from the last started
+ * Retarget's (`previous`), else the target's values. Motion's definition is per animation type: a
+ * new `animate` variant animates as its name, and a gesture turning on or off as values (its own,
+ * or the keys it leaves falling back), so a variant's name is only told when the variant changed.
+ */
+export const definitionOf = (resolution: Resolution, previous: string | undefined): AnimationDefinition =>
+  UndefinedOr.match(resolution.variant, {
+    onUndefined: (): AnimationDefinition => resolution.resolved,
+    onDefined: (name) => Bool.match(name === previous, { onTrue: (): AnimationDefinition => resolution.resolved, onFalse: () => name }),
+  })
+
+/**
+ * What a Retarget tells its binding (#257): that it started, and that its last leg settled. Each is
+ * handed the Retarget's resolution, the variant name the last started Retarget resolved before it
+ * (for {@link definitionOf}), and the config it read.
+ */
+export interface AnimationHooks {
+  /** A Retarget started its legs (the `when` gate let it); with no leg, it settles at once. */
+  readonly started: (resolution: Resolution, previous: string | undefined, config: WardConfig) => void
+  /** That Retarget's last leg settled: not for one the next Retarget superseded, nor one a leg's failure cut off. */
+  readonly settled: (resolution: Resolution, previous: string | undefined, config: WardConfig) => void
+}
+
+/**
+ * Solid 1's animation callbacks (#257, Motion's props): each Retarget's start and settle told to the
+ * config's `onAnimationStart` / `onAnimationComplete`, with its `definition`, as the Retarget read
+ * the config. A callback that throws is reported, and the element animates on. The Solid 2 binding's
+ * config has neither: it hands the same facts over as async values.
+ */
+export const animationCallbacks = (runtime: WardicRuntime, id: string): AnimationHooks => {
+  const call =
+    (name: "onAnimationStart" | "onAnimationComplete") =>
+    (resolution: Resolution, previous: string | undefined, config: WardConfig): void => {
+      const callback = config[name]
+      if (Predicate.isUndefined(callback)) return
+      try {
+        callback(definitionOf(resolution, previous) as WardicAnimationDefinition)
+      } catch (defect) {
+        runtime.runFork(Report.failure(`wardic.spine: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
+      }
+    }
+  return { started: call("onAnimationStart"), settled: call("onAnimationComplete") }
+}
 
 /** Which layers of the Override stack are active now, as the binding reads them. */
 export interface Active {
@@ -335,6 +385,8 @@ export interface ElementSpineOptions {
   readonly dragAxis: boolean | "x" | "y" | undefined
   /** Its Appear animation, while hydrating (#48, ADR-0044 decision 6). */
   readonly handoff: Handoff | undefined
+  /** Told each Retarget's start and settle (#257); omitted, nothing is told. */
+  readonly animation?: AnimationHooks | undefined
 }
 
 /** What the follower reads of the element's Override stack and drag, untracked. */
@@ -363,7 +415,7 @@ export interface ElementSpine {
  * Scope's close. The same shape as the projection system's end-of-task holds.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { canStart, config, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, canStart, config, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -438,8 +490,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // its own, so its legs are Superseded, not interrupted: off the loop at once, their fibers
   // ended normally, at about a sixth of an interrupt's cost.
   let generation = Supersede.make()
+  // The variant name the last started Retarget resolved, for its successor's `definition` (#257).
+  let lastVariant: string | undefined
 
-  const retarget = ({ resolved, base, dragging: held }: Resolution): void => {
+  const retarget = (resolution: Resolution): void => {
+    const { resolved, base, dragging: held } = resolution
     Supersede.end(generation)
     generation = Supersede.make()
     // One options object for this Retarget's legs, each joining its token.
@@ -527,8 +582,14 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       onFalse: constUndefined,
     })
     let legs = 0
+    // The variant the Retarget before this one resolved, set once this one starts (#257).
+    let previous: string | undefined
     const legDone = Effect.sync(() => {
-      if (--legs === 0) settleReturns(returns)
+      if (--legs !== 0) return
+      settleReturns(returns)
+      // The Retarget settled with its last leg (#257): told once the gate has flushed its last frame,
+      // so the element shows where it landed.
+      if (Predicate.isNotUndefined(animation)) gate.afterFlush(() => animation.settled(resolution, previous, c))
     })
     // A leg's end, told apart (ADR-0027, decision 7): a settle counts toward the returns;
     // a Superseded end (a Retarget, an unmount, #200) or an interruption (a leg its token
@@ -666,6 +727,13 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         ),
       )
     })
+    // The Retarget started, its legs on their way (#257); with none, it settled at once.
+    previous = lastVariant
+    lastVariant = resolution.variant
+    if (Predicate.isNotUndefined(animation)) {
+      animation.started(resolution, previous, c)
+      if (retargetLegs.length === 0) animation.settled(resolution, previous, c)
+    }
   }
 
   // --- Live values in `style` (#130, ADR-0043) ------------------------------

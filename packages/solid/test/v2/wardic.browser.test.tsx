@@ -9,6 +9,9 @@
 // - WC9–WC10: a reactive user `style` on a key Wardic doesn't animate, alone and beside one it does.
 // - WCC1–WCC3: `wardic.create(Component)`: the forwarded element animates, the user's ref gets it,
 //   and a component that never forwards its ref is a clear error.
+// - WC11: `onAnimationStart` / `onAnimationComplete` aren't motion props on Solid 2 (#257: its async
+//   value replaces them): `onAnimationStart` is the DOM's CSS `animationstart` event, and an
+//   animation of the ward's calls neither.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicValues } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -94,6 +97,30 @@ describe("wardic.<tag>: the element and the merge policy", () => {
     // @ts-expect-error scale is number | string, not boolean
     const badValue: WardicValues = { scale: true }
     void badValue
+  })
+})
+
+describe("wardic.<tag>: Motion's animation callbacks are Solid 1's (#257)", () => {
+  it("WC11: onAnimationStart is the DOM's animationstart event, and the ward's animation calls neither", async () => {
+    let el: HTMLDivElement | undefined
+    const calls: Array<string> = []
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div
+          ref={(node: HTMLDivElement) => (el = node)}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ type: "tween", duration: 0.1 }}
+          onAnimationStart={(event: AnimationEvent) => calls.push(`start ${event.animationName}`)}
+          onAnimationEnd={(event: AnimationEvent) => calls.push(`end ${event.animationName}`)}
+        />
+      </WardicProvider>
+    ))
+    expect(await animatesTo(el!, 1)).toBe(true)
+    for (let i = 0; i < 3; i++) await raf()
+    expect(calls, "the ward's own animation calls neither").toEqual([])
+    el!.dispatchEvent(new AnimationEvent("animationstart", { animationName: "pulse", bubbles: true }))
+    expect(calls).toEqual(["start pulse"])
   })
 })
 
