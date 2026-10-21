@@ -4,24 +4,24 @@
 // - LF1: a settle told for a Retarget that's no longer the one in flight (a later one started before
 //   the gate's flush told it) lands nothing; the one in flight does.
 // - LF2: nothing Solid until `settled` is read: a landing before the first read is what that read
-//   returns, built then, with the gesture layers on when its Retarget started (not at its landing).
+//   returns, built then, with the gesture layers its resolution was made with.
 // - LF3: a landing's definition is the variant name only when the variant changed since the Retarget
 //   before it; a gesture's Retarget over the same variant hands over its values.
-import type { Resolution } from "../../src/spine.ts"
-import { type GestureState, Lifecycle } from "../../src/unstable/v2/lifecycle.ts"
+import type { Active, Resolution } from "../../src/spine.ts"
+import { Lifecycle } from "../../src/unstable/v2/lifecycle.ts"
 import { createRoot, getOwner } from "solid-js"
 import { describe, expect, it } from "vitest"
 
-const NONE: GestureState = { hovered: false, pressed: false, dragging: false }
+const NONE: Active = { hovered: false, pressed: false, dragged: false, dragging: false }
 
-const resolution = (resolved: Record<string, number>, variant?: string): Resolution => ({ resolved, base: resolved, dragging: false, variant })
+const resolution = (resolved: Record<string, number>, variant?: string, active: Active = NONE): Resolution => ({ resolved, base: resolved, dragging: false, variant, active })
 
-/** A lifecycle in a root of its own, with the gesture state `layers()` gives at each start; disposed with it. */
-const lifecycleIn = (layers: () => GestureState = () => NONE) => {
+/** A lifecycle in a root of its own, disposed with it. */
+const lifecycleIn = () => {
   let disposeRoot!: () => void
   const lifecycle = createRoot((d) => {
     disposeRoot = d
-    return new Lifecycle(getOwner(), layers, () => false)
+    return new Lifecycle(getOwner())
   })
   const dispose = (): void => {
     lifecycle.dispose()
@@ -45,12 +45,10 @@ describe("a ward's lifecycle (#257)", () => {
     dispose()
   })
 
-  it("LF2: a landing before the first read is what that read returns, with the layers on at its start", () => {
-    let hovering = true
-    const { lifecycle, dispose } = lifecycleIn(() => ({ hovered: hovering, pressed: false, dragging: false }))
-    const a = resolution({ opacity: 1 })
+  it("LF2: a landing before the first read is what that read returns, with the layers its resolution was made with", () => {
+    const { lifecycle, dispose } = lifecycleIn()
+    const a = resolution({ opacity: 1 }, undefined, { hovered: true, pressed: false, dragged: false, dragging: false })
     lifecycle.started(a)
-    hovering = false
     lifecycle.settled(a, undefined)
     createRoot((d) => {
       expect(lifecycle.read()).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: true, tap: false, drag: false } })
@@ -66,7 +64,7 @@ describe("a ward's lifecycle (#257)", () => {
     hooks.started(rest)
     hooks.settled(rest, undefined)
     expect((await first).definition).toBe("rest")
-    const hovered: Resolution = { resolved: { opacity: 1 }, base: { opacity: 0.2 }, dragging: false, variant: "rest" }
+    const hovered: Resolution = { resolved: { opacity: 1 }, base: { opacity: 0.2 }, dragging: false, variant: "rest", active: { ...NONE, hovered: true } }
     const second = lifecycle.wait("settled")
     hooks.started(hovered)
     hooks.settled(hovered, "rest")

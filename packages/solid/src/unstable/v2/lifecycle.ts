@@ -47,43 +47,28 @@ export interface WardSettled {
 /** What `next(name)` waits for. */
 export type WardEvent = "settled"
 
-/** The ward's gesture state, as a Retarget reads it. */
-export interface GestureState {
-  readonly hovered: boolean
-  readonly pressed: boolean
-  readonly dragging: boolean
-}
-
 interface Waiter {
   readonly resolve: (landing: WardSettled) => void
   readonly reject: (reason: DOMException) => void
 }
 
-const NO_STATE: GestureState = { hovered: false, pressed: false, dragging: false }
-
 /** The rejection of a `next` the ward's disposal cut off. */
 const aborted = (): DOMException => new DOMException("The ward was disposed before its next landing.", "AbortError")
 
 /**
- * A ward's lifecycle, made under its `owner`. At each start it reads the ward's `gestures` and
- * whether a **Keyboard reorder** has it `lifted` (which turns `whileDrag` on as a drag does),
- * untracked, as the spine's Retarget is. It's the
- * spine's {@link AnimationHooks}; the ward hands over {@link Lifecycle.read} as `settled` and
- * {@link Lifecycle.wait} as `next`, and calls {@link Lifecycle.dispose} in its own cleanup.
+ * A ward's lifecycle, made under its `owner`. It's the spine's {@link AnimationHooks}; the ward
+ * hands over {@link Lifecycle.read} as `settled` and {@link Lifecycle.wait} as `next`, and calls
+ * {@link Lifecycle.dispose} in its own cleanup. A landing's gestures are the layers its Retarget's
+ * resolution was made with.
  */
 export class Lifecycle implements AnimationHooks {
-  // The Retargets started and the last one landed, counted.
+  // The Retargets started and the last one landed, counted, and the one in flight.
   private starts = 0
   private landed = 0
-  // The Retarget in flight, and the gesture state as it started.
   private flying: Resolution | undefined = undefined
-  private flyingState = NO_STATE
-  private flyingLifted = false
-  // The last landing, built when it's asked for: its resolution, the variant before it, its gestures.
+  // The last landing, built when it's asked for: its resolution and the variant before it.
   private landedResolution: Resolution | undefined = undefined
   private landedPrevious: string | undefined = undefined
-  private landedState = NO_STATE
-  private landedLifted = false
   private last: WardSettled | undefined = undefined
   // Made at the first read: the setter of the count it tracks, its memo, and its pending read's resolver.
   private setCount: ((count: number) => void) | undefined = undefined
@@ -93,20 +78,14 @@ export class Lifecycle implements AnimationHooks {
   private nexts: Array<Waiter> | undefined = undefined
   private disposed = false
   private readonly owner: Owner | null
-  private readonly gestures: () => GestureState
-  private readonly lifted: () => boolean
 
-  constructor(owner: Owner | null, gestures: () => GestureState, lifted: () => boolean) {
+  constructor(owner: Owner | null) {
     this.owner = owner
-    this.gestures = gestures
-    this.lifted = lifted
   }
 
   started(resolution: Resolution): void {
     this.starts++
     this.flying = resolution
-    this.flyingState = this.gestures()
-    this.flyingLifted = this.lifted()
     if (Predicate.isNotUndefined(this.setCount)) this.setCount(this.starts)
   }
 
@@ -116,8 +95,6 @@ export class Lifecycle implements AnimationHooks {
     this.landed = this.starts
     this.landedResolution = resolution
     this.landedPrevious = previous
-    this.landedState = this.flyingState
-    this.landedLifted = this.flyingLifted
     this.last = undefined
     const resolve = this.waiting
     const due = this.nexts
@@ -156,11 +133,12 @@ export class Lifecycle implements AnimationHooks {
   private lastLanding(): WardSettled | undefined {
     const resolution = this.landedResolution
     if (Bool.or(Predicate.isNotUndefined(this.last), Predicate.isUndefined(resolution))) return this.last
-    const state = this.landedState
+    const landing = resolution as Resolution
+    const active = landing.active
     this.last = {
-      definition: definitionOf(resolution as Resolution, this.landedPrevious) as WardicAnimationDefinition,
-      target: (resolution as Resolution).resolved,
-      gestures: { hover: state.hovered, tap: state.pressed, drag: Bool.or(state.dragging, this.landedLifted) },
+      definition: definitionOf(landing, this.landedPrevious) as WardicAnimationDefinition,
+      target: landing.resolved,
+      gestures: { hover: active.hovered, tap: active.pressed, drag: active.dragged },
     }
     return this.last
   }

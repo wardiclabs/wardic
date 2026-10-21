@@ -463,8 +463,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   )
 
   // Its Retargets' starts and landings (#257, ADR-0046): `settled()` and `next("settled")`, each with
-  // the gesture layers on as the Retarget started.
-  const lifecycle = new Lifecycle(owner, gestures, lifted)
+  // the gesture layers its target was resolved with.
+  const lifecycle = new Lifecycle(owner)
 
 
   // The mounted element: registered with the gate, its layout node, its spine built over it, and the
