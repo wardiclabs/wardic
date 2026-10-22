@@ -95,6 +95,11 @@ export interface DragTrackConfig {
   readonly momentum?: boolean | undefined
   /** Spring back to the origin on release: both edges at 0. */
   readonly snapToOrigin?: boolean | undefined
+  /**
+   * Motion's `dragDirectionLock` (#273, ADR-0047): each gesture starts once it passes 10 px on one
+   * axis, and drags, claims and releases on that axis alone (`Recognizer.drag`'s `lock`).
+   */
+  readonly directionLock?: boolean | undefined
   /** What the release runs on: the element's drag transition, resolved ({@link dragTransitionOf}). */
   readonly transition: ProjectionSystem.DragTransition
 }
@@ -184,10 +189,6 @@ const releaseVelocity = (config: DragTrackConfig, velocity: Point.Point): Point.
     onTrue: () => ORIGIN,
     onFalse: () => velocity,
   })
-
-/** The axes a gesture moves on, read at its "start": a `<Reorder>` item's group decides them per gesture (D5). */
-const gestureAxisOf = (opts: DragTrackOptions): Drag.Axis =>
-  toDragAxis(UndefinedOr.match(opts.axisAt, { onUndefined: () => opts.config.axis, onDefined: (at) => at() }))
 
 /**
  * Where the drag puts the element: `p`, kept within the constraints on each axis the gesture moves,
@@ -331,7 +332,9 @@ const follow = (sample: Drag.Sample, state: TrackState, opts: DragTrackOptions):
   const st = MutableRef.get(state)
   const starts = sample.phase === "start"
   const base = Bool.match(starts, { onTrue: () => snapshotPos(opts.snapshot), onFalse: () => st.base })
-  const axis = Bool.match(starts, { onTrue: () => gestureAxisOf(opts), onFalse: () => st.axis })
+  // The axes the gesture moves on, as the recognizer read them at its start: a `<Reorder>` item's
+  // group decides them per gesture (D5), a direction lock at its lock (#273).
+  const axis = Bool.match(starts, { onTrue: () => sample.axis, onFalse: () => st.axis })
   const p = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, opts.config)
   MutableRef.set(state, { ...st, base, position: p, axis })
   opts.setDragging(true)
@@ -445,6 +448,7 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
       const samples: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element, {
         axis,
         claim: Bool.not(propagation),
+        lock: config.directionLock === true,
       })
 
       // A free drag's "end" starts its release; a projection node's Release offset already

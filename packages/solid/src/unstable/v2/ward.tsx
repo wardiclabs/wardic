@@ -166,6 +166,7 @@ const WARD_KEYS = [
   "dragSnapToOrigin",
   "dragTransition",
   "dragPropagation",
+  "dragDirectionLock",
   "transition",
   "exit",
   "layout",
@@ -602,6 +603,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (internal.defaultsOnElement === true) UndefinedOr.map(dragDefaults, (defaults) => applyDragDefaults(el, defaults))
     // The drag track (ADR-0004): the pointer direct-sets `x`/`y` while the spring drives the rest and
     // `whileDrag`; on a layout node it feeds the projection (ADR-0016).
+    const locked = initialConfig.dragDirectionLock === true
     UndefinedOr.map(dragAxis, (axis) =>
       driveDragTrack({
         run: (track) => runFor({ fibers }, track),
@@ -618,16 +620,18 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
           momentum: initialConfig.dragMomentum,
           snapToOrigin: initialConfig.dragSnapToOrigin,
           propagation: initialConfig.dragPropagation,
+          directionLock: initialConfig.dragDirectionLock,
           transition: dragTransition,
         },
         ...UndefinedOr.match(layout, { onUndefined: () => ({}), onDefined: (projectionNode) => ({ projection: projectionNode }) }),
         ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
-        // Its samples to a `<Reorder>` item's group, and to the lifecycle for `next("dragStart")` (#257).
+        // Its samples to a `<Reorder>` item's group, and to the lifecycle for `next("dragStart")` (#257)
+        // and, with a direction lock, `next("directionLock")` (#273).
         onSample: UndefinedOr.match(internal.onDragSample, {
-          onUndefined: () => (sample: Drag.Sample) => lifecycle.dragged(sample),
+          onUndefined: () => (sample: Drag.Sample) => lifecycle.dragged(sample, locked),
           onDefined: (onSample) => (sample: Drag.Sample) => {
             onSample(sample)
-            lifecycle.dragged(sample)
+            lifecycle.dragged(sample, locked)
           },
         }),
         // Its release at rest, for `next("dragTransitionEnd")` (#273).

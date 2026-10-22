@@ -24,14 +24,21 @@ const GESTURE_CALLBACKS = [
   "onDrag",
   "onDragEnd",
   "onDragTransitionEnd",
+  "onDirectionLock",
   "onPanSessionStart",
   "onPanStart",
   "onPan",
   "onPanEnd",
 ] as const
 
-/** One of {@link GESTURE_CALLBACKS}. */
-type GestureCallback = (typeof GESTURE_CALLBACKS)[number]
+/**
+ * The keys most elements don't take, which a config with fixed keys reads only when given (#273): the
+ * gesture callbacks, and `dragDirectionLock`.
+ */
+const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock"] as const
+
+/** One of {@link RARE_KEYS}. */
+type RareKey = (typeof RARE_KEYS)[number]
 
 /**
  * Every motion prop the HOC consumes off the props object so it never leaks to
@@ -60,6 +67,7 @@ export const MOTION_PROPS = [
   "dragSnapToOrigin",
   "dragTransition",
   "dragPropagation",
+  "dragDirectionLock",
   "layout",
   "layoutDependency",
   "layoutId",
@@ -166,6 +174,8 @@ export interface WardicMotionProps {
    * `dragPropagation`). Only when `drag` is on.
    */
   readonly dragPropagation?: boolean
+  /** Motion's `dragDirectionLock` (#273; see `WardConfig`): each drag starts at its lock, on that axis alone. */
+  readonly dragDirectionLock?: boolean
   /**
    * Enable layout FLIP (ADR-0005). Under a `<LayoutGroup>` sibling reflow is
    * animated too; standalone, only this element's own size/`layoutDependency`
@@ -210,6 +220,7 @@ export interface WardicMotionProps {
   readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDragTransitionEnd?: () => void
+  readonly onDirectionLock?: (axis: "x" | "y") => void
   readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
   readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void
@@ -262,14 +273,15 @@ export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBA
  * is exactly how a Ward reads "no field".
  *
  * `fixedKeys`: `motion`'s keys stay as they are (it isn't a proxy over a reactive spread), so the
- * gesture callbacks it wasn't given are never read (#273). Without it, all are.
+ * rare keys it wasn't given (the gesture callbacks, `dragDirectionLock`) are never read (#273).
+ * Without it, all are.
  */
 export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Accessor<WardConfig> => {
-  // The gesture callbacks the element was given (#273), found once: the config is rebuilt at each
-  // read, and most elements take none. Keys that can change (a proxy's) are all read.
-  const gestures: ReadonlyArray<GestureCallback> = Bool.match(fixedKeys, {
-    onTrue: () => Arr.filter(GESTURE_CALLBACKS, (key) => key in motion),
-    onFalse: () => GESTURE_CALLBACKS,
+  // The rare keys the element was given (#273), found once: the config is rebuilt at each read, and
+  // most elements take none. Keys that can change (a proxy's) are all read.
+  const rare: ReadonlyArray<RareKey> = Bool.match(fixedKeys, {
+    onTrue: () => Arr.filter(RARE_KEYS, (key) => key in motion),
+    onFalse: () => RARE_KEYS,
   })
   return () => {
     const config: { -readonly [K in keyof WardConfig]: WardConfig[K] } = {}
@@ -326,10 +338,10 @@ export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Ac
     if (Predicate.isNotUndefined(layoutAnchor)) config.layoutAnchor = layoutAnchor
     if (Predicate.isNotUndefined(onAnimationStart)) config.onAnimationStart = onAnimationStart
     if (Predicate.isNotUndefined(onAnimationComplete)) config.onAnimationComplete = onAnimationComplete
-    if (Arr.isReadonlyArrayNonEmpty(gestures)) {
-      Arr.forEach(gestures, (key) => {
-        const callback = motion[key]
-        if (Predicate.isNotUndefined(callback)) (config as Record<GestureCallback, unknown>)[key] = callback
+    if (Arr.isReadonlyArrayNonEmpty(rare)) {
+      Arr.forEach(rare, (key) => {
+        const value = motion[key]
+        if (Predicate.isNotUndefined(value)) (config as Record<RareKey, unknown>)[key] = value
       })
     }
     if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart

@@ -28,6 +28,12 @@
 //   `onTap` nor `onTapCancel`, on the panned element or a card inside it; a wobble still taps.
 // - GC16: no hover starts while a pan is on.
 // - GC17: a pan callback set after mount starts the pan recognizer then, once.
+// - GC18 (direction lock): nothing before the lock; then `onDirectionLock`, `onDragStart` and `onDrag`
+//   at the lock, the element moving on that axis alone.
+// - GC19: a card that drags sideways in a sheet that drags down, both locked: each takes its own swipe,
+//   and the card's drag doesn't start on a vertical one (no `onDragStart`, no `whileDrag`).
+// - GC20: a locked drag leaves the axis it doesn't move where it is, even outside its constraints
+//   (ADR-0016, *Amendment (#140)*): it moves on its lock's axis alone.
 //
 // A callback that throws: error-reporting.browser.test.tsx.
 import { render } from "@solidjs/testing-library"
@@ -160,6 +166,7 @@ describe("Solid 1's gesture callbacks (#273)", () => {
         ref={ref}
         drag="x"
         dragMomentum={false}
+        onDirectionLock={(axis) => calls.push(`lock ${axis}`)}
         onDragStart={(e, info) => calls.push(seenDrag("start", e, info))}
         onDrag={(e, info) => calls.push(seenDrag("drag", e, info))}
         onDragEnd={(e, info) => calls.push(seenDrag("end", e, info))}
@@ -503,5 +510,103 @@ describe("Solid 1's gesture callbacks (#273)", () => {
     await mouse.down(c)
     await mouse.up(c)
     expect(calls).toEqual(["session", "session"])
+  })
+
+  it("GC18: nothing before the lock; then onDirectionLock, onDragStart and onDrag, on that axis alone", async () => {
+    const calls: Array<string> = []
+    const el = await mount((ref) => (
+      <wardic.div
+        ref={ref}
+        drag
+        dragDirectionLock
+        dragMomentum={false}
+        onDirectionLock={(axis) => calls.push(`lock ${axis}`)}
+        onDragStart={(_e, info) => calls.push(`start ${r(info.offset.x)},${r(info.offset.y)}`)}
+        onDrag={(_e, info) => calls.push(`drag ${r(info.offset.x)},${r(info.offset.y)}`)}
+        style={BOX}
+      />
+    ))
+    const box = el.getBoundingClientRect()
+    const c = centreOf(el)
+    await mouse.down(c)
+    await mouse.move(add(c, 4, 10))
+    await frames(2)
+    expect(calls, "10 px down: not locked yet").toEqual([])
+    expect(el.getBoundingClientRect().top, "unmoved").toBe(box.top)
+    await glide(add(c, 4, 10), add(c, 12, 40), 3)
+    await mouse.up(add(c, 12, 40))
+    await frames(2)
+    expect(calls.slice(0, 4)).toEqual(["lock y", "start 0,20", "drag 0,20", "drag 0,30"])
+    const after = el.getBoundingClientRect()
+    expect(r(after.top - box.top), "on y").toBe(40)
+    expect(after.left, "not on x").toBe(box.left)
+  })
+
+  it("GC19: a card that drags sideways in a sheet that drags down, both locked: each takes its own swipe", async () => {
+    const calls: Array<string> = []
+    let card!: HTMLElement
+    const sheet = await mount((ref) => (
+      <wardic.div ref={ref} drag="y" dragDirectionLock dragMomentum={false} onDragStart={() => calls.push("sheet start")} style={{ ...BOX, width: "200px", height: "160px" }}>
+        <wardic.div
+          ref={(n: HTMLElement) => (card = n)}
+          drag="x"
+          dragDirectionLock
+          dragMomentum={false}
+          whileDrag={{ opacity: 0.5 }}
+          onDragStart={() => calls.push("card start")}
+          style={{ width: "60px", height: "60px", background: "white" }}
+        />
+      </wardic.div>
+    ))
+    const sheetTop = sheet.getBoundingClientRect().top
+    const cardLeft = card.getBoundingClientRect().left
+    // Sideways: the card.
+    const k = centreOf(card)
+    await mouse.down(k)
+    await glide(k, add(k, 40, 3), 8)
+    await mouse.up(add(k, 40, 3))
+    await frames(4)
+    expect(calls).toEqual(["card start"])
+    expect(r(card.getBoundingClientRect().left - cardLeft)).toBe(40)
+    expect(sheet.getBoundingClientRect().top, "the sheet stays").toBe(sheetTop)
+    // Down, from the card: the sheet; the card's drag never starts, so no whileDrag either.
+    await until(() => Number(getComputedStyle(card).opacity) === 1, 2000)
+    expect(Number(getComputedStyle(card).opacity), "back from its own drag's whileDrag").toBe(1)
+    const k2 = centreOf(card)
+    const opacities: Array<number> = []
+    await mouse.down(k2)
+    for (const step of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      await mouse.move(add(k2, 2, step * 5))
+      opacities.push(Number(getComputedStyle(card).opacity))
+    }
+    await mouse.up(add(k2, 2, 40))
+    await frames(4)
+    expect(calls).toEqual(["card start", "sheet start"])
+    expect(r(sheet.getBoundingClientRect().top - sheetTop)).toBe(40)
+    expect(Math.min(...opacities), "no whileDrag on the card").toBe(1)
+  })
+
+  it("GC20: a locked drag leaves the axis it doesn't move where it is, even outside its constraints", async () => {
+    const el = await mount((ref) => (
+      <wardic.div
+        ref={ref}
+        drag
+        dragDirectionLock
+        dragMomentum={false}
+        dragConstraints={{ x: { min: -100, max: 100 }, y: { min: 0, max: 0 } }}
+        initial={{ y: 80 }}
+        animate={{ y: 80 }}
+        style={BOX}
+      />
+    ))
+    const box = el.getBoundingClientRect()
+    const c = centreOf(el)
+    await mouse.down(c)
+    await glide(c, add(c, 40, 2), 8)
+    await mouse.up(add(c, 40, 2))
+    await frames(4)
+    const after = el.getBoundingClientRect()
+    expect(r(after.left - box.left), "on x").toBe(40)
+    expect(after.top, "y stays at 80, outside its constraints").toBe(box.top)
   })
 })

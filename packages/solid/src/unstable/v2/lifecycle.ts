@@ -77,6 +77,11 @@ export interface WardEvents {
   readonly tapCancel: WardPointInfo
   /** A drag of the element started, past its threshold (Motion's `onDragStart`). */
   readonly dragStart: WardDragInfo
+  /**
+   * With `dragDirectionLock`, the axis a drag locked to, at its start, before its `dragStart`
+   * (Motion's `onDirectionLock`, #273).
+   */
+  readonly directionLock: "x" | "y"
   /** That drag moved: its start and each move after (Motion's `onDrag`, #273). */
   readonly drag: WardDragInfo
   /** That drag ended at its release (Motion's `onDragEnd`). */
@@ -241,8 +246,12 @@ export class Lifecycle implements AnimationHooks {
     this.tell(name, () => pointInfoOf(press.event))
   }
 
-  /** A drag's sample (#257, #273): its start, each move (its start among them) and its end are told. */
-  dragged(sample: Drag.Sample): void {
+  /**
+   * A drag's sample (#257, #273): its start, each move (its start among them) and its end are told;
+   * a direction-locked one's (`locked`) lock first, at its start.
+   */
+  dragged(sample: Drag.Sample, locked: boolean): void {
+    if (Bool.and(locked, sample.phase === "start")) this.tell("directionLock", () => sample.axis as "x" | "y")
     this.moved(DRAG_EVENT[sample.phase], "drag", sample)
   }
 

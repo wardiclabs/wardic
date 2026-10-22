@@ -277,6 +277,15 @@ export interface WardConfig {
    * Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
    */
   readonly dragPropagation?: boolean
+  /**
+   * Motion's `dragDirectionLock` (#273, ADR-0047): each drag waits until it has moved 10 px on one
+   * axis (y checked first), then drags on that axis alone, and claims only it, so a parent that drags
+   * the other axis keeps the gesture (a card you swipe sideways inside a sheet you drag down). Until
+   * then nothing has started: `onDragStart` and `whileDrag` come at the lock, after `onDirectionLock`.
+   * A one-axis drag locked the other way doesn't start. Motion's drag starts at 3 px, claiming both
+   * axes, and locks after. Static config (LOW-3): read ONCE at mount.
+   */
+  readonly dragDirectionLock?: boolean
   /** Primitive selector + options (default spring). */
   readonly transition?: WardicTransition
   /**
@@ -374,6 +383,8 @@ export interface WardConfig {
   readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
   /** The drag's release came to rest on its own: its momentum or its spring back, or at once in place. Not one a grab stopped. */
   readonly onDragTransitionEnd?: () => void
+  /** With `dragDirectionLock`, the axis a drag locked to, at its start, before `onDragStart` (Motion's). */
+  readonly onDirectionLock?: (axis: "x" | "y") => void
   /**
    * A pan's session began: a primary pointer went down on the element (Motion's pan). A pan moves
    * nothing; once started, it counts as a drag for the element's press and hover: a press it took

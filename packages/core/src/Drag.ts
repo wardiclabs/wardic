@@ -33,6 +33,8 @@ import type * as Point from "./Point.ts"
  *   the screen (#257).
  * - `raw`: the platform's own event behind it (`InputSource.PointerLikeEvent.raw`, #273),
  *   opaque to core: a binding hands it to an app's drag callback.
+ * - `axis`: the axes the gesture moves on, read at its start (#273): its drag's axis, or a
+ *   direction-locked drag's lock. A pan's are both.
  */
 export interface Sample {
   readonly point: Point.Point
@@ -43,6 +45,7 @@ export interface Sample {
   readonly timeStamp: number
   readonly scroll: Point.Point
   readonly raw?: unknown
+  readonly axis: Axis
 }
 
 /**
