@@ -492,3 +492,9 @@ Grilled 2026-10-17 (A, A):
 
 On main, the equivalents of the hand-off, the expiry and the twin-leaver mutations all survived the existing tests. The first had no equivalent, since separate maps couldn't mix twins and plain nodes; LV1–LV3 now pin it.
 
+
+## Note (#286, 2026-10-22): a presence take-over at a node's first measure
+
+A keyed presence child back while its leaver exits takes over from it (ADR-0048, *Keys*), and the projection meets it at the new node's first measure:
+- **A take-over branch** comes between the crossfade and the Switch. A node registered with `enteredFrom` (its leaver's box as painted, in the Root frame, `rootBoxOf`) moves from there as a layout change: rebased and drawn as a Switch seed is, but with no handover, as nothing else is drawn there.
+- **A keyed twin back while it crossfades out:** `dropLeaver` ends its leaving Follower at once (`finishLeaver`) and returns the factor it had faded to. The new Lead's crossfade from the prior Lead then fades from there (`fadeFrom`), not from 0, as Motion's same element would go on (ADR-0048, Q8: D). Leads and Followers are decided as before.

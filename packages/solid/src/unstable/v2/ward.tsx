@@ -672,6 +672,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       registrar.register(record)
       return record
     })
+    // Where it starts when its child takes over from a leaver (#286): asked before its layout node
+    // registers, which moves from the leaver's box, and before its first Retarget.
+    const taken = presenceSeedOf(presence, el)
     // Its one projection node (ADR-0009, ADR-0010), whose own `x`/`y` the projection then owns (ADR-0016).
     // Its layout animations' starts and landings, and its drag's release at rest, go to the lifecycle,
     // for `next("layoutStart")`, `next("layoutComplete")` and `next("dragTransitionEnd")` (#257, #273):
@@ -683,7 +686,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         const released = (): void => lifecycle.released()
         return projection.register(
           registrationOf({
-            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
+            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken }),
             onLayoutAnimationStart: () => started,
             onLayoutAnimationComplete: () => completed,
             // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
@@ -762,7 +765,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       animation: lifecycle,
     })
     // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
-    if (Predicate.isNotUndefined(presence)) UndefinedOr.map(presenceSeedOf(presence, el), spine.seed)
+    if (Predicate.isNotUndefined(taken)) spine.seed(taken)
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
     const m: Mounted = {

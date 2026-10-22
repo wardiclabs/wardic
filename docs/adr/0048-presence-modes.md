@@ -286,10 +286,22 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
    - **Duplicate keys:** a new node takes over from the latest leaver with its key, and the others keep exiting.
    - **Back after its leaver went:** there's nothing to take over, so it enters as a new child.
    - **A child replaced in the same change** (a list rebuilt from fresh objects with the same keys) takes over too, at once. Its old node never starts an exit, and its hooks aren't told it left. Motion keeps an element whose key stays.
-   - **A keyed twin (`layoutId`):** the key wins, and the leaver goes at once with no crossfade, as Motion's reused element never crossfades with itself. This comes with PR 2: until then, a crossfading leaver is the projection's, and isn't taken over.
+   - **A keyed twin (`layoutId`) back while it crossfades out:** item 9 (PR 2). This default first said "the key wins, with no crossfade", which isn't what Motion does: it was withdrawn when grilled.
    - **Velocity** comes from the leaver's frames, per key, whatever its exit runs on, as Motion's values track it: a spring's from its frames, a tween's measured over each step's `dt`. A leaver taken over in the change it left in carries its own animation's velocities.
    - **Under reduced motion,** the new node's turn-around follows its own rule.
    - **The leaver's own work stops with it:** its exit, the exits inside it, the twins it handed back, and a `usePresence` hold.
+
+9. **A keyed `layoutId` twin back while it crossfades out** (Q8: D, PR 2, grilled after checking what Motion does). A modal (`key` and `layoutId` `"card"`) closing into its list item, and reopened before that crossfade ends.
+   - **Motion** (`MeasureLayout.tsx`, `projection/shared/stack.ts` at `16c6122`):
+     - At the close, `relegate()` promotes the list item, with `resumeFrom` the modal, and the modal fades out as a follower.
+     - At the reopen, it's the same modal element, so `isPresent` turns `true` again, and `promote()` makes it lead once more. `NodeStack.promote` snapshots the list item where it paints now, and hands that snapshot to the modal as its `resumeFrom`.
+     - So the modal crossfades from where the list item paints, fading back in from its opacity, and the list item fades out. One modal is on screen throughout.
+   - **Wardic:**
+     - The new modal registers under the `layoutId`, and its first measure crossfades from the prior Lead's painted box (ADR-0010 *Amendment (#170)*), which is the list item's, as before.
+     - The take-over ends the old modal's leaving Follower at once, uncompleted, and the new modal's handover fades on from the factor that Follower had faded to (`fadeFrom`), not from 0.
+     - The list item fades out from where it was, as at any interrupted crossfade (#5).
+     - The Lead and Follower rules are unchanged.
+   - Rejected: B, as before (the old modal fades out over the new one, which fades in from 0: two modals); A, the default as first stated (no crossfade, the list item hidden at once), which isn't Motion's.
 
 ## Built (#286 PR 1)
 
@@ -305,8 +317,18 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
   - They're drawn at the end of the task (`flushPass`). That's still before any paint, but outside the mount effect, where the first commit's Starting-style switch would flush Solid 2 inside an effect.
   - So the first Retarget starts from the leaver, and tells one start.
 
+## Built (#286 PR 2)
+
+- **Where a leaver painted** is read as its take-over is found (`shown`, before the change moves anything), for it and each Wardic element inside it: `ProjectionSystem.rootBoxOf`. That's its box as it paints, transforms included, in the Root frame, the frame a Switch seed is in. The browser may move the scroll as the leaver goes (scroll anchoring), and the Root frame carries that (KL7).
+- **The seed carries it** (`box`), and a ward reads its seed before its layout node registers, which takes it as `enteredFrom`.
+- **The node's first measure moves from there** (the projection's take-over branch), as a layout change with no handover. It's rebased into the node's Scroll-stable frame and drawn there on its first frame, its own scale divided out, as a Switch seed is (ADR-0010 *Amendments (#13)*, *(#8)*). A live twin to crossfade from comes first, and the take-over comes before a Switch seed.
+- **A keyed twin crossfading out** is noted under its key too.
+  - At its take-over, the presence ends its exit (uncompleted), and `ProjectionSystem.dropLeaver` ends its leaving Follower at once (`finishLeaver`), returning the factor it had faded to.
+  - The seed carries that (`fade`), and the new node registers with it as `fadeFrom`. The handover its first measure begins fades from there.
+
 ## Consequences
 
+- **#286 PR 2:** `ProjectionSystem.rootBoxOf` and `dropLeaver`, and `RegisterNodeOptions.enteredFrom` and `fadeFrom`. A layout node registers through one more guard; nothing else changes without a take-over. On `bench:solid` (N = 1,000, against main `8b8417b`, control −1.5%): Solid 1's Retarget −1.8% warm, mount +0.1%, bytes +0.0%; Solid 2's Retarget +1.2% warm, mount −0.3%, bytes −0.2%.
 - **#286 PR 1:** `key` on both bindings' Wardic elements and `use:wardic`. Without a key, nothing changes. Under a presence, each Wardic element's ref tells the presence it was made (a WeakMap entry), and each mount asks for a seed (a WeakMap lookup). Outside a presence, nothing is made or asked: on `bench:solid` (N = 1,000, no presence on the page, against main `b85b742`, control +0.7%), Solid 1's Retarget read −0.7% warm and −4.5% cold, mount −0.6%, bytes −0.1%; Solid 2's Retarget +0.6% warm, mount −0.1%, bytes −0.1%.
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
@@ -347,6 +369,23 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **#286 PR 2, solid (Solid 1):** `test/presence-key-layout.browser.test.tsx` KL1–KL7, each read just after its paint:
+  - a `layout` item back elsewhere gliding from where its leaver painted;
+  - without `layout`, at its own place;
+  - in its own place, nothing moving;
+  - from a `popLayout` leaver's box;
+  - an inner `layout` element moved within its row, starting where its pair was;
+  - a keyed twin back mid-crossfade: its Follower gone, uncompleted, the fade on from where it was;
+  - a scrolled page, in the page's coordinates.
+- **#286 PR 2, solid (Solid 2):** `test/v2/presence-key.browser.test.tsx` KV4: the glide.
+- **#286 PR 2 mutation-checked:** thirteen single-point mutations, each caught:
+  - no take-over move;
+  - the box dropped by the registration, either binding, or the layout options;
+  - no boxes, or none inside (KL5, once its badge moved within its row);
+  - the Root frame without the scroll;
+  - crossfading leavers not keyed;
+  - the Follower not dropped, or completed;
+  - the fade from 0 (KL6, once read at the first paint) or from 1.
 - **#286 PR 1, solid (Solid 1):** `test/presence-key.browser.test.tsx` PK1–PK17:
   - Motion's case: one node at once, drawn where the leaver was, then at its `animate`;
   - a spring's velocity carried over, and a tween's measured one into a spring;

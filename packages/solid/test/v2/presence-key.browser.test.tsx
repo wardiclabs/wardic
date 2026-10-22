@@ -4,11 +4,12 @@
 // - KV1: back mid-exit: one node at once, from where the leaver was drawn, then at its animate.
 // - KV2: `mode="wait"` doesn't hold a child back under its key.
 // - KV3: the presence's handle: `exiting()` off at the take-over, and no `exitComplete`.
+// - KV4 (#286's PR 2): a `layout` item back elsewhere in the list glides from where the leaver painted.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createPresence, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { afterPaint, paintedFrames, raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const EXIT = { type: "tween", duration: 0.4 } as const
@@ -141,5 +142,52 @@ describe("AnimatePresence key on Solid 2 (#286)", () => {
     expect(presence.exiting(), "off at the take-over").toBe(false)
     await frames(40)
     expect(completed, "no completion").toBe(false)
+  })
+
+  it("KV4: a layout item back elsewhere in the list glides from where the leaver painted", async () => {
+    const SLOW = { type: "tween", duration: 0.6 } as const
+    const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <ul style={{ margin: "0", padding: "0", "list-style": "none" }}>
+          <AnimatePresence>
+            <For each={items()}>
+              {(id) => (
+                <wardic.li
+                  key={id}
+                  layout
+                  data-item={id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={SLOW}
+                  style={{ display: "block", height: "30px", margin: "0" }}
+                >
+                  {id}
+                </wardic.li>
+              )}
+            </For>
+          </AnimatePresence>
+        </ul>
+      </WardicProvider>
+    ))
+    const node = (id: string): HTMLElement => host.querySelector<HTMLElement>(`[data-item="${id}"]`)!
+    const topOf = (el: Element): number => el.getBoundingClientRect().top
+    await until(() => opacityOf(node("c")) >= 0.99, 3000)
+    const leaver = node("b")
+    setItems(["a", "c"])
+    flush()
+    await until(() => opacityOf(leaver) < 0.7 && opacityOf(leaver) > 0.3, 3000)
+    await afterPaint()
+    const top = topOf(leaver)
+    setItems(["a", "c", "b"])
+    flush()
+    await endOfTask()
+    expect(leaver.isConnected).toBe(false)
+    const back = node("b")
+    const painted = await paintedFrames(back, 2)
+    expect(Math.abs(painted[0]!.top - top), "first painted where the leaver was").toBeLessThan(3)
+    await until(() => Math.abs(topOf(back) - topOf(node("c")) - 30) < 0.5, 3000)
+    expect(topOf(back) - topOf(node("c")), "then under c").toBeCloseTo(30, 0)
   })
 })
