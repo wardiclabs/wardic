@@ -254,6 +254,13 @@ export interface WardConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
   /**
+   * Which child of an `<AnimatePresence>` this element is (#286, ADR-0048, Motion's `key`): a child
+   * back while one with its key is still exiting takes over from it, starting where it is drawn,
+   * and the leaver goes at once. Only on the presence's child itself (its root element); anywhere
+   * else, it does nothing. Read once. Never written to the DOM.
+   */
+  readonly key?: string | number
+  /**
    * `false` keeps an element with `variants` out of its ancestors' variants (#50, Motion's
    * `inherit`): it inherits no names, takes no stagger slot, and hands its children no names
    * from above it. By default a Variant child (`variants`, no `initial` or `animate` name of

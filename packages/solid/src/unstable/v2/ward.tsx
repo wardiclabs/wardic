@@ -79,7 +79,7 @@ import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
-import { presenceBlocksInitial, presenceHold } from "../../presence-record.ts"
+import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
   appearEntryOf,
@@ -95,6 +95,7 @@ import {
   exitTargetOf,
   presenceTreeOf,
   NO_EXIT_CONFIG,
+  madeWith,
   presenceRecordOf,
   recordFrameOf,
   registryOf,
@@ -192,6 +193,7 @@ const WARD_KEYS = [
   "onUpdate",
   "appear",
   "style",
+  "key",
 ] as const satisfies ReadonlyArray<keyof WardConfigValues>
 /** Types only: a key `WardConfigValues` gains and {@link WARD_KEYS} misses fails here. */
 type UnreadKey = Exclude<keyof WardConfigValues, (typeof WARD_KEYS)[number]>
@@ -666,7 +668,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
-      const record = presenceRecordOf(el, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig))
+      const record = presenceRecordOf(el, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot)
       registrar.register(record)
       return record
     })
@@ -759,6 +761,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       handoff,
       animation: lifecycle,
     })
+    // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
+    if (Predicate.isNotUndefined(presence)) UndefinedOr.map(presenceSeedOf(presence, el), spine.seed)
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
     const m: Mounted = {
@@ -873,10 +877,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     return accessor
   }
 
-  // The ward: a ref, and its own props.
+  // The ward: a ref, and its own props. Under a presence, its element is told to it as it's made
+  // (#286): its `key`, and whether it's a twin.
+  const setMade = madeWith(presence, setElement, initialConfig)
   const self = ((value?: unknown): Ward | undefined => {
     if (isElement(value)) {
-      setElement(value)
+      setMade(value)
       return undefined
     }
     return self

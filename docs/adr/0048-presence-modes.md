@@ -253,8 +253,61 @@ Motion's `propagate` (`AnimatePresence/index.tsx` at `16c6122`): a nested presen
   - **If not,** the teardown runs then, as before. Without `propagate`, or with no presence above, the teardown runs at its disposal, unchanged.
 - **Both bindings:** `propagate` on `<AnimatePresence>`, read before the presence provides its own context, so the presence above is its parent's.
 
+## Keys (grilled 2026-10-22, #286)
+
+Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx` at `16c6122`). A child whose key comes back while it exits is the same element: `isPresent` turns `true` again, its exit stops, and it animates to its `animate` from its values and velocity as they are. The whole subtree is reused. No `onExitComplete` is told for it, and none comes at all if it was the last leaver, as the check runs only when an exit completes. PR 1 made a Wardic child its DOM node (*Many children*, Q2: C), so a child back mid-exit was a new node entering beside its leaver.
+
+1. **`key` on the Wardic element** (Q1: A). It's Motion's spelling, so ported code works as-is.
+   - It counts only on the presence's child itself (its root element, which may be a component's). Anywhere else, it does nothing.
+   - It's read once, and never written to the DOM, on the server either. Solid's compiler gives `key` no meaning of its own.
+   - A plain child can't be keyed, and keeps PR 1's rule.
+   - Rejected: B, `presenceKey` (every port renames `key`); C, `<AnimatePresence keyOf={(node) => …}>` (any child, but the key goes through a `data-*` attribute, far from the item's data).
+2. **The take-over** (Q2: A). The leaver goes at once, and the new node starts where the leaver is drawn: each key's value and velocity. It animates to its own `animate` on its own transition.
+   - A key the leaver doesn't draw starts from the new node's `initial`, as any entering element's does.
+   - The content is the new node's. Motion's reused element shows its new props, so the visible result is the same.
+   - Rejected: B, the new node entering from its `initial` (it snaps back); C, the leaver crossfading over it (two nodes again).
+3. **The Wardic elements inside pair in document order** (Q3: A). The i-th inside the new child takes over from the i-th inside the leaver, when the two hold as many and each pair has the same tag. Otherwise only the child itself takes over.
+   - Rejected: B, a `key` on each inner element (ceremony Motion code doesn't have); C, the child alone (its icon snaps back).
+4. **Coming back somewhere else** (Q4: A, Motion's): with `layout`, the new node animates from the leaver's box to its own place. Without it, the new node is drawn in its own place, its values taken over.
+   - The siblings close the leaver's gap as at any leave.
+   - Rejected: B, its own place always (a jump across the list); C, a take-over only in the leaver's place.
+5. **Events and hooks** (Q5: A, Motion's): a take-over ends the leaver's exit without completing it.
+   - `onExitComplete` / `next("exitComplete")` aren't told for it. They come once the other leavers complete, or not at all if it was the last.
+   - `exiting()` turns off with the last.
+   - The leaver's hooks are dropped, as at a teardown.
+   - The new node has its own hooks, and its own `onAnimationStart` / `settled()` for the `animate` it turns to, once.
+   - Rejected: B, counting it as a completion (an app's "it's gone" would fire with the item back); C, a new reenter event.
+6. **Every mode** (Q6: A, Motion's).
+   - Under `wait`, a child back under its key is never held, and the children held go in once no leaver is left.
+   - Under `popLayout`, the new node is in the flow, and with `layout` glides from the popped leaver's box.
+   - Rejected: B, `wait` holding it; C, keys in the default mode only.
+7. **Two PRs** (Q7: A). PR 1 is the key and the value take-over on both bindings. PR 2 is the layout take-over (Q4): the new node's first box from the leaver's, in `@wardic/dom`'s projection.
+8. **Defaults stated, not asked:**
+   - **Duplicate keys:** a new node takes over from the latest leaver with its key, and the others keep exiting.
+   - **Back after its leaver went:** there's nothing to take over, so it enters as a new child.
+   - **A child replaced in the same change** (a list rebuilt from fresh objects with the same keys) takes over too, at once. Its old node never starts an exit, and its hooks aren't told it left. Motion keeps an element whose key stays.
+   - **A keyed twin (`layoutId`):** the key wins, and the leaver goes at once with no crossfade, as Motion's reused element never crossfades with itself. This comes with PR 2: until then, a crossfading leaver is the projection's, and isn't taken over.
+   - **Velocity** comes from the leaver's frames, per key, whatever its exit runs on, as Motion's values track it: a spring's from its frames, a tween's measured over each step's `dt`. A leaver taken over in the change it left in carries its own animation's velocities.
+   - **Under reduced motion,** the new node's turn-around follows its own rule.
+   - **The leaver's own work stops with it:** its exit, the exits inside it, the twins it handed back, and a `usePresence` hold.
+
+## Built (#286 PR 1)
+
+- **Each Wardic element under a presence tells it it was made,** as its element is made (`made`, from its ref, and from `use:wardic`): its `key`, read once, and whether it's a twin. A child's key is then known before the presence decides what goes on the page, so `wait` doesn't hold it, and before its wards mount, so the elements inside pair.
+- **A keyed leaver** is noted by its key as its exit starts, the latest under each key. While none is, a change looks for nothing.
+- **Each exit keeps where it's drawn:** its values (the `drawn` map the projection reads), and each key's velocity. A spring leg's comes from its frames; a blend leg's machine is wrapped to measure its numeric keys over each step's `dt` (`measuredInto`), 0 once it settles; a snap's is 0. A record also reads its spine's velocities, for a leaver taken over in the change it left in.
+- **Finding a take-over** (`shown`, before the mode decides): a child new on the page whose key is a leaver's, or a keyed child's leaving in the same change.
+- **Doing it** (`settleTakeovers`, at the first of the child's wards' mounts, or the presence's next look):
+  - Each of the child's Wardic elements gets a seed: the child itself the leaver's drawn values and velocities, and those inside their pairs' (`madeWithin`, `partsOf`, `sameShape`).
+  - The leaver goes. An exiting one through `interruptExit`, uncompleted. One leaving in the same change is never retained, and its records and hooks are dropped.
+- **The ward reads its seed at its mount, before its first Retarget** (`takeOverOf`, `spine.seed`):
+  - The values and velocities go into its Snapshot, and each key into the keys it drove, so one no layer sets returns to its Base value from there.
+  - They're drawn at the end of the task (`flushPass`). That's still before any paint, but outside the mount effect, where the first commit's Starting-style switch would flush Solid 2 inside an effect.
+  - So the first Retarget starts from the leaver, and tells one start.
+
 ## Consequences
 
+- **#286 PR 1:** `key` on both bindings' Wardic elements and `use:wardic`. Without a key, nothing changes. Under a presence, each Wardic element's ref tells the presence it was made (a WeakMap entry), and each mount asks for a seed (a WeakMap lookup). Outside a presence, nothing is made or asked: on `bench:solid` (N = 1,000, no presence on the page, against main `b85b742`, control +0.7%), Solid 1's Retarget read −0.7% warm and −4.5% cold, mount −0.6%, bytes −0.1%; Solid 2's Retarget +0.6% warm, mount −0.1%, bytes −0.1%.
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
 - **PR 5c:** `propagate` on both bindings' `<AnimatePresence>`. Without it, nothing changes. With it, a nested presence holds its parent's leaving child for its own children's exits.
@@ -294,6 +347,34 @@ Motion's `propagate` (`AnimatePresence/index.tsx` at `16c6122`): a nested presen
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **#286 PR 1, solid (Solid 1):** `test/presence-key.browser.test.tsx` PK1–PK17:
+  - Motion's case: one node at once, drawn where the leaver was, then at its `animate`;
+  - a spring's velocity carried over, and a tween's measured one into a spring;
+  - a Variant child inside paired, and a different shape leaving the inside to enter as its own;
+  - no `onExitComplete`;
+  - `mode="wait"` not holding it, and `popLayout`'s new node in the flow;
+  - a list rebuilt in one change with the same keys, nothing exiting;
+  - a `usePresence` hold not keeping the leaver;
+  - two leavers under one key;
+  - a key inside the child doing nothing;
+  - `key` kept off the DOM;
+  - back after the leaver went;
+  - a leaver's key returning to its Base value;
+  - one `onAnimationStart`;
+  - `use:wardic`'s `key`.
+- **#286 PR 1, solid (Solid 2):** `test/v2/presence-key.browser.test.tsx` KV1–KV3, under the diagnostics gate: the take-over, `mode="wait"`, and the handle's `exiting()` with no `exitComplete`.
+- **#286 PR 1 mutation-checked:** twenty-three single-point mutations, each caught:
+  - no take-over found, or the same change's not found;
+  - the seed's values, velocities or returns dropped, or never drawn;
+  - a blend's velocity not measured, or a spring's not kept;
+  - the inside never paired, or any shape paired;
+  - `wait` holding it;
+  - the leaver not ended, or completed;
+  - the same change's old node exiting;
+  - the first leaver under a key kept;
+  - the key never told (each binding's ward, `use:wardic`, or at all), or written to the DOM;
+  - the exit's drawn values ignored;
+  - each binding's seed not read.
 - **PR 5c, solid (Solid 1):** `test/presence-propagate.browser.test.tsx` PG1–PG10:
   - Motion's case, the inner exit holding the outer child;
   - without `propagate`, the inner child untouched;

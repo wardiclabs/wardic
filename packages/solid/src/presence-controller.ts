@@ -28,6 +28,7 @@ import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Stagger from "@wardic/core/Stagger"
+import * as Velocity from "@wardic/core/Velocity"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
@@ -43,7 +44,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import type { PresenceContextValue, PresenceExit, PresenceRecord, PresenceTree, PresenceWatch } from "./presence-record.ts"
+import type { PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
 import { type Leg, legsOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
@@ -95,16 +96,98 @@ const delayedBy = (transition: WardicTransition | undefined, delay: number): War
 /** No velocities: an exit starts each key at rest, as it did on its own spring. */
 const NO_VELOCITIES: Readonly<Record<string, number>> = {}
 
-/** One leg of an exit (#277), as the spine runs a Retarget's, committing onto the retained `el`. */
-const exitRunOf = (leg: Leg, el: HTMLElement, commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>): Effect.Effect<unknown, never, WardicServices> => {
+/** Where an element is drawn (#286): its values, and each numeric key's velocity. */
+type Drawn = PresenceSeed
+
+/** A Wardic element made under a presence (#286): its `key`, if it has one, and whether it's a twin. */
+interface Made {
+  readonly key: string | number | undefined
+  readonly twin: boolean
+}
+
+/** Whether two lists of elements have the same shape (#286): as many, each pair the same tag. */
+const sameShape = (a: ReadonlyArray<Element>, b: ReadonlyArray<Element>): boolean =>
+  Bool.and(a.length === b.length, Arr.every(Arr.zip(a, b), ([x, y]) => x.tagName === y.tagName))
+
+/**
+ * Each numeric key's velocity from a step's frame (#286): its change since the step before, over
+ * the step's `dt` (seconds), and 0 once the frame settles. A key's first step sets nothing.
+ */
+const measure = (velocities: Record<string, number>, last: Record<string, number>, frame: Frame.Frame<Values.Values>, dt: number): void => {
+  Arr.forEach(Rec.keys(frame.value), (key) => {
+    const now = frame.value[key]
+    if (Predicate.isString(now)) return
+    const before = last[key]
+    last[key] = now
+    if (frame.done) {
+      velocities[key] = 0
+      return
+    }
+    if (Predicate.isUndefined(before)) return
+    if (dt <= 0) return
+    velocities[key] = Velocity.between(before, now, dt)
+  })
+}
+
+/** A blend's machine, its numeric keys' velocities measured each step (#286): a tween's frames carry none. */
+const measuredInto =
+  (velocities: Record<string, number>) =>
+  (machine: Machine.Machine<Frame.Frame<Values.Values>>): Machine.Machine<Frame.Frame<Values.Values>> =>
+    Machine.make({
+      settles: machine.settles,
+      span: machine.span,
+      start: () => {
+        const step = machine.start()
+        const last: Record<string, number> = {}
+        return (dt) => {
+          const frame = step(dt)
+          measure(velocities, last, frame, Math.min(dt, Machine.MAX_DT))
+          return frame
+        }
+      },
+    })
+
+/**
+ * One leg of an exit (#277), as the spine runs a Retarget's, committing onto the retained `el`. Each
+ * key's velocity goes into `velocities` (#286): a spring's from its frames, a blend's measured, a
+ * snap's 0, so a child back under its key starts with it.
+ */
+const exitRunOf = (
+  leg: Leg,
+  el: HTMLElement,
+  commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>,
+  velocities: Record<string, number>,
+): Effect.Effect<unknown, never, WardicServices> => {
   if (leg._tag === "Blend") {
-    return Effect.suspend(leg.machine).pipe(InterpolatorRegistry.withKeyRules([Variables.values(el)]), Effect.flatMap(Machine.run(commitFrame)))
+    return Effect.suspend(leg.machine).pipe(
+      InterpolatorRegistry.withKeyRules([Variables.values(el)]),
+      Effect.map(measuredInto(velocities)),
+      Effect.flatMap(Machine.run(commitFrame)),
+    )
   }
   if (leg._tag === "Follow") {
     const key = leg.key
-    return Effect.suspend(() => leg.machine().pipe(Machine.run((frame) => commitFrame({ ...frame, value: { [key]: frame.value } }))))
+    return Effect.suspend(() =>
+      leg.machine().pipe(
+        Machine.run((frame) => {
+          velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
+          return commitFrame({ ...frame, value: { [key]: frame.value } })
+        }),
+      ))
   }
-  return Effect.suspend(() => (leg.machine() as Machine.Machine<Frame.Frame<Values.Values>>).pipe(Machine.run(commitFrame)))
+  if (leg._tag === "Numbers") {
+    return Effect.suspend(() =>
+      leg.machine().pipe(
+        Machine.run((frame) => {
+          Object.assign(velocities, frame.velocity)
+          return commitFrame(frame)
+        }),
+      ))
+  }
+  Arr.forEach(leg.keys, (key) => {
+    velocities[key] = 0
+  })
+  return Effect.suspend(() => leg.machine().pipe(Machine.run(commitFrame)))
 }
 
 /** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
@@ -357,6 +440,21 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const pops = new Map<HTMLElement, PopBox>()
   let popped = false
 
+  // Keys (#286, ADR-0048): each Wardic element made under this presence, told as it's made, so a
+  // child's key is known before what goes on the page is decided.
+  const made = new WeakMap<Element, Made>()
+  // The latest child exiting under each key: a child back under it takes over from that one.
+  const keyedLeavers = new Map<string | number, HTMLElement>()
+  // What each element exiting has drawn, kept by its exit's frames.
+  const draws = new Map<HTMLElement, Drawn>()
+  // The children entering now that take over from a leaver, each with that leaver: taken over at
+  // the first of their wards' mounts, or the presence's next look, whichever comes first.
+  const takeovers = new Map<HTMLElement, HTMLElement>()
+  // Where each Wardic element in a child that took over starts: read once, at its mount.
+  const seeds = new WeakMap<Element, Drawn>()
+  // Whether any keyed element was made: until then, no change looks for a take-over.
+  let keyed = false
+
   /** A child's exit starts: told, and `exiting` turns on with the first. */
   const leaveStarts = (el: HTMLElement): void => {
     leaving.add(el)
@@ -414,6 +512,16 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
         starts.delete(el)
       }
     },
+    made: (el, key, twin) => {
+      made.set(el, { key, twin })
+      if (Predicate.isNotUndefined(key)) keyed = true
+    },
+    takeOverOf: (el) => {
+      settleTakeovers()
+      const seed = seeds.get(el)
+      seeds.delete(el)
+      return seed
+    },
   }
 
   // Commit a projected value-map onto a retained node via the Renderer.
@@ -427,6 +535,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const finishExit = (el: HTMLElement, completed = true): void => {
     exiting.delete(el)
     registry.delete(el)
+    draws.delete(el)
+    // No longer one a child back under its key takes over from (#286).
+    UndefinedOr.map(keyOf(el), (key) => {
+      if (keyedLeavers.get(key) === el) keyedLeavers.delete(key)
+    })
     pending.delete(el)
     handovers.delete(el)
     places.delete(el)
@@ -438,6 +551,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // The elements inside it that exited with it go with it (#290): their records, and their values.
     Arr.forEach(UndefinedOr.match(exitParts.get(el), { onUndefined: () => NO_PARTS, onDefined: identity }), (part) => {
       registry.delete(part)
+      draws.delete(part)
       UndefinedOr.map(exitValues.get(part), (unregisterPart) => unregisterPart())
       exitValues.delete(part)
     })
@@ -481,6 +595,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // it, then runs its own exit, and goes once both have ended.
   const leave = (rec: PresenceRecord, custom: unknown, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
     const el = rec.element
+    // A keyed one is what a child back under its key takes over from (#286), the latest the one.
+    UndefinedOr.map(keyOf(el), (key) => keyedLeavers.set(key, el))
     const drop = projection.handBackWithin(el, () => partDone(el))
     // Its parts: its exit, each hook holding it (#277's PR 5b), and the handovers of the twins it hands back.
     pending.set(el, 1 + holds)
@@ -604,13 +720,16 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const drawn: Values.Values = { ...from }
     UndefinedOr.map(exitValues.get(el), (unregister) => unregister())
     exitValues.set(el, projection.registerValues(el, () => drawn))
+    // And how fast each key moves (#286): a child back under its key starts with it.
+    const velocities: Record<string, number> = {}
+    draws.set(el, { values: drawn, velocities })
     const commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>> = (frame) => {
       Object.assign(latest, frame.value)
       commitValues(el, latest)
       Object.assign(drawn, latest)
       return undefined
     }
-    return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame)), { concurrency: "unbounded", discard: true })
+    return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })
   }
 
   // The children present at the last change, and where each was, to retain one as it leaves.
@@ -745,12 +864,109 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     })
   }
 
+  // --- Keys (#286, ADR-0048) ------------------------------------------------
+
+  /** An element's `key`, told as it was made: `undefined` for one with none, or not a Wardic element. */
+  const keyOf = (el: Element): string | number | undefined => UndefinedOr.map(made.get(el), (m) => m.key)
+
+  /**
+   * Where a Wardic element is drawn: what its exit has drawn, if it's exiting, over its last values;
+   * else its last values, at the velocities its own animation left them.
+   */
+  const drawnOf = (rec: PresenceRecord): Drawn =>
+    UndefinedOr.match(draws.get(rec.element), {
+      onUndefined: (): Drawn => ({
+        values: { ...rec.snapshot.current },
+        velocities: UndefinedOr.match(rec.velocities, { onUndefined: () => NO_VELOCITIES, onDefined: (of) => ({ ...of() }) }),
+      }),
+      onDefined: (drawn): Drawn => ({ values: { ...rec.snapshot.current, ...drawn.values }, velocities: { ...drawn.velocities } }),
+    })
+
+  /** The Wardic elements made under this presence inside `el`, in document order, but the twins (#181). */
+  const madeWithin = (el: HTMLElement): ReadonlyArray<Element> =>
+    Arr.filter(Arr.fromIterable(el.querySelectorAll("*")), (inner) =>
+      UndefinedOr.match(made.get(inner), { onUndefined: constFalse, onDefined: (m) => Bool.not(m.twin) }))
+
+  /**
+   * The children entering in this change that take over from a leaver: one with the key of a child
+   * exiting, or of one leaving in this change (Motion keeps an element whose key stays).
+   */
+  const findTakeovers = (resolved: unknown): void => {
+    const onPage = new Set(Arr.map(previous, (placed) => placed.el))
+    const now = elementsOf(resolved)
+    const kept = new Set(now)
+    // The keyed children leaving in this change, by key, over the ones exiting already.
+    const byKey = new Map(keyedLeavers)
+    Arr.forEach(previous, (placed) => {
+      if (Bool.or(kept.has(placed.el), Bool.not(registry.has(placed.el)))) return
+      UndefinedOr.map(keyOf(placed.el), (key) => byKey.set(key, placed.el))
+    })
+    if (byKey.size === 0) return
+    Arr.forEach(now, (el) => {
+      if (onPage.has(el)) return
+      UndefinedOr.map(keyOf(el), (key) =>
+        UndefinedOr.map(byKey.get(key), (leaver) => {
+          if (leaver !== el) takeovers.set(el, leaver)
+        }))
+    })
+  }
+
+  /** The take-overs found, each done once: at the first of the child's wards' mounts, or the presence's next look. */
+  const settleTakeovers = (): void => {
+    if (takeovers.size === 0) return
+    const due = Arr.fromIterable(takeovers)
+    takeovers.clear()
+    Arr.forEach(due, ([el, leaver]) => takeOver(el, leaver))
+  }
+
+  // Children taken over in the change they left in: they never start an exit.
+  const takenOver = new WeakSet<HTMLElement>()
+
+  /**
+   * `el` takes over from `leaver`: each Wardic element in it starts where the one it pairs with in
+   * the leaver is drawn, the child itself with the leaver, and those inside in document order when
+   * the two have the same shape (as many, each pair the same tag). The leaver goes at once. An exiting
+   * one's exit ends, uncompleted, as an interrupted one's does (Motion tells no completion for a key
+   * back); one leaving in this change never starts its exit, nor are its hooks told it left.
+   */
+  const takeOver = (el: HTMLElement, leaver: HTMLElement): void => {
+    const from = registry.get(leaver)
+    // Gone since (its exit ended): the child enters as any other.
+    if (Predicate.isUndefined(from)) return
+    const before = partsOf(leaver)
+    const after = madeWithin(el)
+    seeds.set(el, drawnOf(from))
+    const paired = sameShape(Arr.map(before, (part) => part.element), after)
+    if (paired) Arr.forEach(Arr.zip(before, after), ([part, into]) => seeds.set(into, drawnOf(part)))
+    debug("leave: taken over", { parts: before.length, paired })
+    if (pending.has(leaver)) {
+      interruptExit(leaver)
+      return
+    }
+    // Leaving in this change: it goes as Solid took it, its records and hooks with it.
+    takenOver.add(leaver)
+    pops.delete(leaver)
+    Arr.forEach([from, ...before], (rec) => registry.delete(rec.element))
+    Arr.forEach(watchesIn(leaver), (watch) => {
+      watches.delete(watch)
+      watch.gone()
+    })
+  }
+
   const present = (current: unknown): void => {
     const now = elementsOf(current)
     const kept = new Set(now)
+    // The take-overs found as these children went on the page (#286), before any leaves: a child
+    // taken over in the change it left in doesn't leave.
+    if (takeovers.size > 0) {
+      Arr.forEach(Arr.fromIterable(takeovers.keys()), (el) => {
+        if (Bool.not(kept.has(el))) takeovers.delete(el)
+      })
+      settleTakeovers()
+    }
     // The children that left, the last first: each goes back before its old next sibling, which, if
     // it left too, is back already, so neighbours leaving together keep their order.
-    Arr.forEach(Arr.reverse(Arr.filter(previous, (placed) => Bool.not(kept.has(placed.el)))), left)
+    Arr.forEach(Arr.reverse(Arr.filter(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), Bool.not(takenOver.has(placed.el))))), left)
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
     previous = Arr.map(now, placedOf)
@@ -799,6 +1015,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // `popLayout` (#277): each child leaving in this change is measured where it is, before the change
     // moves it, as Motion's `getSnapshotBeforeUpdate`.
     if (mode === "popLayout") measureLeavers(resolved)
+    // A child back under the key of one leaving takes over from it (#286): found before the mode
+    // decides what goes on the page, so `wait` doesn't hold it. Nothing is looked up with no key.
+    if (keyed) findTakeovers(resolved)
     if (mode !== "wait") {
       held = []
       return resolved
@@ -807,7 +1026,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const kept = new Set(now)
     // Entering: not on the page at the last change.
     const onPage = new Set(Arr.map(previous, (placed) => placed.el))
-    held = Bool.match(waits(kept), { onTrue: () => Arr.filter(now, (el) => Bool.not(onPage.has(el))), onFalse: () => [] })
+    held = Bool.match(waits(kept), { onTrue: () => Arr.filter(now, (el) => Bool.and(Bool.not(onPage.has(el)), Bool.not(takeovers.has(el)))), onFalse: () => [] })
     if (held.length === 0) return resolved
     const holding = new Set<unknown>(held)
     return Arr.filter(Arr.ensure(resolved), (node) => Bool.not(holding.has(node)))

@@ -7,6 +7,7 @@
 import type * as Values from "@wardic/core/Values"
 import type { WardicTransition } from "./config.ts"
 import { constFalse } from "effect/Function"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 /**
@@ -39,6 +40,17 @@ export interface PresenceRecord {
    * it starts such a key at its target.
    */
   readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
+  /**
+   * Its velocities now, each numeric key's (#286): what a child back under its key starts with, when
+   * this one is taken over without an exit running. Optional: left out, 0.
+   */
+  readonly velocities?: (() => Readonly<Record<string, number>>) | undefined
+}
+
+/** Where a Wardic element starts when its child takes over from a leaver (#286, ADR-0048): the values and velocities it's drawn at. */
+export interface PresenceSeed {
+  readonly values: Values.Values
+  readonly velocities: Readonly<Record<string, number>>
 }
 
 /** A child's exit, resolved as it leaves (#277): its values, and the transition it runs on. */
@@ -83,6 +95,30 @@ export interface PresenceContextValue {
   readonly watch?: (watch: PresenceWatch) => void
   /** The presence's `custom` (#277's PR 5b), reactive: `usePresenceData`'s. Left out, `undefined`. */
   readonly data?: () => unknown
+  /**
+   * A Wardic element made (#286, ADR-0048): its `key` and whether it's a twin, told as its element is
+   * made, before the presence decides what goes on the page (so `mode="wait"` doesn't hold a child
+   * back under its key), and before any of its child's wards mount (so the elements inside pair).
+   * Optional: left out, no child is keyed.
+   */
+  readonly made?: (el: Element, key: string | number | undefined, twin: boolean) => void
+  /**
+   * Where an element mounting now starts, when its child takes over from a leaver (#286): asked once,
+   * before its first Retarget. `undefined`: as it would. Optional: left out, never.
+   */
+  readonly takeOverOf?: (el: Element) => PresenceSeed | undefined
+}
+
+/** Tell `presence` a Wardic element was made ({@link PresenceContextValue.made}): nothing without one. */
+export const presenceMade = (presence: PresenceContextValue | undefined, el: Element, key: string | number | undefined, twin: boolean): void => {
+  if (Predicate.isUndefined(presence)) return
+  UndefinedOr.map(presence.made, (tell) => tell(el, key, twin))
+}
+
+/** Where `el` starts as it mounts, taking over from a leaver ({@link PresenceContextValue.takeOverOf}): `undefined` as it would. */
+export const presenceSeedOf = (presence: PresenceContextValue | undefined, el: Element): PresenceSeed | undefined => {
+  if (Predicate.isUndefined(presence)) return undefined
+  return UndefinedOr.map(presence.takeOverOf, (of) => of(el))
 }
 
 /**

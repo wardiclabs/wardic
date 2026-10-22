@@ -70,6 +70,7 @@ import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
+import { presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
@@ -85,6 +86,7 @@ import {
   drawnAtRest,
   flagStartingStyle,
   isLayoutNode,
+  madeWith,
   makeElementSpine,
   makeReuse,
   exitConfigOf,
@@ -437,7 +439,7 @@ export function runSpine(opts: RunSpineOptions): void {
       let presenceRec: PresenceRecord | undefined
       if (Predicate.isNotUndefined(presence)) {
         const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
-        const rec = presenceRecordOf(element, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)))
+        const rec = presenceRecordOf(element, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot)
         presenceRec = rec
         presence.register(rec)
         createEffect(() => {
@@ -625,6 +627,8 @@ export function runSpine(opts: RunSpineOptions): void {
         animation: animationCallbacks(runtime, id),
       })
       onCleanup(spine.dispose)
+      // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
+      if (Predicate.isNotUndefined(presence)) UndefinedOr.map(presenceSeedOf(presence, element), spine.seed)
 
       // The spine effect depends on BOTH `target` and `canStart` (ADR-0007 `when`):
       // Solid's `on` runs its callback under `untrack`, so the gate accessor MUST
@@ -700,7 +704,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // name for a Variant child that has none (#50). It's the `style` until the first
   // commit, so pre-mount render carries the initial style (no flash).
   const initialConfig = untrack(cfg)
-  const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
+  const presence = usePresenceContext()
+  const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
   // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
   const layoutNode = isLayoutNode(initialConfig)
   const drawnStart = drawnAtRest(initialValues, layoutNode)
@@ -745,8 +750,10 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     reactivity,
   })
 
-  // The element, available only after ref-mount. The spine is gated on it.
+  // The element, available only after ref-mount. The spine is gated on it. Under a presence, it's
+  // told as it's made (#286): its `key`, and whether it's a twin. With none, nothing is made here.
   const [el, setEl] = createSignal<HTMLElement>()
+  const setElement = madeWith(presence, setEl, initialConfig)
 
   // Run the shared spine: the gate commits each flushed Patch onto this element
   // (ADR-0006, ADR-0034), and the sink's hooks switch its `style`. Its variant node
@@ -806,7 +813,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
       return {
         // Merge the user's ref (if any) with ward's internal element setter so BOTH
         // are invoked with the live element on mount (Option A).
-        ref: mergeRefs(userProps.ref, setEl),
+        ref: mergeRefs(userProps.ref, setElement),
         // Getter so spreading {...ward()} stays reactive (Solid tracks the access): the
         // Starting style over the user's until the first commit, then the user's without the
         // keys the gate holds (ADR-0034). It never changes per frame.
