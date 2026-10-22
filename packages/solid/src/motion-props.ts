@@ -8,7 +8,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicVariant, WardicVariants, WardicViewport } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
@@ -128,9 +128,9 @@ export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.c
  */
 export interface WardicMotionProps {
   /** The seed: a values map, a `variants` name, or `false` to start at `animate` with no mount animation (#134). */
-  readonly initial?: WardicVariant | string | false
+  readonly initial?: WardicVariant | WardicVariantLabels | false
   /** The resting target, or a `variants` name; its own `transition` drives the animation to it (#277). */
-  readonly animate?: WardicVariant | string
+  readonly animate?: WardicVariant | WardicVariantLabels
   /** Named targets, each a target or a function of `custom` (#277, Motion's dynamic variants). */
   readonly variants?: WardicVariants
   /** The value handed to this element's dynamic variants (#277, Motion's `custom`; see `WardConfig`). */
@@ -140,13 +140,13 @@ export interface WardicMotionProps {
   readonly key?: string | number
   /** `false` keeps a `variants` element out of its ancestors' variants (#50, Motion's `inherit`). */
   readonly inherit?: boolean
-  readonly whileHover?: WardicVariant | string
-  readonly whileTap?: WardicVariant | string
+  readonly whileHover?: WardicVariant | WardicVariantLabels
+  readonly whileTap?: WardicVariant | WardicVariantLabels
   readonly transition?: WardicTransition
   /** Accepted + split now; not yet wired (follow-up). */
-  readonly whileFocus?: WardicVariant | string
+  readonly whileFocus?: WardicVariant | WardicVariantLabels
   /** Accepted + split now; not yet wired (follow-up). */
-  readonly whileInView?: WardicVariant | string
+  readonly whileInView?: WardicVariant | WardicVariantLabels
   /** Motion's `viewport` (#273; see `WardConfig`): what "in view" means. */
   readonly viewport?: WardicViewport
   /**
@@ -155,7 +155,7 @@ export interface WardicMotionProps {
    * registration; the parent `<AnimatePresence>` drives the exit on leave. A string names a
    * `variants` entry (#277); its own `transition`, else the element's, drives it.
    */
-  readonly exit?: WardicVariant | string
+  readonly exit?: WardicVariant | WardicVariantLabels
   /**
    * Enable dragging (ADR-0004). `true` = free; `"x"`/`"y"` = axis-locked. While
    * held (and during the release tail) the drag DIRECT-SETS `x`/`y` (1:1 with the
@@ -169,7 +169,7 @@ export interface WardicMotionProps {
    * Target merged in (highest priority) while dragging. Driven by the spring (NOT
    * stripped) so e.g. `scale: 1.1` animates while held and returns after release.
    */
-  readonly whileDrag?: WardicVariant | string
+  readonly whileDrag?: WardicVariant | WardicVariantLabels
   /** Constrain the element's `x`/`y` (#273; see `WardConfig`): Motion's box of numbers, an accessor of a container element, or `false`. */
   readonly dragConstraints?: WardicDragConstraints
   /** Motion's `onMeasureDragConstraints` (#273; see `WardConfig`): the bounds measured against the container, in and out. */

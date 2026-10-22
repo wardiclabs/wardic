@@ -44,8 +44,8 @@ import type * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardicTransition } from "./config.ts"
-import type { PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
+import type { WardicTransition, WardicVariantLabels } from "./config.ts"
+import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
 import { type Leg, legsOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
@@ -192,6 +192,28 @@ const exitRunOf = (
     velocities[key] = 0
   })
   return Effect.suspend(() => leg.machine().pipe(Machine.run(commitFrame)))
+}
+
+/** How far in each name's keys of an exit start (#297): seconds, by name; `undefined` for an exit that isn't a list's. */
+type DelayOf = (name: string | undefined) => number
+
+/** At once, every name. */
+const NO_DELAY: DelayOf = () => 0
+
+/** An exit's name when it's one name, for its delay; `undefined` for a list or a values map. */
+const singleNameOf = (name: WardicVariantLabels | undefined): string | undefined => {
+  if (Predicate.isString(name)) return name
+  return undefined
+}
+
+/** The transition a name of an exit orchestrates its Variant children's keys on (#297): its group's, else the exit's. */
+const transitionOfName = (exit: PresenceExit, name: string | undefined): WardicTransition | undefined => {
+  const groups = exit.groups
+  if (Bool.or(Predicate.isUndefined(groups), Predicate.isUndefined(name))) return exit.transition
+  return Option.match(Arr.findFirst(groups as ReadonlyArray<ExitGroup>, (group) => group.name === name), {
+    onNone: () => exit.transition,
+    onSome: (group) => group.transition,
+  })
 }
 
 /** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
@@ -657,7 +679,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       UndefinedOr.map(providerOf(part.element.parentElement), (provider) => joinsTo.set(part, provider))
     })
     const joinersOf = (provider: PresenceRecord): ReadonlyArray<PresenceRecord> => Arr.filter(parts, (part) => joinsTo.get(part) === provider)
-    const nodeOf = (node: PresenceRecord, inherited: string | undefined): ExitNode => {
+    const nodeOf = (node: PresenceRecord, inherited: WardicVariantLabels | undefined): ExitNode => {
       const exit = node.exitOf(custom, inherited)
       return { rec: node, exit, kids: Arr.map(joinersOf(node), (kid) => nodeOf(kid, exit.name)) }
     }
@@ -671,7 +693,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // One `wardic.presence.exit` span spans the whole exit, from the leave to the last part's end.
     // A failed run is logged and reported (ADR-0030, decision 4); the node is removed either way.
     const fiber = runtime.runFork(
-      Effect.all(Arr.map(roots, (root) => runOf(root, 0)), { concurrency: "unbounded", discard: true }).pipe(
+      Effect.all(Arr.map(roots, (root) => runOf(root, NO_DELAY)), { concurrency: "unbounded", discard: true }).pipe(
         Effect.tapCause((cause) => Report.failure("wardic.presence: an exit failed", cause)),
         Effect.ensuring(Effect.sync(() => partDone(el))),
         Effect.withSpan(
@@ -689,17 +711,22 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * A node's exit and its Variant children's (#290), Motion's `animateVariant`: with `when`, one after
    * the other, the children's delays from 0; else together, the children's from `delay`.
    */
-  const runOf = (node: ExitNode, delay: number): Effect.Effect<unknown, never, WardicServices> => {
+  const runOf = (node: ExitNode, delay: DelayOf): Effect.Effect<unknown, never, WardicServices> => {
     const own = exitOf(node.rec, node.exit, delay)
     if (node.kids.length === 0) return own
-    const s = staggerOf(node.exit.transition)
     const n = node.kids.length
-    const slot = (i: number): number => s.delayChildren + Stagger.make(s.amount, { from: s.from })(slotIndex(i, n, s.direction), n)
-    const kidsFrom = (from: number): Effect.Effect<unknown, never, WardicServices> =>
-      Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, from + slot(i))), { concurrency: "unbounded", discard: true })
+    // Each name orchestrates the children's keys of that name (#297, Motion's `animateVariant` a name):
+    // its own transition's delay and stagger, else the exit's.
+    const slot = (i: number) => (name: string | undefined): number => {
+      const s = staggerOf(transitionOfName(node.exit, name))
+      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(slotIndex(i, n, s.direction), n)
+    }
+    const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices> =>
+      Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, (name) => from(name) + slot(i)(name))), { concurrency: "unbounded", discard: true })
+    // `when` for a list as a whole, meanwhile (#297's PR 1): the exit's, its last name's that sets it.
     const when = UndefinedOr.map(node.exit.transition, (t) => t.when)
-    if (when === "beforeChildren") return Effect.andThen(own, kidsFrom(0))
-    if (when === "afterChildren") return Effect.andThen(kidsFrom(0), own)
+    if (when === "beforeChildren") return Effect.andThen(own, kidsFrom(NO_DELAY))
+    if (when === "afterChildren") return Effect.andThen(kidsFrom(NO_DELAY), own)
     return Effect.all([own, kidsFrom(delay)], { concurrency: "unbounded", discard: true })
   }
 
@@ -708,7 +735,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * on the exit's own transition, else the element's, its positional keys snapping under reduced
    * motion (ADR-0029) unless it opts out. Nothing to run for an empty one.
    */
-  const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: number): Effect.Effect<unknown, never, WardicServices> => {
+  const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: DelayOf): Effect.Effect<unknown, never, WardicServices> => {
     const el = rec.element
     const to = exit.values
     if (isEmpty(to)) return Effect.void
@@ -724,7 +751,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       ...snapshot,
       ...Rec.map(Rec.filter(to, (_, key) => Predicate.isUndefined(snapshot[key])), (target, key) => startOf(key, target)),
     }
-    const legs = legsOf(from, to, delayedBy(exit.transition, delay), reducedMotion(), positionalKeys, NO_VELOCITIES)
+    // A list's exit by name (#297): each name's keys on its own transition, at its own delay.
+    const reduce = reducedMotion()
+    const legs = UndefinedOr.match(exit.groups, {
+      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, NO_VELOCITIES),
+      onDefined: (groups) =>
+        Arr.flatMap(groups, (group) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, NO_VELOCITIES)),
+    })
     // The merged latest value-map, so each committed frame carries every key.
     const latest: Values.Values = { ...from }
     // What the exit has drawn, for the projection (ADR-0010 *Amendment (#181)*): the twins handed back

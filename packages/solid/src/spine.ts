@@ -52,11 +52,12 @@ import type {
   WardicAnimationDefinition,
   WardicTransition,
   WardicVariant,
+  WardicVariantLabels,
   WardicVariants,
   WardicVariantTransition,
 } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
-import { type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
+import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
@@ -83,13 +84,13 @@ import {
   startsAtAnimate,
   type WardicVariantContextValue,
 } from "./variant-tree.ts"
-import { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
+import { type Entry, mergedOf, type NamedTarget, NO_VARIANT_STATE, resolveTarget, resolveTargets, sameLabels, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
 export { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
 /** What an element's exit is resolved from (#277): its last config, kept current while it's alive. */
 export interface ExitConfig {
-  readonly exit: WardicVariant | string | undefined
+  readonly exit: WardicVariant | WardicVariantLabels | undefined
   readonly variants: WardicVariants | undefined
   readonly custom: unknown
   /** Its `transition`, or the one it inherits. */
@@ -136,17 +137,33 @@ export type ExitTarget = PresenceExit
  * given (Motion's: the leaving element's own props can't change any more), else its own `custom`; on
  * its own transition, else the element's.
  */
-export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state: VariantState, inherited: string | undefined): ExitTarget => {
+export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state: VariantState, inherited: WardicVariantLabels | undefined): ExitTarget => {
   const custom = UndefinedOr.match(presenceCustom, { onUndefined: () => config.custom, onDefined: identity })
   // Its own `exit` wins; a Variant child with none exits on the name its provider hands down (#290).
-  const entry = UndefinedOr.match(config.exit, { onDefined: identity, onUndefined: () => inherited })
-  const target = resolveTarget(entry, config.variants, custom, state)
-  return {
-    values: target.values,
-    transition: transitionOfTarget(target.transition, config.transition),
-    name: UndefinedOr.match(nameOf(config.exit), { onDefined: identity, onUndefined: () => inherited }),
+  const entry: Entry = UndefinedOr.match(config.exit, { onDefined: identity, onUndefined: (): Entry => inherited })
+  const name = UndefinedOr.match(nameOf(config.exit), { onDefined: identity, onUndefined: () => inherited })
+  if (Array.isArray(entry)) {
+    // A list (#297): merged, and each name's own keys on its own transition.
+    const targets = resolveTargets(entry, config.variants, custom, state)
+    const merged = mergedOf(targets)
+    return {
+      values: merged.values,
+      transition: transitionOfTarget(merged.transition, config.transition),
+      name,
+      groups: exitGroupsOf(targets, config.transition),
+    }
   }
+  const target = resolveTarget(entry, config.variants, custom, state)
+  return { values: target.values, transition: transitionOfTarget(target.transition, config.transition), name }
 }
+
+/** A list's exit groups (#297): each name, with the keys it's the last to set, on its own transition else `element`. */
+const exitGroupsOf = (targets: ReadonlyArray<NamedTarget>, element: WardicTransition | undefined): ReadonlyArray<ExitGroup> =>
+  Arr.map(targets, (target, i) => ({
+    name: target.name as string,
+    values: Rec.filter(target.values, (_, key) => Bool.not(Arr.some(Arr.drop(targets, i + 1), (later) => Object.hasOwn(later.values, key)))),
+    transition: transitionOfTarget(target.transition, element),
+  }))
 
 /** A config given as a value or as an accessor, as an accessor. A config is always an object, so a function is the accessor. */
 export const accessorOf = <A extends object>(config: A | Accessor<A>): Accessor<A> =>
@@ -167,11 +184,20 @@ const staggeredOf = (
  * has its own transition: the highest active layer that sets it, and the base for a key none sets (a
  * return). `undefined` when none has: one transition for every key.
  */
-const keysByLayerOf = (t: Values.Values, layers: ReadonlyArray<Layer>): ReadonlyArray<ReadonlySet<string>> | undefined => {
-  if (Bool.not(Arr.some(layers, hasOwnTransition))) return undefined
-  const groups = Arr.map(layers, () => new Set<string>())
+const keysByLayerOf = (
+  t: Values.Values,
+  layers: ReadonlyArray<Layer>,
+  extraDelay: ((name: string | undefined) => number) | undefined,
+  extra: number,
+  listed: boolean,
+): ReadonlyArray<ReadonlySet<string>> | undefined => {
+  if (Bool.not(Bool.or(Arr.some(layers, hasOwnTransition), delaysDiffer(layers, extraDelay, extra)))) return undefined
+  // A list's returns in a group of their own, after its layers' (#297).
+  let returnsAt = 0
+  if (listed) returnsAt = layers.length
+  const groups = Arr.makeBy(Math.max(layers.length, returnsAt + 1), () => new Set<string>())
   Arr.forEach(Rec.keys(t), (key) => {
-    const at = Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Object.hasOwn(layer.values, key))), () => 0)
+    const at = Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Object.hasOwn(layer.values, key))), () => returnsAt)
     UndefinedOr.map(groups[at], (group) => group.add(key))
   })
   return groups
@@ -228,8 +254,8 @@ export interface Resolution {
   readonly base: Values.Values
   /** Whether a drag holds the translate keys (ADR-0004's strip). */
   readonly dragging: boolean
-  /** The variant name the base layer resolved: its own `animate`'s, else the one it inherits; none for a values map. */
-  readonly variant: string | undefined
+  /** The variant name (or list, #297) the base layer resolved: its own `animate`'s, else the one it inherits; none for a values map. */
+  readonly variant: WardicVariantLabels | undefined
   /** The layers it was resolved with (#257): a landing's gestures are the ones its Retarget started with. */
   readonly active: Active
   /** The base target's own transition (#277): the keys the base layer drives animate on it. */
@@ -243,33 +269,53 @@ export interface Resolution {
   readonly names: GestureNames
 }
 
-/** One layer of the Override stack (#291): whether it's on, its values, and its target's own transition. */
+/**
+ * One layer of the Override stack (#291): whether it's on, its values, its target's own transition,
+ * and the variant name it resolved (#297), `undefined` for a values map. A list of names is a layer
+ * a name, in order.
+ */
 export interface Layer {
   readonly active: boolean
   readonly values: Values.Values
   readonly transition: WardicVariantTransition | undefined
+  readonly name: string | undefined
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: Layer = { active: false, values: {}, transition: undefined }
+const OFF: Layer = { active: false, values: {}, transition: undefined, name: undefined }
 
 /**
  * A gesture's layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
  * a variant name), else the label its provider hands down. Off, or with neither, nothing is resolved.
  */
-const gestureLayerOf = (
-  own: WardicVariant | string | undefined,
+const gestureLayersInto = (
+  layers: Array<Layer>,
+  own: Entry,
   on: boolean,
-  label: string | undefined,
+  label: WardicVariantLabels | undefined,
   variants: WardicVariants | undefined,
   custom: unknown,
   state: VariantState,
-): Layer => {
-  if (Bool.not(on)) return OFF
-  if (Predicate.isNotUndefined(own)) return layerOf(resolveTarget(own, variants, custom, state))
-  if (Predicate.isUndefined(label)) return OFF
-  return layerOf(resolveTarget(label, variants, custom, state))
+): void => {
+  if (Bool.not(on)) {
+    layers.push(OFF)
+    return
+  }
+  const entry = UndefinedOr.match(own, { onDefined: identity, onUndefined: (): Entry => label })
+  if (Predicate.isUndefined(entry)) {
+    layers.push(OFF)
+    return
+  }
+  // A list is a layer a name, in order (#297): the last name that sets a key drives it.
+  if (Array.isArray(entry)) {
+    Arr.forEach(resolveTargets(entry, variants, custom, state), (target) => layers.push(namedLayerOf(target)))
+    return
+  }
+  layers.push(layerOf(resolveTarget(entry, variants, custom, state), labelOrUndefined(entry)))
 }
+
+/** A single entry's name: itself, if a name; `undefined` for a values map. */
+const labelOrUndefined = (entry: Entry): string | undefined => Bool.match(Predicate.isString(entry), { onTrue: () => entry as string, onFalse: constUndefined })
 
 /** Each gesture on: the element's own, or its provider's too when it has one handing any down. */
 const gesturesOnOf = (active: Active, above: GestureHandDown): GestureStates => {
@@ -289,11 +335,54 @@ const activeNamesFor = (c: WardConfig, on: GestureStates, labels: GestureNames):
 /** Whether any gesture is on: per Retarget, so no closure. */
 const anyOn = (on: GestureStates): boolean => on.inView || on.focused || on.hovered || on.pressed || on.dragged
 
+/**
+ * Whether an active layer's name delays its keys otherwise than the first layer's (#297): a Variant
+ * child's names each take their own stagger slot. Never for an element that joins none, nor for one
+ * layer.
+ */
+const delaysDiffer = (layers: ReadonlyArray<Layer>, extraDelay: ((name: string | undefined) => number) | undefined, extra: number): boolean => {
+  if (Bool.or(Predicate.isUndefined(extraDelay), layers.length < 2)) return false
+  return Arr.some(layers, (layer) => Bool.and(layer.active, extraOf(extraDelay, layer) !== extra))
+}
+
+/** A layer's stagger delay (ADR-0007, #297): its name's, for a Variant child; 0 for any other element. */
+const extraOf = (extraDelay: ((name: string | undefined) => number) | undefined, layer: Layer | undefined): number => {
+  if (Predicate.isUndefined(extraDelay)) return 0
+  if (Predicate.isUndefined(layer)) return extraDelay(undefined)
+  return extraDelay(layer.name)
+}
+
+/**
+ * The transition a key group runs on (#291, #297): unsplit, the base's (`transition`, its delay
+ * folded in); split, its layer's own, else the element's, at its name's delay. A list's first
+ * group carries its returns too, which run on the element's transition, as a list's base has no one
+ * transition of its own.
+ */
+const groupTransitionOf = (
+  resolution: Resolution,
+  groups: ReadonlyArray<ReadonlySet<string>> | undefined,
+  i: number,
+  transition: WardicTransition | undefined,
+  element: WardicTransition | undefined,
+  extraDelay: ((name: string | undefined) => number) | undefined,
+  reuse: (transition: WardicTransition) => WardicTransition,
+): WardicTransition | undefined => {
+  if (Predicate.isUndefined(groups)) return transition
+  if (Bool.and(i === 0, Bool.not(Array.isArray(resolution.variant)))) return transition
+  const layer = resolution.layers[i]
+  // A list's returns: the element's, at its whole orchestration's delay.
+  if (Predicate.isUndefined(layer)) return staggeredOf(element, extraOf(extraDelay, undefined), reuse)
+  return staggeredOf(transitionOfTarget(layer.transition, element), extraOf(extraDelay, layer), reuse)
+}
+
 /** Whether a layer is on with its own transition: hoisted, as it's asked per Retarget. */
 const hasOwnTransition = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.transition))
 
-/** A target as an active layer. */
-const layerOf = (target: Target): Layer => ({ active: true, values: target.values, transition: target.transition })
+/** A target as an active layer, with the name it resolved. */
+const layerOf = (target: Target, name: string | undefined): Layer => ({ active: true, values: target.values, transition: target.transition, name })
+
+/** A list's target as an active layer (#297). */
+const namedLayerOf = (target: NamedTarget): Layer => ({ active: true, values: target.values, transition: target.transition, name: target.name })
 
 
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
@@ -307,10 +396,10 @@ const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(E
  * compares with it, so a `style` or `transition` change in a ward's config doesn't Retarget.
  */
 export const sameResolution = (a: Resolution, b: Resolution): boolean =>
-  Bool.every([a.dragging === b.dragging, a.variant === b.variant]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base)
+  Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant)]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base)
 
 /** Motion's `definition` of an animation (#257): a variant name, or its target values. */
-export type AnimationDefinition = string | Values.Values
+export type AnimationDefinition = WardicVariantLabels | Values.Values
 
 /**
  * A Retarget's `definition`, as Motion's `onAnimationStart` / `onAnimationComplete` hand it over
@@ -321,11 +410,13 @@ export type AnimationDefinition = string | Values.Values
  */
 export const definitionOf = (resolution: Resolution, previous: Resolution | undefined): AnimationDefinition => {
   const name = resolution.variant
-  if (Bool.and(Predicate.isNotUndefined(name), name !== UndefinedOr.map(previous, (p) => p.variant))) return name as string
+  // A list is told as a list (#297): a change name by name, as Motion's `checkVariantsDidChange`.
+  if (Bool.and(Predicate.isNotUndefined(name), Bool.not(sameLabels(name, UndefinedOr.map(previous, (p) => p.variant))))) return name as WardicVariantLabels
   // A gesture's name that just came on (#291), the highest first, as Motion's names its type's.
   const before = UndefinedOr.match(previous, { onUndefined: () => NO_GESTURE_NAMES, onDefined: (p) => p.names })
-  const started = Arr.findFirst(GESTURES_DOWN, (layer) => Bool.and(Predicate.isNotUndefined(resolution.names[layer]), resolution.names[layer] !== before[layer]))
-  return Option.match(started, { onNone: (): AnimationDefinition => resolution.resolved, onSome: (layer) => resolution.names[layer] as string })
+  const started = Arr.findFirst(GESTURES_DOWN, (layer) =>
+    Bool.and(Predicate.isNotUndefined(resolution.names[layer]), Bool.not(sameLabels(resolution.names[layer], before[layer]))))
+  return Option.match(started, { onNone: (): AnimationDefinition => resolution.resolved, onSome: (layer) => resolution.names[layer] as WardicVariantLabels })
 }
 
 /** The gesture layers, highest first. */
@@ -341,6 +432,91 @@ export interface AnimationHooks {
   readonly started: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
   /** That Retarget's last leg settled: not for one the next Retarget superseded, nor one a leg's failure cut off. */
   readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
+  /**
+   * Names of a list that settled (#297): a binding told each name's end on its own (Solid 1's
+   * callbacks, Motion's `animateVariant` a name) has it, called as the legs of the keys each drives
+   * settle; one with none hears the list's end through `settled` alone.
+   */
+  readonly namesSettled?: ((names: ReadonlyArray<string>, config: WardConfig) => void) | undefined
+}
+
+/** A list a Retarget tells settled name by name (#297): its names, and what it tells. */
+interface ToldNames {
+  readonly names: ReadonlyArray<string>
+  readonly tell: (names: ReadonlyArray<string>, config: WardConfig) => void
+}
+
+/** Whether a resolution resolved a list (#297): its base, or an active gesture's. Cheap for the common case. */
+const hasList = (resolution: Resolution): boolean => {
+  if (Array.isArray(resolution.variant)) return true
+  if (resolution.names === NO_GESTURE_NAMES) return false
+  return Arr.some(GESTURE_LAYERS, (layer) => Array.isArray(resolution.names[layer]))
+}
+
+/** The list a Retarget tells settled name by name (#297): when its binding is told so, and its definition is a list. */
+const namesToldOf = (animation: AnimationHooks | undefined, resolution: Resolution, previous: Resolution | undefined): ToldNames | undefined => {
+  if (Predicate.isUndefined(animation)) return undefined
+  const tell = animation.namesSettled
+  if (Predicate.isUndefined(tell)) return undefined
+  if (Bool.not(hasList(resolution))) return undefined
+  const definition = definitionOf(resolution, previous)
+  if (Bool.not(Array.isArray(definition))) return undefined
+  return { names: definition as ReadonlyArray<string>, tell }
+}
+
+/** A list's names told settled one by one (#297): what each leg's end is told to, legs started in the Retarget's order. */
+interface NameSettles {
+  readonly leg: () => (end: unknown) => void
+}
+
+/**
+ * A list's names, each told settled with the last leg of the keys it drives (#297): its layer's group,
+ * or every leg's when the keys aren't split. A name that drives none is told at once.
+ */
+const nameSettlesOf = (
+  names: ReadonlyArray<string>,
+  resolution: Resolution,
+  groups: ReadonlyArray<ReadonlySet<string>> | undefined,
+  legGroups: ReadonlyArray<number> | undefined,
+  legCount: number,
+  tell: (names: ReadonlyArray<string>) => void,
+): NameSettles => {
+  const groupOf = (name: string): number => {
+    if (Predicate.isUndefined(groups)) return 0
+    return Option.getOrElse(Arr.findFirstIndex(resolution.layers, (layer) => layer.name === name), () => 0)
+  }
+  // The legs still running in each group.
+  const left = new Map<number, number>()
+  UndefinedOr.match(legGroups, {
+    onUndefined: () => {
+      if (legCount > 0) left.set(0, legCount)
+    },
+    onDefined: (tags) => Arr.forEach(tags, (g) => left.set(g, Option.getOrElse(Option.fromUndefinedOr(left.get(g)), () => 0) + 1)),
+  })
+  const running = (name: string): boolean => left.has(groupOf(name))
+  let pending = Arr.filter(names, running)
+  const idle = Arr.filter(names, (name) => Bool.not(running(name)))
+  if (idle.length > 0) tell(idle)
+  let next = 0
+  return {
+    leg: () => {
+      const g = UndefinedOr.match(legGroups, { onUndefined: () => 0, onDefined: (tags) => Option.getOrElse(Option.fromUndefinedOr(tags[next]), () => 0) })
+      next++
+      return (end) => {
+        // A Superseded leg (#200) settles nothing: the next Retarget's tells.
+        if (Supersede.isSuperseded(end)) return
+        const n = Option.getOrElse(Option.fromUndefinedOr(left.get(g)), () => 1) - 1
+        if (n > 0) {
+          left.set(g, n)
+          return
+        }
+        left.delete(g)
+        const done = Arr.filter(pending, (name) => groupOf(name) === g)
+        pending = Arr.filter(pending, (name) => groupOf(name) !== g)
+        if (done.length > 0) tell(done)
+      }
+    },
+  }
 }
 
 /**
@@ -350,18 +526,40 @@ export interface AnimationHooks {
  * config has neither: it hands the same facts over as async values.
  */
 export const animationCallbacks = (runtime: WardicRuntime, id: string): AnimationHooks => {
-  const call =
-    (name: "onAnimationStart" | "onAnimationComplete") =>
-    (resolution: Resolution, previous: Resolution | undefined, config: WardConfig): void => {
-      const callback = config[name]
-      if (Predicate.isUndefined(callback)) return
-      try {
-        callback(definitionOf(resolution, previous) as WardicAnimationDefinition)
-      } catch (defect) {
-        runtime.runFork(Report.failure(`wardic.spine: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
-      }
+  // Per Retarget, per element: the callback looked up first, and nothing made without one.
+  const tell = (name: "onAnimationStart" | "onAnimationComplete", callback: (definition: WardicAnimationDefinition) => void, definition: WardicAnimationDefinition): void => {
+    try {
+      callback(definition)
+    } catch (defect) {
+      runtime.runFork(Report.failure(`wardic.spine: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
     }
-  return { started: call("onAnimationStart"), settled: call("onAnimationComplete") }
+  }
+  return {
+    // A list starts as each of its names, in order (#297, Motion's `animateVisualElement` a name).
+    started: (resolution, previous, config) => {
+      const callback = config.onAnimationStart
+      if (Predicate.isUndefined(callback)) return
+      const definition = definitionOf(resolution, previous)
+      if (Array.isArray(definition)) {
+        Arr.forEach(definition as ReadonlyArray<string>, (name) => tell("onAnimationStart", callback, name))
+        return
+      }
+      tell("onAnimationStart", callback, definition)
+    },
+    // A list's names were each told as they settled (`namesSettled`).
+    settled: (resolution, previous, config) => {
+      const callback = config.onAnimationComplete
+      if (Predicate.isUndefined(callback)) return
+      const definition = definitionOf(resolution, previous)
+      if (Array.isArray(definition)) return
+      tell("onAnimationComplete", callback, definition)
+    },
+    namesSettled: (names, config) => {
+      const callback = config.onAnimationComplete
+      if (Predicate.isUndefined(callback)) return
+      Arr.forEach(names, (name) => tell("onAnimationComplete", callback, name))
+    },
+  }
 }
 
 /** Which layers of the Override stack are active now, as the binding reads them. */
@@ -402,6 +600,14 @@ export const resolutionOf = (
   //       recomputes the memo and retargets;
   //   (3) else the SSR-seeded `initial`.
   const variant = UndefinedOr.match(c.animate, { onDefined: nameOf, onUndefined: () => UndefinedOr.map(parent, (p) => p.variant()) })
+  // A list of names (#297, Motion's `VariantLabels`): a base layer a name, in order, so the last name
+  // that sets a key drives it. A single name or a values map takes the path below, as before.
+  if (Bool.or(Array.isArray(c.animate), Bool.and(Predicate.isUndefined(c.animate), Array.isArray(variant)))) {
+    const targets = resolveTargets(variant as ReadonlyArray<string>, variants, c.custom, state)
+    const merged = mergedOf(targets)
+    const listLayers: Array<Layer> = Arr.map(targets, namedLayerOf)
+    return withGestures(c, parent, listLayers, merged.values, variant, active, merged.transition, state)
+  }
   // A dynamic variant resolves with this element's own `custom` (#277), as Motion's each child's.
   const target = UndefinedOr.match(c.animate, {
     onDefined: (own) => resolveTarget(own, variants, c.custom, state),
@@ -412,32 +618,51 @@ export const resolutionOf = (
       }),
   })
   const base = target.values
-  const baseLayer: Layer = { active: true, values: base, transition: target.transition }
+  const baseLayer: Layer = { active: true, values: base, transition: target.transition, name: variant as string | undefined }
   // A Variant child's gestures are on while its provider's are (#291, Motion's `setActive`), each on
   // its own `while*`, else the label the provider hands down. With no provider, its own: nothing made.
-  const above = handDownFrom(parent)
   // The common case: nothing handed down and no gesture on. The base layer alone, and nothing else
   // made or called, at every element's mount and Retarget.
-  if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
+  if (Bool.and(handDownFrom(parent) === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const alone: ReadonlyArray<Layer> = [baseLayer]
     return { resolved: Override.resolve(alone), base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES }
   }
+  return withGestures(c, parent, [baseLayer], base, variant, active, target.transition, state)
+}
+
+/**
+ * A resolution from its base layers (one, or one a name of a list, #297) and its gesture layers on
+ * top (#291), each gesture's a layer a name too: the Override stack resolved, and the names its
+ * active gestures resolved.
+ */
+const withGestures = (
+  c: WardConfig,
+  parent: WardicVariantContextValue | undefined,
+  layers: Array<Layer>,
+  base: Values.Values,
+  variant: WardicVariantLabels | undefined,
+  active: Active,
+  transition: WardicVariantTransition | undefined,
+  state: VariantState,
+): Resolution => {
+  const variants = c.variants
+  const above = handDownFrom(parent)
+  if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
+    return { resolved: Override.resolve(layers), base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES }
+  }
   const on = gesturesOnOf(active, above)
   const labels = above.names
-  const layers: ReadonlyArray<Layer> = [
-    baseLayer,
-    gestureLayerOf(c.whileInView, on.inView, labels.inView, variants, c.custom, state),
-    gestureLayerOf(c.whileFocus, on.focused, labels.focused, variants, c.custom, state),
-    gestureLayerOf(c.whileHover, on.hovered, labels.hovered, variants, c.custom, state),
-    gestureLayerOf(c.whileTap, on.pressed, labels.pressed, variants, c.custom, state),
-    // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
-    // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
-    // after release.
-    gestureLayerOf(c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state),
-  ]
+  gestureLayersInto(layers, c.whileInView, on.inView, labels.inView, variants, c.custom, state)
+  gestureLayersInto(layers, c.whileFocus, on.focused, labels.focused, variants, c.custom, state)
+  gestureLayersInto(layers, c.whileHover, on.hovered, labels.hovered, variants, c.custom, state)
+  gestureLayersInto(layers, c.whileTap, on.pressed, labels.pressed, variants, c.custom, state)
+  // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
+  // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
+  // after release.
+  gestureLayersInto(layers, c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state)
   const resolved = Override.resolve(layers)
   const names = activeNamesFor(c, on, labels)
-  return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers, names }
+  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -535,7 +760,7 @@ export type StartLinks = ReturnType<typeof startLinksOf>
 export const presenceRecordOf = (
   element: HTMLElement,
   start: Start,
-  exitOf: (custom: unknown, inherited: string | undefined) => ExitTarget,
+  exitOf: (custom: unknown, inherited: WardicVariantLabels | undefined) => ExitTarget,
   links: StartLinks,
   tree: PresenceTree,
   snapshot: Snapshot,
@@ -576,7 +801,7 @@ export interface ElementSpineOptions {
   /** Whether a Retarget may start now (ADR-0007 `when`); omitted, always. */
   readonly canStart: (() => boolean) | undefined
   /** Its stagger delay in seconds, read at each Retarget (ADR-0007); omitted, none. */
-  readonly extraDelay: (() => number) | undefined
+  readonly extraDelay: ((name: string | undefined) => number) | undefined
   /** Told every frame whether it has settled (ADR-0007 orchestration). */
   readonly onFrame: ((done: boolean) => void) | undefined
   /** Whether reduced motion applies (ADR-0029), read at each Retarget. */
@@ -829,14 +1054,20 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (done) settled++
       if (Predicate.isNotUndefined(onFrame)) onFrame(settled === reporting)
     }
+    // A list's names told settled one by one (#297, Solid 1's callbacks): each as the legs of the keys
+    // it drives settle. Made only for a list with a binding that's told so.
+    let names: NameSettles | undefined
     const leg = <R,>(program: Effect.Effect<unknown, never, R>): Effect.Effect<void, never, R> => {
       legs++
       const log = pendingLog
       pendingLog = undefined
-      return UndefinedOr.match(log, {
+      const run = UndefinedOr.match(log, {
         onUndefined: () => program,
         onDefined: (head) => Effect.andThen(head, program),
-      }).pipe(Effect.onExit(legEnded), Effect.asVoid)
+      })
+      if (Predicate.isUndefined(names)) return run.pipe(Effect.onExit(legEnded), Effect.asVoid)
+      const settles = names.leg()
+      return run.pipe(Effect.onExit((exit) => Effect.andThen(legEnded(exit), Effect.sync(() => Exit.match(exit, { onSuccess: (end) => settles(end), onFailure: constVoid })))), Effect.asVoid)
     }
     // Start a leg in this element's FiberSet: forked on the provider's runtime, which runs
     // it inline up to its add on the loop, so every leg started in a task is on the loop by
@@ -853,8 +1084,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const baseTransition = transitionOfTarget(resolution.transition, elementTransition)
     // Fold the per-child stagger delay (ADR-0007) into the effective
     // transition.delay = base.delay + computedDelay. extraDelay() is read
-    // at Retarget time so a re-snapshot before this start is reflected.
-    const extra = UndefinedOr.match(extraDelay, { onUndefined: () => 0, onDefined: (delay) => delay() })
+    // at Retarget time so a re-snapshot before this start is reflected. Each name's keys take that
+    // name's delay (#297): the base's, its first name's.
+    const layers = resolution.layers
+    const extra = extraOf(extraDelay, layers[0])
     const transition = staggeredOf(baseTransition, extra, options.reuse)
     // The legs (#48, ADR-0044 decision 8): one pure builder, which a server render's Appear
     // animation samples too, so the two can't drift. Built here; each leg's machine is built
@@ -872,19 +1105,46 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // With a layer's own transition (#277, #291), each key animates on its layer's: the base's keys
     // on the base target's, each active gesture's on its target's, else the element's, as Motion's
     // each animation type runs on its own.
-    const groups = keysByLayerOf(t, resolution.layers)
-    let retargetLegs = legsOf(from, pickKeys(t, groups, 0), transition, reduce, positionalKeys, snapshot.velocities, follow)
+    // A list's names (#297) split them too, each name's at its own delay; a list's returns run on the
+    // element's transition, in a group of their own, last.
+    // Guards, not matches: per Retarget, per element.
+    const listed = Array.isArray(resolution.variant)
+    const groups = keysByLayerOf(t, layers, extraDelay, extra, listed)
+    let returnsAt = 0
+    if (listed) returnsAt = layers.length
+    const told = namesToldOf(animation, resolution, lastResolution)
+    // The first group's legs: every key, when they aren't split. The returns' follow goes with the
+    // group that holds the returns.
+    let followFirst = follow
+    if (Bool.and(Predicate.isNotUndefined(groups), returnsAt !== 0)) followFirst = undefined
+    let retargetLegs: ReadonlyArray<Leg> = legsOf(
+      from,
+      pickKeys(t, groups, 0),
+      groupTransitionOf(resolution, groups, 0, transition, elementTransition, extraDelay, options.reuse),
+      reduce,
+      positionalKeys,
+      snapshot.velocities,
+      followFirst,
+    )
+    // Which key group each leg animates, for a list's names told one by one.
+    let legGroups: Array<number> | undefined
     if (Predicate.isNotUndefined(groups)) {
-      const gestureLegs = Arr.flatMap(Arr.range(1, resolution.layers.length - 1), (i) =>
-        legsOf(
+      const tagged = Arr.map(retargetLegs, () => 0)
+      const rest = Arr.flatMap(Arr.range(1, groups.length - 1), (i) => {
+        const groupLegs = legsOf(
           from,
           pickKeys(t, groups, i),
-          staggeredOf(transitionOfTarget(UndefinedOr.match(resolution.layers[i], { onUndefined: constUndefined, onDefined: (l) => l.transition }), elementTransition), extra, options.reuse),
+          groupTransitionOf(resolution, groups, i, transition, elementTransition, extraDelay, options.reuse),
           reduce,
           positionalKeys,
           snapshot.velocities,
-        ))
-      retargetLegs = [...retargetLegs, ...gestureLegs]
+          Bool.match(i === returnsAt, { onTrue: () => follow, onFalse: constUndefined }),
+        )
+        Arr.forEach(groupLegs, () => tagged.push(i))
+        return groupLegs
+      })
+      retargetLegs = [...retargetLegs, ...rest]
+      if (Predicate.isNotUndefined(told)) legGroups = tagged
     }
     // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
     // animation up as far in as its CSS has got, read at the legs' first tick.
@@ -893,9 +1153,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       handoff = undefined
       checkHandoff(runtime, id, taken, { tag, from, to: t, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c) })
       const at = startAtOf(taken, baseTransition, delayOf(transition))
-      retargetLegs = Arr.map(retargetLegs, (leg) => startingAt(leg, at))
+      retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
     reporting = retargetLegs.length
+    // A list's names, each told settled with the legs of the keys it drives (#297).
+    // A guard: the callback is made only for a list, not at every Retarget.
+    if (Predicate.isNotUndefined(told)) names = nameSettlesOf(told.names, resolution, groups, legGroups, retargetLegs.length, (settled) => gate.afterFlush(() => told.tell(settled, c)))
     // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
     // built for the leg that needs it (#69's PR 2: a Retarget is per element).
     Arr.forEach(retargetLegs, (leg: Leg): void => {

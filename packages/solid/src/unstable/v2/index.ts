@@ -38,6 +38,7 @@ export type {
   WardicTransition,
   WardicValues,
   WardicVariant,
+  WardicVariantLabels,
   WardicVariantResolver,
   WardicVariants,
   WardicVariantTransition,

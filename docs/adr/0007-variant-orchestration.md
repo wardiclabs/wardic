@@ -146,3 +146,85 @@ Wardic's gesture props took values only.
 - **Plain guards** in place of `UndefinedOr` calls brought Solid 1's warm Retarget to +0.8%, but its cold Retarget read +7.8% [+6.1%, +8.1%], and Solid 2's warm mount +3.2% [+0.4%, +3.6%].
 - **A base-only path** fixed both. With nothing handed down and no gesture on, `resolutionOf` resolves the base layer alone, and makes and calls nothing else.
 - The result (control −0.4%): Solid 1's Retarget −2.6% warm and +3.0% [−3.0%, +4.3%] cold, mount +1.1% [−1.3%, +1.2%], bytes −0.8%. Solid 2's Retarget +0.5% warm, mount −0.7%, bytes −0.3%.
+
+## Amendment (#297, 2026-10-22): the variant props take a list of names
+
+Motion's variant props take a list wherever they take a name (`VariantLabels = string | string[]`, `motion-dom/src/node/types.ts` at `16c6122`):
+- a list merges its names in order, later names winning (`animation-state.ts:251-258`);
+- each name is then animated as its own variant (`visual-element.ts:16-20`), with its own transition and orchestration, and told to `onAnimationStart` / `onAnimationComplete` on its own (`visual-element.ts:13,35`);
+- the variant context hands a list down as it is (`isVariantLabel`), and each Variant child resolves the names it has.
+
+Wardic's took one name.
+
+1. **All eight props** (Q1: A): `initial`, `animate`, `exit` and the five `while*` take `WardicVariantLabels = string | ReadonlyArray<string>`. One resolver (`resolveTargets`) serves them all, on both bindings and the server. Rejected: B (`initial`, `animate`, `exit` first); C (`animate` only).
+2. **Each key on the own transition of the last name in the list that sets it** (Q2: A, Motion's), else the element's. "Fade fast, pop with a spring" composes from two variants. A list's return to a Base value runs on the element's transition.
+   - Rejected: B (one transition for the list: an earlier name's own would be ignored for its keys); C (the element's only).
+   - Per-value transitions (`transition={{ opacity: {…}, default: {…} }}`, Motion's `getValueTransition`) are another matter, filed as #301.
+3. **Each name orchestrates the Variant children's keys it sets** (Q3: A, Motion's `animateVariant` a name): its own `delayChildren`, `staggerChildren`, `staggerDirection` and `when`. An entrance name's stagger beside a toggled state's none: toggling the state moves every child at once.
+   - Rejected: B (`when` for the list as a whole); C (one orchestration for the list).
+   - **Per-name `when` is PR 2** (Q6). Until then, `when` is the list's as a whole: the last name whose own transition sets it.
+4. **The whole list passes down** (Q4: A, Motion's): each Variant child resolves the names it has, in order, and skips the rest. That covers `initial`, `animate`, the inherited exit name (#290) and the gesture labels (#291). Rejected: B (only the names the parent has); C (the last name a child has).
+5. **The definition reported, in each binding's shape** (Q5: C):
+   - **Solid 1** calls `onAnimationStart` once per name in the list, in order, and `onAnimationComplete` per name as the keys it drives settle. Every name is reported whenever the list changes, as Motion's. Ported callbacks that branch on the name go on working.
+   - **Solid 2** has one landing per Retarget, its `definition` the list. `settled()` is a state (#257), and a landing per name would flicker it through names within one animation.
+   - Rejected: A (a landing per name on Solid 2 too); B (once per Retarget with the list on both).
+6. **Two PRs** (Q6: A). This one is everything but per-name `when`; PR 2 adds that, with the parent's per-name settle and the child's per-name gates, and the presence's exit orchestration.
+7. **Defaults stated, not asked:**
+   - **A list equal name by name, in order, is the same list** (Motion's `shallowCompare`): a fresh array each render isn't a change of names.
+   - **Names:** an unknown name is skipped, as a single unknown name resolves to nothing; an empty list is no name; the order is the merge order.
+   - **A dynamic variant in a list** resolves with `custom`. A resolver still returns a target or a single name.
+   - **`initial`:** a list gives merged Starting values, on the server too.
+   - **Appear** animates a list on its merged transition (each field the last name's that sets it): an Appear animation is one per element. The client's legs take over by elapsed time, as for any.
+   - **`exit`:** a list merges its targets, each key on the transition of the last name that sets it. Inside a leaver (#290), each name orchestrates the exits of that name.
+
+**Built:**
+- **The resolver** (`variant-target.ts`): `resolveTargets` resolves a list's names each on their own (`NamedTarget`). `resolveTarget` merges them (`mergedOf`): values in order, transitions field by field, so orchestration reads the last name's `when`. `isLabels` tells a list from a values map: a list is an object too, so a string check alone took it for one. The same goes for dom's Starting style (`entryOf`'s list branch).
+- **The Override stack:**
+  - A list is a layer a name, in order (`Layer.name`), the base's and each gesture's.
+  - A single name or a values map takes the path it took before: one layer, nothing else made.
+  - The Retarget splits its keys by layer when a layer has its own transition (#291), or when names delay them differently (`delaysDiffer`).
+  - A list's returns are a group of their own, on the element's transition.
+- **Per-name delays:**
+  - A context hands down `staggerFor(name)`, a name's stagger config from its own transition, else the element's, kept per name until the config changes.
+  - A Variant child's `extraDelay(name)` folds its slot through it.
+  - The slot index is kept in order, and each name's `staggerDirection` turns it at its delay (`directed`).
+- **Callbacks:** Solid 1's `animationCallbacks` tells each name at the start, and the spine tells each name's end as the legs of its group settle (`namesSettled`, `nameSettlesOf`). Solid 2's lifecycle lands once, with the list.
+- **The hand-down:** `nameOf`, the context's `variant` / `initial`, the gesture labels and the trigger key take a list. Both bindings' `variant` memo keeps a list equal name by name. `sameResolution` compares names the same way, so on Solid 2 a fresh list with the same names starts no Retarget. Solid 1's target memo has no equality, so a re-read config's Retarget is told as its values there, a single name's too (VL3).
+- **Exits:** `PresenceExit.groups`, a list's names each with the keys it drives and its own transition; the presence runs each group at that name's delay.
+- **Found on the way:** a config with no `drag` offered `x` in a ward's key completions (`DragKeys`: `[never] extends ["x"]`). Fixed, and pinned by WK7.
+
+**What it costs an element that uses none of it** (`bench:solid`, N = 1,000, no variants on the page, against main `2ac3f8c`):
+- **The first build** cost Solid 1 +4.6% [+2.3%, +7.7%] on its warm Retarget and +2.1% in bytes, and Solid 2 +1.1% in bytes.
+  - Solid 1's animation hooks worked out each Retarget's definition before looking for a callback, where they had looked first.
+  - Every Retarget made a match's closures for where a list's returns go.
+- **With guards in their place,** the result (control −0.5%, after runs whose controls were too noisy): Solid 1's Retarget −1.4% warm, mount +1.0%, bytes +0.5%; Solid 2's Retarget +0.1% warm, mount −0.3%, bytes +0.2%. Each layer carries its name now.
+
+**Pinned by:**
+- **Solid 1:** `test/variant-lists.browser.test.tsx` VL1–VL15:
+  - the merge, and each key on its last name's own transition;
+  - a fresh list with the same names, and one name changed;
+  - the hand-down, and a name's stagger beside another's none;
+  - `initial`, `exit` and `whileHover` lists;
+  - the callbacks per name;
+  - unknown names and the empty list, and a dynamic variant;
+  - a list's returns on the element's transition;
+  - `when` the last name's that sets it, from an earlier name and from a later one.
+
+  Also `test/variant-lists.ssr.test.tsx` VS1–VS4: the Starting style, a Variant child's, `initial={false}`, and an Appear animation's end.
+- **Solid 2:** `test/v2/variant-lists.browser.test.tsx` LV1–LV3, under the diagnostics gate; `test/v2/ward-keys.ssr.test.tsx` WK7 (types).
+- **Mutation-checked:** seventeen single-point mutations, sixteen caught:
+  - a list resolving its first name (VL15, once `when` was on a later name), or merged in reverse (VS4);
+  - one base layer for a list;
+  - a list always a change;
+  - no hand-down;
+  - each binding's delays not per name;
+  - no split by delays;
+  - the direction ignored;
+  - dom's Starting style taking no list;
+  - exit groups ignored;
+  - a gesture list's first name only;
+  - Solid 1's starts told as one, or its names completing together;
+  - a list's returns on its first name's transition;
+  - `when` from the last whole transition.
+
+  The seventeenth, Solid 2's `variant` memo passing a fresh list on, is equivalent: its `equals` and `sameResolution` both compare name by name, so it starts no Retarget either way.

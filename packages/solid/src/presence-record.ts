@@ -6,7 +6,7 @@
  */
 import type * as Box from "@wardic/core/Box"
 import type * as Values from "@wardic/core/Values"
-import type { WardicTransition } from "./config.ts"
+import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -26,7 +26,7 @@ export interface PresenceRecord {
    * resolved with `custom` (the presence's, when it has one, else the child's last), and the
    * transition it runs on. The child keeps what it's resolved from current while alive.
    */
-  readonly exitOf: (custom: unknown, inherited: string | undefined) => PresenceExit
+  readonly exitOf: (custom: unknown, inherited: WardicVariantLabels | undefined) => PresenceExit
   /**
    * Where it sits in the variant tree (#290), decided at setup as the tree is: whether it joins the
    * nearest element that provides a context (a **Variant child**, which then exits on that one's
@@ -58,12 +58,28 @@ export interface PresenceSeed {
   readonly fade?: number | undefined
 }
 
-/** A child's exit, resolved as it leaves (#277): its values, and the transition it runs on. */
+/**
+ * A child's exit, resolved as it leaves (#277): its values, and the transition it runs on, whose
+ * orchestration its Variant children's exits take.
+ */
 export interface PresenceExit {
   readonly values: Values.Values
   readonly transition: WardicTransition | undefined
-  /** The exit name it hands its Variant children (#290): its own `exit`, if a name, else the one it took. */
-  readonly name: string | undefined
+  /** The exit name it hands its Variant children (#290): its own `exit`, if a name or a list (#297), else the one it took. */
+  readonly name: WardicVariantLabels | undefined
+  /**
+   * A list's exit by name (#297): each name's keys (those it's the last to set) on its own transition,
+   * else the element's, and its orchestration for its Variant children's keys of that name. Every
+   * name has one, keys or none. Left out for a single name or a values map: the whole exit is one.
+   */
+  readonly groups?: ReadonlyArray<ExitGroup> | undefined
+}
+
+/** One name of a list's exit (#297): its keys, and the transition they and its orchestration run on. */
+export interface ExitGroup {
+  readonly name: string
+  readonly values: Values.Values
+  readonly transition: WardicTransition | undefined
 }
 
 /** A record's place in the variant tree (#290, {@link PresenceRecord.tree}). */
