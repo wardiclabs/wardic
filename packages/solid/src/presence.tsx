@@ -38,7 +38,9 @@
  * goes once both have ended. Its exit's values reach the projection, so a twin
  * inside stays on its other twin while the exit moves or scales the child.
  */
-import { children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
+import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { type Accessor, children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
 import { exitCompleteEvents, makePresence, type PresenceMode } from "./presence-controller.ts"
 import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -142,17 +144,84 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
 
   onCleanup(presence.teardown)
 
+  // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
+  const context: PresenceContextValue = { ...presence.context, data: () => props.custom }
   return (
-    <PresenceContext.Provider value={presence.context}>
+    <PresenceContext.Provider value={context}>
       <Tracker />
     </PresenceContext.Provider>
   )
 }
 
+/** The element `target` is: an element, or an accessor of one; `undefined` before it has one. */
+const elementOf = (target: unknown): Element | undefined => {
+  if (Predicate.isFunction(target)) return asElement(target())
+  return asElement(target)
+}
+
+/** `at`, if it's an element. */
+const asElement = (at: unknown): Element | undefined => {
+  if (at instanceof Element) return at
+  return undefined
+}
+
+/** A presence hook's registration (#277's PR 5b): `isPresent`, `false` from its child's leave. */
+const watchOf = (target: unknown, holds: boolean, onLeave: (safeToRemove: () => void, custom: unknown) => void): Accessor<boolean> => {
+  const [present, setPresent] = createSignal(true)
+  if (isServer) return present
+  UndefinedOr.map(usePresenceContext(), (presence) =>
+    UndefinedOr.map(presence.watch, (watch) =>
+      watch({
+        element: () => elementOf(target),
+        holds,
+        leave: (custom, release) => {
+          setPresent(false)
+          onLeave(release, custom)
+        },
+        gone: () => {},
+      })))
+  return present
+}
+
+/**
+ * Motion's `usePresence` (#277's PR 5b, ADR-0048), in Solid's shape: the leaving child that holds
+ * `target` (an element, or an accessor of one) stays until `safeToRemove` is called. `onLeave` is
+ * called when it leaves, once its node is back in place (or popped, `mode="popLayout"`), with the
+ * presence's `custom`: the child's own code is already disposed by then, so what it does there is
+ * plain DOM work (a Web Animation, a timer) that ends by calling `safeToRemove`. Never at the
+ * presence's own teardown, and outside a presence, never. One that throws is reported, and lets the
+ * child go. Returns whether the child is present: `false` from its leave, for handlers still firing
+ * on the retained node.
+ */
+export function usePresence(
+  target: unknown,
+  // Motion's `custom` is `any`: the callback declares its own.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onLeave: (safeToRemove: () => void, custom: any) => void,
+): Accessor<boolean> {
+  return watchOf(target, true, onLeave)
+}
+
+/**
+ * Motion's `useIsPresent` (#277's PR 5b): whether the child that holds `target` is present, `false`
+ * from its leave on. The child's own effects are disposed as it leaves, so it's for what still runs
+ * on the retained node: an event handler, a timer. Outside a presence, always `true`.
+ */
+export function useIsPresent(target: unknown): Accessor<boolean> {
+  return watchOf(target, false, () => {})
+}
+
+/** Motion's `usePresenceData` (#277's PR 5b): the nearest presence's `custom`, `undefined` outside one. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function usePresenceData<T = any>(): Accessor<T | undefined> {
+  const presence = usePresenceContext()
+  return () => UndefinedOr.map(UndefinedOr.map(presence, (p) => p.data), (data) => data()) as T | undefined
+}
+
 /** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
 const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
   // A server renders once: every child is set up with the first render (#134).
-  const ctx: PresenceContextValue = { register: () => () => {}, blocksInitial: () => props.initial === false }
+  const ctx: PresenceContextValue = { register: () => () => {}, blocksInitial: () => props.initial === false, data: () => props.custom }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
   return (
     <PresenceContext.Provider value={ctx}>

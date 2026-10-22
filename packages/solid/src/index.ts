@@ -185,7 +185,10 @@ export {
   type PresenceContextValue,
   type PresenceMode,
   type PresenceRecord,
+  useIsPresent,
+  usePresence,
   usePresenceContext,
+  usePresenceData,
 } from "./presence.tsx"
 
 /**

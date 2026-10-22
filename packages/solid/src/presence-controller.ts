@@ -36,14 +36,14 @@ import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constUndefined, constVoid, identity } from "effect/Function"
+import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import type * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import type { PresenceContextValue, PresenceExit, PresenceRecord, PresenceTree } from "./presence-record.ts"
+import type { PresenceContextValue, PresenceExit, PresenceRecord, PresenceTree, PresenceWatch } from "./presence-record.ts"
 import { type Leg, legsOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
@@ -328,6 +328,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const places = new Map<HTMLElement, Placed>()
   const events = options.events
 
+  // The presence hooks registered (#277's PR 5b), each told at its child's leave.
+  const watches = new Set<PresenceWatch>()
+
   // The children `mode="wait"` holds off the page now (#277), and the start of each ward inside one,
   // by its element, called once the child is on the page.
   let held: ReadonlyArray<HTMLElement> = []
@@ -370,6 +373,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       }
     },
     blocksInitial: () => options.initial() === false && firstRender,
+    watch: (watch) => {
+      watches.add(watch)
+    },
     hold: (el, start) => {
       if (Bool.not(isHeld(el))) return undefined
       starts.set(el, start)
@@ -442,15 +448,17 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
   // it, then runs its own exit, and goes once both have ended.
-  const leave = (rec: PresenceRecord, custom: unknown): void => {
+  const leave = (rec: PresenceRecord, custom: unknown, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
     const el = rec.element
     const drop = projection.handBackWithin(el, () => partDone(el))
-    pending.set(el, 1)
+    // Its parts: its exit, each hook holding it (#277's PR 5b), and the handovers of the twins it hands back.
+    pending.set(el, 1 + holds)
     if (Option.isSome(drop)) {
       handovers.set(el, drop.value)
-      pending.set(el, 2)
+      pending.set(el, 2 + holds)
       debug("leave: hands back its twins")
     }
+    tellLeave(el, inside, true)
     driveExit(rec, custom)
   }
 
@@ -585,10 +593,16 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // ended below release nothing, so the binding isn't rendered again as it's disposed.
     held = []
     starts.clear()
+    // The hooks still waiting go with it, told nothing left (#277's PR 5b).
+    Arr.forEach(Arr.fromIterable(watches), (watch) => watch.gone())
+    watches.clear()
     Arr.forEach(Arr.fromIterable(pending.keys()), (el) => interruptExit(el))
     // A crossfading leaver is the projection's, not in `pending`: its exit ends here too, uncompleted (#257).
     Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
   }
+
+  /** Whether a hook inside `el` holds it as it leaves (#277's PR 5b). */
+  const holdsIn = (el: HTMLElement): boolean => Arr.some(watchesIn(el), (watch) => watch.holds)
 
   /** A record whose element is off the page, dropped; a leaver's is put back first, so it stays. */
   const dropDetached = (el: HTMLElement): void => {
@@ -623,15 +637,19 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const left = (placed: Placed): void => {
     const el = placed.el
     const rec = registry.get(el)
-    // A child with no record (not a Wardic element) has no exit: it's gone at once (#257).
-    if (Predicate.isUndefined(rec)) {
+    // The presence hooks inside it (#277's PR 5b): told it left; `usePresence`'s hold it until released.
+    const inside = watchesIn(el)
+    const holds = Arr.filter(inside, (watch) => watch.holds).length
+    // A child with no record (not a Wardic element) and nothing holding it has no exit: it's gone at once (#257).
+    if (Bool.and(Predicate.isUndefined(rec), holds === 0)) {
       if (Bool.not(leaving.has(el))) {
         leaveStarts(el)
+        tellLeave(el, inside, false)
         leaveEnds(el, true)
       }
       return
     }
-    if (exiting.has(el)) return
+    if (Bool.or(exiting.has(el), pending.has(el))) return
     leaveStarts(el)
     // RE-INSERT: Solid's branch disposal may have already removed the node. Put it back where it was,
     // so the parent-driven exit has a mounted node to animate.
@@ -639,13 +657,61 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     places.set(el, placed)
     // `popLayout` (#277): out of the flow where it was, so the children after it take their places.
     popOut(el)
+    // A plain child a hook holds (#277's PR 5b): retained, as Motion's presence child, until released.
+    if (Predicate.isUndefined(rec)) {
+      pending.set(el, holds)
+      tellLeave(el, inside, true)
+      return
+    }
     // Shared-element crossfade (ADR-0010): if the projection has a live twin (Lead) to crossfade
     // toward, defer to it — it drives the retained node as a leaving Follower and calls onDone
-    // (-> finishExit) on the lead's settle. Otherwise run the normal exit animation.
+    // (-> finishExit) on the lead's settle. Otherwise run the normal exit animation. A crossfading
+    // child goes with its handover: the hooks inside it are told, but don't hold it.
     const crossfaded = projection.handleLeave(el, () => finishExit(el))
-    if (crossfaded) debug("leave: crossfade (deferred to projection)")
+    if (crossfaded) {
+      debug("leave: crossfade (deferred to projection)")
+      tellLeave(el, inside, false)
+      return
+    }
     // Its exit, resolved now (#277): with the presence's `custom` when it has one, else the child's last.
-    if (Bool.not(crossfaded)) leave(rec, customNow())
+    leave(rec, customNow(), inside, holds)
+  }
+
+  /** The presence hooks inside `el` (#277's PR 5b): those whose element it holds. */
+  const watchesIn = (el: HTMLElement): ReadonlyArray<PresenceWatch> =>
+    Arr.filter(Arr.fromIterable(watches), (watch) => UndefinedOr.match(watch.element(), { onUndefined: constFalse, onDefined: (at) => el.contains(at) }))
+
+  /**
+   * Tell the hooks inside a leaving child it left (#277's PR 5b), with the presence's `custom`. With
+   * `counted`, each that holds it is one of its parts, ended by its release (once). A callback that
+   * throws is reported, and lets the child go.
+   */
+  const tellLeave = (el: HTMLElement, inside: ReadonlyArray<PresenceWatch>, counted: boolean): void => {
+    const custom = customNow()
+    Arr.forEach(inside, (watch) => {
+      watches.delete(watch)
+      let released = false
+      const release = (): void => {
+        if (released) return
+        released = true
+        if (Bool.and(counted, watch.holds)) partDone(el)
+      }
+      try {
+        watch.leave(custom, release)
+      } catch (defect) {
+        runtime.runFork(Report.failure("wardic.presence: a usePresence callback failed", Cause.die(defect)))
+        release()
+      }
+    })
+  }
+
+  /** A hook whose element left the page some other way, dropped (#277's PR 5b): not one a held child holds. */
+  const dropDetachedWatch = (watch: PresenceWatch): void => {
+    UndefinedOr.map(watch.element(), (at) => {
+      if (Bool.or(at.isConnected, isHeld(at as HTMLElement))) return
+      watches.delete(watch)
+      watch.gone()
+    })
   }
 
   const present = (current: unknown): void => {
@@ -660,6 +726,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // A record whose element left the page some other way (its own control flow, inside a child that
     // stays) is dropped (#290): nothing exits it, and nothing else would.
     Arr.forEach(Arr.fromIterable(registry.keys()), dropDetached)
+    Arr.forEach(Arr.fromIterable(watches), dropDetachedWatch)
     // A popped leaver moved its siblings (#277): a `layout` one animates into the space.
     if (popped) {
       popped = false
@@ -691,7 +758,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const waits = (kept: ReadonlySet<HTMLElement>): boolean =>
     Bool.or(
       leaving.size > 0,
-      Arr.some(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), registry.has(placed.el))),
+      Arr.some(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), Bool.or(registry.has(placed.el), holdsIn(placed.el)))),
     )
 
   const shown = (resolved: unknown): unknown => {

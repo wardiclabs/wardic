@@ -76,6 +76,32 @@ export interface PresenceContextValue {
    * on the page, and the call returned cancels that (the element gone first). Optional: left out, never.
    */
   readonly hold?: (el: HTMLElement, start: () => void) => (() => void) | undefined
+  /**
+   * A presence hook's registration (#277's PR 5b, ADR-0048): `usePresence`'s and `useIsPresent`'s.
+   * Optional: left out, nothing is watched.
+   */
+  readonly watch?: (watch: PresenceWatch) => void
+  /** The presence's `custom` (#277's PR 5b), reactive: `usePresenceData`'s. Left out, `undefined`. */
+  readonly data?: () => unknown
+}
+
+/**
+ * What a presence hook registers (#277's PR 5b, ADR-0048): its element, whose leaving child it
+ * belongs to, and what it's told. Kept until that child goes, the presence goes, or its element
+ * leaves the page some other way.
+ */
+export interface PresenceWatch {
+  /** Its element, once it has one: the child that holds it is the one it belongs to. */
+  readonly element: () => Element | undefined
+  /** Whether it holds its child as it leaves, until `release` is called (`usePresence`). */
+  readonly holds: boolean
+  /**
+   * Its child left: called once, with the node back in place (or popped, `mode="popLayout"`), with
+   * the presence's `custom`, and `release`, which lets the child go once it holds it.
+   */
+  readonly leave: (custom: unknown, release: () => void) => void
+  /** Its child went some other way, or the presence did: it's dropped, with no leave. */
+  readonly gone: () => void
 }
 
 /** Whether `presence` holds an element setting up now at its `animate` ({@link PresenceContextValue.blocksInitial}). */

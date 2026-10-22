@@ -115,8 +115,10 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     return shown as unknown as JSX.Element
   }
 
+  // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
+  const context: PresenceContextValue = { ...presence.context, data: () => props.custom }
   return (
-    <PresenceContext value={presence.context}>
+    <PresenceContext value={context}>
       <Tracker />
     </PresenceContext>
   )
@@ -128,7 +130,7 @@ const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
   const ref = untrack(() => props.ref)
   if (hasRef(ref)) ref(serverPresenceHandle())
   // A server renders once: every child is set up with the first render (#134).
-  const context: PresenceContextValue = { register: () => () => {}, blocksInitial: () => untrack(() => props.initial) === false }
+  const context: PresenceContextValue = { register: () => () => {}, blocksInitial: () => untrack(() => props.initial) === false, data: () => props.custom }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
   return (
     <PresenceContext value={context}>
