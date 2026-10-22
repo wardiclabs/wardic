@@ -38,13 +38,14 @@
  * goes once both have ended. Its exit's values reach the projection, so a twin
  * inside stays on its other twin while the exit moves or scales the child.
  */
-import { children, createContext, createEffect, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
-import { exitCompleteEvents, makePresence } from "./presence-controller.ts"
+import { children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
+import { exitCompleteEvents, makePresence, type PresenceMode } from "./presence-controller.ts"
 import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
 
-export { type PresenceContextValue, type PresenceRecord, presenceBlocksInitial } from "./presence-record.ts"
+export { type PresenceContextValue, type PresenceRecord, presenceBlocksInitial, presenceHold } from "./presence-record.ts"
+export type { PresenceMode } from "./presence-controller.ts"
 
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
@@ -69,6 +70,13 @@ export interface AnimatePresenceProps {
    * when a child comes back mid-exit, nor when the presence itself goes. Read when it's called.
    */
   readonly onExitComplete?: (() => void) | undefined
+  /**
+   * How a child enters while another exits (#277, ADR-0048), Motion's `mode`: `"sync"` (the default),
+   * at once, beside the leaver; `"wait"`, once every leaver has animated out and been removed. A
+   * waiting child is built at once, as Solid builds it, so its own code (`onMount` included) runs
+   * then, off the page; its Wardic elements start once it's on the page.
+   */
+  readonly mode?: PresenceMode | undefined
 }
 
 /**
@@ -85,6 +93,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // A server render has no exit to drive and no runtime to log on: the same component
   // boundaries, with a context that registers nothing (ADR-0021).
   if (isServer) return serverPresence(props)
+  // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
+  const [released, release] = createSignal<void>(undefined, { equals: false })
   // The retained nodes, their exits and the twins they hand back (`presence-controller.ts`).
   const presence = makePresence({
     runtime,
@@ -94,6 +104,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     initial: () => props.initial,
     // Motion's `onExitComplete` (#257).
     events: exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),
+    mode: () => props.mode,
+    release: () => release(),
   })
   // `initial={false}` (#134): the children set up with this first render start at their
   // `animate`; one that enters after it animates in.
@@ -108,8 +120,14 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     // children() memoizes the resolved value; a <Show> flip changes what it
     // returns (the node -> undefined and back).
     const resolved = children(() => props.children)
-    createEffect(() => presence.present(resolved()))
-    return resolved as unknown as JSX.Element
+    // What goes on the page (#277): every child, but under `mode="wait"` one entering is held off it
+    // while a child exits. The controller is told what went on.
+    const shown = createMemo(() => {
+      released()
+      return presence.shown(resolved())
+    })
+    createEffect(() => presence.present(shown()))
+    return shown as unknown as JSX.Element
   }
 
   onCleanup(presence.teardown)

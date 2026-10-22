@@ -43,6 +43,12 @@ export interface PresenceContextValue {
    * `presenceContext.initial`). A child that enters later animates in. Optional: left out, never.
    */
   readonly blocksInitial?: () => boolean
+  /**
+   * Whether an element setting up now is inside a child `mode="wait"` holds off the page (#277,
+   * ADR-0048): `undefined` when it isn't, and it starts now. Else `start` is called once the child is
+   * on the page, and the call returned cancels that (the element gone first). Optional: left out, never.
+   */
+  readonly hold?: (el: HTMLElement, start: () => void) => (() => void) | undefined
 }
 
 /** Whether `presence` holds an element setting up now at its `animate` ({@link PresenceContextValue.blocksInitial}). */
@@ -51,3 +57,10 @@ export const presenceBlocksInitial = (presence: PresenceContextValue | undefined
     onUndefined: constFalse,
     onDefined: (p) => UndefinedOr.match(p.blocksInitial, { onUndefined: constFalse, onDefined: (blocks) => blocks() }),
   })
+
+/**
+ * Whether `el` waits for its child to go on the page ({@link PresenceContextValue.hold}): the call
+ * that cancels `start`, or `undefined` when it starts now.
+ */
+export const presenceHold = (presence: PresenceContextValue | undefined, el: HTMLElement, start: () => void): (() => void) | undefined =>
+  UndefinedOr.map(presence, (p) => UndefinedOr.map(p.hold, (hold) => hold(el, start)))

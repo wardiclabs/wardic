@@ -1,6 +1,6 @@
 /**
  * `<AnimatePresence>` on Solid 2 (#209, ADR-0007): exit-before-unmount for its children (many since
- * #277, ADR-0048), as the Solid 1 binding's. Its work (each retained node, its parent-driven exit,
+ * #277, ADR-0048), and `mode="wait"`, as the Solid 1 binding's. Its work (each retained node, its parent-driven exit,
  * the twins it hands back) is Solid-free, in `presence-controller.ts`. What's Solid 2's:
  *
  * - **The children are resolved with `children()`** under the presence's context, so each child's
@@ -17,8 +17,8 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { children, createContext, createEffect, onCleanup, untrack, useContext } from "solid-js"
-import { makePresence } from "../../presence-controller.ts"
+import { children, createContext, createEffect, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
+import { makePresence, type PresenceMode } from "../../presence-controller.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
 import { useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
@@ -47,6 +47,13 @@ export interface AnimatePresenceProps {
    * presence's own handle. Optional: left out, no handle is made. Read once.
    */
   readonly ref?: ((presence: Presence) => void) | undefined
+  /**
+   * How a child enters while another exits (#277, ADR-0048), Motion's `mode`: `"sync"` (the default),
+   * at once, beside the leaver; `"wait"`, once every leaver has animated out and been removed. A
+   * waiting child is built at once, as Solid builds it, so its own code (its effects included) runs
+   * then, off the page; its Wardic elements start once it's on the page.
+   */
+  readonly mode?: PresenceMode | undefined
 }
 
 /**
@@ -63,6 +70,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // Its own handle, made only when `ref` is given (#257): its exits are told to it, and it's handed to `ref`.
   const ref = untrack(() => props.ref)
   const own = Bool.match(hasRef(ref), { onTrue: makePresenceHandle, onFalse: constUndefined })
+  // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
+  const [released, release] = createSignal<undefined>(undefined, { equals: false })
   const presence = makePresence({
     runtime: useWardicRuntime(),
     projection: useWardicProjection(),
@@ -70,6 +79,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     positionalKeys: useWardicPositionalKeys(),
     initial: () => untrack(() => props.initial),
     events: UndefinedOr.map(own, (handle) => handle.events),
+    mode: () => props.mode,
+    release: () => release(undefined),
   })
   UndefinedOr.map(own, (handle) => (ref as (presence: Presence) => void)(handle.handle))
   onSettledClientOnly(presence.mounted)
@@ -78,14 +89,20 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // Resolved under the context, so the child's ward sees it.
   const Tracker = (): JSX.Element => {
     const resolved = children(() => props.children)
+    // What goes on the page (#277): every child, but under `mode="wait"` one entering is held off it
+    // while a child exits. The controller is told what went on.
+    const shown = createMemo(() => {
+      released()
+      return presence.shown(resolved())
+    }, CLIENT_ONLY)
     createEffect(
-      resolved,
+      shown,
       (current) => {
         presence.present(current)
       },
       CLIENT_ONLY,
     )
-    return resolved as unknown as JSX.Element
+    return shown as unknown as JSX.Element
   }
 
   return (

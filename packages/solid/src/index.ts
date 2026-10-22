@@ -172,12 +172,14 @@ export {
  * Solid disposes the leaving child's reactive owner), removing the node once the
  * exit settles. `PresenceContext` carries the registrar down to descendant spines.
  * `initial={false}` starts the child present at its first render at its `animate` (#134).
+ * Many children, each exiting in its place, and `mode="wait"` (#277, ADR-0048).
  */
 export {
   AnimatePresence,
   type AnimatePresenceProps,
   PresenceContext,
   type PresenceContextValue,
+  type PresenceMode,
   type PresenceRecord,
   usePresenceContext,
 } from "./presence.tsx"
