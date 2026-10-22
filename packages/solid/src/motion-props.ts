@@ -38,7 +38,7 @@ const GESTURE_CALLBACKS = [
  * gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`, `whileInView`, `whileFocus`,
  * `viewport` and `custom` (#277).
  */
-const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints", "whileInView", "whileFocus", "viewport", "custom"] as const
+const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints", "whileInView", "whileFocus", "viewport", "custom", "key"] as const
 
 /** One of {@link RARE_KEYS}. */
 type RareKey = (typeof RARE_KEYS)[number]
@@ -88,6 +88,7 @@ export const MOTION_PROPS = [
   "onUpdate",
   "appear",
   "transition",
+  "key",
 ] as const
 
 /**
@@ -135,6 +136,8 @@ export interface WardicMotionProps {
   /** The value handed to this element's dynamic variants (#277, Motion's `custom`; see `WardConfig`). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
+  /** Which child of an `<AnimatePresence>` it is (#286, Motion's `key`; see `WardConfig`): never written to the DOM. */
+  readonly key?: string | number
   /** `false` keeps a `variants` element out of its ancestors' variants (#50, Motion's `inherit`). */
   readonly inherit?: boolean
   readonly whileHover?: WardicVariant | string

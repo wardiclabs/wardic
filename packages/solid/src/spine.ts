@@ -56,7 +56,7 @@ import type {
   WardicVariantTransition,
 } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
-import type { PresenceExit, PresenceRecord, PresenceTree } from "./presence-record.ts"
+import { type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
@@ -105,6 +105,20 @@ export const presenceTreeOf = (c: WardConfig): PresenceTree => ({
   provides: changesContext(c),
   twin: Predicate.isNotUndefined(c.layoutId),
 })
+
+/**
+ * An element's ref that tells its presence it was made (#286, ADR-0048): its `key`, read once, and
+ * whether it's a twin. With no presence, `set` itself: nothing is made per element.
+ */
+export const madeWith = <E extends Element>(presence: PresenceContextValue | undefined, set: (el: E) => void, c: WardConfig): ((el: E) => void) => {
+  if (Predicate.isUndefined(presence)) return set
+  const key = c.key
+  const twin = Predicate.isNotUndefined(c.layoutId)
+  return (el) => {
+    presenceMade(presence, el, key, twin)
+    set(el)
+  }
+}
 
 /** An element's {@link ExitConfig} from its config now. */
 export const exitConfigOf = (c: WardConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
@@ -524,12 +538,15 @@ export const presenceRecordOf = (
   exitOf: (custom: unknown, inherited: string | undefined) => ExitTarget,
   links: StartLinks,
   tree: PresenceTree,
+  snapshot: Snapshot,
 ): PresenceRecord => ({
   element,
   snapshot: { current: { ...start.initialValues } },
   exitOf,
   tree,
   startOf: (key, like) => Option.getOrUndefined(Option.map(links.startLinkOf(key, like), (s) => s.value)),
+  // Its spine's, read when a child back under its key takes over from it (#286).
+  velocities: () => snapshot.velocities,
 })
 
 /**
@@ -600,6 +617,12 @@ export interface ElementSpine {
   readonly follow: (now: FollowNow) => void
   /** The element's teardown: following stops, and the legs end. */
   readonly dispose: () => void
+  /**
+   * Start where a leaver is drawn (#286, ADR-0048), before the first Retarget: each key's value and
+   * velocity, drawn now. A key no layer sets returns to its Base value from there, as one a Retarget
+   * drove does.
+   */
+  readonly seed: (from: PresenceSeed) => void
 }
 
 /**
@@ -1012,7 +1035,25 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     runtime.runFork(Scope.close(legScope, Exit.void))
   }
 
-  return { retarget, follow, dispose }
+  // A child back under its key (#286): its values and velocities from where the leaver is drawn, a
+  // projected element's translate keys left to its projection (ADR-0016). Drawn at the end of the
+  // task, so nothing paints the element at its `initial` first: not in the mount effect it's called
+  // in, where the first commit's Starting-style switch would flush Solid 2 inside an effect.
+  const seed = (from: PresenceSeed): void => {
+    const values = Bool.match(projected, {
+      onTrue: () => Rec.filter(from.values, (_, key) => Bool.not(TRANSLATE_KEYS.has(key))),
+      onFalse: () => from.values,
+    })
+    Object.assign(snapshot.values, values)
+    snapshot.velocities = { ...snapshot.velocities, ...from.velocities }
+    if (Predicate.isNotUndefined(presence)) Object.assign(presence.snapshot.current, values)
+    Arr.forEach(Rec.keys(values), (key) => {
+      driven.set(key, values[key])
+    })
+    queueMicrotask(() => gate.flushPass(() => gate.write(id, values)))
+  }
+
+  return { retarget, follow, dispose, seed }
 }
 
 /**

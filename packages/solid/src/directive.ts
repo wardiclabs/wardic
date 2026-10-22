@@ -28,9 +28,13 @@
  * local Ward can't shadow it, since a Ward is named after its element or `ward`
  * (ADR-0042, the reason the directive isn't `use:wardic`).
  */
-import { createUniqueId, type Accessor } from "solid-js"
+import { constVoid } from "effect/Function"
+import * as Predicate from "effect/Predicate"
+import { createUniqueId, type Accessor, untrack } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { runSpine } from "./create-ward.tsx"
+import { usePresenceContext } from "./presence.tsx"
+import { madeWith } from "./spine.ts"
 import type { WardConfig } from "./config.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
@@ -47,6 +51,9 @@ export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): v
   // (ADR-0007) and, as a Variant child, joins it (#50). It renders no children, so it
   // provides none.
   const node = createVariantNode(value, useVariantContext())
+  // Under a presence, its element is told to it (#286): its `key`, and whether it's a twin.
+  const presence = usePresenceContext()
+  if (Predicate.isNotUndefined(presence)) madeWith(presence, constVoid, untrack(value))(el)
   runSpine({
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
