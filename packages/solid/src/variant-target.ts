@@ -12,7 +12,8 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import type { WardicTransition, WardicVariant, WardicVariantResolver, WardicVariants, WardicVariantTransition } from "./config.ts"
+import * as UndefinedOr from "effect/UndefinedOr"
+import type { WardicTransition, WardicVariant, WardicVariantLabels, WardicVariantResolver, WardicVariants, WardicVariantTransition } from "./config.ts"
 
 /**
  * What a dynamic variant reads besides `custom` (#277, Motion's `current` and `velocity`): the
@@ -30,6 +31,43 @@ export const NO_VARIANT_STATE: VariantState = { values: {}, velocities: {} }
 export interface Target {
   readonly values: Values.Values
   readonly transition: WardicVariantTransition | undefined
+}
+
+/** A variant prop's entry: a target, a name, a list of names (#297), or nothing. */
+export type Entry = WardicVariant | WardicVariantLabels | undefined
+
+/**
+ * Whether an entry names variants (#297): a name, or a list of names. Not a values map: a list is an
+ * object too, so a check for a string alone would take it for one.
+ */
+export const isLabels = (entry: unknown): entry is WardicVariantLabels => Bool.or(Predicate.isString(entry), Array.isArray(entry))
+
+/** An entry's names, in order (#297): one for a name, a list's own, none for a values map or nothing. */
+export const labelsOf = (entry: unknown): ReadonlyArray<string> => {
+  if (Predicate.isString(entry)) return [entry]
+  if (Array.isArray(entry)) return entry as ReadonlyArray<string>
+  return NO_LABELS
+}
+
+/** No names. */
+export const NO_LABELS: ReadonlyArray<string> = []
+
+/**
+ * Two entries' names the same (#297, Motion's `shallowCompare`): a name, or a list equal name by name
+ * in order, so a fresh list with the same names each render isn't a change. A values map, or nothing,
+ * matches only itself.
+ */
+export const sameLabels = (a: WardicVariantLabels | undefined, b: WardicVariantLabels | undefined): boolean => {
+  if (a === b) return true
+  if (Bool.or(Bool.not(Array.isArray(a)), Bool.not(Array.isArray(b)))) return false
+  const x = a as ReadonlyArray<string>
+  const y = b as ReadonlyArray<string>
+  return Bool.and(x.length === y.length, Arr.every(x, (name, i) => name === y[i]))
+}
+
+/** A target resolved for one of an entry's names (#297): `name` its name, `undefined` for a values map. */
+export interface NamedTarget extends Target {
+  readonly name: string | undefined
 }
 
 /** What a variant name, a variants entry or a resolver's result can be. */
@@ -55,12 +93,43 @@ const namedOf = (definition: Definition, variants: WardicVariants | undefined): 
  * `Style.toValues`, so `Override.resolve` and `Values.split` never see an `undefined` value; its
  * `transition` is split off.
  */
-export const resolveTarget = (
-  entry: WardicVariant | string | undefined,
-  variants: WardicVariants | undefined,
-  custom: unknown,
-  state: VariantState,
-): Target => {
+export const resolveTarget = (entry: Entry, variants: WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
+  if (Array.isArray(entry)) return mergedOf(resolveTargets(entry, variants, custom, state))
+  return resolveOne(entry as WardicVariant | string | undefined, variants, custom, state)
+}
+
+/**
+ * Each of an entry's targets, in order (#297): a list's names each resolved on its own, Motion's
+ * `definitionList`; a name or a values map alone. An empty list resolves nothing.
+ */
+export const resolveTargets = (entry: Entry, variants: WardicVariants | undefined, custom: unknown, state: VariantState): ReadonlyArray<NamedTarget> => {
+  if (Array.isArray(entry)) {
+    return Arr.map(entry as ReadonlyArray<string>, (name): NamedTarget => ({ ...resolveOne(name, variants, custom, state), name }))
+  }
+  const one = entry as WardicVariant | string | undefined
+  return [{ ...resolveOne(one, variants, custom, state), name: Bool.match(Predicate.isString(one), { onTrue: () => one as string, onFalse: () => undefined }) }]
+}
+
+/**
+ * Targets merged in order (#297): their values, a later one's winning a key both set, and their own
+ * transitions field by field, a later one's winning. The merged transition is what orchestration
+ * reads for a list as a whole (`when` the last name's that sets it); each key's legs run on the own
+ * transition of the name that drives it, not on this.
+ */
+export const mergedOf = (targets: ReadonlyArray<Target>): Target =>
+  Arr.reduce(targets, NO_TARGET, (merged, target): Target => ({
+    values: { ...merged.values, ...target.values },
+    transition: UndefinedOr.match(target.transition, {
+      onUndefined: () => merged.transition,
+      onDefined: (own) => UndefinedOr.match(merged.transition, { onUndefined: () => own, onDefined: (before) => ({ ...before, ...own }) as WardicVariantTransition }),
+    }),
+  }))
+
+/** Nothing resolved. */
+const NO_TARGET: Target = { values: {}, transition: undefined }
+
+/** One name or values map resolved ({@link resolveTarget}). */
+const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
   const definition = calledOf(namedOf(calledOf(namedOf(entry, variants), custom, state), variants), custom, state)
   if (Bool.or(Predicate.isUndefined(definition), Bool.or(Predicate.isString(definition), Predicate.isFunction(definition)))) {
     return { values: {}, transition: undefined }
@@ -101,13 +170,13 @@ export const startingVariantsOf = (variants: object | undefined, custom: unknown
  * names or inherits (`name`), resolved with `custom` and no values. What its orchestration reads.
  */
 export const ownTransitionOf = (
-  animate: object | string | undefined,
-  name: string | undefined,
+  animate: object | WardicVariantLabels | undefined,
+  name: WardicVariantLabels | undefined,
   variants: object | undefined,
   custom: unknown,
 ): WardicVariantTransition | undefined => {
   const byName = variants as WardicVariants | undefined
-  if (Bool.and(Predicate.isNotUndefined(animate), Bool.not(Predicate.isString(animate)))) {
+  if (Bool.and(Predicate.isNotUndefined(animate), Bool.not(isLabels(animate)))) {
     return resolveTarget(animate as WardicVariant, byName, custom, NO_VARIANT_STATE).transition
   }
   if (Predicate.isUndefined(name)) return undefined

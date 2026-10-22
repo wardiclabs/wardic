@@ -45,20 +45,24 @@ const isAnimatable = Predicate.or(Predicate.isNumber, Predicate.isString)
  */
 export interface InitialConfig {
   /**
-   * A values map used as is, the name of a `variants` entry, or `false`: start at
-   * {@link animate} (#134, Motion's `initial={false}`).
+   * A values map used as is, the name of a `variants` entry, a list of names (#297, merged in
+   * order, a later one's winning), or `false`: start at {@link animate} (#134, Motion's
+   * `initial={false}`).
    */
-  readonly initial?: object | string | false | undefined
-  /** What `initial: false` starts at: a values map, or the name of a `variants` entry. */
-  readonly animate?: object | string | undefined
+  readonly initial?: object | string | ReadonlyArray<string> | false | undefined
+  /** What `initial: false` starts at: a values map, the name of a `variants` entry, or a list of names. */
+  readonly animate?: object | string | ReadonlyArray<string> | undefined
   readonly variants?: Readonly<Record<string, object | undefined>> | undefined
 }
 
 /** One values entry and the variants a name in it would name. */
 interface Entry {
-  readonly entry: object | string | undefined
+  readonly entry: object | string | ReadonlyArray<string> | undefined
   readonly variants: InitialConfig["variants"]
 }
+
+/** Whether an entry is a list of names (#297): an array, which a values map never is. */
+const isList = (entry: unknown): entry is ReadonlyArray<string> => Array.isArray(entry)
 
 /**
  * A values map, or the `variants` entry a name names (an unknown name is empty), or nothing.
@@ -67,6 +71,9 @@ interface Entry {
 const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
   Match.when({ entry: Match.undefined }, (): Values.Values => ({})),
   Match.when({ entry: Match.string }, ({ entry, variants }) => toValues(UndefinedOr.map(variants, (byName) => byName[entry]))),
+  // A list's names merged in order, a later one's winning a key both set (#297, Motion's).
+  Match.when({ entry: isList }, ({ entry, variants }) =>
+    Arr.reduce(entry, {} as Values.Values, (merged, name) => ({ ...merged, ...toValues(UndefinedOr.map(variants, (byName) => byName[name])) }))),
   Match.orElse(({ entry }) => toValues(entry as object)),
 )
 
@@ -79,7 +86,7 @@ const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
  */
 export const resolveInitial: (config: InitialConfig) => Values.Values = Match.type<InitialConfig>().pipe(
   Match.when({ initial: false }, (config) => entryOf({ entry: config.animate, variants: config.variants })),
-  Match.orElse((config) => entryOf({ entry: config.initial as object | string | undefined, variants: config.variants })),
+  Match.orElse((config) => entryOf({ entry: config.initial as object | string | ReadonlyArray<string> | undefined, variants: config.variants })),
 )
 
 /**

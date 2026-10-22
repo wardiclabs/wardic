@@ -21,14 +21,15 @@
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { AppearGroup } from "./appear.ts"
-import type { WardicTransition } from "./config.ts"
+import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { startingVariantsOf } from "./variant-target.ts"
+import { isLabels, labelsOf, sameLabels, startingVariantsOf } from "./variant-target.ts"
 
 /**
  * The handle a child receives from {@link WardicVariantContextValue.register}
@@ -84,15 +85,15 @@ export type GestureLayer = "inView" | "focused" | "hovered" | "pressed" | "dragg
 /** The gesture layers in Motion's priority, lowest first. */
 export const GESTURE_LAYERS: ReadonlyArray<GestureLayer> = ["inView", "focused", "hovered", "pressed", "dragged"]
 
-/** The variant names an element hands its Variant children for its active gestures (#291). */
-export type GestureNames = Readonly<Partial<Record<GestureLayer, string | undefined>>>
+/** The variant names an element hands its Variant children for its active gestures (#291): a name or a list each (#297). */
+export type GestureNames = Readonly<Partial<Record<GestureLayer, WardicVariantLabels | undefined>>>
 
 /** No gesture on: what an element with none active hands down. */
 export const NO_GESTURE_NAMES: GestureNames = {}
 
-/** Two {@link GestureNames} the same: the same name for each gesture. */
+/** Two {@link GestureNames} the same: the same names for each gesture, a list name by name (#297). */
 export const sameGestureNames = (a: GestureNames, b: GestureNames): boolean =>
-  GESTURE_LAYERS.every((layer) => a[layer] === b[layer])
+  GESTURE_LAYERS.every((layer) => sameLabels(a[layer], b[layer]))
 
 /** Whether each gesture is on (#291): a spine's, bound to its variant node. */
 export type GestureStates = Readonly<Record<GestureLayer, boolean>>
@@ -115,7 +116,7 @@ export const NO_HAND_DOWN: GestureHandDown = { on: NO_GESTURE_STATES, names: NO_
 
 /** Two hand-downs the same: each gesture on alike, with the same label. */
 export const sameHandDown = (a: GestureHandDown, b: GestureHandDown): boolean =>
-  GESTURE_LAYERS.every((layer) => Bool.and(a.on[layer] === b.on[layer], a.names[layer] === b.names[layer]))
+  GESTURE_LAYERS.every((layer) => Bool.and(a.on[layer] === b.on[layer], sameLabels(a.names[layer], b.names[layer])))
 
 /** What a context hands down, nothing without a context or its gestures. */
 export const handDownFrom = (context: WardicVariantContextValue | undefined): GestureHandDown => {
@@ -128,11 +129,11 @@ export const handDownFrom = (context: WardicVariantContextValue | undefined): Ge
 
 /** The gesture props a variant node reads (#291). */
 export interface GestureConfig {
-  readonly whileInView?: object | string | undefined
-  readonly whileFocus?: object | string | undefined
-  readonly whileHover?: object | string | undefined
-  readonly whileTap?: object | string | undefined
-  readonly whileDrag?: object | string | undefined
+  readonly whileInView?: object | WardicVariantLabels | undefined
+  readonly whileFocus?: object | WardicVariantLabels | undefined
+  readonly whileHover?: object | WardicVariantLabels | undefined
+  readonly whileTap?: object | WardicVariantLabels | undefined
+  readonly whileDrag?: object | WardicVariantLabels | undefined
 }
 
 /** Each gesture on: its own, or its provider's. */
@@ -144,8 +145,8 @@ export const gesturesOn = (own: GestureStates, above: GestureStates): GestureSta
   dragged: Bool.or(own.dragged, above.dragged),
 })
 
-/** A gesture's label (#291): its own `while*`, if a name; with none of its own, the one it took. */
-const labelOf = (own: object | string | undefined, inherited: string | undefined): string | undefined => {
+/** A gesture's label (#291): its own `while*`, if a name or a list (#297); with none of its own, the one it took. */
+const labelOf = (own: object | WardicVariantLabels | undefined, inherited: WardicVariantLabels | undefined): WardicVariantLabels | undefined => {
   if (Predicate.isNotUndefined(own)) return nameOf(own)
   return inherited
 }
@@ -172,17 +173,20 @@ export const activeNamesOf = (handDown: GestureHandDown): GestureNames => ({
 })
 
 /** A gesture's label while it's on. */
-const activeName = (handDown: GestureHandDown, layer: GestureLayer): string | undefined => {
+const activeName = (handDown: GestureHandDown, layer: GestureLayer): WardicVariantLabels | undefined => {
   if (Bool.not(handDown.on[layer])) return undefined
   return handDown.names[layer]
 }
 
-/** A key for a variant name and the active gestures' names: what a provider's orchestration snapshots at (#291). */
-export const triggerKeyOf = (variant: string | undefined, handDown: GestureHandDown): string =>
-  [variant, ...GESTURE_LAYERS.map((layer) => activeName(handDown, layer))].join("|")
+/** A key for a variant name and the active gestures' names: what a provider's orchestration snapshots at (#291), a list's names each (#297). */
+export const triggerKeyOf = (variant: WardicVariantLabels | undefined, handDown: GestureHandDown): string =>
+  [keyOfLabels(variant), ...GESTURE_LAYERS.map((layer) => keyOfLabels(activeName(handDown, layer)))].join("|")
 
-/** The highest-priority active gesture's name, if any hands one down. */
-export const topGestureName = (names: GestureNames): string | undefined =>
+/** Labels as one key: a list's names apart by a character no name has in practice. */
+const keyOfLabels = (labels: WardicVariantLabels | undefined): string => Arr.join(labelsOf(labels), "\u0001")
+
+/** The highest-priority active gesture's name, or list (#297), if any hands one down. */
+export const topGestureName = (names: GestureNames): WardicVariantLabels | undefined =>
   UndefinedOr.match(names.dragged, {
     onDefined: identity,
     onUndefined: () =>
@@ -197,14 +201,14 @@ export const topGestureName = (names: GestureNames): string | undefined =>
   })
 
 export interface WardicVariantContextValue {
-  /** The parent's current variant NAME, reactive (undefined if it's a values map). */
-  readonly variant: Accessor<string | undefined>
+  /** The parent's current variant NAME, or list of names (#297), reactive (undefined if it's a values map). */
+  readonly variant: Accessor<WardicVariantLabels | undefined>
   /**
    * The parent's `initial` variant NAME, or `false`, read once (undefined if it's a values map or
    * absent): a Variant child with no `initial` of its own starts from it (#50), or, for `false`,
    * at its `animate` (#134, Motion's `getCurrentTreeVariants`).
    */
-  readonly initial: string | false | undefined
+  readonly initial: WardicVariantLabels | false | undefined
   /** The parent's transition, inherited as the default for children. */
   readonly transition: Accessor<WardicTransition | undefined>
   /**
@@ -225,6 +229,12 @@ export interface WardicVariantContextValue {
    * `staggerChildren`, plus `delayChildren` / `from` / `direction`.
    */
   readonly stagger: Accessor<WardicStaggerConfig>
+  /**
+   * The parent's stagger config for one of its names (#297, Motion's `animateVariant` a name): that
+   * name's own transition's, else the parent's `transition`. A Variant child's keys of that name take
+   * their delay from it. `undefined` asks for {@link stagger}. Optional: left out, `stagger` for all.
+   */
+  readonly staggerFor?: (name: string | undefined) => WardicStaggerConfig
   /** The parent's `when` mode, or `undefined` (default concurrent). */
   readonly when: Accessor<"beforeChildren" | "afterChildren" | undefined>
   /**
@@ -244,8 +254,8 @@ export interface WardicVariantContextValue {
 
 /** The part of an element's config its place in variant orchestration reads. */
 export interface VariantConfig extends GestureConfig {
-  readonly initial?: object | string | false | undefined
-  readonly animate?: object | string | undefined
+  readonly initial?: object | WardicVariantLabels | false | undefined
+  readonly animate?: object | WardicVariantLabels | undefined
   readonly variants?: object | undefined
   readonly inherit?: boolean | undefined
   readonly transition?: WardicTransition | undefined
@@ -253,17 +263,16 @@ export interface VariantConfig extends GestureConfig {
   readonly custom?: unknown
 }
 
-/** An `initial` an element hands its children: a variant name, `false` (#134), or `undefined` for a values map or nothing. */
-export const initialNameOf = (entry: object | string | false | undefined): string | false | undefined =>
-  Bool.match(entry === false, { onTrue: () => false as const, onFalse: () => nameOf(entry as object | string | undefined) })
+/** An `initial` an element hands its children: a variant name or list (#297), `false` (#134), or `undefined` for a values map or nothing. */
+export const initialNameOf = (entry: object | WardicVariantLabels | false | undefined): WardicVariantLabels | false | undefined =>
+  Bool.match(entry === false, { onTrue: () => false as const, onFalse: () => nameOf(entry as object | WardicVariantLabels | undefined) })
 
-/** A variant name, or `undefined` for a values map or nothing. */
-export const nameOf = (entry: object | string | undefined): string | undefined =>
-  Bool.match(Predicate.isString(entry), { onTrue: () => entry as string, onFalse: constUndefined })
+/** A variant name or a list of names (#297), or `undefined` for a values map or nothing. */
+export const nameOf = (entry: object | WardicVariantLabels | undefined): WardicVariantLabels | undefined =>
+  Bool.match(isLabels(entry), { onTrue: () => entry as WardicVariantLabels, onFalse: constUndefined })
 
-/** Whether `config` names its own variants: its `initial` or `animate` is a name (Motion's `isControllingVariants`). */
-export const namesOwnVariants = (config: VariantConfig): boolean =>
-  Predicate.isString(config.initial) || Predicate.isString(config.animate)
+/** Whether `config` names its own variants: its `initial` or `animate` is a name or a list (Motion's `isControllingVariants`, `isVariantLabel`). */
+export const namesOwnVariants = (config: VariantConfig): boolean => isLabels(config.initial) || isLabels(config.animate)
 
 /** Whether an element has variants of its own, so Variant children join it (Motion's `isVariantNode`). */
 export const hasOwnVariants = (config: VariantConfig): boolean =>
@@ -294,7 +303,7 @@ export const inheritedContext = (
 export const initialOf = (
   config: VariantConfig,
   inherited: WardicVariantContextValue | undefined,
-): object | string | false | undefined =>
+): object | WardicVariantLabels | false | undefined =>
   UndefinedOr.match(config.initial, {
     onDefined: (initial) => initial,
     onUndefined: () => UndefinedOr.match(inherited, { onUndefined: constUndefined, onDefined: (context) => context.initial }),
@@ -305,7 +314,7 @@ const animateOf = (
   config: VariantConfig,
   inherited: WardicVariantContextValue | undefined,
   untrack: Reactivity["untrack"],
-): object | string | undefined =>
+): object | WardicVariantLabels | undefined =>
   UndefinedOr.match(config.animate, {
     onDefined: (animate) => animate,
     onUndefined: () => UndefinedOr.match(inherited, { onUndefined: constUndefined, onDefined: (context) => untrack(context.variant) }),
@@ -347,7 +356,7 @@ export const startingValuesOf = (
  * A name an element hands its children (Motion's `getCurrentTreeVariants`): `own` if it names its own
  * variants, else `fromParent` unless it sets `inherit={false}`.
  */
-export const handedDown = <A extends string | false>(config: VariantConfig, own: () => A | undefined, fromParent: () => A | undefined): A | undefined =>
+export const handedDown = <A extends WardicVariantLabels | false>(config: VariantConfig, own: () => A | undefined, fromParent: () => A | undefined): A | undefined =>
   Bool.match(namesOwnVariants(config), {
     onTrue: own,
     onFalse: () => Bool.match(config.inherit === false, { onTrue: constUndefined, onFalse: fromParent }),
@@ -360,6 +369,19 @@ export const ownOrInherited = (own: WardicTransition | undefined, inherited: War
 /** The stagger config an element's `transition` gives its Variant children. */
 export const staggerOf = (transition: WardicTransition | undefined): WardicStaggerConfig =>
   UndefinedOr.match(transition, { onUndefined: () => staggerWith({}), onDefined: staggerWith })
+
+/** A context's stagger config for one of its names (#297): its `staggerFor`'s, else its whole orchestration's. */
+export const staggerOfName = (context: WardicVariantContextValue, name: string | undefined): WardicStaggerConfig => {
+  const of = context.staggerFor
+  if (Predicate.isUndefined(of)) return context.stagger()
+  return of(name)
+}
+
+/** A child's place in a stagger, turned by its `staggerDirection`: `-1` counts from the last. */
+export const directed = (index: number, total: number, direction: 1 | -1): number => {
+  if (direction === -1) return total - 1 - index
+  return index
+}
 
 /** The stagger config of a transition's stagger keys, each defaulted. */
 export const staggerWith = ({ staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1 }: WardicTransition): WardicStaggerConfig => ({
@@ -403,7 +425,7 @@ export const serverVariantNode = (config: VariantConfig, parent: WardicVariantCo
     const stagger = staggerOf(config.transition)
     return {
       variant: () => variant,
-      initial: handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial)),
+      initial: handedDown<WardicVariantLabels | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial)),
       transition: () => transition,
       register: () => INERT_REGISTRATION,
       stagger: () => stagger,

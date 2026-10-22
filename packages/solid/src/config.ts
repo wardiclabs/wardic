@@ -157,6 +157,14 @@ export type WardicVariantTransition = WardicTransition & { readonly inherit?: bo
 export type WardicVariant = WardicValues | (Omit<WardicValues, "transition"> & { readonly transition?: WardicVariantTransition })
 
 /**
+ * Variant names (#297, Motion's `VariantLabels`): one name, or a list of them. A list merges its
+ * names' values in order, a later name's winning a key both set. Each key animates on the own
+ * transition of the last name that sets it, and each name orchestrates the keys it sets in the
+ * element's Variant children. An empty list is no name.
+ */
+export type WardicVariantLabels = string | ReadonlyArray<string>
+
+/**
  * A dynamic variant (#277, ADR-0048, Motion's `TargetResolver`): called each time the variant is
  * resolved with the element's `custom` (or, for an exit, its `<AnimatePresence custom>`), its values
  * now and their velocities, and returns its target, or another variant's name.
@@ -215,8 +223,11 @@ export interface WardicDragTransition {
  * job ({@link "./wardic.tsx"} `MotionProps`), not `createWard`'s — at its
  * boundary a config field is always a plain value.
  */
-/** Motion's `definition` of an animation (#257): a variant name, or its target values. */
-export type WardicAnimationDefinition = string | WardicValues
+/**
+ * Motion's `definition` of an animation (#257): a variant name, or its target values. A list of names
+ * (#297) on Solid 2's landing, where `animate` gave one; Solid 1's callbacks are told each name.
+ */
+export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
 
 export interface WardConfig {
   /**
@@ -235,12 +246,12 @@ export interface WardConfig {
    *     mount (#134, Motion's). An element that names its own variants hands it down. A key it
    *     started at returns to its `style` value, else to where it started (ADR-0022).
    */
-  readonly initial?: WardicVariant | string | false
+  readonly initial?: WardicVariant | WardicVariantLabels | false
   /**
    * The resting target. A string names a `variants` entry. Read reactively through the whole-config
    * accessor `cfg()`. Its own `transition` (#277) drives the animation to it.
    */
-  readonly animate?: WardicVariant | string
+  readonly animate?: WardicVariant | WardicVariantLabels
   /**
    * Named targets `initial`, `animate` and `exit` strings resolve against: each a target, with its own
    * `transition` if it has one, or a function of `custom` (#277, Motion's dynamic variants).
@@ -271,20 +282,20 @@ export interface WardConfig {
    * Target merged in (highest-but-one priority) while hovered. Each gesture prop takes a target, or a
    * `variants` name (#291, Motion's), which its Variant children take too while the gesture is on.
    */
-  readonly whileHover?: WardicVariant | string
+  readonly whileHover?: WardicVariant | WardicVariantLabels
   /** Target merged in (highest priority) while pressed. */
-  readonly whileTap?: WardicVariant | string
+  readonly whileTap?: WardicVariant | WardicVariantLabels
   /**
    * Target merged in while the element is in view (Motion's, #273, ADR-0047), under `whileFocus` and
    * the pointer gestures: what "in view" means is `viewport`'s.
    */
-  readonly whileInView?: WardicVariant | string
+  readonly whileInView?: WardicVariant | WardicVariantLabels
   /**
    * Target merged in while the element is focused as the browser shows it (Motion's, #273): a
    * keyboard's focus (`:focus-visible`), not a pointer's click. Under the pointer gestures, over
    * `whileInView`.
    */
-  readonly whileFocus?: WardicVariant | string
+  readonly whileFocus?: WardicVariant | WardicVariantLabels
   /**
    * What "in view" means for `whileInView` and the viewport callbacks (Motion's `viewport`, #273): the
    * container (`root`, an accessor; the viewport when none), a `margin` grown around it (CSS
@@ -327,7 +338,7 @@ export interface WardConfig {
    * (NOT stripped) so e.g. `scale: 1.1` animates while held and returns after
    * release. Only consulted when `drag` is on.
    */
-  readonly whileDrag?: WardicVariant | string
+  readonly whileDrag?: WardicVariant | WardicVariantLabels
   /**
    * Constrain the element's `x`/`y`, whichever gesture moved it there; a Fling springs back to an edge
    * it would cross (ADR-0016, *Amendment (#140)*). Only when `drag` is on. Motion's forms (#273,
@@ -390,7 +401,7 @@ export interface WardConfig {
    * on the retained DOM node. A string names a `variants` entry, a dynamic one resolved as the
    * element leaves (#277); the exit runs on its own `transition`, else the element's.
    */
-  readonly exit?: WardicVariant | string
+  readonly exit?: WardicVariant | WardicVariantLabels
   /**
    * Enable layout FLIP (ADR-0005): on a reflow this element animates from its
    * prior box to its new one (First/Last/Invert/Play). Under a `<LayoutGroup>`

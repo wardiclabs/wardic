@@ -275,7 +275,7 @@ export interface RunSpineOptions {
    * `delay` for the inherited-variant Retarget (ADR-0007 per-child stagger).
    * Read at Retarget time. Optional — omitted = no extra delay.
    */
-  readonly extraDelay?: (() => number) | undefined
+  readonly extraDelay?: ((name: string | undefined) => number) | undefined
   /** A `<Reorder>` item's additions (internal; see {@link SpineInternals}). */
   readonly internal?: SpineInternals | undefined
   /**

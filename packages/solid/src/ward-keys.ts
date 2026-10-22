@@ -14,8 +14,16 @@ import type { Accessor } from "./reactivity.ts"
 /** A key's value through its accessor, the Solid 2 binding's per-key form (#259): what it returns. */
 type Unwrap<V> = V extends (...args: never) => infer R ? R : V
 
-/** A layer's values map: nothing for a variant name, `false` or none; an accessor's, what it returns. */
-type MapOf<V> = Unwrap<V> extends infer U ? (U extends object ? (U extends (...args: never) => unknown ? never : U) : never) : never
+/** A layer's values map: nothing for a variant name, a list of names (#297), `false` or none; an accessor's, what it returns. */
+type MapOf<V> = Unwrap<V> extends infer U
+  ? U extends object
+    ? U extends (...args: never) => unknown
+      ? never
+      : U extends ReadonlyArray<unknown>
+        ? never
+        : U
+    : never
+  : never
 
 /** Every variant's values map. */
 type VariantMaps<C> = C extends { readonly variants?: infer Ws }
@@ -45,7 +53,16 @@ type KeysOf<U> = U extends unknown ? Exclude<keyof U & string, "transition"> : n
 type DragOf<C> = C extends { readonly drag: infer D } ? Unwrap<D> : never
 
 /** The keys a drag moves: its axis's, or both. */
-type DragKeys<C> = [DragOf<C>] extends ["x"] ? "x" : [DragOf<C>] extends ["y"] ? "y" : [DragOf<C>] extends [true] ? "x" | "y" : never
+// No `drag` is `never`, which every tuple below would take: none first (#297's WK7 found it).
+type DragKeys<C> = [DragOf<C>] extends [never]
+  ? never
+  : [DragOf<C>] extends ["x"]
+    ? "x"
+    : [DragOf<C>] extends ["y"]
+      ? "y"
+      : [DragOf<C>] extends [true]
+        ? "x" | "y"
+        : never
 
 /** The keys a config animates. */
 export type AnimatedKey<C> = KeysOf<Layers<C>> | DragKeys<C>

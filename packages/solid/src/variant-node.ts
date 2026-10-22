@@ -11,7 +11,7 @@ import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
-import type { WardicTransition } from "./config.ts"
+import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import {
   activeNamesOf,
   type GestureHandDown,
@@ -29,14 +29,16 @@ import {
   initialNameOf,
   nameOf,
   ownOrInherited,
+  directed,
   passedThrough,
   staggerOf,
+  staggerOfName,
   type VariantConfig,
   type WardicChildRegistration,
   type WardicStaggerConfig,
   type WardicVariantContextValue,
 } from "./variant-tree.ts"
-import { ownTransitionOf, transitionOfTarget } from "./variant-target.ts"
+import { ownTransitionOf, sameLabels, transitionOfTarget } from "./variant-target.ts"
 
 /** An element's place in variant orchestration, on the client. */
 export interface VariantNode {
@@ -45,7 +47,7 @@ export interface VariantNode {
   /** The context its spine inherits names and its default transition from: its parent's, for a Variant child. */
   readonly inherited: WardicVariantContextValue | undefined
   /** Its stagger delay in seconds, as a Variant child; `undefined` for any other element. */
-  readonly extraDelay: (() => number) | undefined
+  readonly extraDelay: ((name: string | undefined) => number) | undefined
   /** Whether its spine may start a Retarget: its ancestor's `beforeChildren` and its own `afterChildren` allow it. */
   readonly canStart: () => boolean
   /** Its spine's settle report on each frame: to its ancestor's registry, and to its own `beforeChildren`. */
@@ -129,21 +131,26 @@ const ownOrchestration = (
   const fresh = (): void => {
     if (!stale) return
     stale = false
+    // Each in order: a name's `staggerDirection` turns it at its delay (#297), a list's names each theirs.
     const n = records.size
-    const direction = untrack(stagger).direction
     let i = 0
     records.forEach((record) => {
       record.total = n
-      record.index = Bool.match(direction === -1, { onTrue: () => n - 1 - i, onFalse: () => i })
+      record.index = i
       i++
     })
   }
 
   // The names handed down. `animate`'s is reactive; `initial`'s is read once.
-  const variant: Accessor<string | undefined> = createMemo(() => {
-    const c = cfg()
-    return handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
-  })
+  // A list the same name by name is no change (#297).
+  const variant: Accessor<WardicVariantLabels | undefined> = createMemo(
+    () => {
+      const c = cfg()
+      return handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
+    },
+    undefined,
+    { equals: sameLabels },
+  )
 
   // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound once it mounts.
   // Changed only when a name does, so its children re-resolve only then.
@@ -172,7 +179,25 @@ const ownOrchestration = (
   })
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()))
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(orchestration(), (t) => t.when)
-  const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+  const initial = handedDown<WardicVariantLabels | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+
+  // Each name's orchestration for the Variant children's keys of that name (#297, Motion's
+  // `animateVariant` a name): its own transition's, else the element's. Kept per name until the
+  // config changes; a key from no name takes the element's whole orchestration.
+  const byName: Accessor<Map<string, WardicStaggerConfig>> = createMemo(() => {
+    cfg()
+    return new Map()
+  })
+  const staggerFor = (name: string | undefined): WardicStaggerConfig => {
+    if (Predicate.isUndefined(name)) return stagger()
+    const known = byName()
+    const kept = known.get(name)
+    if (Predicate.isNotUndefined(kept)) return kept
+    const c = untrack(cfg)
+    const made = staggerOf(transitionOfTarget(ownTransitionOf(undefined, name, c.variants, c.custom), c.transition))
+    known.set(name, made)
+    return made
+  }
 
   // `beforeChildren` waits again at each trigger, until this element's own animation settles.
   createEffect(
@@ -187,7 +212,7 @@ const ownOrchestration = (
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited))
 
   return {
-    context: { variant, initial, transition, gestures, register, stagger, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, staggerFor, when, childrenMayStart, allChildrenSettled },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => setOwnSettled(done),
@@ -227,9 +252,10 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVa
   return {
     provided: UndefinedOr.match(own, { onDefined: (o) => o.context, onUndefined: () => passedThrough(config, parent) }),
     inherited,
-    extraDelay: UndefinedOr.map(joined, ({ context, registration }) => () => {
-      const s = context.stagger()
-      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(registration.index(), registration.total())
+    extraDelay: UndefinedOr.map(joined, ({ context, registration }) => (name: string | undefined) => {
+      const s = staggerOfName(context, name)
+      const n = registration.total()
+      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(directed(registration.index(), n, s.direction), n)
     }),
     canStart: () =>
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&

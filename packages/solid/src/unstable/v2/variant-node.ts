@@ -24,7 +24,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createContext, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
-import type { WardicTransition } from "../../config.ts"
+import type { WardicTransition, WardicVariantLabels } from "../../config.ts"
 import {
   activeNamesOf,
   type GestureHandDown,
@@ -41,15 +41,17 @@ import {
   initialNameOf,
   nameOf,
   ownOrInherited,
+  directed,
   passedThrough,
   staggerOf,
+  staggerOfName,
   type VariantConfig,
   type WardicChildRegistration,
   type WardicStaggerConfig,
   type WardicVariantContextValue,
 } from "../../variant-tree.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
-import { ownTransitionOf, transitionOfTarget } from "../../variant-target.ts"
+import { ownTransitionOf, sameLabels, transitionOfTarget } from "../../variant-target.ts"
 
 /**
  * The variant context: the nearest element's names, transition and orchestration, `null` outside
@@ -68,7 +70,7 @@ export interface VariantNode {
   /** The context its spine inherits names and its default transition from: its parent's, for a Variant child. */
   readonly inherited: WardicVariantContextValue | undefined
   /** Its stagger delay in seconds, as a Variant child; `undefined` for any other element. */
-  readonly extraDelay: (() => number) | undefined
+  readonly extraDelay: ((name: string | undefined) => number) | undefined
   /** Whether its spine may start a Retarget: its ancestor's `beforeChildren` and its own `afterChildren` allow it. */
   readonly canStart: () => boolean
   /** Its spine's settle report on each frame: to its ancestor's registry, and to its own `beforeChildren`. */
@@ -161,24 +163,29 @@ const ownOrchestration = (
     stale = false
     snapshotSlots()
   }
+  // Each in order: a name's `staggerDirection` turns it at its delay (#297), a list's names each theirs.
   const snapshotSlots = (): void => {
     const n = records.size
-    const direction = untrack(stagger).direction
     let i = 0
     records.forEach((record) => {
       record.total = n
-      record.index = Bool.match(direction === -1, { onTrue: () => n - 1 - i, onFalse: () => i })
+      record.index = i
       i++
     })
   }
 
   // The names handed down. `animate`'s is reactive, its change the trigger; `initial`'s is read once.
-  const variant: Accessor<string | undefined> = createMemo((previous: string | undefined) => {
-    const c = cfg()
-    const next = handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
-    if (next !== previous) stale = true
-    return next
-  }, CLIENT_ONLY)
+  // A list the same name by name is no change (#297): the one before is kept.
+  const variant: Accessor<WardicVariantLabels | undefined> = createMemo(
+    (previous: WardicVariantLabels | undefined) => {
+      const c = cfg()
+      const next = handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
+      if (sameLabels(next, previous)) return previous
+      stale = true
+      return next
+    },
+    { ...CLIENT_ONLY, equals: (a: WardicVariantLabels | undefined, b: WardicVariantLabels | undefined) => sameLabels(a, b) },
+  )
 
   // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound at its ward's
   // setup. Changed only when a name does, so its children re-resolve only then; a change is a trigger.
@@ -207,7 +214,28 @@ const ownOrchestration = (
   const trigger: Accessor<string> = createMemo(() => triggerKeyOf(variant(), gestures()), CLIENT_ONLY)
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), CLIENT_ONLY)
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(orchestration(), (t) => t.when)
-  const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+  const initial = handedDown<WardicVariantLabels | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+
+  // Each name's orchestration for the Variant children's keys of that name (#297, Motion's
+  // `animateVariant` a name): its own transition's, else the element's. Kept per name until what it's
+  // resolved from changes; a key from no name takes the element's whole orchestration.
+  const byName: Accessor<Map<string, WardicStaggerConfig>> = createMemo(() => {
+    const c = cfg()
+    void c.variants
+    void c.custom
+    void c.transition
+    return new Map<string, WardicStaggerConfig>()
+  }, CLIENT_ONLY)
+  const staggerFor = (name: string | undefined): WardicStaggerConfig => {
+    if (Predicate.isUndefined(name)) return untrack(stagger)
+    const known = untrack(byName)
+    const kept = known.get(name)
+    if (Predicate.isNotUndefined(kept)) return kept
+    const c = untrack(cfg)
+    const made = untrack(() => staggerOf(transitionOfTarget(ownTransitionOf(undefined, name, c.variants, c.custom), c.transition)))
+    known.set(name, made)
+    return made
+  }
 
   // The name this element last settled at: `MOVING` while its own animation runs.
   const [settledAt, setSettledAt] = createSignal<string | undefined | typeof MOVING>(MOVING)
@@ -218,7 +246,7 @@ const ownOrchestration = (
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited), CLIENT_ONLY)
 
   return {
-    context: { variant, initial, transition, gestures, register, stagger, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, staggerFor, when, childrenMayStart, allChildrenSettled },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => {
@@ -260,9 +288,10 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, config: VariantC
   return {
     provided: UndefinedOr.match(own, { onDefined: (o) => o.context, onUndefined: () => passedThrough(config, parent) }),
     inherited,
-    extraDelay: UndefinedOr.map(joined, ({ context, registration }) => () => {
-      const s = context.stagger()
-      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(registration.index(), registration.total())
+    extraDelay: UndefinedOr.map(joined, ({ context, registration }) => (name: string | undefined) => {
+      const s = staggerOfName(context, name)
+      const n = registration.total()
+      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(directed(registration.index(), n, s.direction), n)
     }),
     canStart: () =>
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&

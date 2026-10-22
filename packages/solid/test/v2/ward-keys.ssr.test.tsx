@@ -9,6 +9,8 @@
 // - WK4: a key's accessor (#259), and a Live value's in `style`, read through.
 // - WK5: a plain `WardConfig` offers every key, and `atom(key)` follows `read(key)`'s type.
 // - WK6: a target's own `transition` isn't a key; a dynamic variant's keys are its result's (#277).
+// - WK7: a list of names (#297) adds no key of its own: an array's members never complete; nor does a
+//   config without `drag` add `x` (it did: `never` took the first drag axis).
 import { type AnimatedKey, ward, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
 import type { Accessor } from "solid-js"
@@ -51,6 +53,12 @@ describe("a ward's keys, typed from its config (#209)", () => {
       variants: { at: (i: number) => ({ x: i * 10, transition: { delay: i } }) },
     } as const
     expectTypeOf<AnimatedKey<typeof config>>().toEqualTypeOf<"opacity" | "x">()
+  })
+
+  it("WK7: a list of names adds no key of its own (#297)", () => {
+    const config = { initial: ["shut", "low"], animate: ["open"], whileHover: ["lift"], variants: { open: { width: "10px" }, shut: { height: 0 }, low: { opacity: 0 }, lift: { y: -4 } } } as const
+    expectTypeOf<AnimatedKey<typeof config>>().toEqualTypeOf<"width" | "height" | "opacity" | "y">()
+    expectTypeOf<AnimatedKey<{ readonly animate: { readonly opacity: 1 } }>>().toEqualTypeOf<"opacity">()
   })
 
   it("WK2: a transform key reads a number; any other the type its config gives it, or undefined", () => {
