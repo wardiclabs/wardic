@@ -28,10 +28,12 @@
 // - AR13 (#245): a layout node plays, drawn through its projection at rest as the client draws it:
 //   its Starting style and its rule leave its own `x` and `y` out, keep its rotate and opacity, and
 //   its rule is named apart from a plain element's.
+// - AR15 (#277): a target's own transition times its Appear animation: an `animate` map's, and a
+//   dynamic variant's resolved with `custom` (its delay from the item's index, held in its rule).
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { createWard, wardic, WardicProvider } from "@wardic/solid"
+import { createWard, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
@@ -416,4 +418,24 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(timing(head, propertyOf(tag("shell")?.style.animation)).normal).not.toBe("")
     for (const k of ["late0", "late-title", "own0"]) expect(timing(head, propertyOf(tag(k)?.style.animation)).normal, k).toBe("")
   })
+
+  it("AR15: a target's own transition times its Appear animation, a dynamic variant's with custom (#277)", () => {
+    const html = page(() => (
+      <>
+        <wardic.div data-k="map" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { type: "tween", duration: 0.7, easing: Easing.linear } }} />
+        <wardic.div data-k="fn" custom={2} variants={ITEM} initial="hidden" animate="visible" />
+      </>
+    ))
+    const css = headCss(html)
+    const animationOf = (k: string): string => timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal
+    expect(animationOf("map"), "the map's own 0.7 s").toMatch(/ 0\.7s linear 0s /)
+    // Its own delay is held in its rule: 2 × 0.25 s still, then its 0.3 s.
+    expect(animationOf("fn"), "the variant's 0.5 s delay and 0.3 s").toMatch(/ 0\.8s linear 0s /)
+  })
 })
+
+/** A list item's dynamic variant (#277): its delay from its index, `custom`. */
+const ITEM: WardicVariants = {
+  hidden: { opacity: 0 },
+  visible: (i: number) => ({ opacity: 1, transition: { type: "tween", duration: 0.3, easing: Easing.linear, delay: i * 0.25 } }),
+}

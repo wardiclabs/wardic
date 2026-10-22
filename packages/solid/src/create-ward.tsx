@@ -87,6 +87,8 @@ import {
   isLayoutNode,
   makeElementSpine,
   makeReuse,
+  exitConfigOf,
+  exitTargetOf,
   presenceRecordOf,
   recordFrameOf,
   registryOf,
@@ -425,17 +427,18 @@ export function runSpine(opts: RunSpineOptions): void {
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
       // this element's exit after Solid disposes its owner. `snapshot.current` is
       // updated to the latest emitted value-map EACH FRAME (so the exit departs
-      // continuously from where the element rests); `exit.current` tracks
-      // cfg().exit reactively. The child does NOT call the disposer on its own
+      // continuously from where the element rests); what its exit resolves from (#277: its `exit`,
+      // `variants`, `custom` and transition) is kept current while it's alive, and resolved as it
+      // leaves. The child does NOT call the disposer on its own
       // onCleanup — <AnimatePresence> removes the registration after the exit settles.
       let presenceRec: PresenceRecord | undefined
       if (Predicate.isNotUndefined(presence)) {
-        const rec = presenceRecordOf(element, start, { current: Style.toValues(untrack(cfg).exit) }, links)
+        const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
+        const rec = presenceRecordOf(element, start, (custom) => exitTargetOf(exitConfig.current, custom, snapshot), links)
         presenceRec = rec
         presence.register(rec)
-        // Keep exit.current current while the child is alive.
         createEffect(() => {
-          rec.exit.current = Style.toValues(cfg().exit)
+          exitConfig.current = exitConfigOf(cfg(), parent)
         })
       }
       const recordFrame = recordFrameOf(presenceRec)
@@ -572,14 +575,20 @@ export function runSpine(opts: RunSpineOptions): void {
         const held = dragging()
         // The started recognizers, one tracked read; then each started one's state.
         const layers = started()
-        return resolutionOf(cfg(), parent, start.initialLink, {
-          inView: stateOf(layers.inView),
-          focused: stateOf(layers.focus),
-          hovered: stateOf(layers.hover),
-          pressed: stateOf(layers.press),
-          dragged: Bool.or(held, Predicate.isNotUndefined(lifted) && lifted()),
-          dragging: held,
-        })
+        return resolutionOf(
+          cfg(),
+          parent,
+          start.initialLink,
+          {
+            inView: stateOf(layers.inView),
+            focused: stateOf(layers.focus),
+            hovered: stateOf(layers.hover),
+            pressed: stateOf(layers.press),
+            dragged: Bool.or(held, Predicate.isNotUndefined(lifted) && lifted()),
+            dragging: held,
+          },
+          snapshot,
+        )
       })
 
       // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh

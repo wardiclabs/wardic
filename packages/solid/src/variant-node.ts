@@ -26,6 +26,7 @@ import {
   type WardicStaggerConfig,
   type WardicVariantContextValue,
 } from "./variant-tree.ts"
+import { ownTransitionOf, transitionOfTarget } from "./variant-target.ts"
 
 /** An element's place in variant orchestration, on the client. */
 export interface VariantNode {
@@ -93,14 +94,20 @@ const ownOrchestration = (
     return { index, total, setSettled, dispose }
   }
 
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(cfg().transition))
-  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(cfg().transition, (t) => t.when)
-
   // The names handed down. `animate`'s is reactive; `initial`'s is read once.
   const variant: Accessor<string | undefined> = createMemo(() => {
     const c = cfg()
     return handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
   })
+
+  // Its orchestration (#277, Motion's): its target's own transition, the variant's it names, else
+  // its `transition`.
+  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() => {
+    const c = cfg()
+    return transitionOfTarget(ownTransitionOf(c.animate, variant(), c.variants, c.custom), c.transition)
+  })
+  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()))
+  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(orchestration(), (t) => t.when)
   const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // Snapshot-at-trigger (ADR-0007): each child's index and total are recomputed only when this

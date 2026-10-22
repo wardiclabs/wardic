@@ -40,6 +40,7 @@ import {
   type WardicVariantContextValue,
 } from "../../variant-tree.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { ownTransitionOf, transitionOfTarget } from "../../variant-target.ts"
 
 /**
  * The variant context: the nearest element's names, transition and orchestration, `null` outside
@@ -133,8 +134,6 @@ const ownOrchestration = (
     }
   }
 
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(cfg().transition), CLIENT_ONLY)
-  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(cfg().transition, (t) => t.when)
 
   // Snapshot-at-trigger (ADR-0007): each child's index and total are recomputed only when this
   // element's variant changes, so a mount, unmount or reorder mid-transition doesn't reshuffle
@@ -165,6 +164,15 @@ const ownOrchestration = (
     if (next !== previous) stale = true
     return next
   }, CLIENT_ONLY)
+
+  // Its orchestration (#277, Motion's): its target's own transition, the variant's it names, else
+  // its `transition`.
+  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() => {
+    const c = cfg()
+    return transitionOfTarget(ownTransitionOf(c.animate, variant(), c.variants, c.custom), c.transition)
+  }, CLIENT_ONLY)
+  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), CLIENT_ONLY)
+  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(orchestration(), (t) => t.when)
   const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // The name this element last settled at: `MOVING` while its own animation runs.

@@ -23,7 +23,7 @@
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
-import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
@@ -40,14 +40,29 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { PresenceContextValue, PresenceRecord } from "./presence-record.ts"
+import type { PresenceContextValue, PresenceExit, PresenceRecord } from "./presence-record.ts"
+import { type Leg, legsOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
 
 /** An exit's spring: the defaults, one object, so core decodes it once (#66). */
-const EXIT_SPRING: Machine.SpringOptions = {}
+
+/** No velocities: an exit starts each key at rest, as it did on its own spring. */
+const NO_VELOCITIES: Readonly<Record<string, number>> = {}
+
+/** One leg of an exit (#277), as the spine runs a Retarget's, committing onto the retained `el`. */
+const exitRunOf = (leg: Leg, el: HTMLElement, commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>): Effect.Effect<unknown, never, WardicServices> => {
+  if (leg._tag === "Blend") {
+    return Effect.suspend(leg.machine).pipe(InterpolatorRegistry.withKeyRules([Variables.values(el)]), Effect.flatMap(Machine.run(commitFrame)))
+  }
+  if (leg._tag === "Follow") {
+    const key = leg.key
+    return Effect.suspend(() => leg.machine().pipe(Machine.run((frame) => commitFrame({ ...frame, value: { [key]: frame.value } }))))
+  }
+  return Effect.suspend(() => (leg.machine() as Machine.Machine<Frame.Frame<Values.Values>>).pipe(Machine.run(commitFrame)))
+}
 
 /** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
@@ -152,6 +167,11 @@ export interface PresenceOptions {
   readonly initial: () => boolean | undefined
   /** What its binding hears of its exits (#257); left out, nothing is told. */
   readonly events?: PresenceEvents | undefined
+  /**
+   * Its `custom` prop (#277, Motion's), read as a child leaves: what the child's dynamic exit resolves
+   * with, over the child's own. Left out, the child's own.
+   */
+  readonly custom?: (() => unknown) | undefined
   /** Its `mode` prop (#277), read at each change: left out, or `undefined`, `"sync"`. */
   readonly mode?: (() => PresenceMode | undefined) | undefined
   /**
@@ -370,7 +390,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
   // it, then runs its own exit, and goes once both have ended.
-  const leave = (rec: PresenceRecord): void => {
+  const leave = (rec: PresenceRecord, exit: PresenceExit): void => {
     const el = rec.element
     const drop = projection.handBackWithin(el, () => partDone(el))
     pending.set(el, 1)
@@ -379,26 +399,23 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       pending.set(el, 2)
       debug("leave: hands back its twins")
     }
-    driveExit(rec)
+    driveExit(rec, exit)
   }
 
   // Drive the parent-owned exit for a leaving node: from its last snapshot
   // toward its exit target, committing each projected frame onto the (retained)
   // element, removing it on settle. Empty exit -> immediate removal.
-  const driveExit = (rec: PresenceRecord): void => {
+  const driveExit = (rec: PresenceRecord, exit: PresenceExit): void => {
     const el = rec.element
-    const exit = rec.exit.current
-    if (isEmpty(exit)) {
+    const to = exit.values
+    if (isEmpty(to)) {
       debug("exit: immediate (no target)")
       partDone(el)
       return
     }
 
-    // Split the exit target into numeric (spring) + string keys, which follow the same
-    // spring's progress (springBlend, ADR-0024); seed from the child's last snapshot so the
-    // exit departs continuously. An exit key the
-    // child never animated starts from its Base value's start links (ADR-0022), else at
-    // its target.
+    // Seeded from the child's last snapshot, so the exit departs continuously. An exit key the
+    // child never animated starts from its Base value's start links (ADR-0022), else at its target.
     const snapshot = rec.snapshot.current
     const startOf = (key: string, target: number | string): number | string =>
       UndefinedOr.match(UndefinedOr.match(rec.startOf, { onUndefined: constUndefined, onDefined: (of) => of(key, target) }), {
@@ -407,23 +424,14 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       })
     const from: Values.Values = {
       ...snapshot,
-      ...Rec.map(Rec.filter(exit, (_, key) => Predicate.isUndefined(snapshot[key])), (target, key) => startOf(key, target)),
+      ...Rec.map(Rec.filter(to, (_, key) => Predicate.isUndefined(snapshot[key])), (target, key) => startOf(key, target)),
     }
-    // Reduced motion (ADR-0029), read now: the exit's positional keys snap to their target on its
-    // first tick, and the rest animate.
-    const { positional, rest } = Bool.match(reducedMotion(), {
-      onTrue: () => ReducedMotion.split(exit, positionalKeys),
-      onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: exit }),
-    })
-    const snapped = Object.keys(positional).length
-    const { numbers: numericTo, strings: stringTo } = Values.split(rest)
-    const fromNumeric = Values.split(from).numbers
-    const hasNumeric = Object.keys(numericTo).length > 0
-    const hasStrings = Object.keys(stringTo).length > 0
+    // A Retarget's legs (#277): on the exit's own transition, else the element's (a tween, a spring,
+    // a delay), its positional keys snapping under reduced motion (ADR-0029) unless it opts out.
+    const legs = legsOf(from, to, exit.transition, reducedMotion(), positionalKeys, NO_VELOCITIES)
 
-    // Accumulate the merged latest value-map so each committed frame carries the
-    // full set of keys (numeric + string collapse into one projected Patch).
-    const latest: Values.Values = { ...from, ...exit }
+    // The merged latest value-map, so each committed frame carries every key.
+    const latest: Values.Values = { ...from }
     // What the exit has drawn, for the projection (ADR-0010 *Amendment (#181)*): the twins this
     // child handed back follow it. Its last snapshot until the first frame commits.
     const drawn: Values.Values = { ...from }
@@ -434,25 +442,12 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       Object.assign(drawn, latest)
       return undefined
     }
-
-    // The numeric keys and the string keys as two runs on the Frame loop (ADR-0027), side by
-    // side: the exit ends once both settle.
-    const runs: Array<Effect.Effect<unknown, never, WardicServices>> = []
-    if (snapped > 0) runs.push(ReducedMotion.snap(Values.pick(from, positional), positional).pipe(Machine.run(commitFrame)))
-    if (hasNumeric) runs.push(Machine.springValues(numericTo, EXIT_SPRING, fromNumeric).pipe(Machine.run(commitFrame)))
     // The leaving element's Variable values (#55): a `var()` end blends what it resolves to on it.
-    if (hasStrings) {
-      runs.push(
-        Machine.springBlend(Values.pick(from, stringTo), stringTo).pipe(
-          InterpolatorRegistry.withKeyRules([Variables.values(el)]),
-          Effect.flatMap(Machine.run(commitFrame)),
-        ),
-      )
-    }
+    const runs = Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame))
 
     // One `wardic.presence.exit` span spans the whole exit animation (from the last
     // snapshot to the exit target), so a devtool/timeline shows each parent-driven
-    // exit as a bar with its key counts. Removal-on-settle is the span's end. A failed run
+    // exit as a bar with its key and leg counts. Removal-on-settle is the span's end. A failed run
     // is logged and reported (ADR-0030, decision 4); the node is removed either way.
     const fiber = runtime.runFork(
       Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
@@ -460,7 +455,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
         Effect.ensuring(Effect.sync(() => partDone(el))),
         Effect.withSpan(
           "wardic.presence.exit",
-          { attributes: { numeric: Object.keys(numericTo).length, strings: Object.keys(stringTo).length, snapped } },
+          { attributes: { keys: Object.keys(to).length, legs: legs.length } },
           // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
           { captureStackTrace: false },
         ),
@@ -533,7 +528,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // (-> finishExit) on the lead's settle. Otherwise run the normal exit animation.
     const crossfaded = projection.handleLeave(el, () => finishExit(el))
     if (crossfaded) debug("leave: crossfade (deferred to projection)")
-    if (Bool.not(crossfaded)) leave(rec)
+    // Its exit, resolved now (#277): with the presence's `custom` when it has one, else the child's last.
+    if (Bool.not(crossfaded)) leave(rec, rec.exitOf(customNow()))
   }
 
   const present = (current: unknown): void => {
@@ -562,6 +558,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     starts.clear()
     Arr.forEach(ready, (start) => start())
   }
+
+  /** The presence's `custom` now (#277): `undefined` without one. */
+  const customNow = (): unknown => UndefinedOr.map(options.custom, (custom) => custom())
 
   /** The mode now: `"sync"` unless the prop says otherwise. */
   const modeNow = (): PresenceMode | undefined => UndefinedOr.map(options.mode, (mode) => mode())

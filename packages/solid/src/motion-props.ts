@@ -8,7 +8,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues, WardicViewport } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues, WardicVariant, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
@@ -35,10 +35,10 @@ const GESTURE_CALLBACKS = [
 
 /**
  * The keys most elements don't take, which a config with fixed keys reads only when given (#273): the
- * gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`, `whileInView`, `whileFocus` and
- * `viewport`.
+ * gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`, `whileInView`, `whileFocus`,
+ * `viewport` and `custom` (#277).
  */
-const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints", "whileInView", "whileFocus", "viewport"] as const
+const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints", "whileInView", "whileFocus", "viewport", "custom"] as const
 
 /** One of {@link RARE_KEYS}. */
 type RareKey = (typeof RARE_KEYS)[number]
@@ -56,6 +56,7 @@ export const MOTION_PROPS = [
   "initial",
   "animate",
   "variants",
+  "custom",
   "inherit",
   "whileHover",
   "whileTap",
@@ -126,9 +127,14 @@ export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.c
  */
 export interface WardicMotionProps {
   /** The seed: a values map, a `variants` name, or `false` to start at `animate` with no mount animation (#134). */
-  readonly initial?: WardicValues | string | false
-  readonly animate?: WardicValues | string
-  readonly variants?: Record<string, WardicValues>
+  readonly initial?: WardicVariant | string | false
+  /** The resting target, or a `variants` name; its own `transition` drives the animation to it (#277). */
+  readonly animate?: WardicVariant | string
+  /** Named targets, each a target or a function of `custom` (#277, Motion's dynamic variants). */
+  readonly variants?: WardicVariants
+  /** The value handed to this element's dynamic variants (#277, Motion's `custom`; see `WardConfig`). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly custom?: any
   /** `false` keeps a `variants` element out of its ancestors' variants (#50, Motion's `inherit`). */
   readonly inherit?: boolean
   readonly whileHover?: WardicValues
@@ -143,9 +149,10 @@ export interface WardicMotionProps {
   /**
    * The exit target — the state this element animates toward when it leaves an
    * `<AnimatePresence>` (ADR-0007). Wired through to the spine's presence
-   * registration; the parent `<AnimatePresence>` drives the exit on leave.
+   * registration; the parent `<AnimatePresence>` drives the exit on leave. A string names a
+   * `variants` entry (#277); its own `transition`, else the element's, drives it.
    */
-  readonly exit?: WardicValues
+  readonly exit?: WardicVariant | string
   /**
    * Enable dragging (ADR-0004). `true` = free; `"x"`/`"y"` = axis-locked. While
    * held (and during the release tail) the drag DIRECT-SETS `x`/`y` (1:1 with the

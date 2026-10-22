@@ -29,7 +29,9 @@ import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
-const EXIT = { type: "tween", duration: 0.3 } as const
+// The exit (the transition, #277) outlasts the siblings' layout slide (its `layout` key): the leaver
+// still exits as they land.
+const EXIT = { type: "tween", duration: 0.8, layout: { type: "tween", duration: 0.3 } } as const
 
 const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()

@@ -11,7 +11,7 @@
 1. **Many children** (*Many children*, *Built (PR 1)*).
 2. **`mode="wait"`** (*Wait*, *Built (PR 2)*).
 3. **`mode="popLayout"`**, and siblings told of every leaver's going (*Pop layout*, *Built (PR 3)*).
-4. `custom`, with dynamic (function) variants.
+4. **`custom`, with dynamic (function) variants,** exits by name and a target's own transition (*Custom and dynamic variants*, *Built (PR 4)*).
 5. The presence hooks and `propagate`.
 
 Both bindings share the work in `packages/solid/src/presence-controller.ts`, so each PR lands there first.
@@ -119,10 +119,53 @@ Motion's `mode="popLayout"` (`PopChild.tsx` at `16c6122`) works like this:
   This holds in every mode.
 - **The bindings:** only the prop's doc.
 
+## Custom and dynamic variants (grilled 2026-10-22, PR 4)
+
+Motion's dynamic variants (`resolveVariantFromProps` at `16c6122`): a `variants` entry may be a function, called with the element's `custom`, its values now and their velocities, which returns a target or another variant's name. `<AnimatePresence custom>` is what a leaving child's exit resolves with, as a removed child's props can't change. A variant is a `TargetAndTransition`: its own `transition` drives the animation it starts, in place of the element's, unless it sets `inherit: true` (`resolveTransition`). Wardic's variants were value maps, `exit` took values only, and no target carried a transition.
+
+1. **Everything Motion's two canonical examples need** (Q1: A):
+   - a `variants` entry may be a function `(custom, current, velocity) => target | name`;
+   - `custom` on Wardic elements and `createWard`'s config;
+   - `exit` takes a variant name;
+   - `<AnimatePresence custom>`;
+   - a variant's own `transition`.
+
+   The two examples are the slideshow (an exit that goes the latest direction) and the staggered list (each item's `delay` from its index).
+   - Rejected: B, without a variant's own transition, which leaves the `delay: i * …` form, `custom`'s most common use, without a port.
+   - **Filed while preparing:** #290, a Wardic element inside a leaving child never runs its own `exit` (a probe: its transform stayed empty through the whole exit), and #291, the `while*` props taking a variant name. The user's call on #291: all five gestures.
+2. **A bug fixed here: exits ignored `transition`.** Every exit ran on a default spring, whatever the element's `transition` said. A variant's own transition needs the exit to read one, so an exit now runs on `legsOf`, as a Retarget does: on the exit target's own transition, else the element's (or the one it inherits). A tween, a spring, a delay and reduced motion behave as in any animation.
+3. **Defaults stated, not asked:**
+   - **Motion's order:** a name's entry is looked up, a function is called, and a function that returns a name is followed once more.
+   - **`current` and `velocity`** are copies of the element's Snapshot: its values and their velocities as the variant is resolved.
+   - **A `custom` change re-resolves,** and a value that changed animates, as Motion re-resolves at each render. A change of the transition alone starts nothing: Retargets compare values.
+   - **Each element resolves with its own `custom`.** A Variant child resolves the name it inherits with its own, as Motion's children do.
+   - **An exit resolves once, as the child leaves,** with the presence's `custom` when that's given, else the child's own as it last was; it's never re-resolved mid-exit (Motion skips re-processing an active exit).
+   - **`animate` and `exit` maps carry a transition too** (Motion's `TargetAndTransition`); `initial`'s is ignored, as it starts nothing. A CSS `transition` string in a values map stays a value: only an object is a target's transition.
+   - **Each layer animates on its own transition:** the keys the base target drives on its own, an active gesture's keys on the element's, as Motion runs each animation type on its own. A gesture's own transition comes with #291.
+   - **Orchestration** (`staggerChildren`, `delayChildren`, `staggerDirection`, `when`) is read from the target's own transition, else the element's, as Motion's `animateVariant`. The transition its children default to stays the element's: a variant's `delay` isn't handed down.
+   - **The Starting style and a server render** resolve a dynamic `initial` with `custom` and no values; an Appear animation is timed on the target's own transition (#48).
+   - **No `transitionEnd`:** Wardic has none yet.
+
+## Built (PR 4)
+
+- **Types** (`config.ts`, both bindings' exports): `WardicVariant` (values, or values with a `transition` object), `WardicVariantResolver`, `WardicVariants` and `WardicVariantTransition` (a transition with `inherit`). `initial`, `animate` and `exit` take a `WardicVariant` or a name; `custom` on `WardConfig`, the `wardic.*` props and Solid 2's ward config; `custom` on both `<AnimatePresence>`s.
+- **The resolver** (`variant-target.ts`, Solid-free): `resolveTarget(entry, variants, custom, state)` returns a target's values and its own transition; `transitionOfTarget` lays it over the element's; `startingVariantsOf` resolves dynamic entries for dom's Starting style (as they are when none is a function); `ownTransitionOf` is what orchestration reads.
+- **A Retarget:** `resolutionOf` takes the spine's Snapshot as the resolver's state (nothing allocated per element), and its `Resolution` carries the base target's own transition. The Retarget runs the base keys on it; when it has one and a gesture is active, the gesture's keys run on the element's (`gesturedKeysOf`).
+- **Orchestration:** both bindings' variant nodes read stagger and `when` from one memo, the target's own transition else the element's.
+- **Exits:**
+  - The presence record resolves its exit as the child leaves: `exitOf(custom)`, from an `ExitConfig` (`exit`, `variants`, `custom` and transition) that an effect keeps current while the child is alive, under a presence only.
+  - On Solid 2, it's first read untracked at setup. Read in the ward's body, the inherited transition is a reactive read the diagnostics gate refused (`STRICT_READ_UNTRACKED`), across 21 tests.
+  - The controller passes its `custom` prop, read untracked, and runs the exit's legs on the retained node (`exitRunOf`).
+- **`custom` is a rare key** on `wardic.*` (#273): read only when given.
+- **A ward's typed keys** (`AnimatedKey`) leave out a target's `transition`; a dynamic variant's keys are its result's.
+- **What it costs an element that uses none of it** (`bench:solid`, N = 1,000, against main `3ddacdd`, control +1.4%): nothing measurable. Solid 1's Retarget read −1.3% warm and −0.4% cold, mount +0.2%, bytes −0.0%; Solid 2's Retarget −5.2% warm, mount +0.1%, bytes −0.1%.
+- **Tests changed by the exit fix:** PL1 and PP1's leaver now exits on the element's transition, so its exit is made longer than the siblings' slide (their transition's `layout` key), which it had outlasted on the spring.
+
 ## Consequences
 
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
+- **PR 4:** dynamic variants, `custom`, exits by name and targets' own transitions. **A behaviour change:** an exit now runs on its transition (its own, else the element's), where every exit ran on a default spring.
 - **PR 3:** `mode` takes `"popLayout"`. A leaver's removal from the flow, in any mode, runs a Measure pass at the end of the task, so a `layout` sibling animates where it jumped before.
 - **Per Wardic element under a presence (PR 2):** one signal, and its read in the mount effect; outside a presence, a check of a local at mount. Under `wait`, a held child costs an array filter per change while it waits.
 - **Per change:** a set of the present nodes, and a record per present node. A list of N items costs N records at each change of the list.
@@ -156,6 +199,36 @@ Motion's `mode="popLayout"` (`PopChild.tsx` at `16c6122`) works like this:
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **PR 4, solid (Solid 1):**
+  - `test/dynamic-variants.browser.test.tsx` DV1–DV10:
+    - a function variant with `custom`, and a `custom` change re-resolving it;
+    - the resolver's `current` and `velocity`;
+    - a resolver returning a name;
+    - each item's delay from its index;
+    - `inherit: true` against a replaced transition;
+    - a gesture's keys on the element's transition;
+    - `staggerChildren` in a parent variant's transition;
+    - a dynamic `initial`;
+    - an `animate` map's own transition.
+  - `test/presence-custom.browser.test.tsx` PC1–PC7:
+    - the slideshow, with the presence's `custom` and without;
+    - `exit` naming a plain variant;
+    - an exit on the element's transition, on its own, and delayed;
+    - a `custom` changed while alive.
+  - `test/dynamic-variants.ssr.test.tsx` DS1–DS2, and `test/appear.ssr.test.tsx` AR15: a target's own transition timing its Appear animation.
+- **PR 4, solid (Solid 2):** `test/v2/dynamic-variants.browser.test.tsx` DW1–DW6, under the diagnostics gate; `test/v2/ward-keys.ssr.test.tsx` WK6 (types).
+- **PR 4 mutation-checked:** eighteen single-point mutations, each caught:
+  - the resolver never called, called without `custom`, or without `current` and `velocity`;
+  - a resolver's name not followed;
+  - a Retarget ignoring the own transition;
+  - `inherit` ignored, or always merged;
+  - gesture keys not split, or split onto the base's transition;
+  - each binding's orchestration from the prop only;
+  - the Starting style's variants unresolved;
+  - the presence's `custom` ignored;
+  - an exit ignoring the element's transition, or its own;
+  - each binding's exit config not kept current (PC7, DW5);
+  - Appear ignoring a target's transition.
 - **PR 3, solid (Solid 1):** `test/presence-pop.browser.test.tsx` PL1–PL13:
   - a leaver popped in place, with a `layout` sibling sliding into its space;
   - a sibling without `layout`, at its place at once;
