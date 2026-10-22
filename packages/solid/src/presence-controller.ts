@@ -13,6 +13,11 @@
  * not started, and goes on it once the last leaver is gone. Its framework has built it already, so
  * its own code has run; what waits is its place on the page and everything Wardic does with it.
  *
+ * `mode="popLayout"` (#277, ADR-0048): a leaver is measured before the change and popped out of the
+ * flow where it was (`position: absolute`, its size kept), so the children after it take their
+ * places at once. Whatever the mode, the projection is told when a leaver is popped or removed, so
+ * a `layout` sibling animates into the space, as Motion's presence re-renders its children then.
+ *
  * @module
  */
 import type * as Frame from "@wardic/core/Frame"
@@ -64,6 +69,62 @@ const placedOf = (el: HTMLElement): Placed => ({
   next: Option.getOrUndefined(Option.fromNullOr(el.nextSibling)),
 })
 
+/**
+ * Where `popLayout` pins a leaver (#277, ADR-0048), measured before the change as Motion's `PopChild`
+ * measures it: its size (`getComputedStyle`, so its own `box-sizing` reads it back), and its margin
+ * box's offset from its containing block's padding edge, from the top and from its inline start (the
+ * left, or the right in a right-to-left one). The offsets are whole pixels, the DOM's `offsetTop`.
+ */
+interface PopBox {
+  readonly width: number
+  readonly height: number
+  readonly top: number
+  readonly side: "left" | "right"
+  readonly start: number
+}
+
+/** The width of the padding box `el`'s offsets are from: its offset parent's, or the viewport's. */
+const containerWidthOf = (el: HTMLElement): number => {
+  const parent = el.offsetParent
+  if (isHTMLElement(parent) && parent !== document.body) return parent.clientWidth
+  return document.documentElement.clientWidth
+}
+
+/** A px length of a computed style, `0` for none. */
+const pxOf = (value: string): number => {
+  const px = Number.parseFloat(value)
+  if (Number.isNaN(px)) return 0
+  return px
+}
+
+/**
+ * Where `el` is now, to pop it (#277): `undefined` for one with no size of its own (an inline element,
+ * or an empty one) or not on the page, which isn't popped, as Motion's.
+ */
+const popBoxOf = (el: HTMLElement): PopBox | undefined => {
+  const style = getComputedStyle(el)
+  const width = Number.parseFloat(style.width)
+  const height = Number.parseFloat(style.height)
+  if (Bool.not(Bool.and(width > 0, height > 0))) return undefined
+  // Positioned by its margin box, as its offsets are its border box's.
+  const top = el.offsetTop - pxOf(style.marginTop)
+  if (style.direction === "rtl") {
+    const start = containerWidthOf(el) - el.offsetLeft - el.offsetWidth - pxOf(style.marginRight)
+    return { width, height, top, side: "right", start }
+  }
+  return { width, height, top, side: "left", start: el.offsetLeft - pxOf(style.marginLeft) }
+}
+
+/** Pin a leaver where `box` measured it, out of the flow, over any style of its own. */
+const pin = (el: HTMLElement, box: PopBox): void => {
+  const style = el.style
+  style.setProperty("position", "absolute", "important")
+  style.setProperty("width", `${box.width}px`, "important")
+  style.setProperty("height", `${box.height}px`, "important")
+  style.setProperty("top", `${box.top}px`, "important")
+  style.setProperty(box.side, `${box.start}px`, "important")
+}
+
 /** Put a retained node back into the parent it left: before its old next sibling while that's still there, else at the end. */
 const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): void => {
   if (Predicate.isNotUndefined(next) && next.parentNode === parent) {
@@ -75,9 +136,10 @@ const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): vo
 
 /**
  * How a presence's children enter while others exit (#277, ADR-0048), Motion's `mode`: `"sync"`, at
- * once, beside the leavers; `"wait"`, once every leaver is gone.
+ * once, beside the leavers; `"wait"`, once every leaver is gone; `"popLayout"`, at once, each leaver
+ * popped out of the flow where it was.
  */
-export type PresenceMode = "sync" | "wait"
+export type PresenceMode = "sync" | "wait" | "popLayout"
 
 /** What a presence reads from its provider and its props. */
 export interface PresenceOptions {
@@ -205,6 +267,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // by its element, called once the child is on the page.
   let held: ReadonlyArray<HTMLElement> = []
   const starts = new Map<HTMLElement, () => void>()
+  // `popLayout`'s leavers (#277), each where it was measured before the change: popped as it leaves,
+  // and kept until it's gone. Whether this change popped one, so the projection is told.
+  const pops = new Map<HTMLElement, PopBox>()
+  let popped = false
 
   /** A child's exit starts: told, and `exiting` turns on with the first. */
   const leaveStarts = (el: HTMLElement): void => {
@@ -262,10 +328,14 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     pending.delete(el)
     handovers.delete(el)
     places.delete(el)
+    // A popped leaver is out of the flow: its going moves nothing.
+    const moves = Bool.and(el.isConnected, Bool.not(pops.delete(el)))
     const unregister = exitValues.get(el)
     exitValues.delete(el)
     if (Predicate.isNotUndefined(unregister)) unregister()
     el.remove()
+    // Its siblings take the space it leaves (#277): a `layout` one animates there, as Motion's do.
+    if (moves) projection.notify()
     // Told once the node is gone, as Motion's `onExitComplete` finds it (#257).
     leaveEnds(el, completed)
   }
@@ -415,6 +485,23 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
   }
 
+  /** Pop a leaver `popLayout` measured. */
+  const popOut = (el: HTMLElement): void => {
+    const box = pops.get(el)
+    if (Predicate.isUndefined(box)) return
+    pin(el, box)
+    popped = true
+  }
+
+  /** Measure each child leaving in this change with an exit to run, before the change is applied (#277). */
+  const measureLeavers = (resolved: unknown): void => {
+    const kept = new Set(elementsOf(resolved))
+    Arr.forEach(previous, (placed) => {
+      if (Bool.or(kept.has(placed.el), Bool.not(registry.has(placed.el)))) return
+      UndefinedOr.map(popBoxOf(placed.el), (box) => pops.set(placed.el, box))
+    })
+  }
+
   /** Put a retained child back where it was, if a framework took it out. */
   const putBack = (placed: Placed): void => {
     if (placed.el.parentNode !== null) return
@@ -439,6 +526,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // so the parent-driven exit has a mounted node to animate.
     putBack(placed)
     places.set(el, placed)
+    // `popLayout` (#277): out of the flow where it was, so the children after it take their places.
+    popOut(el)
     // Shared-element crossfade (ADR-0010): if the projection has a live twin (Lead) to crossfade
     // toward, defer to it — it drives the retained node as a leaving Follower and calls onDone
     // (-> finishExit) on the lead's settle. Otherwise run the normal exit animation.
@@ -456,6 +545,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
     previous = Arr.map(now, placedOf)
+    // A popped leaver moved its siblings (#277): a `layout` one animates into the space.
+    if (popped) {
+      popped = false
+      projection.notify()
+    }
     // The wards inside the children held until now start, the children on the page (#277). Held
     // children go on together, so none is left held then. (A ward started while its child is held
     // would only wait again: the check saves its re-run.)
@@ -483,7 +577,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     )
 
   const shown = (resolved: unknown): unknown => {
-    if (modeNow() !== "wait") {
+    const mode = modeNow()
+    // `popLayout` (#277): each child leaving in this change is measured where it is, before the change
+    // moves it, as Motion's `getSnapshotBeforeUpdate`.
+    if (mode === "popLayout") measureLeavers(resolved)
+    if (mode !== "wait") {
       held = []
       return resolved
     }
