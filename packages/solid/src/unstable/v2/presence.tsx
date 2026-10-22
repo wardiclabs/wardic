@@ -18,7 +18,7 @@ import { constUndefined } from "effect/Function"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
-import { makePresence, type PresenceMode } from "../../presence-controller.ts"
+import { makePresence, type PresenceMode, propagateTo } from "../../presence-controller.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
 import { useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
@@ -63,6 +63,13 @@ export interface AnimatePresenceProps {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
+  /**
+   * Motion's `propagate` (#277's PR 5c, ADR-0048): inside another presence's child, when that child
+   * leaves, this presence's children all leave too, each running its exit, and that child goes once
+   * they've all gone. Without it (the default), its children go with that child, as they are. Read
+   * once.
+   */
+  readonly propagate?: boolean
 }
 
 /**
@@ -81,6 +88,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const own = Bool.match(hasRef(ref), { onTrue: makePresenceHandle, onFalse: constUndefined })
   // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
   const [released, release] = createSignal<undefined>(undefined, { equals: false })
+  // The presence above, if any (#277's PR 5c): read before this one provides its own.
+  const parent = usePresenceContext()
   const presence = makePresence({
     runtime: useWardicRuntime(),
     projection: useWardicProjection(),
@@ -94,7 +103,9 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   })
   UndefinedOr.map(own, (handle) => (ref as (presence: Presence) => void)(handle.handle))
   onSettledClientOnly(presence.mounted)
-  onCleanup(presence.teardown)
+  // `propagate` (#277's PR 5c): with a presence above, its teardown waits to hear whether this one's
+  // child left. Read before this presence provides its own context.
+  onCleanup(propagateTo(parent, untrack(() => props.propagate) === true, presence))
 
   // Resolved under the context, so the child's ward sees it.
   const Tracker = (): JSX.Element => {

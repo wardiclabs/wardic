@@ -41,7 +41,7 @@
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
-import { exitCompleteEvents, makePresence, type PresenceMode } from "./presence-controller.ts"
+import { exitCompleteEvents, makePresence, type PresenceMode, propagateTo } from "./presence-controller.ts"
 import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
@@ -88,6 +88,13 @@ export interface AnimatePresenceProps {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
+  /**
+   * Motion's `propagate` (#277's PR 5c, ADR-0048): inside another presence's child, when that child
+   * leaves, this presence's children all leave too, each running its exit, and that child goes once
+   * they've all gone. Without it (the default), its children go with that child, as they are. Read
+   * once.
+   */
+  readonly propagate?: boolean
 }
 
 /**
@@ -107,6 +114,8 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
   const [released, release] = createSignal<void>(undefined, { equals: false })
   // The retained nodes, their exits and the twins they hand back (`presence-controller.ts`).
+  // The presence above, if any (#277's PR 5c): read before this one provides its own.
+  const parent = usePresenceContext()
   const presence = makePresence({
     runtime,
     projection: useWardicProjection(),
@@ -142,7 +151,9 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     return shown as unknown as JSX.Element
   }
 
-  onCleanup(presence.teardown)
+  // `propagate` (#277's PR 5c): with a presence above, its teardown waits to hear whether this one's
+  // child left. Read before this presence provides its own context.
+  onCleanup(propagateTo(parent, untrack(() => props.propagate) === true, presence))
 
   // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
   const context: PresenceContextValue = { ...presence.context, data: () => props.custom }
