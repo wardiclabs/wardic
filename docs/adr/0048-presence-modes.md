@@ -10,7 +10,7 @@
 #277 brings them, in five PRs, in this order (Q1):
 1. **Many children** (*Many children*, *Built (PR 1)*).
 2. **`mode="wait"`** (*Wait*, *Built (PR 2)*).
-3. `mode="popLayout"`.
+3. **`mode="popLayout"`**, and siblings told of every leaver's going (*Pop layout*, *Built (PR 3)*).
 4. `custom`, with dynamic (function) variants.
 5. The presence hooks and `propagate`.
 
@@ -85,10 +85,45 @@ In Solid, the change that removes the old child builds the new one. The presence
 - **Both bindings:** `mode?: PresenceMode` (`"sync" | "wait"`) on `<AnimatePresence>`; the children go on the page through a memo of `shown` and a release signal, and the effect that tells the controller reads that memo.
 - **A ward outside a presence makes and calls nothing for the hold.** The first build asked the presence at every mount through `UndefinedOr` helpers and a closure per element, even with no presence. On `bench:solid` (N = 1,000, no presence on the page), that cost Solid 1's first Retarget after a cold mount +12.4% [+9.3%, +13.5%] (+2.0% warm), though nothing the Retarget runs had changed. A probe with only `create-ward.tsx` reverted read −8.6% cold. The helpers are hot on the Retarget path, so new call sites at mount slow its warm-up. Plain guards, with the signal and its closure made only under a presence, brought it back: Retarget −0.3% warm and +1.5% [−2.8%, +2.3%] cold, mount +0.0%, bytes +0.5%; Solid 2 flat (Retarget +0.8% warm), control −2.0%.
 
+## Pop layout (grilled 2026-10-22, PR 3)
+
+Motion's `mode="popLayout"` (`PopChild.tsx` at `16c6122`) works like this:
+- **It measures the leaver** as its exit starts, in `getSnapshotBeforeUpdate`, so before the change is committed: its computed width and height, and its `offsetTop` and `offsetLeft`.
+- **It pins the leaver** with a `<style>` rule it injects into `document.head` (or `root`, for a shadow root): `position: absolute !important`, with that size and those offsets. `anchorX` and `anchorY`, marked internal, choose the edges; by default the top and the left, or the right in a right-to-left one.
+- **The siblings reflow at once,** and one with `layout` animates into the space. The entering child enters at once.
+
+1. **The presence tells the projection when it moves its children** (Q1: A). It does so for a leaver popped out of the flow, and for a leaver removed at its exit's end, in every mode, so a `layout` sibling slides into the space as Motion's does.
+   - **A bug, found while preparing this:** in `sync` mode, a `layout` sibling jumped into a removed leaver's gap. A probe found the next item at its new place from the first frame after the removal. Motion's slides, because its presence re-renders its children as the leaver goes (`setRenderedChildren`), and their `layout` sees the change. Nothing told Wardic's projection: the leaver's own layout node, if it had one, went at the change, not at the removal. `popLayout` needs the same signal as the leaver pops, so one change serves both.
+   - Rejected: B, `popLayout` alone, leaving the `sync` jump to its own issue.
+2. **Defaults stated, not asked:**
+   - **Measured before the change,** as Motion's `getSnapshotBeforeUpdate`. A leaver is measured where it is when the binding renders, before Solid applies the change, so a child entering before it in the same change doesn't push it.
+   - **Pinned with inline styles marked `important`,** not an injected `<style>` rule. So there's no `root` prop and no CSP `nonce` to pass, and the pin wins over any author rule, Motion's only over less specific ones.
+   - **Pinned by its margin box,** as `top` and `left` position it. Motion's offsets are its border box's, so its leaver moves by its top or start margin. Right to left, the inline start is measured from the containing block's padding box, where Motion's is from its parent's border box.
+   - **Anchored at the top and the inline start** (the left, or the right in a right-to-left one), Motion's default. No `anchorX` or `anchorY`: Motion's are internal.
+   - **Whole pixels:** the offsets are the DOM's `offsetTop` and `offsetLeft`, as Motion's.
+   - **A leaver with no size of its own** (an inline element, or an empty one) isn't popped, as Motion's.
+   - **A sibling without `layout`** takes its place at once, as in Motion.
+   - **The entering child enters at once,** as in `sync`. Every leaver pops, a crossfading `layoutId` twin included.
+   - **Containing blocks:** Chromium's `offsetParent` counts a transformed ancestor as the containing block, so a leaver under a Wardic element's transform is pinned in place (probe: 0 px off).
+   - **A plain child is removed by Solid, not the presence:** its siblings move as at any Solid change. A `layout` sibling animates only when something triggers a Measure pass, where Motion's presence re-renders it.
+
+## Built (PR 3)
+
+- **`PresenceMode` gains `"popLayout"`.**
+- **Measured in `shown`** (`popBoxOf`): each child shown at the last change, leaving in this one with a registered record, before Solid applies the change. Its computed width and height, and its margin box's offset from its containing block's padding edge: from the top, and from the left, or the right in a right-to-left one. The width from the right is the offset parent's `clientWidth`, or the viewport's when the offset parent is the body. A leaver with no width or height of its own isn't measured.
+- **Pinned in `left`** (`pin`), once it's put back: `position: absolute`, its width and height, its top and its left or right, each `important`. The pin stays until the leaver is removed.
+- **The projection told** (`ProjectionSystem.notify`, a Measure pass at the end of the task):
+  - by `present`, once, when the change popped a leaver;
+  - by `finishExit`, when it removes a leaver that's in the flow. A popped one moves nothing, and a detached one neither.
+
+  This holds in every mode.
+- **The bindings:** only the prop's doc.
+
 ## Consequences
 
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
+- **PR 3:** `mode` takes `"popLayout"`. A leaver's removal from the flow, in any mode, runs a Measure pass at the end of the task, so a `layout` sibling animates where it jumped before.
 - **Per Wardic element under a presence (PR 2):** one signal, and its read in the mount effect; outside a presence, a check of a local at mount. Under `wait`, a held child costs an array filter per change while it waits.
 - **Per change:** a set of the present nodes, and a record per present node. A list of N items costs N records at each change of the list.
 
@@ -121,6 +156,33 @@ In Solid, the change that removes the old child builds the new one. The presence
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **PR 3, solid (Solid 1):** `test/presence-pop.browser.test.tsx` PL1–PL13:
+  - a leaver popped in place, with a `layout` sibling sliding into its space;
+  - a sibling without `layout`, at its place at once;
+  - `sync`'s gap fix: a `layout` sibling sliding in once the leaver is removed;
+  - pinned in place:
+    - with margins;
+    - right to left from the viewport (a body with a margin);
+    - with a child entering before it in the same change;
+    - two neighbours together;
+    - inside a positioned container with padding and a border, and right to left inside a bordered one;
+    - over a stylesheet's `!important` position and size;
+  - a switch, the new child at once under the popped leaver;
+  - an inline leaver, not popped;
+  - a leaver with no `layout` of its own, its siblings still sliding.
+- **PR 3, solid (Solid 2):** `test/v2/presence-pop.browser.test.tsx` PP1–PP2, under the diagnostics gate: the pop with a sliding sibling, and `sync`'s gap fix.
+- **PR 3 mutation-checked:** fourteen single-point mutations, each caught:
+  - never pinned;
+  - measured after the change (PL6–PL8);
+  - either margin ignored;
+  - right to left anchored left, or its margin ignored;
+  - no notify after a pop (PL11) or at a removal (PL3, PP2);
+  - no size pinned;
+  - the container's border counted (PL12);
+  - the body's width for the viewport's (PL5, once the body had a margin);
+  - a leaver with no size popped;
+  - measured in every mode;
+  - the pin not `important` (PL13).
 - **PR 2 mutation-checked:** fifteen single-point mutations, thirteen caught:
   - never holding, waiting only on exits already running, wards never held, no release, a release only with events wired, every child held (WT8), not only entering ones;
   - each binding told what resolved instead of what went on the page;

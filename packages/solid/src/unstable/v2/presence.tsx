@@ -49,7 +49,9 @@ export interface AnimatePresenceProps {
   readonly ref?: ((presence: Presence) => void) | undefined
   /**
    * How a child enters while another exits (#277, ADR-0048), Motion's `mode`: `"sync"` (the default),
-   * at once, beside the leaver; `"wait"`, once every leaver has animated out and been removed. A
+   * at once, beside the leaver; `"popLayout"`, at once, the leaver popped out of the flow where it was
+   * (`position: absolute`, its size kept), so the children after it take their places, a `layout`
+   * one animating there; `"wait"`, once every leaver has animated out and been removed. A
    * waiting child is built at once, as Solid builds it, so its own code (its effects included) runs
    * then, off the page; its Wardic elements start once it's on the page.
    */
