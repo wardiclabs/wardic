@@ -5,11 +5,11 @@
  *
  * @module
  */
-import type * as Drag from "@wardic/core/Drag"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
+import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
 
@@ -33,9 +33,9 @@ const GESTURE_CALLBACKS = [
 
 /**
  * The keys most elements don't take, which a config with fixed keys reads only when given (#273): the
- * gesture callbacks, and `dragDirectionLock`.
+ * gesture callbacks, `dragDirectionLock` and `onMeasureDragConstraints`.
  */
-const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock"] as const
+const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints"] as const
 
 /** One of {@link RARE_KEYS}. */
 type RareKey = (typeof RARE_KEYS)[number]
@@ -68,6 +68,7 @@ export const MOTION_PROPS = [
   "dragTransition",
   "dragPropagation",
   "dragDirectionLock",
+  "onMeasureDragConstraints",
   "layout",
   "layoutDependency",
   "layoutId",
@@ -153,11 +154,10 @@ export interface WardicMotionProps {
    * stripped) so e.g. `scale: 1.1` animates while held and returns after release.
    */
   readonly whileDrag?: WardicValues
-  /**
-   * Constrain the element's `x`/`y` to a static numeric box (per axis), whichever gesture moved it
-   * there; a Fling springs back to an edge it would cross. Only when `drag` is on.
-   */
-  readonly dragConstraints?: Drag.Bounds
+  /** Constrain the element's `x`/`y` (#273; see `WardConfig`): Motion's box of numbers, an accessor of a container element, or `false`. */
+  readonly dragConstraints?: WardicDragConstraints
+  /** Motion's `onMeasureDragConstraints` (#273; see `WardConfig`): the bounds measured against the container, in and out. */
+  readonly onMeasureDragConstraints?: WardicMeasureDragConstraints
   /** Rubber-band resistance past {@link dragConstraints}: 0 a hard clamp, with a wall for a bounce. Default 0.35. */
   readonly dragElastic?: number
   /** Fling on release (default `true`); `false` releases with no velocity. Only when `drag` is on. */
@@ -273,7 +273,7 @@ export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBA
  * is exactly how a Ward reads "no field".
  *
  * `fixedKeys`: `motion`'s keys stay as they are (it isn't a proxy over a reactive spread), so the
- * rare keys it wasn't given (the gesture callbacks, `dragDirectionLock`) are never read (#273).
+ * rare keys it wasn't given (the gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`) are never read (#273).
  * Without it, all are.
  */
 export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Accessor<WardConfig> => {

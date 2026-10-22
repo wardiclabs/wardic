@@ -110,6 +110,9 @@ const FREE_SETTLE_MS = 7000
 /** F's constraints with the bounds box (#140): on its x and y, so within the stage, on the grid's lines. */
 const FREE_BOUNDS = { x: { min: 0, max: 200 }, y: { min: -150, max: 0 } } as const
 
+/** F's `dragConstraints`, as Motion's box (#273): {@link FREE_BOUNDS}'s ranges. */
+const FREE_BOX = { left: FREE_BOUNDS.x.min, right: FREE_BOUNDS.x.max, top: FREE_BOUNDS.y.min, bottom: FREE_BOUNDS.y.max } as const
+
 /** Motion's default `dragElastic`, which F keeps (#140): what the card expects past an edge. */
 const DEFAULT_ELASTIC = 0.35
 
@@ -298,7 +301,7 @@ const View: ScenarioDef["View"] = (props) => {
               class="box"
               drag
               dragMomentum={momentum()}
-              {...(bounded() ? { dragConstraints: FREE_BOUNDS } : {})}
+              {...(bounded() ? { dragConstraints: FREE_BOX } : {})}
               {...(grid() ? { dragTransition: { modifyTarget: toGrid } } : {})}
               data-action="fling"
               // eslint-disable-next-line solid/reactivity

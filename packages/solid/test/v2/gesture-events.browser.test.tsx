@@ -25,6 +25,7 @@
 // - GX13: a pan that started is a drag for its press: `next("tap")` doesn't resolve (ADR-0047).
 // - GX14 (#273): with `dragDirectionLock`, `next("directionLock")` resolves with the axis at the lock,
 //   before `dragStart`; nothing before it.
+// - GX15 (#273): an element `dragConstraints` and `onMeasureDragConstraints` on a ward.
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -434,5 +435,39 @@ describe("a ward's direction lock on Solid 2 (#273)", () => {
     await raf()
     pointer(document.body, "pointerup", 150, 144)
     expect(order).toEqual(["lock x", "start 20,0"])
+  })
+})
+
+describe("a ward's element constraints on Solid 2 (#273)", () => {
+  it("GX15: dragConstraints takes the container's accessor, and onMeasureDragConstraints its box", async () => {
+    let frame!: HTMLElement
+    const measured: Array<unknown> = []
+    let el!: HTMLElement
+    mountCard(
+      {
+        drag: "x",
+        dragConstraints: () => frame,
+        onMeasureDragConstraints: (box) => {
+          measured.push(box)
+          return { ...box, right: box.right - 20 }
+        },
+        dragElastic: 0,
+        dragMomentum: false,
+        style: { width: "60px", height: "60px" },
+      },
+      (card) => (
+        <div ref={(n: HTMLElement) => (frame = n)} style={{ position: "absolute", top: "120px", left: "120px", width: "260px", height: "60px" }}>
+          <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
+        </div>
+      ),
+    )
+    await raf()
+    pointer(el, "pointerdown", 150, 150, 1)
+    pointer(el, "pointermove", 250, 150, 1)
+    pointer(el, "pointermove", 450, 150, 1)
+    pointer(document.body, "pointerup", 450, 150)
+    for (let i = 0; i < 3; i++) await raf()
+    expect(measured[0]).toEqual({ left: 0, right: 200, top: 0, bottom: 0 })
+    expect(Math.round(el.getBoundingClientRect().right), "20 px short of the frame's right").toBe(Math.round(frame.getBoundingClientRect().right) - 20)
   })
 })

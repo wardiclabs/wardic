@@ -10,6 +10,7 @@
  * until a non-DOM Environment exists): a DOM read the engine newly needs is added here, named,
  * rather than written inline in `projection.ts`.
  */
+import * as Drag from "@wardic/core/Drag"
 import type * as Point from "@wardic/core/Point"
 import type * as Probe from "@wardic/core/Probe"
 import * as Arr from "effect/Array"
@@ -63,6 +64,14 @@ export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
     el.style.transform = saved
   }
 }
+
+/**
+ * The bounds on `element`'s x/y that keep it inside `container` (#273, ADR-0047, Motion's element
+ * `dragConstraints`): `element` measured without its own transform (its layout box, as Motion's
+ * projection measures it), `container` as it renders.
+ */
+export const dragBoundsWithin = (element: HTMLElement, container: Element): Drag.Bounds =>
+  Drag.boundsWithin(measureLayoutBox(element), container.getBoundingClientRect())
 
 /** A box's size, in CSS px. */
 export interface BoxSize {

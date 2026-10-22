@@ -17,7 +17,7 @@
 //   slot at once with `dragElastic={0}`, Motion's wall.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicDragTransition, WardicProvider } from "@wardic/solid"
+import { wardic, type WardicBoundingBox, type WardicDragTransition, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
@@ -44,7 +44,7 @@ interface Box {
 
 interface BoxOptions {
   readonly axis?: "x" | "y"
-  readonly constraints?: { readonly x?: { readonly min: number; readonly max: number }; readonly y?: { readonly min: number; readonly max: number } }
+  readonly constraints?: Partial<WardicBoundingBox>
   readonly elastic?: number
   readonly momentum?: boolean
   readonly snapToOrigin?: boolean
@@ -140,7 +140,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
   })
 
   it("DT2: flung past a constraint with the default dragElastic, it springs back to the edge on the 200 / 40 bounce and rests on it", async () => {
-    const b = await mountBox({ constraints: { x: { min: 0, max: 100 } } })
+    const b = await mountBox({ constraints: { left: 0, right: 100 } })
     const pointer = await flick(b, 100, 25)
     const released = dxOf(b)
     // 200 px of pointer travel, 100 past the edge: pulled back to 100 + 100 × 0.35.
@@ -151,7 +151,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
   })
 
   it("DT3: with dragElastic={0}, the edge is a wall: held there while dragged, and the Fling stops on it", async () => {
-    const b = await mountBox({ constraints: { x: { min: 0, max: 100 } }, elastic: 0 })
+    const b = await mountBox({ constraints: { left: 0, right: 100 }, elastic: 0 })
     const pointer = await flick(b, 100, 25)
     expect(dxOf(b), "held on the edge").toBeCloseTo(100, 1)
     const frames = await releaseAndSample(b, pointer, 400)
@@ -163,7 +163,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
   })
 
   it("DT4: with dragMomentum={false}, let go past an edge, it springs back to the edge from rest", async () => {
-    const b = await mountBox({ constraints: { x: { min: 0, max: 100 } }, momentum: false })
+    const b = await mountBox({ constraints: { left: 0, right: 100 }, momentum: false })
     const pointer = await dragSlowly(b, 200)
     const released = dxOf(b)
     expect(released, "past the edge").toBeGreaterThan(120)
@@ -217,7 +217,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
   })
 
   it("DT7: the constraints bound the element's x, whichever gesture moved it there", async () => {
-    const b = await mountBox({ constraints: { x: { min: 0, max: 100 } }, elastic: 0, momentum: false })
+    const b = await mountBox({ constraints: { left: 0, right: 100 }, elastic: 0, momentum: false })
     const p1 = await dragSlowly(b, 80)
     await mouse.up(p1)
     await wait(200)
@@ -230,7 +230,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
 
 describe("an x drag's release (#140)", () => {
   it("DT9: runs on x alone: x glides on from its velocity to its edge, and y, outside its own bounds, is never moved", async () => {
-    const b = await mountBox({ axis: "x", constraints: { x: { min: 0, max: 300 }, y: { min: 50, max: 100 } } })
+    const b = await mountBox({ axis: "x", constraints: { left: 0, right: 300, top: 50, bottom: 100 } })
     const pointer = await flick(b, 100, 25)
     const released = dxOf(b)
     expect(released, "let go inside its edges").toBeLessThan(250)

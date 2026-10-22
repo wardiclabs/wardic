@@ -67,6 +67,7 @@ import { createVariantNode } from "./variant-node.ts"
 import { type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
+import { trackConstraintsOf } from "./drag-constraints.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
 import type { PresenceRecord } from "./presence-record.ts"
@@ -457,9 +458,11 @@ export function runSpine(opts: RunSpineOptions): void {
       const [dragging, setDragging] = createSignal(false)
       if (Predicate.isNotUndefined(dragCfg)) {
         const c0d = untrack(cfg)
+        // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
+        const constraints = trackConstraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints)
         const trackConfig: DragTrackConfig = {
           axis: dragCfg,
-          constraints: c0d.dragConstraints,
+          constraints: constraints.constraints,
           elastic: c0d.dragElastic,
           momentum: c0d.dragMomentum,
           snapToOrigin: c0d.dragSnapToOrigin,
@@ -476,6 +479,7 @@ export function runSpine(opts: RunSpineOptions): void {
           recordFrame,
           setDragging,
           config: trackConfig,
+          container: constraints.container,
           // ADR-0016: a drag on a LAYOUT node feeds the projection (the renderer
           // ignores a projected element's raw x/y), so the dragged item follows the
           // pointer and FLIPs to its slot on release. Free drag (no handle) is unchanged.

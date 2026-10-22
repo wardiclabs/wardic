@@ -593,7 +593,7 @@ describe("Solid 1's gesture callbacks (#273)", () => {
         drag
         dragDirectionLock
         dragMomentum={false}
-        dragConstraints={{ x: { min: -100, max: 100 }, y: { min: 0, max: 0 } }}
+        dragConstraints={{ left: -100, right: 100, top: 0, bottom: 0 }}
         initial={{ y: 80 }}
         animate={{ y: 80 }}
         style={BOX}

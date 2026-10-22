@@ -45,6 +45,7 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
+import * as Probe from "@wardic/core/Probe"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -58,6 +59,7 @@ import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type { DragContainer } from "./drag-constraints.ts"
 import type { WardicServices } from "./runtime.ts"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transition.ts"
 
@@ -152,6 +154,14 @@ export interface DragTrackOptions {
    * offset, which the projection tells.
    */
   readonly onReleaseEnd?: (() => void) | undefined
+  /**
+   * An element constraint (#273, ADR-0047, Motion's `dragConstraints={ref}`): the container whose box
+   * the element's must stay inside, in place of `config.constraints`. It's measured at each drag's
+   * start, and again when the element or the container resizes; a resize that changes the bounds
+   * moves an element at rest (or releasing, which it stops) to keep its place within them (Motion's
+   * `scalePositionWithinConstraints`). A container not there at a drag's start leaves it unconstrained.
+   */
+  readonly container?: DragContainer | undefined
 }
 
 /** A drag config's axis as core's: `true` (free) is `"xy"`. */
@@ -164,14 +174,16 @@ const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
 
 /**
  * The track's state: `base` is the rebase point, `position` the live absolute position,
- * `held` whether a gesture is on (from its "start" to its "end"), and `axis` the axes it
- * moves on, read at its "start".
+ * `held` whether a gesture is on (from its "start" to its "end"), `axis` the axes it
+ * moves on, read at its "start", and `bounds` the constraints: the config's, or an element
+ * constraint's as last measured (#273).
  */
 interface DragTrackState {
   readonly base: Point.Point
   readonly position: Point.Point
   readonly held: boolean
   readonly axis: Drag.Axis
+  readonly bounds: Drag.Bounds | undefined
 }
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
@@ -196,8 +208,7 @@ const releaseVelocity = (config: DragTrackConfig, velocity: Point.Point): Point.
  * x/y, whichever gesture moved it there (ADR-0016, *Amendment (#140)*); an axis it doesn't move stays
  * where it is. Per pointer event: statement `if`s.
  */
-const constrainedTo = (p: Point.Point, axis: Drag.Axis, config: DragTrackConfig): Point.Point => {
-  const bounds = config.constraints
+const constrainedTo = (p: Point.Point, axis: Drag.Axis, bounds: Drag.Bounds | undefined, config: DragTrackConfig): Point.Point => {
   if (Predicate.isUndefined(bounds)) return p
   const elastic = elasticOf(config.elastic)
   let x = p.x
@@ -212,10 +223,10 @@ const AT_ORIGIN: Drag.Bounds = { x: { min: 0, max: 0 }, y: { min: 0, max: 0 } }
 const NO_EDGES: Drag.Bounds = {}
 
 /** The edges a release springs back to: both at the origin with `snapToOrigin`, else the constraints. */
-const edgesOf = (config: DragTrackConfig): Drag.Bounds =>
+const edgesOf = (config: DragTrackConfig, bounds: Drag.Bounds | undefined): Drag.Bounds =>
   Bool.match(config.snapToOrigin === true, {
     onTrue: () => AT_ORIGIN,
-    onFalse: () => UndefinedOr.match(config.constraints, { onUndefined: () => NO_EDGES, onDefined: identity }),
+    onFalse: () => UndefinedOr.match(bounds, { onUndefined: () => NO_EDGES, onDefined: identity }),
   })
 
 /** Whether `v` sits within `range`, or there's none: a hard clamp leaves it where it is. */
@@ -335,7 +346,7 @@ const follow = (sample: Drag.Sample, state: TrackState, opts: DragTrackOptions):
   // The axes the gesture moves on, as the recognizer read them at its start: a `<Reorder>` item's
   // group decides them per gesture (D5), a direction lock at its lock (#273).
   const axis = Bool.match(starts, { onTrue: () => sample.axis, onFalse: () => st.axis })
-  const p = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, opts.config)
+  const p = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, st.bounds, opts.config)
   MutableRef.set(state, { ...st, base, position: p, axis })
   opts.setDragging(true)
   if (starts) UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.dragStart() })
@@ -384,8 +395,8 @@ const release = (
     opts.setDragging(false)
     UndefinedOr.map(opts.onReleaseEnd, (ended) => opts.gate.afterFlush(ended))
   })
-  const { axis } = MutableRef.get(state)
-  const edges = edgesOf(cfg)
+  const { axis, bounds } = MutableRef.get(state)
+  const edges = edgesOf(cfg, bounds)
   const v = releaseVelocity(cfg, velocity)
   const transition = cfg.transition
 
@@ -429,9 +440,85 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
 
   opts.run(
     Effect.gen(function* () {
-      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false, axis: "xy" })
+      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false, axis: "xy", bounds: config.constraints })
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
+      const probe = yield* Probe.Probe
+
+      // --- An element constraint (#273, ADR-0047) ------------------------------------------------
+      // Measured at each drag's start, and when the element or its container resizes: the observers'
+      // fiber, one container at a time, from the first time the container is there.
+      const watching = yield* FiberHandle.make<void>()
+      let watched: Element | undefined = undefined
+      let warned = false
+      const setBounds = (bounds: Drag.Bounds | undefined): void => {
+        MutableRef.update(state, (st) => ({ ...st, bounds }))
+      }
+      /** The bounds measured against `container`'s `box`; none, reported, if measuring throws (an app's `onMeasureDragConstraints`). */
+      const measured = (container: DragContainer, box: Element): Effect.Effect<Drag.Bounds | undefined> =>
+        Effect.sync((): Drag.Bounds | undefined => container.bounds(box)).pipe(
+          Effect.catchDefect((defect) => Report.failure("wardic.drag: measuring dragConstraints failed", Cause.die(defect)).pipe(Effect.as(undefined))),
+        )
+      /**
+       * A resize of the element or its container: the bounds measured again. The first measure only
+       * records them; a later one that changed them moves an element at rest, or releasing (stopped),
+       * to keep its place within them (Motion's `scalePositionWithinConstraints`). A held drag, or a
+       * layout node (back on its slot at rest), only takes the new bounds.
+       */
+      const resized = (container: DragContainer, box: Element): Effect.Effect<void> =>
+        measured(container, box).pipe(
+          Effect.flatMap((next) => {
+            const st = MutableRef.get(state)
+            if (Bool.or(Predicate.isUndefined(next), Predicate.isUndefined(st.bounds))) return Effect.sync(() => setBounds(next))
+            const from = st.bounds as Drag.Bounds
+            const to = next as Drag.Bounds
+            if (Drag.sameBounds(from, to)) return Effect.void
+            if (Bool.or(st.held, Predicate.isNotUndefined(opts.projection))) return Effect.sync(() => setBounds(to))
+            return FiberHandle.clear(releasing).pipe(
+              Effect.andThen(Effect.sync(() => {
+                const kept = Drag.keepPlace(snapshotPos(opts.snapshot), toDragAxis(config.axis), from, to)
+                MutableRef.update(state, (s) => ({ ...s, bounds: to, position: kept }))
+                directSet(opts, kept)
+                opts.setDragging(false)
+              })),
+            )
+          }),
+        )
+      /** Watch the element and `box` for resizes, from now on: once per container. */
+      const watch = (container: DragContainer, box: Element): Effect.Effect<void> =>
+        Effect.suspend(() => {
+          if (watched === box) return Effect.void
+          watched = box
+          return FiberHandle.run(
+            watching,
+            Stream.runForEach(Stream.merge(probe.observeResize(element), probe.observeResize(box)), () => resized(container, box)),
+          ).pipe(Effect.asVoid)
+        })
+      /** At a drag's start: the bounds measured against the container, which is watched from then on; none if it isn't there. */
+      const measureAtStart: Effect.Effect<void> = UndefinedOr.match(opts.container, {
+        onUndefined: () => Effect.void,
+        onDefined: (container) =>
+          Effect.suspend(() =>
+            UndefinedOr.match(container.element(), {
+              onUndefined: () =>
+                Effect.sync(() => setBounds(undefined)).pipe(
+                  Effect.andThen(Bool.match(warned, {
+                    onTrue: () => Effect.void,
+                    onFalse: () => {
+                      warned = true
+                      return Effect.logWarning("wardic.drag: dragConstraints' container isn't there at a drag's start, so it drags unconstrained")
+                    },
+                  })),
+                ),
+              onDefined: (box) => measured(container, box).pipe(Effect.tap((bounds) => Effect.sync(() => setBounds(bounds))), Effect.andThen(watch(container, box))),
+            })
+          ),
+      })
+      // A container already there is watched from the start: its first delivery records the bounds.
+      yield* UndefinedOr.match(opts.container, {
+        onUndefined: () => Effect.void,
+        onDefined: (container) => UndefinedOr.match(container.element(), { onUndefined: () => Effect.void, onDefined: (box) => watch(container, box) }),
+      })
 
       const input = yield* InputSource.InputSource
 
@@ -457,8 +544,8 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
         UndefinedOr.match(opts.projection, {
           onDefined: () => Effect.void,
           onUndefined: () => {
-            const { axis, base } = MutableRef.get(state)
-            const position = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, config)
+            const { axis, base, bounds } = MutableRef.get(state)
+            const position = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, bounds, config)
             return FiberHandle.run(releasing, release(opts, state, position, sample.velocity)).pipe(Effect.asVoid)
           },
         })
@@ -469,7 +556,10 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
         Effect.suspend(() => {
           settleGesture(sample, state, opts)
           return Match.value(sample.phase).pipe(
-            Match.when(Match.is("start", "move"), () =>
+            // A start measures an element constraint first (#273), so it follows within this drag's bounds.
+            Match.when("start", () =>
+              FiberHandle.clear(releasing).pipe(Effect.andThen(measureAtStart), Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
+            Match.when("move", () =>
               FiberHandle.clear(releasing).pipe(Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
             Match.when("end", () => releaseFrom(sample)),
             Match.exhaustive,

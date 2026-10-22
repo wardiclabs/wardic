@@ -70,6 +70,7 @@ import {
 } from "solid-js"
 import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
 import type { SolidOneCallback } from "../../motion-props.ts"
+import { trackConstraintsOf } from "../../drag-constraints.ts"
 import { driveDragTrack } from "../../drag-track.ts"
 import { reported, type WardicServices } from "../../runtime.ts"
 import type { WardKey, WardValueOf } from "../../ward-keys.ts"
@@ -139,8 +140,11 @@ export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallbac
   readonly style?: WardStyle | string | undefined
 }
 
-/** The config keys whose values are functions: read as they are, never called as accessors (#259). */
-type WardCallbackKey = "onUpdate"
+/**
+ * The config keys whose values are functions: read as they are, never called as accessors (#259).
+ * `dragConstraints`' function is its container's accessor (#273), read at each measure.
+ */
+type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints"
 
 /**
  * A ward's config (ADR-0042, #259): each key a value, or an accessor of it, read per key. A getter,
@@ -167,6 +171,7 @@ const WARD_KEYS = [
   "dragTransition",
   "dragPropagation",
   "dragDirectionLock",
+  "onMeasureDragConstraints",
   "transition",
   "exit",
   "layout",
@@ -185,7 +190,7 @@ const everyKeyRead: [UnreadKey] extends [never] ? true : UnreadKey = true
 void everyKeyRead
 
 /** A ward's config read per key (#259). */
-const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate"])
+const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints"])
 
 /** `config` read per key (#259), for a read outside a ward: a `wardic.<tag>`'s props at setup. Internal. */
 export const wardConfigView = (config: WardConfig): WardConfigValues => WARD_VIEW.of(config)
@@ -604,6 +609,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // The drag track (ADR-0004): the pointer direct-sets `x`/`y` while the spring drives the rest and
     // `whileDrag`; on a layout node it feeds the projection (ADR-0016).
     const locked = initialConfig.dragDirectionLock === true
+    // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
+    const constraints = trackConstraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints)
     UndefinedOr.map(dragAxis, (axis) =>
       driveDragTrack({
         run: (track) => runFor({ fibers }, track),
@@ -615,7 +622,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         setDragging: (on: boolean) => setGesture(el, "dragging", on),
         config: {
           axis,
-          constraints: initialConfig.dragConstraints,
+          constraints: constraints.constraints,
           elastic: initialConfig.dragElastic,
           momentum: initialConfig.dragMomentum,
           snapToOrigin: initialConfig.dragSnapToOrigin,
@@ -623,6 +630,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
           directionLock: initialConfig.dragDirectionLock,
           transition: dragTransition,
         },
+        container: constraints.container,
         ...UndefinedOr.match(layout, { onUndefined: () => ({}), onDefined: (projectionNode) => ({ projection: projectionNode }) }),
         ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
         // Its samples to a `<Reorder>` item's group, and to the lifecycle for `next("dragStart")` (#257)

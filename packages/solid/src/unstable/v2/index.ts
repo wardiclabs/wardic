@@ -74,6 +74,7 @@ export {
 /** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
 export { fromAtom, streamToSignal } from "./bridge.ts"
 export type { WardicDragTransition } from "../../config.ts"
+export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "../../drag-constraints.ts"
 
 
 /**

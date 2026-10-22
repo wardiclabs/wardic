@@ -113,7 +113,7 @@ describe("drag — (d) constraints", () => {
     let el: HTMLElement | undefined
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(node: HTMLElement) => (el = node)} drag dragConstraints={{ x: { min: 0, max: 100 } }} dragElastic={0} />
+        <wardic.div ref={(node: HTMLElement) => (el = node)} drag dragConstraints={{ left: 0, right: 100 }} dragElastic={0} />
       </WardicProvider>
     ))
 
@@ -125,7 +125,7 @@ describe("drag — (d) constraints", () => {
     let el: HTMLElement | undefined
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(node: HTMLElement) => (el = node)} drag dragConstraints={{ x: { min: 0, max: 100 } }} />
+        <wardic.div ref={(node: HTMLElement) => (el = node)} drag dragConstraints={{ left: 0, right: 100 }} />
       </WardicProvider>
     ))
 

@@ -6,10 +6,10 @@
  *
  * @module
  */
-import type * as Drag from "@wardic/core/Drag"
 import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
+import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 
 /** CSS properties as Solid types them: `csstype`'s hyphenated set, and custom properties. */
@@ -250,16 +250,31 @@ export interface WardConfig {
    */
   readonly whileDrag?: WardicValues
   /**
-   * Constrain the element's `x`/`y` to a static numeric box (per axis), whichever gesture moved it
-   * there; a Fling springs back to an edge it would cross (ADR-0016, *Amendment (#140)*). Only when
-   * `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
+   * Constrain the element's `x`/`y`, whichever gesture moved it there; a Fling springs back to an edge
+   * it would cross (ADR-0016, *Amendment (#140)*). Only when `drag` is on. Motion's forms (#273,
+   * ADR-0047):
+   * - `{ top, left, right, bottom }`: the range of x (`left` to `right`) and y (`top` to `bottom`), an
+   *   edge left out unbounded;
+   * - an accessor of a container element (`dragConstraints={frame}`, a signal ref, or `() => frame`):
+   *   the element's box stays inside the container's. It's measured at each drag's start, and when
+   *   either resizes, keeping the element's place within them. One bigger than its container can be
+   *   dragged to show what overflows, and no further;
+   * - `false`: none.
+   *
+   * Static config (LOW-3): read ONCE at mount; an accessor is read at each measure.
    */
-  readonly dragConstraints?: Drag.Bounds
+  readonly dragConstraints?: WardicDragConstraints
   /**
    * Rubber-band resistance past {@link dragConstraints}: 0 a hard clamp, with a wall for a bounce.
    * Default 0.35, Motion's. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
    */
   readonly dragElastic?: number
+  /**
+   * Motion's `onMeasureDragConstraints` (#273, ADR-0047): with a container in `dragConstraints`, the
+   * bounds measured against it, as `{ top, left, right, bottom }`, at each measure. Return other
+   * bounds to use them instead (a margin, say), or nothing to keep these.
+   */
+  readonly onMeasureDragConstraints?: WardicMeasureDragConstraints
   /** Fling on release (default `true`); `false` releases with no velocity. Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
   readonly dragMomentum?: boolean
   /** Spring `x`/`y` back to the origin on release, on {@link dragTransition}. Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
