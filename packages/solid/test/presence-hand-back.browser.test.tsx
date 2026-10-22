@@ -10,9 +10,11 @@
 //   the twins are never see-through.
 // - PH5: the AnimatePresence unmounts mid-close: the wrapper and its twin go at once, and the
 //   thumbnail lands.
+// - PH6 (#290): the inner twin with an exit of its own: its crossfade replaces it, never see-through,
+//   and the wrapper goes with the handover, not held by it.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, wardic, WardicProvider, type WardicVariant } from "@wardic/solid"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, Show } from "solid-js"
 import { afterEach, expect, it } from "vitest"
@@ -54,7 +56,8 @@ const paintsAfter = <A,>(act: () => void, read: () => A, n: number): Promise<Arr
   })
 
 /** A thumbnail twin, and under presence a wrapper holding the other, with `exit`. */
-const mount = (exit: Record<string, number> | undefined) => {
+const mount = (exit: Record<string, number> | undefined, bigExit?: WardicVariant) => {
+  const bigProps = UndefinedOr.match(bigExit, { onUndefined: () => ({}), onDefined: (e) => ({ exit: e }) })
   const [open, setOpen] = createSignal(false)
   const [present, setPresent] = createSignal(true)
   const { container } = render(() => (
@@ -65,7 +68,7 @@ const mount = (exit: Record<string, number> | undefined) => {
           <AnimatePresence>
             <Show when={open()}>
               <wardic.div data-wrap exit={exit ?? {}} transition={SPRING} style={{ position: "absolute", left: "300px", top: "100px", width: "300px", height: "240px", background: "#eee" }}>
-                <wardic.div data-big layoutId="t" transition={SPRING} style={{ position: "absolute", left: "50px", top: "40px", width: "200px", height: "150px", background: "orange" }} />
+                <wardic.div data-big layoutId="t" {...bigProps} transition={SPRING} style={{ position: "absolute", left: "50px", top: "40px", width: "200px", height: "150px", background: "orange" }} />
               </wardic.div>
             </Show>
           </AnimatePresence>
@@ -178,4 +181,29 @@ it("PH5: the AnimatePresence unmounts mid-close: the wrapper and its twin go at 
   await settle()
   expect(apart(rectOf(m.thumb), THUMB), "the thumbnail landed, px").toBeLessThan(0.5)
   expect(Number(getComputedStyle(m.thumb).opacity)).toBe(1)
+})
+
+it("PH6: the inner twin with an exit of its own: its crossfade replaces it, never see-through (#290)", async () => {
+  // Its own exit, 3 s long: run, it would hold the wrapper long after the handover.
+  const m = mount(undefined, { x: 80, opacity: 0, transition: { type: "tween", duration: 3 } })
+  await raf()
+  m.open(true)
+  await settle()
+  const wrap = m.q("[data-wrap]")!
+  const big = m.q("[data-big]")!
+  const seen = await paintsAfter(
+    () => m.open(false),
+    () => ({
+      present: wrap.isConnected,
+      apart: apart(rectOf(big), rectOf(m.thumb)),
+      follower: Number(getComputedStyle(big).opacity),
+      covers: 1 - (1 - shown(m.thumb)) * (1 - shown(big)),
+    }),
+    100,
+  )
+  const showing = seen.filter((s) => s.present && s.follower > 0.01)
+  expect(showing.length, "frames the Follower shows").toBeGreaterThan(10)
+  expect(Math.max(...showing.map((s) => s.apart)), "the Follower on the thumbnail, px").toBeLessThan(0.75)
+  expect(Math.min(...seen.filter((s) => s.present).map((s) => s.covers)), "never see-through").toBeGreaterThanOrEqual(0.98)
+  expect(seen.at(-1)!.present, "gone with the handover, not held by its own 3 s exit").toBe(false)
 })

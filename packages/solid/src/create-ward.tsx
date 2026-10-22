@@ -89,6 +89,7 @@ import {
   makeReuse,
   exitConfigOf,
   exitTargetOf,
+  presenceTreeOf,
   presenceRecordOf,
   recordFrameOf,
   registryOf,
@@ -434,7 +435,7 @@ export function runSpine(opts: RunSpineOptions): void {
       let presenceRec: PresenceRecord | undefined
       if (Predicate.isNotUndefined(presence)) {
         const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
-        const rec = presenceRecordOf(element, start, (custom) => exitTargetOf(exitConfig.current, custom, snapshot), links)
+        const rec = presenceRecordOf(element, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)))
         presenceRec = rec
         presence.register(rec)
         createEffect(() => {

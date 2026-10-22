@@ -24,7 +24,14 @@ export interface PresenceRecord {
    * resolved with `custom` (the presence's, when it has one, else the child's last), and the
    * transition it runs on. The child keeps what it's resolved from current while alive.
    */
-  readonly exitOf: (custom: unknown) => PresenceExit
+  readonly exitOf: (custom: unknown, inherited: string | undefined) => PresenceExit
+  /**
+   * Where it sits in the variant tree (#290), decided at setup as the tree is: whether it joins the
+   * nearest element that provides a context (a **Variant child**, which then exits on that one's
+   * exit name, in its stagger), whether its own Variant children join it, and whether it's a twin
+   * (a `layoutId`, whose crossfade replaces its exit). Left out: none of them.
+   */
+  readonly tree?: PresenceTree
   /**
    * Where an exit key with no value in `snapshot` starts (ADR-0022): its `style` value, else
    * the element's Own value, read from the retained node at the exit, in the shape of `like`
@@ -38,6 +45,15 @@ export interface PresenceRecord {
 export interface PresenceExit {
   readonly values: Values.Values
   readonly transition: WardicTransition | undefined
+  /** The exit name it hands its Variant children (#290): its own `exit`, if a name, else the one it took. */
+  readonly name: string | undefined
+}
+
+/** A record's place in the variant tree (#290, {@link PresenceRecord.tree}). */
+export interface PresenceTree {
+  readonly joins: boolean
+  readonly provides: boolean
+  readonly twin: boolean
 }
 
 /** The value `<AnimatePresence>` publishes to descendant `createWard` spines. */
