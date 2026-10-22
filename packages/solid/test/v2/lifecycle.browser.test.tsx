@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest"
 
 const NONE: Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
 
-const resolution = (resolved: Record<string, number>, variant?: string, active: Active = NONE): Resolution => ({ resolved, base: resolved, dragging: false, variant, active })
+const resolution = (resolved: Record<string, number>, variant?: string, active: Active = NONE): Resolution => ({ resolved, base: resolved, dragging: false, variant, active, transition: undefined })
 
 /** A lifecycle in a root of its own, disposed with it. */
 const lifecycleIn = () => {
@@ -68,7 +68,7 @@ describe("a ward's lifecycle (#257)", () => {
     hooks.started(rest)
     hooks.settled(rest, undefined)
     expect((await first).definition).toBe("rest")
-    const hovered: Resolution = { resolved: { opacity: 1 }, base: { opacity: 0.2 }, dragging: false, variant: "rest", active: { ...NONE, hovered: true } }
+    const hovered: Resolution = { resolved: { opacity: 1 }, base: { opacity: 0.2 }, dragging: false, variant: "rest", active: { ...NONE, hovered: true }, transition: undefined }
     const second = lifecycle.wait("settled")
     hooks.started(hovered)
     hooks.settled(hovered, "rest")

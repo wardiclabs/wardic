@@ -5,6 +5,7 @@
  * @module
  */
 import type * as Values from "@wardic/core/Values"
+import type { WardicTransition } from "./config.ts"
 import { constFalse } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -18,8 +19,12 @@ export interface PresenceRecord {
   readonly element: HTMLElement
   /** The latest emitted value-map, updated by the spine each frame. */
   readonly snapshot: { current: Values.Values }
-  /** The exit target, kept current by the child while alive. */
-  readonly exit: { current: Values.Values }
+  /**
+   * The exit, resolved as the child leaves (#277): its target, a variant name or a dynamic variant
+   * resolved with `custom` (the presence's, when it has one, else the child's last), and the
+   * transition it runs on. The child keeps what it's resolved from current while alive.
+   */
+  readonly exitOf: (custom: unknown) => PresenceExit
   /**
    * Where an exit key with no value in `snapshot` starts (ADR-0022): its `style` value, else
    * the element's Own value, read from the retained node at the exit, in the shape of `like`
@@ -27,6 +32,12 @@ export interface PresenceRecord {
    * it starts such a key at its target.
    */
   readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
+}
+
+/** A child's exit, resolved as it leaves (#277): its values, and the transition it runs on. */
+export interface PresenceExit {
+  readonly values: Values.Values
+  readonly transition: WardicTransition | undefined
 }
 
 /** The value `<AnimatePresence>` publishes to descendant `createWard` spines. */

@@ -28,6 +28,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { AppearGroup } from "./appear.ts"
 import type { WardicTransition } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
+import { startingVariantsOf } from "./variant-target.ts"
 
 /**
  * The handle a child receives from {@link WardicVariantContextValue.register}
@@ -124,6 +125,8 @@ export interface VariantConfig {
   readonly variants?: object | undefined
   readonly inherit?: boolean | undefined
   readonly transition?: WardicTransition | undefined
+  /** What its dynamic variants resolve with (#277). */
+  readonly custom?: unknown
 }
 
 /** An `initial` an element hands its children: a variant name, `false` (#134), or `undefined` for a values map or nothing. */
@@ -212,7 +215,8 @@ export const startingValuesOf = (
       onFalse: () => initialOf(config, inherited),
     }),
     animate: animateOf(config, inherited, untrack),
-    variants: config.variants as Readonly<Record<string, object | undefined>> | undefined,
+    // Dynamic variants resolved first (#277): dom's Starting style reads values maps only.
+    variants: startingVariantsOf(config.variants, config.custom) as Readonly<Record<string, object | undefined>> | undefined,
   })
 
 /**

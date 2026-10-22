@@ -38,7 +38,8 @@ type Layers<C> =
   | VariantMaps<C>
 
 /** The keys of each member of a union. */
-type KeysOf<U> = U extends unknown ? keyof U & string : never
+// A target's own `transition` (#277) is how it animates, not a key it animates.
+type KeysOf<U> = U extends unknown ? Exclude<keyof U & string, "transition"> : never
 
 /** A config's `drag`, through its accessor. */
 type DragOf<C> = C extends { readonly drag: infer D } ? Unwrap<D> : never

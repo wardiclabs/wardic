@@ -31,7 +31,17 @@ export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 /** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */
 export { useVariantContext, WardicVariantContext } from "./variant-node.ts"
 export type { WardicVariantContextValue } from "../../variant-tree.ts"
-export type { WardicOrchestration, WardicReducedMotion, WardicTransformShorthands, WardicTransition, WardicValues } from "../../config.ts"
+export type {
+  WardicOrchestration,
+  WardicReducedMotion,
+  WardicTransformShorthands,
+  WardicTransition,
+  WardicValues,
+  WardicVariant,
+  WardicVariantResolver,
+  WardicVariants,
+  WardicVariantTransition,
+} from "../../config.ts"
 
 /**
  * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the

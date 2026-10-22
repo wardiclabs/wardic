@@ -8,6 +8,7 @@
 // - WK3: a key the config doesn't animate is accepted, read as any value.
 // - WK4: a key's accessor (#259), and a Live value's in `style`, read through.
 // - WK5: a plain `WardConfig` offers every key, and `atom(key)` follows `read(key)`'s type.
+// - WK6: a target's own `transition` isn't a key; a dynamic variant's keys are its result's (#277).
 import { type AnimatedKey, ward, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
 import type { Accessor } from "solid-js"
@@ -42,6 +43,14 @@ describe("a ward's keys, typed from its config (#209)", () => {
     >()
     expectTypeOf<AnimatedKey<{ readonly drag: true }>>().toEqualTypeOf<"x" | "y">()
     expectTypeOf<AnimatedKey<{ readonly drag: "x"; readonly animate: "open" }>>().toEqualTypeOf<"x">()
+  })
+
+  it("WK6: a target's own transition isn't a key; a dynamic variant's keys are its result's (#277)", () => {
+    const config = {
+      animate: { opacity: 1, transition: { type: "tween", duration: 0.2 } },
+      variants: { at: (i: number) => ({ x: i * 10, transition: { delay: i } }) },
+    } as const
+    expectTypeOf<AnimatedKey<typeof config>>().toEqualTypeOf<"opacity" | "x">()
   })
 
   it("WK2: a transform key reads a number; any other the type its config gives it, or undefined", () => {

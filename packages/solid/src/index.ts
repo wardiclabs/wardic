@@ -94,6 +94,10 @@ export type {
   WardicAnimationDefinition,
   WardicTransition,
   WardicValues,
+  WardicVariant,
+  WardicVariantResolver,
+  WardicVariants,
+  WardicVariantTransition,
 } from "./config.ts"
 
 /**

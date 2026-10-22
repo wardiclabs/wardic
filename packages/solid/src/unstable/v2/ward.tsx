@@ -91,6 +91,9 @@ import {
   isLayoutNode,
   makeElementSpine,
   makeReuse,
+  exitConfigOf,
+  exitTargetOf,
+  NO_EXIT_CONFIG,
   presenceRecordOf,
   recordFrameOf,
   registryOf,
@@ -160,6 +163,7 @@ const WARD_KEYS = [
   "initial",
   "animate",
   "variants",
+  "custom",
   "inherit",
   "whileHover",
   "whileTap",
@@ -445,14 +449,16 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const configNow = (): WardConfigValues => view
   const styleNow = (): WardStyle | string | undefined => untrack(userStyle)
 
-  // Its exit target under an <AnimatePresence>, kept current while it's alive: the presence reads it
-  // after the ward is gone (ADR-0007).
-  const exit = { current: Style.toValues(initialConfig.exit) }
+  // What its exit resolves from under an <AnimatePresence> (#277: its `exit`, `variants`, `custom` and
+  // transition), kept current while it's alive: the presence resolves it as the ward leaves (ADR-0007).
+  const exitConfig = { current: NO_EXIT_CONFIG }
   if (Predicate.isNotUndefined(presence)) {
+    // Its inherited transition is read untracked here: the effect keeps it current.
+    exitConfig.current = untrack(() => exitConfigOf(initialConfig, node.inherited))
     createEffect(
-      () => Style.toValues(cfg().exit),
-      (values) => {
-        exit.current = values
+      () => exitConfigOf(cfg(), node.inherited),
+      (config) => {
+        exitConfig.current = config
       },
       CLIENT_ONLY_DEFERRED,
     )
@@ -500,14 +506,20 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const target = createMemo<Resolution>(
     () => {
       const g = gestures()
-      return resolutionOf(cfg(), node.inherited, start.initialLink, {
-        inView: g.inView,
-        focused: g.focused,
-        hovered: g.hovered,
-        pressed: g.pressed,
-        dragged: Bool.or(g.dragging, lifted()),
-        dragging: g.dragging,
-      })
+      return resolutionOf(
+        cfg(),
+        node.inherited,
+        start.initialLink,
+        {
+          inView: g.inView,
+          focused: g.focused,
+          hovered: g.hovered,
+          pressed: g.pressed,
+          dragged: Bool.or(g.dragging, lifted()),
+          dragging: g.dragging,
+        },
+        snapshot,
+      )
     },
     { equals: sameResolution, transparent: true },
   )
@@ -641,7 +653,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
-      const record = presenceRecordOf(el, start, exit, links)
+      const record = presenceRecordOf(el, start, (custom) => exitTargetOf(exitConfig.current, custom, snapshot), links)
       registrar.register(record)
       return record
     })

@@ -143,6 +143,36 @@ export type WardicTransition =
   | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
 
 /**
+ * A variant's own transition, or a target's (#277, ADR-0048, Motion's): it drives the animation that
+ * variant starts, in place of the element's `transition`, unless `inherit: true` lays it over the
+ * element's (Motion's `inherit`: a shallow merge, its own keys winning).
+ */
+export type WardicVariantTransition = WardicTransition & { readonly inherit?: boolean }
+
+/**
+ * A target, as a variant, `animate` or `exit` gives it (#277, Motion's `TargetAndTransition`): its
+ * values, and optionally the transition the animation to it runs on, as an object. A plain
+ * {@link WardicValues} map fits too, its CSS `transition` string a value as any other.
+ */
+export type WardicVariant = WardicValues | (Omit<WardicValues, "transition"> & { readonly transition?: WardicVariantTransition })
+
+/**
+ * A dynamic variant (#277, ADR-0048, Motion's `TargetResolver`): called each time the variant is
+ * resolved with the element's `custom` (or, for an exit, its `<AnimatePresence custom>`), its values
+ * now and their velocities, and returns its target, or another variant's name.
+ */
+export type WardicVariantResolver = (
+  // Motion's `custom` is `any`: a resolver declares its own (`(direction: number) => …`).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  custom: any,
+  current: Readonly<Record<string, number | string>>,
+  velocity: Readonly<Record<string, number>>,
+) => WardicVariant | string
+
+/** Named targets, each a target or a {@link WardicVariantResolver} (#277). */
+export type WardicVariants = Readonly<Record<string, WardicVariant | WardicVariantResolver>>
+
+/**
  * Motion's `layout` key (ADR-0009 *Amendment (#171)*): the element's layout animations' own
  * transition, over the rest of its `transition`. Without it, the whole `transition` drives them; with
  * no `transition`, Motion's default, a 0.45 s tween.
@@ -205,11 +235,24 @@ export interface WardConfig {
    *     mount (#134, Motion's). An element that names its own variants hands it down. A key it
    *     started at returns to its `style` value, else to where it started (ADR-0022).
    */
-  readonly initial?: WardicValues | string | false
-  /** The resting target. A string names a `variants` entry. Read reactively through the whole-config accessor `cfg()`. */
-  readonly animate?: WardicValues | string
-  /** Named value maps `initial` / `animate` strings resolve against. */
-  readonly variants?: Record<string, WardicValues>
+  readonly initial?: WardicVariant | string | false
+  /**
+   * The resting target. A string names a `variants` entry. Read reactively through the whole-config
+   * accessor `cfg()`. Its own `transition` (#277) drives the animation to it.
+   */
+  readonly animate?: WardicVariant | string
+  /**
+   * Named targets `initial`, `animate` and `exit` strings resolve against: each a target, with its own
+   * `transition` if it has one, or a function of `custom` (#277, Motion's dynamic variants).
+   */
+  readonly variants?: WardicVariants
+  /**
+   * The value handed to this element's dynamic variants (#277, ADR-0048, Motion's `custom`). A
+   * change re-resolves them, and a value that changes animates. For an exit, a
+   * `<AnimatePresence custom>` given is used instead: the leaving element's own can't change any more.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly custom?: any
   /**
    * `false` keeps an element with `variants` out of its ancestors' variants (#50, Motion's
    * `inherit`): it inherits no names, takes no stagger slot, and hands its children no names
@@ -334,9 +377,10 @@ export interface WardConfig {
    * `<AnimatePresence>` (ADR-0007). The child itself never DRIVES this exit (it
    * is disposed on leave); instead the spine publishes the live exit values into
    * the presence registration, and the parent `<AnimatePresence>` runs the exit
-   * on the retained DOM node.
+   * on the retained DOM node. A string names a `variants` entry, a dynamic one resolved as the
+   * element leaves (#277); the exit runs on its own `transition`, else the element's.
    */
-  readonly exit?: WardicValues
+  readonly exit?: WardicVariant | string
   /**
    * Enable layout FLIP (ADR-0005): on a reflow this element animates from its
    * prior box to its new one (First/Last/Invert/Play). Under a `<LayoutGroup>`

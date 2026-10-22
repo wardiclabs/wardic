@@ -56,6 +56,13 @@ export interface AnimatePresenceProps {
    * then, off the page; its Wardic elements start once it's on the page.
    */
   readonly mode?: PresenceMode | undefined
+  /**
+   * What a leaving child's dynamic `exit` resolves with (#277, ADR-0048, Motion's `custom`), over the
+   * child's own `custom`: a child that has left can't take new props, so the presence hands it the
+   * latest. Read as each child leaves.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly custom?: any
 }
 
 /**
@@ -82,6 +89,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     initial: () => untrack(() => props.initial),
     events: UndefinedOr.map(own, (handle) => handle.events),
     mode: () => props.mode,
+    custom: () => untrack(() => props.custom),
     release: () => release(undefined),
   })
   UndefinedOr.map(own, (handle) => (ref as (presence: Presence) => void)(handle.handle))

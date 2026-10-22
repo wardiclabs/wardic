@@ -47,37 +47,99 @@ import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, startAtOf } from "./appear.ts"
-import type { WardConfig, WardicAnimationDefinition, WardicTransition, WardicValues } from "./config.ts"
+import type {
+  WardConfig,
+  WardicAnimationDefinition,
+  WardicTransition,
+  WardicVariant,
+  WardicVariants,
+  WardicVariantTransition,
+} from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
-import type { PresenceRecord } from "./presence-record.ts"
+import type { PresenceExit, PresenceRecord } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { hasOwnVariants, nameOf, ownOrInherited, type ServerVariantNode, startingValuesOf, startsAtAnimate, type WardicVariantContextValue } from "./variant-tree.ts"
+import { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
+
+export { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
+
+/** What an element's exit is resolved from (#277): its last config, kept current while it's alive. */
+export interface ExitConfig {
+  readonly exit: WardicVariant | string | undefined
+  readonly variants: WardicVariants | undefined
+  readonly custom: unknown
+  /** Its `transition`, or the one it inherits. */
+  readonly transition: WardicTransition | undefined
+}
+
+/** No exit: an element outside a presence never resolves one. */
+export const NO_EXIT_CONFIG: ExitConfig = { exit: undefined, variants: undefined, custom: undefined, transition: undefined }
+
+/** An element's {@link ExitConfig} from its config now. */
+export const exitConfigOf = (c: WardConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
+  exit: c.exit,
+  variants: c.variants,
+  custom: c.custom,
+  transition: ownOrInherited(c.transition, parent),
+})
+
+/** An exit resolved (#277): its values, and the transition it runs on. */
+export type ExitTarget = PresenceExit
 
 /**
- * Resolve an `animate`-style entry (a {@link WardicValues} map or a variant name)
- * to a clean core {@link Values} map. Both arms funnel through `Style.toValues`
- * so `Override.resolve` / `Values.split` never receive `undefined`-valued keys.
+ * Resolve an element's exit as it leaves (#277): with its `<AnimatePresence custom>` when that's
+ * given (Motion's: the leaving element's own props can't change any more), else its own `custom`; on
+ * its own transition, else the element's.
  */
-export const resolveValues = (
-  entry: WardicValues | string | undefined,
-  variants: Record<string, WardicValues> | undefined,
-): Values.Values => resolveEntry({ entry, variants })
-
-// Built once, at module load: a Retarget resolves its target per element (#69).
-const resolveEntry: (input: {
-  readonly entry: WardicValues | string | undefined
-  readonly variants: Record<string, WardicValues> | undefined
-}) => Values.Values = Match.type<{ readonly entry: WardicValues | string | undefined; readonly variants: Record<string, WardicValues> | undefined }>().pipe(
-  Match.when({ entry: Match.undefined }, (): Values.Values => ({})),
-  Match.when({ entry: Match.string }, ({ entry, variants }) => Style.toValues(UndefinedOr.map(variants, (byName) => byName[entry]))),
-  Match.orElse(({ entry }) => Style.toValues(entry as WardicValues)),
-)
+export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state: VariantState): ExitTarget => {
+  const custom = UndefinedOr.match(presenceCustom, { onUndefined: () => config.custom, onDefined: identity })
+  const target = resolveTarget(config.exit, config.variants, custom, state)
+  return { values: target.values, transition: transitionOfTarget(target.transition, config.transition) }
+}
 
 /** A config given as a value or as an accessor, as an accessor. A config is always an object, so a function is the accessor. */
 export const accessorOf = <A extends object>(config: A | Accessor<A>): Accessor<A> =>
   Bool.match(Predicate.isFunction(config), { onTrue: () => config as Accessor<A>, onFalse: () => () => config as A })
+
+/** `transition` with a stagger delay folded into its own (ADR-0007), reused while its fields are (#66). */
+const staggeredOf = (
+  transition: WardicTransition | undefined,
+  extra: number,
+  reuse: (transition: WardicTransition) => WardicTransition,
+): WardicTransition | undefined => {
+  if (extra === 0) return UndefinedOr.map(transition, reuse)
+  return reuse({ ...transition, delay: delayOf(transition) + extra } as WardicTransition)
+}
+
+/** No keys: a Retarget with no base target's own transition splits nothing. */
+const NO_GESTURED: ReadonlySet<string> = new Set()
+
+/**
+ * The keys an active gesture layer sets, when the base target has its own transition (#277): those
+ * animate on the element's transition. With none, nothing is read.
+ */
+const gesturedKeysOf = (c: WardConfig, resolution: Resolution): ReadonlySet<string> => {
+  if (Predicate.isUndefined(resolution.transition)) return NO_GESTURED
+  const active = resolution.active
+  const keys = new Set<string>()
+  const add = (on: boolean, values: object | undefined): void => {
+    if (Bool.and(on, Predicate.isNotUndefined(values))) Arr.forEach(Rec.keys(Style.toValues(values)), (key) => keys.add(key))
+  }
+  add(active.inView, c.whileInView)
+  add(active.focused, c.whileFocus)
+  add(active.hovered, c.whileHover)
+  add(active.pressed, c.whileTap)
+  add(active.dragged, c.whileDrag)
+  return keys
+}
+
+/** `values` without `keys`: itself when there are none. */
+const withoutKeys = (values: Values.Values, keys: ReadonlySet<string>): Values.Values => {
+  if (keys.size === 0) return values
+  return Rec.filter(values, (_, key) => Bool.not(keys.has(key)))
+}
 
 /** A transition's `delay`, 0 without one. */
 export const delayOf = (transition: WardicTransition | undefined): number =>
@@ -126,6 +188,8 @@ export interface Resolution {
   readonly variant: string | undefined
   /** The layers it was resolved with (#257): a landing's gestures are the ones its Retarget started with. */
   readonly active: Active
+  /** The base target's own transition (#277): the keys the base layer drives animate on it. */
+  readonly transition: WardicVariantTransition | undefined
 }
 
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
@@ -216,6 +280,7 @@ export const resolutionOf = (
   parent: WardicVariantContextValue | undefined,
   initialLink: Values.Values,
   active: Active,
+  state: VariantState,
 ): Resolution => {
   const variants = c.variants
   // Base target resolution priority (ADR-0007):
@@ -227,10 +292,16 @@ export const resolutionOf = (
   //       recomputes the memo and retargets;
   //   (3) else the SSR-seeded `initial`.
   const variant = UndefinedOr.match(c.animate, { onDefined: nameOf, onUndefined: () => UndefinedOr.map(parent, (p) => p.variant()) })
-  const base = UndefinedOr.match(c.animate, {
-    onDefined: (own) => resolveValues(own, variants),
-    onUndefined: () => UndefinedOr.match(variant, { onDefined: (inheritedName) => resolveValues(inheritedName, variants), onUndefined: () => initialLink }),
+  // A dynamic variant resolves with this element's own `custom` (#277), as Motion's each child's.
+  const target = UndefinedOr.match(c.animate, {
+    onDefined: (own) => resolveTarget(own, variants, c.custom, state),
+    onUndefined: (): Target =>
+      UndefinedOr.match(variant, {
+        onDefined: (inheritedName) => resolveTarget(inheritedName, variants, c.custom, state),
+        onUndefined: (): Target => ({ values: initialLink, transition: undefined }),
+      }),
   })
+  const base = target.values
   const resolved = Override.resolve([
     { active: true, values: base },
     { active: active.inView, values: Style.toValues(c.whileInView) },
@@ -242,7 +313,7 @@ export const resolutionOf = (
     // after release.
     { active: active.dragged, values: Style.toValues(c.whileDrag) },
   ])
-  return { resolved, base, dragging: active.dragging, variant, active }
+  return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -337,10 +408,10 @@ export type StartLinks = ReturnType<typeof startLinksOf>
  * fires before any frame still has a `from`, and its `exit` ref, which the ward keeps current. An exit key with no value starts
  * from its Base value's start links (ADR-0022), read from the retained node at the exit.
  */
-export const presenceRecordOf = (element: HTMLElement, start: Start, exit: { current: Values.Values }, links: StartLinks): PresenceRecord => ({
+export const presenceRecordOf = (element: HTMLElement, start: Start, exitOf: (custom: unknown) => ExitTarget, links: StartLinks): PresenceRecord => ({
   element,
   snapshot: { current: { ...start.initialValues } },
-  exit,
+  exitOf,
   startOf: (key, like) => Option.getOrUndefined(Option.map(links.startLinkOf(key, like), (s) => s.value)),
 })
 
@@ -637,18 +708,14 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // The transition, read at Retarget time so a change applies to the next Retarget. A child
     // with no local transition inherits the parent context's (ADR-0007).
     const c = config()
-    const baseTransition = ownOrInherited(c.transition, parent)
+    const elementTransition = ownOrInherited(c.transition, parent)
+    // The base target's own transition (#277): the keys its layer drives animate on it.
+    const baseTransition = transitionOfTarget(resolution.transition, elementTransition)
     // Fold the per-child stagger delay (ADR-0007) into the effective
     // transition.delay = base.delay + computedDelay. extraDelay() is read
     // at Retarget time so a re-snapshot before this start is reflected.
     const extra = UndefinedOr.match(extraDelay, { onUndefined: () => 0, onDefined: (delay) => delay() })
-    const transition = UndefinedOr.map(
-      Bool.match(extra !== 0, {
-        onTrue: (): WardicTransition | undefined => ({ ...baseTransition, delay: delayOf(baseTransition) + extra }) as WardicTransition,
-        onFalse: () => baseTransition,
-      }),
-      options.reuse,
-    )
+    const transition = staggeredOf(baseTransition, extra, options.reuse)
     // The legs (#48, ADR-0044 decision 8): one pure builder, which a server render's Appear
     // animation samples too, so the two can't drift. Built here; each leg's machine is built
     // in its own fiber, so a transition core rejects (#66, ADR-0025 *Amendment (#66)*) fails
@@ -662,7 +729,14 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
     }
     const reduce = options.reducedMotion()
-    let retargetLegs = legsOf(from, t, transition, reduce, positionalKeys, snapshot.velocities, follow)
+    // With a base target's own transition (#277), the keys an active gesture sets animate on the
+    // element's, as Motion's each animation type runs on its own.
+    const gestured = gesturedKeysOf(c, resolution)
+    let retargetLegs = legsOf(from, withoutKeys(t, gestured), transition, reduce, positionalKeys, snapshot.velocities, follow)
+    if (gestured.size > 0) {
+      const gestureLegs = legsOf(from, Rec.filter(t, (_, key) => gestured.has(key)), staggeredOf(elementTransition, extra, options.reuse), reduce, positionalKeys, snapshot.velocities)
+      retargetLegs = [...retargetLegs, ...gestureLegs]
+    }
     // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
     // animation up as far in as its CSS has got, read at the legs' first tick.
     if (Predicate.isNotUndefined(handoff)) {
@@ -977,16 +1051,19 @@ export const appearEntryOf = (
   UndefinedOr.match(state, {
     onUndefined: () => NO_APPEAR_ENTRY(node.provided),
     onDefined: (state) => {
+      // The target's own transition (#277) drives its mount animation, and its orchestration.
+      const target = serverTargetOf(c, node.inherited)
+      const own = Option.getOrUndefined(Option.flatMap(target, (t) => Option.fromUndefinedOr(t.transition)))
       const entered = enterServer(state, {
         appear: c.appear,
         tag,
         initial: initialValues,
-        to: serverTargetOf(c, node.inherited),
-        transition: ownOrInherited(c.transition, node.inherited),
+        to: Option.map(target, (t) => t.values),
+        transition: transitionOfTarget(own, ownOrInherited(c.transition, node.inherited)),
         layout: isLayoutNode(c),
         group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
         leads: hasOwnVariants(c),
-        ownTransition: c.transition,
+        ownTransition: transitionOfTarget(own, c.transition),
       })
       return {
         style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),
@@ -1002,14 +1079,17 @@ export const appearEntryOf = (
     },
   })
 
-/** An element's targets at mount on a server: its `animate`, else an inherited variant name resolved against its own `variants`. */
-export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Values.Values> =>
+/**
+ * An element's target at mount on a server: its `animate`, else an inherited variant name resolved
+ * against its own `variants`, a dynamic one with its `custom` and no values yet (#277).
+ */
+export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
   UndefinedOr.match(c.animate, {
-    onDefined: (own) => Option.some(resolveValues(own, c.variants)),
+    onDefined: (own) => Option.some(resolveTarget(own, c.variants, c.custom, NO_VARIANT_STATE)),
     onUndefined: () =>
       Option.map(
         Option.flatMap(Option.fromUndefinedOr(inherited), (context) => Option.fromUndefinedOr(context.variant())),
-        (name) => resolveValues(name, c.variants),
+        (name) => resolveTarget(name, c.variants, c.custom, NO_VARIANT_STATE),
       ),
   })
 
