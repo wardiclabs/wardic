@@ -524,6 +524,18 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     },
     { equals: sameResolution, transparent: true },
   )
+  // Its gesture states, for what its variant node hands down (#291): bound at setup, before its
+  // children read them. Read from the gestures themselves, not the target: a gesture whose layer
+  // resolves to nothing new leaves the target as it was (`sameResolution`), but is on all the same.
+  // Only a provider has one: a guard, so other wards make nothing here.
+  const bindGestures = node.bindGestures
+  if (Predicate.isNotUndefined(bindGestures)) {
+    // eslint-disable-next-line solid/reactivity -- read inside the variant node's gestures memo, where it tracks
+    bindGestures(() => {
+      const g = gestures()
+      return { inView: g.inView, focused: g.focused, hovered: g.hovered, pressed: g.pressed, dragged: Bool.or(g.dragging, lifted()) }
+    })
+  }
 
   // Its Retargets' starts and landings (#257, ADR-0046): `settled()` and `next("settled")`, each with
   // the gesture layers its target was resolved with.

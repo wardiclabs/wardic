@@ -26,6 +26,15 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createContext, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
 import type { WardicTransition } from "../../config.ts"
 import {
+  activeNamesOf,
+  type GestureHandDown,
+  handDownFrom,
+  handDownOf,
+  type GestureStates,
+  NO_GESTURE_STATES,
+  sameHandDown,
+  topGestureName,
+  triggerKeyOf,
   handedDown,
   hasOwnVariants,
   inheritedContext,
@@ -64,6 +73,11 @@ export interface VariantNode {
   readonly canStart: () => boolean
   /** Its spine's settle report on each frame: to its ancestor's registry, and to its own `beforeChildren`. */
   readonly onFrame: (done: boolean) => void
+  /**
+   * Bind its spine's gesture states (#291), at its ward's setup: the names it hands its Variant
+   * children follow them. Only an element whose Variant children join it has one.
+   */
+  readonly bindGestures: ((states: Accessor<GestureStates>) => void) | undefined
 }
 
 /** The orchestration an element with variants of its own runs for its Variant children. */
@@ -71,6 +85,7 @@ interface OwnOrchestration {
   readonly context: WardicVariantContextValue
   readonly canStart: () => boolean
   readonly settled: (done: boolean) => void
+  readonly bindGestures: (states: Accessor<GestureStates>) => void
 }
 
 /** A registered Variant child's stagger slot, as its ancestor's registry holds it: set at each trigger. */
@@ -165,12 +180,31 @@ const ownOrchestration = (
     return next
   }, CLIENT_ONLY)
 
-  // Its orchestration (#277, Motion's): its target's own transition, the variant's it names, else
-  // its `transition`.
+  // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound at its ward's
+  // setup. Changed only when a name does, so its children re-resolve only then; a change is a trigger.
+  const [states, setStates] = createSignal<Accessor<GestureStates> | undefined>(undefined, { ownedWrite: true })
+  const gestures: Accessor<GestureHandDown> = createMemo(
+    (previous: GestureHandDown | undefined) => {
+      const next = handDownOf(cfg(), UndefinedOr.match(states(), { onUndefined: () => NO_GESTURE_STATES, onDefined: (on) => on() }), handDownFrom(inherited))
+      if (Predicate.isNotUndefined(previous) && sameHandDown(previous, next)) return previous
+      stale = true
+      return next
+    },
+    { ...CLIENT_ONLY, equals: (a: GestureHandDown, b: GestureHandDown) => sameHandDown(a, b) },
+  )
+
+  // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
+  // else of its target (the variant it names), else its `transition`.
   const orchestration: Accessor<WardicTransition | undefined> = createMemo(() => {
     const c = cfg()
-    return transitionOfTarget(ownTransitionOf(c.animate, variant(), c.variants, c.custom), c.transition)
+    const own = UndefinedOr.match(topGestureName(activeNamesOf(gestures())), {
+      onDefined: (name) => ownTransitionOf(undefined, name, c.variants, c.custom),
+      onUndefined: () => ownTransitionOf(c.animate, variant(), c.variants, c.custom),
+    })
+    return transitionOfTarget(own, c.transition)
   }, CLIENT_ONLY)
+  // What its `beforeChildren` settles at: its variant, and its gestures' names (#291).
+  const trigger: Accessor<string> = createMemo(() => triggerKeyOf(variant(), gestures()), CLIENT_ONLY)
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), CLIENT_ONLY)
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(orchestration(), (t) => t.when)
   const initial = handedDown<string | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
@@ -178,19 +212,28 @@ const ownOrchestration = (
   // The name this element last settled at: `MOVING` while its own animation runs.
   const [settledAt, setSettledAt] = createSignal<string | undefined | typeof MOVING>(MOVING)
 
-  const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || settledAt() === variant()
+  const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || settledAt() === trigger()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited), CLIENT_ONLY)
 
   return {
-    context: { variant, initial, transition, register, stagger, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, when, childrenMayStart, allChildrenSettled },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => {
-      setSettledAt(Bool.match(done, { onTrue: () => untrack(variant), onFalse: (): typeof MOVING => MOVING }))
+      setSettledAt(Bool.match(done, { onTrue: () => untrack(trigger), onFalse: (): typeof MOVING => MOVING }))
+    },
+    bindGestures: (on) => {
+      setStates(() => on)
     },
   }
+}
+
+/** A node's gesture binding: its own orchestration's, none without one. A guard: it's made per element. */
+const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<GestureStates>) => void) | undefined => {
+  if (Predicate.isUndefined(own)) return undefined
+  return own.bindGestures
 }
 
 /**
@@ -228,5 +271,6 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, config: VariantC
       reportJoined(done)
       reportOwn(done)
     },
+    bindGestures: bindOf(own),
   }
 }

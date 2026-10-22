@@ -80,3 +80,69 @@ Gates: `bun run typecheck` (and the layout lab's), `bun run lint`, `bun run test
 
 1. **The variant context carries `false` with the `initial` name (Q4)**, Motion's `getCurrentTreeVariants`: an element that names its own variants hands its `initial` down when it is a name or `false`. A **Variant child** with no `initial` of its own takes it, and starts at its inherited `animate`, so a list with `initial={false} animate="open"` mounts its items at "open", with no stagger. A child with its own `initial` keeps it. An element that names no variants passes its ancestors' through, its own `initial={false}` applying to itself only, and `inherit={false}` cuts it off, as it cuts names (#50). Rejected: handing `false` down from any element (it breaks #50's rule that only an element naming its own variants changes what its children inherit), and no inheritance.
 2. **`<AnimatePresence initial={false}>` (Q5)**: the child rendered with the presence's first render, and every Wardic element under it, starts at its `animate`, over its own `initial`, as Motion's `presenceContext.initial`. A child that enters later, a re-entry after an exit, animates in from its `initial`. Exits are unchanged, and a `layoutId` twin is untouched (at the first render there is no prior twin to crossfade from). It reaches the elements through the presence context they read at setup, set during the presence's first render only; a server renders once, so its child is always at `animate`. Rejected: holding every entry (that is the child's own `initial={false}`), and leaving it to another issue.
+
+## Amendment (#291, 2026-10-22): the gesture props take a variant name, which passes down
+
+Motion's five gesture props (`whileHover`, `whileTap`, `whileDrag`, `whileFocus`, `whileInView`) take a variant name as well as a target (`VariantLabels | TargetAndTransition`, `motion-dom/src/node/types.ts` at `16c6122`). The name passes down, and a Variant child's gesture is on while its parent's is:
+- the variant context hands each gesture's label to the children (`get-variant-context.ts`);
+- the animation state's `setActive` turns the gesture on in every Variant child (`animation-state.ts`);
+- the children animate through the parent's `animateVariant`, staggered by that variant's orchestration.
+
+Wardic's gesture props took values only.
+
+1. **All five take a name** (the user's call when filing #291). A name names a `variants` entry, a target or a dynamic variant resolved with `custom` (ADR-0048, #277's PR 4).
+2. **The name passes down to Variant children** (Q1: A, Motion's).
+   - While the gesture is on, each Variant child animates its own entry for it, and returns when it ends. This is the reason the names exist: hover a card, and its icon, label and arrow respond together.
+   - **Its orchestration** comes from that variant's own transition: `staggerChildren`, `delayChildren`, `staggerDirection` and `when`. For a gesture, it's the own transition of the highest active gesture's name, else the target's.
+   - **A child's gesture is on while its parent's is,** whether the parent's is a name or a target (Motion's `setActive` doesn't look). On, it resolves its own `while*` for that gesture first, else the name. A child's own `whileHover={{ x: -20 }}` applies while the card is hovered.
+   - Rejected: B, the name resolving on the element only, which drops Motion's main use of it.
+3. **Lists of names are #297** (Q2: B). `whileHover={["hover", "lift"]}`, like `animate={[…]}`, is for all eight props at once, as Motion's `VariantLabels`.
+4. **Defaults stated, not asked:**
+   - **A gesture target's own transition** drives its keys, deferred to here from #277's PR 4. A Retarget runs each key on the own transition of the highest active layer that sets it: the base target's, a gesture target's, else the element's. A key returning to its Base value runs on the base's.
+   - **`onAnimationStart` / `onAnimationComplete`** report a gesture's name when it comes on (Motion names its type's label). Otherwise they report the base's name when it changes, else the values, as before.
+   - **A gesture whose layer resolves to nothing new** (a name the child has no entry for) Retargets nothing, as before.
+
+**Built:**
+- **Each gesture layer** resolves through `resolveTarget`: its own entry while the gesture is on (its own, or its provider's), else the label handed down (`gestureLayerOf`). An off layer resolves nothing: one shared empty layer.
+- **The `Resolution`** keeps its layers and the active gestures' names. The Retarget splits its keys by layer only when an active layer has its own transition (`keysByLayerOf`).
+- **The hand-down:** a provider's variant node hands down a `GestureHandDown` (whether each gesture is on, and its label) through the context's `gestures`. It's a memo equal while nothing changes, so its children re-resolve only at a change.
+  - Its stagger snapshot and its `beforeChildren` key on the variant name plus the active gestures' names (`triggerKeyOf`).
+  - **Solid 1 takes the snapshot lazily now**, as Solid 2's does (#209 PR 4a). The trigger memo marks it stale, and a child's first slot read retakes it. Taken in an effect, a child that the same change Retargets read its old slot first: an item added since the last trigger staggered from 0 (GN12).
+  - Its orchestration reads the highest active gesture name's own transition.
+- **Each spine binds its gesture states into its node** (`bindGestures`):
+  - Solid 1, in `runSpine`'s mount effect, from the resolution's `active`;
+  - Solid 2, at the ward's setup, from its gesture signals. Its target memo skips an unchanged resolution (`sameResolution`), so a hover whose own layer is empty never reached the hand-down through it (GW2 caught it).
+- **An element with no provider** reads its own states and the shared empty names, with nothing made per Retarget.
+
+**Pinned by:**
+- **Solid 1:** `test/gesture-names.browser.test.tsx` GN1–GN12:
+  - a gesture's name on the element itself, and back at its end;
+  - a dynamic one with `custom`;
+  - a gesture target's own transition;
+  - the name passing down, and staggered;
+  - a child's own `while*` on with its parent's hover;
+  - `whileTap`;
+  - `onAnimationStart` told the name;
+  - two levels;
+  - `when: "beforeChildren"`;
+  - a parent's gesture given as values turning a child's own on;
+  - the stagger slots retaken when a gesture comes on, for an item added since.
+- **Solid 2:** `test/v2/gesture-names.browser.test.tsx` GW1–GW3, under the diagnostics gate.
+- **Mutation-checked:** fifteen single-point mutations, each caught:
+  - an own name not resolved;
+  - labels, or the activity, not handed down;
+  - the label over an own `while*`;
+  - Solid 1's orchestration or trigger ignoring the gestures (GN12, once added);
+  - its slots never retaken;
+  - a gesture's own transition ignored;
+  - the definition ignoring the names;
+  - either binding's states never bound;
+  - Solid 2's bound to the target;
+  - the per-layer split only on gesture layers (DV7);
+  - the base-only path taken with gestures handed down, or with the element's own on.
+
+**What it costs an element that uses none of it** (`bench:solid`, N = 1,000, no provider on the page, against main `fdb6f73`):
+- **The first build** made the five gesture layers, their names and a closure per element at every resolution, provider or not. Solid 1's warm Retarget read +2.2% [+1.1%, +5.2%] and mount +1.4%; Solid 2's warm mount +2.3% [+1.1%, +3.8%].
+- **Plain guards** in place of `UndefinedOr` calls brought Solid 1's warm Retarget to +0.8%, but its cold Retarget read +7.8% [+6.1%, +8.1%], and Solid 2's warm mount +3.2% [+0.4%, +3.6%].
+- **A base-only path** fixed both. With nothing handed down and no gesture on, `resolutionOf` resolves the base layer alone, and makes and calls nothing else.
+- The result (control −0.4%): Solid 1's Retarget −2.6% warm and +3.0% [−3.0%, +4.3%] cold, mount +1.1% [−1.3%, +1.2%], bytes −0.8%. Solid 2's Retarget +0.5% warm, mount −0.7%, bytes −0.3%.

@@ -64,7 +64,7 @@ import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
-import { type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
+import { type GestureStates, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
@@ -266,6 +266,8 @@ export interface RunSpineOptions {
    * Read REACTIVELY inside the spine effect so a flip re-triggers the start.
    */
   readonly canStart?: (() => boolean) | undefined
+  /** Its variant node's binding of its gesture states (#291): the names it hands its Variant children follow them. */
+  readonly bindGestures?: ((states: Accessor<GestureStates>) => void) | undefined
   /**
    * Reactive extra delay (seconds) folded into the effective transition's
    * `delay` for the inherited-variant Retarget (ADR-0007 per-child stagger).
@@ -337,7 +339,7 @@ const heldBack = (presence: PresenceContextValue | undefined, element: HTMLEleme
 }
 
 export function runSpine(opts: RunSpineOptions): void {
-  const { canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
+  const { bindGestures, canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -591,6 +593,8 @@ export function runSpine(opts: RunSpineOptions): void {
           snapshot,
         )
       })
+      // Its gesture states, for the names its variant node hands down (#291).
+      if (Predicate.isNotUndefined(bindGestures)) bindGestures(() => target().active)
 
       // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh
       // primitive from the Snapshot (velocity-preserving), into the gate.
@@ -757,6 +761,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     parent: node.inherited,
     extraDelay: node.extraDelay,
     canStart: node.canStart,
+    bindGestures: node.bindGestures,
     onFrame: node.onFrame,
     internal,
     styleOf: () => lastUserProps.style,

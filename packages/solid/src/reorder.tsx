@@ -427,6 +427,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
     parent: node.inherited,
     extraDelay: node.extraDelay,
     canStart: node.canStart,
+    bindGestures: node.bindGestures,
     onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
     internal: itemInternals(group, first.value, () => el, runtime),
