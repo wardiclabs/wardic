@@ -68,9 +68,9 @@ Each PR gives Solid 2 the matching `next()` names, so the two bindings hear the 
   - Not for an unmount, nor a layout node's release a width change snapped to rest: Motion's resize stops its drag animation too (`scalePositionWithinConstraints`, `VisualElementDragControls.ts:589-601`).
 - **Solid 2:** `next("drag")` and `each("drag")` hear the start and each move, with the drag's info. `next("dragTransitionEnd")` resolves with `undefined` once the release rests, a free drag's and a layout node's.
 
-### A divergence found, not fixed here
+### A divergence found, fixed in #279
 
-A **free** drag's release that a grab with no drag stopped stays stopped, so the element rests where the grab caught it: with `dragSnapToOrigin`, 80 px off its origin in a probe. Motion restarts it from rest at the press's end, with `dragSnapToOrigin` or constraints (`resumeAnimation`, `VisualElementDragControls.ts:237-242`). Its `onDragTransitionEnd` then comes. A layout node's release already does this (ADR-0016, *Amendment (velocity family)*). It's a behaviour bug of the drag track, separate from the callbacks: #279.
+A **free** drag's release that a grab with no drag stopped stays stopped, so the element rests where the grab caught it: with `dragSnapToOrigin`, 80 px off its origin in a probe. Motion restarts it from rest at the press's end, with `dragSnapToOrigin` or constraints (`resumeAnimation`, `VisualElementDragControls.ts:237-242`). Its `onDragTransitionEnd` then comes. A layout node's release already does this (ADR-0016, *Amendment (velocity family)*). It's a behaviour bug of the drag track, separate from the callbacks: #279, fixed by ADR-0016's *Amendment (#279)*.
 
 ## Pan (grilled 2026-10-21, PR 2)
 

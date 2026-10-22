@@ -219,7 +219,7 @@ Motion's release (`VisualElementDragControls.startAnimation`) is an `inertia` pe
 ### Limits
 
 - A free flick carries 0.8 × the velocity Wardic reads, as Motion's does, and Wardic reads about 20% less on a release made a frame after the last move (ADR-0004, *Amendment (#139)*): 191 px against Motion's 247 below. The inertia itself is Motion's to 1e-13 px.
-- `dragElastic` is a number, not Motion's per-edge object; `dragConstraints` is numeric, not a ref.
+- `dragElastic` is a number, not Motion's per-edge object; `dragConstraints` is numeric, not a ref (an element came with #273, ADR-0047).
 - `<Reorder.Item>` with `dragElastic={0}` lands on its slot on the release's first frame, as Motion's does (the wall's spring is that overdamped).
 
 ### Measured on this branch
@@ -246,3 +246,20 @@ Cost, `.tmp/vel-cost/` (main built from a worktree, 10 rounds, main against itse
 - Updated: `while-drag` (the hard clamp needs `dragElastic={0}` now; the default pulls back by 0.35), `fling` FL4 and FL5 (a soft `dragTransition`, not `transition`), `drag-pointer` P1 (a longer wait for the 200 / 40 bounce from 240 px), `error-reporting` (the NaN goes through `dragTransition`).
 - Lab: `test/drag-run.test.ts` FR9–FR12.
 - Mutation-checked: 45 single-point mutations of the new code, each failing the test meant for it.
+
+## Amendment (#279, 2026-10-22): a free drag's release a click stops goes on
+
+A free drag's release (its momentum or its spring back, on `dragSnapToOrigin` or past constraints) that a press catches stopped where it was, and stayed stopped when the press ended with no drag. With `dragSnapToOrigin` a probe left the element 80 px off its origin. Motion stops it at the press (`onSessionStart`'s `stopAnimation`) and, when the press ends with no drag, starts it again from rest: `PanSession.handlePointerUp` calls `resumeAnimation`, which runs `startAnimation({ x: 0, y: 0 })` with `dragSnapToOrigin` or constraints (`VisualElementDragControls.ts:237-242` at `16c6122`). A layout node's Release offset already went on (*Amendment (velocity family)*: `resumeRelease`).
+
+- **The drag track notes a release a grab stopped** (`DragTrackState.releasing` and `stopped`). A press that ends with no drag starts it again, from where it stopped, with no velocity, toward its edges: the origin with `dragSnapToOrigin`, else the constraints, numeric or measured from a container (#273). It's a release as any: its rest tells `onDragTransitionEnd` (#273), once.
+- **With neither, it stays where it was caught,** as Motion's: there's nowhere for it to go.
+- **One narrowing of Motion:** Motion starts a release at any press that ends with no drag, so a click at rest on an element with constraints starts one that ends at once and tells `onDragTransitionEnd`. Wardic starts again only the release the press stopped, as a layout node's `resumeRelease` does.
+
+### Pinned by
+
+- `packages/solid/test/drag-transition.browser.test.tsx` DT10–DT13, with the real mouse:
+  - a snap back caught mid-flight goes on home and tells once;
+  - a spring back past an edge goes on to the edge;
+  - a glide with neither stays caught and tells nothing;
+  - a click at rest, before a drag and after its release has rested, tells nothing.
+- Mutation-checked: 5, each failing its test; one survived until DT13 clicked after a release that had rested.

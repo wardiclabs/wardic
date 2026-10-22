@@ -175,8 +175,8 @@ const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
 /**
  * The track's state: `base` is the rebase point, `position` the live absolute position,
  * `held` whether a gesture is on (from its "start" to its "end"), `axis` the axes it
- * moves on, read at its "start", and `bounds` the constraints: the config's, or an element
- * constraint's as last measured (#273).
+ * moves on, read at its "start", `bounds` the constraints: the config's, or an element
+ * constraint's as last measured (#273), and whether a release runs, or a grab stopped one (#279).
  */
 interface DragTrackState {
   readonly base: Point.Point
@@ -184,6 +184,10 @@ interface DragTrackState {
   readonly held: boolean
   readonly axis: Drag.Axis
   readonly bounds: Drag.Bounds | undefined
+  /** A free drag's release runs (#279): set at its start, cleared at its rest. */
+  readonly releasing: boolean
+  /** A grab stopped that release (#279): a press that ends with no drag starts it again, from rest. */
+  readonly stopped: boolean
 }
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
@@ -392,6 +396,7 @@ const release = (
   // with the rest value on the element, as Motion's comes with it set: only here, so a release a
   // grab interrupted tells nothing.
   const done = Effect.sync(() => {
+    MutableRef.update(state, (s) => ({ ...s, releasing: false }))
     opts.setDragging(false)
     UndefinedOr.map(opts.onReleaseEnd, (ended) => opts.gate.afterFlush(ended))
   })
@@ -440,7 +445,15 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
 
   opts.run(
     Effect.gen(function* () {
-      const state: TrackState = MutableRef.make<DragTrackState>({ base: ORIGIN, position: ORIGIN, held: false, axis: "xy", bounds: config.constraints })
+      const state: TrackState = MutableRef.make<DragTrackState>({
+        base: ORIGIN,
+        position: ORIGIN,
+        held: false,
+        axis: "xy",
+        bounds: config.constraints,
+        releasing: false,
+        stopped: false,
+      })
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
       const probe = yield* Probe.Probe
@@ -538,6 +551,13 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
         lock: config.directionLock === true,
       })
 
+      /** A free drag's release from `position` with `velocity`, run in `releasing` (#279: recorded as running). */
+      const startRelease = (position: Point.Point, velocity: Point.Point): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
+        Effect.sync(() => MutableRef.update(state, (s) => ({ ...s, releasing: true, stopped: false }))).pipe(
+          Effect.andThen(FiberHandle.run(releasing, release(opts, state, position, velocity))),
+          Effect.asVoid,
+        )
+
       // A free drag's "end" starts its release; a projection node's Release offset already
       // began in `settleGesture`, so its drag track skips the tail (ADR-0016, Q3c).
       const releaseFrom = (sample: Drag.Sample): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
@@ -546,7 +566,7 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
           onUndefined: () => {
             const { axis, base, bounds } = MutableRef.get(state)
             const position = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, bounds, config)
-            return FiberHandle.run(releasing, release(opts, state, position, sample.velocity)).pipe(Effect.asVoid)
+            return startRelease(position, sample.velocity)
           },
         })
 
@@ -577,18 +597,37 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
       // the recognizer's single listener-set (CONTEXT.md Shared source contract).
       const onGrab: Effect.Effect<void> = FiberHandle.clear(releasing).pipe(
         Effect.andThen(Effect.sync(() => {
+          // A free drag's release this grab stopped, to start again if the press ends with no drag (#279).
+          MutableRef.update(state, (s) => ({ ...s, stopped: s.releasing, releasing: false }))
           UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.stopRelease() })
           if (!MutableRef.get(state).held) opts.setDragging(false)
         })),
       )
+      /**
+       * A free drag's release a grab stopped, started again from rest where it stopped, toward its edges
+       * (#279, Motion's `resumeAnimation`): only with `snapToOrigin` or constraints, which give it
+       * somewhere to go. Motion's starts one at any press that ends with no drag, so a click at rest on
+       * a constrained element tells `onDragTransitionEnd`; this only starts the one the grab stopped, as
+       * a layout node's `resumeRelease` does.
+       */
+      const resumeFree: Effect.Effect<void, never, FrameLoop.FrameLoop> = Effect.suspend(() => {
+        const st = MutableRef.get(state)
+        if (Bool.not(st.stopped)) return Effect.void
+        MutableRef.update(state, (s) => ({ ...s, stopped: false }))
+        if (Bool.and(config.snapToOrigin !== true, Predicate.isUndefined(st.bounds))) return Effect.void
+        return startRelease(st.position, ORIGIN)
+      })
       // The samples subscribe first, so a drag's own up has ended its gesture by now: only a
       // press that never dragged finds no gesture held.
-      const onPressEnd: Effect.Effect<void> = Effect.sync(() => {
-        if (MutableRef.get(state).held) return
-        UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.resumeRelease() })
+      const onPressEnd: Effect.Effect<void, never, FrameLoop.FrameLoop> = Effect.suspend(() => {
+        if (MutableRef.get(state).held) return Effect.void
+        return UndefinedOr.match(opts.projection, {
+          onUndefined: () => resumeFree,
+          onDefined: (projection) => Effect.sync(() => projection.resumeRelease()),
+        })
       })
       const presses = input.pointer(element).pipe(Stream.filter(Predicate.or(isGrab, isPressEnd)))
-      const onPress = (event: InputSource.PointerLikeEvent): Effect.Effect<void> =>
+      const onPress = (event: InputSource.PointerLikeEvent): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
         Bool.match(isGrab(event), { onTrue: () => onGrab, onFalse: () => onPressEnd })
 
       // Started inline, in this order, so the samples subscribe before the grabs. Once both

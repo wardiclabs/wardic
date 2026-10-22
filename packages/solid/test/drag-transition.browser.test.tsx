@@ -15,6 +15,13 @@
 //   outside its y bounds.
 // - DT8: a `<Reorder.Item>`'s release: on Motion's 200 / 40 bounce from rest by default, and on its
 //   slot at once with `dragElastic={0}`, Motion's wall.
+// - DT10 (#279): a snap back a click catches mid-flight goes on from rest, home, and tells
+//   `onDragTransitionEnd` once. Before #279 it stayed where the click caught it.
+// - DT11 (#279): a spring back to a constraint's edge, caught by a click, goes on to the edge.
+// - DT12 (#279): a glide with no snap and no constraints, caught by a click, stays caught: nowhere to
+//   go, as Motion's; it tells nothing.
+// - DT13 (#279): a click at rest on a constrained element tells nothing, before a drag or after its
+//   release rests (Motion's starts a release that ends at once and tells `onDragTransitionEnd`).
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicBoundingBox, type WardicDragTransition, WardicProvider } from "@wardic/solid"
@@ -49,6 +56,7 @@ interface BoxOptions {
   readonly momentum?: boolean
   readonly snapToOrigin?: boolean
   readonly dragTransition?: WardicDragTransition
+  readonly onDragTransitionEnd?: () => void
 }
 
 /**
@@ -68,6 +76,7 @@ const mountBox = async (opts: BoxOptions = {}): Promise<Box> => {
           {...UndefinedOr.match(opts.momentum, { onUndefined: () => ({}), onDefined: (dragMomentum) => ({ dragMomentum }) })}
           {...UndefinedOr.match(opts.snapToOrigin, { onUndefined: () => ({}), onDefined: (dragSnapToOrigin) => ({ dragSnapToOrigin }) })}
           {...UndefinedOr.match(opts.dragTransition, { onUndefined: () => ({}), onDefined: (dragTransition) => ({ dragTransition }) })}
+          {...UndefinedOr.match(opts.onDragTransitionEnd, { onUndefined: () => ({}), onDefined: (onDragTransitionEnd) => ({ onDragTransitionEnd }) })}
           style={{ position: "relative", width: "120px", height: "80px", background: "#8af" }}
         />
       </div>
@@ -271,5 +280,71 @@ describe("a <Reorder.Item>'s release runs on its drag transition (#140)", () => 
 
     const wall = await release(0)
     expect(Math.abs(wall[2]!.v), "on its slot within two frames").toBeLessThan(0.01)
+  })
+})
+
+describe("a release a click catches goes on (#279)", () => {
+  /** A click (down and up, no move) on the box where it paints now. */
+  const click = async (b: Box): Promise<void> => {
+    const r = b.el.getBoundingClientRect()
+    const p = { x: r.left + 20, y: r.top + 40 }
+    await mouse.down(p)
+    await mouse.up(p)
+  }
+
+  it("DT10: a snap back a click catches mid-flight goes on from rest, home, and tells onDragTransitionEnd once", async () => {
+    let ends = 0
+    const b = await mountBox({ snapToOrigin: true, onDragTransitionEnd: () => ends++ })
+    const pointer = await dragSlowly(b, 120)
+    await mouse.up(pointer)
+    await wait(60)
+    const caught = dxOf(b)
+    expect(caught, "still on its way").toBeGreaterThan(20)
+    await click(b)
+    await wait(1200)
+    expect(Math.abs(dxOf(b)), "home").toBeLessThan(0.5)
+    await wait(100)
+    expect(ends, "the restarted release's end, once").toBe(1)
+  })
+
+  it("DT11: a spring back to a constraint's edge, caught by a click, goes on to the edge", async () => {
+    const b = await mountBox({ constraints: { left: 0, right: 50 } })
+    const pointer = await dragSlowly(b, 160)
+    await mouse.up(pointer)
+    await wait(60)
+    expect(dxOf(b), "still past the edge").toBeGreaterThan(55)
+    await click(b)
+    await wait(1200)
+    expect(Math.abs(dxOf(b) - 50), "on the edge").toBeLessThan(0.5)
+  })
+
+  it("DT12: a glide with no snap and no constraints, caught by a click, stays caught and tells nothing", async () => {
+    let ends = 0
+    const b = await mountBox({ onDragTransitionEnd: () => ends++ })
+    const pointer = await flick(b, 60, 40)
+    await mouse.up(pointer)
+    await wait(80)
+    await click(b)
+    const caught = dxOf(b)
+    await wait(600)
+    expect(Math.abs(dxOf(b) - caught), "where the click caught it").toBeLessThan(1)
+    expect(ends).toBe(0)
+  })
+
+  it("DT13: a click at rest on a constrained element tells nothing, before a drag or after its release rests", async () => {
+    let ends = 0
+    const b = await mountBox({ constraints: { left: 0, right: 50 }, onDragTransitionEnd: () => ends++ })
+    await click(b)
+    await wait(300)
+    expect(ends).toBe(0)
+    expect(dxOf(b)).toBe(0)
+    // A drag inside the bounds, let go at rest: its release ends at once, and tells once.
+    const pointer = await dragSlowly(b, 30)
+    await mouse.up(pointer)
+    await wait(200)
+    expect(ends, "the drag's release").toBe(1)
+    await click(b)
+    await wait(300)
+    expect(ends, "and nothing for the click after").toBe(1)
   })
 })
