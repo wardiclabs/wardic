@@ -78,6 +78,124 @@ export interface WardicStaggerConfig {
  * Designed to extend without breaking: 21b adds optional `registry` / `stagger`
  * / `when` members; readers consume only the fields they know.
  */
+/** A gesture layer, in Motion's priority, lowest first (#291): `whileInView` … `whileDrag`. */
+export type GestureLayer = "inView" | "focused" | "hovered" | "pressed" | "dragged"
+
+/** The gesture layers in Motion's priority, lowest first. */
+export const GESTURE_LAYERS: ReadonlyArray<GestureLayer> = ["inView", "focused", "hovered", "pressed", "dragged"]
+
+/** The variant names an element hands its Variant children for its active gestures (#291). */
+export type GestureNames = Readonly<Partial<Record<GestureLayer, string | undefined>>>
+
+/** No gesture on: what an element with none active hands down. */
+export const NO_GESTURE_NAMES: GestureNames = {}
+
+/** Two {@link GestureNames} the same: the same name for each gesture. */
+export const sameGestureNames = (a: GestureNames, b: GestureNames): boolean =>
+  GESTURE_LAYERS.every((layer) => a[layer] === b[layer])
+
+/** Whether each gesture is on (#291): a spine's, bound to its variant node. */
+export type GestureStates = Readonly<Record<GestureLayer, boolean>>
+
+/** No gesture on. */
+export const NO_GESTURE_STATES: GestureStates = { inView: false, focused: false, hovered: false, pressed: false, dragged: false }
+
+/**
+ * What an element hands its Variant children for its gestures (#291, Motion's `setActive` and variant
+ * context): whether each is on (its own, or its own provider's), and each one's label (its own
+ * `while*`, if a name, else the one it took). A Variant child's gesture is on while its provider's is.
+ */
+export interface GestureHandDown {
+  readonly on: GestureStates
+  readonly names: GestureNames
+}
+
+/** Nothing on, no labels: what an element hands down with no provider and no gesture. */
+export const NO_HAND_DOWN: GestureHandDown = { on: NO_GESTURE_STATES, names: NO_GESTURE_NAMES }
+
+/** Two hand-downs the same: each gesture on alike, with the same label. */
+export const sameHandDown = (a: GestureHandDown, b: GestureHandDown): boolean =>
+  GESTURE_LAYERS.every((layer) => Bool.and(a.on[layer] === b.on[layer], a.names[layer] === b.names[layer]))
+
+/** What a context hands down, nothing without a context or its gestures. */
+export const handDownFrom = (context: WardicVariantContextValue | undefined): GestureHandDown => {
+  // Per Retarget, per element: guards, nothing made (most elements have no provider).
+  if (Predicate.isUndefined(context)) return NO_HAND_DOWN
+  const gestures = context.gestures
+  if (Predicate.isUndefined(gestures)) return NO_HAND_DOWN
+  return gestures()
+}
+
+/** The gesture props a variant node reads (#291). */
+export interface GestureConfig {
+  readonly whileInView?: object | string | undefined
+  readonly whileFocus?: object | string | undefined
+  readonly whileHover?: object | string | undefined
+  readonly whileTap?: object | string | undefined
+  readonly whileDrag?: object | string | undefined
+}
+
+/** Each gesture on: its own, or its provider's. */
+export const gesturesOn = (own: GestureStates, above: GestureStates): GestureStates => ({
+  inView: Bool.or(own.inView, above.inView),
+  focused: Bool.or(own.focused, above.focused),
+  hovered: Bool.or(own.hovered, above.hovered),
+  pressed: Bool.or(own.pressed, above.pressed),
+  dragged: Bool.or(own.dragged, above.dragged),
+})
+
+/** A gesture's label (#291): its own `while*`, if a name; with none of its own, the one it took. */
+const labelOf = (own: object | string | undefined, inherited: string | undefined): string | undefined => {
+  if (Predicate.isNotUndefined(own)) return nameOf(own)
+  return inherited
+}
+
+/** What an element hands down (#291), from its config, its own states, and what it takes. */
+export const handDownOf = (config: GestureConfig, own: GestureStates, above: GestureHandDown): GestureHandDown => ({
+  on: gesturesOn(own, above.on),
+  names: {
+    inView: labelOf(config.whileInView, above.names.inView),
+    focused: labelOf(config.whileFocus, above.names.focused),
+    hovered: labelOf(config.whileHover, above.names.hovered),
+    pressed: labelOf(config.whileTap, above.names.pressed),
+    dragged: labelOf(config.whileDrag, above.names.dragged),
+  },
+})
+
+/** The name each gesture's layer resolves while it's on (#291): its label then; off, none. */
+export const activeNamesOf = (handDown: GestureHandDown): GestureNames => ({
+  inView: activeName(handDown, "inView"),
+  focused: activeName(handDown, "focused"),
+  hovered: activeName(handDown, "hovered"),
+  pressed: activeName(handDown, "pressed"),
+  dragged: activeName(handDown, "dragged"),
+})
+
+/** A gesture's label while it's on. */
+const activeName = (handDown: GestureHandDown, layer: GestureLayer): string | undefined => {
+  if (Bool.not(handDown.on[layer])) return undefined
+  return handDown.names[layer]
+}
+
+/** A key for a variant name and the active gestures' names: what a provider's orchestration snapshots at (#291). */
+export const triggerKeyOf = (variant: string | undefined, handDown: GestureHandDown): string =>
+  [variant, ...GESTURE_LAYERS.map((layer) => activeName(handDown, layer))].join("|")
+
+/** The highest-priority active gesture's name, if any hands one down. */
+export const topGestureName = (names: GestureNames): string | undefined =>
+  UndefinedOr.match(names.dragged, {
+    onDefined: identity,
+    onUndefined: () =>
+      UndefinedOr.match(names.pressed, {
+        onDefined: identity,
+        onUndefined: () =>
+          UndefinedOr.match(names.hovered, {
+            onDefined: identity,
+            onUndefined: () => UndefinedOr.match(names.focused, { onDefined: identity, onUndefined: () => names.inView }),
+          }),
+      }),
+  })
+
 export interface WardicVariantContextValue {
   /** The parent's current variant NAME, reactive (undefined if it's a values map). */
   readonly variant: Accessor<string | undefined>
@@ -89,6 +207,12 @@ export interface WardicVariantContextValue {
   readonly initial: string | false | undefined
   /** The parent's transition, inherited as the default for children. */
   readonly transition: Accessor<WardicTransition | undefined>
+  /**
+   * What the parent hands down for its gestures (#291, Motion's): whether each is on, and its label.
+   * A Variant child's gesture is on while the parent's is, on its own `while*`, else that label.
+   * Optional: left out, nothing.
+   */
+  readonly gestures?: Accessor<GestureHandDown>
   /**
    * Register this child with the parent's ordered registry (call on mount).
    * Returns the child's reactive snapshot index/total + a settle reporter +
@@ -119,7 +243,7 @@ export interface WardicVariantContextValue {
 }
 
 /** The part of an element's config its place in variant orchestration reads. */
-export interface VariantConfig {
+export interface VariantConfig extends GestureConfig {
   readonly initial?: object | string | false | undefined
   readonly animate?: object | string | undefined
   readonly variants?: object | undefined

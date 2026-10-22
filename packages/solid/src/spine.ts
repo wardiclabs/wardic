@@ -63,8 +63,20 @@ import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
   hasOwnVariants,
+  GESTURE_LAYERS,
+  type GestureLayer,
+  type GestureNames,
+  activeNamesOf,
+  type GestureHandDown,
+  gesturesOn,
+  type GestureStates,
+  handDownFrom,
+  handDownOf,
+  NO_GESTURE_STATES,
+  NO_HAND_DOWN,
   isVariantChild,
   nameOf,
+  NO_GESTURE_NAMES,
   ownOrInherited,
   type ServerVariantNode,
   startingValuesOf,
@@ -136,32 +148,27 @@ const staggeredOf = (
   return reuse({ ...transition, delay: delayOf(transition) + extra } as WardicTransition)
 }
 
-/** No keys: a Retarget with no base target's own transition splits nothing. */
-const NO_GESTURED: ReadonlySet<string> = new Set()
-
 /**
- * The keys an active gesture layer sets, when the base target has its own transition (#277): those
- * animate on the element's transition. With none, nothing is read.
+ * A Retarget's keys by the layer that drives each (#291), when an active layer (the base's included)
+ * has its own transition: the highest active layer that sets it, and the base for a key none sets (a
+ * return). `undefined` when none has: one transition for every key.
  */
-const gesturedKeysOf = (c: WardConfig, resolution: Resolution): ReadonlySet<string> => {
-  if (Predicate.isUndefined(resolution.transition)) return NO_GESTURED
-  const active = resolution.active
-  const keys = new Set<string>()
-  const add = (on: boolean, values: object | undefined): void => {
-    if (Bool.and(on, Predicate.isNotUndefined(values))) Arr.forEach(Rec.keys(Style.toValues(values)), (key) => keys.add(key))
-  }
-  add(active.inView, c.whileInView)
-  add(active.focused, c.whileFocus)
-  add(active.hovered, c.whileHover)
-  add(active.pressed, c.whileTap)
-  add(active.dragged, c.whileDrag)
-  return keys
+const keysByLayerOf = (t: Values.Values, layers: ReadonlyArray<Layer>): ReadonlyArray<ReadonlySet<string>> | undefined => {
+  if (Bool.not(Arr.some(layers, hasOwnTransition))) return undefined
+  const groups = Arr.map(layers, () => new Set<string>())
+  Arr.forEach(Rec.keys(t), (key) => {
+    const at = Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Object.hasOwn(layer.values, key))), () => 0)
+    UndefinedOr.map(groups[at], (group) => group.add(key))
+  })
+  return groups
 }
 
-/** `values` without `keys`: itself when there are none. */
-const withoutKeys = (values: Values.Values, keys: ReadonlySet<string>): Values.Values => {
-  if (keys.size === 0) return values
-  return Rec.filter(values, (_, key) => Bool.not(keys.has(key)))
+/** `t`'s keys in the `i`th group, or all of them when there are no groups. */
+const pickKeys = (t: Values.Values, groups: ReadonlyArray<ReadonlySet<string>> | undefined, i: number): Values.Values => {
+  if (Predicate.isUndefined(groups)) return t
+  const group = groups[i]
+  if (Predicate.isUndefined(group)) return {}
+  return Rec.filter(t, (_, key) => group.has(key))
 }
 
 /** A transition's `delay`, 0 without one. */
@@ -213,7 +220,67 @@ export interface Resolution {
   readonly active: Active
   /** The base target's own transition (#277): the keys the base layer drives animate on it. */
   readonly transition: WardicVariantTransition | undefined
+  /**
+   * The Override stack's layers (#291): the base, then each gesture's, lowest first. A Retarget runs
+   * each key on the own transition of the highest active layer that sets it.
+   */
+  readonly layers: ReadonlyArray<Layer>
+  /** The names its active gesture layers resolved (#291): its own `while*` names, else those it took. */
+  readonly names: GestureNames
 }
+
+/** One layer of the Override stack (#291): whether it's on, its values, and its target's own transition. */
+export interface Layer {
+  readonly active: boolean
+  readonly values: Values.Values
+  readonly transition: WardicVariantTransition | undefined
+}
+
+/** A gesture layer that's off: nothing is resolved for it. */
+const OFF: Layer = { active: false, values: {}, transition: undefined }
+
+/**
+ * A gesture's layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
+ * a variant name), else the label its provider hands down. Off, or with neither, nothing is resolved.
+ */
+const gestureLayerOf = (
+  own: WardicVariant | string | undefined,
+  on: boolean,
+  label: string | undefined,
+  variants: WardicVariants | undefined,
+  custom: unknown,
+  state: VariantState,
+): Layer => {
+  if (Bool.not(on)) return OFF
+  if (Predicate.isNotUndefined(own)) return layerOf(resolveTarget(own, variants, custom, state))
+  if (Predicate.isUndefined(label)) return OFF
+  return layerOf(resolveTarget(label, variants, custom, state))
+}
+
+/** Each gesture on: the element's own, or its provider's too when it has one handing any down. */
+const gesturesOnOf = (active: Active, above: GestureHandDown): GestureStates => {
+  if (above === NO_HAND_DOWN) return active
+  return gesturesOn(active, above.on)
+}
+
+/**
+ * The name each gesture's layer resolves while it's on (#291): its own `while*`, if a name, else the
+ * label it took. With none on, the shared empty one: nothing made.
+ */
+const activeNamesFor = (c: WardConfig, on: GestureStates, labels: GestureNames): GestureNames => {
+  if (Bool.not(anyOn(on))) return NO_GESTURE_NAMES
+  return activeNamesOf(handDownOf(c, on, { on: NO_GESTURE_STATES, names: labels }))
+}
+
+/** Whether any gesture is on: per Retarget, so no closure. */
+const anyOn = (on: GestureStates): boolean => on.inView || on.focused || on.hovered || on.pressed || on.dragged
+
+/** Whether a layer is on with its own transition: hoisted, as it's asked per Retarget. */
+const hasOwnTransition = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.transition))
+
+/** A target as an active layer. */
+const layerOf = (target: Target): Layer => ({ active: true, values: target.values, transition: target.transition })
+
 
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
 const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(Equivalence.strictEqual<number | string>())
@@ -238,11 +305,17 @@ export type AnimationDefinition = string | Values.Values
  * new `animate` variant animates as its name, and a gesture turning on or off as values (its own,
  * or the keys it leaves falling back), so a variant's name is only told when the variant changed.
  */
-export const definitionOf = (resolution: Resolution, previous: string | undefined): AnimationDefinition =>
-  UndefinedOr.match(resolution.variant, {
-    onUndefined: (): AnimationDefinition => resolution.resolved,
-    onDefined: (name) => Bool.match(name === previous, { onTrue: (): AnimationDefinition => resolution.resolved, onFalse: () => name }),
-  })
+export const definitionOf = (resolution: Resolution, previous: Resolution | undefined): AnimationDefinition => {
+  const name = resolution.variant
+  if (Bool.and(Predicate.isNotUndefined(name), name !== UndefinedOr.map(previous, (p) => p.variant))) return name as string
+  // A gesture's name that just came on (#291), the highest first, as Motion's names its type's.
+  const before = UndefinedOr.match(previous, { onUndefined: () => NO_GESTURE_NAMES, onDefined: (p) => p.names })
+  const started = Arr.findFirst(GESTURES_DOWN, (layer) => Bool.and(Predicate.isNotUndefined(resolution.names[layer]), resolution.names[layer] !== before[layer]))
+  return Option.match(started, { onNone: (): AnimationDefinition => resolution.resolved, onSome: (layer) => resolution.names[layer] as string })
+}
+
+/** The gesture layers, highest first. */
+const GESTURES_DOWN: ReadonlyArray<GestureLayer> = Arr.reverse(GESTURE_LAYERS)
 
 /**
  * What a Retarget tells its binding (#257): that it started, and that its last leg settled. Each is
@@ -251,9 +324,9 @@ export const definitionOf = (resolution: Resolution, previous: string | undefine
  */
 export interface AnimationHooks {
   /** A Retarget started its legs (the `when` gate let it); with no leg, it settles at once. */
-  readonly started: (resolution: Resolution, previous: string | undefined, config: WardConfig) => void
+  readonly started: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
   /** That Retarget's last leg settled: not for one the next Retarget superseded, nor one a leg's failure cut off. */
-  readonly settled: (resolution: Resolution, previous: string | undefined, config: WardConfig) => void
+  readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
 }
 
 /**
@@ -265,7 +338,7 @@ export interface AnimationHooks {
 export const animationCallbacks = (runtime: WardicRuntime, id: string): AnimationHooks => {
   const call =
     (name: "onAnimationStart" | "onAnimationComplete") =>
-    (resolution: Resolution, previous: string | undefined, config: WardConfig): void => {
+    (resolution: Resolution, previous: Resolution | undefined, config: WardConfig): void => {
       const callback = config[name]
       if (Predicate.isUndefined(callback)) return
       try {
@@ -325,18 +398,32 @@ export const resolutionOf = (
       }),
   })
   const base = target.values
-  const resolved = Override.resolve([
-    { active: true, values: base },
-    { active: active.inView, values: Style.toValues(c.whileInView) },
-    { active: active.focused, values: Style.toValues(c.whileFocus) },
-    { active: active.hovered, values: Style.toValues(c.whileHover) },
-    { active: active.pressed, values: Style.toValues(c.whileTap) },
+  const baseLayer: Layer = { active: true, values: base, transition: target.transition }
+  // A Variant child's gestures are on while its provider's are (#291, Motion's `setActive`), each on
+  // its own `while*`, else the label the provider hands down. With no provider, its own: nothing made.
+  const above = handDownFrom(parent)
+  // The common case: nothing handed down and no gesture on. The base layer alone, and nothing else
+  // made or called, at every element's mount and Retarget.
+  if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
+    const alone: ReadonlyArray<Layer> = [baseLayer]
+    return { resolved: Override.resolve(alone), base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES }
+  }
+  const on = gesturesOnOf(active, above)
+  const labels = above.names
+  const layers: ReadonlyArray<Layer> = [
+    baseLayer,
+    gestureLayerOf(c.whileInView, on.inView, labels.inView, variants, c.custom, state),
+    gestureLayerOf(c.whileFocus, on.focused, labels.focused, variants, c.custom, state),
+    gestureLayerOf(c.whileHover, on.hovered, labels.hovered, variants, c.custom, state),
+    gestureLayerOf(c.whileTap, on.pressed, labels.pressed, variants, c.custom, state),
     // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
     // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
     // after release.
-    { active: active.dragged, values: Style.toValues(c.whileDrag) },
-  ])
-  return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition }
+    gestureLayerOf(c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state),
+  ]
+  const resolved = Override.resolve(layers)
+  const names = activeNamesFor(c, on, labels)
+  return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers, names }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -601,7 +688,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // ended normally, at about a sixth of an interrupt's cost.
   let generation = Supersede.make()
   // The variant name the last started Retarget resolved, for its successor's `definition` (#257).
-  let lastVariant: string | undefined
+  let lastResolution: Resolution | undefined
 
   const retarget = (resolution: Resolution): void => {
     const { resolved, base, dragging: held } = resolution
@@ -693,7 +780,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     })
     let legs = 0
     // The variant the Retarget before this one resolved, set once this one starts (#257).
-    let previous: string | undefined
+    let previous: Resolution | undefined
     const legDone = Effect.sync(() => {
       if (--legs !== 0) return
       settleReturns(returns)
@@ -759,12 +846,21 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
     }
     const reduce = options.reducedMotion()
-    // With a base target's own transition (#277), the keys an active gesture sets animate on the
-    // element's, as Motion's each animation type runs on its own.
-    const gestured = gesturedKeysOf(c, resolution)
-    let retargetLegs = legsOf(from, withoutKeys(t, gestured), transition, reduce, positionalKeys, snapshot.velocities, follow)
-    if (gestured.size > 0) {
-      const gestureLegs = legsOf(from, Rec.filter(t, (_, key) => gestured.has(key)), staggeredOf(elementTransition, extra, options.reuse), reduce, positionalKeys, snapshot.velocities)
+    // With a layer's own transition (#277, #291), each key animates on its layer's: the base's keys
+    // on the base target's, each active gesture's on its target's, else the element's, as Motion's
+    // each animation type runs on its own.
+    const groups = keysByLayerOf(t, resolution.layers)
+    let retargetLegs = legsOf(from, pickKeys(t, groups, 0), transition, reduce, positionalKeys, snapshot.velocities, follow)
+    if (Predicate.isNotUndefined(groups)) {
+      const gestureLegs = Arr.flatMap(Arr.range(1, resolution.layers.length - 1), (i) =>
+        legsOf(
+          from,
+          pickKeys(t, groups, i),
+          staggeredOf(transitionOfTarget(UndefinedOr.match(resolution.layers[i], { onUndefined: constUndefined, onDefined: (l) => l.transition }), elementTransition), extra, options.reuse),
+          reduce,
+          positionalKeys,
+          snapshot.velocities,
+        ))
       retargetLegs = [...retargetLegs, ...gestureLegs]
     }
     // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
@@ -841,8 +937,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       )
     })
     // The Retarget started, its legs on their way (#257); with none, it settled at once.
-    previous = lastVariant
-    lastVariant = resolution.variant
+    previous = lastResolution
+    lastResolution = resolution
     if (Predicate.isNotUndefined(animation)) {
       animation.started(resolution, previous, c)
       if (retargetLegs.length === 0) animation.settled(resolution, previous, c)

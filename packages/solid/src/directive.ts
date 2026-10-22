@@ -56,6 +56,7 @@ export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): v
     parent: node.inherited,
     extraDelay: node.extraDelay,
     canStart: node.canStart,
+    bindGestures: node.bindGestures,
     onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
   })

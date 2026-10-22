@@ -8,7 +8,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues, WardicVariant, WardicVariants, WardicViewport } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicVariant, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
@@ -137,13 +137,13 @@ export interface WardicMotionProps {
   readonly custom?: any
   /** `false` keeps a `variants` element out of its ancestors' variants (#50, Motion's `inherit`). */
   readonly inherit?: boolean
-  readonly whileHover?: WardicValues
-  readonly whileTap?: WardicValues
+  readonly whileHover?: WardicVariant | string
+  readonly whileTap?: WardicVariant | string
   readonly transition?: WardicTransition
   /** Accepted + split now; not yet wired (follow-up). */
-  readonly whileFocus?: WardicValues
+  readonly whileFocus?: WardicVariant | string
   /** Accepted + split now; not yet wired (follow-up). */
-  readonly whileInView?: WardicValues
+  readonly whileInView?: WardicVariant | string
   /** Motion's `viewport` (#273; see `WardConfig`): what "in view" means. */
   readonly viewport?: WardicViewport
   /**
@@ -166,7 +166,7 @@ export interface WardicMotionProps {
    * Target merged in (highest priority) while dragging. Driven by the spring (NOT
    * stripped) so e.g. `scale: 1.1` animates while held and returns after release.
    */
-  readonly whileDrag?: WardicValues
+  readonly whileDrag?: WardicVariant | string
   /** Constrain the element's `x`/`y` (#273; see `WardConfig`): Motion's box of numbers, an accessor of a container element, or `false`. */
   readonly dragConstraints?: WardicDragConstraints
   /** Motion's `onMeasureDragConstraints` (#273; see `WardConfig`): the bounds measured against the container, in and out. */

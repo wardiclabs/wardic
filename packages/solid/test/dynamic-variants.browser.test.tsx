@@ -16,6 +16,7 @@ import { cleanup, render } from "@solidjs/testing-library"
 import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
+import * as Predicate from "effect/Predicate"
 import { createSignal, For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -75,11 +76,13 @@ describe("dynamic variants on Solid 1 (#277)", () => {
     const q = mount(() => <wardic.div data-k="a" variants={variants} initial={{ x: 0 }} animate={name()} />)
     await frames(4)
     setName("next")
-    expect(seen.length, "called").toBeGreaterThan(0)
-    const at = seen.at(-1)!
-    expect(at.current["x"], "x mid-flight, its value now").toBeGreaterThan(0)
-    expect(at.current["x"]).toBeLessThan(40)
-    expect(at.velocity["x"], "its velocity, moving toward 40").toBeGreaterThan(0)
+    // The Retarget's call: the one handed its values (its variant node also reads the variant's
+    // transition through it, with none).
+    const at = seen.find((call) => Predicate.isNotUndefined(call.current["x"]))
+    expect(at, "called for the Retarget").toBeDefined()
+    expect(at!.current["x"], "x mid-flight, its value now").toBeGreaterThan(0)
+    expect(at!.current["x"]).toBeLessThan(40)
+    expect(at!.velocity["x"], "its velocity, moving toward 40").toBeGreaterThan(0)
     await until(() => Math.abs(xOf(q("a"))) < 0.5, 3000)
   })
 

@@ -188,7 +188,7 @@ export class Lifecycle implements AnimationHooks {
   private flying: Resolution | undefined = undefined
   // The last landing, built when it's asked for: its resolution and the variant before it.
   private landedResolution: Resolution | undefined = undefined
-  private landedPrevious: string | undefined = undefined
+  private landedPrevious: Resolution | undefined = undefined
   private last: WardSettled | undefined = undefined
   // Made at the first read: the setter of the count it tracks, its memo, and its pending read's resolver.
   private setCount: ((count: number) => void) | undefined = undefined
@@ -237,7 +237,7 @@ export class Lifecycle implements AnimationHooks {
     if (Predicate.isNotUndefined(this.setCount)) this.setCount(this.starts)
   }
 
-  settled(resolution: Resolution, previous: string | undefined): void {
+  settled(resolution: Resolution, previous: Resolution | undefined): void {
     // A landing told after a later Retarget started (a settle waits for the gate's flush) is stale.
     if (resolution !== this.flying) return
     this.landed = this.starts

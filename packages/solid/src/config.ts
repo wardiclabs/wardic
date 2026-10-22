@@ -260,21 +260,24 @@ export interface WardConfig {
    * its own) joins its nearest ancestor with variants (CONTEXT.md).
    */
   readonly inherit?: boolean
-  /** Target merged in (highest-but-one priority) while hovered. */
-  readonly whileHover?: WardicValues
+  /**
+   * Target merged in (highest-but-one priority) while hovered. Each gesture prop takes a target, or a
+   * `variants` name (#291, Motion's), which its Variant children take too while the gesture is on.
+   */
+  readonly whileHover?: WardicVariant | string
   /** Target merged in (highest priority) while pressed. */
-  readonly whileTap?: WardicValues
+  readonly whileTap?: WardicVariant | string
   /**
    * Target merged in while the element is in view (Motion's, #273, ADR-0047), under `whileFocus` and
    * the pointer gestures: what "in view" means is `viewport`'s.
    */
-  readonly whileInView?: WardicValues
+  readonly whileInView?: WardicVariant | string
   /**
    * Target merged in while the element is focused as the browser shows it (Motion's, #273): a
    * keyboard's focus (`:focus-visible`), not a pointer's click. Under the pointer gestures, over
    * `whileInView`.
    */
-  readonly whileFocus?: WardicValues
+  readonly whileFocus?: WardicVariant | string
   /**
    * What "in view" means for `whileInView` and the viewport callbacks (Motion's `viewport`, #273): the
    * container (`root`, an accessor; the viewport when none), a `margin` grown around it (CSS
@@ -317,7 +320,7 @@ export interface WardConfig {
    * (NOT stripped) so e.g. `scale: 1.1` animates while held and returns after
    * release. Only consulted when `drag` is on.
    */
-  readonly whileDrag?: WardicValues
+  readonly whileDrag?: WardicVariant | string
   /**
    * Constrain the element's `x`/`y`, whichever gesture moved it there; a Fling springs back to an edge
    * it would cross (ADR-0016, *Amendment (#140)*). Only when `drag` is on. Motion's forms (#273,

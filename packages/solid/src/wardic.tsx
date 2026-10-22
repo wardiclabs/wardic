@@ -176,6 +176,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         parent: node.inherited,
         extraDelay: node.extraDelay,
         canStart: node.canStart,
+        bindGestures: node.bindGestures,
         onFrame: node.onFrame,
         // The user's style is the style link of a key's Base value (ADR-0022).
         styleOf: userStyle,
