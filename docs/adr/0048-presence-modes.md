@@ -12,7 +12,7 @@
 2. **`mode="wait"`** (*Wait*, *Built (PR 2)*).
 3. **`mode="popLayout"`**, and siblings told of every leaver's going (*Pop layout*, *Built (PR 3)*).
 4. **`custom`, with dynamic (function) variants,** exits by name and a target's own transition (*Custom and dynamic variants*, *Built (PR 4)*).
-5. The presence hooks and `propagate`.
+5. The presence hooks and `propagate`, split in three on one mechanism (*Exits inside a leaver*, PR 5's Q1): 5a, exits inside a leaving child (#290, *Built (PR 5a)*); 5b, the hooks; 5c, `propagate`.
 
 Both bindings share the work in `packages/solid/src/presence-controller.ts`, so each PR lands there first.
 
@@ -161,10 +161,45 @@ Motion's dynamic variants (`resolveVariantFromProps` at `16c6122`): a `variants`
 - **What it costs an element that uses none of it** (`bench:solid`, N = 1,000, against main `3ddacdd`, control +1.4%): nothing measurable. Solid 1's Retarget read −1.3% warm and −0.4% cold, mount +0.2%, bytes −0.0%; Solid 2's Retarget −5.2% warm, mount +0.1%, bytes −0.1%.
 - **Tests changed by the exit fix:** PL1 and PP1's leaver now exits on the element's transition, so its exit is made longer than the siblings' slide (their transition's `layout` key), which it had outlasted on the spring.
 
+## Exits inside a leaver (grilled 2026-10-22, PR 5)
+
+Motion's presence child counts every registrant inside it: each `motion` element with an exit, each `usePresence()` caller, and a nested `<AnimatePresence propagate>`. It removes the child only once all of them have called back (`PresenceChild.tsx` at `16c6122`). Each `motion` element under the leaving child runs its own `exit`. A parent's exit name reaches its Variant children through `animateVariant` (`visual-element-variant.ts`), each child delayed by the parent's `delayChildren` plus its stagger slot, with `when` putting one before the other. Wardic's presence ran only the leaving node's own exit: an element inside it stood where it was until the child went (#290, filed while preparing PR 4, a probe).
+
+1. **Three PRs on one mechanism, the bug first** (Q1: A):
+   - 5a, the exits inside a leaving child (#290);
+   - 5b, the hooks;
+   - 5c, `propagate`.
+
+   All three are the same rule: the child stays until every part inside it is done.
+   - Rejected: B, the hooks folded into 5a, where the bug fix would wait on the hooks' API; C, #290 left for later, under a mechanism built for the hooks anyway.
+2. **What 5a runs, Motion's** (the scope Q1 settled; defaults otherwise):
+   - **Every Wardic element inside the leaving child runs its own `exit`,** from where it's drawn, as the child's own did. The child goes once all of them, and #181's handovers, have ended. A child with no `exit` of its own stays, as drawn, until the exits inside it end.
+   - **A Variant child** (CONTEXT.md) inside it exits on the name its provider hands down: the provider's `exit`, if a name, else the name it took itself. It's resolved against the child's own `variants`, with the presence's `custom`.
+   - **The provider's exit orchestration** (`delayChildren`, `staggerChildren`, `staggerDirection` and `from`, `when`) comes from its exit target's own transition, else its `transition`, as Motion's.
+   - **With `when`, one runs after the other.** The children's delays then count from 0; otherwise they count from the provider's own delay.
+   - **An element's own `exit` wins** over the name it would take. It still hands that name down.
+   - **Any other element inside**, one that joins nothing inside the child, runs its own exit from the leave.
+   - **A twin inside the child** (a `layoutId`) runs none: #181 hands it back, and its crossfade replaces its exit.
+   - **An element under a nested `<AnimatePresence>`** is that presence's: the outer leave doesn't run it. That's `propagate` (5c).
+   - **A crossfading leaver** (`handleLeave`) runs none of the exits inside it: the projection drives it.
+
+## Built (PR 5a)
+
+- **Each record knows its place in the variant tree** (`PresenceRecord.tree`, `presenceTreeOf`, decided at setup): whether it's a Variant child, whether it provides a context (`changesContext`), and whether it's a twin. An exit resolves with the name it inherits, and hands one down (`PresenceExit.name`).
+- **At a leave** (`driveExit`):
+  - The parts are the registered records inside the leaver, in document order, twins left out (`partsOf`).
+  - Each joining part is matched to its provider: the nearest ancestor inside the leaver that provides a context.
+  - The exit tree is resolved once (`ExitNode`). It's the leaver's own tree, plus a tree from each part that joins nothing inside.
+  - It runs as Motion's `animateVariant` (`runOf`): each element's exit on a Retarget's legs, `delay` seconds in (`exitOf`).
+  - One fiber holds the whole tree, the leaver's exit part, and the leaver goes when it ends. With nothing to animate anywhere, it goes at once, as before.
+- **Records are dropped** with their leaver, the parts' with it. A record whose element left the page some other way (its own control flow, inside a child that stays) is dropped at the presence's next change. Before, every record inside a child stayed registered until the presence went.
+- **No binding change** but each record's tree flags, built from the config at setup.
+
 ## Consequences
 
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
+- **PR 5a: a behaviour change.** A Wardic element inside a leaving child now runs its exit, and the child stays for it. One with an `exit` it never ran before now plays it. Only records under a presence change.
 - **PR 4:** dynamic variants, `custom`, exits by name and targets' own transitions. **A behaviour change:** an exit now runs on its transition (its own, else the element's), where every exit ran on a default spring.
 - **PR 3:** `mode` takes `"popLayout"`. A leaver's removal from the flow, in any mode, runs a Measure pass at the end of the task, so a `layout` sibling animates where it jumped before.
 - **Per Wardic element under a presence (PR 2):** one signal, and its read in the mount effect; outside a presence, a check of a local at mount. Under `wait`, a held child costs an array filter per change while it waits.
@@ -199,6 +234,32 @@ Motion's dynamic variants (`resolveVariantFromProps` at `16c6122`): a `variants`
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **PR 5a, solid (Solid 1):** `test/presence-nested.browser.test.tsx` NE1–NE10:
+  - an inside element's own exit (the probe's case), the child going after;
+  - a child with no exit of its own staying for it;
+  - Variant children on the parent's exit name, staggered;
+  - `when: "afterChildren"` and `"beforeChildren"`;
+  - an own `exit` winning;
+  - the presence's `custom` inside;
+  - a nested presence's element left to it;
+  - the child back and leaving again;
+  - a Variant child joining its provider through a Wardic element that provides none.
+
+  Also `test/presence-hand-back.browser.test.tsx` PH6: a handed-back twin's own exit never runs, and doesn't hold the wrapper.
+- **PR 5a, solid (Solid 2):** `test/v2/presence-nested.browser.test.tsx` NV1–NV2, under the diagnostics gate.
+- **PR 5a mutation-checked:** twelve single-point mutations, eleven caught:
+  - no parts;
+  - the independent parts left out;
+  - no name handed down;
+  - no stagger;
+  - `when` ignored, or swapped;
+  - the inherited name over an own exit;
+  - a part's exit without the presence's `custom`;
+  - an empty leaver removed at once;
+  - twins running their own exits (PH6, once its twin's exit outlasted the handover; an `x` or opacity exit alone is drawn over by the projection);
+  - joining any ancestor record, not a provider (NE10).
+
+  The twelfth, parts' records kept past their leaver, changes nothing a test can see: a detached record is skipped at a later leave and dropped at the next change.
 - **PR 4, solid (Solid 1):**
   - `test/dynamic-variants.browser.test.tsx` DV1–DV10:
     - a function variant with `custom`, and a `custom` change re-resolving it;

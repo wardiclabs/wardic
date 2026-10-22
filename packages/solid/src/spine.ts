@@ -56,11 +56,21 @@ import type {
   WardicVariantTransition,
 } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
-import type { PresenceExit, PresenceRecord } from "./presence-record.ts"
+import type { PresenceExit, PresenceRecord, PresenceTree } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
-import { hasOwnVariants, nameOf, ownOrInherited, type ServerVariantNode, startingValuesOf, startsAtAnimate, type WardicVariantContextValue } from "./variant-tree.ts"
+import {
+  changesContext,
+  hasOwnVariants,
+  isVariantChild,
+  nameOf,
+  ownOrInherited,
+  type ServerVariantNode,
+  startingValuesOf,
+  startsAtAnimate,
+  type WardicVariantContextValue,
+} from "./variant-tree.ts"
 import { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
 export { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
@@ -76,6 +86,13 @@ export interface ExitConfig {
 
 /** No exit: an element outside a presence never resolves one. */
 export const NO_EXIT_CONFIG: ExitConfig = { exit: undefined, variants: undefined, custom: undefined, transition: undefined }
+
+/** A record's place in the variant tree (#290), from its config at setup. */
+export const presenceTreeOf = (c: WardConfig): PresenceTree => ({
+  joins: isVariantChild(c),
+  provides: changesContext(c),
+  twin: Predicate.isNotUndefined(c.layoutId),
+})
 
 /** An element's {@link ExitConfig} from its config now. */
 export const exitConfigOf = (c: WardConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
@@ -93,10 +110,16 @@ export type ExitTarget = PresenceExit
  * given (Motion's: the leaving element's own props can't change any more), else its own `custom`; on
  * its own transition, else the element's.
  */
-export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state: VariantState): ExitTarget => {
+export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state: VariantState, inherited: string | undefined): ExitTarget => {
   const custom = UndefinedOr.match(presenceCustom, { onUndefined: () => config.custom, onDefined: identity })
-  const target = resolveTarget(config.exit, config.variants, custom, state)
-  return { values: target.values, transition: transitionOfTarget(target.transition, config.transition) }
+  // Its own `exit` wins; a Variant child with none exits on the name its provider hands down (#290).
+  const entry = UndefinedOr.match(config.exit, { onDefined: identity, onUndefined: () => inherited })
+  const target = resolveTarget(entry, config.variants, custom, state)
+  return {
+    values: target.values,
+    transition: transitionOfTarget(target.transition, config.transition),
+    name: UndefinedOr.match(nameOf(config.exit), { onDefined: identity, onUndefined: () => inherited }),
+  }
 }
 
 /** A config given as a value or as an accessor, as an accessor. A config is always an object, so a function is the accessor. */
@@ -408,10 +431,17 @@ export type StartLinks = ReturnType<typeof startLinksOf>
  * fires before any frame still has a `from`, and its `exit` ref, which the ward keeps current. An exit key with no value starts
  * from its Base value's start links (ADR-0022), read from the retained node at the exit.
  */
-export const presenceRecordOf = (element: HTMLElement, start: Start, exitOf: (custom: unknown) => ExitTarget, links: StartLinks): PresenceRecord => ({
+export const presenceRecordOf = (
+  element: HTMLElement,
+  start: Start,
+  exitOf: (custom: unknown, inherited: string | undefined) => ExitTarget,
+  links: StartLinks,
+  tree: PresenceTree,
+): PresenceRecord => ({
   element,
   snapshot: { current: { ...start.initialValues } },
   exitOf,
+  tree,
   startOf: (key, like) => Option.getOrUndefined(Option.map(links.startLinkOf(key, like), (s) => s.value)),
 })
 

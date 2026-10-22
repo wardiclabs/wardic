@@ -27,6 +27,7 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import * as Stagger from "@wardic/core/Stagger"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
@@ -37,17 +38,59 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
+import type * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { PresenceContextValue, PresenceExit, PresenceRecord } from "./presence-record.ts"
+import type { WardicTransition } from "./config.ts"
+import type { PresenceContextValue, PresenceExit, PresenceRecord, PresenceTree } from "./presence-record.ts"
 import { type Leg, legsOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import { staggerOf } from "./variant-tree.ts"
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
 
 /** An exit's spring: the defaults, one object, so core decodes it once (#66). */
+
+/** A record's place in the variant tree (#290): left out, a lone element's. */
+const LONE: PresenceTree = { joins: false, provides: false, twin: false }
+
+/** A record's place in the variant tree, {@link LONE} without one. */
+const treeOf = (rec: PresenceRecord): PresenceTree => UndefinedOr.match(rec.tree, { onUndefined: () => LONE, onDefined: identity })
+
+/** No elements: a leaving child with none inside it exiting. */
+const NO_PARTS: ReadonlyArray<HTMLElement> = []
+
+/** Records by where their elements are in the document. */
+const DOCUMENT_ORDER: Order.Order<PresenceRecord> = (a, b) => {
+  if (a.element === b.element) return 0
+  if (a.element.compareDocumentPosition(b.element) & Node.DOCUMENT_POSITION_FOLLOWING) return -1
+  return 1
+}
+
+/** A leaving element's exit, and its Variant children's, resolved at the leave (#290). */
+interface ExitNode {
+  readonly rec: PresenceRecord
+  readonly exit: PresenceExit
+  readonly kids: ReadonlyArray<ExitNode>
+}
+
+/** Whether an exit node, or one under it, has anything to animate. */
+const busy = (node: ExitNode): boolean => Bool.or(Bool.not(isEmpty(node.exit.values)), Arr.some(node.kids, busy))
+
+/** A stagger slot's index: reversed with `staggerDirection: -1`, as the variant node's (ADR-0007). */
+const slotIndex = (i: number, n: number, direction: 1 | -1): number => {
+  if (direction === -1) return n - 1 - i
+  return i
+}
+
+/** `transition` with `delay` seconds more before it moves. */
+const delayedBy = (transition: WardicTransition | undefined, delay: number): WardicTransition | undefined => {
+  if (delay === 0) return transition
+  const own = UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: (t) => UndefinedOr.match(t.delay, { onUndefined: () => 0, onDefined: identity }) })
+  return { ...transition, delay: own + delay } as WardicTransition
+}
 
 /** No velocities: an exit starts each key at rest, as it did on its own spring. */
 const NO_VELOCITIES: Readonly<Record<string, number>> = {}
@@ -271,6 +314,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const handovers = new Map<HTMLElement, () => void>()
   // The unregistration of each exit's values with the projection.
   const exitValues = new Map<HTMLElement, () => void>()
+  // The Wardic elements exiting inside each leaving child (#290), dropped with it.
+  const exitParts = new Map<HTMLElement, ReadonlyArray<HTMLElement>>()
 
   // `initial={false}` (#134): the children set up with this first render start at their
   // `animate`; one that enters after it animates in.
@@ -353,6 +398,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const unregister = exitValues.get(el)
     exitValues.delete(el)
     if (Predicate.isNotUndefined(unregister)) unregister()
+    // The elements inside it that exited with it go with it (#290): their records, and their values.
+    Arr.forEach(UndefinedOr.match(exitParts.get(el), { onUndefined: () => NO_PARTS, onDefined: identity }), (part) => {
+      registry.delete(part)
+      UndefinedOr.map(exitValues.get(part), (unregisterPart) => unregisterPart())
+      exitValues.delete(part)
+    })
+    exitParts.delete(el)
     el.remove()
     // Its siblings take the space it leaves (#277): a `layout` one animates there, as Motion's do.
     if (moves) projection.notify()
@@ -390,7 +442,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
   // it, then runs its own exit, and goes once both have ended.
-  const leave = (rec: PresenceRecord, exit: PresenceExit): void => {
+  const leave = (rec: PresenceRecord, custom: unknown): void => {
     const el = rec.element
     const drop = projection.handBackWithin(el, () => partDone(el))
     pending.set(el, 1)
@@ -399,23 +451,102 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       pending.set(el, 2)
       debug("leave: hands back its twins")
     }
-    driveExit(rec, exit)
+    driveExit(rec, custom)
   }
 
-  // Drive the parent-owned exit for a leaving node: from its last snapshot
-  // toward its exit target, committing each projected frame onto the (retained)
-  // element, removing it on settle. Empty exit -> immediate removal.
-  const driveExit = (rec: PresenceRecord, exit: PresenceExit): void => {
+  /**
+   * The Wardic elements inside a leaving child (#290), in document order, each running its own exit
+   * with the child's: every registered one but a twin, whose crossfade replaces its exit (#181).
+   */
+  const partsOf = (el: HTMLElement): ReadonlyArray<PresenceRecord> =>
+    Arr.sort(
+      Arr.filter(Arr.fromIterable(registry.values()), (part) =>
+        Bool.and(Bool.and(part.element !== el, el.contains(part.element)), Bool.not(treeOf(part).twin))),
+      DOCUMENT_ORDER,
+    )
+
+  /**
+   * A leaving child's exit, and the exits inside it (#290), as Motion's `animateVariant` runs them:
+   * each element's own exit, its Variant children's on the name it hands down, in its exit
+   * orchestration (`delayChildren`, the stagger, `when`), and every other element's from the leave.
+   * The child goes once all of them, and the handovers of the twins it handed back, have ended.
+   */
+  const driveExit = (rec: PresenceRecord, custom: unknown): void => {
     const el = rec.element
-    const to = exit.values
-    if (isEmpty(to)) {
+    const parts = partsOf(el)
+    exitParts.set(el, Arr.map(parts, (part) => part.element))
+    const byElement = new Map<Element, PresenceRecord>(Arr.map([rec, ...parts], (r) => [r.element, r] as const))
+    // The nearest element inside the child its Variant children join: one that provides a context.
+    const providerOf = (node: Element | null): PresenceRecord | undefined => {
+      if (node === null) return undefined
+      const found = byElement.get(node)
+      if (Predicate.isNotUndefined(found) && treeOf(found).provides) return found
+      if (node === el) return undefined
+      return providerOf(node.parentElement)
+    }
+    const joinsTo = new Map<PresenceRecord, PresenceRecord>()
+    Arr.forEach(parts, (part) => {
+      if (Bool.not(treeOf(part).joins)) return
+      UndefinedOr.map(providerOf(part.element.parentElement), (provider) => joinsTo.set(part, provider))
+    })
+    const joinersOf = (provider: PresenceRecord): ReadonlyArray<PresenceRecord> => Arr.filter(parts, (part) => joinsTo.get(part) === provider)
+    const nodeOf = (node: PresenceRecord, inherited: string | undefined): ExitNode => {
+      const exit = node.exitOf(custom, inherited)
+      return { rec: node, exit, kids: Arr.map(joinersOf(node), (kid) => nodeOf(kid, exit.name)) }
+    }
+    // The child's own tree, and each element inside it that joins nothing inside it, from the leave.
+    const roots = [nodeOf(rec, undefined), ...Arr.map(Arr.filter(parts, (part) => Bool.not(joinsTo.has(part))), (part) => nodeOf(part, undefined))]
+    if (Bool.not(Arr.some(roots, busy))) {
       debug("exit: immediate (no target)")
       partDone(el)
       return
     }
+    // One `wardic.presence.exit` span spans the whole exit, from the leave to the last part's end.
+    // A failed run is logged and reported (ADR-0030, decision 4); the node is removed either way.
+    const fiber = runtime.runFork(
+      Effect.all(Arr.map(roots, (root) => runOf(root, 0)), { concurrency: "unbounded", discard: true }).pipe(
+        Effect.tapCause((cause) => Report.failure("wardic.presence: an exit failed", cause)),
+        Effect.ensuring(Effect.sync(() => partDone(el))),
+        Effect.withSpan(
+          "wardic.presence.exit",
+          { attributes: { parts: parts.length + 1 } },
+          // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
+          { captureStackTrace: false },
+        ),
+      ),
+    )
+    exiting.set(el, fiber)
+  }
 
-    // Seeded from the child's last snapshot, so the exit departs continuously. An exit key the
-    // child never animated starts from its Base value's start links (ADR-0022), else at its target.
+  /**
+   * A node's exit and its Variant children's (#290), Motion's `animateVariant`: with `when`, one after
+   * the other, the children's delays from 0; else together, the children's from `delay`.
+   */
+  const runOf = (node: ExitNode, delay: number): Effect.Effect<unknown, never, WardicServices> => {
+    const own = exitOf(node.rec, node.exit, delay)
+    if (node.kids.length === 0) return own
+    const s = staggerOf(node.exit.transition)
+    const n = node.kids.length
+    const slot = (i: number): number => s.delayChildren + Stagger.make(s.amount, { from: s.from })(slotIndex(i, n, s.direction), n)
+    const kidsFrom = (from: number): Effect.Effect<unknown, never, WardicServices> =>
+      Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, from + slot(i))), { concurrency: "unbounded", discard: true })
+    const when = UndefinedOr.map(node.exit.transition, (t) => t.when)
+    if (when === "beforeChildren") return Effect.andThen(own, kidsFrom(0))
+    if (when === "afterChildren") return Effect.andThen(kidsFrom(0), own)
+    return Effect.all([own, kidsFrom(delay)], { concurrency: "unbounded", discard: true })
+  }
+
+  /**
+   * One element's own exit on its retained node, `delay` seconds in (#290): a Retarget's legs (#277),
+   * on the exit's own transition, else the element's, its positional keys snapping under reduced
+   * motion (ADR-0029) unless it opts out. Nothing to run for an empty one.
+   */
+  const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: number): Effect.Effect<unknown, never, WardicServices> => {
+    const el = rec.element
+    const to = exit.values
+    if (isEmpty(to)) return Effect.void
+    // Seeded from the element's last snapshot, so its exit departs continuously. A key it never
+    // animated starts from its Base value's start links (ADR-0022), else at its target.
     const snapshot = rec.snapshot.current
     const startOf = (key: string, target: number | string): number | string =>
       UndefinedOr.match(UndefinedOr.match(rec.startOf, { onUndefined: constUndefined, onDefined: (of) => of(key, target) }), {
@@ -426,15 +557,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       ...snapshot,
       ...Rec.map(Rec.filter(to, (_, key) => Predicate.isUndefined(snapshot[key])), (target, key) => startOf(key, target)),
     }
-    // A Retarget's legs (#277): on the exit's own transition, else the element's (a tween, a spring,
-    // a delay), its positional keys snapping under reduced motion (ADR-0029) unless it opts out.
-    const legs = legsOf(from, to, exit.transition, reducedMotion(), positionalKeys, NO_VELOCITIES)
-
+    const legs = legsOf(from, to, delayedBy(exit.transition, delay), reducedMotion(), positionalKeys, NO_VELOCITIES)
     // The merged latest value-map, so each committed frame carries every key.
     const latest: Values.Values = { ...from }
-    // What the exit has drawn, for the projection (ADR-0010 *Amendment (#181)*): the twins this
-    // child handed back follow it. Its last snapshot until the first frame commits.
+    // What the exit has drawn, for the projection (ADR-0010 *Amendment (#181)*): the twins handed back
+    // follow it. Its last snapshot until the first frame commits.
     const drawn: Values.Values = { ...from }
+    UndefinedOr.map(exitValues.get(el), (unregister) => unregister())
     exitValues.set(el, projection.registerValues(el, () => drawn))
     const commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>> = (frame) => {
       Object.assign(latest, frame.value)
@@ -442,26 +571,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       Object.assign(drawn, latest)
       return undefined
     }
-    // The leaving element's Variable values (#55): a `var()` end blends what it resolves to on it.
-    const runs = Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame))
-
-    // One `wardic.presence.exit` span spans the whole exit animation (from the last
-    // snapshot to the exit target), so a devtool/timeline shows each parent-driven
-    // exit as a bar with its key and leg counts. Removal-on-settle is the span's end. A failed run
-    // is logged and reported (ADR-0030, decision 4); the node is removed either way.
-    const fiber = runtime.runFork(
-      Effect.all(runs, { concurrency: "unbounded", discard: true }).pipe(
-        Effect.tapCause((cause) => Report.failure("wardic.presence: an exit failed", cause)),
-        Effect.ensuring(Effect.sync(() => partDone(el))),
-        Effect.withSpan(
-          "wardic.presence.exit",
-          { attributes: { keys: Object.keys(to).length, legs: legs.length } },
-          // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
-          { captureStackTrace: false },
-        ),
-      ),
-    )
-    exiting.set(el, fiber)
+    return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame)), { concurrency: "unbounded", discard: true })
   }
 
   // The children present at the last change, and where each was, to retain one as it leaves.
@@ -478,6 +588,12 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     Arr.forEach(Arr.fromIterable(pending.keys()), (el) => interruptExit(el))
     // A crossfading leaver is the projection's, not in `pending`: its exit ends here too, uncompleted (#257).
     Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
+  }
+
+  /** A record whose element is off the page, dropped; a leaver's is put back first, so it stays. */
+  const dropDetached = (el: HTMLElement): void => {
+    if (el.isConnected) return
+    registry.delete(el)
   }
 
   /** Pop a leaver `popLayout` measured. */
@@ -529,7 +645,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const crossfaded = projection.handleLeave(el, () => finishExit(el))
     if (crossfaded) debug("leave: crossfade (deferred to projection)")
     // Its exit, resolved now (#277): with the presence's `custom` when it has one, else the child's last.
-    if (Bool.not(crossfaded)) leave(rec, rec.exitOf(customNow()))
+    if (Bool.not(crossfaded)) leave(rec, customNow())
   }
 
   const present = (current: unknown): void => {
@@ -541,6 +657,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
     previous = Arr.map(now, placedOf)
+    // A record whose element left the page some other way (its own control flow, inside a child that
+    // stays) is dropped (#290): nothing exits it, and nothing else would.
+    Arr.forEach(Arr.fromIterable(registry.keys()), dropDetached)
     // A popped leaver moved its siblings (#277): a `layout` one animates into the space.
     if (popped) {
       popped = false

@@ -93,6 +93,7 @@ import {
   makeReuse,
   exitConfigOf,
   exitTargetOf,
+  presenceTreeOf,
   NO_EXIT_CONFIG,
   presenceRecordOf,
   recordFrameOf,
@@ -653,7 +654,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
-      const record = presenceRecordOf(el, start, (custom) => exitTargetOf(exitConfig.current, custom, snapshot), links)
+      const record = presenceRecordOf(el, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig))
       registrar.register(record)
       return record
     })
