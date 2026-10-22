@@ -30,7 +30,7 @@ export {
   DEFAULT_LAYOUT_TRANSITION,
   DEFAULT_DRAG_TRANSITION,
 } from "./internal/projection.ts"
-export { measureLayoutBox } from "./internal/measure.ts"
+export { dragBoundsWithin, measureLayoutBox } from "./internal/measure.ts"
 
 /** The engine: what a binding registers its layout elements with. */
 export type Shape = Omit<internal.ProjectionSystem, "dispose">

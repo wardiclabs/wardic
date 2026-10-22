@@ -9,7 +9,7 @@
 // shows its velocity.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicDragTransition, WardicProvider } from "@wardic/solid"
+import { wardic, type WardicBoundingBox, type WardicDragTransition, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
@@ -43,7 +43,7 @@ const mountBox = async (opts: {
   readonly momentum?: boolean
   readonly snapToOrigin?: boolean
   readonly layout?: boolean
-  readonly constraints?: { readonly x: { readonly min: number; readonly max: number } }
+  readonly constraints?: Partial<WardicBoundingBox>
   readonly dragTransition?: WardicDragTransition
 }): Promise<Box> => {
   const [el, setEl] = createSignal<HTMLElement>()
@@ -137,7 +137,7 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
     // The offsets past the bound move at half the pointer's speed; the release reads the pointer's.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
-      const b = await mountBox({ layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { x: { min: 0, max: 50 } } }), onFalse: () => ({}) }) })
+      const b = await mountBox({ layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { left: 0, right: 50 } }), onFalse: () => ({}) }) })
       const at = await flick(b, Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 }), 25)
       const released = dxOf(b)
       expect(released, "let go 150 px right of the slot").toBeCloseTo(150, -1)

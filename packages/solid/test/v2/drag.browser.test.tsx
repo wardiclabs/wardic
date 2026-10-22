@@ -97,11 +97,11 @@ describe("a ward's drag on Solid 2 (ADR-0004)", () => {
   })
 
   it("DG4: constraints hold hard with dragElastic 0, and pull back by 0.35 by default (#140)", async () => {
-    const hard = wardicDiv({ drag: true, dragConstraints: { x: { min: 0, max: 100 } }, dragElastic: 0 })
+    const hard = wardicDiv({ drag: true, dragConstraints: { left: 0, right: 100 }, dragElastic: 0 })
     await dragTo(hard(), 200, 0)
     expect(translateXOf(hard())).toBeCloseTo(100, 0)
     hard().dispatchEvent(up(200, 0))
-    const elastic = wardicDiv({ drag: true, dragConstraints: { x: { min: 0, max: 100 } } })
+    const elastic = wardicDiv({ drag: true, dragConstraints: { left: 0, right: 100 } })
     await dragTo(elastic(), 200, 0)
     // 100 past the bound, pulled back to 100 + 100 × 0.35.
     expect(translateXOf(elastic())).toBeCloseTo(135, 0)

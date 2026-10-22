@@ -1,12 +1,16 @@
 /**
  * The `Drag` module: a drag gesture's `Sample`, its `Axis`, a constraint on one value (`constrain`),
- * and the shaping combinator over a stream of them (`withinBounds`, `dual`, the stream first).
+ * the shaping combinator over a stream of them (`withinBounds`, `dual`, the stream first), and the
+ * bounds an element constraint makes (`boundsWithin`, `keepPlace`, #273).
  * `Recognizer.drag` recognizes the gesture, kept
  * to its `axis` (ADR-0019, *Amendment (#29)*); a binding composes its response, the Fling included
  * (ADR-0004, *Amendment (#32)*).
  */
+import * as Bool from "effect/Boolean"
 import { dual } from "effect/Function"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Stream from "effect/Stream"
 import type * as Point from "./Point.ts"
 
@@ -112,6 +116,73 @@ export const constrain = (v: number, range: AxisRange | undefined, elastic: numb
     Option.flatMap((r) => Option.orElse(belowMin(v, r, elastic), () => aboveMax(v, r, elastic))),
     Option.getOrElse(() => v),
   )
+
+/** A box's edges, in its Environment's coordinates (a `Probe.Bounds` is one). */
+export interface Edges {
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+  readonly left: number
+}
+
+/** One axis of {@link boundsWithin}: from the container's near edge less the box's, to its far edge less the box's; swapped when the box is bigger. */
+const rangeWithin = (near: number, far: number, containerNear: number, containerFar: number): AxisRange => {
+  const min = containerNear - near
+  const max = containerFar - far
+  if (containerFar - containerNear < far - near) return { min: max, max: min }
+  return { min, max }
+}
+
+/**
+ * The bounds on an element's x/y that keep its box `own` inside `container` (#273, ADR-0047, Motion's
+ * `calcViewportConstraints`): per axis, from `container`'s near edge less `own`'s to its far edge less
+ * `own`'s. On an axis where `own` is the bigger, they swap, so it can be dragged to show what overflows
+ * and no further. `own` is the element's box with no x/y of its own: its layout box.
+ */
+export const boundsWithin = (own: Edges, container: Edges): Bounds => ({
+  x: rangeWithin(own.left, own.right, container.left, container.right),
+  y: rangeWithin(own.top, own.bottom, container.top, container.bottom),
+})
+
+/** Whether two ranges are the same: each edge equal, or absent in both. */
+const sameRange = (a: AxisRange | undefined, b: AxisRange | undefined): boolean =>
+  UndefinedOr.match(a, {
+    onUndefined: () => Predicate.isUndefined(b),
+    onDefined: (ra) => UndefinedOr.match(b, { onUndefined: () => false, onDefined: (rb) => Bool.and(ra.min === rb.min, ra.max === rb.max) }),
+  })
+
+/** Whether two bounds are the same, axis by axis (#273): a resize that changed neither leaves an element where it is. */
+export const sameBounds = (a: Bounds, b: Bounds): boolean => Bool.and(sameRange(a.x, b.x), sameRange(a.y, b.y))
+
+/**
+ * Where `value` sits within `min`..`max` (Motion's `calcOrigin` for a point): 0 at `min`, 1 at `max`,
+ * clamped; ½ for a range of no length.
+ */
+export const progressWithin = (value: number, min: number, max: number): number => {
+  if (max === min) return 0.5
+  return Math.min(1, Math.max(0, (value - min) / (max - min)))
+}
+
+/** A range's two edges, when it has both. */
+const edgesOfRange = (range: AxisRange | undefined): Option.Option<readonly [number, number]> =>
+  Option.fromUndefinedOr(range).pipe(Option.flatMap((r) => Option.all([Option.fromUndefinedOr(r.min), Option.fromUndefinedOr(r.max)] as const)))
+
+/** One axis of {@link keepPlace}: `value` at its place in `from`, within `to`, if both have both edges. */
+const keptOn = (value: number, from: AxisRange | undefined, to: AxisRange | undefined): number =>
+  Option.match(Option.all([edgesOfRange(from), edgesOfRange(to)] as const), {
+    onNone: () => value,
+    onSome: ([[fromMin, fromMax], [toMin, toMax]]) => toMin + progressWithin(value, fromMin, fromMax) * (toMax - toMin),
+  })
+
+/**
+ * `position` moved to keep its place in `from` within `to` (#273, Motion's
+ * `scalePositionWithinConstraints`): an element constraint's bounds after a resize. Only on the axes
+ * `axis` moves, and where both bounds have both edges; elsewhere it stays.
+ */
+export const keepPlace = (position: Point.Point, axis: Axis, from: Bounds, to: Bounds): Point.Point => ({
+  x: Bool.match(axis === "y", { onTrue: () => position.x, onFalse: () => keptOn(position.x, from.x, to.x) }),
+  y: Bool.match(axis === "x", { onTrue: () => position.y, onFalse: () => keptOn(position.y, from.y, to.y) }),
+})
 
 /**
  * Constrain a drag's `offset` to a static numeric region, per axis, with

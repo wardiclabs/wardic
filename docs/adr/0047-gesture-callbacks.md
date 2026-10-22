@@ -7,7 +7,7 @@ It lands in five PRs, in this order:
 2. Pan: `onPanSessionStart`, `onPanStart`, `onPan` and `onPanEnd` (*Built (PR 2)*).
 3. Split in two (*Direction lock*, Q1):
    - 3a: `dragDirectionLock` with `onDirectionLock` (*Built (PR 3a)*);
-   - 3b: element `dragConstraints`, which Wardic didn't have, with `onMeasureDragConstraints`.
+   - 3b: element `dragConstraints`, which Wardic didn't have, with `onMeasureDragConstraints` (*Built (PR 3b)*).
 4. Motion's `viewport` options (`once`, `margin`, `amount`, `root`) with `onViewportEnter` and `onViewportLeave`.
 
 Each PR gives Solid 2 the matching `next()` names, so the two bindings hear the same events.
@@ -133,6 +133,35 @@ Motion's `dragDirectionLock` (`VisualElementDragControls.ts:178-205` at `16c6122
   - The lock is told at a start sample when the config has `dragDirectionLock`.
 - **Solid 2:** `dragDirectionLock` on a ward's config, and `next("directionLock")`. The ward hands the lifecycle whether its drag is locked.
 
+## Element constraints (grilled 2026-10-22, PR 3b)
+
+Motion's `dragConstraints={ref}` (`VisualElementDragControls.ts`, `utils/constraints.ts` at `16c6122`) measures the container's box and the dragged element's layout box. It works out per axis the x/y range that keeps one inside the other (`calcViewportConstraints`), swapped on an axis where the element is the bigger, and hands it to `onMeasureDragConstraints`. It re-measures at each drag's start, at each layout measure, and when either element resizes. At a resize it stops any running animation and keeps the element's relative place (`scalePositionWithinConstraints`). Wardic's `dragConstraints` had numbers only, in its own `{ x: { min, max }, y }` shape.
+
+1. **The container is passed as an accessor** (Q1: B): a signal ref (`dragConstraints={frame}`), or `() => frame` over a `let`. It's read at each measure, so the order of creation never matters, and a container that's swapped is picked up.
+   - Rejected: the element itself (it fails silently for a container created after the draggable, `undefined` when read); both forms (keeps that trap).
+2. **Motion's box everywhere** (Q2: A): numeric `dragConstraints` take `{ top, left, right, bottom }` (any of them) or `false`, and `onMeasureDragConstraints` gets and returns the same box. Breaking for the old shape, pre-release, with no alias. Core keeps `Drag.Bounds` inside.
+   - Rejected: Wardic's shape for both; both shapes for numbers.
+3. **Measured at each drag's start, and at a resize of either element** (Q3: A, as Motion). A resize that changes the bounds moves an element at rest, or releasing (stopped), to keep its relative place. Motion's layout measure trigger is folded into the resize observers and the drag's start.
+   - Rejected: at a drag's start only (a box that shrinks leaves the element outside it until the next drag); at a resize only mid-drag.
+4. **Defaults stated, not asked:**
+   - an element bigger than its container swaps the bounds on that axis, so it shows what overflows and no further;
+   - `onMeasureDragConstraints` runs at each measure; a returned box replaces the measured one, nothing keeps it;
+   - the dragged element is measured without its own transform, its layout box, as Motion's is;
+   - an accessor with nothing at a drag's start leaves that drag unconstrained, with a warning logged once;
+   - a layout node at rest is back on its slot, so only its drag in progress takes new bounds.
+
+## Built (PR 3b)
+
+- **core, `Drag`:** `boundsWithin(own, container)` (Motion's `calcViewportConstraints`, its swap included); `sameBounds`; `progressWithin` (Motion's `calcOrigin` for a point: clamped, ½ for no length); `keepPlace(position, axis, from, to)`; and `Edges`, a box's four edges.
+- **dom:** `ProjectionSystem.dragBoundsWithin(element, container)`, in `measure.ts` with the engine's other DOM reads. It measures the element with `measureLayoutBox`, its own transform cleared, and the container as it renders.
+- **solid, `drag-constraints.ts`:** the types (`WardicBoundingBox`, `WardicDragConstraints`, `WardicMeasureDragConstraints`), Motion's box as core's bounds, and `trackConstraintsOf`, which both bindings call. A box becomes the track's numeric bounds. An accessor becomes a `DragContainer`, its measure applying the app's `onMeasureDragConstraints`, read at each measure.
+- **The drag track's bounds are its state** (`DragTrackState.bounds`), which `follow`, the release's edges and its rest check read.
+  - **A drag's start measures the container first,** so the drag follows within this drag's bounds. A container not there leaves it unconstrained.
+  - **The element and the container are watched** through the Probe's shared `observeResize`, one container at a time, from the first time it's there: at the track's start, or a drag's.
+  - **Each delivery measures again.** The first only records the bounds, so a measure taken before layout can't move the element. One that changed nothing does nothing; Motion skips each observer's first call instead, which a container shared by two draggables would make miss a real resize. A change takes effect, or, for a free drag at rest or releasing, stops the release and keeps the element's place.
+  - **A measure that throws** (the app's callback) is reported (`wardic.drag: measuring dragConstraints failed`), and that drag runs unconstrained.
+- **Both bindings:** `dragConstraints` and `onMeasureDragConstraints` on `WardConfig`, the `wardic.*` props and `createWard`'s config; `onMeasureDragConstraints` is read only when given (a rare key). On Solid 2 both are function-valued keys: the config view reads them as they are, rather than calling them as accessors, so `dragConstraints`' function is its container's accessor.
+
 ## Consequences
 
 - **New public API:**
@@ -142,6 +171,8 @@ Motion's `dragDirectionLock` (`VisualElementDragControls.ts:178-205` at `16c6122
   - Solid 2: the `"drag"` and `"dragTransitionEnd"` events.
   - **PR 2:** core's `Recognizer.pan` and `PanSample`; Solid 1's four pan callbacks; Solid 2's four pan events.
   - **PR 3a:** core's `DragOptions.lock` and `Drag.Sample.axis` (an Environment's samples need it); `dragDirectionLock` on both bindings; Solid 1's `onDirectionLock`; Solid 2's `"directionLock"` event.
+  - **PR 3b:** core's `Drag.boundsWithin`, `sameBounds`, `progressWithin`, `keepPlace` and `Edges`; dom's `ProjectionSystem.dragBoundsWithin`; element `dragConstraints` and `onMeasureDragConstraints` on both bindings, and the `WardicBoundingBox`, `WardicDragConstraints` and `WardicMeasureDragConstraints` types.
+- **Breaking, PR 3b:** numeric `dragConstraints` take Motion's `{ top, left, right, bottom }`, not `{ x: { min, max }, y: { min, max } }`.
 - **Breaking on Solid 1:** a `wardic.*` element's `onDrag`, `onDragStart` and `onDragEnd` are Motion's, no longer the DOM's drag-and-drop handlers. An app that needs those listens on the element itself.
 - **Cost:** one field more on each pointer event and drag sample. An element with a hover or tap callback runs that recognizer, as one with its `while*` does.
 
@@ -194,3 +225,17 @@ Motion's `dragDirectionLock` (`VisualElementDragControls.ts:178-205` at `16c6122
     - the card and the sheet each taking their own swipe, with no `whileDrag` on the card for a vertical one;
     - the axis a lock doesn't move left where it is, outside its constraints (the track reads the gesture's axis off its start).
   - solid (Solid 2): GX14.
+- **PR 3b:**
+  - core: `test/drag-bounds.test.ts` DB1–DB5: the bounds inside a container, the swap, `sameBounds`, `progressWithin`, `keepPlace`.
+  - solid (Solid 1): `test/drag-constraints.browser.test.tsx` DC1–DC10, with the real mouse:
+    - inside on both sides;
+    - a bigger element;
+    - `onMeasureDragConstraints` in and out;
+    - a shrinking container keeping the element's place;
+    - a container created after the draggable;
+    - an accessor with nothing;
+    - a layout node mid-drag;
+    - Motion's box of numbers;
+    - a fling springing back inside;
+    - an element moved inside its container with neither resizing.
+  - solid (Solid 2): GX15.
