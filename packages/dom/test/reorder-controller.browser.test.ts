@@ -117,6 +117,7 @@ const sample = (
   velocity,
   timeStamp,
   scroll: { x: 0, y: 0 },
+  axis: "y",
 })
 
 /**

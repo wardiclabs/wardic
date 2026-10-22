@@ -464,6 +464,7 @@ export function runSpine(opts: RunSpineOptions): void {
           momentum: c0d.dragMomentum,
           snapToOrigin: c0d.dragSnapToOrigin,
           propagation: c0d.dragPropagation,
+          directionLock: c0d.dragDirectionLock,
           transition: dragTransition,
         }
         runDragTrack({

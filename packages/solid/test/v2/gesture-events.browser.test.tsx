@@ -23,6 +23,8 @@
 // - GX12 (#273): `panSessionStart` starts the pan recognizer and resolves at the down; `panStart`,
 //   `each("pan")` and `panEnd`, with a drag's info; nothing moves.
 // - GX13: a pan that started is a drag for its press: `next("tap")` doesn't resolve (ADR-0047).
+// - GX14 (#273): with `dragDirectionLock`, `next("directionLock")` resolves with the axis at the lock,
+//   before `dragStart`; nothing before it.
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -413,5 +415,24 @@ describe("a ward's pan on Solid 2 (#273)", () => {
     pointer(el, "pointerdown", 130, 140, 1)
     pointer(el, "pointerup", 130, 140)
     expect(await tapped).toEqual({ point: { x: 130, y: 140 } })
+  })
+})
+
+describe("a ward's direction lock on Solid 2 (#273)", () => {
+  it("GX14: next(\"directionLock\") at the lock, before dragStart; nothing before it", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ drag: true, dragDirectionLock: true, style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const order: Array<string> = []
+    void card.next("directionLock").then((axis) => order.push(`lock ${axis}`))
+    void card.next("dragStart").then((info) => order.push(`start ${info.offset.x},${info.offset.y}`))
+    pointer(el, "pointerdown", 130, 140, 1)
+    pointer(el, "pointermove", 136, 142, 1)
+    await raf()
+    expect(order, "6 px: not locked").toEqual([])
+    pointer(el, "pointermove", 150, 144, 1)
+    await raf()
+    pointer(document.body, "pointerup", 150, 144)
+    expect(order).toEqual(["lock x", "start 20,0"])
   })
 })

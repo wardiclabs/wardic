@@ -88,9 +88,9 @@ describe("a ward's lifecycle (#257)", () => {
     lifecycle.hovered({ active: false, event: scrolled })
     expect(await hoverEnd).toEqual({ point: { x: 40, y: 60 } })
     const dragEnd = lifecycle.wait("dragEnd")
-    const sample = { point: { x: 40, y: 260 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 }, timeStamp: 0, scroll: { x: 0, y: 200 } }
-    lifecycle.dragged({ ...sample, phase: "move", point: { x: 0, y: 0 } })
-    lifecycle.dragged({ ...sample, phase: "end" })
+    const sample = { point: { x: 40, y: 260 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 }, timeStamp: 0, scroll: { x: 0, y: 200 }, axis: "xy" as const }
+    lifecycle.dragged({ ...sample, phase: "move", point: { x: 0, y: 0 } }, false)
+    lifecycle.dragged({ ...sample, phase: "end" }, false)
     expect(await dragEnd).toEqual({ point: { x: 40, y: 60 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 } })
     // The dragged press told neither: the cancel waits on, until the disposal.
     dispose()

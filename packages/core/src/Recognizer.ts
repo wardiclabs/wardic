@@ -434,6 +434,7 @@ const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number, raw: unk
         timeStamp,
         scroll: state.lastScroll,
         raw,
+        axis: "xy",
       }
       staleEnds.set(sample, rule)
       return [sample]
@@ -495,6 +496,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
           timeStamp: event.timeStamp,
           scroll: state.lastScroll,
           raw: event.raw,
+          axis: "xy",
         }),
         onFalse: () => {
           const point = pointOf(event)
@@ -509,6 +511,7 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
             timeStamp: event.timeStamp,
             scroll: event.scroll,
             raw: event.raw,
+            axis: "xy",
           }
         },
       })
@@ -516,8 +519,30 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
     },
   })
 
-/** The owner's move: below the threshold it primes the history; crossing it starts; then every move emits. */
-const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => {
+/** Whether a gesture moved from `origin` to `point` has started: a rule of {@link stepOf}. */
+type Starts = (origin: Point.Point, point: Point.Point) => boolean
+
+/** A drag's: past the threshold, in any direction. */
+const pastThreshold: Starts = (origin, point) => dist(origin, point) > THRESHOLD
+
+/**
+ * Motion's direction lock threshold (`getCurrentDirection`'s `lockThreshold`, px): a direction-locked
+ * drag starts once its offset passes it on one axis (#273, ADR-0047).
+ */
+const LOCK_THRESHOLD = 10
+
+/** A direction-locked gesture's axis from its offset: y past the lock threshold first, then x, as Motion's; none below it. */
+const lockOf = (offset: Point.Point): "x" | "y" | undefined => {
+  if (Math.abs(offset.y) > LOCK_THRESHOLD) return "y"
+  if (Math.abs(offset.x) > LOCK_THRESHOLD) return "x"
+  return undefined
+}
+
+/** A direction-locked drag's: past the lock threshold on one axis. */
+const locks: Starts = (origin, point) => Predicate.isNotUndefined(lockOf({ x: point.x - origin.x, y: point.y - origin.y }))
+
+/** The owner's move: before the gesture `starts` it primes the history; starting emits "start"; then every move emits. */
+const onMove = (state: DragState, event: InputSource.PointerLikeEvent, starts: Starts): Step => {
   const point = pointOf(event)
   const history = pushHistory(state.history, { x: point.x, y: point.y, timeStamp: event.timeStamp })
   const offset: Point.Point = { x: point.x - state.origin.x, y: point.y - state.origin.y }
@@ -532,15 +557,15 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
     timeStamp: event.timeStamp,
     scroll: lastScroll,
     raw: event.raw,
+    axis: "xy",
   })
   return Match.value(state.phase).pipe(
     Match.when("idle", (): Step =>
-      Bool.match(dist(state.origin, point) <= THRESHOLD, {
-        // Below threshold: keep origin fixed, advance last/history so velocity is
-        // primed, but suppress output.
-        onTrue: (): Step => [{ ...state, last: point, lastScroll, history }, NO_SAMPLES],
-        // Crossing the threshold promotes the gesture and emits "start".
-        onFalse: (): Step => [{ ...state, phase: "active", last: point, lastScroll, history }, [sample("start")]],
+      Bool.match(starts(state.origin, point), {
+        // Starting promotes the gesture and emits "start".
+        onTrue: (): Step => [{ ...state, phase: "active", last: point, lastScroll, history }, [sample("start")]],
+        // Not yet: keep origin fixed, advance last/history so velocity is primed, but suppress output.
+        onFalse: (): Step => [{ ...state, last: point, lastScroll, history }, NO_SAMPLES],
       }),
     ),
     // Active: every move emits.
@@ -550,20 +575,21 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent): Step => 
 }
 
 /** An event from the gesture's owner, other than a down. */
-const onOwner = (state: DragState, event: InputSource.PointerLikeEvent): Step =>
+const onOwner = (state: DragState, event: InputSource.PointerLikeEvent, starts: Starts): Step =>
   Match.value(event).pipe(
     // Rule A: the owner moved with no button pressed, so its release was lost.
     Match.when({ type: "move", pressed: false }, (e): Step => [initState, staleEnd(state, "unpressed move", e.timeStamp, e.raw)]),
     // Release / cancel from the owner: emit final "end", reset.
     Match.when({ type: Match.is("up", "cancel") }, (e) => onRelease(state, e)),
     // Movement from the owner.
-    Match.when({ type: "move" }, (e) => onMove(state, e)),
+    Match.when({ type: "move" }, (e) => onMove(state, e, starts)),
     // "enter"/"leave" and anything else: no-op for drag.
     Match.orElse(() => ignored(state)),
   )
 
 /**
- * Fold one pointer event into the drag state, emitting zero or more samples.
+ * A fold of one pointer event into the drag state, emitting zero or more samples, for a gesture
+ * that `starts` as it says.
  *
  * Only the **Primary pointer** counts (Motion's `InputSource.isPrimaryPointer`): a right-click or a
  * second finger is ignored. Zero-or-more output: activation/sub-threshold/non-owner
@@ -573,16 +599,22 @@ const onOwner = (state: DragState, event: InputSource.PointerLikeEvent): Step =>
  * claims the new gesture): see {@link staleEnd}. Runs once per pointer event, not per frame
  * (ADR-0025); no logging here.
  */
-const step = (state: DragState, event: InputSource.PointerLikeEvent): Step =>
+const stepOf = (starts: Starts) => (state: DragState, event: InputSource.PointerLikeEvent): Step =>
   Match.value(event).pipe(
     Match.when(Predicate.not(InputSource.isPrimaryPointer), () => ignored(state)),
     // --- Activation: a "down" claims the gesture. ---
     Match.when({ type: "down" }, (down) => onDown(state, down)),
     // No owner yet, or an event from a non-owning pointer — ignore.
     Match.orElse((e) =>
-      Bool.match(e.pointerId === state.ownerId, { onTrue: () => onOwner(state, e), onFalse: () => ignored(state) }),
+      Bool.match(e.pointerId === state.ownerId, { onTrue: () => onOwner(state, e, starts), onFalse: () => ignored(state) }),
     ),
   )
+
+/** A drag's (and a pan's) fold: it starts past the threshold. */
+const step = stepOf(pastThreshold)
+
+/** A direction-locked drag's fold: it starts past the lock threshold on one axis (#273). */
+const lockedStep = stepOf(locks)
 
 /** `drag`'s options (ADR-0019, *Amendment (#29)*). */
 export interface DragOptions {
@@ -598,25 +630,42 @@ export interface DragOptions {
    * It still counts in the **Drag activity**, so no hover or press starts while it is on.
    */
   readonly claim?: boolean | undefined
+  /**
+   * A direction lock (Motion's `dragDirectionLock`, #273, ADR-0047): the gesture starts only once its
+   * offset passes 10 px on one axis (y first, as Motion's), and moves on, claims and counts on that axis
+   * alone: a parent that drags the other axis keeps its gesture. A lock on an axis the drag doesn't move
+   * on (`axis: "y"`, swiped sideways) refuses it. Motion's drag starts at 3 px, claiming both axes, and
+   * locks after.
+   */
+  readonly lock?: boolean | undefined
 }
 
-/** `sample` kept to `axis`: a one-axis drag's off-axis offset, delta and velocity zeroed. */
+/** `sample` kept to `axis`, and carrying it: a one-axis drag's off-axis offset, delta and velocity zeroed. */
 const keepTo = (sample: Drag.Sample, axis: Drag.Axis): Drag.Sample =>
   Match.value(axis).pipe(
-    Match.when("x", () => ({
+    Match.when("x", (): Drag.Sample => ({
       ...sample,
       offset: { x: sample.offset.x, y: 0 },
       delta: { x: sample.delta.x, y: 0 },
       velocity: { x: sample.velocity.x, y: 0 },
+      axis: "x",
     })),
-    Match.when("y", () => ({
+    Match.when("y", (): Drag.Sample => ({
       ...sample,
       offset: { x: 0, y: sample.offset.y },
       delta: { x: 0, y: sample.delta.y },
       velocity: { x: 0, y: sample.velocity.y },
+      axis: "y",
     })),
     Match.orElse(() => sample),
   )
+
+/**
+ * A direction-locked gesture's axis: its lock from its start's `offset`, if the drag moves on it
+ * (`configured` is `"xy"` or the lock); none for a lock on an axis it doesn't, which refuses it.
+ */
+const lockedAxis = (configured: Drag.Axis, offset: Point.Point): Option.Option<Drag.Axis> =>
+  Option.filter(Option.fromUndefinedOr(lockOf(offset)), (locked) => Bool.or(configured === "xy", configured === locked))
 
 /** `axis` as a function read at each gesture's start. */
 const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
@@ -651,7 +700,7 @@ const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
  */
 export const drag = (
   target: unknown,
-  { axis = "xy", claim = true }: DragOptions = {},
+  { axis = "xy", claim = true, lock = false }: DragOptions = {},
 ): Stream.Stream<Drag.Sample, never, InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   const axisAt = axisAtOf(axis)
@@ -668,14 +717,18 @@ export const drag = (
       const release = (): void =>
         Option.match(MutableRef.getAndSet(held, Option.none()), { onNone: constVoid, onSome: (releaseIt) => releaseIt() })
 
-      /** A gesture's start: its axis read, then its claim taken, or refused. Whether it was taken. */
-      const begin = (): boolean => {
+      /**
+       * A gesture's start: its axis read (a direction-locked one's, its lock, if the drag moves on it),
+       * then its claim taken, or refused. Whether it was taken.
+       */
+      const begin = (sample: Drag.Sample): boolean => {
         release()
-        const gesture = axisAt()
-        MutableRef.set(gestureAxis, gesture)
-        const taken = Bool.match(claim, {
-          onTrue: () => activity.claim(target, gesture),
-          onFalse: () => Option.some(activity.count()),
+        const taken = Option.flatMap(Bool.match(lock, { onTrue: () => lockedAxis(axisAt(), sample.offset), onFalse: () => Option.some(axisAt()) }), (gesture) => {
+          MutableRef.set(gestureAxis, gesture)
+          return Bool.match(claim, {
+            onTrue: () => activity.claim(target, gesture),
+            onFalse: () => Option.some(activity.count()),
+          })
         })
         MutableRef.set(held, taken)
         MutableRef.set(refused, Option.isNone(taken))
@@ -689,7 +742,7 @@ export const drag = (
       const admit = (sample: Drag.Sample): Effect.Effect<Result.Result<Drag.Sample, Drag.Sample>> =>
         Match.value(sample.phase).pipe(
           Match.when("start", () =>
-            Effect.sync(() => Bool.match(begin(), { onTrue: () => kept(sample), onFalse: () => Result.fail(sample) }))),
+            Effect.sync(() => Bool.match(begin(sample), { onTrue: () => kept(sample), onFalse: () => Result.fail(sample) }))),
           Match.when("move", () =>
             Effect.sync(() =>
               Bool.match(MutableRef.get(refused), { onTrue: () => Result.fail(sample), onFalse: () => kept(sample) })
@@ -712,7 +765,7 @@ export const drag = (
         )
 
       return input.pointer(target).pipe(
-        Stream.mapAccum(() => initState, step),
+        Stream.mapAccum(() => initState, Bool.match(lock, { onTrue: () => lockedStep, onFalse: () => step })),
         Stream.filterMapEffect(admit),
         Stream.ensuring(Effect.sync(release)),
       )
@@ -742,6 +795,7 @@ const sessionOf = (down: InputSource.PointerLikeEvent): PanSample => ({
   timeStamp: down.timeStamp,
   scroll: down.scroll,
   raw: down.raw,
+  axis: "xy",
 })
 
 /**

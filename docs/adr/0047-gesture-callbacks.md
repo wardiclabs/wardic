@@ -2,10 +2,12 @@
 
 Solid 1 gets Motion's gesture callbacks: `onHoverStart`, `onTap`, `onDragEnd` and the rest (#273). Each is called at the event with the DOM's own `PointerEvent`, then Motion's info. The Solid 2 binding gets the same events as `next(name)` names, with no callbacks (ADR-0046).
 
-It lands in four PRs, in this order:
+It lands in five PRs, in this order:
 1. The platform's event carried through core, plus hover, tap and drag: `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onDragStart`, `onDrag`, `onDragEnd` and `onDragTransitionEnd` (this ADR's *Built (PR 1)*).
-2. Pan: `onPanSessionStart`, `onPanStart`, `onPan` and `onPanEnd`.
-3. `dragDirectionLock` with `onDirectionLock`, and `onMeasureDragConstraints`.
+2. Pan: `onPanSessionStart`, `onPanStart`, `onPan` and `onPanEnd` (*Built (PR 2)*).
+3. Split in two (*Direction lock*, Q1):
+   - 3a: `dragDirectionLock` with `onDirectionLock` (*Built (PR 3a)*);
+   - 3b: element `dragConstraints`, which Wardic didn't have, with `onMeasureDragConstraints`.
 4. Motion's `viewport` options (`once`, `margin`, `amount`, `root`) with `onViewportEnter` and `onViewportLeave`.
 
 Each PR gives Solid 2 the matching `next()` names, so the two bindings hear the same events.
@@ -98,6 +100,39 @@ Motion's pan (`gestures/pan/index.ts`, `PanSession.ts` at `16c6122`) runs its ow
 - **One computation starts all three recognizers.** `createWhenWanted(config, wants, starts)` reads the config once a change, and starts whichever of hover, press and pan is newly wanted. It replaces one computation per gesture: each read of a `wardic.*` element's config rebuilds it, and a third computation would have added a rebuild per element at mount and at every change.
 - **Solid 2:** the four names on `next` and `each`. One asked for starts the pan recognizer on the mounted element, as a hover or press event does; a pan sets no layer.
 
+## Direction lock (grilled 2026-10-22, PR 3)
+
+Motion's `dragDirectionLock` (`VisualElementDragControls.ts:178-205` at `16c6122`): the drag starts at 3 px like any drag, taking its drag lock on every axis it's allowed, then holds the element still until the offset passes 10 px on one axis (`getCurrentDirection`, y checked first). It calls `onDirectionLock(axis)` and moves on that axis only. `onMeasureDragConstraints` only runs for constraints given as an element ref, which Wardic's `dragConstraints` (numbers only) had no form for.
+
+1. **PR 3 splits** (Q1: A): 3a, the direction lock; 3b, element constraints, measured at each drag's start and at a resize mid-drag, with `onMeasureDragConstraints`. The callback means nothing without the constraint it measures, and element constraints are worth having on their own.
+   - Rejected: handing the callback Wardic's numeric bounds (nothing measured: not Motion's); dropping it from #273.
+2. **A direction-locked drag starts at its lock, on the locked axis alone** (Q2: B, a deliberate divergence). Until the offset passes 10 px on one axis nothing has started: no `onDragStart`, no `whileDrag`, no **Drag claim**. At the lock it starts on that axis: it claims and counts only it, and its release runs on it. A lock on an axis the drag doesn't move on (`drag="y"` swiped sideways) refuses the gesture: it tells nothing.
+   - **What it gains over Motion:**
+     - A drag only starts, so only shows `whileDrag` and tells `onDragStart`, for the axis it will move. A card that drags sideways in a sheet that drags down (`drag="x"` and `drag="y"`, both locked) takes its own swipes in both. But Motion also starts the card's drag at 3 px on a vertical swipe, with its `whileDrag`, while the sheet is the one moving.
+     - A card free on both axes and locked, in a sheet with no lock, takes a sideways swipe. Motion's asks for both axes at 3 px, which the sheet's y refuses, every gesture.
+   - **What it doesn't change:** two locked drags lock at the same move, and the inner one claims first. So a card free on both axes, locked, in a locked sheet takes a vertical swipe too, as in Motion. The grill's first example claimed otherwise; DL3 caught it, and the choice was re-confirmed with the correction. The pattern for opposite axes is a one-axis card: `drag="x" dragDirectionLock` in `drag="y" dragDirectionLock`.
+   - **The cost:** `onDragStart` and `whileDrag` come at the lock (10 px), after `onDirectionLock`, where Motion's come at 3 px, before it.
+   - Rejected: A, Motion's (start at 3 px, claim every allowed axis, lock after).
+3. **Defaults stated, not asked:**
+   - the lock as Motion's: past 10 px on one axis, y checked first;
+   - the element moves at the locking move itself, where Motion's moves at the move after;
+   - `onDirectionLock(axis)`, then `onDragStart`, then `onDrag` at the start and each move;
+   - a drag that doesn't start (refused at its lock, or locked off its axis) tells nothing, `onDirectionLock` included;
+   - Solid 2: `next("directionLock")`, resolving with `"x"` or `"y"`.
+
+## Built (PR 3a)
+
+- **core: `Recognizer.drag`'s `lock`.**
+  - **The fold's start is a rule** (`stepOf`): past the 3 px threshold for a drag or a pan; past 10 px on one axis for a locked drag (`lockOf`, y first).
+  - **At the start the lock is the gesture's axis,** if the drag moves on it (`lockedAxis`). It's then claimed or counted, as any drag's axis is. Otherwise the gesture is refused.
+- **core: `Drag.Sample.axis`,** the axes the gesture moves on, read at its start. It's the drag's axis, a `<Reorder>` item's per gesture, or a lock; a pan's is both.
+  - `keepTo` sets it where it already shapes a one-axis sample, so a free drag's samples cost nothing more.
+  - The drag track reads a gesture's axis off its start, instead of working it out itself.
+- **Solid 1:** `dragDirectionLock` on `WardConfig`, the `wardic.*` props and `createWard`'s config (static drag config, read at mount, as the others), and `onDirectionLock(axis)`.
+  - Both are read only when given (`motionToConfig`'s rare keys, with the gesture callbacks).
+  - The lock is told at a start sample when the config has `dragDirectionLock`.
+- **Solid 2:** `dragDirectionLock` on a ward's config, and `next("directionLock")`. The ward hands the lifecycle whether its drag is locked.
+
 ## Consequences
 
 - **New public API:**
@@ -106,6 +141,7 @@ Motion's pan (`gestures/pan/index.ts`, `PanSession.ts` at `16c6122`) runs its ow
   - Solid 1: the nine callbacks on `WardConfig`, the `wardic.*` props and `createWard`'s config, and the `WardicPoint`, `WardicPointInfo` and `WardicDragInfo` types;
   - Solid 2: the `"drag"` and `"dragTransitionEnd"` events.
   - **PR 2:** core's `Recognizer.pan` and `PanSample`; Solid 1's four pan callbacks; Solid 2's four pan events.
+  - **PR 3a:** core's `DragOptions.lock` and `Drag.Sample.axis` (an Environment's samples need it); `dragDirectionLock` on both bindings; Solid 1's `onDirectionLock`; Solid 2's `"directionLock"` event.
 - **Breaking on Solid 1:** a `wardic.*` element's `onDrag`, `onDragStart` and `onDragEnd` are Motion's, no longer the DOM's drag-and-drop handlers. An app that needs those listens on the element itself.
 - **Cost:** one field more on each pointer event and drag sample. An element with a hover or tap callback runs that recognizer, as one with its `while*` does.
 
@@ -147,3 +183,14 @@ Motion's pan (`gestures/pan/index.ts`, `PanSession.ts` at `16c6122`) runs its ow
     - no hover mid-pan;
     - a pan callback set later.
   - solid (Solid 2): `test/v2/gesture-events.browser.test.tsx` GX12–GX13.
+- **PR 3a:**
+  - core: `packages/test`'s `direction-lock.test.ts` DL1–DL4:
+    - nothing before the lock, then the whole offset on the locked axis, y first;
+    - a one-axis drag locked the other way, uncounted;
+    - nested: opposite axes both locked, a free locked card in an unlocked sheet, and a free locked card in a locked sheet;
+    - a press that moved 8 px still taps under a lock.
+  - solid (Solid 1): `test/gesture-callbacks.browser.test.tsx` GC18–GC20, with the real mouse:
+    - nothing before the lock, then the order and the axis;
+    - the card and the sheet each taking their own swipe, with no `whileDrag` on the card for a vertical one;
+    - the axis a lock doesn't move left where it is, outside its constraints (the track reads the gesture's axis off its start).
+  - solid (Solid 2): GX14.

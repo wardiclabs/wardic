@@ -108,7 +108,14 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       if (Predicate.isUndefined(name)) return
       call(name, config()[name], press.event.raw as PointerEvent, pointInfoOf(press.event))
     },
-    dragged: (sample) => moved(DRAG_CALLBACK[sample.phase], "onDrag", sample),
+    dragged: (sample) => {
+      // A direction-locked drag's lock, at its start, before `onDragStart` (Motion's order).
+      if (sample.phase === "start") {
+        const c = config()
+        if (c.dragDirectionLock === true) call("onDirectionLock", c.onDirectionLock, sample.axis as "x" | "y")
+      }
+      moved(DRAG_CALLBACK[sample.phase], "onDrag", sample)
+    },
     released: () => call("onDragTransitionEnd", config().onDragTransitionEnd),
     panned: (sample) => {
       // Its session's start, at the down: Motion's `onPanSessionStart`, with the point only.
