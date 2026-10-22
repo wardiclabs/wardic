@@ -175,6 +175,7 @@ export function create(arg: string | Component<Record<string, unknown> & WardicW
         cfg,
         parent: node.inherited,
         extraDelay: node.extraDelay,
+        byName: node.names,
         canStart: node.canStart,
         bindGestures: node.bindGestures,
         onFrame: node.onFrame,

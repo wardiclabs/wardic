@@ -5,6 +5,8 @@
 // - LV2: each name orchestrates the Variant children's keys it sets: one name's stagger, another's none.
 // - LV3: one landing per Retarget, its `definition` the list (Q5); a fresh list with the same names
 //   starts no Retarget.
+// - LV4 (#297's PR 2): a name's `beforeChildren` holds the children's keys of that name; another
+//   name's start at once.
 import { DomLive } from "@wardic/dom"
 import { type Ward, ward, type WardConfig, wardic, WardicProvider, type WardicVariants } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -90,5 +92,32 @@ describe("variant name lists on Solid 2 (#297)", () => {
     flush()
     await frames(10)
     expect(landed, "no Retarget for the same names").toBe(false)
+  })
+
+  it("LV4: a name's beforeChildren holds the children's keys of that name; another name's start at once", async () => {
+    const parent: WardicVariants = {
+      visible: { opacity: 1, transition: { type: "tween", duration: 0.5, when: "beforeChildren" } },
+      hidden: { opacity: 0 },
+      active: {},
+      inactive: {},
+    }
+    const child: WardicVariants = { visible: { x: 0 }, hidden: { x: -30 }, active: { scale: 1.5 }, inactive: { scale: 1 } }
+    const q = mountIn(() => (
+      <wardic.div data-k="parent" variants={parent} initial={["hidden", "inactive"]} animate={["visible", "active"]} style={BOX}>
+        <wardic.span data-k="child" variants={child} transition={{ type: "tween", duration: 0.2 }} style={{ display: "inline-block" }} />
+      </wardic.div>
+    ))
+    let scaledEarly = false
+    let movedEarly = false
+    await until(() => {
+      if (opacityOf(q("parent")) < 0.8) {
+        if (matrixOf(q("child")).a > 1.2) scaledEarly = true
+        if (matrixOf(q("child")).m41 > -29) movedEarly = true
+      }
+      return Math.abs(matrixOf(q("child")).m41) < 0.5
+    }, 3000)
+    expect(scaledEarly, "active's keys at once").toBe(true)
+    expect(movedEarly, "visible's keys waited for the parent's").toBe(false)
+    expect(Math.abs(matrixOf(q("child")).m41), "and went once the parent's had").toBeLessThan(0.5)
   })
 })

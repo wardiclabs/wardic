@@ -749,6 +749,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       parent: node.inherited,
       canStart: node.canStart,
       extraDelay: node.extraDelay,
+      byName: node.names,
       onFrame: node.onFrame,
       reducedMotion,
       positionalKeys,
