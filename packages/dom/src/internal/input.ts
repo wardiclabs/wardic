@@ -236,7 +236,21 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
 }
 
 const toFocus = (type: InputSource.FocusLikeEvent["type"]) =>
-  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp })
+  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp, visible: focusVisible(ev.target) })
+
+/**
+ * Whether a focus shows (#273, Motion's `whileFocus`): its target matches `:focus-visible`, which a
+ * keyboard's focus does and a pointer's click on most elements doesn't. A browser that doesn't know the
+ * selector shows every focus, as Motion reads it.
+ */
+const focusVisible = (target: EventTarget | null): boolean => {
+  if (Bool.not(Predicate.hasProperty(target, "matches"))) return true
+  try {
+    return (target as Element).matches(":focus-visible")
+  } catch {
+    return true
+  }
+}
 
 /** A `KeyboardEvent.key` in core's names (ADR-0037): the keys core acts on, else `"other"`. */
 export const keyOf = (key: string): InputSource.Key =>

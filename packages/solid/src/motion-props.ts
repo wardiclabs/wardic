@@ -8,7 +8,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicValues, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
@@ -25,6 +25,8 @@ const GESTURE_CALLBACKS = [
   "onDragEnd",
   "onDragTransitionEnd",
   "onDirectionLock",
+  "onViewportEnter",
+  "onViewportLeave",
   "onPanSessionStart",
   "onPanStart",
   "onPan",
@@ -33,9 +35,10 @@ const GESTURE_CALLBACKS = [
 
 /**
  * The keys most elements don't take, which a config with fixed keys reads only when given (#273): the
- * gesture callbacks, `dragDirectionLock` and `onMeasureDragConstraints`.
+ * gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`, `whileInView`, `whileFocus` and
+ * `viewport`.
  */
-const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints"] as const
+const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints", "whileInView", "whileFocus", "viewport"] as const
 
 /** One of {@link RARE_KEYS}. */
 type RareKey = (typeof RARE_KEYS)[number]
@@ -58,6 +61,7 @@ export const MOTION_PROPS = [
   "whileTap",
   "whileFocus",
   "whileInView",
+  "viewport",
   "exit",
   "drag",
   "whileDrag",
@@ -134,6 +138,8 @@ export interface WardicMotionProps {
   readonly whileFocus?: WardicValues
   /** Accepted + split now; not yet wired (follow-up). */
   readonly whileInView?: WardicValues
+  /** Motion's `viewport` (#273; see `WardConfig`): what "in view" means. */
+  readonly viewport?: WardicViewport
   /**
    * The exit target — the state this element animates toward when it leaves an
    * `<AnimatePresence>` (ADR-0007). Wired through to the spine's presence
@@ -221,6 +227,8 @@ export interface WardicMotionProps {
   readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDragTransitionEnd?: () => void
   readonly onDirectionLock?: (axis: "x" | "y") => void
+  readonly onViewportEnter?: (entry: IntersectionObserverEntry) => void
+  readonly onViewportLeave?: (entry: IntersectionObserverEntry) => void
   readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
   readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void

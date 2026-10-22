@@ -73,20 +73,16 @@ const stateRecognizer = <Ev, S, R>(
   ).pipe(Stream.withSpan(span, { attributes, captureStackTrace: false }))
 
 /**
- * Shared shell for the pointer gestures that start off (`hover`, `press`, #257): the fold's
- * transitions, each emitted as `out` makes it of the state, the event that turned it and
+ * Shared shell for the gestures that start off (`hover`, `press`, #257; `inViewEvents`, #273): the
+ * fold's transitions, each emitted as `out` makes it of the state, the event that turned it and
  * whether it's on now. An event that changes nothing emits nothing. Observability as
  * {@link stateRecognizer}'s.
  */
-const transitionRecognizer = <S, Out, R>(
+const transitionRecognizer = <S, Ev, Out, R>(
   span: string,
   attributes: Record<string, unknown>,
-  acquire: Effect.Effect<
-    { readonly events: Stream.Stream<InputSource.PointerLikeEvent>; readonly fold: Fold<S, InputSource.PointerLikeEvent> },
-    never,
-    R
-  >,
-  out: (next: S, event: InputSource.PointerLikeEvent, active: boolean) => Out,
+  acquire: Effect.Effect<{ readonly events: Stream.Stream<Ev>; readonly fold: Fold<S, Ev> }, never, R>,
+  out: (next: S, event: Ev, active: boolean) => Out,
 ): Stream.Stream<Out, never, R> =>
   Stream.unwrap(
     Effect.gen(function* () {
@@ -308,42 +304,84 @@ const booleanFold = <Ev>(activeOf: (event: Ev) => boolean): Fold<boolean, Ev> =>
 /**
  * Recognize focus state on `target`: `true` while focused, `false` once
  * blurred. `focus` -> `true`, `blur` -> `false`. Emits only on transitions.
+ *
+ * With `{ visible: true }` (#273, Motion's `whileFocus`), only a focus the Environment shows counts
+ * (`FocusLikeEvent.visible`, the DOM's `:focus-visible`): a keyboard's, not a pointer's click.
  */
-export const focus = (target: unknown): Stream.Stream<boolean, never, InputSource.InputSource> =>
-  stateRecognizer(
+export const focus = (target: unknown, options: { readonly visible?: boolean } = {}): Stream.Stream<boolean, never, InputSource.InputSource> => {
+  const visibleOnly = options.visible === true
+  return stateRecognizer(
     "wardic.focus",
-    {},
+    { visibleOnly },
     Effect.map(InputSource.InputSource, (i) => ({
       events: i.focus(target),
-      fold: booleanFold((e: InputSource.FocusLikeEvent) => e.type === "focus"),
+      fold: booleanFold((e: InputSource.FocusLikeEvent) => Bool.and(e.type === "focus", Bool.or(Bool.not(visibleOnly), e.visible !== false))),
     })),
   )
+}
 
 /**
- * Recognize in-view (intersection) state on `target` via `Probe`. The probe's
- * `observeIntersection` already emits booleans, so the fold is the identity on
- * the event. Runs through the same shell for the `wardic.inView` span/log and
- * `Stream.changes` dedup.
+ * {@link inView}'s options (#273, Motion's `viewport`): the Probe's {@link Probe.IntersectionOptions}
+ * (`root`, `margin`, `amount`), and `once`: settled at the first entry, in view from then on.
+ */
+export interface InViewOptions extends Probe.IntersectionOptions {
+  readonly once?: boolean | undefined
+}
+
+/** The Probe's options of `options`, with no `once`. */
+const intersectionOf = ({ once: _once, ...options }: InViewOptions): Probe.IntersectionOptions => options
+
+/** Whether an intersection is in. */
+const intersecting = (intersection: Probe.Intersection): boolean => intersection.intersecting
+
+/**
+ * Recognize in-view (intersection) state on `target` via `Probe`: its first report, then its changes,
+ * against `options`' root, margin and amount. Runs through the same shell for the `wardic.inView`
+ * span/log and `Stream.changes` dedup.
  *
  * With `{ once: true }` the stream settles after (and including) the first
  * `true` — `Stream.takeUntil(active => active)` keeps the terminating `true`
  * and ends the stream, so once-in-view targets never go back to `false`.
  */
-export const inView = (
-  target: unknown,
-  options: { readonly once?: boolean } = {},
-): Stream.Stream<boolean, never, Probe.Probe> => {
+export const inView = (target: unknown, options: InViewOptions = {}): Stream.Stream<boolean, never, Probe.Probe> => {
   const base = stateRecognizer(
     "wardic.inView",
     {},
     Effect.map(Probe.Probe, (p) => ({
-      events: p.observeIntersection(target),
-      fold: booleanFold((inView: boolean) => inView),
+      events: p.observeIntersection(target, intersectionOf(options)),
+      fold: booleanFold(intersecting),
     })),
   )
   return Bool.match(options.once === true, {
     onTrue: () => base.pipe(Stream.takeUntil((active) => active)),
     onFalse: () => base,
+  })
+}
+
+/** An in-view transition (#273): whether the target is in now, and the platform's record of it (the DOM's entry). */
+export interface ViewTransition {
+  readonly active: boolean
+  readonly raw?: unknown
+}
+
+/**
+ * {@link inView}'s transitions (#273, Motion's `onViewportEnter` / `onViewportLeave`): from out of
+ * view, each entry and leave, with the platform's record of it. A target that starts out of view tells
+ * nothing until it enters, as Motion's. With `{ once: true }` it ends at the first entry: no leave.
+ */
+export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stream.Stream<ViewTransition, never, Probe.Probe> => {
+  const transitions = transitionRecognizer(
+    "wardic.inView",
+    {},
+    Effect.map(Probe.Probe, (p) => ({
+      events: p.observeIntersection(target, intersectionOf(options)),
+      fold: booleanFold(intersecting),
+    })),
+    (_next, intersection: Probe.Intersection, active): ViewTransition => ({ active, raw: intersection.raw }),
+  )
+  return Bool.match(options.once === true, {
+    onTrue: () => transitions.pipe(Stream.takeUntil((transition) => transition.active)),
+    onFalse: () => transitions,
   })
 }
 

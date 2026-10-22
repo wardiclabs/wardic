@@ -192,6 +192,10 @@ export const animationCallbacks = (runtime: WardicRuntime, id: string): Animatio
 
 /** Which layers of the Override stack are active now, as the binding reads them. */
 export interface Active {
+  /** In view (#273): `whileInView` applies. */
+  readonly inView: boolean
+  /** Focused, as the Environment shows it (`:focus-visible`, #273): `whileFocus` applies. */
+  readonly focused: boolean
   readonly hovered: boolean
   readonly pressed: boolean
   /** A drag, or a **Keyboard reorder**'s lift (ADR-0037): `whileDrag` applies. */
@@ -201,8 +205,9 @@ export interface Active {
 }
 
 /**
- * The Override stack resolved (ascending priority): base (animate, or initial when no animate) ->
- * whileHover -> whileTap -> whileDrag. `Override.resolve` picks the last active entry per key. Pure:
+ * The Override stack resolved (ascending priority, Motion's `variantPriorityOrder`): base (animate, or
+ * initial when no animate) -> whileInView -> whileFocus -> whileHover -> whileTap -> whileDrag (#273
+ * added the first two). `Override.resolve` picks the last active entry per key. Pure:
  * a binding computes it in a memo, so a config change, an inherited variant name's
  * (`parent.variant()`, read only when there's no `animate`) or a layer's drives a Retarget.
  */
@@ -228,6 +233,8 @@ export const resolutionOf = (
   })
   const resolved = Override.resolve([
     { active: true, values: base },
+    { active: active.inView, values: Style.toValues(c.whileInView) },
+    { active: active.focused, values: Style.toValues(c.whileFocus) },
     { active: active.hovered, values: Style.toValues(c.whileHover) },
     { active: active.pressed, values: Style.toValues(c.whileTap) },
     // whileDrag sits ABOVE tap (highest priority) — driven by the spring,

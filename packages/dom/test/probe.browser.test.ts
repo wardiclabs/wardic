@@ -157,7 +157,7 @@ it_.live("ProbeDomLive > observeIntersection emits the REAL intersection state, 
       try {
         const received = yield* Ref.make<ReadonlyArray<boolean>>([])
         const fiber = yield* Effect.forkChild(
-          Stream.runForEach(probe.observeIntersection(el), (v) => Ref.update(received, (xs) => [...xs, v])),
+          Stream.runForEach(probe.observeIntersection(el), (v) => Ref.update(received, (xs) => [...xs, v.intersecting])),
         )
 
         // IntersectionObserver fires an initial async callback after observe.

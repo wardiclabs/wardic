@@ -93,7 +93,7 @@ describe("a ward's landings on Solid 2 (#257)", () => {
     expect(host.querySelector("p")!.textContent, "content at once, pending through the entrance").toBe("undefined pending")
     const landing = await landed
     expect(opacity(el), "the element is at its value when it lands").toBe(1)
-    expect(landing).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: false, tap: false, drag: false } })
+    expect(landing).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: false, tap: false, drag: false, inView: false, focus: false } })
     flush()
     await raf()
     expect(host.querySelector("p")!.textContent).toBe('{"opacity":1} idle')
@@ -157,10 +157,10 @@ describe("a ward's landings on Solid 2 (#257)", () => {
       return opacity(el) > 0.3
     }, 2000)
     await hovered
-    expect(landing).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: true, tap: false, drag: false } })
+    expect(landing).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: true, tap: false, drag: false, inView: false, focus: false } })
     const returned = card.next("settled")
     el!.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, bubbles: true }))
-    expect(await returned).toEqual({ definition: { opacity: 0.2 }, target: { opacity: 0.2 }, gestures: { hover: false, tap: false, drag: false } })
+    expect(await returned).toEqual({ definition: { opacity: 0.2 }, target: { opacity: 0.2 }, gestures: { hover: false, tap: false, drag: false, inView: false, focus: false } })
   })
 
   it("SE5: a pending next rejects with an AbortError at the ward's disposal; one asked after, at once", async () => {
@@ -274,10 +274,10 @@ describe("a ward's landings on Solid 2 (#257)", () => {
     host.querySelector<HTMLElement>('[data-value="a"]')!.focus()
     const lifted = row.next("settled")
     await commands.realKey("press", "Space")
-    expect(await lifted).toEqual({ definition: { scale: 1.05 }, target: { scale: 1.05 }, gestures: { hover: false, tap: false, drag: true } })
+    expect(await lifted).toEqual({ definition: { scale: 1.05 }, target: { scale: 1.05 }, gestures: { hover: false, tap: false, drag: true, inView: false, focus: false } })
     const dropped = row.next("settled")
     await commands.realKey("press", "Space")
-    expect((await dropped).gestures).toEqual({ hover: false, tap: false, drag: false })
+    expect((await dropped).gestures).toEqual({ hover: false, tap: false, drag: false, inView: false, focus: false })
   })
 
   it("SE9: settled and next aren't props a spread applies", () => {

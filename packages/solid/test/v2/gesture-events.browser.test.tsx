@@ -26,11 +26,17 @@
 // - GX14 (#273): with `dragDirectionLock`, `next("directionLock")` resolves with the axis at the lock,
 //   before `dragStart`; nothing before it.
 // - GX15 (#273): an element `dragConstraints` and `onMeasureDragConstraints` on a ward.
+// - GX16 (#273): `whileInView` applies as the element scrolls into view, with `next("viewportEnter")`
+//   and `next("viewportLeave")`, each resolving with `undefined`.
+// - GX17 (#273): `whileFocus` at a keyboard's focus.
+// - GX18 (#273): `next("viewportEnter")` alone starts the in-view recognizer, on a ward with no `whileInView`.
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For } from "solid-js"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
+import "../browser-commands.ts"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
@@ -469,5 +475,60 @@ describe("a ward's element constraints on Solid 2 (#273)", () => {
     for (let i = 0; i < 3; i++) await raf()
     expect(measured[0]).toEqual({ left: 0, right: 200, top: 0, bottom: 0 })
     expect(Math.round(el.getBoundingClientRect().right), "20 px short of the frame's right").toBe(Math.round(frame.getBoundingClientRect().right) - 20)
+  })
+})
+
+describe("a ward's in-view and focus layers on Solid 2 (#273)", () => {
+  afterEach(() => window.scrollTo(0, 0))
+
+  it("GX16: whileInView as it scrolls into view, with next(\"viewportEnter\") and next(\"viewportLeave\")", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard(
+      { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileInView: { opacity: 1 }, transition: { type: "tween", duration: 0.05 }, style: { width: "100px", height: "100px", position: "absolute", top: "2000px" } },
+      (card) => (
+        <div style={{ position: "relative", height: "4000px" }}>
+          <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
+        </div>
+      ),
+    )
+    for (let i = 0; i < 5; i++) await raf()
+    expect(Number(el.style.opacity), "out of view").toBe(0.2)
+    const entered = card.next("viewportEnter")
+    window.scrollTo(0, 1900)
+    expect(await entered).toBeUndefined()
+    await until(() => Number(el.style.opacity) === 1, 2000)
+    expect(Number(el.style.opacity), "in view").toBe(1)
+    const left = card.next("viewportLeave")
+    window.scrollTo(0, 0)
+    expect(await left).toBeUndefined()
+  })
+
+  it("GX17: whileFocus at a keyboard's focus", async () => {
+    let el!: HTMLElement
+    mountCard(
+      { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileFocus: { opacity: 1 }, transition: { type: "tween", duration: 0.05 }, style: BOX },
+      (card) => <button {...card} ref={[card, (n: HTMLElement) => (el = n)]} />,
+    )
+    for (let i = 0; i < 3; i++) await raf()
+    for (let i = 0; i < 5; i++) {
+      if (document.activeElement === el) break
+      await commands.realKey("press", "Tab")
+    }
+    expect(document.activeElement, "focused by the keyboard").toBe(el)
+    await until(() => Number(el.style.opacity) === 1, 2000)
+    expect(Number(el.style.opacity)).toBe(1)
+  })
+
+  it("GX18: next(\"viewportEnter\") alone starts the in-view recognizer", async () => {
+    const { card } = mountCard({ style: { width: "100px", height: "100px", position: "absolute", top: "2000px" } }, (card) => (
+      <div style={{ position: "relative", height: "4000px" }}>
+        <div {...card} />
+      </div>
+    ))
+    for (let i = 0; i < 3; i++) await raf()
+    const entered = card.next("viewportEnter")
+    for (let i = 0; i < 3; i++) await raf()
+    window.scrollTo(0, 1900)
+    expect(await settledWithin(entered, 30), "entered").toBe(true)
   })
 })

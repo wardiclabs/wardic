@@ -34,6 +34,10 @@ export interface WardGestures {
   readonly hover: boolean
   readonly tap: boolean
   readonly drag: boolean
+  /** In view (#273): `whileInView` applied. */
+  readonly inView: boolean
+  /** Focused as the browser shows it (#273): `whileFocus` applied. */
+  readonly focus: boolean
 }
 
 /** An animation's landing (#257, ADR-0046). */
@@ -104,6 +108,13 @@ export interface WardEvents {
   /** That pan ended at its release, or was cancelled (Motion's `onPanEnd`). Only a pan that started. */
   readonly panEnd: WardDragInfo
   /**
+   * The element came into view, as its `viewport` says (Motion's `onViewportEnter`, #273). One that
+   * starts out of view tells nothing until it enters.
+   */
+  readonly viewportEnter: undefined
+  /** It left the view (Motion's `onViewportLeave`). With `viewport.once`, never after its first entry. */
+  readonly viewportLeave: undefined
+  /**
    * A layout animation of the element started, at the frame it takes its first step, after that
    * frame is painted (Motion's `onLayoutAnimationStart`, ADR-0039). A restart starts again.
    */
@@ -122,7 +133,7 @@ export type WardEvent = keyof WardEvents
 const GONE = "The ward was disposed before its next event."
 
 /** A gesture whose recognizer the ward runs only once wanted (#87, #257, #273). */
-export type WantedGesture = "hover" | "press" | "pan"
+export type WantedGesture = "hover" | "press" | "pan" | "inView"
 
 /** The gesture whose recognizer an event needs: `next("tap")` needs the press one running. */
 const GESTURE_OF: Partial<Record<WardEvent, WantedGesture>> = {
@@ -135,6 +146,8 @@ const GESTURE_OF: Partial<Record<WardEvent, WantedGesture>> = {
   panStart: "pan",
   pan: "pan",
   panEnd: "pan",
+  viewportEnter: "inView",
+  viewportLeave: "inView",
 }
 
 /** Each press phase's event: a press a drag took over has none (Motion tells neither). */
@@ -188,6 +201,7 @@ export class Lifecycle implements AnimationHooks {
   private hover = false
   private press = false
   private pan = false
+  private inView = false
   private readonly owner: Owner | null
   private readonly want: (gesture: WantedGesture) => void
 
@@ -210,6 +224,11 @@ export class Lifecycle implements AnimationHooks {
   /** Whether a `next` has asked for the pan events (#273). */
   get wantsPan(): boolean {
     return this.pan
+  }
+
+  /** Whether a `next` has asked for the viewport events (#273). */
+  get wantsInView(): boolean {
+    return this.inView
   }
 
   started(resolution: Resolution): void {
@@ -280,6 +299,11 @@ export class Lifecycle implements AnimationHooks {
     this.tell("layoutComplete", constUndefined)
   }
 
+  /** An in-view transition (#273): the element entered or left the view. */
+  viewed(transition: Recognizer.ViewTransition): void {
+    this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "viewportEnter", onFalse: () => "viewportLeave" }), constUndefined)
+  }
+
   /** A drag's or a pan's sample past a pan's session's start: its start's or end's event (`named`), then `every` at its start and each move. */
   private moved(named: MovementEvent | undefined, every: "drag" | "pan", sample: Drag.Sample): void {
     if (Predicate.isUndefined(this.events)) return
@@ -346,6 +370,10 @@ export class Lifecycle implements AnimationHooks {
       if (this.pan) return
       this.pan = true
     }
+    if (gesture === "inView") {
+      if (this.inView) return
+      this.inView = true
+    }
     this.want(gesture)
   }
 
@@ -357,7 +385,7 @@ export class Lifecycle implements AnimationHooks {
     this.last = {
       definition: definitionOf(landing, this.landedPrevious) as WardicAnimationDefinition,
       target: landing.resolved,
-      gestures: { hover: active.hovered, tap: active.pressed, drag: active.dragged },
+      gestures: { hover: active.hovered, tap: active.pressed, drag: active.dragged, inView: active.inView, focus: active.focused },
     }
     return this.last
   }

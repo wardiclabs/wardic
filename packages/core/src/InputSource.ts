@@ -152,6 +152,11 @@ export interface KeyboardLikeEvent {
 export interface FocusLikeEvent {
   readonly type: "focus" | "blur"
   readonly timeStamp: number
+  /**
+   * Whether the Environment shows this focus (#273): the DOM's `:focus-visible`, a keyboard's focus
+   * rather than a pointer's click. Absent: shown. `Recognizer.focus`'s `visible` counts only these.
+   */
+  readonly visible?: boolean
 }
 
 /**

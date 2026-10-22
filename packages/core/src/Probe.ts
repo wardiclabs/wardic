@@ -62,6 +62,27 @@ export interface ScrollOptions {
 }
 
 /**
+ * What an intersection is observed against (#273, ADR-0047, Motion's `viewport`): `root`, an
+ * Environment's container (none: the viewport); `margin`, grown around it, in the Environment's own
+ * syntax (the DOM's `rootMargin`, `"0px 0px -100px 0px"`); `amount`, how much of the target must be in
+ * it to count, from 0 (any of it) to 1 (all of it). Default: the viewport, no margin, any of it.
+ */
+export interface IntersectionOptions {
+  readonly root?: unknown
+  readonly margin?: string | undefined
+  readonly amount?: number | undefined
+}
+
+/**
+ * A target's intersection, as an Environment reports it (#273): whether it's in, and the platform's
+ * own record of it (`raw`: the DOM's `IntersectionObserverEntry`), opaque to core.
+ */
+export interface Intersection {
+  readonly intersecting: boolean
+  readonly raw?: unknown
+}
+
+/**
  * Environment introspection — measurement, viewport, motion preferences, scroll, and
  * observation streams. Powers layout animations, in-view detection, scroll-linked values and
  * reduced-motion handling.
@@ -82,6 +103,9 @@ export class Probe extends Context.Service<Probe, {
   readonly scroll: (options?: ScrollOptions) => Effect.Effect<Atom.Atom<Scroll>, never, Scope.Scope>
   /** Stream of bounds as a target resizes. */
   readonly observeResize: (target: unknown) => Stream.Stream<Bounds>
-  /** Stream of visibility as a target enters/leaves the viewport. */
-  readonly observeIntersection: (target: unknown) => Stream.Stream<boolean>
+  /**
+   * A target's intersection with the viewport, or `options`' root (#273): each report as it enters
+   * or leaves, the first as it starts.
+   */
+  readonly observeIntersection: (target: unknown, options?: IntersectionOptions) => Stream.Stream<Intersection>
 }>()("@wardic/Probe") {}

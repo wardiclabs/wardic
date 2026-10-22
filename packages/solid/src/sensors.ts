@@ -44,49 +44,72 @@ export const createPress = (target: unknown): Accessor<boolean> => streamToSigna
 export interface Wants<C> {
   readonly hover: (config: C) => boolean
   readonly press: (config: C) => boolean
+  readonly inView: (config: C) => boolean
+  readonly focus: (config: C) => boolean
   readonly pan: (config: C) => boolean
 }
 
-/** Each gesture recognizer's start: hover's and press's state signals, and pan's fiber (it sets no layer). */
+/** Each gesture recognizer's start: the layers' state signals, and pan's fiber (it sets no layer). */
 export interface Starts {
   readonly hover: () => Accessor<boolean>
   readonly press: () => Accessor<boolean>
+  readonly inView: () => Accessor<boolean>
+  readonly focus: () => Accessor<boolean>
   readonly pan: () => void
 }
 
-/** A started recognizer's state, `false` until it starts. */
-const startedOf = (started: Accessor<boolean> | undefined): boolean =>
+/**
+ * The layer recognizers {@link createWhenWanted} has started: each its state's accessor, absent until
+ * it starts.
+ */
+export interface Started {
+  readonly hover?: Accessor<boolean> | undefined
+  readonly press?: Accessor<boolean> | undefined
+  readonly inView?: Accessor<boolean> | undefined
+  readonly focus?: Accessor<boolean> | undefined
+}
+
+const NONE_STARTED: Started = {}
+
+/** A layer's state: its recognizer's, `false` until it starts. */
+export const stateOf = (started: Accessor<boolean> | undefined): boolean =>
   UndefinedOr.match(started, { onUndefined: constFalse, onDefined: (state) => state() })
 
 /**
  * An element's gesture recognizers, each started only once its config wants it (#87, ADR-0040;
- * #273): hover and press read `false` until then, then their start's signal, kept from then on.
- * Motion's rule: its hover, tap and pan features attach only once their props are set. An element
- * that never wants one starts no fiber and no subscription; one that stops wanting it keeps the
- * recognizer, so a prop that toggles starts it once. A pointer already resting on the element when
- * hover starts counts from its next entry, as Motion's does.
+ * #273), and kept from then on. Motion's rule: its hover, tap, inView, focus and pan features attach
+ * only once their props are set. An element that never wants one starts no fiber and no
+ * subscription; one that stops wanting it keeps the recognizer, so a prop that toggles starts it
+ * once. A pointer already resting on the element when hover starts counts from its next entry, as
+ * Motion's does.
  *
- * One computation reads `config()` once a change for all three: a `wardic.*` element's config is
- * rebuilt at each read. Each start runs under the caller's owner, not this computation, so its
- * recognizer lives and ends with the caller (its `onCleanup`), not with the next change.
+ * One computation reads `config()` once a change for them all: a `wardic.*` element's config is
+ * rebuilt at each read. The layers' recognizers started are one signal, so a reader tracks it once,
+ * and then each started one's state ({@link stateOf}): Solid 1 tracks every read, the same signal's
+ * again included. Each start runs under the caller's owner, not this computation, so its recognizer
+ * lives and ends with the caller (its `onCleanup`), not with the next change.
  */
-export const createWhenWanted = <C,>(
-  config: Accessor<C>,
-  wants: Wants<C>,
-  starts: Starts,
-): { readonly hovered: Accessor<boolean>; readonly pressed: Accessor<boolean> } => {
+export const createWhenWanted = <C,>(config: Accessor<C>, wants: Wants<C>, starts: Starts): Accessor<Started> => {
   const owner = getOwner()
-  const [hover, setHover] = createSignal<Accessor<boolean> | undefined>(undefined)
-  const [press, setPress] = createSignal<Accessor<boolean> | undefined>(undefined)
+  const [started, setStarted] = createSignal<Started>(NONE_STARTED)
   let panning = false
   createComputed(() => {
     const c = config()
-    if (Predicate.isUndefined(untrack(hover))) {
-      if (wants.hover(c)) setHover(() => runWithOwner(owner, starts.hover))
+    const was = untrack(started)
+    let now = was
+    if (Predicate.isUndefined(was.hover)) {
+      if (wants.hover(c)) now = { ...now, hover: runWithOwner(owner, starts.hover) }
     }
-    if (Predicate.isUndefined(untrack(press))) {
-      if (wants.press(c)) setPress(() => runWithOwner(owner, starts.press))
+    if (Predicate.isUndefined(was.press)) {
+      if (wants.press(c)) now = { ...now, press: runWithOwner(owner, starts.press) }
     }
+    if (Predicate.isUndefined(was.inView)) {
+      if (wants.inView(c)) now = { ...now, inView: runWithOwner(owner, starts.inView) }
+    }
+    if (Predicate.isUndefined(was.focus)) {
+      if (wants.focus(c)) now = { ...now, focus: runWithOwner(owner, starts.focus) }
+    }
+    if (now !== was) setStarted(now)
     if (Bool.not(panning)) {
       if (wants.pan(c)) {
         panning = true
@@ -94,7 +117,7 @@ export const createWhenWanted = <C,>(
       }
     }
   })
-  return { hovered: () => startedOf(hover()), pressed: () => startedOf(press()) }
+  return started
 }
 
 /**

@@ -8,7 +8,7 @@ It lands in five PRs, in this order:
 3. Split in two (*Direction lock*, Q1):
    - 3a: `dragDirectionLock` with `onDirectionLock` (*Built (PR 3a)*);
    - 3b: element `dragConstraints`, which Wardic didn't have, with `onMeasureDragConstraints` (*Built (PR 3b)*).
-4. Motion's `viewport` options (`once`, `margin`, `amount`, `root`) with `onViewportEnter` and `onViewportLeave`.
+4. Motion's `viewport` options (`once`, `margin`, `amount`, `root`) with `onViewportEnter` and `onViewportLeave`, and the `whileInView` and `whileFocus` layers they found missing (*In view and focus*, *Built (PR 4)*).
 
 Each PR gives Solid 2 the matching `next()` names, so the two bindings hear the same events.
 
@@ -162,6 +162,49 @@ Motion's `dragConstraints={ref}` (`VisualElementDragControls.ts`, `utils/constra
   - **A measure that throws** (the app's callback) is reported (`wardic.drag: measuring dragConstraints failed`), and that drag runs unconstrained.
 - **Both bindings:** `dragConstraints` and `onMeasureDragConstraints` on `WardConfig`, the `wardic.*` props and `createWard`'s config; `onMeasureDragConstraints` is read only when given (a rare key). On Solid 2 both are function-valued keys: the config view reads them as they are, rather than calling them as accessors, so `dragConstraints`' function is its container's accessor.
 
+## In view and focus (grilled 2026-10-22, PR 4)
+
+Motion's in-view feature (`motion/features/viewport/index.ts` at `16c6122`) observes the element with an `IntersectionObserver` made from `viewport`:
+- `root`, a ref's element;
+- `margin`, the observer's `rootMargin`;
+- `amount`, its threshold: `"some"` 0, `"all"` 1, or a number.
+
+At each change it toggles `whileInView` and calls `onViewportEnter(entry)` or `onViewportLeave(entry)`. With `once`, a leave after the first entry is ignored, so the layer stays. Its focus feature (`gestures/focus.ts`) applies `whileFocus` only when the element matches `:focus-visible`. Its layers stack as `variantPriorityOrder`: `animate` < `whileInView` < `whileFocus` < `whileHover` < `whileTap` < `whileDrag` < `exit`.
+
+**Found while grilling:** both bindings took `whileInView` and `whileFocus` as props, typed in `WardicMotionProps` and split off the element. They never reached `WardConfig`, so nothing recognized or applied them: an accepted, typed prop that did nothing, silently.
+
+1. **PR 4 adds both layers in Motion's order, with the viewport options and callbacks** (Q1: A). `whileFocus` comes from the focus recognizer core already had. A guard keeps a motion prop from being dropped again: a test hands `motionToConfig` every key of `MOTION_PROPS`, and a types-only check fails Solid 2's build for a motion prop no ward key reads.
+   - Rejected: the in-view half only, with `whileFocus` as its own issue (the stack changes twice in a row), or in the backlog (silently ignored meanwhile).
+2. **Solid 2's `next("viewportEnter")` and `next("viewportLeave")` resolve with `undefined`** (Q2: A). They mark a moment; `amount` already says how much counts. Solid 1's callbacks take the browser's own entry, as Motion's do (#273's Q1).
+   - Rejected: an info object `{ ratio, box }` (can come later without breaking anything); the DOM's entry, against ADR-0046's no-raw-event rule.
+3. **Defaults stated, not asked:**
+   - `viewport.root` is an accessor of an element, as `dragConstraints`;
+   - the options are read when the recognizer starts;
+   - `once` keeps `whileInView` on from the first entry, and tells no leave;
+   - an element that starts out of view tells nothing until it enters, as Motion's;
+   - `whileFocus` only under `:focus-visible`, as Motion's; `createFocus` keeps reporting any focus;
+   - `whileInView` or a viewport callback starts the in-view recognizer, and `whileFocus` the focus one, each at mount or later.
+
+## Built (PR 4)
+
+- **core, Probe:** `observeIntersection(target, options)` takes `IntersectionOptions` (`root`, `margin` in the Environment's syntax, `amount`), and reports `Intersection`s: `{ intersecting, raw }`, the platform's record opaque to core. Breaking for an Environment; ours are the only two.
+- **core, Recognizer:**
+  - `inView` takes `InViewOptions` (the Probe's and `once`);
+  - `inViewEvents` gives its transitions from out of view, each with its record, through the shell hover and press use (`transitionRecognizer`, now generic over its event);
+  - `focus(target, { visible: true })` counts only a focus the Environment shows. `FocusLikeEvent` gains `visible`.
+- **dom:**
+  - `observeIntersection` makes one `IntersectionObserver` per subscription, from its options, where it shared one per target, since each may ask its own;
+  - a focus event's `visible` is its target's `:focus-visible`, `true` where the selector isn't known, as Motion reads it.
+- **The stack** (`resolutionOf`) gains the two layers under the pointer gestures, in Motion's order; `Active` gains `inView` and `focused`.
+- **Solid 1:**
+  - `whileInView`, `whileFocus`, `viewport` (`WardicViewport`), and `onViewportEnter` / `onViewportLeave`;
+  - all read only when given (rare keys);
+  - `createWhenWanted` starts the in-view and focus recognizers with hover, press and pan, from its one computation;
+  - **the recognizers started are one signal** (`Started`), which the resolution memo reads once, then each started one's state. Read as four accessors, an element's every Retarget tracked four signals where it had tracked two, and Solid 1 tracks each read: the first build cost Solid 1's Retarget +3.3% warm, +12% cold.
+- **Solid 2:**
+  - the same config keys, and `next("viewportEnter" | "viewportLeave")`; one asked for starts the recognizer on a ward with no `whileInView`;
+  - `settled()`'s gestures gain `inView` and `focus`.
+
 ## Consequences
 
 - **New public API:**
@@ -173,6 +216,8 @@ Motion's `dragConstraints={ref}` (`VisualElementDragControls.ts`, `utils/constra
   - **PR 3a:** core's `DragOptions.lock` and `Drag.Sample.axis` (an Environment's samples need it); `dragDirectionLock` on both bindings; Solid 1's `onDirectionLock`; Solid 2's `"directionLock"` event.
   - **PR 3b:** core's `Drag.boundsWithin`, `sameBounds`, `progressWithin`, `keepPlace` and `Edges`; dom's `ProjectionSystem.dragBoundsWithin`; element `dragConstraints` and `onMeasureDragConstraints` on both bindings, and the `WardicBoundingBox`, `WardicDragConstraints` and `WardicMeasureDragConstraints` types.
 - **Breaking, PR 3b:** numeric `dragConstraints` take Motion's `{ top, left, right, bottom }`, not `{ x: { min, max }, y: { min, max } }`.
+  - **PR 4:** core's `Probe.IntersectionOptions`, `Intersection`, `Recognizer.InViewOptions`, `inViewEvents`, `ViewTransition`, and `FocusLikeEvent.visible`; `whileInView`, `whileFocus`, `viewport` and `WardicViewport` working on both bindings; Solid 1's `onViewportEnter` / `onViewportLeave`; Solid 2's two viewport events, and `WardGestures.inView` / `focus`.
+- **Breaking, PR 4:** `Probe.observeIntersection` reports `Intersection`s, not booleans.
 - **Breaking on Solid 1:** a `wardic.*` element's `onDrag`, `onDragStart` and `onDragEnd` are Motion's, no longer the DOM's drag-and-drop handlers. An app that needs those listens on the element itself.
 - **Cost:** one field more on each pointer event and drag sample. An element with a hover or tap callback runs that recognizer, as one with its `while*` does.
 
@@ -239,3 +284,18 @@ Motion's `dragConstraints={ref}` (`VisualElementDragControls.ts`, `utils/constra
     - a fling springing back inside;
     - an element moved inside its container with neither resizing.
   - solid (Solid 2): GX15.
+- **PR 4:**
+  - core: `packages/test`'s `state-recognizers.test.ts` IV1, IV2 and FV1:
+    - `inViewEvents` from out of view, with its records and its options passed on;
+    - `once`;
+    - focus with `visible`.
+  - solid (Solid 1): `test/in-view-focus.browser.test.tsx` IV1–IV6 and FC1, with real scrolling, mouse and keyboard:
+    - the layer in and out;
+    - the callbacks and their entries, nothing at the start;
+    - `once`;
+    - `amount: "all"`;
+    - `root` with `margin`, against the page's clipped view;
+    - hover over in view;
+    - focus by the keyboard, not a click, over in view.
+  - solid (Solid 1): `test/motion-props.ssr.test.tsx` MP1–MP2, every motion prop reaching the config.
+  - solid (Solid 2): GX16–GX18, and `ward.tsx`'s types-only check that every Solid 2 motion prop is read.

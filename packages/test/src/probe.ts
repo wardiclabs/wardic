@@ -10,6 +10,9 @@ const VIEWPORT = { width: 1024, height: 768 }
 /** A page that doesn't scroll: no range, and progress 1, as Motion reads a container with none. */
 const STILL_SCROLL: Probe.Scroll = { x: { current: 0, length: 0, progress: 1 }, y: { current: 0, length: 0, progress: 1 } }
 
+/** A scripted in-view boolean as the Probe reports it, with no platform record. */
+const toIntersection = (intersecting: boolean): Probe.Intersection => ({ intersecting })
+
 /** Options for the static test Probe. */
 export interface TestProbeOptions {
   readonly bounds?: Probe.Bounds
@@ -32,7 +35,10 @@ export interface TestProbeOptions {
  */
 export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> => {
   const { intersection = [], scroll = STILL_SCROLL } = options
-  return Layer.succeed(Probe.Probe, { ...fixed(options, Atom.make(scroll)), observeIntersection: () => Stream.fromIterable(intersection) })
+  return Layer.succeed(Probe.Probe, {
+    ...fixed(options, Atom.make(scroll)),
+    observeIntersection: () => Stream.fromIterable(intersection).pipe(Stream.map(toIntersection)),
+  })
 }
 
 /**
@@ -68,7 +74,7 @@ export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
     const { scroll = STILL_SCROLL } = options
     const scrollAtom = Atom.make(scroll)
     return {
-      layer: Layer.succeed(Probe.Probe, { ...fixed(options, scrollAtom), observeIntersection: () => Stream.fromPubSub(pubsub) }),
+      layer: Layer.succeed(Probe.Probe, { ...fixed(options, scrollAtom), observeIntersection: () => Stream.fromPubSub(pubsub).pipe(Stream.map(toIntersection)) }),
       pushIntersection: (inView: boolean) =>
         PubSub.publish(pubsub, inView).pipe(Effect.asVoid),
       pushScroll: (next: Probe.Scroll) => AtomRegistry.AtomRegistry.use((registry) => Effect.sync(() => registry.set(scrollAtom, next))),
