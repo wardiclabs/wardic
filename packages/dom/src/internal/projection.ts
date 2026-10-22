@@ -808,6 +808,19 @@ export interface RegisterNodeOptions {
    * (*Amendment (velocity family)*, decision 6). A `<Reorder>` item sets it.
    */
   readonly raiseWhileDragged?: boolean
+  /**
+   * Where a presence child taking over from its leaver starts (#286, ADR-0048): the leaver's box in
+   * the **Root frame**, as it painted ({@link ProjectionSystem.rootBoxOf}). The node's first measure
+   * moves it from there to its own box, as a layout change, with no handover. A live twin to
+   * crossfade from comes first; this comes before a Switch seed.
+   */
+  readonly enteredFrom?: Box.Box
+  /**
+   * Where the handover its first measure begins starts its fade (#286, ADR-0048): a keyed twin back
+   * while its leaver crossfades out goes on from the factor that leaver had faded to
+   * ({@link ProjectionSystem.dropLeaver}). Omitted, 0.
+   */
+  readonly fadeFrom?: number
 }
 
 /**
@@ -938,6 +951,19 @@ export interface ProjectionSystem {
    * Returns the unregistration, for the element's dispose.
    */
   readonly registerValues: (el: Element, read: () => Readonly<Record<string, unknown>>) => () => void
+  /**
+   * An element's box in the **Root frame** as it paints now, its transforms included (#286, ADR-0048):
+   * where a presence child taking over from it starts ({@link RegisterNodeOptions.enteredFrom}).
+   * `None` for one off the page.
+   */
+  readonly rootBoxOf: (el: HTMLElement) => Option.Option<Box.Box>
+  /**
+   * End a leaving Follower at once (#286, ADR-0048): a keyed presence child is back while its twin
+   * crossfades out, and takes over. Its `onDone` is called, as at its handover's end. Returns the
+   * crossfade factor it had faded to, for the child's new node to go on from
+   * ({@link RegisterNodeOptions.fadeFrom}); `None` for an element that isn't one.
+   */
+  readonly dropLeaver: (el: HTMLElement) => Option.Option<number>
   /** Stop the coordinator's run + tear down the observer (wired into the provider's onCleanup). */
   readonly dispose: () => void
 }
@@ -996,6 +1022,10 @@ interface NodeState {
    * into this node's Scroll-stable frame. `undefined` otherwise.
    */
   seed: Box.Box | undefined
+  /** Where a presence take-over starts it (#286, {@link RegisterNodeOptions.enteredFrom}): consumed by its first measure. */
+  enteredFrom: Box.Box | undefined
+  /** Where the handover its first measure begins starts its fade (#286, {@link RegisterNodeOptions.fadeFrom}): consumed with it. */
+  fadeFrom: number | undefined
   /**
    * How this `layoutId` node's ancestors that aren't nodes paint it, at its last pass
    * (ADR-0012, *Amendment (#136)*): the delta from its box (which carries no transform)
@@ -2649,14 +2679,15 @@ export const makeProjectionSystem = (
     if (Predicate.isNotUndefined(node) && node.isScroll) return isScrollRoot(el)
     return isFixedNow(el)
   }
-  const rootScrollApplies = (node: NodeState): boolean => {
-    if (isRootAt(node.element)) return false
-    const doc = node.element.ownerDocument
-    for (let el = node.element.parentElement; el !== null && el !== doc.body && el !== doc.documentElement; el = el.parentElement) {
+  const rootScrollAppliesAt = (at: HTMLElement): boolean => {
+    if (isRootAt(at)) return false
+    const doc = at.ownerDocument
+    for (let el = at.parentElement; el !== null && el !== doc.body && el !== doc.documentElement; el = el.parentElement) {
       if (isRootAt(el)) return false
     }
     return true
   }
+  const rootScrollApplies = (node: NodeState): boolean => rootScrollAppliesAt(node.element)
 
   /**
    * `node`'s box in the **Root frame** (CONTEXT.md; ADR-0012 *Amendment (#13)*): the
@@ -3097,6 +3128,11 @@ export const makeProjectionSystem = (
       node.seed = undefined
       const seedBlend = node.seedBlend
       node.seedBlend = undefined
+      // So do a presence take-over's (#286): where it starts, and where its fade does.
+      const enteredFrom = node.enteredFrom
+      node.enteredFrom = undefined
+      const fadeFrom = node.fadeFrom
+      node.fadeFrom = undefined
 
       // SELF-SNAP (ADR-0013): a layoutRoot never FLIPs its own layout. Publish its
       // stable box (layoutBox + lastTarget) so descendants project relative to it; a FLIP
@@ -3185,11 +3221,34 @@ export const makeProjectionSystem = (
           node.origin = shapedOrigin(node, priorBox, newBox)
           node.layoutBox = newBox
           node.flight = startFlight(node)
-          // A handover: the crossfade fades the new Lead in from 0 (ADR-0010).
+          // A handover: the crossfade fades the new Lead in from 0 (ADR-0010), or, for a keyed
+          // twin back mid-crossfade, from where its leaver had faded to (#286).
           beginHandover(node)
+          UndefinedOr.map(fadeFrom, (from) => {
+            node.crossfadeFrom = from
+          })
           node.animating = true
           active.add(node)
           start(node)
+          continue
+        }
+        // (1b) TAKE-OVER (#286, ADR-0048): a presence child back under its key, its leaver gone. It
+        //     moves from where the leaver painted, as a layout change, no handover: rebased as a
+        //     Switch seed is, and drawn there on its first frame, its own scale divided out. A Switch
+        //     seed the same leaving twin left is passed over: the key decides where it comes from.
+        if (Predicate.isNotUndefined(enteredFrom)) {
+          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(enteredFrom, scrollOffset(node, ZERO_POINT))))
+          if (Bool.not(boxesEqual(origin, newBox))) {
+            node.origin = shapedOrigin(node, origin, newBox)
+            node.layoutBox = newBox
+            node.flight = startFlight(node)
+            node.animating = true
+            active.add(node)
+            start(node)
+            continue
+          }
+          node.lastDelta = IDENTITY_DELTA
+          writeProjection(node, IDENTITY_DELTA, TREE_SCALE_IDENTITY)
           continue
         }
         // (2) SWITCH: a disposed twin left this node a seed — no live twin in the
@@ -4071,6 +4130,8 @@ export const makeProjectionSystem = (
     radiusBlended: false,
     layoutId,
     seed: undefined,
+    enteredFrom: undefined,
+    fadeFrom: undefined,
     paintDelta: recent.paintDelta,
     unpaintDelta: recent.unpaintDelta,
     paintMapNow: UndefinedOr.map(chain, (links) => () => composeLinks(links)),
@@ -4329,6 +4390,27 @@ export const makeProjectionSystem = (
       ),
     )
 
+  // As it paints, as a connected twin's Switch seed is read (#170), in the Root frame (#286).
+  const rootBoxOf: ProjectionSystem["rootBoxOf"] = (el) => {
+    if (Bool.not(el.isConnected)) return Option.none()
+    const viewport = Box.fromBounds(readLayoutBox(el))
+    if (rootScrollAppliesAt(el)) return Option.some(offsetBox(viewport, measureDocumentScroll()))
+    return Option.some(viewport)
+  }
+
+  // The factor it had faded to, then gone as at its handover's end (#286).
+  const dropLeaver: ProjectionSystem["dropLeaver"] = (el) =>
+    runtime.runSync(
+      Effect.sync(() =>
+        Option.flatMap(Option.filter(Option.fromUndefinedOr(elementToNode.get(el)), (node) => node.leaving), (node) => {
+          const fade = UndefinedOr.match(node.fade, { onUndefined: () => 1, onDefined: identity })
+          debug("dropLeaver", { layoutId: node.layoutId, fade })
+          finishLeaver(node)
+          return Option.some(fade)
+        })
+      ).pipe(Effect.withSpan("wardic.projection.dropLeaver", undefined, { captureStackTrace: false })),
+    )
+
   /** Whether a page box takes space in the flow (#261): read the first time it's asked, then kept. */
   const takesSpace = (box: Element): boolean => {
     const known = pageFlow.get(box)
@@ -4468,6 +4550,8 @@ export const makeProjectionSystem = (
       radiusBlended: false,
       layoutId: opts.layoutId,
       seed: undefined,
+      enteredFrom: opts.enteredFrom,
+      fadeFrom: opts.fadeFrom,
       paintDelta: undefined,
       paintMapNow: undefined,
       paintChain: undefined,
@@ -4752,7 +4836,7 @@ export const makeProjectionSystem = (
     }
   }
 
-  const system: ProjectionSystem = { register, notify: scheduleMeasure, animateLayout, handleLeave, handBackWithin, dispose, registerValues }
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, animateLayout, handleLeave, handBackWithin, dispose, registerValues, rootBoxOf, dropLeaver }
   passEnds.set(system, passEndListeners)
   return system
 }

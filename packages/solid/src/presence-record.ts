@@ -4,6 +4,7 @@
  *
  * @module
  */
+import type * as Box from "@wardic/core/Box"
 import type * as Values from "@wardic/core/Values"
 import type { WardicTransition } from "./config.ts"
 import { constFalse } from "effect/Function"
@@ -51,6 +52,10 @@ export interface PresenceRecord {
 export interface PresenceSeed {
   readonly values: Values.Values
   readonly velocities: Readonly<Record<string, number>>
+  /** Where the element it takes over from painted, in the Root frame: a layout node moves from there. */
+  readonly box?: Box.Box | undefined
+  /** The crossfade factor a twin it takes over from had faded out to: its handover's fade goes on from there. */
+  readonly fade?: number | undefined
 }
 
 /** A child's exit, resolved as it leaves (#277): its values, and the transition it runs on. */

@@ -5,6 +5,7 @@
  *
  * @module
  */
+import type * as Box from "@wardic/core/Box"
 import type * as Point from "@wardic/core/Point"
 import type * as Projection from "@wardic/core/Projection"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -18,6 +19,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardConfig, WardicTransition } from "./config.ts"
+import type { PresenceSeed } from "./presence-record.ts"
 import { type MotionTransition, motionOf } from "./retarget-legs.ts"
 import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.ts"
 
@@ -100,6 +102,10 @@ export interface UseLayoutMemberOptions {
   readonly onLayoutAnimationComplete?: () => (() => void) | undefined
   /** The app's `onDragTransitionEnd` (#273): a drag's Release offset at rest, read when it fires. */
   readonly onReleaseEnd?: () => (() => void) | undefined
+  /** Where a presence take-over starts its first layout animation (#286): its leaver's box, in the Root frame. */
+  readonly enteredFrom?: Box.Box
+  /** Where a keyed twin's take-over starts its handover's fade (#286): the factor its leaver had faded to. */
+  readonly fadeFrom?: number
 }
 
 /**
@@ -108,7 +114,7 @@ export interface UseLayoutMemberOptions {
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { dragTransition, element, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
+  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
   return {
     id,
     element,
@@ -138,7 +144,20 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
       onUndefined: () => ({}),
       onDefined: (ended) => ({ onReleaseEnd: () => Option.fromUndefinedOr(ended()) }),
     }),
+    ...takeOverOf(enteredFrom, fadeFrom),
   }
+}
+
+/** No options: what most registrations add for a take-over (#286). */
+const NONE = {}
+
+/**
+ * A take-over's layout start (#286): the leaver's box and fade, each when it has one. Guards, not a
+ * match per option: every layout node registers through here.
+ */
+const takeOverOf = (box: Box.Box | undefined, fade: number | undefined): Pick<ProjectionSystem.RegisterNodeOptions, "enteredFrom" | "fadeFrom"> => {
+  if (Bool.and(Predicate.isUndefined(box), Predicate.isUndefined(fade))) return NONE
+  return { ...UndefinedOr.match(box, { onUndefined: () => NONE, onDefined: (from) => ({ enteredFrom: from }) }), ...UndefinedOr.match(fade, { onUndefined: () => NONE, onDefined: (from) => ({ fadeFrom: from }) }) }
 }
 
 /**
@@ -169,6 +188,8 @@ export interface WardLayout {
   readonly dragTransition: ProjectionSystem.DragTransition
   /** Raise the node while it's dragged: a `<Reorder>` item's. */
   readonly raiseWhileDragged: boolean
+  /** Where its child's take-over of a leaver starts it (#286): its box and fade, when it has one. */
+  readonly taken?: PresenceSeed | undefined
 }
 
 /**
@@ -177,7 +198,7 @@ export interface WardLayout {
  * projection system needs them.
  */
 export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
-  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged } = ward
+  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken } = ward
   const c0 = config()
   return {
     id,
@@ -202,5 +223,12 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     ...Bool.match(c0.layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
     ...UndefinedOr.match(c0.layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),
     ...Bool.match(raiseWhileDragged, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
+    ...takenOptionsOf(taken),
   }
+}
+
+/** A take-over's layout start (#286), when its child took over from a leaver: its box and fade. */
+const takenOptionsOf = (taken: PresenceSeed | undefined): Pick<UseLayoutMemberOptions, "enteredFrom" | "fadeFrom"> => {
+  if (Predicate.isUndefined(taken)) return NONE
+  return takeOverOf(taken.box, taken.fade)
 }

@@ -70,7 +70,7 @@ import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
-import { presenceSeedOf } from "./presence-record.ts"
+import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
@@ -437,11 +437,15 @@ export function runSpine(opts: RunSpineOptions): void {
       // leaves. The child does NOT call the disposer on its own
       // onCleanup — <AnimatePresence> removes the registration after the exit settles.
       let presenceRec: PresenceRecord | undefined
+      // Where it starts when its child takes over from a leaver (#286): asked before its layout node
+      // registers, which moves from the leaver's box, and before its first Retarget.
+      let taken: PresenceSeed | undefined
       if (Predicate.isNotUndefined(presence)) {
         const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
         const rec = presenceRecordOf(element, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot)
         presenceRec = rec
         presence.register(rec)
+        taken = presenceSeedOf(presence, element)
         createEffect(() => {
           exitConfig.current = exitConfigOf(cfg(), parent)
         })
@@ -470,7 +474,7 @@ export function runSpine(opts: RunSpineOptions): void {
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (wantsLayoutNode(c0)) {
         layoutHandle = useLayoutMember(
-          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true }),
+          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken }),
         )
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
@@ -628,7 +632,7 @@ export function runSpine(opts: RunSpineOptions): void {
       })
       onCleanup(spine.dispose)
       // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
-      if (Predicate.isNotUndefined(presence)) UndefinedOr.map(presenceSeedOf(presence, element), spine.seed)
+      if (Predicate.isNotUndefined(taken)) spine.seed(taken)
 
       // The spine effect depends on BOTH `target` and `canStart` (ADR-0007 `when`):
       // Solid's `on` runs its callback under `untrack`, so the gate accessor MUST

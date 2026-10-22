@@ -20,6 +20,7 @@
  *
  * @module
  */
+import type * as Box from "@wardic/core/Box"
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -98,6 +99,9 @@ const NO_VELOCITIES: Readonly<Record<string, number>> = {}
 
 /** Where an element is drawn (#286): its values, and each numeric key's velocity. */
 type Drawn = PresenceSeed
+
+/** No boxes: a leaver none of whose elements was on the page. */
+const NO_BOXES: ReadonlyMap<Element, Box.Box> = new Map()
 
 /** A Wardic element made under a presence (#286): its `key`, if it has one, and whether it's a twin. */
 interface Made {
@@ -452,6 +456,12 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const takeovers = new Map<HTMLElement, HTMLElement>()
   // Where each Wardic element in a child that took over starts: read once, at its mount.
   const seeds = new WeakMap<Element, Drawn>()
+  // The keyed leavers crossfading as twins (ADR-0010), the projection's: one taken over ends its
+  // leaving Follower at once (Q8: D).
+  const crossfades = new Set<HTMLElement>()
+  // Where each leaver taken over painted, it and the Wardic elements inside it, in the Root frame:
+  // read as the take-over is found, before the change moves anything.
+  const leaverBoxes = new Map<HTMLElement, ReadonlyMap<Element, Box.Box>>()
   // Whether any keyed element was made: until then, no change looks for a take-over.
   let keyed = false
 
@@ -536,6 +546,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     exiting.delete(el)
     registry.delete(el)
     draws.delete(el)
+    crossfades.delete(el)
+    leaverBoxes.delete(el)
     // No longer one a child back under its key takes over from (#286).
     UndefinedOr.map(keyOf(el), (key) => {
       if (keyedLeavers.get(key) === el) keyedLeavers.delete(key)
@@ -821,6 +833,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     if (crossfaded) {
       debug("leave: crossfade (deferred to projection)")
       tellLeave(el, inside, false)
+      // A keyed one is what a child back under its key takes over from (#286), its Follower ended.
+      UndefinedOr.map(keyOf(el), (key) => {
+        keyedLeavers.set(key, el)
+        crossfades.add(el)
+      })
       return
     }
     // Its exit, resolved now (#277): with the presence's `custom` when it has one, else the child's last.
@@ -906,9 +923,19 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       if (onPage.has(el)) return
       UndefinedOr.map(keyOf(el), (key) =>
         UndefinedOr.map(byKey.get(key), (leaver) => {
-          if (leaver !== el) takeovers.set(el, leaver)
+          if (leaver === el) return
+          takeovers.set(el, leaver)
+          if (Bool.not(leaverBoxes.has(leaver))) leaverBoxes.set(leaver, boxesOf(leaver))
         }))
     })
+  }
+
+  /** Where a leaver and the Wardic elements inside it paint now, in the Root frame: each one on the page. */
+  const boxesOf = (leaver: HTMLElement): ReadonlyMap<Element, Box.Box> => {
+    const boxes = new Map<Element, Box.Box>()
+    Arr.forEach([leaver, ...Arr.map(partsOf(leaver), (part) => part.element)], (el) =>
+      Option.map(projection.rootBoxOf(el), (box) => boxes.set(el, box)))
+    return boxes
   }
 
   /** The take-overs found, each done once: at the first of the child's wards' mounts, or the presence's next look. */
@@ -935,10 +962,21 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     if (Predicate.isUndefined(from)) return
     const before = partsOf(leaver)
     const after = madeWithin(el)
-    seeds.set(el, drawnOf(from))
+    // Each as drawn, and where it painted: a layout node moves from there (#286's PR 2).
+    const boxes = UndefinedOr.match(leaverBoxes.get(leaver), { onUndefined: (): ReadonlyMap<Element, Box.Box> => NO_BOXES, onDefined: identity })
+    leaverBoxes.delete(leaver)
+    const seedOf = (rec: PresenceRecord): Drawn => ({ ...drawnOf(rec), box: boxes.get(rec.element) })
     const paired = sameShape(Arr.map(before, (part) => part.element), after)
-    if (paired) Arr.forEach(Arr.zip(before, after), ([part, into]) => seeds.set(into, drawnOf(part)))
+    if (paired) Arr.forEach(Arr.zip(before, after), ([part, into]) => seeds.set(into, seedOf(part)))
     debug("leave: taken over", { parts: before.length, paired })
+    // A twin crossfading out (Q8: D): its leaving Follower goes at once, uncompleted, and the new
+    // node's handover fades on from where it had faded to, as Motion's same element would.
+    if (crossfades.has(leaver)) {
+      leaveEnds(leaver, false)
+      seeds.set(el, { ...seedOf(from), fade: Option.getOrUndefined(projection.dropLeaver(leaver)) })
+      return
+    }
+    seeds.set(el, seedOf(from))
     if (pending.has(leaver)) {
       interruptExit(leaver)
       return
