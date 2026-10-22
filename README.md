@@ -155,6 +155,7 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | `useTime()` | `createTime()` |
 | `onUpdate={(latest) => …}` | `onUpdate={(latest) => …}` |
 | `onAnimationStart={(definition) => …}`, `onAnimationComplete={(definition) => …}` | the same, with the variant name or the target values (ADR-0046); not on Solid 2 |
+| `<AnimatePresence>` around many keyed children | around many children, each its DOM node: a `<For>`'s items, a `<Show>`'s child; each that leaves exits in its place, and one back mid-exit is a new node entering beside it, where Motion reuses the leaver under its key (ADR-0048) |
 | `<AnimatePresence onExitComplete={() => …}>` | the same, once every exiting child has animated out and been removed (ADR-0046); on Solid 2, a `createPresence()` handle |
 | `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onDragStart`, `onDrag`, `onDragEnd`: `(event, info) => …`; `onDragTransitionEnd={() => …}` | the same, called at the event (so `event.stopPropagation()` works), with `info.point` in the viewport, not the page (ADR-0047); on `wardic.*`, `onDrag*` are these, not the DOM's drag and drop; on Solid 2, `next(name)` |
 | `dragConstraints={{ left, right, top, bottom }}`, `dragConstraints={ref}`, `onMeasureDragConstraints` | the same box; a container as an accessor, a signal ref (`dragConstraints={frame}`) or `() => frame`, measured at each drag's start and when either resizes, keeping the element's place (ADR-0047) |
@@ -361,7 +362,7 @@ function Card(props: { open: boolean }) {
   }
   ```
 - Layout is async too (#257, ADR-0046). `useAnimateLayout()`'s call returns a promise of its callback's result, resolved once every layout animation the change started has ended: `await animateLayout(() => setItems(shuffled()))`, then re-enable the button. Calls in one task resolve together, and the provider's disposal rejects one still waiting with an `AbortError`. A layout element's animations are `next("layoutStart")` and `next("layoutComplete")` (and `each`), where Solid 1 has `onLayoutAnimationStart` / `onLayoutAnimationComplete` and `animateLayout`'s `onSettled`.
-- A presence's exits are heard through a handle, `createPresence()`, given to `<AnimatePresence ref>` (#257, ADR-0046). `presence.exiting()` is whether a child is exiting, a plain reactive boolean; `await presence.next("exitComplete")` waits until the exiting child has animated out and been removed (a child back mid-exit doesn't complete it), and `next("exitStart")` until a child leaves. `ref` is optional, and takes a plain callback too: `ref={(p) => (presence = p)}`.
+- A presence's exits are heard through a handle, `createPresence()`, given to `<AnimatePresence ref>` (#257, ADR-0046). `presence.exiting()` is whether a child is exiting, a plain reactive boolean; `await presence.next("exitComplete")` waits until every exiting child has animated out and been removed, and `next("exitStart")` until a child leaves. `ref` is optional, and takes a plain callback too: `ref={(p) => (presence = p)}`.
 
   ```tsx
   const presence = createPresence()

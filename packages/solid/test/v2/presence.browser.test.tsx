@@ -10,11 +10,14 @@
 // - P7: a leaving child hands back the twin inside it: the twin crossfades back onto its other twin,
 //   and the child stays until the handover ends (#181, the Solid 1 binding's PH1).
 // - P8: the presence unmounted mid-close: the child and its twin go at once (PH5).
-// - P9: a child re-entering while the last one's exit runs ends that exit: the old node goes at once.
+// - P9: a child re-entering while the last one's exit runs: the old node finishes its exit beside the
+//   new one (#277; it was ended at once).
+// - P10 (#277): a `<For>`'s items: one removed from the middle exits in its place, a second removed
+//   while it exits too, each then gone, in order.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
-import { createSignal, flush, Show } from "solid-js"
+import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -179,7 +182,7 @@ describe("AnimatePresence on Solid 2: a single child, a parent-driven exit", () 
 })
 
 describe("AnimatePresence on Solid 2: a re-entry", () => {
-  it("P9: a child re-entering while the last one's exit runs ends that exit: the old node goes at once", async () => {
+  it("P9: a child re-entering while the last one's exit runs: the old node finishes its exit beside the new one (#277)", async () => {
     const [visible, setVisible] = createSignal(true)
     const { host } = mount(() => (
       <WardicProvider env={DomLive}>
@@ -196,8 +199,42 @@ describe("AnimatePresence on Solid 2: a re-entry", () => {
     for (let i = 0; i < 3; i++) await raf()
     expect(first.isConnected, "exiting").toBe(true)
     flushed(setVisible)(true)
-    expect(first.isConnected, "the old node goes with the re-entry").toBe(false)
-    expect(tracked(host)).not.toBe(first)
+    const second = Array.from(host.querySelectorAll("[data-presence]")).find((node) => node !== first)
+    expect(second, "the new one enters").toBeDefined()
+    expect(first.isConnected, "the old one exits on beside it").toBe(true)
+    await until(() => !first.isConnected, 3000)
+    expect(first.isConnected).toBe(false)
+    expect(second!.isConnected, "the new one stays").toBe(true)
+  })
+})
+
+describe("AnimatePresence on Solid 2: many children (#277)", () => {
+  it("P10: a For's items each exit in their place, overlapping, then go in order", async () => {
+    const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <ul>
+          <AnimatePresence>
+            <For each={items()}>
+              {(item) => (
+                <wardic.li data-item={item} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.15 }}>
+                  {item}
+                </wardic.li>
+              )}
+            </For>
+          </AnimatePresence>
+        </ul>
+      </WardicProvider>
+    ))
+    const order = (): Array<string> => Array.from(host.querySelectorAll<HTMLElement>("[data-item]")).map((n) => n.dataset.item!)
+    await until(() => Array.from(host.querySelectorAll<HTMLElement>("[data-item]")).every((n) => opacityOf(n) >= 0.99), 2000)
+    flushed(setItems)(["a", "c"])
+    expect(order(), "b in its place").toEqual(["a", "b", "c"])
+    for (let i = 0; i < 3; i++) await raf()
+    flushed(setItems)(["c"])
+    expect(order(), "a and b both exiting, in order").toEqual(["a", "b", "c"])
+    await until(() => order().length === 1, 3000)
+    expect(order()).toEqual(["c"])
   })
 })
 

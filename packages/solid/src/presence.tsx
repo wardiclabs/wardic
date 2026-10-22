@@ -1,5 +1,5 @@
 /**
- * `<AnimatePresence>` — exit-before-unmount for a single child (ADR-0007).
+ * `<AnimatePresence>` — exit-before-unmount for its children (ADR-0007; many since #277, ADR-0048).
  *
  * Doctrine: the LEAVING child cannot animate its own exit — Solid disposes its
  * reactive owner (and would remove its DOM node) the instant the `<Show>` (or
@@ -11,13 +11,13 @@
  *      updated each frame by the spine) and `exit.current` (the exit target,
  *      kept current by a `createEffect` reading `cfg().exit`). The child does NOT
  *      unregister on its own `onCleanup` — `<AnimatePresence>` owns removal.
- *   2. `<AnimatePresence>` resolves its child via Solid `children()` and tracks
- *      the currently-present element. When the resolved child goes present ->
- *      absent AND a registration exists for that element, it RE-INSERTS / KEEPS
- *      that DOM node in its own container instead of letting it vanish, then runs
- *      the exit animation itself (from `snapshot.current` toward `exit.current`
- *      via the provider runtime + the Renderer's `project`/`commit`), and on the
- *      exit's settle removes the node from the DOM and the registration.
+ *   2. `<AnimatePresence>` resolves its children via Solid `children()` (one, or a
+ *      `<For>`'s many) and tracks the present elements. When one leaves the resolved
+ *      children AND a registration exists for it, it RE-INSERTS / KEEPS that DOM
+ *      node where it was instead of letting it vanish, then runs the exit animation
+ *      itself (from `snapshot.current` toward `exit.current` via the provider
+ *      runtime + the Renderer's `project`/`commit`), and on the exit's settle
+ *      removes the node from the DOM and the registration.
  *   3. If `exit.current` is empty/undefined the node is removed immediately.
  *
  * Node retention (the hard part): mirrors solid-transition-group's single-child
@@ -28,10 +28,10 @@
  * exit refs are plain objects that outlive the child's owner, so the exit has
  * everything it needs after the child is gone.
  *
- * v0.1 scope: a SINGLE child. A re-entry while the previous node is still
- * exiting INTERRUPTS the exiting node (its fiber is interrupted + node removed);
- * full mid-exit reuse is deferred. One hosting the handovers of twins it handed
- * back is left to finish beside the new one (ADR-0010 *Amendment (#181)*).
+ * A child is its DOM node (#277): each that leaves exits on its own, in its place. A
+ * child that comes back mid-exit is a new node, which enters beside the leaver while
+ * the leaver finishes, as Motion shows two children it can't tell apart (#286 would
+ * key them).
  *
  * A leaving child that isn't a twin hands back the twins inside it (#181): each
  * crossfades onto its other twin while the child runs its own exit, and the child
@@ -72,8 +72,8 @@ export interface AnimatePresenceProps {
 }
 
 /**
- * `<AnimatePresence>` — wraps a single (optionally conditional) child and
- * animates its exit before unmount. Must be used inside a `<WardicProvider>`
+ * `<AnimatePresence>` — wraps its children (a conditional one, or a `<For>`'s) and
+ * animates each one's exit before it's removed. Must be used inside a `<WardicProvider>`
  * (it drives the exit on the provider runtime) and may wrap any control flow
  * (e.g. `<Show>`); the leaving child must be a `wardic.*` element / `createWard`
  * spine under this presence so it registers an exit record.
