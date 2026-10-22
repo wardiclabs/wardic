@@ -3,8 +3,8 @@
 //
 // - PX1: `exiting()` is `true` from the exit's start to the node's removal; `next("exitStart")`, then
 //   `next("exitComplete")`, with the node gone when it resolves.
-// - PX2: a re-entry mid-exit: `exiting()` turns off at once, the exit doesn't complete, and a waiting
-//   `next("exitComplete")` resolves at the next exit that does.
+// - PX2: a re-entry mid-exit: `exiting()` stays on until the leaver's exit ends, which completes it
+//   (#277: the leaver finishes beside the new child; it was interrupted).
 // - PX3: `ref` as a plain callback is handed the presence's own handle, which hears the same.
 // - PX4: `each("exitComplete")`: each close's, until the handle's owner goes; a waiting `next` rejects
 //   with an `AbortError` then.
@@ -13,13 +13,15 @@
 // - PX6: a plain (non-Wardic) child leaves at once: its exit starts and completes together.
 // - PX7: a crossfading leaver (its `layoutId`'s twin shown as it leaves) is the projection's: the
 //   presence torn down mid-crossfade still turns `exiting()` off.
+// - PX9 (#277): a `<For>`'s two items leaving one after the other: `exiting()` on until the last is
+//   gone, and one completion, with it.
 // - PX8: two leavers at once (the first hands its twin back, which outlasts a re-entry, #181; the
 //   second holds none, and goes first): `exiting()` stays on until the last has gone, and the
 //   completion comes with it.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createPresence, type Presence, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
-import { createSignal, flush, Show } from "solid-js"
+import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -80,21 +82,21 @@ describe("a presence handle on Solid 2 (#257)", () => {
     expect(log).toEqual(["start exiting=true", "complete connected=false exiting=false"])
   })
 
-  it("PX2: a re-entry mid-exit: exiting() off at once, no completion; the next completed exit resolves it", async () => {
+  it("PX2: a re-entry mid-exit: exiting() stays on until the leaver's exit ends, which completes it (#277)", async () => {
     const scene = withHandle()
     await until(() => Number(scene.child()?.style.opacity) >= 0.99, 2000)
+    const first = scene.child()!
     let completions = 0
     const completed = scene.presence().next("exitComplete").then(() => completions++)
     scene.show(false)
     await raf()
     await raf()
     scene.show(true)
-    expect(scene.presence().exiting(), "off at the re-entry").toBe(false)
-    for (let i = 0; i < 15; i++) await raf()
-    expect(completions, "the interrupted exit didn't complete").toBe(0)
-    scene.show(false)
+    expect(scene.presence().exiting(), "on while the leaver exits beside the new child").toBe(true)
     await completed
     expect(completions).toBe(1)
+    expect(first.isConnected, "the leaver gone when it completes").toBe(false)
+    expect(scene.presence().exiting()).toBe(false)
   })
 
   it("PX3: ref as a plain callback is handed the presence's own handle", async () => {
@@ -280,5 +282,45 @@ describe("a presence handle on Solid 2 (#257)", () => {
     expect(oneLeft.every((s) => s === "1:true"), "on while one is left").toBe(true)
     expect(presence.exiting()).toBe(false)
     expect(completions).toBe(1)
+  })
+})
+
+describe("a presence handle over many children (#277)", () => {
+  it("PX9: two items leaving one after the other: exiting() on until the last is gone, one completion", async () => {
+    const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+    let presence!: Presence
+    const List = (): JSX.Element => {
+      presence = createPresence()
+      return (
+        <ul>
+          <AnimatePresence ref={presence}>
+            <For each={items()}>
+              {(item) => (
+                <wardic.li data-item={item} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EXIT}>
+                  {item}
+                </wardic.li>
+              )}
+            </For>
+          </AnimatePresence>
+        </ul>
+      )
+    }
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <List />
+      </WardicProvider>
+    ))
+    const count = (): number => host.querySelectorAll("[data-item]").length
+    await until(() => Array.from(host.querySelectorAll<HTMLElement>("[data-item]")).every((n) => Number(n.style.opacity) >= 0.99), 2000)
+    let completions = 0
+    void presence.next("exitComplete").then(() => completions++)
+    flushed(setItems)(["b", "c"])
+    for (let i = 0; i < 3; i++) await raf()
+    flushed(setItems)(["c"])
+    expect(presence.exiting()).toBe(true)
+    await until(() => count() === 1, 3000)
+    await raf()
+    expect(presence.exiting(), "off with the last").toBe(false)
+    expect(completions, "one completion").toBe(1)
   })
 })

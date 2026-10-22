@@ -1,13 +1,13 @@
 /**
- * `<AnimatePresence>` on Solid 2 (#209, ADR-0007): exit-before-unmount for a single child, as the
- * Solid 1 binding's. Its work (the retained node, its parent-driven exit, the twins it hands back,
- * a re-entry's interrupt) is Solid-free, in `presence-controller.ts`. What's Solid 2's:
+ * `<AnimatePresence>` on Solid 2 (#209, ADR-0007): exit-before-unmount for its children (many since
+ * #277, ADR-0048), as the Solid 1 binding's. Its work (each retained node, its parent-driven exit,
+ * the twins it hands back) is Solid-free, in `presence-controller.ts`. What's Solid 2's:
  *
- * - **The child is resolved with `children()`** under the presence's context, so the child's ward
- *   registers its exit record with it.
- * - **An effect tells the controller which element is present,** in its apply: after Solid 2's
- *   flush has applied the change, the leaving node removed. The controller puts it back before the
- *   flush ends, so no paint shows it gone.
+ * - **The children are resolved with `children()`** under the presence's context, so each child's
+ *   ward registers its exit record with it.
+ * - **An effect tells the controller which elements are present,** in its apply: after Solid 2's
+ *   flush has applied the change, the leaving nodes removed. The controller puts them back before
+ *   the flush ends, so no paint shows them gone.
  * - **Once settled** (`onSettledClientOnly`), the first render has ended, for `initial={false}` (#134).
  *
  * @module
@@ -50,7 +50,9 @@ export interface AnimatePresenceProps {
 }
 
 /**
- * Wraps a single, often conditional, child (`<Show>`) and animates its exit before it's removed.
+ * Wraps its children (a conditional one, `<Show>`, or a `<For>`'s) and animates each one's exit
+ * before it's removed (#277): each that leaves exits in its place, and one that comes back mid-exit
+ * is a new node, entering beside the leaver.
  * The child is a `wardic.*` element or an element with a ward on it, whose config's `exit` is the
  * exit's target. Inside a `<WardicProvider>`.
  */

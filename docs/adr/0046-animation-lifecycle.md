@@ -174,6 +174,10 @@ Solid's action sends a yielded promise's value back in (`it.next(v)`) and throws
   - On a server the handle reads not exiting, its `next` never settles, and its `each` ends at once.
 - **`next` and `each` are one module now** (`unstable/v2/waiters.ts`): `Waiters`, and `eachOf` over anything waitable. The ward's lifecycle makes its `Waiters` at its first `next`, so a ward no one asks still costs one object.
 
+## Note (#277, 2026-10-22): a re-entry interrupts nothing
+
+ADR-0048, decision 2. A child back mid-exit no longer interrupts the leaver: the leaver finishes its exit beside the new child, and its end completes. So `onExitComplete` and `next("exitComplete")` come once it's gone, and `exiting()` stays on until then. "A re-entry's interrupt" above, and PX2's and EC2's re-entries, now read that way. The presence's teardown still completes nothing.
+
 ## Consequences
 
 - **New public API:**

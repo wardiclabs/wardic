@@ -1,7 +1,8 @@
 // `<AnimatePresence onExitComplete>` on Solid 1 (#257, ADR-0046, Motion's prop), in real frames.
 //
 // - EC1: called once the exiting child has animated out and been removed.
-// - EC2: a child that comes back mid-exit: not called; the next exit that completes calls it.
+// - EC2: a child that comes back mid-exit: the leaver finishes beside it, and it's called once the
+//   leaver's gone (#277; the re-entry used to interrupt the exit).
 // - EC3: the presence torn down mid-exit: not called.
 // - EC4: one that throws is reported, and the presence goes on: the next exit's call comes.
 // - EC5: a plain (non-Wardic) child leaves at once, and it's called then.
@@ -54,18 +55,18 @@ describe("AnimatePresence's onExitComplete on Solid 1 (#257)", () => {
     expect(calls, "once").toEqual([true])
   })
 
-  it("EC2: a child back mid-exit: not called; the next exit that completes calls it", async () => {
+  it("EC2: a child back mid-exit: the leaver finishes beside it, and it's called once the leaver's gone (#277)", async () => {
     const calls: Array<boolean> = []
     const scene = mountPresence((gone) => calls.push(gone))
     await until(() => Number(scene.child()?.style.opacity) >= 0.99, 2000)
+    const first = scene.child()!
     scene.setVisible(false)
     await frames(2)
     scene.setVisible(true)
-    await frames(15)
-    expect(calls, "the interrupted exit didn't complete").toEqual([])
-    scene.setVisible(false)
-    await until(() => calls.length > 0, 2000)
-    expect(calls).toEqual([true])
+    expect(first.isConnected, "the leaver exits on").toBe(true)
+    await until(() => calls.length > 0, 3000)
+    expect(first.isConnected, "gone when it's called").toBe(false)
+    expect(calls, "with the new child there").toEqual([false])
   })
 
   it("EC3: the presence torn down mid-exit: not called", async () => {

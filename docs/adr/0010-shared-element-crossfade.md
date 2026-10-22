@@ -451,6 +451,10 @@ Grilled 2026-10-14:
   - `onDone` at once;
   - teardown over running exits only.
 
+## Note (#277, 2026-10-22): no re-entry cuts an exit short
+
+ADR-0048, decision 2. Presence no longer interrupts any leaver at a re-entry, so decision 4 above is now the rule for every leaving child, not only one hosting handovers. Each leaver hands back its own twins, as a lone child did.
+
 ## Amendment (#221, 2026-10-17): one record for a just-disposed layout node
 
 The engine kept a just-disposed layout node in three structures, each written and expired on its own:

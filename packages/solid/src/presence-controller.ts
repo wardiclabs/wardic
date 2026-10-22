@@ -1,9 +1,13 @@
 /**
- * `<AnimatePresence>`'s work (ADR-0007), Solid-free (#209): the leaving child's retained node, its
- * parent-driven exit, the twins it hands back (ADR-0010 *Amendment (#181)*), and a re-entry's
- * interrupt. Each binding's `AnimatePresence` resolves its child with its own Solid and tells
- * {@link PresenceController.present} which element is present after each change; see the Solid 1
- * binding's `presence.tsx` for the doctrine.
+ * `<AnimatePresence>`'s work (ADR-0007), Solid-free (#209): each leaving child's retained node, its
+ * parent-driven exit, and the twins it hands back (ADR-0010 *Amendment (#181)*). Each binding's
+ * `AnimatePresence` resolves its children with its own Solid and tells
+ * {@link PresenceController.present} which are present after each change; see the Solid 1 binding's
+ * `presence.tsx` for the doctrine.
+ *
+ * Many children (#277, ADR-0048): a child is its DOM node, so one that leaves is the node that left
+ * the resolved children, each exiting on its own, in its place. A child that comes back mid-exit is
+ * a new node, which enters beside the leaver while the leaver finishes (#286 would key them).
  *
  * @module
  */
@@ -38,6 +42,23 @@ const EXIT_SPRING: Machine.SpringOptions = {}
 
 /** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
+
+/** The elements of what a binding's `children()` resolved: one node, a flat array, or none. */
+const elementsOf = (resolved: unknown): ReadonlyArray<HTMLElement> => Arr.filter(Arr.ensure(resolved), isHTMLElement)
+
+/** A child present at the last change: its element, and where it was then, to put it back as it leaves. */
+interface Placed {
+  readonly el: HTMLElement
+  readonly parent: ParentNode | undefined
+  readonly next: ChildNode | undefined
+}
+
+/** Where `el` is now. */
+const placedOf = (el: HTMLElement): Placed => ({
+  el,
+  parent: Option.getOrUndefined(Option.fromNullOr(el.parentNode)),
+  next: Option.getOrUndefined(Option.fromNullOr(el.nextSibling)),
+})
 
 /** Put a retained node back into the parent it left: before its old next sibling while that's still there, else at the end. */
 const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): void => {
@@ -85,8 +106,8 @@ export interface PresenceController {
   /** The presence has mounted: a child that enters from now on animates in (#134). */
   readonly mounted: () => void
   /**
-   * The child present now, after a change: a child that left is retained and exits, and an exit a
-   * new child interrupts is ended. Called after the binding's framework has applied the change.
+   * The children present now, after a change (a node, a flat array of them, or none): each that left
+   * is retained in its place and exits. Called after the binding's framework has applied the change.
    */
   readonly present: (current: unknown) => void
   /** The presence's teardown: every exit in flight interrupted, every retained node removed. */
@@ -151,6 +172,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // The children exiting now, each told once at its end (#257): completed, or interrupted.
   const leaving = new Set<HTMLElement>()
+  // Each retained child's place when it left (#277): a framework that clears its nodes wholesale (a
+  // list emptied clears its parent) takes it out mid-exit, and it goes back there.
+  const places = new Map<HTMLElement, Placed>()
   const events = options.events
 
   /** A child's exit starts: told, and `exiting` turns on with the first. */
@@ -193,6 +217,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     registry.delete(el)
     pending.delete(el)
     handovers.delete(el)
+    places.delete(el)
     const unregister = exitValues.get(el)
     exitValues.delete(el)
     if (Predicate.isNotUndefined(unregister)) unregister()
@@ -330,12 +355,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     exiting.set(el, fiber)
   }
 
-  // The element that was present on the PREVIOUS effect run + its DOM position at
-  // the time it was present, so we can RE-ATTACH it after Solid's branch disposal
-  // detaches it (node retention).
-  let prevEl: HTMLElement | undefined
-  let prevParent: ParentNode | undefined
-  let prevNext: ChildNode | undefined
+  // The children present at the last change, and where each was, to retain one as it leaves.
+  let previous: ReadonlyArray<Placed> = []
 
   // Teardown: interrupt every in-flight exit + remove retained nodes, the twins they handed back
   // dropped with them (no leaks). Every child running its own exit is in `pending`.
@@ -346,53 +367,47 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
   }
 
+  /** Put a retained child back where it was, if a framework took it out. */
+  const putBack = (placed: Placed): void => {
+    if (placed.el.parentNode !== null) return
+    UndefinedOr.map(placed.parent, (parent) => reinsert(placed.el, parent, placed.next))
+  }
+
+  /** A child that left: retained in its place, and exiting, unless it's leaving already. */
+  const left = (placed: Placed): void => {
+    const el = placed.el
+    const rec = registry.get(el)
+    // A child with no record (not a Wardic element) has no exit: it's gone at once (#257).
+    if (Predicate.isUndefined(rec)) {
+      if (Bool.not(leaving.has(el))) {
+        leaveStarts(el)
+        leaveEnds(el, true)
+      }
+      return
+    }
+    if (exiting.has(el)) return
+    leaveStarts(el)
+    // RE-INSERT: Solid's branch disposal may have already removed the node. Put it back where it was,
+    // so the parent-driven exit has a mounted node to animate.
+    putBack(placed)
+    places.set(el, placed)
+    // Shared-element crossfade (ADR-0010): if the projection has a live twin (Lead) to crossfade
+    // toward, defer to it — it drives the retained node as a leaving Follower and calls onDone
+    // (-> finishExit) on the lead's settle. Otherwise run the normal exit animation.
+    const crossfaded = projection.handleLeave(el, () => finishExit(el))
+    if (crossfaded) debug("leave: crossfade (deferred to projection)")
+    if (Bool.not(crossfaded)) leave(rec)
+  }
+
   const present = (current: unknown): void => {
-    const currentEl = Option.getOrUndefined(Option.liftPredicate(current, isHTMLElement))
-
-    // present -> absent: the child left. If we hold a registration for the node
-    // that JUST left, retain it (re-attach if Solid already detached it) and
-    // drive its exit.
-    if (Predicate.isNotUndefined(prevEl) && currentEl !== prevEl) {
-      const rec = registry.get(prevEl)
-      // A child with no record (not a Wardic element) has no exit: it's gone at once (#257).
-      if (Bool.and(Predicate.isUndefined(rec), Bool.not(leaving.has(prevEl)))) {
-        leaveStarts(prevEl)
-        leaveEnds(prevEl, true)
-      }
-      if (Predicate.isNotUndefined(rec) && !exiting.has(prevEl)) {
-        leaveStarts(prevEl)
-        // RE-INSERT: Solid's <Show> branch disposal may have already removed
-        // the node. Re-append it (at its prior sibling position when available)
-        // into the parent it lived in, so the parent-driven exit has a mounted
-        // node to animate. Without this the node would simply vanish.
-        if (prevEl.parentNode === null && Predicate.isNotUndefined(prevParent)) reinsert(prevEl, prevParent, prevNext)
-        // Shared-element crossfade (ADR-0010): if the projection has a live twin
-        // (Lead) to crossfade toward, defer to it — it drives the retained node as
-        // a leaving Follower and calls onDone (-> finishExit) on the lead's settle.
-        // Otherwise (no twin / no layoutId) run the normal exit animation.
-        const leavingEl = prevEl // narrowed const (prevEl is a reassigned `let`)
-        const crossfaded = projection.handleLeave(leavingEl, () => finishExit(leavingEl))
-        if (crossfaded) debug("leave: crossfade (deferred to projection)")
-        if (Bool.not(crossfaded)) leave(rec)
-      }
-    }
-
-    // A fresh child re-entered while an OLD node (different element) is still
-    // exiting -> interrupt every stale exit (v0.1: clean interrupt, no reuse).
-    // One hosting the handovers of twins it handed back finishes beside the new one (#181).
-    if (Predicate.isNotUndefined(currentEl)) {
-      Arr.forEach(Arr.fromIterable(exiting.keys()), (el) => {
-        if (el === currentEl || handovers.has(el)) return
-        interruptExit(el)
-      })
-    }
-
-    // Record the present node + its DOM position for the next diff/retention.
-    prevEl = currentEl
-    if (Predicate.isNotUndefined(currentEl)) {
-      prevParent = Option.getOrUndefined(Option.fromNullOr(currentEl.parentNode))
-      prevNext = Option.getOrUndefined(Option.fromNullOr(currentEl.nextSibling))
-    }
+    const now = elementsOf(current)
+    const kept = new Set(now)
+    // The children that left, the last first: each goes back before its old next sibling, which, if
+    // it left too, is back already, so neighbours leaving together keep their order.
+    Arr.forEach(Arr.reverse(Arr.filter(previous, (placed) => Bool.not(kept.has(placed.el)))), left)
+    // A child still exiting that the framework took out since (a list emptied) goes back too.
+    Arr.forEach(Arr.fromIterable(places.values()), putBack)
+    previous = Arr.map(now, placedOf)
   }
 
   return {
