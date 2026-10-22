@@ -195,10 +195,47 @@ Motion's presence child counts every registrant inside it: each `motion` element
 - **Records are dropped** with their leaver, the parts' with it. A record whose element left the page some other way (its own control flow, inside a child that stays) is dropped at the presence's next change. Before, every record inside a child stayed registered until the presence went.
 - **No binding change** but each record's tree flags, built from the config at setup.
 
+## The presence hooks (grilled 2026-10-22, PR 5b)
+
+Motion's hooks (`use-presence.ts`, `use-presence-data.ts` at `16c6122`) work like this:
+- **`usePresence()`** registers its component with its presence child and returns `[isPresent, safeToRemove]`. The child stays until `safeToRemove` is called, typically from an effect on `isPresent`.
+- **`useIsPresent()`** returns the flag alone.
+- **`usePresenceData()`** returns the presence's `custom`.
+
+In Solid, a leaving child's own code is disposed as it leaves, before the presence knows; its `onCleanup` runs first. No effect of its own ever sees `isPresent` turn `false`, so Motion's effect pattern can't port.
+
+1. **`usePresence` takes a callback the presence calls at a real leave** (Q1: B). On Solid 1: `usePresence(() => el, (safeToRemove, custom) => …)`.
+   - It's called once the child has left and its node is back in place (or popped, `mode="popLayout"`), with the presence's `custom`. The child is held until `safeToRemove()`.
+   - Solid 2 has it as an async value, as #257 settled for that binding: `const presence = usePresence(); <div ref={presence}>`, then `await presence.next("leave")` (it resolves with `custom`), then `presence.safeToRemove()`.
+   - Rejected: A, Motion's tuple with the exit in `onCleanup`. That runs at the presence's teardown too, and before the node is put back. Also rejected: C, a promise on both bindings, where Solid 1 takes callbacks everywhere else.
+2. **Defaults stated, not asked:**
+   - **A hook belongs to the child that holds its element,** as a child is its DOM node (PR 1's Q2). So each hook takes its element: an accessor on Solid 1, `ref` on Solid 2.
+   - **`useIsPresent`** is `true`, then `false` from its child's leave on, for what still runs on the retained node: a handler, a timer. It's an accessor on Solid 1, and a sensor given to `ref` on Solid 2.
+   - **`usePresenceData`** is an accessor of the nearest presence's `custom`, reactive.
+   - **What holds the child:** it stays until every `usePresence` inside it is released, its exits have ended, and its handovers too, as Motion's presence child waits for every registrant. A plain child (not a Wardic element) a hook holds is retained too, and `mode="wait"` waits for it.
+   - **What isn't a leave:** the callback isn't called at the presence's own teardown, and on Solid 2 a waiting `next("leave")` is rejected then.
+   - **Errors:** a callback that throws is reported (`wardic.presence: a usePresence callback failed`), and lets the child go.
+   - **A crossfading leaver** goes with its handover: the hooks inside it are told, but don't hold it.
+   - **Outside a presence,** the callback is never called, `isPresent` is always `true`, and the data is `undefined`.
+   - **`safeToRemove` before the leave** does nothing, and once released it's done: calling it again changes nothing.
+
+## Built (PR 5b)
+
+- **A presence hook registers a watch** (`PresenceContextValue.watch`, `PresenceWatch`): its element, whether it holds, and what it's told at its child's leave (`leave(custom, release)`) or when it goes some other way (`gone()`).
+- **At a leave,** the presence tells the watches inside the child, once its node is back in place and popped (`tellLeave`), and drops them. Each holding one is a part of the leave, ended by its `release` (once).
+- **Watches are dropped** with their leaver, at the presence's teardown (told `gone()`), and at a change when their element left the page some other way. That excludes a child `wait` holds off the page, whose hooks wait for it to go on.
+- **The presence's `custom`** reaches `usePresenceData` through the context (`data`), reactive.
+- **Solid 1:** `usePresence(target, onLeave)` and `useIsPresent(target)`, each returning `isPresent`, and `usePresenceData()`.
+- **Solid 2** (`unstable/v2/presence-hooks.ts`):
+  - `usePresence()`: a `PresenceHold` given to `ref`, with `isPresent()`, `next("leave")` and `each`, `safeToRemove()`. Its waits end when the child or the presence goes some other way, not with its owner, which is disposed as the child leaves.
+  - `useIsPresent()`, a sensor.
+  - `usePresenceData()`.
+
 ## Consequences
 
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
+- **PR 5b:** new API on both bindings: `usePresence`, `useIsPresent`, `usePresenceData` (and Solid 2's `PresenceHold`, `IsPresent`, `PresenceLeaveEvents` types). A child is held while a hook in it holds it.
 - **PR 5a: a behaviour change.** A Wardic element inside a leaving child now runs its exit, and the child stays for it. One with an `exit` it never ran before now plays it. Only records under a presence change.
 - **PR 4:** dynamic variants, `custom`, exits by name and targets' own transitions. **A behaviour change:** an exit now runs on its transition (its own, else the element's), where every exit ran on a default spring.
 - **PR 3:** `mode` takes `"popLayout"`. A leaver's removal from the flow, in any mode, runs a Measure pass at the end of the task, so a `layout` sibling animates where it jumped before.
@@ -234,6 +271,36 @@ Motion's presence child counts every registrant inside it: each `motion` element
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **PR 5b, solid (Solid 1):** `test/presence-hooks.browser.test.tsx` PU1–PU12:
+  - the callback at the leave, with `custom`, and the hold;
+  - the node back in place and popped when it's called;
+  - a plain child held;
+  - the exit and the release both waited for;
+  - `onExitComplete` after the release;
+  - nothing at the teardown;
+  - a throwing callback letting go;
+  - `useIsPresent` read by a handler;
+  - `usePresenceData` read where it tracks;
+  - outside a presence;
+  - `mode="wait"` waiting for a held plain child;
+  - a hook in a child `wait` held off the page told at its own leave.
+- **PR 5b, solid (Solid 2):** `test/v2/presence-hooks.browser.test.tsx` PV1–PV4, under the diagnostics gate:
+  - `next("leave")` with `custom`, and `safeToRemove()`;
+  - `useIsPresent()`;
+  - `usePresenceData()` where it tracks;
+  - a waiting `next("leave")` rejected at the teardown.
+- **PR 5b mutation-checked:** fifteen single-point mutations, each caught:
+  - the hooks never told, or told without `custom`;
+  - holds not counted, or a release that ends nothing;
+  - a plain child not held;
+  - told before the node is back;
+  - told at the teardown;
+  - a throwing callback holding the child;
+  - each binding's `isPresent` never turning `false`;
+  - each binding's data read untracked (once PU9 and PV3 read it where it tracks);
+  - Solid 2's waits never ending at the teardown;
+  - `wait` ignoring a hook's hold;
+  - a held child's hooks pruned.
 - **PR 5a, solid (Solid 1):** `test/presence-nested.browser.test.tsx` NE1–NE10:
   - an inside element's own exit (the probe's case), the child going after;
   - a child with no exit of its own staying for it;
