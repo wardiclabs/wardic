@@ -12,7 +12,7 @@
 2. **`mode="wait"`** (*Wait*, *Built (PR 2)*).
 3. **`mode="popLayout"`**, and siblings told of every leaver's going (*Pop layout*, *Built (PR 3)*).
 4. **`custom`, with dynamic (function) variants,** exits by name and a target's own transition (*Custom and dynamic variants*, *Built (PR 4)*).
-5. The presence hooks and `propagate`, split in three on one mechanism (*Exits inside a leaver*, PR 5's Q1): 5a, exits inside a leaving child (#290, *Built (PR 5a)*); 5b, the hooks; 5c, `propagate`.
+5. The presence hooks and `propagate`, split in three on one mechanism (*Exits inside a leaver*, PR 5's Q1): 5a, exits inside a leaving child (#290, *Built (PR 5a)*); 5b, the hooks (*The presence hooks*, *Built (PR 5b)*); 5c, `propagate` (*Propagate*, *Built (PR 5c)*).
 
 Both bindings share the work in `packages/solid/src/presence-controller.ts`, so each PR lands there first.
 
@@ -231,10 +231,33 @@ In Solid, a leaving child's own code is disposed as it leaves, before the presen
   - `useIsPresent()`, a sensor.
   - `usePresenceData()`.
 
+## Propagate (grilled 2026-10-22, PR 5c)
+
+Motion's `propagate` (`AnimatePresence/index.tsx` at `16c6122`): a nested presence calls `usePresence(propagate)`, so with the prop it registers with its parent's presence child, and without it, registers nothing. When that child leaves, `propagate && !isParentPresent` makes every one of its own children leave. Once they've all completed, it calls `safeToRemove()`, at once with none. Without the prop, its children go with the parent's child, as they are (#290's NE8).
+
+1. **Opt-in, Motion's `propagate` prop, `false` by default** (Q1: A). Ported Motion code behaves the same. A nested presence's exits, often a long staggered list, never lengthen the outer close unless asked for.
+   - **The split it keeps:** a Wardic element inside a leaving child exits by default (5a), while a nested presence's children exit only with `propagate`. That's Motion's split.
+   - Rejected: B, on by default with `propagate={false}` to opt out. Every existing nested presence would then hold its parent's leave for its children's exits, a silent change for Motion ports.
+2. **Defaults stated, not asked:**
+   - **Its children exit as at any leave** of theirs, on its own `custom`, its hooks told, the exits inside them run (5a, 5b). Its `onExitComplete` (Solid 2: `next("exitComplete")`) comes once they're gone.
+   - **What holds the parent's child:** it waits for them all, and for the children already exiting when it left. A nested presence with none, or whose children leave at once, holds nothing.
+   - **Two levels and more propagate,** each presence holding its parent's child.
+   - **A nested presence removed on its own,** inside a child that stays, is torn down as before: its exits end and its retained nodes go.
+   - **`propagate` is read once,** at setup.
+
+## Built (PR 5c)
+
+- **A propagating presence registers with its parent** as a hook that holds it (`propagateTo`, the watch of PR 5b). Its element is where its children are: the parent node of the last children it had (`anchor`). With none yet, a parent's leave doesn't find it, and it holds nothing.
+- **Its disposal comes first:** Solid disposes the leaving child, the nested presence with it, before the parent presence hears of the leave. So its teardown waits a microtask:
+  - **If the parent's leave reaches it,** every child it had leaves (`leaveAll`, its `present([])`). When the last has gone (`allLeft`, at its `leaveEnds`), it releases the parent's child and tears down.
+  - **If not,** the teardown runs then, as before. Without `propagate`, or with no presence above, the teardown runs at its disposal, unchanged.
+- **Both bindings:** `propagate` on `<AnimatePresence>`, read before the presence provides its own context, so the presence above is its parent's.
+
 ## Consequences
 
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
 - **No new API in PR 1.** PR 2 adds `mode` (`"sync" | "wait"`) on both bindings, and the `PresenceMode` type.
+- **PR 5c:** `propagate` on both bindings' `<AnimatePresence>`. Without it, nothing changes. With it, a nested presence holds its parent's leaving child for its own children's exits.
 - **PR 5b:** new API on both bindings: `usePresence`, `useIsPresent`, `usePresenceData` (and Solid 2's `PresenceHold`, `IsPresent`, `PresenceLeaveEvents` types). A child is held while a hook in it holds it.
 - **PR 5a: a behaviour change.** A Wardic element inside a leaving child now runs its exit, and the child stays for it. One with an `exit` it never ran before now plays it. Only records under a presence change.
 - **PR 4:** dynamic variants, `custom`, exits by name and targets' own transitions. **A behaviour change:** an exit now runs on its transition (its own, else the element's), where every exit ran on a default spring.
@@ -271,6 +294,26 @@ In Solid, a leaving child's own code is disposed as it leaves, before the presen
   - `mode` changed to `sync` mid-wait;
   - a `layoutId` twin entering in place.
 - **PR 2, solid (Solid 2):** `test/v2/presence-wait.browser.test.tsx` PW1–PW4, under the diagnostics gate: a switch with the handle's `exitComplete`; the held child's effect off the page and a `ward()` spread inside it animating in on the page; a switch again mid-wait; the presence unmounted mid-wait.
+- **PR 5c, solid (Solid 1):** `test/presence-propagate.browser.test.tsx` PG1–PG10:
+  - Motion's case, the inner exit holding the outer child;
+  - without `propagate`, the inner child untouched;
+  - an inner list;
+  - an inner presence with no children;
+  - one removed on its own, torn down;
+  - its `onExitComplete`;
+  - its own `custom`;
+  - two levels;
+  - an inner child with no exit;
+  - children that had all gone already.
+- **PR 5c, solid (Solid 2):** `test/v2/presence-propagate.browser.test.tsx` GV1–GV2, under the diagnostics gate.
+- **PR 5c mutation-checked:** ten single-point mutations, each caught:
+  - never registering, or not holding;
+  - the teardown not deferred, or the deferred one never run;
+  - the parent never released;
+  - `leaveAll` done at once, or never told with nothing to leave (PG10);
+  - no anchor;
+  - Solid 1 always propagating;
+  - the last leaver not telling (once PG1, PG8 and GV1 asserted the outer child went: `until` doesn't throw).
 - **PR 5b, solid (Solid 1):** `test/presence-hooks.browser.test.tsx` PU1–PU12:
   - the callback at the leave, with `custom`, and the hold;
   - the node back in place and popped when it's called;

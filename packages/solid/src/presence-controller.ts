@@ -183,6 +183,13 @@ const pin = (el: HTMLElement, box: PopBox): void => {
   style.setProperty(box.side, `${box.start}px`, "important")
 }
 
+/** The element its first child sits in, if it's one (#277's PR 5c). */
+const parentElementOf = (placed: ReadonlyArray<Placed>): Element | undefined =>
+  UndefinedOr.map(UndefinedOr.map(placed[0], (first) => first.parent), (parent) => {
+    if (parent instanceof Element) return parent
+    return undefined
+  })
+
 /** Put a retained node back into the parent it left: before its old next sibling while that's still there, else at the end. */
 const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): void => {
   if (Predicate.isNotUndefined(next) && next.parentNode === parent) {
@@ -259,6 +266,16 @@ export interface PresenceController {
    * the change is applied; {@link present} is then told what it showed.
    */
   readonly shown: (resolved: unknown) => unknown
+  /**
+   * `propagate` (#277's PR 5c): every child present leaves, as if the change took them all, and
+   * `done` is called once none is left (at once with none).
+   */
+  readonly leaveAll: (done: () => void) => void
+  /**
+   * Where its children are: the parent node of the last it had (#277's PR 5c), what a parent
+   * presence finds it inside. `undefined` before it had one.
+   */
+  readonly anchor: () => Element | undefined
   /** The presence's teardown: every exit in flight interrupted, every retained node removed. */
   readonly teardown: () => void
 }
@@ -359,7 +376,21 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       told.exiting(false)
       if (completed) told.exitComplete()
     })
+    // `propagate` (#277's PR 5c): the last child that left lets the parent's child go.
+    allLeft()
     if (held.length > 0) UndefinedOr.map(options.release, (release) => release())
+  }
+
+  // What `leaveAll` calls once none is left (#277's PR 5c), and where its children last were.
+  let onAllLeft: (() => void) | undefined
+  let anchor: Element | undefined
+
+  /** `leaveAll`'s end, told once (#277's PR 5c). */
+  const allLeft = (): void => {
+    if (Predicate.isUndefined(onAllLeft)) return
+    const done = onAllLeft
+    onAllLeft = undefined
+    done()
   }
 
   /** Whether `el` is inside a child held off the page (#277). */
@@ -723,6 +754,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
     previous = Arr.map(now, placedOf)
+    // Where its children are (#277's PR 5c): a parent presence finds it inside its leaving child by it.
+    if (now.length > 0) anchor = parentElementOf(previous)
     // A record whose element left the page some other way (its own control flow, inside a child that
     // stays) is dropped (#290): nothing exits it, and nothing else would.
     Arr.forEach(Arr.fromIterable(registry.keys()), dropDetached)
@@ -780,9 +813,17 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     return Arr.filter(Arr.ensure(resolved), (node) => Bool.not(holding.has(node)))
   }
 
+  const leaveAll = (done: () => void): void => {
+    onAllLeft = done
+    present([])
+    if (leaving.size === 0) allLeft()
+  }
+
   return {
     context: ctx,
     shown,
+    leaveAll,
+    anchor: () => anchor,
     mounted: () => {
       firstRender = false
     },
@@ -790,3 +831,45 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     teardown,
   }
 }
+
+/**
+ * `propagate` (#277's PR 5c, ADR-0048, Motion's): a presence inside another's child registers with
+ * that one as a hook that holds it. When the child leaves, every child of this presence leaves, and
+ * the parent's child goes once they've all gone. Its own disposal comes first (Solid disposes the
+ * leaving child before its presence hears of it), so its teardown waits a microtask for that word.
+ * Without `propagate`, or a presence above, its teardown runs at its disposal, as before. Returns
+ * what its disposal runs.
+ */
+export const propagateTo = (parent: PresenceContextValue | undefined, propagate: boolean, presence: PresenceController): (() => void) => {
+  let torn = false
+  const tear = (): void => {
+    if (torn) return
+    torn = true
+    presence.teardown()
+  }
+  const watch = UndefinedOr.map(parent, (above) => above.watch)
+  if (Bool.or(Bool.not(propagate), Predicate.isUndefined(watch))) return tear
+  let disposed = false
+  let leaving = false
+  ;(watch as (watch: PresenceWatch) => void)({
+    element: presence.anchor,
+    holds: true,
+    leave: (_custom, release) => {
+      leaving = true
+      presence.leaveAll(() => {
+        release()
+        tear()
+      })
+    },
+    gone: () => {
+      if (disposed) tear()
+    },
+  })
+  return () => {
+    disposed = true
+    queueMicrotask(() => {
+      if (Bool.not(leaving)) tear()
+    })
+  }
+}
+
