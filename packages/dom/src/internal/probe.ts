@@ -12,10 +12,11 @@
  * `MediaQueryList` `change` listeners are the only writers, forked into the
  * layer's scope so they live exactly as long as the Layer.
  *
- * Per CONTEXT.md's **Shared source** contract, `observeResize`/`observeIntersection`
- * go through core's `SharedSource.byTarget`: one `ResizeObserver`/`IntersectionObserver`
- * per target, ref-counted — the observer is constructed and `observe()`d on the
- * first subscriber and `disconnect()`ed when the last unsubscribes.
+ * Per CONTEXT.md's **Shared source** contract, `observeResize` goes through core's
+ * `SharedSource.byTarget`: one `ResizeObserver` per target, ref-counted — the observer is
+ * constructed and `observe()`d on the first subscriber and `disconnect()`ed when the last
+ * unsubscribes. `observeIntersection` makes one `IntersectionObserver` per subscription, since
+ * each may ask its own root, margin and amount (#273, Motion's `viewport`).
  *
  * Observability (CONTEXT.md observability convention): core's `SharedSource` already
  * carries a `wardic.sharedSource.*` span + a debug-log on subscribe; the hot
@@ -31,11 +32,19 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { requireGlobal } from "./require-global.ts"
 import { makeScroll } from "./scroll.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
+/** An `IntersectionObserver`'s init from the Probe's options: each left out when not given. */
+const observerInit = (options: Probe.IntersectionOptions): IntersectionObserverInit => ({
+  ...UndefinedOr.match(options.root as Element | Document | undefined, { onUndefined: () => ({}), onDefined: (root) => ({ root }) }),
+  ...UndefinedOr.match(options.margin, { onUndefined: () => ({}), onDefined: (rootMargin) => ({ rootMargin }) }),
+  ...UndefinedOr.match(options.amount, { onUndefined: () => ({}), onDefined: (threshold) => ({ threshold }) }),
+})
+
 const toBounds = (r: DOMRect): Probe.Bounds => ({
   x: r.x,
   y: r.y,
@@ -115,21 +124,20 @@ const make = Effect.gen(function* () {
   )
 
   // --- observeIntersection ------------------------------------------------
-  // One IntersectionObserver per target, ref-counted via `SharedSource.byTarget`.
-  const observeIntersection = yield* SharedSource.byTarget<boolean>((target) =>
-    Effect.succeed(
-      Stream.callback<boolean>((queue) =>
-        Effect.gen(function* () {
-          const el = target as Element
-          const io = new IntersectionObserver((entries) => {
-            Arr.forEach(entries, (entry) => Queue.offerUnsafe(queue, entry.isIntersecting))
-          })
-          io.observe(el)
-          yield* Effect.addFinalizer(() => Effect.sync(() => io.disconnect()))
-        })
-      )
+  // One IntersectionObserver per subscription, against its options (#273, Motion's `viewport`): the
+  // root (the viewport when none), the margin (`rootMargin`) and the amount (`threshold`). Each report
+  // carries the entry.
+  const observeIntersection = (target: unknown, options: Probe.IntersectionOptions = {}): Stream.Stream<Probe.Intersection> =>
+    Stream.callback<Probe.Intersection>((queue) =>
+      Effect.gen(function* () {
+        const io = new IntersectionObserver(
+          (entries) => Arr.forEach(entries, (entry) => Queue.offerUnsafe(queue, { intersecting: entry.isIntersecting, raw: entry })),
+          observerInit(options),
+        )
+        io.observe(target as Element)
+        yield* Effect.addFinalizer(() => Effect.sync(() => io.disconnect()))
+      })
     )
-  )
 
   return Probe.Probe.of({
     // Hot path — intentionally unlogged/un-spanned.

@@ -16,7 +16,7 @@ import { Lifecycle } from "../../src/unstable/v2/lifecycle.ts"
 import { createRoot, getOwner } from "solid-js"
 import { describe, expect, it } from "vitest"
 
-const NONE: Active = { hovered: false, pressed: false, dragged: false, dragging: false }
+const NONE: Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
 
 const resolution = (resolved: Record<string, number>, variant?: string, active: Active = NONE): Resolution => ({ resolved, base: resolved, dragging: false, variant, active })
 
@@ -51,11 +51,11 @@ describe("a ward's lifecycle (#257)", () => {
 
   it("LF2: a landing before the first read is what that read returns, with the layers its resolution was made with", () => {
     const { lifecycle, dispose } = lifecycleIn()
-    const a = resolution({ opacity: 1 }, undefined, { hovered: true, pressed: false, dragged: false, dragging: false })
+    const a = resolution({ opacity: 1 }, undefined, { inView: false, focused: false, hovered: true, pressed: false, dragged: false, dragging: false })
     lifecycle.started(a)
     lifecycle.settled(a, undefined)
     createRoot((d) => {
-      expect(lifecycle.read()).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: true, tap: false, drag: false } })
+      expect(lifecycle.read()).toEqual({ definition: { opacity: 1 }, target: { opacity: 1 }, gestures: { hover: true, tap: false, drag: false, inView: false, focus: false } })
       d()
     })
     dispose()

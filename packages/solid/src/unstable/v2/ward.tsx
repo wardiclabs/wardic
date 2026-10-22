@@ -69,8 +69,9 @@ import {
   untrack,
 } from "solid-js"
 import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
-import type { SolidOneCallback } from "../../motion-props.ts"
+import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
 import { trackConstraintsOf } from "../../drag-constraints.ts"
+import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import { driveDragTrack } from "../../drag-track.ts"
 import { reported, type WardicServices } from "../../runtime.ts"
 import type { WardKey, WardValueOf } from "../../ward-keys.ts"
@@ -162,6 +163,9 @@ const WARD_KEYS = [
   "inherit",
   "whileHover",
   "whileTap",
+  "whileInView",
+  "whileFocus",
+  "viewport",
   "drag",
   "whileDrag",
   "dragConstraints",
@@ -188,6 +192,13 @@ const WARD_KEYS = [
 type UnreadKey = Exclude<keyof WardConfigValues, (typeof WARD_KEYS)[number]>
 const everyKeyRead: [UnreadKey] extends [never] ? true : UnreadKey = true
 void everyKeyRead
+/**
+ * Types only: a Solid 2 motion prop no ward key reads fails here (#273: `whileInView` and
+ * `whileFocus` were split off the element and dropped).
+ */
+type UnreadProp = Exclude<(typeof MOTION_PROPS_V2)[number], (typeof WARD_KEYS)[number]>
+const everyPropRead: [UnreadProp] extends [never] ? true : UnreadProp = true
+void everyPropRead
 
 /** A ward's config read per key (#259). */
 const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints"])
@@ -323,13 +334,15 @@ const NO_INTERNALS: WardInternals = {}
  */
 interface Gestures {
   readonly element: HTMLElement | undefined
+  readonly inView: boolean
+  readonly focused: boolean
   readonly hovered: boolean
   readonly pressed: boolean
   readonly dragging: boolean
 }
-const NO_GESTURES: Gestures = { element: undefined, hovered: false, pressed: false, dragging: false }
+const NO_GESTURES: Gestures = { element: undefined, inView: false, focused: false, hovered: false, pressed: false, dragging: false }
 /** A gesture layer of {@link Gestures}. */
-type GestureLayer = "hovered" | "pressed" | "dragging"
+type GestureLayer = "inView" | "focused" | "hovered" | "pressed" | "dragging"
 
 /** Whether a ward's call is Solid applying it as a ref. */
 const isElement = (value: unknown): value is HTMLElement => Predicate.hasProperty(value, "nodeType")
@@ -478,6 +491,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const dragging = (): boolean => gestures().dragging
   const wantsHover = (): boolean => Predicate.isNotUndefined(cfg().whileHover)
   const wantsPress = (): boolean => Predicate.isNotUndefined(cfg().whileTap)
+  const wantsInView = (): boolean => Predicate.isNotUndefined(cfg().whileInView)
+  const wantsFocus = (): boolean => Predicate.isNotUndefined(cfg().whileFocus)
 
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
   // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
@@ -485,7 +500,14 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const target = createMemo<Resolution>(
     () => {
       const g = gestures()
-      return resolutionOf(cfg(), node.inherited, start.initialLink, { hovered: g.hovered, pressed: g.pressed, dragged: Bool.or(g.dragging, lifted()), dragging: g.dragging })
+      return resolutionOf(cfg(), node.inherited, start.initialLink, {
+        inView: g.inView,
+        focused: g.focused,
+        hovered: g.hovered,
+        pressed: g.pressed,
+        dragged: Bool.or(g.dragging, lifted()),
+        dragging: g.dragging,
+      })
     },
     { equals: sameResolution, transparent: true },
   )
@@ -508,6 +530,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     hover: boolean
     press: boolean
     pan: boolean
+    inView: boolean
+    focus: boolean
     readonly dispose: () => void
   }
   /** Run a recognizer's or the drag track's fiber on the provider's runtime, for the mount's life. */
@@ -547,6 +571,22 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
       m.pan = true
       runFor(m, recognized(Recognizer.pan(m.element), (sample) => lifecycle.panned(sample)))
+    }
+    // In view as its `viewport` says, read when it starts (#273).
+    if (Bool.and(Bool.or(untrack(wantsInView), lifecycle.wantsInView), Bool.not(m.inView))) {
+      m.inView = true
+      runFor(
+        m,
+        recognized(Recognizer.inViewEvents(m.element, inViewOptionsOf(untrack(cfg).viewport)), (transition) => {
+          setGesture(m.element, "inView", transition.active)
+          lifecycle.viewed(transition)
+        }),
+      )
+    }
+    // Focused as the browser shows it (`:focus-visible`, #273).
+    if (Bool.and(untrack(wantsFocus), Bool.not(m.focus))) {
+      m.focus = true
+      runFor(m, recognized(Recognizer.focus(m.element, { visible: true }), (focused) => setGesture(m.element, "focused", focused)))
     }
   }
   let mounted: Mounted | undefined
@@ -680,6 +720,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       hover: false,
       press: false,
       pan: false,
+      inView: false,
+      focus: false,
       dispose: () => {
         UndefinedOr.map(mountedHook, (end) => end())
         spine.dispose()
@@ -699,7 +741,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // A `while*` target set after mount starts its recognizer then (#87, ADR-0040). Its compute reads
   // the two keys, so only their changes re-run it (#259).
   createEffect(
-    () => wantsHover() || wantsPress(),
+    () => Bool.some([wantsHover(), wantsPress(), wantsInView(), wantsFocus()]),
     (wanted) => {
       if (wanted) UndefinedOr.map(mounted, startRecognizers)
     },

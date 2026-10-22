@@ -17,9 +17,10 @@ import * as Report from "@wardic/dom/Report"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardConfig } from "./config.ts"
+import type { WardConfig, WardicViewport } from "./config.ts"
 import { dragInfoOf, pointInfoOf, pointOfSample } from "./gesture-info.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
@@ -49,6 +50,36 @@ export const wantsPan = (config: WardConfig): boolean => {
   return Predicate.isNotUndefined(config.onPanEnd)
 }
 
+/** Whether `config` runs the in-view recognizer (Motion's inView feature, #273): `whileInView` or a viewport callback. */
+export const wantsInView = (config: WardConfig): boolean => {
+  if (Predicate.isNotUndefined(config.whileInView)) return true
+  if (Predicate.isNotUndefined(config.onViewportEnter)) return true
+  return Predicate.isNotUndefined(config.onViewportLeave)
+}
+
+/** Whether `config` runs the focus recognizer (Motion's focus feature, #273): `whileFocus`. */
+export const wantsFocus = (config: WardConfig): boolean => Predicate.isNotUndefined(config.whileFocus)
+
+/** Motion's `amount` as a share of the element: `"some"` any of it, `"all"` all of it. */
+const amountOf = (amount: "some" | "all" | number | undefined): number | undefined =>
+  Match.value(amount).pipe(
+    Match.when("some", () => 0),
+    Match.when("all", () => 1),
+    Match.orElse((share) => share),
+  )
+
+/** Motion's `viewport` as core's in-view options (#273): its root read now, when the recognizer starts. */
+export const inViewOptionsOf = (viewport: WardicViewport | undefined): Recognizer.InViewOptions =>
+  UndefinedOr.match(viewport, {
+    onUndefined: () => ({}),
+    onDefined: (v) => ({
+      once: v.once,
+      margin: v.margin,
+      amount: amountOf(v.amount),
+      ...UndefinedOr.match(v.root, { onUndefined: () => ({}), onDefined: (root) => ({ root: root() }) }),
+    }),
+  })
+
 /** What tells an element's gestures to its config's callbacks. */
 export interface GestureCallbacks {
   readonly hovered: (transition: Recognizer.Transition) => void
@@ -57,6 +88,8 @@ export interface GestureCallbacks {
   /** The drag's release came to rest on its own. */
   readonly released: () => void
   readonly panned: (sample: Recognizer.PanSample) => void
+  /** An in-view transition: `onViewportEnter` or `onViewportLeave`, with the platform's entry. */
+  readonly viewed: (transition: Recognizer.ViewTransition) => void
 }
 
 /** Each press phase's callback: a press a drag took over has none (Motion tells neither). */
@@ -124,6 +157,10 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
         return
       }
       moved(PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)
+    },
+    viewed: (transition) => {
+      const name = Bool.match(transition.active, { onTrue: () => "onViewportEnter" as const, onFalse: () => "onViewportLeave" as const })
+      call(name, config()[name], transition.raw as IntersectionObserverEntry)
     },
   }
 }

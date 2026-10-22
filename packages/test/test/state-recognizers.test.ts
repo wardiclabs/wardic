@@ -1,9 +1,12 @@
 import * as InputSource from "@wardic/core/InputSource"
+import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput, TestProbe } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
+import { Atom } from "effect/reactivity"
 
 /** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release or a leave. */
 const ev = (
@@ -110,4 +113,57 @@ it.effect("RE2 (#257): pressEvents: a release on the target taps; one off it, a 
     // press, the same fold: on at each start, off at each end.
     const states = yield* Stream.runCollect(Recognizer.press(undefined)).pipe(Effect.provide(TestInput.layer(pointer)))
     expect(Array.from(states)).toEqual([true, false, true, false, true, false, true, false])
+  }))
+
+/** A Probe whose intersections are `script`, with a record each, and which keeps the options it was asked with. */
+const scriptedProbe = (script: ReadonlyArray<boolean>, asked: Array<Probe.IntersectionOptions | undefined>) =>
+  Layer.succeed(Probe.Probe, {
+    measure: () => Effect.die("unused"),
+    viewport: Atom.make({ width: 0, height: 0 }),
+    prefersReducedMotion: Atom.make(false),
+    scroll: () => Effect.die("unused"),
+    observeResize: () => Stream.empty,
+    observeIntersection: (_target, options) => {
+      asked.push(options)
+      return Stream.fromIterable(script.map((intersecting, i) => ({ intersecting, raw: `entry ${i}` })))
+    },
+  })
+
+it.effect("IV1 (#273): inViewEvents: from out of view, each entry and leave with its record; options passed on, once left out", () =>
+  Effect.gen(function* () {
+    const asked: Array<Probe.IntersectionOptions | undefined> = []
+    const options: Recognizer.InViewOptions = { root: "a root", margin: "10px", amount: 0.5 }
+    const transitions = yield* Stream.runCollect(Recognizer.inViewEvents(undefined, options)).pipe(
+      Effect.provide(scriptedProbe([false, true, true, false, true], asked)),
+    )
+    // Out at the start tells nothing; the repeat tells nothing.
+    expect(Array.from(transitions)).toEqual([
+      { active: true, raw: "entry 1" },
+      { active: false, raw: "entry 3" },
+      { active: true, raw: "entry 4" },
+    ])
+    expect(asked).toEqual([{ root: "a root", margin: "10px", amount: 0.5 }])
+  }))
+
+it.effect("IV2 (#273): inViewEvents with once: the first entry, then nothing", () =>
+  Effect.gen(function* () {
+    const transitions = yield* Stream.runCollect(Recognizer.inViewEvents(undefined, { once: true })).pipe(
+      Effect.provide(scriptedProbe([true, false, true], [])),
+    )
+    expect(Array.from(transitions)).toEqual([{ active: true, raw: "entry 0" }])
+  }))
+
+it.effect("FV1 (#273): focus with visible: only a focus the Environment shows counts; without, any", () =>
+  Effect.gen(function* () {
+    const events: ReadonlyArray<InputSource.FocusLikeEvent> = [
+      { type: "focus", timeStamp: 0, visible: false },
+      { type: "blur", timeStamp: 10 },
+      { type: "focus", timeStamp: 20, visible: true },
+      { type: "blur", timeStamp: 30 },
+      { type: "focus", timeStamp: 40 },
+    ]
+    const shown = yield* Stream.runCollect(Recognizer.focus(undefined, { visible: true })).pipe(Effect.provide(TestInput.layer([], events)))
+    expect(Array.from(shown), "a pointer's focus doesn't count; an unsaid one does").toEqual([false, true, false, true])
+    const any = yield* Stream.runCollect(Recognizer.focus(undefined)).pipe(Effect.provide(TestInput.layer([], events)))
+    expect(Array.from(any)).toEqual([true, false, true, false, true])
   }))

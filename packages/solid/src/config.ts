@@ -12,6 +12,14 @@ import type * as CSS from "csstype"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
 
+/** Motion's `viewport` (#273, ADR-0047): see `WardConfig.viewport`. */
+export interface WardicViewport {
+  readonly once?: boolean
+  readonly margin?: string
+  readonly amount?: "some" | "all" | number
+  readonly root?: () => Element | undefined
+}
+
 /** CSS properties as Solid types them: `csstype`'s hyphenated set, and custom properties. */
 export interface CSSProperties extends CSS.PropertiesHyphen {
   [key: `-${string}`]: string | number | undefined
@@ -214,6 +222,24 @@ export interface WardConfig {
   /** Target merged in (highest priority) while pressed. */
   readonly whileTap?: WardicValues
   /**
+   * Target merged in while the element is in view (Motion's, #273, ADR-0047), under `whileFocus` and
+   * the pointer gestures: what "in view" means is `viewport`'s.
+   */
+  readonly whileInView?: WardicValues
+  /**
+   * Target merged in while the element is focused as the browser shows it (Motion's, #273): a
+   * keyboard's focus (`:focus-visible`), not a pointer's click. Under the pointer gestures, over
+   * `whileInView`.
+   */
+  readonly whileFocus?: WardicValues
+  /**
+   * What "in view" means for `whileInView` and the viewport callbacks (Motion's `viewport`, #273): the
+   * container (`root`, an accessor; the viewport when none), a `margin` grown around it (CSS
+   * `rootMargin`), how much of the element must be in it (`amount`: `"some"`, the default, `"all"`
+   * or 0 to 1), and `once`: in view from its first entry on. Read when the recognizer starts.
+   */
+  readonly viewport?: WardicViewport
+  /**
    * Enable dragging (ADR-0004). `true` = free; `"x"`/`"y"` = axis-locked. While
    * held (and during the release tail) the drag DIRECT-SETS `x`/`y` (1:1 with
    * the pointer, NOT sprung); the spring spine keeps driving every other key +
@@ -400,6 +426,13 @@ export interface WardConfig {
   readonly onDragTransitionEnd?: () => void
   /** With `dragDirectionLock`, the axis a drag locked to, at its start, before `onDragStart` (Motion's). */
   readonly onDirectionLock?: (axis: "x" | "y") => void
+  /**
+   * The element came into view, as `viewport` says (Motion's, #273), with the browser's own
+   * `IntersectionObserverEntry`. An element that starts out of view tells nothing until it enters.
+   */
+  readonly onViewportEnter?: (entry: IntersectionObserverEntry) => void
+  /** It left the view (Motion's). With `viewport.once`, never after its first entry. */
+  readonly onViewportLeave?: (entry: IntersectionObserverEntry) => void
   /**
    * A pan's session began: a primary pointer went down on the element (Motion's pan). A pan moves
    * nothing; once started, it counts as a drag for the element's press and hover: a press it took
