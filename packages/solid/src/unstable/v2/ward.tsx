@@ -79,7 +79,7 @@ import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
-import { presenceBlocksInitial } from "../../presence-record.ts"
+import { presenceBlocksInitial, presenceHold } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
   appearEntryOf,
@@ -590,7 +590,31 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     }
   }
   let mounted: Mounted | undefined
+  // Inside a child `mode="wait"` holds off the page (#277, ADR-0048), it mounts once the child is on
+  // it: `shown` ticks then, and the mount effect, which reads `ticked`, runs again. Only under a
+  // presence: with none, its compute calls a no-op and makes nothing. `held` cancels the wait.
+  let ticked: () => undefined = constUndefined
+  let shown: (() => void) | undefined
+  if (Predicate.isNotUndefined(presence)) {
+    const [read, tick] = createSignal<undefined>(undefined, { equals: false })
+    ticked = read
+    shown = () => tick(undefined)
+  }
+  let held: (() => void) | undefined
+  const unhold = (): void => {
+    if (Predicate.isUndefined(held)) return
+    held()
+    held = undefined
+  }
+  /** Whether `el` waits off the page for its held child: its mount queued with the presence. */
+  const heldBack = (el: HTMLElement): boolean => {
+    unhold()
+    if (Predicate.isUndefined(shown)) return false
+    held = presenceHold(presence, el, shown)
+    return Predicate.isNotUndefined(held)
+  }
   const unmount = (): void => {
+    unhold()
     if (Predicate.isUndefined(mounted)) return
     const left = mounted.element
     mounted.dispose()
@@ -769,10 +793,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Mount, then Retarget on each change of the target or of the `when` gate: both are read here,
   // so a gate's flip re-runs it and releases a held Retarget.
   createEffect(
-    () => ({ el: element(), resolution: target(), open: open() }),
+    () => ({ el: element(), resolution: target(), open: open(), shown: ticked() }),
     ({ el, resolution }) => {
       if (Predicate.isUndefined(el)) return
       if (Predicate.isUndefined(mounted) || mounted.element !== el) {
+        // Held off the page: nothing starts until it's on it.
+        if (heldBack(el)) return
         // A new element starts with no gesture on, read from its gesture state (#257's audit).
         unmount()
         // Its config is read at mount (its layout node's options, its `onUpdate`, its spine's) through

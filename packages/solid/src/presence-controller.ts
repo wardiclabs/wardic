@@ -9,6 +9,10 @@
  * the resolved children, each exiting on its own, in its place. A child that comes back mid-exit is
  * a new node, which enters beside the leaver while the leaver finishes (#286 would key them).
  *
+ * `mode="wait"` (#277, ADR-0048): while a child exits, one entering is held off the page, its wards
+ * not started, and goes on it once the last leaver is gone. Its framework has built it already, so
+ * its own code has run; what waits is its place on the page and everything Wardic does with it.
+ *
  * @module
  */
 import type * as Frame from "@wardic/core/Frame"
@@ -69,6 +73,12 @@ const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): vo
   parent.appendChild(el)
 }
 
+/**
+ * How a presence's children enter while others exit (#277, ADR-0048), Motion's `mode`: `"sync"`, at
+ * once, beside the leavers; `"wait"`, once every leaver is gone.
+ */
+export type PresenceMode = "sync" | "wait"
+
 /** What a presence reads from its provider and its props. */
 export interface PresenceOptions {
   readonly runtime: WardicRuntime
@@ -80,6 +90,13 @@ export interface PresenceOptions {
   readonly initial: () => boolean | undefined
   /** What its binding hears of its exits (#257); left out, nothing is told. */
   readonly events?: PresenceEvents | undefined
+  /** Its `mode` prop (#277), read at each change: left out, or `undefined`, `"sync"`. */
+  readonly mode?: (() => PresenceMode | undefined) | undefined
+  /**
+   * The children `mode="wait"` held may go on the page now: the binding renders its children again,
+   * through {@link PresenceController.shown}. Left out, a held child stays held.
+   */
+  readonly release?: (() => void) | undefined
 }
 
 /**
@@ -110,6 +127,13 @@ export interface PresenceController {
    * is retained in its place and exits. Called after the binding's framework has applied the change.
    */
   readonly present: (current: unknown) => void
+  /**
+   * What goes on the page of what the children resolved to (#277): all of it, but under `mode="wait"`,
+   * while a child exits or is leaving in this change, each child entering is held off it until the
+   * last leaver is gone ({@link PresenceOptions.release}). Called where the binding renders, before
+   * the change is applied; {@link present} is then told what it showed.
+   */
+  readonly shown: (resolved: unknown) => unknown
   /** The presence's teardown: every exit in flight interrupted, every retained node removed. */
   readonly teardown: () => void
 }
@@ -177,6 +201,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const places = new Map<HTMLElement, Placed>()
   const events = options.events
 
+  // The children `mode="wait"` holds off the page now (#277), and the start of each ward inside one,
+  // by its element, called once the child is on the page.
+  let held: ReadonlyArray<HTMLElement> = []
+  const starts = new Map<HTMLElement, () => void>()
+
   /** A child's exit starts: told, and `exiting` turns on with the first. */
   const leaveStarts = (el: HTMLElement): void => {
     leaving.add(el)
@@ -185,14 +214,22 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     events.exitStart()
   }
 
-  /** A child's exit ended: with the last, `exiting` turns off, and a completion is told. */
+  /**
+   * A child's exit ended: with the last, `exiting` turns off, a completion is told, and the children
+   * `mode="wait"` held go on the page (#277), as Motion renders them after its `onExitComplete`.
+   */
   const leaveEnds = (el: HTMLElement, completed: boolean): void => {
     if (Bool.not(leaving.delete(el))) return
-    if (Predicate.isUndefined(events)) return
     if (leaving.size > 0) return
-    events.exiting(false)
-    if (completed) events.exitComplete()
+    UndefinedOr.map(events, (told) => {
+      told.exiting(false)
+      if (completed) told.exitComplete()
+    })
+    if (held.length > 0) UndefinedOr.map(options.release, (release) => release())
   }
+
+  /** Whether `el` is inside a child held off the page (#277). */
+  const isHeld = (el: HTMLElement): boolean => Arr.some(held, (child) => child.contains(el))
 
   const ctx: PresenceContextValue = {
     register: (rec) => {
@@ -202,6 +239,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       }
     },
     blocksInitial: () => options.initial() === false && firstRender,
+    hold: (el, start) => {
+      if (Bool.not(isHeld(el))) return undefined
+      starts.set(el, start)
+      return () => {
+        starts.delete(el)
+      }
+    },
   }
 
   // Commit a projected value-map onto a retained node via the Renderer.
@@ -362,6 +406,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // dropped with them (no leaks). Every child running its own exit is in `pending`.
   const teardown = (): void => {
     debug("teardown", { inflight: exiting.size, retained: pending.size })
+    // A held child never goes on the page, nor do its wards start (#277): with none held, the exits
+    // ended below release nothing, so the binding isn't rendered again as it's disposed.
+    held = []
+    starts.clear()
     Arr.forEach(Arr.fromIterable(pending.keys()), (el) => interruptExit(el))
     // A crossfading leaver is the projection's, not in `pending`: its exit ends here too, uncompleted (#257).
     Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
@@ -408,10 +456,50 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
     previous = Arr.map(now, placedOf)
+    // The wards inside the children held until now start, the children on the page (#277). Held
+    // children go on together, so none is left held then. (A ward started while its child is held
+    // would only wait again: the check saves its re-run.)
+    if (Bool.and(starts.size > 0, held.length === 0)) startHeld()
+  }
+
+  /** The held wards' starts, each once. */
+  const startHeld = (): void => {
+    const ready = Arr.fromIterable(starts.values())
+    starts.clear()
+    Arr.forEach(ready, (start) => start())
+  }
+
+  /** The mode now: `"sync"` unless the prop says otherwise. */
+  const modeNow = (): PresenceMode | undefined => UndefinedOr.map(options.mode, (mode) => mode())
+
+  /**
+   * Whether an entering child waits (#277): under `mode="wait"`, while a child exits, or one shown at
+   * the last change is leaving now with an exit to run (a Wardic element, registered).
+   */
+  const waits = (kept: ReadonlySet<HTMLElement>): boolean =>
+    Bool.or(
+      leaving.size > 0,
+      Arr.some(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), registry.has(placed.el))),
+    )
+
+  const shown = (resolved: unknown): unknown => {
+    if (modeNow() !== "wait") {
+      held = []
+      return resolved
+    }
+    const now = elementsOf(resolved)
+    const kept = new Set(now)
+    // Entering: not on the page at the last change.
+    const onPage = new Set(Arr.map(previous, (placed) => placed.el))
+    held = Bool.match(waits(kept), { onTrue: () => Arr.filter(now, (el) => Bool.not(onPage.has(el))), onFalse: () => [] })
+    if (held.length === 0) return resolved
+    const holding = new Set<unknown>(held)
+    return Arr.filter(Arr.ensure(resolved), (node) => Bool.not(holding.has(node)))
   }
 
   return {
     context: ctx,
+    shown,
     mounted: () => {
       firstRender = false
     },

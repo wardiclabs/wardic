@@ -69,7 +69,7 @@ import { useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
-import { presenceBlocksInitial, usePresenceContext } from "./presence.tsx"
+import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
@@ -321,6 +321,18 @@ export interface RunSpineOptions {
  *
  * Must be called within a Solid owner (it registers `createEffect` / `onCleanup`).
  */
+/**
+ * Whether a ward's element waits off the page for its held child (#277, ADR-0048): its start queued
+ * with the presence (`shown`, made only under one), cancelled with the effect's run.
+ */
+const heldBack = (presence: PresenceContextValue | undefined, element: HTMLElement, shown: (() => void) | undefined): boolean => {
+  if (Predicate.isUndefined(shown)) return false
+  const cancel = presenceHold(presence, element, shown)
+  if (Predicate.isUndefined(cancel)) return false
+  onCleanup(cancel)
+  return true
+}
+
 export function runSpine(opts: RunSpineOptions): void {
   const { canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
 
@@ -346,13 +358,29 @@ export function runSpine(opts: RunSpineOptions): void {
   const configNow = (): WardConfig => untrack(cfg)
   const styleNow = UndefinedOr.map(styleOf, (of) => () => untrack(of))
 
+  // Inside a child `mode="wait"` holds off the page (#277, ADR-0048), everything starts once the child
+  // is on it: `shown` ticks then, and the effect below runs again. Only under a presence: with none,
+  // nothing is made or called here (a check per element at mount cost the first Retarget ~9% cold).
+  let mountedOn: Accessor<HTMLElement | undefined> = el
+  let shown: (() => void) | undefined
+  if (Predicate.isNotUndefined(presence)) {
+    const [ticked, tick] = createSignal<void>(undefined, { equals: false })
+    shown = () => tick()
+    mountedOn = () => {
+      ticked()
+      return el()
+    }
+  }
+
   // Start everything once the element mounts. createEffect(on(el, ...)) re-runs
   // only when the element identity changes; the spine inner-effect lives under
   // this owner so onCleanup teardown (gate.unregister + fiber interrupts) fires
   // on unmount.
   createEffect(
-    on(el, (element) => {
+    on(mountedOn, (element) => {
       if (Predicate.isUndefined(element)) return
+      // Held off the page: nothing starts until it's on it.
+      if (heldBack(presence, element, shown)) return
 
       // Register the element with the caller-supplied sink (ADR-0006): each
       // flushed frame's Patch is committed onto it (ADR-0034). An element with `onUpdate` at mount
