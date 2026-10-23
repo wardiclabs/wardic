@@ -1,5 +1,6 @@
 // A swipe-to-dismiss card on Solid 2 (#257, ADR-0046): the README's pattern, run end to end. A
-// release far enough or fast enough flies the card out; once it has landed off screen, an undo
+// release far enough or fast enough flies the card out (a memo over `each("dragEnd")` and an effect,
+// as the reorder save's pattern); once it has landed off screen, an undo
 // window, then the request; then the list without it. One `action` holds the sequence, with the
 // card's side and the undo button as optimistic values: whichever way the action ends, they revert.
 //
@@ -9,15 +10,14 @@
 // - SC3: an undo in the window: the action returns, the card flies back, and no request is sent.
 // - SC4: a short swipe: it snaps back, and nothing is sent.
 // - SC5 (#257 item 4): a fly-out that fails (its own duration from a speed setting that's NaN): the
-//   action's `next("settled")` rejects, so it throws: a toast, no request, and the loop goes on, so a
-//   second swipe fails and says so too, and one with the setting fixed dismisses the card. On main the
-//   first action waited for good, and the loop with it: every later swipe was ignored, silently.
+//   action's `next("settled")` rejects, so it throws: a toast and no request, each swipe; one with the
+//   setting fixed dismisses the card. On main each swipe's action waited for good, with nothing shown.
 import { DomLive } from "@wardic/dom"
 import { type WardDragInfo, ward, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { JSX } from "@solidjs/web"
-import { action, createMemo, createOptimistic, createSignal, For, Loading, onSettled, refresh, Show, type SourceAccessor } from "solid-js"
+import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -88,12 +88,10 @@ function NoticeCard(props: {
     refresh(props.list) //                                    5. the list, without it
   })
 
-  onSettled(() => {
-    void (async () => {
-      for await (const release of card.each("dragEnd")) {
-        if (flung(release)) await dismiss(sideOf(release)).catch(() => props.toast("Couldn't dismiss it"))
-      }
-    })()
+  // The latest release, as an async value; an effect dismisses on a fling (the reorder pattern's shape).
+  const released = createMemo(() => card.each("dragEnd"))
+  createEffect(released, (release) => {
+    if (flung(release)) dismiss(sideOf(release)).catch(() => props.toast("Couldn't dismiss it"))
   })
 
   return (
@@ -220,9 +218,8 @@ describe("a swipe-to-dismiss card, the request after the fly-out (#257)", () => 
     expect(toasts, "next('settled') rejected, so the action threw").toEqual(["Couldn't dismiss it"])
     await until(() => opacity(card("a")) === 1, 2000)
     expect(opacity(card("a")), "back where it was").toBe(1)
-    // The loop went on to the next release: a second swipe fails the same way, and says so. Before,
-    // the first action waited for its landing for good, and the loop with it: every swipe after it
-    // was ignored, with nothing on screen.
+    // A second swipe fails the same way, and says so. Before, each swipe's action waited for its
+    // landing for good: they piled up, with nothing on screen.
     await swipe(card("a")!, 200)
     await until(() => toasts.length > 1, 3000)
     expect(toasts).toEqual(["Couldn't dismiss it", "Couldn't dismiss it"])
