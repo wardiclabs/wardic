@@ -20,7 +20,7 @@ import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardConfig, WardicTransition } from "./config.ts"
 import type { PresenceSeed } from "./presence-record.ts"
-import { type MotionTransition, motionOf } from "./retarget-legs.ts"
+import { type MotionTransition, motionOf, transitionForKey } from "./retarget-legs.ts"
 import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.ts"
 
 /** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */
@@ -52,12 +52,12 @@ const asLayoutTransition = (t: MotionTransition): ProjectionSystem.LayoutTransit
   )
 
 /**
- * The element's layout transition (ADR-0009 *Amendment (#171)*): Motion's `layout` key, else its
- * whole `transition`; `undefined`, with neither, for the engine's default, Motion's 0.45 s tween.
+ * The element's layout transition (ADR-0009 *Amendment (#171)*, *Amendment (#301)*): Motion's
+ * `layout` entry, else its `default`, else its whole `transition`; `undefined`, with none, for the
+ * engine's default, Motion's 0.45 s tween.
  */
 const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<ProjectionSystem.LayoutTransition> =>
-  Option.map(Option.fromUndefinedOr(motionOf(t)), (element) =>
-    asLayoutTransition(UndefinedOr.match(element.layout, { onUndefined: () => element, onDefined: (layout) => UndefinedOr.getOrThrow(motionOf(layout)) })))
+  Option.map(Option.fromUndefinedOr(motionOf(transitionForKey(t, "layout"))), asLayoutTransition)
 
 /** A layout node's options: what a binding's `useLayoutMember` registers with the projection system. */
 export interface UseLayoutMemberOptions {
@@ -119,9 +119,9 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     id,
     element,
     transition: () => toLayoutTransition(transition()),
-    // The transition's reduced-motion opt-out (ADR-0029), read at each layout animation's start.
+    // The layout transition's reduced-motion opt-out (ADR-0029, #301), read at each layout animation's start.
     respectReducedMotion: () =>
-      UndefinedOr.match(transition(), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
+      UndefinedOr.match(transitionForKey(transition(), "layout"), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
     ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
     ...Bool.match(layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),

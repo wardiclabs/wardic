@@ -30,10 +30,16 @@
 //   its rule is named apart from a plain element's.
 // - AR15 (#277): a target's own transition times its Appear animation: an `animate` map's, and a
 //   dynamic variant's resolved with `custom` (its delay from the item's index, held in its rule).
+// - AR16 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
+//   fifth of the way through a rule the slow own fields set the length of.
+// - AR17 (#301): a value's own transition beside a forever repeat has no rule, as one CSS cycle can't
+//   hold both: an entry that repeats under own fields that don't, and own fields that repeat beside
+//   an entry that doesn't, or beside `default` driving every key. A `layout` entry alone leaves the
+//   cycle playing.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { createWard, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
+import { createWard, wardic, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
@@ -153,7 +159,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
 
   it("AR5: a Variant child's stagger: delayChildren plus its place, by from and staggerDirection", () => {
     const variants = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
-    const delays = (transition: Record<string, unknown>) => {
+    const delays = (transition: WardicTransition) => {
       const html = page(() => (
         <wardic.ul initial="hidden" animate="shown" variants={variants} transition={transition}>
           <wardic.li variants={variants} />
@@ -431,6 +437,41 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(animationOf("map"), "the map's own 0.7 s").toMatch(/ 0\.7s linear 0s /)
     // Its own delay is held in its rule: 2 × 0.25 s still, then its 0.3 s.
     expect(animationOf("fn"), "the variant's 0.5 s delay and 0.3 s").toMatch(/ 0\.8s linear 0s /)
+  })
+
+  it("AR16: a transition's entries time each key in the rule (#301)", () => {
+    const linear = Easing.linear
+    const html = page(() => (
+      <wardic.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1, easing: linear, opacity: { type: "tween", duration: 0.2, easing: linear } }} />
+    ))
+    const css = headCss(html)
+    const animation = timing(css, propertyOf(tagsOf(html).find((t) => t.name === "div")?.style.animation)).normal
+    expect(animation, "the own fields' 1 s").toMatch(/ 1s linear 0s /)
+    const name = animation.split(" ")[0]!
+    const rule = new RegExp(`@keyframes ${name}\\{((?:[\\d.]+%\\{[^}]*\\})*)\\}`).exec(css)?.[1] ?? ""
+    const stops = Array.from(rule.matchAll(/([\d.]+)%\{([^}]*)\}/g), (m) => ({ at: Number(m[1]), body: m[2]! }))
+    const faded = stops.find((stop) => /opacity:1(;|$)/.test(stop.body))
+    expect(faded?.at, "opacity lands at its entry's 0.2 s").toBeGreaterThan(17)
+    expect(faded?.at, "opacity lands at its entry's 0.2 s").toBeLessThan(23)
+    expect(faded?.body, "y still on its way").toMatch(/translateY\((1[0-9]|[5-9])\.?[\d]*px\)/)
+  })
+
+  it("AR17: a value's own transition beside a forever repeat has no rule; a layout entry alone plays (#301)", () => {
+    const quick = { type: "tween", duration: 0.3, easing: Easing.linear } as const
+    const html = page(() => (
+      <>
+        <wardic.div data-k="entry" {...rise} transition={{ ...quick, opacity: { ...quick, repeat: Number.POSITIVE_INFINITY } }} />
+        <wardic.div data-k="own" {...rise} transition={{ ...quick, repeat: Number.POSITIVE_INFINITY, opacity: quick }} />
+        <wardic.div data-k="default" {...rise} transition={{ ...quick, repeat: Number.POSITIVE_INFINITY, default: quick }} />
+        <wardic.div data-k="layout" {...rise} transition={{ ...quick, repeat: Number.POSITIVE_INFINITY, layout: quick }} />
+      </>
+    ))
+    const css = headCss(html)
+    const animationOf = (k: string): string => timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal
+    expect(animationOf("entry"), "an entry that repeats: no rule").toBe("")
+    expect(animationOf("own"), "own fields that repeat beside an entry: no rule").toBe("")
+    expect(animationOf("default"), "own fields that repeat, every key on default: no rule").toBe("")
+    expect(animationOf("layout"), "a layout entry alone: the cycle plays").toMatch(/ 0\.6s linear 0s infinite /)
   })
 })
 

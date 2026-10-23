@@ -34,7 +34,7 @@ import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import { type Leg, legsOf } from "./retarget-legs.ts"
+import { entriesOf, type Leg, legsOf, transitionForKey } from "./retarget-legs.ts"
 
 // --- The mount animation, on both sides -------------------------------------------------------
 
@@ -169,11 +169,25 @@ const keyOfLeg = (leg: Leg): Option.Option<string> =>
 /** The DOM's Positional keys, which a server's reduced rule snaps (ADR-0029, ADR-0036). */
 const DOM_POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
 
+/**
+ * Whether a value's own transition drives one of its keys while anything repeats for ever (#301): one
+ * CSS cycle can't hold a key that stops beside one that repeats, nor two cycles' lengths. With every
+ * key on the transition's own fields (a `layout` entry alone), it plays as before.
+ */
+const foreverByValue = (m: MountAnimation): boolean => {
+  const entries = entriesOf(m.transition)
+  if (Predicate.isUndefined(entries)) return false
+  const runsOn = Arr.map(Rec.keys(m.to), (key) => transitionForKey(m.transition, key))
+  if (Arr.every(runsOn, (transition) => transition === entries.own)) return false
+  return Bool.or(repeatsForever(m.transition), Arr.some(runsOn, repeatsForever))
+}
+
 /** A mount animation's spec for the DOM's sampler, or why it has none. */
 export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
   Option.match(keyOf(m), {
     onNone: () => Result.fail("its transition holds a function with no easing name"),
     onSome: (key) => {
+      if (foreverByValue(m)) return Result.fail("a value's own transition repeats for ever beside another")
       const transition = sampledTransition(m.transition)
       const repeatDelay = UndefinedOr.match(m.transition, { onUndefined: () => 0, onDefined: (t) => Option.getOrElse(Option.fromUndefinedOr((t as Machine.AnimateOptions).repeatDelay), () => 0) })
       return Result.succeed({

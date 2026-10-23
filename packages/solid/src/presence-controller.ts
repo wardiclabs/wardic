@@ -46,7 +46,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
-import { type Leg, legsOf } from "./retarget-legs.ts"
+import { delayedBy, type Leg, legsOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
 
@@ -85,13 +85,6 @@ const busy = (node: ExitNode): boolean => Bool.or(Bool.not(isEmpty(node.exit.val
 const slotIndex = (i: number, n: number, direction: 1 | -1): number => {
   if (direction === -1) return n - 1 - i
   return i
-}
-
-/** `transition` with `delay` seconds more before it moves. */
-const delayedBy = (transition: WardicTransition | undefined, delay: number): WardicTransition | undefined => {
-  if (delay === 0) return transition
-  const own = UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: (t) => UndefinedOr.match(t.delay, { onUndefined: () => 0, onDefined: identity }) })
-  return { ...transition, delay: own + delay } as WardicTransition
 }
 
 /** No velocities: an exit starts each key at rest, as it did on its own spring. */

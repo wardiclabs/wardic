@@ -6,6 +6,8 @@
 //   170/26 spring, still creeping past 0.6 s.
 // - LTS2: the `layout` key gives layout its own transition over the element's.
 // - LTS3: a `delay` alone keeps the default tween, held first; a spring field makes it a spring.
+// - LTS4 (#301): with no `layout` entry, `default` drives layout over the own fields; a `layout` entry
+//   wins over `default`.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
@@ -102,4 +104,13 @@ it("LTS3: a delay alone keeps the default tween, held first; a spring field make
   expect(landedAfter(samples, 0), "then the default tween's 0.45 s").toBeLessThan(0.5)
   // A spring's first step is a few percent of the move; the default tween's eases in under one.
   expect(samples[sprung]!.lefts[1]! / 200, "a spring's first step").toBeGreaterThan(0.02)
+})
+
+it("LTS4: with no layout entry, default drives layout over the own fields; a layout entry wins over default (#301)", async () => {
+  const slow: WardicTransition = { type: "spring", stiffness: 20, damping: 10 }
+  const samples = await flight([{ ...slow, default: { type: "tween", duration: 0.2 } }, { type: "tween", duration: 0.2, default: slow, layout: { type: "tween", duration: 0.2 } }, { type: "tween", duration: 0.2, default: slow }])
+  expect(landedAfter(samples, 0), "default's 0.2 s tween, s").toBeLessThan(0.25)
+  expect(landedAfter(samples, 1), "its layout entry's 0.2 s tween, s").toBeLessThan(0.25)
+  const at = samples.findIndex((s) => Math.abs(s.lefts[0]! - 200) < 1e-3)
+  expect(samples[at + 6]!.lefts[2]!, "default's slow spring, not the own 0.2 s").toBeLessThan(195)
 })

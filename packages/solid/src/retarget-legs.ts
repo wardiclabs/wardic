@@ -98,6 +98,124 @@ export const motionOf = (transition: WardicTransition | undefined): MotionTransi
         }),
     }))
 
+// --- Per-value transitions (#301, Motion's `getValueTransition`) ---------------------------
+
+/**
+ * A transition's entries (#301): its own fields, and each value's entry (`default` and `layout`
+ * among them). Each entry is resolved at its first need and kept, so its keys run on the same object
+ * at every Retarget (#66's decode cache keys on it).
+ */
+interface Entries {
+  readonly own: WardicTransition
+  readonly byKey: Readonly<Record<string, WardicTransition>>
+  /** Whether any entry is a value's, not `default` or `layout`: else every value runs on one transition. */
+  readonly byValue: boolean
+  readonly resolved: Map<string, WardicTransition>
+}
+
+/** A transition with no entry: what nearly every transition is. */
+const NONE: unique symbol = Symbol("wardic.noEntries")
+
+/** Each transition's entries, worked out once per object (#301). */
+const ENTRIES = new WeakMap<object, Entries | typeof NONE>()
+
+/** The entries that aren't a value's. */
+const NOT_VALUES: ReadonlySet<string> = new Set(["default", "layout"])
+
+/**
+ * Whether a field is an entry (#301): a transition, under a value's name, `default` or `layout`. No
+ * option of a transition's own is a plain object: an easing is a function, `times` an array.
+ */
+const isEntry = (value: unknown): boolean => Predicate.isObject(value)
+
+/**
+ * A transition's entries (#301), or `undefined` for one with none: worked out once per transition
+ * object, so an element whose transitions have none pays a lookup per Retarget.
+ */
+export const entriesOf = (given: WardicTransition | undefined): Entries | undefined => {
+  if (Predicate.isUndefined(given)) return undefined
+  const known = ENTRIES.get(given)
+  if (known === NONE) return undefined
+  if (Predicate.isNotUndefined(known)) return known
+  const fields = given as Readonly<Record<string, unknown>>
+  const keys = Arr.filter(Rec.keys(fields), (key) => isEntry(fields[key]))
+  if (keys.length === 0) {
+    ENTRIES.set(given, NONE)
+    return undefined
+  }
+  const made: Entries = {
+    own: Rec.filter(fields, (value) => Bool.not(isEntry(value))) as WardicTransition,
+    byKey: Rec.fromEntries(Arr.map(keys, (key) => [key, fields[key] as WardicTransition] as const)),
+    byValue: Arr.some(keys, (key) => Bool.not(NOT_VALUES.has(key))),
+    resolved: new Map(),
+  }
+  ENTRIES.set(given, made)
+  return made
+}
+
+/**
+ * The transition `key` runs on (#301, Motion's `getValueTransition`): its entry, else `default`, else
+ * the transition's own fields; an entry with `inherit: true` laid over the own fields, its own winning.
+ * The reduced-motion opt-out is the whole transition's, as the orchestration is: an entry without
+ * its own takes the top level's.
+ */
+const forKey = (entries: Entries, key: string): WardicTransition => {
+  if (Object.hasOwn(entries.byKey, key)) return entryNamed(entries, key)
+  if (Object.hasOwn(entries.byKey, "default")) return entryNamed(entries, "default")
+  return entries.own
+}
+
+/** The entry `name` resolved, once: every key on it runs on the one object, so they share a leg. */
+const entryNamed = (entries: Entries, name: string): WardicTransition => {
+  const kept = entries.resolved.get(name)
+  if (Predicate.isNotUndefined(kept)) return kept
+  const made = resolvedEntry(entries.own, entries.byKey[name] as WardicTransition)
+  entries.resolved.set(name, made)
+  return made
+}
+
+/** An entry as its key runs on it (#301): over the own fields with `inherit`, else with their reduced-motion opt-out alone. */
+const resolvedEntry = (own: WardicTransition, entry: WardicTransition): WardicTransition => {
+  const { inherit, ...rest } = entry as WardicTransition & { readonly inherit?: boolean }
+  if (inherit === true) return { ...own, ...rest } as WardicTransition
+  if (Bool.or(Predicate.isUndefined(own.respectReducedMotion), Predicate.isNotUndefined(rest.respectReducedMotion))) return rest as WardicTransition
+  return { ...rest, respectReducedMotion: own.respectReducedMotion } as WardicTransition
+}
+
+/**
+ * The transition `key` runs on in `given` (#301): its entry, else `default`, else `given`'s own
+ * fields. `given` itself when it has no entry.
+ */
+export const transitionForKey = (given: WardicTransition | undefined, key: string): WardicTransition | undefined => {
+  const entries = entriesOf(given)
+  if (Predicate.isUndefined(entries)) return given
+  return forKey(entries, key)
+}
+
+/**
+ * `given` held back by `extra` more seconds (ADR-0007's stagger, #290's exit delays): its own `delay`,
+ * and each entry's (#301), so a key on its entry waits as the rest do. An `inherit` entry with no
+ * `delay` of its own takes the own fields' as they are.
+ */
+export const delayedBy = (given: WardicTransition | undefined, extra: number): WardicTransition | undefined => {
+  if (extra === 0) return given
+  const own = { ...given, delay: delayIn(given) + extra } as WardicTransition
+  const entries = entriesOf(given)
+  if (Predicate.isUndefined(entries)) return own
+  return {
+    ...own,
+    ...Rec.map(entries.byKey, (entry) => {
+      const fields = entry as WardicTransition & { readonly inherit?: boolean }
+      if (Bool.and(fields.inherit === true, Predicate.isUndefined(fields.delay))) return entry
+      return { ...entry, delay: delayIn(entry) + extra }
+    }),
+  } as WardicTransition
+}
+
+/** A transition's `delay`, 0 without one. */
+const delayIn = (transition: WardicTransition | undefined): number =>
+  UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: (t) => UndefinedOr.match(t.delay, { onUndefined: () => 0, onDefined: identity }) })
+
 /** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
 const NO_TRANSITION: Machine.SpringOptions = {}
 
@@ -121,6 +239,34 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
  */
 export const legsOf = (
+  from: Values.Values,
+  to: Values.Values,
+  given: WardicTransition | undefined,
+  reducedMotion: boolean,
+  positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  velocities: Readonly<Record<string, number>>,
+  follow?: Follows | undefined,
+): ReadonlyArray<Leg> => {
+  // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
+  const entries = entriesOf(given)
+  if (Predicate.isUndefined(entries)) return legsWith(from, to, given, reducedMotion, positionalKeys, velocities, follow)
+  // With no value's entry (`layout` and `default` alone), every key runs on one transition.
+  if (Bool.not(entries.byValue)) return legsWith(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, velocities, follow)
+  const byTransition = new Map<WardicTransition, Record<string, number | string>>()
+  Arr.forEach(Rec.keys(to), (key) => {
+    const runsOn = forKey(entries, key)
+    const keys = byTransition.get(runsOn)
+    if (Predicate.isNotUndefined(keys)) {
+      keys[key] = to[key] as number | string
+      return
+    }
+    byTransition.set(runsOn, { [key]: to[key] as number | string })
+  })
+  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsWith(from, keys, runsOn, reducedMotion, positionalKeys, velocities, follow))
+}
+
+/** {@link legsOf} on one transition. */
+const legsWith = (
   from: Values.Values,
   to: Values.Values,
   given: WardicTransition | undefined,
