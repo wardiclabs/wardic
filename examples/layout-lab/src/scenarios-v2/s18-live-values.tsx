@@ -37,7 +37,7 @@
  */
 import { createScroll, createSpring, createTransform, ward, wardic } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
-import { type Accessor, createSignal, onCleanup } from "solid-js"
+import { createSignal, onCleanup } from "solid-js"
 import { frameNumber } from "../lab/frame-counter.ts"
 import { LIVE_VALUE_LINES, type LiveCheckName, type LiveFrame } from "../lab/live-board.ts"
 import type { ScenarioContext, ScenarioDef } from "../scenarios/types.ts"
@@ -227,17 +227,10 @@ const View: ScenarioDef["View"] = (props) => {
 
   // --- the swipe card ---
   let card!: HTMLElement
-  // Its opacity is derived from its own x. Solid 1's createWard took the element's style after the
-  // ward was made; a Solid 2 ward takes it in its config, so its `style` key is an accessor naming the
-  // opacity once it's made, below, from the ward's read("x"). The ward reads its style, per key (#259),
-  // when it renders and follows its Live values from its mount, both after this body has run (#264).
-  let swipeOpacity: Accessor<number> | undefined
-  const swipe = ward({
-    drag: "x",
-    dragSnapToOrigin: true,
-    style: () => ({ ...BOX, position: "absolute" as const, left: "120px", ...(swipeOpacity === undefined ? {} : { opacity: swipeOpacity }) }),
-  })
-  swipeOpacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
+  // Its opacity is derived from its own x, so it's given where the ward is spread, through `.with`
+  // (#264), as Solid 1's createWard takes the element's style after the ward is made.
+  const swipe = ward({ drag: "x", dragSnapToOrigin: true, style: { ...BOX, position: "absolute", left: "120px" } })
+  const swipeOpacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
   const swipeSpec: CellSpec = {
     cell: "swipe card",
     lines: ["same frame"],
@@ -309,8 +302,7 @@ const View: ScenarioDef["View"] = (props) => {
             <span style={LABEL}>swipe card: drag it either way</span>
             <div style={TRACK}>
               <div
-                {...swipe}
-                ref={[swipe, (el: HTMLDivElement) => (card = el)]}
+                {...swipe.with({ ref: (el: HTMLElement) => (card = el), style: { opacity: swipeOpacity } })}
                 data-cell="swipe"
                 data-action="drag"
                 onPointerDown={() => recorder.begin(swipeSpec)}

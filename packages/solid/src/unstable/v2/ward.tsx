@@ -66,6 +66,7 @@ import {
   isHydrating,
   onCleanup,
   runWithOwner,
+  type Signal,
   untrack,
 } from "solid-js"
 import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
@@ -235,6 +236,17 @@ export interface WardRead<C> {
 }
 
 /** The props a spread of a {@link Ward} applies. */
+/**
+ * What {@link Ward.with} takes (#264, the Solid 1 ward's `ward({ ref, style })`): the element's own
+ * `ref` and `style`, given where the ward is spread.
+ */
+export interface WardWithProps {
+  /** Called with the element beside the ward's own ref: a `ref` written after the spread would replace it. */
+  readonly ref?: ((element: HTMLElement) => void) | ReadonlyArray<(element: HTMLElement) => void> | undefined
+  /** Laid over the config's `style`, key by key: a Live value in it is followed as one in the config is. */
+  readonly style?: WardStyle | string | undefined
+}
+
 export interface WardProps {
   /** The ward: Solid calls it with the element. */
   readonly ref: (element: HTMLElement) => void
@@ -307,6 +319,21 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
    * ```
    */
   readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
+  /**
+   * The ward's props with the element's own (#264, the Solid 1 ward's `ward({ ref, style })`): its
+   * `ref` called beside the ward's, and its `style` over the config's, key by key. For a style made
+   * after the ward, a value derived from the ward's own:
+   *
+   * ```tsx
+   * const swipe = ward({ drag: "x", dragSnapToOrigin: true })
+   * const opacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
+   * <div {...swipe.with({ style: { opacity } })} />
+   * ```
+   *
+   * The latest call's props are the element's. A spread runs it again on every run of the element's
+   * props, which makes nothing new: a ward is made once.
+   */
+  readonly with: (props: WardWithProps) => WardProps
 }
 
 /** What a `wardic.*` component or a `<Reorder>` item adds to a ward. Internal. */
@@ -442,7 +469,17 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its routed `style` keys (#130, ADR-0043), and its `style`, switched by the gate's hooks.
   const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
-  const userStyle = (): WardStyle | string | undefined => cfg().style
+  // The element's style (#264): the config's, with the latest `.with()` style over it, key by key.
+  // `.with()` runs in the spread's computation, an owned scope: it tells `read(key)` through a
+  // signal written there (`ownedWrite`), and never `style`, whose spread would run `.with` again.
+  let given: WardWithProps = NO_WITH
+  // Made at the first `read(key)` or `.with()`: most elements call neither.
+  let withCalls: Signal<undefined> | undefined
+  const withCallsOf = (): Signal<undefined> => {
+    if (Predicate.isUndefined(withCalls)) withCalls = runWithOwner(owner, () => createSignal(undefined, { equals: false, ownedWrite: true }))
+    return withCalls
+  }
+  const userStyle = (): WardStyle | string | undefined => withStyleOver(cfg().style, given.style)
   const elementStyle = createElementStyle({
     userStyle,
     starting: seed.style,
@@ -872,7 +909,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Predicate.isNotUndefined(known)) return known
     const output = gate.valueOf(id, key)
     const accessor = runWithOwner(owner, () => {
-      const resting = createMemo(() => restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw)), CLIENT_ONLY)
+      const resting = createMemo(() => {
+        withCallsOf()[0]()
+        return restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw))
+      }, CLIENT_ONLY)
       const restingAtom = Atom.make<unknown>(untrack(resting))
       onCleanup(registry().mount(restingAtom))
       createEffect(
@@ -909,8 +949,53 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     settled: { value: () => lifecycle.read() },
     next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
     each: { value: <E extends WardEvent>(name: E) => lifecycle.each(name) },
+    with: {
+      value: (own: WardWithProps): WardProps => {
+        given = own
+        withCallsOf()[1](undefined)
+        return Object.defineProperties({} as WardProps, {
+          ref: { value: withRef(own.ref, self), enumerable: true },
+          style: { get: (): JSX.CSSProperties => elementStyle.style(userStyle()) as JSX.CSSProperties, enumerable: true },
+          ...attributesOf(seed.attrs),
+          ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
+        })
+      },
+    },
   })
   return self
+}
+
+/** No `.with()` props: the config's style alone. */
+const NO_WITH: WardWithProps = {}
+
+/** The last `.with()` merge, by its two styles: `style` reads it more than once a run. */
+const withMerges = new WeakMap<object, { readonly own: unknown; readonly merged: WardStyle | string | undefined }>()
+
+/**
+ * The config's `style` with a `.with()` style over it, key by key (#264, `Style.over`): the config's
+ * as it is with none. One merge for the same two styles, so the element's Live values see one object.
+ */
+const withStyleOver = (own: WardStyle | string | undefined, extra: WardStyle | string | undefined): WardStyle | string | undefined => {
+  if (Predicate.isUndefined(extra)) return own
+  if (Predicate.isString(extra)) return Style.over(extra, own) as WardStyle
+  return Option.getOrElse(
+    Option.map(Option.filter(Option.fromUndefinedOr(withMerges.get(extra)), (known) => known.own === own), (known) => known.merged),
+    () => {
+      const merged = Style.over(extra, own) as WardStyle
+      withMerges.set(extra, { own, merged })
+      return merged
+    },
+  )
+}
+
+/** A `.with()` ref beside the ward's own: the user's first, as `refsOf` orders them. */
+const withRef = (user: WardWithProps["ref"], self: Ward): ((element: HTMLElement) => void) => {
+  if (Predicate.isUndefined(user)) return self
+  const refs = Arr.ensure(user) as ReadonlyArray<(element: HTMLElement) => void>
+  return (element) => {
+    Arr.forEach(refs, (ref) => ref(element))
+    self(element)
+  }
 }
 
 /** The Starting style's attributes as a ward's own keys: enumerable, so a spread applies them. */
@@ -951,29 +1036,45 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // Its routed keys' values join the Starting style, under `initial`'s (#130); a `<Reorder>` item's
   // base style, a drag element's defaults, then its Appear slot go under the user's style. A user
   // style with its own `animation` keeps it, over the slot, and the slot is left undefined.
-  const parts = split(c.style)
-  if (setsAnimation(parts.css)) appear.veto("its own style sets an animation")
   const dragDefaults = UndefinedOr.map(dragAxisOf(c, internal), Style.dragDefaults)
-  const style = pipe(
-    serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
-    Style.over(parts.css),
-    Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
-    Style.over(dragDefaults),
-    Style.over(appear.style),
-  ) as JSX.CSSProperties
+  // The element's style for its user style: the config's, or a `.with()` style over it (#264).
+  const styleFor = (user: WardStyle | string | undefined): JSX.CSSProperties => {
+    const parts = split(user)
+    if (setsAnimation(parts.css)) appear.veto("its own style sets an animation")
+    return pipe(
+      serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
+      Style.over(parts.css),
+      Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
+      Style.over(dragDefaults),
+      Style.over(appear.style),
+    ) as JSX.CSSProperties
+  }
+  const style = styleFor(c.style)
+  let given: WardWithProps = NO_WITH
+  const attributes = { ...seed.attrs, ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }) }
   const self = ((): Ward => self) as Ward
   Object.defineProperties(self, {
     ref: { value: noRef, enumerable: true },
     style: { value: style, enumerable: true },
-    ...attributesOf(seed.attrs),
-    ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
+    ...attributesOf(attributes),
     Provider: { value: Provider },
-    read: { value: (key: string) => () => restingOf(key, initialValues, c.style, readServerStyle) },
+    read: { value: (key: string) => () => restingOf(key, initialValues, withStyleOver(c.style, given.style), readServerStyle) },
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },
     // Nothing animates on a server: nothing has landed, and nothing will.
     settled: { value: constUndefined },
     next: { value: neverLands },
     each: { value: () => NO_EVENTS },
+    // The element's own style over the config's, rendered in its Starting style (#264).
+    with: {
+      value: (own: WardWithProps): WardProps => {
+        given = own
+        return Object.defineProperties({} as WardProps, {
+          ref: { value: noRef, enumerable: true },
+          style: { value: styleFor(withStyleOver(c.style, own.style)), enumerable: true },
+          ...attributesOf(attributes),
+        })
+      },
+    },
   })
   return self
 }
