@@ -24,11 +24,15 @@
 //   from the chunk's landing, staggered among the late ones, handed off with no step; the chunk's
 //   `<style>` is in the head (a head patch), none among the items; a later list update leaves the
 //   items in order.
+// - AH13 (#257 item 13): a region `<Reveal>` holds (its data first, its chunk landing before the
+//   region ahead of it) isn't on the page until its reveal, and its Appear animation plays from then,
+//   not from its chunk's arrival: Solid holds the chunk in its inert `<template>`.
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -38,7 +42,7 @@ import { DomLive } from "@wardic/dom"
 import { hydrate, type JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6, A7, A8, setAppearEnv } from "./hydrate-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, A8, A9, setAppearEnv } from "./hydrate-fixtures.tsx"
 import "../browser-commands.ts"
 
 const FILE = "./test/v2/hydrate-fixtures.tsx"
@@ -77,6 +81,8 @@ interface Run {
   readonly hydratedStyle: Readonly<Record<string, string>>
   /** Whether hydration claimed each watched element: the server's node is still the one on the page. */
   readonly claimed: Readonly<Record<string, boolean>>
+  /** When each late write landed, on the rAF timeline (a streamed run's). */
+  readonly landedAt?: ReadonlyArray<number>
 }
 
 const cleanups: Array<() => void> = []
@@ -213,13 +219,13 @@ const runScripts = (root: ParentNode): void => {
 /**
  * Stream `name` (#245): its head and shell on the page, its later writes (a late chunk's
  * `<template>` and the script that places it) landing `chunkAfter` ms later as the stream would,
- * and hydration `hydrateAfter` ms after the shell. Each frame finds the `data-k` elements afresh:
- * a chunk's come later.
+ * or each at its own time when `chunkAfter` lists them (#257 item 13), and hydration `hydrateAfter`
+ * ms after the shell. Each frame finds the `data-k` elements afresh: a chunk's come later.
  */
 const runStreamed = async (
   name: string,
   code: () => JSX.Element,
-  options: { readonly chunkAfter: number; readonly hydrateAfter: number; readonly forMs: number },
+  options: { readonly chunkAfter: number | ReadonlyArray<number>; readonly hydrateAfter: number; readonly forMs: number },
 ): Promise<Run> => {
   const renderId = `${name}-${runs++}`
   const { writes, head, script, error } = await commands.serverStream2(FILE, name, renderId)
@@ -257,8 +263,10 @@ const runStreamed = async (
     for (const node of [...styles, ...landed]) node.remove()
     for (const style of document.head.querySelectorAll("style[data-wardic-appear]")) style.remove()
   })
-  const chunk = setTimeout(() => {
-    for (const write of later) {
+  const landedAt: Array<number> = []
+  /** Land `writes`, in order, as the stream would. */
+  const land = (writes: ReadonlyArray<string>): void => {
+    for (const write of writes) {
       const box = document.createElement("div")
       box.innerHTML = write
       for (const node of [...box.children]) {
@@ -266,9 +274,19 @@ const runStreamed = async (
         landed.push(node)
       }
       runScripts(document.body)
+      landedAt.push(performance.now())
     }
-  }, options.chunkAfter)
-  cleanups.push(() => clearTimeout(chunk))
+  }
+  // One time for every late write, or one each.
+  const times = Bool.match(typeof options.chunkAfter === "number", {
+    onTrue: () => later.map(() => options.chunkAfter as number),
+    onFalse: () => options.chunkAfter as ReadonlyArray<number>,
+  })
+  const timers = Bool.match(typeof options.chunkAfter === "number", {
+    onTrue: () => [setTimeout(() => land(later), options.chunkAfter as number)],
+    onFalse: () => later.map((write, i) => setTimeout(() => land([write]), times[i])),
+  })
+  cleanups.push(() => timers.forEach(clearTimeout))
   const hydration = setTimeout(() => {
     restoreFragments()
     freshHydration()
@@ -297,7 +315,7 @@ const runStreamed = async (
     }
     requestAnimationFrame(frame)
   })
-  return { frames, startOf, host, hydratedStyle: {}, claimed: {} }
+  return { frames, startOf, host, hydratedStyle: {}, claimed: {}, landedAt }
 }
 
 /** The machine's values `seconds` in, as `Machine.startAt` draws them. */
@@ -538,5 +556,24 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     ;(globalThis as { __a8add?: () => void }).__a8add!()
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect([...list.children].map((el) => (el as HTMLElement).dataset.k)).toEqual(["s0", "s1", "s2", "s3"])
+  })
+
+  it("AH13: a region <Reveal> holds plays its Appear animation from its reveal, not its chunk's arrival (#257 item 13)", async () => {
+    // The second region's data comes first; its chunk lands at 50 ms and the first region's at 350.
+    const r = await runStreamed("A9", A9, { chunkAfter: [50, 350], hydrateAfter: 700, forMs: 1300 })
+    const [held = 0, revealed = 0] = r.landedAt ?? []
+    expect(r.landedAt, "two late writes, each its region's").toHaveLength(2)
+    // Held in the chunk's inert template: not on the page until the first region lands.
+    const early = r.frames.filter((f) => f.at > held + 20 && f.at < revealed - 20)
+    expect(early.length, "frames between the two landings").toBeGreaterThan(5)
+    expect(early.every((f) => f.drawn["fast"] === undefined), "the held element isn't on the page").toBe(true)
+    // Its CSS animation starts at the reveal, and plays from 0 to 1, through the Handoff.
+    expect(r.startOf["fast"], "it played its CSS").toBeDefined()
+    expect(r.startOf["fast"]!, "from the reveal, not the chunk's arrival").toBeGreaterThanOrEqual(revealed - 1)
+    const shown = r.frames.filter((f) => f.drawn["fast"] !== undefined)
+    expect(shown[0]!.drawn["fast"]!.opacity, "its first frame on the page: near its start").toBeLessThan(0.2)
+    expect(shown.some((f) => f.drawn["fast"]!.opacity > 0.3 && f.drawn["fast"]!.opacity < 0.8), "it moved on the page").toBe(true)
+    expect(shown.at(-1)!.drawn["fast"]!.opacity, "at rest after the Handoff").toBe(1)
+    expect(shown.some((f) => f.hydrated), "hydrated while watched").toBe(true)
   })
 })
