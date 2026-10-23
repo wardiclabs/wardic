@@ -9,6 +9,10 @@
  *   waits for would never come.
  * - `next("settled")`: a promise of the next landing after the call. It rejects with a `DOMException`
  *   named `"AbortError"` once the ward is disposed, as Web Animations' `finished` does on a cancel.
+ * - **A failed animation** (#257 item 4), one a leg's failure keeps from landing: `next("settled")`
+ *   rejects with the failure's error, `each("settled")` throws it, and `settled()` throws it at each
+ *   read, so a read of it in JSX goes to the reader's `<Errored>`. The next Retarget clears it,
+ *   pending, and its landing is read again. It's logged and reported apart (ADR-0030), whoever reads it.
  *
  * One object a ward, the spine's hooks itself. Nothing Solid is made until `settled` is first read,
  * and nothing is allocated for a start or a landing until someone asks: until then they're counts
@@ -18,7 +22,7 @@
  */
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import { constUndefined } from "effect/Function"
+import { constUndefined, identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "@wardic/core/Drag"
 import type * as Recognizer from "@wardic/core/Recognizer"
@@ -126,6 +130,14 @@ export interface WardEvents {
   readonly layoutComplete: undefined
 }
 
+/** A Retarget's failure (#257 item 4), as `settled()`'s memo holds it: `read` throws its error. */
+class Failure {
+  readonly error: unknown
+  constructor(error: unknown) {
+    this.error = error
+  }
+}
+
 /** What `next(name)` waits for. */
 export type WardEvent = keyof WardEvents
 
@@ -192,8 +204,10 @@ export class Lifecycle implements AnimationHooks {
   private last: WardSettled | undefined = undefined
   // Made at the first read: the setter of the count it tracks, its memo, and its pending read's resolver.
   private setCount: ((count: number) => void) | undefined = undefined
-  private memo: Accessor<WardSettled | undefined> | undefined = undefined
-  private waiting: ((landing: WardSettled) => void) | undefined = undefined
+  private memo: Accessor<WardSettled | Failure | undefined> | undefined = undefined
+  private waiting: ((landing: WardSettled | Failure) => void) | undefined = undefined
+  // The last Retarget's failure, until the next starts (#257 item 4).
+  private failure: Failure | undefined = undefined
   // The `next(name)` calls waiting, made at the first; and whether the ward is gone.
   private events: Waiters<WardEvents> | undefined = undefined
   private disposed = false
@@ -234,6 +248,7 @@ export class Lifecycle implements AnimationHooks {
   started(resolution: Resolution): void {
     this.starts++
     this.flying = resolution
+    this.failure = undefined
     if (Predicate.isNotUndefined(this.setCount)) this.setCount(this.starts)
   }
 
@@ -249,6 +264,22 @@ export class Lifecycle implements AnimationHooks {
     this.waiting = undefined
     if (Predicate.isNotUndefined(resolve)) resolve(this.lastLanding() as WardSettled)
     this.tell("settled", this.landing)
+  }
+
+  /**
+   * The Retarget in flight can't land: a leg failed (#257 item 4). It's no longer in flight;
+   * `settled()` reads as errored until the next starts, and the waits for `settled` are rejected.
+   */
+  failed(resolution: Resolution, error: unknown): void {
+    if (resolution !== this.flying) return
+    this.flying = undefined
+    this.landed = this.starts
+    const failure = new Failure(error)
+    this.failure = failure
+    const resolve = this.waiting
+    this.waiting = undefined
+    if (Predicate.isNotUndefined(resolve)) resolve(failure)
+    UndefinedOr.map(this.events, (events) => events.fail("settled", error))
   }
 
   /** A hover's start or end (#257). */
@@ -320,10 +351,16 @@ export class Lifecycle implements AnimationHooks {
   /** The last landing, for {@link tell}. */
   private readonly landing = (): WardSettled => this.lastLanding() as WardSettled
 
-  /** `settled()`: the last landing, made reactive at the first read. */
+  /**
+   * `settled()`: the last landing, made reactive at the first read. A failure (#257 item 4) is
+   * thrown here, in the reader, so the reader's `<Errored>` catches it: the memo is the ward's, owned
+   * outside any boundary the reader is in, so it holds the failure as a value rather than erroring.
+   */
   read(): WardSettled | undefined {
     if (Predicate.isUndefined(this.memo)) this.memo = runWithOwner(this.owner, () => this.makeMemo())
-    return this.memo()
+    const value = this.memo()
+    if (value instanceof Failure) throw value.error
+    return value
   }
 
   /**
@@ -393,12 +430,13 @@ export class Lifecycle implements AnimationHooks {
   // The count of starts it tracks starts at the landed count, so its first read is never pending. A
   // Retarget in flight at that read is set from a microtask: a change in flight from there
   // (`isPending`), which a write in the read's own flush wouldn't be (Solid applies it there).
-  private makeMemo(): Accessor<WardSettled | undefined> {
+  private makeMemo(): Accessor<WardSettled | Failure | undefined> {
     const [count, set] = createSignal(this.landed)
     this.setCount = set
-    const memo = createMemo((): WardSettled | undefined | PromiseLike<WardSettled> => {
-      if (count() === this.landed) return this.lastLanding()
-      return new Promise<WardSettled>((resolve) => {
+    const memo = createMemo((): WardSettled | Failure | undefined | PromiseLike<WardSettled | Failure> => {
+      // At rest: the last landing, or a failure told before this run (#257 item 4).
+      if (count() === this.landed) return UndefinedOr.match(this.failure, { onUndefined: () => this.lastLanding(), onDefined: identity })
+      return new Promise<WardSettled | Failure>((resolve) => {
         this.waiting = resolve
       })
     }, CLIENT_ONLY)

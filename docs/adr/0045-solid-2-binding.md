@@ -341,6 +341,10 @@ Item 2 asked whether `createProjection`, Solid 2's derived store, should replace
 - **Why:** the same-frame rule (PR 3b). A value derived from a ward's paints in the ward's frame only on its Atom: `read(key)` gives an accessor that carries it, and a `style` given one follows the Atom, set where the gate writes. A projection's property is read through Solid, which shows a change at its flush, after the gate's write, so whatever is derived from `card.values.x` would paint a frame late. A property can't carry an Atom as an accessor does.
 - **The issue's three internal uses stay probes, not API:** the resolved target compared by value (`sameResolution`) as a projection's diff, `live-style.ts`'s `split` / `reconcile` of the user's style, and Reorder's `values` indexed by value. Each is taken up only if a probe shows it's cheaper or simpler than what's there.
 
+## #257 item 4: errors and `<Errored>` (2026-10-23)
+
+The misuse errors reach `<Errored>` already. A failed animation now rejects `next("settled")`, throws from `settled()` and `each("settled")`, and clears at the next Retarget. A per-frame callback's run of throws is reported once. ADR-0046, *Amendment (#257 item 4)*; ADR-0030, *Amendment (#257 item 4)*.
+
 ## #257 item 7: writable Live values (2026-10-23)
 
 No writable Live value: Solid's writable memo is a spring's target that's derived and set, and a ward's `read(key)` is the value a drag writes. `createSpring` gets Motion's `jump` and `skipInitialAnimation`, and a velocity reads 0 across a jump. ADR-0043, *Amendment (#257 item 7)*.

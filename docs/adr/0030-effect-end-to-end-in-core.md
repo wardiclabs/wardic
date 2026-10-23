@@ -399,3 +399,14 @@ ADR-0040 is #87's record: decision 9's question, answered with the whole task pr
 - **Decision 9: per-animation spans stay.** The span's cost at a start was mostly Effect's call-site stack (`addSpanStackTrace`), which no Wardic span captures now (ADR-0040, decision 2). Its cost at an interruption was its frame, which a run's span no longer pushes. What's left of a span per run is about 3.5 µs per run in a Retarget (ADR-0040, decision 3's rejected option). The start log stays. `runAll` and the rest of an interrupt's cost go to #200.
 - **Pinned by** core's SF1–SF3 (`test/frame-loop.test.ts`) and check-frames' existing `at test.record`.
 
+
+## Amendment (#257 item 4, 2026-10-23): a per-frame callback's run of throws reports once
+
+Decision 4 reports each failure where it stops. An app's callback that throws is one too, and it's caught where it's called, so the animation or the gesture goes on. A callback called every frame or every move would report every time while it kept throwing. A probe's `onUpdate` logged `wardic.gate: an onCommit failed` about 60 times a second. Each throw is a new `Error`, which a reporter doesn't dedupe.
+
+**Grilled 2026-10-23 (Q3: A):** a per-frame callback reports the first throw of a run. A call that returns ends the run, so a callback that recovers and then fails again reports again.
+- **It covers** the gate's `onCommit` (`onUpdate`, on both bindings) and Solid 1's `onDrag` and `onPan`.
+- **A discrete callback** (`onTap`, `onDragEnd`, `onExitComplete`) still reports each throw.
+- **Rejected:** reporting every throw (B), and calling a callback no more after its first throw (C).
+
+Pinned by dom's `gate.node.test.ts` **GC6** and the Solid tests ADR-0046's *Amendment (#257 item 4)* lists.

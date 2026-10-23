@@ -3,6 +3,8 @@
  * presence handle and a Reorder group hand over, by event name.
  *
  * - A wait resolves with the next `name` told after it.
+ * - A failure of `name` (#257 item 4: an animation that can't land) rejects its waits with the
+ *   failure's error, and an `each` of it throws it, ending there.
  * - Disposal rejects every wait with a `DOMException` named `"AbortError"`, as Web Animations'
  *   `finished` does on a cancel, and any wait asked after it at once.
  * - An `each` is a wait per step, so an event that comes while its loop's body runs is missed, as a
@@ -11,12 +13,13 @@
  * @module
  */
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 interface Waiter {
   readonly resolve: (value: never) => void
-  readonly reject: (reason: DOMException) => void
+  readonly reject: (reason: unknown) => void
 }
 
 /** What can be waited on by name: {@link Waiters}, or a source that does more at a wait (a ward starts a recognizer). */
@@ -59,6 +62,16 @@ export class Waiters<Events> implements Waitable<Events> {
     Arr.forEach(due, (waiter) => waiter.resolve(told))
   }
 
+  /** `name` failed (#257 item 4): its waits are rejected with `error`. */
+  fail<E extends keyof Events>(name: E, error: unknown): void {
+    const waits = this.waits
+    if (Predicate.isUndefined(waits)) return
+    const due = waits.get(name)
+    if (Predicate.isUndefined(due)) return
+    waits.delete(name)
+    Arr.forEach(due, (waiter) => waiter.reject(error))
+  }
+
   /** The source is gone: every wait is rejected, and any asked later at once. */
   dispose(): void {
     this.disposed = true
@@ -72,6 +85,9 @@ export class Waiters<Events> implements Waitable<Events> {
     return new DOMException(this.gone, "AbortError")
   }
 }
+
+/** Whether a wait's rejection is its source's disposal: the `AbortError` {@link Waiters} rejects with. */
+const isDisposal = (reason: unknown): boolean => Bool.and(reason instanceof DOMException, (reason as DOMException).name === "AbortError")
 
 /** The end of an `each`. */
 const ENDED: IteratorReturnResult<undefined> = { value: undefined, done: true }
@@ -92,10 +108,10 @@ class Each<Events, E extends keyof Events> implements AsyncIterator<Events[E], u
   }
 
   next(): Promise<IteratorResult<Events[E], undefined>> {
-    // A wait rejects only at its source's disposal (its AbortError): the iteration's end.
+    // Its source's disposal (its AbortError) ends the iteration; a failure (#257 item 4) is thrown.
     return this.source.wait(this.name).then(
       (value): IteratorResult<Events[E], undefined> => ({ value, done: false }),
-      () => ENDED,
+      (reason: unknown) => Bool.match(isDisposal(reason), { onTrue: () => ENDED, onFalse: () => Promise.reject(reason) }),
     )
   }
 

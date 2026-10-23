@@ -602,6 +602,12 @@ export interface AnimationHooks {
   /** That Retarget's last leg settled: not for one the next Retarget superseded, nor one a leg's failure cut off. */
   readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
   /**
+   * A leg of that Retarget failed (#257 item 4): it can't land. Told once a Retarget, at once (a
+   * leg that fails before it writes leaves no flush to wait for), and never before `started`; the
+   * failure is logged and reported apart (ADR-0030).
+   */
+  readonly failed?: ((resolution: Resolution, error: unknown) => void) | undefined
+  /**
    * Names of a list that settled (#297): a binding told each name's end on its own (Solid 1's
    * callbacks, Motion's `animateVariant` a name) has it, called as the legs of the keys each drives
    * settle; one with none hears the list's end through `settled` alone.
@@ -1215,11 +1221,33 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // a Superseded end (a Retarget, an unmount, #200) or an interruption (a leg its token
     // didn't reach) is nothing; anything else (a step or a sink that threw, the Frame loop's
     // own failure) is logged and reported (ADR-0030, decision 4), and doesn't count.
+    // A leg's failure (#257 item 4): the Retarget can't land, so a binding waiting on it is told,
+    // once, at once: a leg that fails before it writes leaves no flush to wait for. A leg failing
+    // as it's built, before `started` is told, is told right after it.
+    let failedTold = false
+    let startedTold = false
+    let failedEarly: { readonly error: unknown } | undefined
+    const tellFailed = (error: unknown): void => {
+      const hooks = animation as AnimationHooks
+      // Called on its hooks, which may be a class's: not taken off them.
+      if (Predicate.isNotUndefined(hooks.failed)) hooks.failed(resolution, error)
+    }
+    const legFailed = (cause: Cause.Cause<unknown>): void => {
+      if (Bool.or(failedTold, Predicate.isUndefined(animation))) return
+      failedTold = true
+      const error = Cause.squash(cause)
+      if (startedTold) return tellFailed(error)
+      failedEarly = { error }
+    }
     const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
       Exit.match(exit, {
         // A Superseded leg (#200) counts toward nothing: the next Retarget's legs settle the returns.
         onSuccess: (end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.void, onFalse: () => legDone }),
-        onFailure: (cause) => Report.failure("wardic.spine: a leg failed", cause).pipe(Effect.annotateLogs({ id })),
+        onFailure: (cause) =>
+          Report.failure("wardic.spine: a leg failed", cause).pipe(
+            Effect.annotateLogs({ id }),
+            Effect.andThen(Effect.sync(() => legFailed(cause))),
+          ),
       })
     // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
     // numeric one, so each leg's frames report, and only the last leg's settle reports done.
@@ -1406,7 +1434,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     lastResolution = resolution
     if (Predicate.isNotUndefined(animation)) {
       animation.started(resolution, previous, c)
+      startedTold = true
       if (retargetLegs.length === 0) animation.settled(resolution, previous, c)
+      UndefinedOr.map(failedEarly, (early) => tellFailed(early.error))
     }
   }
 

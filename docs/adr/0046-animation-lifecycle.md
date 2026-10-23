@@ -262,3 +262,56 @@ ADR-0048, decision 2. A child back mid-exit no longer interrupts the leaver: the
 - **dom:**
   - `test/gate.browser.test.ts` GA1–GA3: after the flush with the value committed, a flush of its own, a throw reported, and dropped at dispose;
   - `test/services.browser.test.ts` DS4: the inert gate's `afterFlush`.
+
+## Amendment (#257 item 4): a failed animation fails the waits
+
+Solid 2 halts every update on an error no boundary catches (`REACTIVITY_HALTED`). #257 item 4 asked which of Wardic's errors should reach an `<Errored>` boundary and which should stay logged. A probe put each one inside `<Errored>`, with a signal outside it (Chromium, `.tmp/257-4/`):
+
+- **The misuse errors already reach `<Errored>`, and the rest of the app goes on.** These are a remade ward (`{...ward(config)}`), `wardic.create` with no ref forwarded, `Reorder.Item` outside a group, a whole-config accessor, and a ward outside a `<WardicProvider>`. Each is thrown in a component's body or its ref, which Solid routes to the nearest boundary. Nothing to change; ER1 pins them.
+- **A failed animation never landed.** A leg's failure doesn't count toward the Retarget's settle: a transition core rejects (#66), or a step that throws. So the ward never settled. `next("settled")` waited for good (it timed out at 1.5 s for a 0.05 s tween), and `isPending(() => card.settled())` read "animating" from then on.
+- **App callbacks are logged, as Solid's docs say of event handlers.** `onUpdate` and `onMeasureDragConstraints` are caught and logged. `onUpdate` was logged on every frame it threw.
+
+**Grilled 2026-10-23:**
+1. **A failure rejects the ward's async values (Q1: A).**
+   - `next("settled")` rejects with the failure's error.
+   - `settled()` throws it at each read, so a read in JSX goes to the reader's `<Errored>`, and `isPending` reads false.
+   - The next Retarget clears it: pending, then its landing. That's Solid's rule that an error is a status, which clears when the graph produces a value again.
+   - It's logged and reported as before (ADR-0030), whoever reads it. An app that never reads the outcome sees only the log, so a bad animation option can't halt an app with no boundary.
+   - **Rejected:** a failure counting as a landing (B), which looks like success to an awaiting app; and every failed fiber rethrown to the nearest boundary from an effect (C), which halts an app with none.
+2. **`each("settled")` throws the failure (Q2: A),** ending there. A `for await` rethrows it, and a memo over it goes to `<Errored>`, whose `reset()` starts a fresh `each`. Disposal still ends it quietly. Rejected: skipping the failure (B); ending quietly (C).
+3. **A per-frame callback that throws is logged at the first throw of a run (Q3: A).** A call that returns ends the run, so the next throw logs again. This covers `onUpdate` on both bindings (the gate's `onCommit`), and Solid 1's `onDrag` and `onPan`. A discrete callback (`onTap`, `onDragEnd`) logs each throw, as before. Rejected: every throw, 60 a second (B); stop calling the callback after a throw (C). ADR-0030, *Amendment (#257 item 4)*.
+
+**Built:**
+- **The spine** tells a binding's hooks `failed(resolution, error)`, once a Retarget, with the cause squashed to its error.
+  - It's told at once, not after the gate's next flush as a landing is. A leg that fails before it writes leaves no flush to wait for, and the first build of this waited for one and hung.
+  - A leg failing as it's built, before the Retarget's `started` is told, is told right after `started`.
+- **Solid 2's `Lifecycle`:**
+  - `failed` takes the Retarget out of flight. It hands `settled()`'s pending read a `Failure` value, and fails the `settled` waits.
+  - `settled()` throws the `Failure`'s error in the reader. The memo is the ward's, owned outside any boundary a reader is in. A memo that errored itself would escape to no boundary and halt the app: the first build did, as an uncaught error with the reader's `<Errored>` showing the failure too.
+  - A memo made after the failure throws it at its first read.
+- **`Waiters`:** `fail(name, error)` rejects a name's waits. An `each` ends at a disposal's `AbortError` and throws anything else.
+- **The gate:** each entry's `failing` flag. **Solid 1's gesture callbacks:** a set of the per-move callbacks failing now.
+- **Found and filed:** #315. A `settled()` read under `<Loading>` during an entrance defers the root's mount with any Environment but the `DomLive` constant, on main too. The tests mount their readers once the entrance has landed.
+
+**Pinned by:**
+- `v2/errors.browser.test.tsx`:
+  - **ER1:** the five misuse errors in `<Errored>`, with the outside still updating.
+  - **ER2:** a failed animation. `next` rejects; `settled()` goes to `<Errored>` and isn't pending; it's reported once a leg; nothing is unhandled.
+  - **ER3:** the next Retarget clears it, unreset, and `next` resolves.
+  - **ER4:** `each` throws through a `for await` and a memo over it.
+  - **ER5:** a step that throws mid-flight.
+  - **ER6:** `onUpdate` reported at a run's first.
+  - **ER7:** a first read after the failure.
+  - **ER8:** a first read after a failure and a landing.
+- `v2/swipe-dismiss.browser.test.tsx` **SC5:** the README's swipe card, its fly-out on a duration from a speed setting that's `NaN`. Each swipe's `dismiss` throws (a toast, no request), and with the setting fixed the next swipe dismisses it. On main each swipe's action waited for good, with nothing shown. The card now hears its releases through a memo over `each("dragEnd")` and an effect, the reorder save's pattern, in place of an async loop started from `onSettled`.
+- `error-reporting.browser.test.tsx`: Solid 1's `onUpdate` and `onDrag` reported at a run's first.
+- dom `gate.node.test.ts` **GC6:** the gate's runs.
+- The shared `test/report-env.ts`: the reporting Environment both bindings' tests use, moved out of `error-reporting.browser.test.tsx`.
+
+**Mutation-checked:** fifteen single-point mutations, fourteen caught:
+- the spine never telling a failure, or dropping one told before `started` (ER2–ER4, ER7, ER8) or after it (ER5);
+- `next` not rejected (ER2, ER4, ER7), the pending read left pending (ER5), the read never throwing (ER2, ER3, ER7), a start keeping the failure (ER8, found surviving and pinned), a memo made after it ignoring it (ER2, ER3, ER7);
+- an `each` ending at a failure (ER4), or throwing at a disposal (EA3, PX4);
+- the gate's run never ending or not kept (GC6, Solid 1's `onUpdate`), and the same for Solid 1's per-move callbacks.
+
+The one that survived is a failure told for a Retarget no longer in flight, with the guard removed. It can't happen: each Retarget ends every leg of the one before it (Superseded, or interrupted), so no leg of an older Retarget fails after a newer one starts. The guard mirrors `settled`'s.

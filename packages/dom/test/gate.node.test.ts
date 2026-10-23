@@ -906,4 +906,30 @@ describe("the gate's commit hook, onCommit (#233, ADR-0043 Amendment (#233, #234
     expect(reports).toEqual(["boom"])
     end()
   })
+
+  it("GC6: a run of throws is reported at its first (#257 item 4); a call that returns ends it, and the next throw reports again", async () => {
+    const reports: Array<string> = []
+    const runtime = ManagedRuntime.make(
+      withFrames(Layer.merge(HEARD, stillLoop).pipe(Layer.provideMerge(ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))])))),
+    )
+    const gate = internalGate.makeFlushGate(runtime, NO_BATCH)
+    const end = (): void => {
+      gate.dispose()
+      void runtime.dispose()
+    }
+    // Throws at calls 1-3, returns at 4, throws at 5-6.
+    let calls = 0
+    gate.register("a", sinkOf(() => {}, { onCommit: () => {
+      calls++
+      if (calls !== 4) throw new Error(`boom ${calls}`)
+    } }))
+    for (let x = 1; x <= 6; x++) {
+      gate.write("a", { x })
+      fireFrame()
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(calls).toBe(6)
+    expect(reports).toEqual(["boom 1", "boom 5"])
+    end()
+  })
 })
