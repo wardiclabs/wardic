@@ -18,11 +18,11 @@
  * until its owner is disposed. On a server, each gives its source's value as it is now (ADR-0021).
  */
 import * as LiveValue from "@wardic/core/LiveValue"
-import type * as Machine from "@wardic/core/Machine"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
 import * as Exit from "effect/Exit"
 import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -32,8 +32,8 @@ import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
 import { type Accessor, createComputed, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
 import { fromAtom } from "./bridge.ts"
-import type { LiveSource } from "./live-style.ts"
-import { readLive, serverRegistryOf } from "./live-style.ts"
+import type { LiveSource, SpringAccessor } from "./live-style.ts"
+import { atomOf, carry, readLive, serverRegistryOf, serverSpringOf, springAccessorOf } from "./live-style.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
@@ -102,14 +102,22 @@ const interpolatorOf = <O extends number | string>(
  * each frame, runs on the Frame loop until it rests there (Motion's `useSpring`). A change
  * mid-flight keeps its velocity. Nothing runs while it rests, and its owner's disposal ends it.
  *
+ * - **`jump(value)`** sets it at once, not as motion (Motion's `jump`): it rests there until its
+ *   source next changes, then springs from there, and a `createVelocity` of it reads 0 across it.
+ * - **`skipInitialAnimation`**: the source's first change is a jump, as Motion's option, for a
+ *   source set once after mount (a scroll the browser restores).
+ *
  * ```tsx
  * const [x, setX] = createSignal(0)
  * const followX = createSpring(x, { stiffness: 300, damping: 30 })
  * <div {...ward({ style: { x: followX } })} />
  * ```
  */
-export const createSpring = (source: LiveSource<number>, options: Machine.SpringOptions = {}): Accessor<number> =>
-  derivedOf(source, accessorOf(source), (atom) => LiveValue.spring(atom, options))
+export const createSpring = (source: LiveSource<number>, options: LiveValue.SpringOptions = {}): SpringAccessor => {
+  const runtime = useWardicRuntime()
+  if (isServer) return serverSpringOf(accessorOf(source))
+  return springAccessorOf(runtime, derivedOf(source, accessorOf(source), (atom) => LiveValue.spring(atom, options)))
+}
 
 /**
  * `source`'s velocity, in its units a second (Motion's `useVelocity`): 0 to begin with, then, each
@@ -149,19 +157,20 @@ const derivedOf = <R>(
   const runtime = useWardicRuntime()
   if (isServer) return serverValue
   const registry = runtime.runSync(AtomRegistry.AtomRegistry)
-  const atom = Bool.match(Atom.isAtom(source), {
-    onTrue: () => source as Atom.Atom<number>,
-    onFalse: () => mirrorOf(source as Accessor<number>, registry),
+  // Its own Atom, or the one it carries (another helper's): a jump of it reaches a velocity of it.
+  const atom = UndefinedOr.match(atomOf(source) as Atom.Atom<number> | undefined, {
+    onDefined: identity,
+    onUndefined: () => mirrorOf(source as Accessor<number>, registry),
   })
   return liveOf(runtime, make(atom))
 }
 
-/** A helper's Atom on the provider's runtime, in a Scope its owner's disposal closes, as an accessor. */
+/** A helper's Atom on the provider's runtime, in a Scope its owner's disposal closes, as an accessor carrying it. */
 const liveOf = <R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<number>, never, R>): Accessor<number> => {
   const scope = Scope.makeUnsafe()
   onCleanup(() => closeScope(runtime, scope))
   const out = runtime.runSync((live as Effect.Effect<Atom.Atom<number>, never, WardicServices | Scope.Scope>).pipe(Scope.provide(scope)))
-  return fromAtom(out)
+  return carry(fromAtom(out), out)
 }
 
 const SERVER_ZERO: Accessor<number> = () => 0

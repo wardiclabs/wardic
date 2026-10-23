@@ -18,9 +18,18 @@
 // - LV11: a helper whose owner is disposed under a live provider ends its run: its Atom stops.
 // - LV12: `fromAtom` carries its Atom too: B's `x` from `fromAtom` of an Atom derived from A's `x` paints
 //   in A's frame (through Solid, a derived Atom's change shows a frame late).
+// - LV13: a writable memo (`createSignal(fn)`) as `createSpring`'s source: a write springs there, and a
+//   change of what it derives from springs to that (#257 item 7).
+// - LV14: `jump`: at rest, mid-flight, and with the source changed in the same task: set at once,
+//   resting there until the source changes, then springing from there, with no velocity across it.
+// - LV15: `skipInitialAnimation`: the source's first change lands at once; the changes after it spring.
+// - LV16: `LiveValue.jump` on a user's own Atom: a velocity of it reads no motion; an Atom that isn't
+//   writable is a defect.
+import * as LiveValue from "@wardic/core/LiveValue"
 import { DomLive } from "@wardic/dom"
 import * as ScrollOffset from "@wardic/dom/ScrollOffset"
-import { createScroll, createSpring, createTime, createTransform, createVelocity, fromAtom, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createScroll, createSpring, createTime, createTransform, createVelocity, fromAtom, type SpringAccessor, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import * as Bool from "effect/Boolean"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { type Accessor, createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -436,5 +445,181 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
     } finally {
       stop()
     }
+  })
+
+  it("LV13: a writable memo as createSpring's source: a write springs there, and a change of what it derives from springs to that", async () => {
+    let el!: HTMLElement
+    let spring!: Accessor<number>
+    let setTarget!: (v: number) => void
+    const [base, setBase] = createSignal(0)
+    const Box = () => {
+      const [target, set] = createSignal(() => base())
+      setTarget = set
+      spring = createSpring(target, { stiffness: 200, damping: 20 })
+      return <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, x: spring }} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await settle()
+    let frames = sampleFrames(() => translateXOf(el))
+    setTarget(100)
+    flush()
+    await until(() => spring() === 100, 3000)
+    await settle()
+    expect(spring()).toBe(100)
+    expect(frames.stop().filter((v) => v > 1 && v < 99).length, "the write springs there over frames").toBeGreaterThan(5)
+    frames = sampleFrames(() => translateXOf(el))
+    setBase(50)
+    flush()
+    await until(() => spring() === 50, 3000)
+    await settle()
+    expect(spring()).toBe(50)
+    expect(frames.stop().filter((v) => v > 51 && v < 99).length, "the source's change springs to it").toBeGreaterThan(5)
+  })
+
+  it("LV14: jump: set at once, resting there until the source changes, then springing from there; no velocity across it", async () => {
+    let el!: HTMLElement
+    let spring!: SpringAccessor
+    let velocity!: Accessor<number>
+    const [x, setX] = createSignal(300)
+    const Box = () => {
+      // Overdamped: from rest it never passes its target, so a velocity kept across a jump would show.
+      spring = createSpring(x, { stiffness: 200, damping: 40 })
+      velocity = createVelocity(spring)
+      return <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, x: spring }} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(translateXOf(el)).toBe(300)
+
+    // At rest: the next painted frame shows the jump, with nothing between, and it rests there.
+    let frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    spring.jump(0)
+    await wait(300)
+    await settle()
+    let seen = frames.stop()
+    expect(seen.every(([v]) => Bool.or(v === 300, v === 0)), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(seen.at(-1)![0]).toBe(0)
+    expect(spring(), "it rests on the jump while the source stays").toBe(0)
+    expect(seen.every(([, v]) => v === 0), `velocities ${seen.map(([, v]) => v).join(" ")}`).toBe(true)
+
+    // The source's next change springs from where it jumped to.
+    frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    setX(100)
+    flush()
+    await until(() => spring() === 100, 3000)
+    await settle()
+    seen = frames.stop()
+    expect(seen.every(([v]) => v <= 100.5), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(seen.filter(([v]) => v > 1 && v < 99).length, "it springs from 0").toBeGreaterThan(5)
+
+    // Mid-flight: the run ends where it's set, and it rests there.
+    setX(400)
+    flush()
+    await until(() => spring() > 200, 3000)
+    expect(spring()).toBeGreaterThan(200)
+    frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    spring.jump(0)
+    await wait(300)
+    await settle()
+    seen = frames.stop()
+    // Every painted frame from the jump on: the jump is set before the next paint.
+    expect(seen.every(([v]) => v === 0), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(spring()).toBe(0)
+    expect(seen.every(([, v]) => v >= 0), `velocities ${seen.map(([, v]) => v).join(" ")}`).toBe(true)
+
+    // Mid-flight with the source changed in the same task: it follows from the jump, with no velocity.
+    setX(100)
+    flush()
+    await until(() => spring() > 40, 3000)
+    expect(spring()).toBeGreaterThan(40)
+    frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    spring.jump(0)
+    setX(50)
+    flush()
+    await until(() => spring() === 50, 3000)
+    await settle()
+    seen = frames.stop()
+    expect(spring()).toBe(50)
+    // It was past 40: its first painted frame is the jump's, or the spring's first step from it.
+    expect(seen[0]![0], `painted ${seen.map(([v]) => v).join(" ")}`).toBeLessThan(10)
+    expect(seen.every(([v]) => v <= 50.5), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(seen.filter(([v]) => v > 1 && v < 49).length, "it springs from the jump").toBeGreaterThan(3)
+    expect(seen.every(([, v]) => v > -50), `velocities ${seen.map(([, v]) => v).join(" ")}`).toBe(true)
+  })
+
+  it("LV15: skipInitialAnimation: the source's first change lands at once, and the changes after it spring", async () => {
+    let el!: HTMLElement
+    let spring!: Accessor<number>
+    let velocity!: Accessor<number>
+    const [x, setX] = createSignal(0)
+    const Box = () => {
+      spring = createSpring(x, { stiffness: 200, damping: 20, skipInitialAnimation: true })
+      velocity = createVelocity(spring)
+      return <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, x: spring }} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await settle()
+    let frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    // A scroll the browser restores after mount.
+    setX(300)
+    flush()
+    await wait(200)
+    await settle()
+    let seen = frames.stop()
+    expect(seen.every(([v]) => Bool.or(v === 0, v === 300)), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(spring()).toBe(300)
+    expect(seen.every(([, v]) => v === 0), `velocities ${seen.map(([, v]) => v).join(" ")}`).toBe(true)
+    frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    setX(100)
+    flush()
+    await until(() => spring() === 100, 3000)
+    await settle()
+    seen = frames.stop()
+    expect(seen.filter(([v]) => v > 101 && v < 299).length, "the next change springs").toBeGreaterThan(5)
+  })
+
+  it("LV16: LiveValue.jump on a user's own Atom: a velocity of it reads no motion; an Atom that isn't writable is a defect", async () => {
+    const atom = Atom.make(0)
+    const derived = Atom.make((get) => get(atom) * 2)
+    let velocity!: Accessor<number>
+    let runtime!: ReturnType<typeof useWardicRuntime>
+    const Scene = () => {
+      runtime = useWardicRuntime()
+      velocity = createVelocity(atom)
+      return null
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+    const frames = sampleFrames(() => velocity())
+    runtime.runSync(LiveValue.jump(atom, 500))
+    await wait(100)
+    await settle()
+    const seen = frames.stop()
+    expect(registry.get(atom)).toBe(500)
+    expect(seen.every((v) => v === 0), `velocities ${seen.join(" ")}`).toBe(true)
+    // And a plain set is motion, as before.
+    const moving = sampleFrames(() => velocity())
+    registry.set(atom, 0)
+    await wait(100)
+    const set = moving.stop()
+    expect(Math.min(...set), `velocities ${set.join(" ")}`).toBeLessThan(-1000)
+    expect(() => runtime.runSync(LiveValue.jump(derived, 1))).toThrow(/isn't writable/)
   })
 })

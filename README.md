@@ -149,7 +149,7 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | solid-motionone's `<Presence>` | `<AnimatePresence>` |
 | `useMotionValue(0)` | a signal (or an `effect/reactivity` Atom), given in `style` |
 | `useTransform(value, input, output)` | `createTransform(value, input, output)` |
-| `useSpring(value, options)` | `createSpring(value, options)` |
+| `useSpring(value, options)`, `.jump(v)`, `skipInitialAnimation` | `createSpring(value, options)`, the same `jump(v)` and option |
 | `useScroll({ container, target, offset })` | `createScroll({ container, target, offset })` |
 | `useVelocity(value)` | `createVelocity(value)` |
 | `useTime()` | `createTime()` |
@@ -248,6 +248,33 @@ A value in `style` is where the key rests. While `animate`, a `while*` prop or a
 
 `ward.value(key)` is what the element shows for a key, whoever moves it, as an accessor. `ward.atom(key)` is the same as an Atom, for Effect code. With a transform key set, a `transform` string in `style` gives way to the keys, as in Motion, and a warning is logged.
 
+A spring can also snap, as Motion's does. `spring.jump(value)` sets it at once, not as motion: it rests there until its source next changes, then springs from there, and a `createVelocity` of it reads 0 across the jump. With `skipInitialAnimation: true`, the source's first change is a jump, for a source set once after mount, such as a scroll the browser restores:
+
+```tsx
+import { createScroll, createSpring, wardic } from "@wardic/solid"
+import { createSignal } from "solid-js"
+
+function Follower() {
+  const [pointerX, setPointerX] = createSignal(0)
+  const x = createSpring(pointerX, { stiffness: 500, damping: 40 })
+  // A scroll the browser restores after mount lands at once; scrolling after it springs.
+  const progress = createSpring(createScroll().scrollYProgress, { skipInitialAnimation: true })
+  return (
+    <div
+      onPointerMove={(e) => setPointerX(e.clientX)}
+      // Back in the window: start where the pointer is, without gliding across to it.
+      onPointerEnter={(e) => {
+        setPointerX(e.clientX)
+        x.jump(e.clientX)
+      }}
+    >
+      <wardic.div style={{ x }} />
+      <wardic.div style={{ scaleX: progress }} />
+    </div>
+  )
+}
+```
+
 Scroll, velocity and time are Live values too, and `onUpdate` reports every value Wardic draws for an element once a frame:
 
 ```tsx
@@ -321,6 +348,13 @@ function Card(props: { open: boolean }) {
 - A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`. Their keys complete from the config: every key it animates or styles, through `initial`, `animate`, `exit`, its variants, `whileHover`, `whileTap`, `whileDrag` and `style`, and `x`/`y` when it drags. Any other key is accepted too.
 - Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, which isn't a ref. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
 - The Live value helpers (`createTransform`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
+- **A spring's target that you both derive and set** is Solid's writable memo, given to `createSpring`. A write springs there, and the next change of what it derives from springs to that. Keep anything derived from a ward's value on its Atom (`read`, `createTransform`, `createSpring`), not in a memo: a memo over `card.read("x")` paints a frame behind the card.
+
+  ```tsx
+  const [target, setTarget] = createSignal(() => (open() ? 300 : 0))
+  const x = createSpring(target)
+  setTarget(150)   // springs to 150; open()'s next change springs to its value
+  ```
 - Reorder has factories that are refs too: `const list = reorderGroup({ values: items, onReorder: setItems })` goes on the `<ul>` (`<ul {...list}>`), and `reorderItem(list, { value })` on each `<li>`. Each item is a ward. An item's own `tabindex` and `aria-describedby` go in its config, so the keyboard reorder's instructions are kept. `Reorder.Group` and `Reorder.Item` are there too.
 - **Saving a new order, optimistically:** a group tells `{ values, value, from, to }` once at the end of each user reorder that changed the order: `list.next("reorderEnd")` for one, `list.each("reorderEnd")` for all of them, as an async iterable (a `<Reorder.Group>` hands its group over with `groupRef`). A memo over `each` holds the latest as an async value, and an effect saves it:
 

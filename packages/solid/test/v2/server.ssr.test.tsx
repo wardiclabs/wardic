@@ -25,6 +25,8 @@
 //   at once, and `<AnimatePresence ref>` hands a callback the server's handle.
 // - SV18 (#264): `ward.with({ style })` renders its style over the config's in the Starting style:
 //   Motion's swipe card, its opacity derived from its own `read("x")`; and `read(key)` rests there.
+// - SV19 (#257 item 7): `createSpring` reads its source, with or without `skipInitialAnimation`; its
+//   `jump` does nothing, and the source accessor isn't given one.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -311,6 +313,23 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     const [, label] = named(serve(() => <Scene />), "div")
     expect(readings).toEqual([0.5, 100, "rgb(128, 128, 128)", 50, 0, 0, 0, 0])
     expect(label?.style.opacity).toBe("0.5")
+  })
+
+  it("SV19: createSpring reads its source on a server; its jump does nothing, and the source isn't given one (#257 item 7)", () => {
+    let readings: Array<number> = []
+    const source = (): number => 40
+    const Scene = () => {
+      const spring = createSpring(source)
+      const skipping = createSpring(source, { skipInitialAnimation: true })
+      spring.jump(10)
+      readings = [spring(), skipping()]
+      const card = ward({ style: { x: spring } })
+      return <div {...card} data-card />
+    }
+    const [card] = named(serve(() => <Scene />), "div")
+    expect(readings).toEqual([40, 40])
+    expect(card?.style["transform"]).toBe("translateX(40px)")
+    expect("jump" in source, "the user's accessor is wrapped, not given a jump").toBe(false)
   })
 
   it("SV18: ward.with's style renders over the config's in the Starting style; read rests there (#264)", () => {

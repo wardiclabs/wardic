@@ -334,6 +334,17 @@ The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid
 - Every Solid 2 test and the lab's s14 and s18 rewritten per key.
 - **The lab:** s15 on the Solid 2 build gains a **store config** cell, the style opacity cell's twin with its config a shallow store: Store style replaces the store's `style` (0.5 ↔ 0.8) and shows at once, and a hover (or a phone's tap) goes to 1 and back to the store's value. Its three board runs pass headless; every other card is unchanged on both builds.
 
+## #257 item 2: no projection API (2026-10-23)
+
+Item 2 asked whether `createProjection`, Solid 2's derived store, should replace a ward's per-key accessors: `card.values.x` for `card.read("x")`. **Q1: A, no:** `read(key)` stays.
+
+- **Why:** the same-frame rule (PR 3b). A value derived from a ward's paints in the ward's frame only on its Atom: `read(key)` gives an accessor that carries it, and a `style` given one follows the Atom, set where the gate writes. A projection's property is read through Solid, which shows a change at its flush, after the gate's write, so whatever is derived from `card.values.x` would paint a frame late. A property can't carry an Atom as an accessor does.
+- **The issue's three internal uses stay probes, not API:** the resolved target compared by value (`sameResolution`) as a projection's diff, `live-style.ts`'s `split` / `reconcile` of the user's style, and Reorder's `values` indexed by value. Each is taken up only if a probe shows it's cheaper or simpler than what's there.
+
+## #257 item 7: writable Live values (2026-10-23)
+
+No writable Live value: Solid's writable memo is a spring's target that's derived and set, and a ward's `read(key)` is the value a drag writes. `createSpring` gets Motion's `jump` and `skipInitialAnimation`, and a velocity reads 0 across a jump. ADR-0043, *Amendment (#257 item 7)*.
+
 ## #257 item 3: `reorderEnd` (2026-10-23)
 
 The group's `next("reorderEnd")` / `each("reorderEnd")`, `Reorder.Group`'s `groupRef`, and the optimistic save pattern the probes found: an optimistic store written by the save, a writable memo of it written by the drag, a memo over `each` and an effect. ADR-0020, *Amendment (#257 item 3)*.

@@ -6,7 +6,9 @@
 //   `transform` string for the keys.
 // - LF13: a createWard spread renders an Atom's value, and `ward.value` reads where a key rests.
 // - SL6: createScroll, createVelocity and createTime read 0 on a server, and run nothing (#234).
-import { createScroll, createTime, createVelocity, createWard, wardic } from "@wardic/solid"
+// - SL7: createSpring reads its source on a server, with or without `skipInitialAnimation`; its `jump`
+//   does nothing, and the source accessor isn't given one (#257 item 7).
+import { createScroll, createSpring, createTime, createVelocity, createWard, wardic } from "@wardic/solid"
 import { Atom } from "effect/reactivity"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -53,5 +55,21 @@ describe("Live values in a server render (#130)", () => {
     const div = first(serve(() => <Scroller />), "div")
     expect(read).toEqual([0, 0, 0, 0, 0, 0])
     expect(div?.style["opacity"]).toBe("0")
+  })
+
+  it("SL7: createSpring reads its source on a server; its jump does nothing, and the source isn't given one (#257 item 7)", () => {
+    let read: Array<number> = []
+    const source = (): number => 40
+    function Springs(): JSX.Element {
+      const spring = createSpring(source)
+      const skipping = createSpring(source, { skipInitialAnimation: true })
+      spring.jump(10)
+      read = [spring(), skipping()]
+      return <wardic.div style={{ x: spring }} />
+    }
+    const div = first(serve(() => <Springs />), "div")
+    expect(read).toEqual([40, 40])
+    expect(div?.style["transform"]).toBe("translateX(40px)")
+    expect("jump" in source, "the user's accessor is wrapped, not given a jump").toBe(false)
   })
 })
