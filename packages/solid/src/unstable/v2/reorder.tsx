@@ -256,6 +256,8 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   // Its events (#257 item 3), ended with it.
   const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
   onCleanup(() => events.dispose())
+  // Whether the app's `move` is the call under way: its reorder isn't flushed.
+  let moving = false
   // The group's controller, over the provider's projection system and the Environment's channel to
   // assistive technology (ADR-0037), in a Scope of the group's own, closed with its owner.
   const scope = runtime.runSync(Scope.make())
@@ -265,9 +267,12 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
       // The DOM follows a reorder within the controller's call, as on Solid 1, whose updates are
       // synchronous: the controller keeps focus on a lifted item right after (moving a focused node
       // can blur it), and Solid 2 would otherwise move the node at its next flush, after that.
+      // A `move` the app calls doesn't: nothing reads the DOM after it, and the app may call it inside
+      // an `action`, where Solid refuses a flush (FLUSH_IN_ACTION, #257 item 12).
       onReorder: (values) => {
-        untrack(() => cfg().onReorder)(values)
-        flush()
+        const onReorder = untrack(() => cfg().onReorder)
+        if (moving) return onReorder(values)
+        flush(() => onReorder(values))
       },
       onReorderEnd: (end) => events.tell("reorderEnd", () => end),
       axis: () => Option.fromUndefinedOr(untrack(() => cfg().axis)),
@@ -314,7 +319,14 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
     {
       group: controller.group,
       axis,
-      move: (value: V, toIndex: number) => controller.move(value, toIndex),
+      move: (value: V, toIndex: number) => {
+        moving = true
+        try {
+          controller.move(value, toIndex)
+        } finally {
+          moving = false
+        }
+      },
       next: <E extends keyof ReorderGroupEvents<V>>(name: E) => events.wait(name),
       each: <E extends keyof ReorderGroupEvents<V>>(name: E) => eachOf<ReorderGroupEvents<V>, E>(events, name),
       controller,

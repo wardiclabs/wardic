@@ -5,9 +5,10 @@
  *
  * - **No `batch`.** Solid 2 batches every update on a microtask, and a read lags its setter until
  *   then. The flush gate needs a frame's Starting-style switches to have reached the elements
- *   before it commits (ADR-0034), so it gets apply-then-`flush()`: the switches set their signals,
- *   and `flush()` drains them at once. The gate runs them from its frame flush, outside any owner,
- *   where Solid 2 lets a signal be written.
+ *   before it commits (ADR-0034), so it gets `flush(apply)`: the switches set their signals in a
+ *   synchronous flush scope, drained as it returns, with no microtask scheduled for them (#257
+ *   item 12). The gate runs them from its frame flush, outside any owner, where Solid 2 lets a
+ *   signal be written.
  * - **A context value is its own provider** (`<WardicContext value={…}>`).
  * - **`onSettled`** opens the Hydration hold where Solid 1 had `onMount` (`onSettledClientOnly`: a
  *   server starts nothing, so it takes no hydration id).
@@ -50,8 +51,7 @@ import { onSettledClientOnly } from "./solid-reactivity.ts"
 
 /** A frame's Starting-style switches, applied and drained before the gate commits (ADR-0034): Solid 2's `batch`. */
 const applyAndFlush = (apply: () => void): void => {
-  apply()
-  flush()
+  flush(apply)
 }
 
 /**
