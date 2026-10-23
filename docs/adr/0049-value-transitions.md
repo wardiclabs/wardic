@@ -115,3 +115,15 @@ Wardic had the `layout` entry alone (ADR-0009 *Amendment (#171)*, its Q3: "no ot
 Two needed tests added:
 - **The own fields' repeat beside `default`:** survived at first, as AR17's elements each had a key on the own fields.
 - **The exit delay:** added before the run (VT9), as VT7's exit had none.
+
+**Bench:** `bench:solid`, N = 1,000, against main `1cb5171`. The page sets no `transition`, so this is what the change costs every other element: an `undefined` check in `legsOf` (with no transition there is no `WeakMap` lookup), and one more call (`legsWith`). The control gated at +3.7%.
+
+| | Solid 1 | Solid 2 |
+|---|---|---|
+| mount (warm) | +0.4% [−0.2%, +1.2%] | +0.4% [−0.8%, +0.6%] |
+| Retarget (warm) | −0.8% [−1.7%, +0.8%] | +0.8% [−1.0%, +1.8%] |
+| restRetarget (warm) | −0.1% [−1.5%, +0.6%] | −0.3% [−0.6%, +2.0%] |
+| unmount (warm) | +0.2% [−2.0%, +1.5%] | −1.0% [−2.6%, −0.2%] |
+| bytes per element | +0.3% | 0.0% |
+
+An earlier run, whose control line was cut from the log, gated too, with the same picture: bytes +0.1% and +0.4%.
