@@ -77,7 +77,7 @@ export {
   type ScrollOptions,
   type ScrollValues,
 } from "./live-value.ts"
-export type { Live, LiveSource } from "./live-style.ts"
+export type { Live, LiveSource, SpringAccessor } from "./live-style.ts"
 
 /**
  * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->

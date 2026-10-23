@@ -11,6 +11,8 @@
  *   `interpolate`), for a binding that maps its own reactive value.
  * - `spring`: a value that follows another with a spring (Motion's `useSpring`), stepped on the
  *   Frame loop while it moves and idle once it rests.
+ * - `jump`: a value set at once, not as motion (Motion's `MotionValue.jump`, #257 item 7): a
+ *   spring's output ends its run there, and a `velocity` of it reads no motion.
  * - `scroll`: a container's scroll and progress (Motion's `useScroll`), from the Environment's
  *   `Probe.scroll` (#234).
  * - `velocity`: another value's velocity, per frame while it moves (Motion's `useVelocity`).
@@ -23,10 +25,11 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
-import { identity } from "effect/Function"
+import { constUndefined, constVoid, dual, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import type * as Scope from "effect/Scope"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import type * as Frame from "./Frame.ts"
@@ -93,19 +96,89 @@ const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, clamp: b
   return stretch.blend(Bool.match(clamp, { onTrue: () => Math.min(Math.max(t, 0), 1), onFalse: () => t }))
 }
 
+/** `spring`'s options: `Machine.spring`'s, and Motion's `skipInitialAnimation`. */
+export interface SpringOptions extends Machine.SpringOptions {
+  /**
+   * The source's first change lands at once, as a `jump`, and only the changes after it spring
+   * (Motion's `skipInitialAnimation`): for a source set once after it starts, as a scroll the
+   * browser restores after the page mounts. Default `false`.
+   */
+  readonly skipInitialAnimation?: boolean
+}
+
+/**
+ * Who hears each Atom's jumps, per registry: a `spring` of its own output, ending its run, and a
+ * `velocity` of its source, reading the jump as no motion. Weak both ways: a registry or an Atom
+ * gone takes its listeners with it, and an Atom nothing listens to costs nothing.
+ */
+const jumps = new WeakMap<AtomRegistry.AtomRegistry, WeakMap<Atom.Atom<number>, Set<(value: number) => void>>>()
+
+/** Hear `atom`'s jumps in `registry`, until the stop it gives back. */
+const onJump = (registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<number>, hear: (value: number) => void): (() => void) => {
+  const byAtom = UndefinedOr.match(jumps.get(registry), {
+    onDefined: identity,
+    onUndefined: () => {
+      const made = new WeakMap<Atom.Atom<number>, Set<(value: number) => void>>()
+      jumps.set(registry, made)
+      return made
+    },
+  })
+  const listeners = UndefinedOr.match(byAtom.get(atom), {
+    onDefined: identity,
+    onUndefined: () => {
+      const made = new Set<(value: number) => void>()
+      byAtom.set(atom, made)
+      return made
+    },
+  })
+  listeners.add(hear)
+  return () => {
+    listeners.delete(hear)
+  }
+}
+
+/** `atom` set to `value` in `registry` as a jump: its listeners told first, then the Atom set. */
+const jumpIn = (registry: AtomRegistry.AtomRegistry, atom: Atom.Writable<number>, value: number): void => {
+  const listeners = UndefinedOr.match(jumps.get(registry), { onDefined: (byAtom) => byAtom.get(atom), onUndefined: constUndefined })
+  UndefinedOr.match(listeners, { onDefined: (all) => Arr.forEach(Arr.fromIterable(all), (hear) => hear(value)), onUndefined: constVoid })
+  registry.set(atom, value)
+}
+
+/**
+ * Jump `atom` to `value` (Motion's `MotionValue.jump`, #257 item 7): set at once, not as motion.
+ * A `spring` whose output it is ends its run there with no velocity, and rests there until its
+ * source next changes, then springs from there; a `velocity` of it reads the jump as no motion, 0
+ * in that frame. `atom` is writable, a `spring`'s output or one of the user's; any other is a
+ * defect.
+ */
+export const jump: {
+  (value: number): (atom: Atom.Atom<number>) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>
+  (atom: Atom.Atom<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry>
+} = dual(2, (atom: Atom.Atom<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry> =>
+  Effect.gen(function* () {
+    if (Bool.not(Atom.isWritable(atom))) {
+      return yield* Effect.die(new Error("LiveValue.jump: the Atom isn't writable (a spring's output, or one of your own)"))
+    }
+    const registry = yield* AtomRegistry.AtomRegistry
+    jumpIn(registry, atom as Atom.Writable<number>, value)
+  }))
+
 /**
  * A value that follows `source` with a spring (`options`, as `Machine.spring`'s): it starts where
  * the source is, and from each change on, a `Machine.chase` toward the source runs on the Frame
  * loop, reading the source afresh on every step, until it comes to rest there. Then the run
- * ends, and nothing runs until the source moves again. The run and the subscription end with
- * the Scope; the Atom is held in the registry until then, and after it only while subscribed.
+ * ends, and nothing runs until the source moves again. With `skipInitialAnimation`, the source's
+ * first change is a `jump`. A `jump` of its output ends the run there, with no velocity. The run
+ * and the subscription end with the Scope; the Atom is held in the registry until then, and after
+ * it only while subscribed.
  */
 export const spring = (
   source: Atom.Atom<number>,
-  options: Machine.SpringOptions = {},
+  options: SpringOptions = {},
 ): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
   Effect.gen(function* () {
     const registry = yield* AtomRegistry.AtomRegistry
+    const { skipInitialAnimation, ...springOptions } = options
     // Mounted for the Scope, not kept alive: a kept-alive Atom's node never leaves the registry.
     const out = Atom.make(registry.get(source))
     const unmount = registry.mount(out)
@@ -114,13 +187,20 @@ export const spring = (
     let velocity = 0
     // Whether a run follows the source now: a change while it does costs a check, nothing built.
     let running = false
+    // Whether the source's next change is a jump: its first, with `skipInitialAnimation`.
+    let skipping = skipInitialAnimation === true
     /** Follow the source from where `out` is, until it rests. */
     const follow = (): void => {
+      if (skipping) {
+        skipping = false
+        jumpIn(registry, out, registry.get(source))
+        return
+      }
       if (running) return
       running = true
       token = Supersede.make()
       const ending = token
-      const chase = Machine.chase(() => registry.get(source), { ...options, from: registry.get(out), velocity })
+      const chase = Machine.chase(() => registry.get(source), { ...springOptions, from: registry.get(out), velocity })
       run(
         chase.pipe(
           Machine.run(
@@ -142,9 +222,16 @@ export const spring = (
       )
     }
     const unsubscribe = registry.subscribe(source, follow)
+    // A jump of `out`: the run ends where it's set, with no velocity, and the next change follows from there.
+    const unhear = onJump(registry, out, () => {
+      running = false
+      velocity = 0
+      Supersede.end(token)
+    })
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         unsubscribe()
+        unhear()
         Supersede.end(token)
         unmount()
       }))
@@ -211,6 +298,10 @@ export const velocity = (source: Atom.Atom<number>): Effect.Effect<Atom.Atom<num
       previous = registry.get(source)
       return undefined
     })
+    // A jump of the source isn't motion: the change is read from where it jumped to.
+    const unhear = onJump(registry, source, (value) => {
+      previous = value
+    })
     // One token for its lifetime, and one run program, started afresh on the change after a rest:
     // a change while a run goes costs a check, nothing built.
     const token = Supersede.make()
@@ -237,6 +328,7 @@ export const velocity = (source: Atom.Atom<number>): Effect.Effect<Atom.Atom<num
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         unsubscribe()
+        unhear()
         Supersede.end(token)
         unmount()
       }))

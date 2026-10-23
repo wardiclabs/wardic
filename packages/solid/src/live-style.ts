@@ -20,6 +20,7 @@
  * Solid-free: both bindings run it, each giving its own Solid as a {@link Reactivity} (#209).
  */
 import * as BaseValue from "@wardic/core/BaseValue"
+import * as LiveValue from "@wardic/core/LiveValue"
 import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
@@ -31,6 +32,7 @@ import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Accessor, Reactivity } from "./reactivity.ts"
+import type { WardicRuntime } from "./runtime.ts"
 
 /** A Live value as Solid takes it: an `effect/reactivity` Atom, or an accessor (a signal, a memo). */
 export type LiveSource<A> = Atom.Atom<A> | Accessor<A>
@@ -55,6 +57,29 @@ const CARRIED = Symbol.for("@wardic/solid/carried")
  */
 export const carry = <A>(accessor: Accessor<A>, atom: Atom.Atom<A>): Accessor<A> =>
   Object.defineProperty(accessor, CARRIED, { value: atom })
+
+/** `createSpring`'s value (#257 item 7): an accessor carrying the spring's Atom, with Motion's `jump`. */
+export interface SpringAccessor extends Accessor<number> {
+  /**
+   * Set the spring to `value` at once, not as motion (Motion's `MotionValue.jump`): its run ends
+   * there with no velocity, and it rests there until its source next changes, then springs from
+   * there. A `createVelocity` of it reads 0 across the jump. On a server, it does nothing.
+   */
+  readonly jump: (value: number) => void
+}
+
+/** `accessor`, carrying a spring's Atom, with `jump` run on `runtime`. */
+export const springAccessorOf = (runtime: WardicRuntime, accessor: Accessor<number>): SpringAccessor => {
+  const atom = atomOf(accessor) as Atom.Atom<number>
+  return Object.assign(accessor, {
+    jump: (value: number): void => {
+      runtime.runSync(LiveValue.jump(atom, value))
+    },
+  })
+}
+
+/** A server's spring: `read`, as it is now, and a `jump` that does nothing (ADR-0021). */
+export const serverSpringOf = (read: Accessor<number>): SpringAccessor => Object.assign(() => read(), { jump: constVoid })
 
 /** The Atom a Live value is, or carries: `undefined` for a plain accessor or a plain value. Per key, per change: guards, no matcher. */
 export const atomOf = (value: unknown): Atom.Atom<unknown> | undefined => {

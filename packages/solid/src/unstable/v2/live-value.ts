@@ -24,7 +24,6 @@
  * @module
  */
 import * as LiveValue from "@wardic/core/LiveValue"
-import type * as Machine from "@wardic/core/Machine"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Arr from "effect/Array"
@@ -39,7 +38,7 @@ import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
-import { atomOf, type LiveSource, readLive, serverRegistryOf } from "../../live-style.ts"
+import { atomOf, type LiveSource, readLive, serverRegistryOf, serverSpringOf, type SpringAccessor, springAccessorOf } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { followAtom } from "./bridge.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
@@ -155,15 +154,22 @@ const interpolatorOf = <O extends number | string>(
  * loop until it rests there (Motion's `useSpring`). A change mid-flight keeps its velocity. Nothing
  * runs while it rests, and its owner's disposal ends it.
  *
+ * - **`jump(value)`** sets it at once, not as motion (Motion's `jump`): it rests there until its
+ *   source next changes, then springs from there, and a `createVelocity` of it reads 0 across it.
+ * - **`skipInitialAnimation`**: the source's first change is a jump, as Motion's option, for a
+ *   source set once after mount (a scroll the browser restores).
+ * - **A source that's derived and also set** is Solid's writable memo, `createSignal(fn)`: a write
+ *   springs there, and the next change of what it derives from springs to that (#257 item 7).
+ *
  * ```tsx
  * const [x, setX] = createSignal(0)
  * const card = ward({ style: { x: createSpring(x, { stiffness: 300, damping: 30 }) } })
  * ```
  */
-export const createSpring = (source: LiveSource<number>, options: Machine.SpringOptions = {}): Accessor<number> => {
-  if (isServer) return () => readOnServer(source)
+export const createSpring = (source: LiveSource<number>, options: LiveValue.SpringOptions = {}): SpringAccessor => {
+  if (isServer) return serverSpringOf(() => readOnServer(source))
   const runtime = useWardicRuntime()
-  return liveOf(runtime, LiveValue.spring(sourceAtomOf(source, runtime.runSync(AtomRegistry.AtomRegistry)), options))
+  return springAccessorOf(runtime, liveOf(runtime, LiveValue.spring(sourceAtomOf(source, runtime.runSync(AtomRegistry.AtomRegistry)), options)))
 }
 
 /**

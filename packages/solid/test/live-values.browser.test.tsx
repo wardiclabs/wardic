@@ -18,11 +18,15 @@
 //   takes its transform key from mount.
 // - LF15: a `transform` string beside a transform key is logged once, as a warning; alone, never.
 // - LF16: a style that routes nothing at mount, and a Live value later, follows it from then on.
+// - LF17: `createSpring`'s `jump` (#257 item 7): at rest, and mid-flight with the source changed in the
+//   same task: set at once, resting there until the source changes, then springing from there, and a
+//   `createVelocity` of it reads no motion across it.
+// - LF18: `skipInitialAnimation`: the source's first change lands at once; the changes after it spring.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
-import { createSpring, createTransform, createWard, useWardicRuntime, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { createSpring, createTransform, createVelocity, createWard, type SpringAccessor, useWardicRuntime, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { type Accessor, createSignal } from "solid-js"
@@ -403,5 +407,83 @@ describe("Live values in style (#130, ADR-0043)", () => {
     ))
     await settle()
     expect([opacity(), scale()]).toEqual([0.4, 1])
+  })
+
+  it("LF17: jump: set at once, resting there until the source changes, then springing from there; no velocity across it", async () => {
+    let el!: HTMLDivElement
+    let spring!: SpringAccessor
+    let velocity!: Accessor<number>
+    const [x, setX] = createSignal(300)
+    const Box = () => {
+      // Overdamped: from rest it never passes its target, so a velocity kept across a jump would show.
+      spring = createSpring(x, { stiffness: 200, damping: 40 })
+      velocity = createVelocity(spring)
+      return <wardic.div ref={el} style={{ ...BOX, x: spring }} />
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(translateXOf(el)).toBe(300)
+
+    // At rest: the next painted frame shows the jump, with nothing between, and it rests there.
+    let frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    spring.jump(0)
+    await wait(300)
+    await settle()
+    let seen = frames.stop().map((f) => f.v)
+    expect(seen.every(([v]) => Bool.or(v === 300, v === 0)), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(seen.at(-1)![0]).toBe(0)
+    expect(spring(), "it rests on the jump while the source stays").toBe(0)
+    expect(seen.every(([, v]) => v === 0), `velocities ${seen.map(([, v]) => v).join(" ")}`).toBe(true)
+
+    // Mid-flight, with the source changed in the same task: it follows from the jump, with no velocity.
+    setX(100)
+    await until(() => spring() > 40, 3000)
+    expect(spring()).toBeGreaterThan(40)
+    frames = sampleFrames(() => [translateXOf(el), velocity()] as const)
+    spring.jump(0)
+    setX(50)
+    await until(() => spring() === 50, 3000)
+    await settle()
+    seen = frames.stop().map((f) => f.v)
+    expect(spring()).toBe(50)
+    // It was past 40: its first painted frame is the jump's, or the spring's first step from it.
+    expect(seen[0]![0], `painted ${seen.map(([v]) => v).join(" ")}`).toBeLessThan(10)
+    expect(seen.every(([v]) => v <= 50.5), `painted ${seen.map(([v]) => v).join(" ")}`).toBe(true)
+    expect(seen.filter(([v]) => v > 1 && v < 49).length, "it springs from the jump").toBeGreaterThan(3)
+    expect(seen.every(([, v]) => v > -50), `velocities ${seen.map(([, v]) => v).join(" ")}`).toBe(true)
+  })
+
+  it("LF18: skipInitialAnimation: the source's first change lands at once, and the changes after it spring", async () => {
+    let el!: HTMLDivElement
+    let spring!: Accessor<number>
+    const [x, setX] = createSignal(0)
+    const Box = () => {
+      spring = createSpring(x, { stiffness: 200, damping: 20, skipInitialAnimation: true })
+      return <wardic.div ref={el} style={{ ...BOX, x: spring }} />
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await settle()
+    let frames = sampleFrames(() => translateXOf(el))
+    // A scroll the browser restores after mount.
+    setX(300)
+    await wait(200)
+    await settle()
+    let seen = frames.stop().map((f) => f.v)
+    expect(seen.every((v) => Bool.or(v === 0, v === 300)), `painted ${seen.join(" ")}`).toBe(true)
+    expect(spring()).toBe(300)
+    frames = sampleFrames(() => translateXOf(el))
+    setX(100)
+    await until(() => spring() === 100, 3000)
+    await settle()
+    seen = frames.stop().map((f) => f.v)
+    expect(seen.filter((v) => v > 101 && v < 299).length, "the next change springs").toBeGreaterThan(5)
   })
 })

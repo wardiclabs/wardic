@@ -196,3 +196,52 @@ Decided 2026-10-19 (#240, Q1 A: measure first; Q2 A: defer). Decision 1 of the *
 - **Why not now:** a timeline-run value is a WAAPI handoff, which `docs/plans/v0.1.md` defers to after v0.1 in full. It is the simplest case of one: no retarget and no velocity, only a pure function of the scroll, so `ward.value` and `onUpdate` could compute it from `Probe.scroll` instead of reading it back. The plan's WAAPI entry names it as the first eligible case, and #240 holds what it would cover.
 - **The yardstick:** scenario 19's orange bar is that CSS animation, run with the scroll itself, under Wardic's progress bar. Its Busy toggle blocks the main thread 50 ms out of every 100. Fling the box and watch the gap. #240's comment holds the screencast script that measured it.
 - **The lab's lines** skip frames read late in **moves** and **updates** too. A run whose moving (or told) frames were mostly read late isn't judged on them: a busy main thread's run leaves too little to judge. Covered in the lab's `test/live-board.test.ts`.
+
+## Amendment (#257 item 7): no writable Live value; Motion's `jump` and `skipInitialAnimation`
+
+#257 item 7 asked whether a Live value should be one an app can both derive and `set`, as Solid 2's writable memo (`createSignal(fn)`) is: a write lands at once, and the next change of what it derives from re-derives it. Motion's equivalent is a `useSpring` value: it follows a source, and its own `set` and `jump` move it too.
+
+**Grilled 2026-10-23:**
+1. **No writable Live value (Q1: A).** The two cases the issue names are covered already. A probe checked both (Chromium, `.tmp/257-7/`):
+   - **A spring's target, derived and set,** is a writable memo given to `createSpring`, which follows any accessor:
+     ```tsx
+     const [target, setTarget] = createSignal(() => (open() ? 300 : 0))
+     const x = createSpring(target)
+     setTarget(150)   // springs to 150; open()'s next change springs to its value
+     ```
+     A write sprang there over 13 frames, and a change of `open()` after it sprang to the derived value.
+   - **A value a drag writes and a layer follows** is the ward's own: the drag writes its `x`, and `card.read("x")` gives it, by this ADR's rule that Wardic never writes into a value it's given. A layer given `read("x")` painted in the card's frame in 37 of 37 moving frames. A writable memo over `read("x")` was a frame behind in 31 of 37, as anything through Solid 2 is (ADR-0045, PR 3b): a value derived from a ward's stays on its Atom.
+   - **Rejected:** a Wardic writable value in Motion's `useMotionValue` shape (B), a second spelling of Solid's writable memo whose only gain, the ward's frame, `read` and `createTransform` give already; and every helper giving a `[value, set]` pair (C), which breaks their types and, for a spring, is a jump.
+2. **`createSpring` gets Motion's two snaps (Q2: A), on both bindings.**
+   - **`jump(value)`** on the accessor it gives (`SpringAccessor`, still an accessor): the spring is set there at once, not as motion. Its run ends with no velocity, and it rests there until its source next changes, then springs from there. That's a writable memo's rule, applied to the spring's own value. Core's `LiveValue.jump(atom, value)` jumps a spring's output, or any writable Atom of the user's; any other Atom is a defect.
+   - **`skipInitialAnimation: true`:** the source's first change is a jump, and only the changes after it spring. Motion added it for a scroll the browser restores after mount, which a scroll-linked spring would otherwise glide to.
+   - **On a server,** `jump` does nothing, and the user's accessor is wrapped, not given one.
+   - **Rejected:** only `skipInitialAnimation` (B), which leaves a reset without a glide impossible; neither (C).
+3. **A velocity reads 0 across a jump (Q3: A),** as Motion's does: Motion keeps a value's velocity on the value, and its `jump` resets it. Wardic's `createVelocity` reads a value's change each frame, so a jump from 300 to 0 would read about −18,000 px/s for that frame, and a skew driven by it would flicker. Core keeps who hears each Atom's jumps, per registry: a spring, of its own output, to end its run, and a `velocity`, of its source, to read the jump's frame from where it jumped to. Rejected: the one-frame spike, documented (B).
+
+**Built:**
+- **Core:**
+  - `LiveValue.SpringOptions`: `Machine.SpringOptions` and `skipInitialAnimation`.
+  - `LiveValue.jump` (dual); the jump listeners in a `WeakMap` by registry, then by Atom, so a registry or an Atom gone takes its listeners with it.
+  - `spring` and `velocity` listen; a jump tells its listeners, then sets the Atom.
+- **Solid 1 and Solid 2:** `createSpring` gives a `SpringAccessor`, with `jump` run on the provider's runtime.
+  - Solid 1's helpers now carry their Atom, as Solid 2's do (ADR-0045, PR 3b), and take a carried Atom as their source. A `createVelocity` of a spring then reads the spring's own Atom, which hears its jumps. A mirror of the accessor would read a jump as motion.
+  - The shared `SpringAccessor`, `springAccessorOf` and `serverSpringOf` live in `live-style.ts`, beside `carry`.
+- **The README:** `jump` and `skipInitialAnimation` under Solid 1's Live values; under Solid 2's, the writable memo as a spring's target, and a value derived from a ward's kept on its Atom.
+
+**Pinned by:**
+- `v2/live-values.browser.test.tsx`:
+  - **LV13:** a writable memo as `createSpring`'s source: a write, then a change of what it derives from, each sprung to.
+  - **LV14:** `jump` at rest (nothing painted between; it rests there; velocity 0 throughout), then the next change sprung from the jump; mid-flight (every frame after it at the jump; no velocity of the wrong sign); and mid-flight with the source changed in the same task (sprung from the jump, overdamped, so a velocity kept across it would overshoot).
+  - **LV15:** `skipInitialAnimation`: the first change lands at once with velocity 0; the next springs.
+  - **LV16:** `LiveValue.jump` on a user's own Atom: a velocity of it reads 0, where a plain set reads motion; a derived Atom is a defect.
+- `live-values.browser.test.tsx` **LF17** (`jump` at rest and mid-flight, with the velocity of the spring) and **LF18** (`skipInitialAnimation`), on Solid 1.
+- `v2/server.ssr.test.tsx` **SV19** and `live-values.ssr.test.tsx` **SL7:** on a server, the source's value, `jump` doing nothing, and the source accessor left alone.
+
+**Mutation-checked:** twelve single-point mutations, all caught:
+- a jump leaving the spring's run going (LV14, LF17), keeping its velocity (LV14), or leaving it marked running (LV14, LF17);
+- a velocity ignoring jumps (LV14–LV16), or no listener told at all (LV14–LV16);
+- a jump never setting the Atom (LV14–LV16), or allowed on a derived one (LV16);
+- `skipInitialAnimation` ignored, or every change a jump (LV15, LF18);
+- Solid 1's helpers not carrying their Atom, or not taking a carried one (LF17);
+- a server's spring giving the user's own accessor a `jump` (SL7).
