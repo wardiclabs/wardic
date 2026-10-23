@@ -9,7 +9,7 @@
     "build": "vinxi build",
     "start": "vinxi start",
     "version": "vinxi version",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --noEmit"
   },
   "dependencies": {
     "@solidjs/router": "^0.16.1",

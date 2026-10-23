@@ -476,7 +476,7 @@ See [`plan.md`](./plan.md) for the full architectural design and decisions.
 ## Tooling
 
 - **Bun** for package management, testing, and build.
-- **TypeScript** with `strict: true` and project references for incremental type-checking.
+- **TypeScript** with `strict: true` and project references for incremental type-checking. `tsc` is TypeScript 7, the Go port (the `typescript-7` alias): `bun run typecheck` checks the packages, their tests and the examples. The `typescript` package stays 6 for typescript-eslint and anything using the compiler API, until they support 7 (#308).
 - **Changesets** for versioning across the multi-package release.
 - **ESM-only.** No CommonJS shipping.
 

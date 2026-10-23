@@ -1,5 +1,5 @@
 {
-  "// note": "Solution file — `tsc --build` walks these references in dependency order. The example app is bundler-built (vinxi) and typechecked separately.",
+  "// note": "Solution file — `tsc --build` walks these references in dependency order, with TypeScript 7 (the `typescript-7` alias, #308; `typescript` stays 6 for typescript-eslint and the compiler API). The examples are bundler-built and typechecked by their own `typecheck`, which the root `typecheck` runs.",
   "files": [],
   "references": [
     { "path": "./packages/core" },
