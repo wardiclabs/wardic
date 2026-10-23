@@ -3,12 +3,27 @@
  * config animates, through `initial`, `animate`, `exit`, any variant, `whileHover`, `whileTap`,
  * `whileDrag` or `style`, and `x`/`y` when it drags; any other key is still accepted (a custom
  * property, a config built at run time). A config typed as a plain `WardConfig` offers every key.
+ *
+ * And a config's transitions' entries, checked against the keys each drives (#301's PR 2,
+ * {@link WardCheckedConfig}): Solid 2's `ward()` checks its config so.
  * Types only.
  *
  * @module
  */
+import type * as Machine from "@wardic/core/Machine"
 import type { Atom } from "effect/reactivity"
-import type { WardicTransformShorthands } from "./config.ts"
+import type {
+  WardicInherit,
+  WardicOrchestration,
+  WardicReducedMotion,
+  WardicTransformShorthands,
+  WardicTransition,
+  WardicTransitionWith,
+  WardicValueEntries,
+  WardicValues,
+  WardicValueTransition,
+  WardicVariantResolver,
+} from "./config.ts"
 import type { Accessor } from "./reactivity.ts"
 
 /** A key's value through its accessor, the Solid 2 binding's per-key form (#259): what it returns. */
@@ -85,3 +100,118 @@ export type WardValueOf<C, K extends string> = K extends keyof WardicTransformSh
   : [Widen<ValuesAt<C, K>>] extends [never]
     ? number | string | undefined
     : Widen<ValuesAt<C, K>> | undefined
+
+// --- Transition entries, checked (#301's PR 2, ADR-0049) ---------------------------------------
+
+/** A transition option's name, on either arm, a target's `inherit` among them: never an entry. */
+type OptionName =
+  | keyof (Omit<Machine.SpringOptions, "from"> & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicInherit)
+  | "type"
+
+/**
+ * What a name that's neither an option nor an entry the transition allows is checked against: why.
+ * As an object for a value that isn't one (a mistyped option), which a string would meet as `never`.
+ */
+type NotHere<P extends string, V> = V extends object
+  ? `'${P}' is neither a transition option nor a key animated here`
+  : { readonly "is neither a transition option nor a key animated here": P }
+
+/** Whether keys are every value's (a config typed wide, `WardConfig`'s): no literal key is a template. */
+type IsWide<K> = `-${string}` extends K ? true : false
+
+/**
+ * Each member's keys, as one union. A union's own `keyof` is the keys they share, an intersection:
+ * for a transition's two arms, two unions of every value's name, which TS crosses (TS2590).
+ */
+type KeysIn<T> = T extends unknown ? keyof T & string : never
+
+/** Each member's value at `P`. */
+type ValueIn<T, P extends string> = T extends unknown ? (P extends keyof T ? T[P] : never) : never
+
+/** `X` in the form `raw` was given: an accessor of it for an accessor (#259's per-key config), which may read none. */
+type Rewrap<Raw, X> = Raw extends (...args: never) => unknown ? () => X | undefined : X
+
+/**
+ * The transition given as `raw`, checked (#301): entries for `K` (and `default`), every other name
+ * an option, else an error naming it.
+ */
+type CheckedTransition<Raw, E, K extends string> =
+  IsWide<K | KeysIn<NonNullable<Unwrap<Raw>>>> extends true
+    ? unknown
+    : Rewrap<
+        Raw,
+        & WardicTransitionWith<E>
+        & WardicInherit
+        & { readonly [P in Exclude<KeysIn<NonNullable<Unwrap<Raw>>>, K | OptionName | "default">]: NotHere<P, ValueIn<NonNullable<Unwrap<Raw>>, P>> }
+      >
+
+/** `C`'s value at `K`, or `undefined` without one. */
+type RawOf<C, K extends string> = K extends keyof C ? C[K] : undefined
+
+/**
+ * A target, checked: its values as any target's, and its own transition (#277) with entries for the
+ * keys it sets (Q2) and `default`, no `layout`. A dynamic variant is a resolver as ever, a variant
+ * name or `false` as it is.
+ */
+type CheckedTarget<T> = T extends (...args: never) => unknown
+  ? WardicVariantResolver
+  : T extends object
+    ? T extends ReadonlyArray<unknown>
+      ? T
+      : Omit<WardicValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardicValueEntries<KeysOf<T>>, KeysOf<T>> }
+    : T
+
+/** The config props that take a target. */
+type TargetProp = "animate" | "exit" | "whileHover" | "whileTap" | "whileDrag" | "whileFocus" | "whileInView"
+
+/** Each variant, checked; a variants map typed wide as it is. */
+type VariantsOf<C> = Unwrap<C["variants" & keyof C]> extends infer Vs
+  ? Vs extends object
+    ? Rewrap<C["variants" & keyof C], { readonly [N in keyof Vs]: CheckedTarget<Vs[N]> }>
+    : C["variants" & keyof C]
+  : never
+
+/** Whether a prop gives a variant name, or a list of them (#297). */
+type GivesLabels<V> = Unwrap<V> extends string | ReadonlyArray<string> ? true : false
+
+/**
+ * Whether Variant children can join the element (Motion's `isVariantNode`): it has `variants`, or
+ * gives a variant name in `initial` or `animate`. They inherit its `transition`, so its entries may
+ * be for their keys.
+ */
+type HandsDown<C> = true extends
+  | ("variants" extends keyof C ? ([Unwrap<C["variants" & keyof C]>] extends [undefined] ? false : true) : false)
+  | ("initial" extends keyof C ? GivesLabels<C["initial" & keyof C]> : false)
+  | ("animate" extends keyof C ? GivesLabels<C["animate" & keyof C]> : false)
+  ? true
+  : false
+
+/**
+ * The element's `transition`, checked (Q1): entries for the keys it animates, `default` and `layout`.
+ * An element Variant children can join takes every value's name, as Motion types it: they inherit
+ * it.
+ */
+type ElementTransition<C> = HandsDown<C> extends true
+  ? Rewrap<RawOf<C, "transition">, WardicTransition>
+  : CheckedTransition<RawOf<C, "transition">, WardicValueEntries<AnimatedKey<C>> & { readonly layout?: WardicValueTransition }, AnimatedKey<C> | "layout">
+
+/**
+ * A config `C` with its transitions' entries checked (#301's PR 2, ADR-0049), for a binding whose
+ * config is `W`: completion inside a `transition` offers the keys it drives, and an entry for any
+ * other is an error naming it. The element's `transition` takes the keys the element animates,
+ * `default` and `layout`, every value's name for an element Variant children can join; a target's
+ * own (a variant's, `animate`'s, a gesture's, `exit`'s), the keys that target sets and `default`. A
+ * config typed as a plain `WardConfig` takes every name. Every other key is `W`'s, so a callback's
+ * parameters are typed as ever.
+ */
+export type WardCheckedConfig<C, W> = C & {
+  readonly [K in keyof W]?: K extends "transition"
+    ? ElementTransition<C>
+    : K extends keyof C
+      ? K extends TargetProp
+        ? Rewrap<C[K], CheckedTarget<Unwrap<C[K]>>>
+        : K extends "variants"
+          ? VariantsOf<C>
+          : W[K]
+      : W[K]
+}

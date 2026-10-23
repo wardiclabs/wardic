@@ -74,7 +74,7 @@ import { trackConstraintsOf } from "../../drag-constraints.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import { driveDragTrack } from "../../drag-track.ts"
 import { reported, type WardicServices } from "../../runtime.ts"
-import type { WardKey, WardValueOf } from "../../ward-keys.ts"
+import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
@@ -159,6 +159,13 @@ type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraint
  * `drag` and its settings, and `layout` and the rest of its keys are read once, at setup.
  */
 export type WardConfig = PerKey<WardConfigValues, WardCallbackKey>
+
+/**
+ * A ward's config `C` with its transitions' entries checked against the keys each drives (#301's
+ * PR 2, ADR-0049). A wrapper that hands its config on takes `config: WardChecked<C>` for its own
+ * `<const C extends WardConfig>`, and passes `C` on: `ward<C>(config)`.
+ */
+export type WardChecked<C> = WardCheckedConfig<C, WardConfig>
 
 /** Every key a ward reads, its callbacks among them. */
 const WARD_KEYS = [
@@ -363,7 +370,7 @@ const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantC
  * or a root, under a `WardicProvider`. Its config's type is kept, so `read` and `atom` complete the
  * keys it animates.
  */
-export function ward<const C extends WardConfig>(config: C): Ward<C> {
+export function ward<const C extends WardConfig>(config: WardChecked<C>): Ward<C> {
   return wardWith(config, NO_INTERNALS) as Ward<C>
 }
 
