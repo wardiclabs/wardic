@@ -370,3 +370,24 @@ The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid
 - RV7 now also records every `touch-action` write as the axis clears: one, from `none` straight to the detected axis's. A relay goes through `pan-x` first, which an effect behind the memo would do without a relay-tear code.
 - `test/reorder-controller.browser.test.ts` RC3: `detect()` reads the row's `x` at once, reporting nothing.
 - **Mutations:** the gestures not keyed by element (GE5), a memo that misses a pass's detection (RV7), and the axis detected by an effect behind the memo (RV7's writes) are all caught. Writing the old reset back is now harmless: with the state keyed by element, it changes no resolution.
+
+## Amendment (#253, 2026-10-23): Solid 1's `wardic.create(Component)` sets its Ward up as this binding does
+
+Solid 1's `wardic.create(Component)` built its element's Ward itself, beside `createWardWith`. It rebuilt the variant node, the Starting values, the drag defaults, the Live style and the element style, then called `runSpine`. Its server path rebuilt `serverWard`'s Starting style the same way. It now does what this binding's `create` does (decision 9): `wardic.<tag>` and `wardic.create(Component)` are one component over `createWardWith`, with the component in place of the tag, and one server path over `serverWard`.
+
+**What a wrap keeps:**
+- **Drag defaults on the element at mount** (`SpineInternals.defaultsOnElement`, this binding's name), since its component may pass neither `style` nor `draggable` on.
+- **The ADR-0008 error,** thrown at mount when the component never forwarded its ref. A ref merged into the ward's own notes the forwarding.
+
+**A bug it fixes:** the wrap's own setup never told a presence of its element (`madeWith`, #286). A keyed `wardic.create(Component)` child came back beside its leaver instead of taking over from it.
+
+**Pinned by:**
+- `presence-key.browser.test.tsx` PK18: the wrap's take-over, which fails on the old setup.
+- `drag-defaults.browser.test.tsx` E10: the defaults at mount, through a component that passes neither on.
+- The suites that pin the component path, unchanged: `wardic-component`, `style-fallback`, `drag-defaults`, `server.ssr`, `appear.ssr` and the hydration suite.
+
+**Mutation-checked:**
+- The defaults on the element dropped, at the wrap and at the spine (E10).
+- The forwarding check dropped, or never satisfied (`wardic-component`).
+
+The `use:wardic` directive and Reorder's item still call `runSpine` themselves (#253's scope).

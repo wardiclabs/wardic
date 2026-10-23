@@ -20,6 +20,8 @@
 // - PK15: `onAnimationStart` once for the new node, with its `animate`.
 // - PK16: a tween's velocity, measured from its frames, carries over into a spring.
 // - PK17: `use:wardic`'s `key` takes over too.
+// - PK18 (#253): a `wardic.create(Component)` wrap's `key` takes over too: it builds its Ward through
+//   `createWardWith`, which tells the presence of its element. Its own setup never did.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, type PresenceMode, usePresence, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
@@ -458,5 +460,25 @@ describe("AnimatePresence key on Solid 1 (#286)", () => {
     expect(a.isConnected, "the leaver went at once").toBe(false)
     expect(all().length).toBe(1)
     expect(opacityOf(all()[0]!)).toBeCloseTo(at, 1)
+  })
+
+  it("PK18: a wardic.create(Component) wrap's key takes over too (#253)", async () => {
+    const Item = (props: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties; readonly id: string }): JSX.Element => (
+      <li ref={props.ref} style={props.style} data-item={props.id}>
+        {props.id}
+      </li>
+    )
+    const Wrapped = wardic.create(Item)
+    const list = mountList(["a", "b"], (id) => <Wrapped key={id} id={id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EXIT} />)
+    await until(() => opacityOf(list.node("b")) >= 0.99, 2000)
+    const b = list.node("b")
+    list.setItems(["a"])
+    await midExit(b)
+    const at = opacityOf(b)
+    list.setItems(["a", "b"])
+    await endOfTask()
+    expect(b.isConnected, "the leaver went at once").toBe(false)
+    expect(list.all("b").length, "one node").toBe(1)
+    expect(opacityOf(list.node("b")), "drawn where the leaver was, before any frame").toBeCloseTo(at, 1)
   })
 })

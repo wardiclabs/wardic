@@ -122,6 +122,17 @@ describe("drag elements get Motion's defaults (#36)", () => {
     expect(el.getAttribute("draggable")).toBe("false")
   })
 
+  it("E10: a wardic.create(Component) wrap gets them at mount, its component passing neither style nor draggable on (#253)", async () => {
+    // The component applies its own style and drops the wrap's `style` and `draggable`.
+    const Plain = (props: { readonly ref?: (el: HTMLElement) => void }) => <div ref={props.ref} style={BOX} />
+    const Wrapped = wardic.create(Plain)
+    const el = await mountOne((ref) => <Wrapped ref={ref} drag />)
+    await settle()
+    expect(el.style.getPropertyValue("touch-action")).toBe("none")
+    expect(el.style.getPropertyValue("user-select")).toBe("none")
+    expect(el.getAttribute("draggable")).toBe("false")
+  })
+
   it("E9 (guard): an animated key still wins over the user's style", async () => {
     const el = await mountOne((ref) => <wardic.div ref={ref} drag animate={{ opacity: 1 }} style={{ ...BOX, opacity: 0.2 }} />)
     await until(() => Number(getComputedStyle(el).opacity) > 0.999)
