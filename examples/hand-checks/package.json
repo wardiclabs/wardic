@@ -10,6 +10,6 @@
     "./save-log": "./src/save-log.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --noEmit"
   }
 }

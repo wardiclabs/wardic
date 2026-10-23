@@ -15,9 +15,9 @@
     "./internal/*": null
   },
   "scripts": {
-    "build": "tsc --build",
-    "typecheck": "tsc --build",
-    "typecheck:tests": "tsc -p tsconfig.test.json"
+    "build": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck:tests": "../../node_modules/typescript-7/bin/tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "bezier-easing": "^3.0.0"

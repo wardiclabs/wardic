@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node dist/server/node.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --noEmit"
   },
   "dependencies": {
     "@solidjs/router": "2.0.0-next.40",

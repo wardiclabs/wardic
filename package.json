@@ -9,10 +9,10 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "tsc --build",
-    "typecheck": "tsc --build && bun run --filter='@wardic/*' typecheck:tests",
+    "build": "node_modules/typescript-7/bin/tsc --build",
+    "typecheck": "node_modules/typescript-7/bin/tsc --build && bun run --filter='@wardic/*' typecheck:tests && bun run --filter='@wardic/example-*' typecheck",
     "typecheck:tests": "bun run --filter='@wardic/*' typecheck:tests",
-    "clean": "tsc --build --clean",
+    "clean": "node_modules/typescript-7/bin/tsc --build --clean",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
@@ -40,6 +40,7 @@
     "jsdom": "^29.1.1",
     "playwright": "1.59.1",
     "typescript": "^6.0.3",
+    "typescript-7": "npm:typescript@7.0.2",
     "typescript-eslint": "^8.71.1",
     "vite": "6.4.2",
     "vite-plugin-solid": "^2.11.12",
