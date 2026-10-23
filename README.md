@@ -413,9 +413,7 @@ function Card(props: { open: boolean }) {
   const folder = document.elementsFromPoint(point.x, point.y).find((el) => el instanceof HTMLElement && el.dataset.folder)
   ```
 
-  `card.each(name)` is every `name` from the call on, for `for await`; the loop ends when the ward is disposed.
-
-  **When an animation fails** (a `transition` Wardic rejects, such as `repeat: 1.5`, or a step that throws), it never lands. So `next("settled")` rejects with the error, `settled()` throws it, so a read in JSX goes to the nearest `<Errored>`, and `each("settled")` throws it. The next animation that starts clears it. The failure is logged and reported to your `ErrorReporter` either way, and a ward whose outcome nothing reads can't stop the app. Misusing Wardic (a ward made inside a spread, `Reorder.Item` outside a group, no `<WardicProvider>`) throws where `<Errored>` catches it too. An `onUpdate` that throws every frame is logged once per run of throws. With Solid 2's `action` and optimistic values, a gesture, its animation and a request read as one sequence. A swipe-to-dismiss card that sends its request only once it has flown off, with an undo window, and flies back by itself if the request fails or is undone:
+  `card.each(name)` is every `name` from the call on, for `for await`; the loop ends when the ward is disposed. With Solid 2's `action` and optimistic values, a gesture, its animation and a request read as one sequence. A swipe-to-dismiss card that sends its request only once it has flown off, with an undo window, and flies back by itself if the request fails or is undone:
 
   ```tsx
   function NoticeCard(props: { notice: Notice; list: SourceAccessor<ReadonlyArray<Notice>> }) {
@@ -460,6 +458,8 @@ function Card(props: { open: boolean }) {
     )
   }
   ```
+
+  **When an animation fails,** it never lands. That happens with a `transition` Wardic rejects (a `repeat: 1.5`, or a `duration` from a setting that came back `NaN`) or a step that throws. So `next("settled")` rejects with the error, `settled()` throws it (a read in JSX goes to the nearest `<Errored>`), and `each("settled")` throws it. The next animation that starts clears it. In the card above, a fly-out that fails makes `dismiss` throw: the optimistic side reverts, the `catch` shows its toast, and the loop goes on to the next swipe. The failure is logged and reported to your `ErrorReporter` either way, so a ward whose outcome nothing reads can't stop the app. Misusing Wardic (a ward made inside a spread, `Reorder.Item` outside a group, no `<WardicProvider>`) throws where `<Errored>` catches it too. An `onUpdate` that throws every frame is logged once per run of throws.
 - Layout is async too (#257, ADR-0046). `useAnimateLayout()`'s call returns a promise of its callback's result, resolved once every layout animation the change started has ended: `await animateLayout(() => setItems(shuffled()))`, then re-enable the button. Calls in one task resolve together, and the provider's disposal rejects one still waiting with an `AbortError`. A layout element's animations are `next("layoutStart")` and `next("layoutComplete")` (and `each`), where Solid 1 has `onLayoutAnimationStart` / `onLayoutAnimationComplete` and `animateLayout`'s `onSettled`.
 - A presence's exits are heard through a handle, `createPresence()`, given to `<AnimatePresence ref>` (#257, ADR-0046). `presence.exiting()` is whether a child is exiting, a plain reactive boolean; `await presence.next("exitComplete")` waits until every exiting child has animated out and been removed, and `next("exitStart")` until a child leaves. `ref` is optional, and takes a plain callback too: `ref={(p) => (presence = p)}`.
 

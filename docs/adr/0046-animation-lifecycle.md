@@ -303,6 +303,7 @@ Solid 2 halts every update on an error no boundary catches (`REACTIVITY_HALTED`)
   - **ER6:** `onUpdate` reported at a run's first.
   - **ER7:** a first read after the failure.
   - **ER8:** a first read after a failure and a landing.
+- `v2/swipe-dismiss.browser.test.tsx` **SC5:** the README's swipe card, its fly-out on a duration from a speed setting that's `NaN`. Each swipe's `dismiss` throws (a toast, no request), the card stays swipeable, and with the setting fixed the next swipe dismisses it. On main, the first action waited for good, and the `for await` loop with it: a second swipe started nothing and showed nothing.
 - `error-reporting.browser.test.tsx`: Solid 1's `onUpdate` and `onDrag` reported at a run's first.
 - dom `gate.node.test.ts` **GC6:** the gate's runs.
 - The shared `test/report-env.ts`: the reporting Environment both bindings' tests use, moved out of `error-reporting.browser.test.tsx`.

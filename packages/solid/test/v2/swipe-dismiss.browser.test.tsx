@@ -8,11 +8,16 @@
 // - SC2: a failed request: the action throws, the optimistic side reverts, and the card flies back.
 // - SC3: an undo in the window: the action returns, the card flies back, and no request is sent.
 // - SC4: a short swipe: it snaps back, and nothing is sent.
+// - SC5 (#257 item 4): a fly-out that fails (its own duration from a speed setting that's NaN): the
+//   action's `next("settled")` rejects, so it throws: a toast, no request, and the loop goes on, so a
+//   second swipe fails and says so too, and one with the setting fixed dismisses the card. On main the
+//   first action waited for good, and the loop with it: every later swipe was ignored, silently.
 import { DomLive } from "@wardic/dom"
 import { type WardDragInfo, ward, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { JSX } from "@solidjs/web"
-import { action, createMemo, createOptimistic, For, Loading, onSettled, refresh, Show, type SourceAccessor } from "solid-js"
+import { action, createMemo, createOptimistic, createSignal, For, Loading, onSettled, refresh, Show, type SourceAccessor } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -21,6 +26,16 @@ type Side = "left" | "right"
 const SWIPE = { shown: { x: 0, opacity: 1 }, left: { x: -420, opacity: 0 }, right: { x: 420, opacity: 0 } }
 const TWEEN = { type: "tween", duration: 0.1 } as const
 const UNDO_MS = 150
+
+/** The swipe's variants, the fly-outs on their own transition at `speed`'s pace when it's given (SC5). */
+const variantsAt = (speed: (() => number) | undefined) =>
+  UndefinedOr.match(speed, {
+    onUndefined: () => SWIPE,
+    onDefined: (pace) => {
+      const flyOut = { type: "tween", duration: TWEEN.duration * pace() } as const
+      return { ...SWIPE, left: { ...SWIPE.left, transition: flyOut }, right: { ...SWIPE.right, transition: flyOut } }
+    },
+  })
 
 const flung = (release: WardDragInfo): boolean => Math.abs(release.offset.x) >= 120 || Math.abs(release.velocity.x) >= 600
 const sideOf = (release: WardDragInfo): Side => Bool.match(release.offset.x < 0, { onTrue: (): Side => "left", onFalse: () => "right" })
@@ -46,11 +61,18 @@ const makeApi = (outcome: "ok" | "fail") => {
 }
 type Api = ReturnType<typeof makeApi>
 
-function NoticeCard(props: { readonly id: string; readonly list: SourceAccessor<ReadonlyArray<string>>; readonly api: Api; readonly toast: (text: string) => void }): JSX.Element {
+function NoticeCard(props: {
+  readonly id: string
+  readonly list: SourceAccessor<ReadonlyArray<string>>
+  readonly api: Api
+  readonly toast: (text: string) => void
+  /** The fly-out's speed setting, a multiple of its duration (SC5): its variants carry their own transition. */
+  readonly speed?: (() => number) | undefined
+}): JSX.Element {
   // Optimistic: shown at once, reverted when the action ends, whichever way it ends.
   const [out, setOut] = createOptimistic<Side | undefined>(undefined)
   const [undoable, setUndoable] = createOptimistic(false)
-  const card = ward({ drag: "x", dragSnapToOrigin: true, variants: SWIPE, initial: "shown", animate: () => out() ?? "shown", transition: TWEEN })
+  const card = ward({ drag: "x", dragSnapToOrigin: true, variants: () => variantsAt(props.speed), initial: "shown", animate: () => out() ?? "shown", transition: TWEEN })
 
   let undoNow = (): void => {}
   const dismiss = action(function* (side: Side) {
@@ -89,14 +111,14 @@ function NoticeCard(props: { readonly id: string; readonly list: SourceAccessor<
 }
 
 /** Mount the list on `api`: the cards it lists, under a `<Loading>`; toasts recorded. */
-const mountList = (api: Api) => {
+const mountList = (api: Api, speed?: () => number) => {
   const toasts: Array<string> = []
   const { host } = mount(() => {
     const list = createMemo(() => api.list())
     return (
       <WardicProvider env={DomLive}>
         <Loading fallback={<p>loading</p>}>
-          <For each={list()}>{(id) => <NoticeCard id={id} list={list} api={api} toast={(text) => toasts.push(text)} />}</For>
+          <For each={list()}>{(id) => <NoticeCard id={id} list={list} api={api} toast={(text) => toasts.push(text)} speed={speed} />}</For>
         </Loading>
       </WardicProvider>
     )
@@ -182,6 +204,36 @@ describe("a swipe-to-dismiss card, the request after the fly-out (#257)", () => 
     expect(host.querySelector('[data-undo="a"]'), "the undo button reverted").toBeNull()
     for (let i = 0; i < 12; i++) await raf()
     expect(api.calls, "no request").toEqual([])
+  })
+
+  it("SC5: a fly-out that fails (a speed setting of NaN): each swipe's action throws, a toast says so, and the card stays swipeable (#257 item 4)", async () => {
+    const api = makeApi("ok")
+    // A setting read from storage that came back empty: parseFloat("") is NaN, a duration Wardic rejects.
+    const [speed, setSpeed] = createSignal(Number.parseFloat(""))
+    const { card, toasts } = mountList(api, speed)
+    await until(() => card("a") !== null, 2000)
+    await raf()
+    await raf()
+    await swipe(card("a")!, -200)
+    await until(() => toasts.length > 0, 3000)
+    expect(toasts, "next('settled') rejected, so the action threw").toEqual(["Couldn't dismiss it"])
+    await until(() => opacity(card("a")) === 1, 2000)
+    expect(opacity(card("a")), "back where it was").toBe(1)
+    // The loop went on to the next release: a second swipe fails the same way, and says so. Before,
+    // the first action waited for its landing for good, and the loop with it: every swipe after it
+    // was ignored, with nothing on screen.
+    await swipe(card("a")!, 200)
+    await until(() => toasts.length > 1, 3000)
+    expect(toasts).toEqual(["Couldn't dismiss it", "Couldn't dismiss it"])
+    expect(api.calls, "no request for a card that never left").toEqual([])
+    // With the setting fixed, the next swipe dismisses it.
+    setSpeed(1)
+    await until(() => opacity(card("a")) === 1, 2000)
+    await raf()
+    await swipe(card("a")!, -200)
+    await until(() => card("a") === null, 3000)
+    expect(card("a"), "it left the list").toBeNull()
+    expect(api.calls).toEqual([{ id: "a", opacity: 0 }])
   })
 
   it("SC4: a short swipe snaps back, and nothing is sent", async () => {
