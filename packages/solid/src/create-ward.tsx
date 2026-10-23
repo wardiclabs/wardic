@@ -224,6 +224,11 @@ const NO_USER_PROPS: WardUserProps = {}
  */
 export interface SpineInternals {
   readonly tag?: string | undefined
+  /**
+   * Whether the element's drag defaults go on it at mount too, for a `wardic.create(Component)`
+   * wrap: its component may not pass the spread's `style` and `draggable` on (#253).
+   */
+  readonly defaultsOnElement?: boolean | undefined
   readonly dragAxis?: (() => boolean | "x" | "y") | undefined
   readonly onDragSample?: ((sample: Drag.Sample) => void) | undefined
   readonly onLayoutHandle?: ((handle: ProjectionSystem.NodeHandle) => void) | undefined
@@ -784,8 +789,9 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     // The gate commits onto the element (an svg-inner element's attribute keys as
     // attributes, ADR-0014); the hooks switch the spread's `style` (ADR-0034).
     makeSink: (element) => ({ target: element, ...elementStyle.hooks }),
-    // The spread's `style` and attributes carry the drag defaults and the base style.
-    defaultsInProps: true,
+    // The spread's `style` and attributes carry the drag defaults and the base style, unless
+    // they reach a wrapped component, which may not pass them on (#253).
+    defaultsInProps: internal.defaultsOnElement !== true,
     hydrating,
     tag: internal.tag,
   })
