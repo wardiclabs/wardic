@@ -118,6 +118,11 @@ interface Entry {
   outputs: Map<string, Output> | undefined
   /** The values its sink's `onCommit` is told, one object reused, made on the first call. */
   latest: Record<string, unknown> | undefined
+  /**
+   * Whether its `onCommit` threw at its last call (#257 item 4): a run of throws is logged and
+   * reported at its first, so one that throws every frame logs once; a call that returns ends it.
+   */
+  failing: boolean
   /** Its patch, projected this flush and committed once the binding has heard the keys held. */
   patch: Renderer.Patch | undefined
 }
@@ -354,7 +359,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       Object.assign(latest, entry.values)
       try {
         onCommit(latest)
+        entry.failing = false
       } catch (defect) {
+        if (entry.failing) continue
+        entry.failing = true
         runtime.runFork(reportFailure("wardic.gate: an onCommit failed", Cause.die(defect)))
       }
     }
@@ -447,7 +455,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const register: FlushGate["register"] = (id, sink) => {
-    const entry: Entry = { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined, patch: undefined }
+    const entry: Entry = { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined, failing: false, patch: undefined }
     accumulator.set(id, entry)
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {

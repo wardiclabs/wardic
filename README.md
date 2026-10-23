@@ -413,7 +413,9 @@ function Card(props: { open: boolean }) {
   const folder = document.elementsFromPoint(point.x, point.y).find((el) => el instanceof HTMLElement && el.dataset.folder)
   ```
 
-  `card.each(name)` is every `name` from the call on, for `for await`; the loop ends when the ward is disposed. With Solid 2's `action` and optimistic values, a gesture, its animation and a request read as one sequence. A swipe-to-dismiss card that sends its request only once it has flown off, with an undo window, and flies back by itself if the request fails or is undone:
+  `card.each(name)` is every `name` from the call on, for `for await`; the loop ends when the ward is disposed.
+
+  **When an animation fails** (a `transition` Wardic rejects, such as `repeat: 1.5`, or a step that throws), it never lands. So `next("settled")` rejects with the error, `settled()` throws it, so a read in JSX goes to the nearest `<Errored>`, and `each("settled")` throws it. The next animation that starts clears it. The failure is logged and reported to your `ErrorReporter` either way, and a ward whose outcome nothing reads can't stop the app. Misusing Wardic (a ward made inside a spread, `Reorder.Item` outside a group, no `<WardicProvider>`) throws where `<Errored>` catches it too. An `onUpdate` that throws every frame is logged once per run of throws. With Solid 2's `action` and optimistic values, a gesture, its animation and a request read as one sequence. A swipe-to-dismiss card that sends its request only once it has flown off, with an undo window, and flies back by itself if the request fails or is undone:
 
   ```tsx
   function NoticeCard(props: { notice: Notice; list: SourceAccessor<ReadonlyArray<Notice>> }) {

@@ -106,13 +106,33 @@ type MovementCallback = "onDragStart" | "onDragEnd" | "onPanStart" | "onPanEnd"
 
 /** An element's callers, reading `config` at each call; `id` names it in a report. */
 export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: () => WardConfig): GestureCallbacks => {
+  // The per-move callbacks whose last call threw (#257 item 4): a run of throws reports at its
+  // first, so one that throws at every move logs once; a call that returns ends the run.
+  let failing: Set<string> | undefined
+  /** Report the app's `name` threw `defect`. */
+  const report = (name: string, defect: unknown): void => {
+    runtime.runFork(Report.failure(`wardic.gesture: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
+  }
   /** Call the app's `name`, reported if it throws. */
   const call = <Args extends ReadonlyArray<unknown>>(name: string, callback: ((...args: Args) => void) | undefined, ...args: Args): void => {
     if (Predicate.isUndefined(callback)) return
     try {
       callback(...args)
     } catch (defect) {
-      runtime.runFork(Report.failure(`wardic.gesture: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
+      report(name, defect)
+    }
+  }
+  /** Call `onDrag` or `onPan`, at every move: a run of throws is reported at its first. */
+  const callPerMove = <Args extends ReadonlyArray<unknown>>(name: string, callback: ((...args: Args) => void) | undefined, ...args: Args): void => {
+    if (Predicate.isUndefined(callback)) return
+    try {
+      callback(...args)
+      UndefinedOr.map(failing, (names) => names.delete(name))
+    } catch (defect) {
+      if (Predicate.isUndefined(failing)) failing = new Set()
+      if (failing.has(name)) return
+      failing.add(name)
+      report(name, defect)
     }
   }
   /**
@@ -129,7 +149,7 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
     const raw = sample.raw as PointerEvent
     const info = dragInfoOf(sample)
     if (Predicate.isNotUndefined(named)) call(named, own, raw, info)
-    if (moving) call(every, each, raw, info)
+    if (moving) callPerMove(every, each, raw, info)
   }
   return {
     hovered: (transition) => {

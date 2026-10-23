@@ -1,25 +1,17 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
-import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import { DomLive } from "@wardic/dom"
-import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
-import * as DomClock from "@wardic/dom/DomClock"
-import * as DomInput from "@wardic/dom/DomInput"
-import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
-import * as DomProbe from "@wardic/dom/DomProbe"
-import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Report from "@wardic/dom/Report"
 import { AnimatePresence, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
-import type * as Context from "effect/Context"
 import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
-import { AtomRegistry } from "effect/reactivity"
 import { createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
+import { BROKEN, envWith, errorsNamed, type Logged } from "./report-env.ts"
 import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
 
 /**
@@ -33,60 +25,6 @@ afterEach(() => {
   cleanup()
 })
 
-type RegistryShape = Context.Service.Shape<typeof InterpolatorRegistry.InterpolatorRegistry>
-
-interface Logged {
-  readonly level: string
-  readonly message: string
-  readonly cause: string | undefined
-}
-
-/** A colour whose blend throws past progress 0: a step that throws, in a leg or an exit. */
-const BROKEN = "rgb(1, 2, 3)"
-const breaking = (registry: RegistryShape): RegistryShape => ({
-  ...registry,
-  resolve: (from, to) => {
-    if (to !== BROKEN) return registry.resolve(from, to)
-    return Effect.succeed((t: number) => {
-      if (t > 0) throw new Error("blend broke")
-      return from
-    })
-  },
-})
-
-/**
- * `DomLive`, composed as it is with the breaking registry, plus what an app would merge into
- * `env`: a logger appending to `logs`, an `ErrorReporter` appending each reported error's message
- * to `reports`, and, with `checkFrames`, `FrameLoop.CheckFrames`.
- */
-const envWith = (options: { readonly logs: Array<Logged>; readonly reports: Array<string>; readonly checkFrames?: boolean }): WardicEnv => {
-  const services = Layer.mergeAll(
-    DomClock.layer,
-    Layer.effect(InterpolatorRegistry.InterpolatorRegistry)(InterpolatorRegistry.InterpolatorRegistry.useSync(breaking)).pipe(
-      Layer.provide(InterpolatorRegistry.layer),
-    ),
-    DomRenderer.layer,
-    DomInput.layer,
-    DomProbe.layer,
-    DomPositionalKeys.layer,
-    DomAnnouncer.layer,
-  )
-  const environment = FrameLoop.layer.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer))
-  return Layer.mergeAll(
-    environment,
-    Logger.layer([
-      Logger.map(Logger.formatStructured, (s) => {
-        options.logs.push({ level: s.level, message: String(s.message), cause: s.cause })
-      }),
-    ]),
-    ErrorReporter.layer([ErrorReporter.make(({ error }) => void options.reports.push(error.message))]),
-    Layer.succeed(FrameLoop.CheckFrames, options.checkFrames === true),
-  )
-}
-
-/** The Error logs named `message`. */
-const errorsNamed = (logs: ReadonlyArray<Logged>, message: string): ReadonlyArray<Logged> =>
-  logs.filter((log) => log.level === "ERROR" && log.message === message)
 
 describe("each boundary logs a failure at Error and reports it once", () => {
   it("the spine's leg: each failed leg is logged and reported, the defect's message in the report", async () => {
@@ -226,6 +164,80 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("the app's onHoverStart broke")
     expect(reports).toEqual(["the app's onHoverStart broke"])
+  })
+
+  it("onUpdate (#257 item 4): one that throws every frame is reported at its run's first; a frame it returns ends the run", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    // Throws every frame but the fourth.
+    let calls = 0
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div
+          data-update
+          initial={{ x: 0 }}
+          animate={{ x: 100 }}
+          transition={{ type: "tween", duration: 0.3 }}
+          onUpdate={() => {
+            calls++
+            if (calls !== 4) throw new Error(`the app's onUpdate broke at ${calls}`)
+          }}
+          style={{ width: "40px", height: "40px" }}
+        />
+      </WardicProvider>
+    ))
+    const el = container.querySelector<HTMLElement>("[data-update]")!
+    await until(() => el.style.transform === "translateX(100px)")
+    await raf()
+    expect(calls, "told every frame").toBeGreaterThan(6)
+    expect(el.style.transform, "the animation goes on").toBe("translateX(100px)")
+    expect(reports).toEqual(["the app's onUpdate broke at 1", "the app's onUpdate broke at 5"])
+    expect(errorsNamed(logs, "wardic.gate: an onCommit failed")).toHaveLength(2)
+  })
+
+  it("onDrag (#257 item 4): one that throws at every move is reported at its run's first; a move it returns ends the run", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    // Throws at every call but the fourth; onDragEnd, once a drag, reports each throw.
+    let calls = 0
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div
+          data-drag
+          drag="x"
+          onDrag={() => {
+            calls++
+            if (calls !== 4) throw new Error(`the app's onDrag broke at ${calls}`)
+          }}
+          onDragEnd={() => {
+            throw new Error("the app's onDragEnd broke")
+          }}
+          style={{ width: "40px", height: "40px" }}
+        />
+      </WardicProvider>
+    ))
+    const el = container.querySelector<HTMLElement>("[data-drag]")!
+    await raf()
+    const pointer = (type: string, x: number, buttons: number) =>
+      new PointerEvent(type, { clientX: x, clientY: 0, buttons, pointerId: 1, pointerType: "mouse", isPrimary: true })
+    await retryGesture(
+      () => {
+        el.dispatchEvent(pointer("pointerdown", 0, 1))
+        el.dispatchEvent(pointer("pointermove", 10, 1))
+      },
+      () => el.dispatchEvent(pointer("pointerup", 10, 0)),
+      () => calls > 0,
+    )
+    for (let x = 20; x <= 80; x += 10) {
+      await raf()
+      el.dispatchEvent(pointer("pointermove", x, 1))
+    }
+    await raf()
+    el.dispatchEvent(pointer("pointerup", 80, 0))
+    await until(() => reports.includes("the app's onDragEnd broke"))
+    expect(calls, "told at every move").toBeGreaterThan(5)
+    expect(el.style.transform, "the drag goes on").toContain("translateX(80px)")
+    expect(reports).toEqual(["the app's onDrag broke at 1", "the app's onDrag broke at 5", "the app's onDragEnd broke"])
   })
 
   it("runScoped, through useWardicFiber: logged at Error with its cause, and reported", async () => {
