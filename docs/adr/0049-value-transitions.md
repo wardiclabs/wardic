@@ -127,3 +127,83 @@ Two needed tests added:
 | bytes per element | +0.3% | 0.0% |
 
 An earlier run, whose control line was cut from the log, gated too, with the same picture: bytes +0.1% and +0.4%.
+
+## Inferred names (PR 2, grilled 2026-10-23)
+
+The user's ask from Q1: "I'd definitely like the available options to be inferred if possible". A `transition` should complete the keys it drives, and reject others, as `read(key)` completes a ward's animated keys (#209). A prototype showed TS can do both through a generic config (`ward<const C>(config: C & Checked<C>)`). A plain intersection only completes: `C` already holds every key the literal has, so the check maps each other name to an error that names it.
+
+1. **A Variant parent takes every value's name** (Q1: A). A Variant child with no `transition` of its own inherits its parent's (`variant-tree.ts`'s `ownOrInherited`), so a stagger parent's entries may be for keys only its children animate:
+
+   ```tsx
+   <wardic.ul variants={list} animate="shown" transition={{ staggerChildren: 0.05, y: { stiffness: 400 } }}>  // the ul never animates y
+   ```
+
+   An element with `variants`, or a name in `initial` or `animate` (Motion's `isVariantNode`), takes every name in its `transition`, as Motion types it. Every other element's `transition` takes the keys it animates, `default` and `layout`.
+   - Rejected: B, the check everywhere, a parent widening by hand; C, completing the animated keys without rejecting others (TS can't without an index signature, which turns off the typo checks on every option).
+2. **A target's own transition takes the keys that target sets, and `default`** (Q2: A). That covers a variant's, `animate`'s, a gesture's and `exit`'s. No other entry would ever apply: a list's name drives only the keys it's the last to set (#297). It gets no `layout` entry either, as a layout animation reads only the element's `transition`, else the one it inherits (`layout-member.ts`), as Motion's does. A dynamic variant returns its target at run time, so its transition takes every name.
+   - Rejected: B, the element's keys everywhere; C, A with `layout` allowed.
+3. **Solid 2's `ward()` only** (Q3: A). The user added: "obviously the inference would be cool if we could figure out B".
+   - **`ward()` was generic already** (for `read()`), so it gains the checks at no cost to its type safety.
+   - **`wardic.*` on both bindings, and Solid 1's `createWard`, would have to become generic over their props.** That costs three things, all measured:
+     - Every excess-property check on their props. `<wardic.div fooo="x" />`, `animate={{ opacty: 1 }}` and `style={{ colr: "red" }}` compile, as `P` is inferred from the literal itself.
+     - Narrow completion in JSX takes a loose constraint (`P extends object`). Where inference gives up on an element, its fallback animates nothing, so real entries are rejected (PR 1's VT1 hit it).
+     - Check time: +14–24% on the examples.
+   - Rejected: B, the components too, with hand-written re-checks for unknown attributes and value keys (more cost, and the fallback stays); C, no inference.
+   - #305 holds the components' inference, with the ideas still to try.
+
+**TypeScript 7** (the Go port, 7.0.2) checks the examples about 4× faster here than our TypeScript 6.0.3: `solid-start-basic` in 0.53 s against 2.12 s. The relative costs above barely change (the components +20–28%). It doesn't change what B costs in type safety. typescript-eslint (8.72) supports TypeScript below 6.1 only, so `tsc` 7 could run beside 6 but not replace it yet.
+
+## Built (PR 2)
+
+- **`WardCheckedConfig<C, W>`** (`ward-keys.ts`, types only): a config `C` with its transitions checked, for a binding whose config is `W`. One mapped object over `W`'s keys:
+  - `transition`: `ElementTransition<C>` (Q1);
+  - `animate`, `exit` and the gestures: each target with `CheckedTarget` (Q2);
+  - `variants`: each one through `CheckedTarget`;
+  - every other key: `W`'s, so a callback's parameters are typed as ever.
+- **A check is an error naming the key:** `'scale' is neither a transition option nor a key animated here`, which an entry's object type meets as a string. A mistyped option (`duraton: 0.2`) meets an object holding the message, as a string would meet a number as `never`.
+- **A wide config** (`WardConfig`, `WardicVariants`) skips the checks: its keys include `` `-${string}` ``, which no literal's do.
+- **Solid 2:** `ward<const C extends WardConfig>(config: WardChecked<C>)`, where `WardChecked<C>` is `WardCheckedConfig<C, WardConfig>`, exported. A wrapper takes `config: WardChecked<C>` and calls `ward<C>(config)`.
+- **Traps the probes found:**
+  - **TS2590.** `keyof` a transition gave the keys its two arms share, an intersection of two ~800-key unions that TS crosses ("union type too complex"). `KeysIn` takes each arm's keys in turn.
+  - **Per-key unions.** Each key of a Solid 2 config is a value or an accessor (#259), and an editor completes nothing inside a union of an object and a function. On main, nothing inside a ward's config completed below its own keys. `Rewrap` gives each checked key, and each target's transition, the form the config gives it, so targets, variants and transitions complete now. An accessor may read `undefined`, as the key's own type allows.
+    - A draft gave every key the form it was given. It fixed no completion the checked keys don't, and gave a key of any value (`layoutDependency`) `Extract<unknown, Fn>`, which is `never`. The other keys keep `W`'s type.
+  - **Deferred conditionals.** At the top of the parameter, they left an editor no keys to complete while `C` was still being inferred, so the checks sit inside one mapped object. A deferred `NonNullable<…>` gave a Variant parent's `transition` nothing to complete, so it names `WardicTransition` itself.
+- **Still not completing, as on main:** inside `style` and `viewport` (#306).
+- **A dead option found:** Solid 2's SP7 passed `ease: "linear"`, Motion's name; Wardic's is `easing`, and linear is its default. Removed.
+
+## Tests (PR 2)
+
+- **The checks** (`v2/ward-transition-types.ssr.test.tsx`, TK1–TK7, `typecheck:tests`):
+  - TK1: the element's keys, `default` and `layout`;
+  - TK2: a Variant parent's every name;
+  - TK3: a target's keys, without `layout`;
+  - TK4: an accessor's transition;
+  - TK5: wide configs and dynamic variants;
+  - TK6: callbacks typed, and the other keys taking what they took;
+  - TK7: a wrapper.
+- **Completion** (`v2/ward-completions.ssr.test.tsx`, WC1–WC4): asked of TypeScript's language service, as an editor asks it:
+  - WC1: the element's `transition`;
+  - WC2: a target's;
+  - WC3: a Variant parent's every name;
+  - WC4: the config's keys and a target's values.
+
+**Typecheck cost** (`tsc --extendedDiagnostics`, check time, median of three interleaved rounds against main, the host below 0.6 load). Only `ward()` changed, so the Solid 1 examples don't move:
+
+| | TypeScript 6.0.3 | TypeScript 7.0.2 |
+|---|---|---|
+| layout-lab (Solid 1) | 2.48 s → 2.47 s, −0.4% | 0.63 s → 0.59 s, −6.7% |
+| layout-lab (Solid 2) | 2.71 s → 2.90 s, +7.0% | 0.67 s → 0.69 s, +2.1% |
+| solid-start-basic | 2.14 s → 2.15 s, +0.5% | 0.53 s → 0.52 s, −0.8% |
+| solid2-start | 2.43 s → 2.64 s, +8.6% | 0.64 s → 0.69 s, +7.6% |
+
+No runtime code changed, so there's no `bench:solid` run.
+
+**Mutation-checked:** ten single-point mutations of the types, each caught by the Solid 2 typecheck (`@ts-expect-error`s left unused, or new errors) or by WC1–WC4:
+- the element's transition always wide;
+- no Variant parent, or one missing a name in `animate`;
+- a target's transition unchecked, or taking `layout`;
+- nothing wide;
+- no accessor form;
+- `keyof` a union (TS2590 back);
+- no rejection;
+- `ward()` unchecked.

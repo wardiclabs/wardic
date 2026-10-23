@@ -139,9 +139,15 @@ export interface WardicReducedMotion {
  * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
  * key starts where it is), and the two clashed (#243).
  */
-export type WardicTransition =
-  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicTransitionEntries)
-  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicTransitionEntries)
+export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
+
+/**
+ * A transition with the entries `E` (#301): {@link WardicTransition}'s two arms. A Wardic element's
+ * config checks each transition in it against the entries its keys allow (`WardChecked`).
+ */
+export type WardicTransitionWith<E> =
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & E)
+  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & E)
 
 /**
  * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
@@ -168,9 +174,10 @@ export type WardicValueKey = Exclude<keyof WardicValues & string, "transition">
  * fields (Motion's `getValueTransition`); a layout animation on `layout`, else `default`, else the
  * own fields, else Motion's 0.45 s tween.
  */
-export type WardicTransitionEntries =
-  & { readonly default?: WardicValueTransition; readonly layout?: WardicValueTransition }
-  & { readonly [K in WardicValueKey]?: WardicValueTransition }
+export type WardicTransitionEntries = WardicValueEntries<WardicValueKey> & { readonly layout?: WardicValueTransition }
+
+/** Entries for the values `K`, and `default` for the rest (#301). */
+export type WardicValueEntries<K extends string> = { readonly default?: WardicValueTransition } & { readonly [P in K]?: WardicValueTransition }
 
 /**
  * A variant's own transition, or a target's (#277, ADR-0048, Motion's): it drives the animation that

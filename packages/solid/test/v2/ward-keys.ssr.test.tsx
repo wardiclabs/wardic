@@ -11,17 +11,17 @@
 // - WK6: a target's own `transition` isn't a key; a dynamic variant's keys are its result's (#277).
 // - WK7: a list of names (#297) adds no key of its own: an array's members never complete; nor does a
 //   config without `drag` add `x` (it did: `never` took the first drag axis).
-import { type AnimatedKey, ward, type WardConfig } from "@wardic/solid/unstable/v2"
+import { type AnimatedKey, ward, type WardChecked, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
 import type { Accessor } from "solid-js"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import { serve } from "./ssr.ts"
 
 /** `ward(config)`'s ward, made in a server render's owner. */
-const wardOn = <const C extends WardConfig>(config: C) => {
+const wardOn = <const C extends WardConfig>(config: WardChecked<C>) => {
   let made!: ReturnType<typeof ward<C>>
   serve(() => {
-    made = ward(config)
+    made = ward<C>(config)
     return null
   })
   return made

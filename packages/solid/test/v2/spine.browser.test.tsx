@@ -184,7 +184,7 @@ describe("the shared spine, through the Solid 2 ward", () => {
     let el!: HTMLElement
     const [duration, setDuration] = createSignal(0.6)
     const Card = () => {
-      const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: () => ({ type: "tween", duration: duration(), ease: "linear" }) as const })
+      const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: () => ({ type: "tween", duration: duration() }) as const })
       return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
     }
     const start = performance.now()
