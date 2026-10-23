@@ -134,20 +134,50 @@ export interface WardicReducedMotion {
  * Transition config: a primitive selector plus the matching primitive's
  * options. `type` defaults to `"spring"`; `"tween"` routes every key through
  * `animateValues` (duration-based, no velocity). Both arms also carry the
- * optional {@link WardicOrchestration} fields and {@link WardicReducedMotion}'s opt-out.
+ * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, and
+ * {@link WardicTransitionEntries}: a value's own transition (#301).
  * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
  * key starts where it is), and the two clashed (#243).
  */
 export type WardicTransition =
-  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
-  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicLayoutKey)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicTransitionEntries)
+  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicTransitionEntries)
+
+/**
+ * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
+ * {@link WardicTransition} is, without the orchestration, which is the whole transition's. With
+ * `inherit: true` it's laid over the transition's own fields, its own winning; without, it stands
+ * alone, the transition's reduced-motion opt-out the one field it takes from it.
+ */
+export type WardicValueTransition =
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicInherit)
+  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicReducedMotion & WardicInherit)
+
+/** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
+export interface WardicInherit {
+  readonly inherit?: boolean
+}
+
+/** The name of a value a transition can have an entry for (#301): a style, a transform shorthand, an SVG attribute. */
+export type WardicValueKey = Exclude<keyof WardicValues & string, "transition">
+
+/**
+ * A transition's entries (#301, Motion's `TransitionWithValueOverrides`): a value's own transition by
+ * its name, `default` for every value without one, and `layout` for the element's layout animations
+ * (ADR-0009 *Amendment (#171)*). A key runs on its entry, else `default`, else the transition's own
+ * fields (Motion's `getValueTransition`); a layout animation on `layout`, else `default`, else the
+ * own fields, else Motion's 0.45 s tween.
+ */
+export type WardicTransitionEntries =
+  & { readonly default?: WardicValueTransition; readonly layout?: WardicValueTransition }
+  & { readonly [K in WardicValueKey]?: WardicValueTransition }
 
 /**
  * A variant's own transition, or a target's (#277, ADR-0048, Motion's): it drives the animation that
  * variant starts, in place of the element's `transition`, unless `inherit: true` lays it over the
  * element's (Motion's `inherit`: a shallow merge, its own keys winning).
  */
-export type WardicVariantTransition = WardicTransition & { readonly inherit?: boolean }
+export type WardicVariantTransition = WardicTransition & WardicInherit
 
 /**
  * A target, as a variant, `animate` or `exit` gives it (#277, Motion's `TargetAndTransition`): its
@@ -179,15 +209,6 @@ export type WardicVariantResolver = (
 
 /** Named targets, each a target or a {@link WardicVariantResolver} (#277). */
 export type WardicVariants = Readonly<Record<string, WardicVariant | WardicVariantResolver>>
-
-/**
- * Motion's `layout` key (ADR-0009 *Amendment (#171)*): the element's layout animations' own
- * transition, over the rest of its `transition`. Without it, the whole `transition` drives them; with
- * no `transition`, Motion's default, a 0.45 s tween.
- */
-export interface WardicLayoutKey {
-  readonly layout?: WardicTransition
-}
 
 /**
  * A drag's release (ADR-0016, *Amendment (#140)*), Motion's `dragTransition`: the inertia every

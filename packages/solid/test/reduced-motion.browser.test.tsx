@@ -290,4 +290,13 @@ describe("layout animations", () => {
     const { base, samples } = await mountLayout({ respectReducedMotion: false })
     expect(passesBetween(samples, base, base + 200)).toBe(true)
   })
+
+  it("RM-L3: a layout entry's own respectReducedMotion: false FLIPs anyway; one without takes the transition's (#301)", async () => {
+    await commands.emulateReducedMotion(true)
+    const own = await mountLayout({ layout: { type: "tween", duration: 0.3, respectReducedMotion: false } })
+    expect(passesBetween(own.samples, own.base, own.base + 200), "its own opt-out").toBe(true)
+    cleanup()
+    const taken = await mountLayout({ respectReducedMotion: false, layout: { type: "tween", duration: 0.3 } })
+    expect(passesBetween(taken.samples, taken.base, taken.base + 200), "the transition's").toBe(true)
+  })
 })

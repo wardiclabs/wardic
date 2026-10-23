@@ -12,7 +12,7 @@
 //   are taken at the first child's Retarget, after all have registered; taken at the parent's setup,
 //   before any had, every child started at once.
 import { DomLive } from "@wardic/dom"
-import { WardicProvider, ward } from "@wardic/solid/unstable/v2"
+import { WardicProvider, ward, type WardicTransition } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
 import { createSignal, flush } from "solid-js"
 import { expect, it } from "vitest"
@@ -50,7 +50,7 @@ const VARIANTS = { open: { opacity: 1 }, closed: { opacity: 0 } }
 const nameOf = (open: boolean): string => Bool.match(open, { onTrue: () => "open", onFalse: () => "closed" })
 
 /** A parent with `n` Variant children; `setOpen` flips the parent's variant. */
-const renderStagger = (parentTransition: Record<string, unknown>, n: number) => {
+const renderStagger = (parentTransition: WardicTransition, n: number) => {
   const [open, setOpenSignal] = createSignal(false)
   const els: Array<HTMLElement> = []
   const Child = (p: { readonly i: number }) => {

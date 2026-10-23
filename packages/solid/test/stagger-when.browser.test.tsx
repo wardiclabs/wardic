@@ -4,7 +4,7 @@
 // frames: crossing-time ORDERING for stagger, GATING WINDOWS for `when`, and
 // eventual SETTLE. Real rAF + real Effect scheduling; no stubbed clock.
 import { cleanup, render } from "@solidjs/testing-library"
-import { createWard, WardicProvider } from "@wardic/solid"
+import { createWard, WardicProvider, type WardicTransition } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import { afterEach, expect, it } from "vitest"
@@ -47,7 +47,7 @@ const crossings = async (els: ReadonlyArray<HTMLElement>, threshold: number, don
 const allAt = (els: ReadonlyArray<HTMLElement>, v: number): boolean => els.every((el) => Math.abs(op(el) - v) < 0.02)
 
 const renderStagger = (
-  parentTransition: Record<string, unknown>,
+  parentTransition: WardicTransition,
   n: number,
 ): { setOpen: (v: boolean) => void; els: Array<HTMLElement> } => {
   let setOpen: (v: boolean) => void = () => {}

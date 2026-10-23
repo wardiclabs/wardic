@@ -60,7 +60,7 @@ import type {
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
+import { delayedBy, type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -171,15 +171,15 @@ const exitGroupsOf = (targets: ReadonlyArray<NamedTarget>, element: WardicTransi
 export const accessorOf = <A extends object>(config: A | Accessor<A>): Accessor<A> =>
   Bool.match(Predicate.isFunction(config), { onTrue: () => config as Accessor<A>, onFalse: () => () => config as A })
 
-/** `transition` with a stagger delay folded into its own (ADR-0007), reused while its fields are (#66). */
+/**
+ * `transition` with a stagger delay folded into its own and its entries' (ADR-0007, #301), reused
+ * while its fields are (#66).
+ */
 const staggeredOf = (
   transition: WardicTransition | undefined,
   extra: number,
   reuse: (transition: WardicTransition) => WardicTransition,
-): WardicTransition | undefined => {
-  if (extra === 0) return UndefinedOr.map(transition, reuse)
-  return reuse({ ...transition, delay: delayOf(transition) + extra } as WardicTransition)
-}
+): WardicTransition | undefined => UndefinedOr.map(delayedBy(transition, extra), reuse)
 
 /**
  * A Retarget's keys by the layer that drives each (#291), when an active layer (the base's included)
@@ -241,12 +241,22 @@ const holdsFibers = (set: FiberSet.FiberSet<void, never>): boolean => {
   return set.state.backing.size > 0
 }
 
-/** Whether two transitions have the same keys, each holding the same value (`===`). */
-const sameFields = (a: WardicTransition, b: WardicTransition): boolean => {
+/**
+ * Whether two transitions have the same keys, each holding the same value (`===`), an entry the
+ * same fields (#301: a stagger makes each entry anew).
+ */
+const sameFields = (a: object, b: object): boolean => {
   const ra = a as Readonly<Record<string, unknown>>
   const rb = b as Readonly<Record<string, unknown>>
   const keys = Rec.keys(ra)
-  return Bool.and(keys.length === Rec.keys(rb).length, Arr.every(keys, (key) => Bool.and(key in rb, ra[key] === rb[key])))
+  return Bool.and(keys.length === Rec.keys(rb).length, Arr.every(keys, (key) => Bool.and(key in rb, sameField(ra[key], rb[key]))))
+}
+
+/** Whether two fields are the same: `===`, or two entries with the same fields (#301). */
+const sameField = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true
+  if (Bool.and(Predicate.isObject(a), Predicate.isObject(b))) return sameFields(a as object, b as object)
+  return false
 }
 
 /** The Override stack resolved: a Retarget's input. */

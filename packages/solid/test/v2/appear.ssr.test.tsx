@@ -27,10 +27,12 @@
 // - AR15: a late chunk of kept wards alone brings its rules too (Solid 1 left them at their
 //   Starting style: only `wardic.*` could render the chunk's `<style>`).
 // - AR16: no element plays: the head gets no `<style>` at all.
+// - AR17 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
+//   fifth of the way through a rule the slow own fields set the length of.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
 import { createMemo, For, Loading, Show } from "solid-js"
@@ -162,7 +164,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
 
   it("AR5: a Variant child's stagger: delayChildren plus its place, by from and staggerDirection", () => {
     const variants = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
-    const delays = (transition: Record<string, unknown>) => {
+    const delays = (transition: WardicTransition) => {
       const html = page(() => (
         <wardic.ul initial="hidden" animate="shown" variants={variants} transition={transition}>
           <wardic.li variants={variants} />
@@ -472,5 +474,22 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   it("AR16: no element plays: the head gets no <style> at all", () => {
     const html = page(() => <wardic.div animate={{ opacity: 1 }} />)
     expect(html).not.toContain("data-wardic-appear")
+  })
+
+  it("AR17: a transition's entries time each key in the rule (#301)", () => {
+    const linear = Easing.linear
+    const html = page(() => (
+      <wardic.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1, easing: linear, opacity: { type: "tween", duration: 0.2, easing: linear } }} />
+    ))
+    const css = headCss(html)
+    const animation = timing(css, propertyOf(tagsOf(html).find((t) => t.name === "div")?.style.animation)).normal
+    expect(animation, "the own fields' 1 s").toMatch(/ 1s linear 0s /)
+    const name = animation.split(" ")[0]!
+    const rule = new RegExp(`@keyframes ${name}\\{((?:[\\d.]+%\\{[^}]*\\})*)\\}`).exec(css)?.[1] ?? ""
+    const stops = Array.from(rule.matchAll(/([\d.]+)%\{([^}]*)\}/g), (m) => ({ at: Number(m[1]), body: m[2]! }))
+    const faded = stops.find((stop) => /opacity:1(;|$)/.test(stop.body))
+    expect(faded?.at, "opacity lands at its entry's 0.2 s").toBeGreaterThan(17)
+    expect(faded?.at, "opacity lands at its entry's 0.2 s").toBeLessThan(23)
+    expect(faded?.body, "y still on its way").toMatch(/translateY\((1[0-9]|[5-9])\.?[\d]*px\)/)
   })
 })
