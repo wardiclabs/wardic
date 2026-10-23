@@ -210,6 +210,7 @@ describe("a swipe-to-dismiss card, the request after the fly-out (#257)", () => 
     const api = makeApi("ok")
     // A setting read from storage that came back empty: parseFloat("") is NaN, a duration Wardic rejects.
     const [speed, setSpeed] = createSignal(Number.parseFloat(""))
+    // eslint-disable-next-line solid/reactivity -- read in NoticeCard's props, in JSX, where it tracks
     const { card, toasts } = mountList(api, speed)
     await until(() => card("a") !== null, 2000)
     await raf()
