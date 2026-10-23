@@ -168,7 +168,7 @@ The user's ask from Q1: "I'd definitely like the available options to be inferre
   - **Per-key unions.** Each key of a Solid 2 config is a value or an accessor (#259), and an editor completes nothing inside a union of an object and a function. On main, nothing inside a ward's config completed below its own keys. `Rewrap` gives each checked key, and each target's transition, the form the config gives it, so targets, variants and transitions complete now. An accessor may read `undefined`, as the key's own type allows.
     - A draft gave every key the form it was given. It fixed no completion the checked keys don't, and gave a key of any value (`layoutDependency`) `Extract<unknown, Fn>`, which is `never`. The other keys keep `W`'s type.
   - **Deferred conditionals.** At the top of the parameter, they left an editor no keys to complete while `C` was still being inferred, so the checks sit inside one mapped object. A deferred `NonNullable<…>` gave a Variant parent's `transition` nothing to complete, so it names `WardicTransition` itself.
-- **Still not completing, as on main:** inside `style` and `viewport` (#306).
+- **Still not completing, as on main:** inside `style` and `viewport` (#306). *Fixed: see Amendment (#306).*
 - **A dead option found:** Solid 2's SP7 passed `ease: "linear"`, Motion's name; Wardic's is `easing`, and linear is its default. Removed.
 
 ## Tests (PR 2)
@@ -207,3 +207,17 @@ No runtime code changed, so there's no `bench:solid` run.
 - `keyof` a union (TS2590 back);
 - no rejection;
 - `ward()` unchecked.
+
+## Amendment (#306, 2026-10-23): `style` and `viewport` complete
+
+On Solid 2, a ward's config still completed nothing inside `style` or `viewport` after PR 2, as on main.
+
+**The cause:** `WardCheckedConfig` typed those keys `W[K]`, with `W` the binding's `WardConfig`, the type `C` is also bound by. In the config's contextual type, TS met each such key's type while it was still working it out for the constraint. It read the type as `any` (its mark for a circular resolution), so an editor had no object to complete. The checked keys worked because their types come from `C[K]`.
+
+**The probe matrix:**
+- It failed whenever the constraint and `W` shared those property types: `WardConfig` itself, `Pick` of it, a copy declared as `WardConfig["viewport"]`, a second mapping sharing `PerKey`'s rule, or one sharing Solid's `Accessor<…>`.
+- It worked with a mapping of its own that writes its accessor out, as TS caches and shares alias instantiations.
+
+**The fix:** `PerKeyApart` (`config-view.ts`) is `PerKey`, declared apart, with its rule and its accessor (`() => C[P]`) written out. `WardChecked<C>` checks the other keys against `PerKeyApart<WardConfigValues, WardCallbackKey>`.
+- **Pinned by:** WC5 (`v2/ward-completions.ssr.test.tsx`), completion inside both keys as a value and as an accessor.
+- **Mutation-checked:** `PerKeyApart` with `Accessor<…>`, and `WardChecked` against `WardConfig`, each fail WC5.

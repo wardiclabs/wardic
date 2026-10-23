@@ -123,7 +123,7 @@ import {
   useWardicRuntime,
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
-import { configView, type Fixed, type PerKey } from "./config-view.ts"
+import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardSettled } from "./lifecycle.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
@@ -165,7 +165,7 @@ export type WardConfig = PerKey<WardConfigValues, WardCallbackKey>
  * PR 2, ADR-0049). A wrapper that hands its config on takes `config: WardChecked<C>` for its own
  * `<const C extends WardConfig>`, and passes `C` on: `ward<C>(config)`.
  */
-export type WardChecked<C> = WardCheckedConfig<C, WardConfig>
+export type WardChecked<C> = WardCheckedConfig<C, PerKeyApart<WardConfigValues, WardCallbackKey>>
 
 /** Every key a ward reads, its callbacks among them. */
 const WARD_KEYS = [

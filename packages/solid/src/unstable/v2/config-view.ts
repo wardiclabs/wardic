@@ -29,6 +29,17 @@ export type PerKey<C, K extends keyof C = never> = {
   readonly [P in keyof C]: P extends K ? C[P] : C[P] | Accessor<C[P]>
 }
 
+/**
+ * {@link PerKey}, declared apart, its rule and its accessor written out again: the same config, a
+ * type of its own. A ward's config checks its other keys against it (`WardChecked`, #306). Against
+ * `PerKey`'s own type, which the config is also bound by, TS met each key's type while it was still
+ * working it out, read it as `any`, and an editor completed nothing inside `style` or `viewport`.
+ * A rule or an `Accessor<…>` shared between the two did the same, as TS shares their instantiations.
+ */
+export type PerKeyApart<C, K extends keyof C = never> = {
+  readonly [P in keyof C]: P extends K ? C[P] : C[P] | (() => C[P])
+}
+
 /** A view's state: the source it reads, and the values it fixes over it. */
 class View {
   constructor(
