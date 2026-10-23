@@ -11,14 +11,21 @@
  *
  * The view is one object over the source, its getters on a prototype made once per kind of config,
  * so making one allocates no getters. It has no keys of its own: it is read, never spread. A setup
- * read (a read-once key: `initial`, `drag`, `layout`) goes through {@link snapshotOf}, untracked.
+ * read (a read-once key: `initial`, `drag`, `layout`) goes through {@link snapshotOf}, untracked, or
+ * {@link setupOf}, which notes the keys still loading rather than throwing (#257 item 1).
+ *
+ * An accessor that returns a promise is an error naming its key (#257 item 1, Q3): an accessor is
+ * called at every read of its key, so it would fetch again at each; an async memo (`createMemo(() =>
+ * fetch…)`) caches it, and is read as any other accessor.
  *
  * @module
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
-import { untrack } from "solid-js"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { NotReadyError, runWithOwner, untrack } from "solid-js"
 import type { Accessor } from "solid-js"
 
 /**
@@ -69,7 +76,27 @@ export interface ConfigView<C> {
   readonly of: (source: object, fixed?: Fixed<C>) => C
   /** A plain copy of a view's keys as they are now, read untracked: the config at setup. */
   readonly snapshotOf: (view: C) => C
+  /**
+   * {@link snapshotOf}, a key still loading left out of the copy and named in `pending` (#257 item 1):
+   * its read threw Solid's `NotReadyError`. Read with no reader, so nothing re-runs when it lands;
+   * the ward's tracked reads of it (its target, its style) wait on it instead.
+   */
+  readonly setupOf: (view: C) => Setup<C>
 }
+
+/** A config at setup: the keys read, and those still loading (#257 item 1). */
+export interface Setup<C> {
+  readonly config: C
+  readonly pending: ReadonlyArray<keyof C & string>
+}
+
+/** No key still loading: most setups. */
+const NONE_PENDING: ReadonlyArray<never> = []
+
+/** The error for an accessor that returned a promise (#257 item 1, Q3). */
+const promiseError = (key: string): Error =>
+  new Error(`\`${key}\`'s accessor returned a promise: give it an async memo instead, \`${key}: createMemo(() => …)\`. An accessor is called at every read of its key, so it would fetch at each.`)
+
 
 /**
  * The views of a config with `keys`, its `callbacks` read as they are: a class of {@link View}
@@ -83,8 +110,10 @@ export const configView = <C extends object>(keys: ReadonlyArray<keyof C & strin
       enumerable: true,
       get(this: View): unknown {
         const value = valueAt(this, key)
-        if (Bool.and(called, Predicate.isFunction(value))) return (value as () => unknown)()
-        return value
+        if (Bool.not(Bool.and(called, Predicate.isFunction(value)))) return value
+        const result = (value as () => unknown)()
+        if (Predicate.isPromiseLike(result)) throw promiseError(key)
+        return result
       },
     })
   })
@@ -94,8 +123,31 @@ export const configView = <C extends object>(keys: ReadonlyArray<keyof C & strin
       if (Predicate.isNotUndefined(value)) copy[key] = value
       return copy
     }) as C
+  // The setup copy: a key whose read throws `NotReadyError` is left out and named.
+  const setup = (view: C): Setup<C> => {
+    let pending: Array<keyof C & string> | undefined
+    const config = Arr.reduce(keys, {} as Record<string, unknown>, (copy, key) => {
+      let value: unknown
+      try {
+        value = (view as Record<string, unknown>)[key]
+      } catch (error) {
+        if (Bool.not(error instanceof NotReadyError)) throw error
+        if (Predicate.isUndefined(pending)) pending = []
+        pending.push(key)
+        return copy
+      }
+      if (Predicate.isNotUndefined(value)) copy[key] = value
+      return copy
+    }) as C
+    return { config, pending: UndefinedOr.match(pending, { onUndefined: () => NONE_PENDING, onDefined: identity }) }
+  }
   return {
     of: (source, fixed) => new KindView(source as Record<string, unknown>, fixed as Record<string, unknown> | undefined) as unknown as C,
     snapshotOf: (view) => untrack(() => snapshot(view)),
+    // With no reader, and untracked: Solid links a pending node to the reader of an untracked read,
+    // re-running it when the node settles, so a component's body read would re-run the render that
+    // made it, making its async source again (#257 item 1). With none, the read just throws.
+    // `untrack` also lifts the dev build's strict read of a component body, which would throw first.
+    setupOf: (view) => runWithOwner(null, () => untrack(() => setup(view))),
   }
 }

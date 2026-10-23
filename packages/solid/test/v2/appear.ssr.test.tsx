@@ -29,13 +29,18 @@
 // - AR16: no element plays: the head gets no `<style>` at all.
 // - AR17 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
 //   fifth of the way through a rule the slow own fields set the length of.
+// - AR18 (#257 item 1): a ward whose `animate` reads an async memo, under `<Loading>`: its region
+//   streams once the data is in (a server waits for it and renders the component again), its rule
+//   running from `initial` to the fetched target.
+// - AR19 (#257 item 1): a key setup fixes, still loading on a server, is the client's error too, and
+//   so is a pending `animate` with `initial={false}`.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
 import { ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
-import { createMemo, For, Loading, Show } from "solid-js"
+import { createMemo, Errored, For, Loading, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { keyOf } from "../../src/appear.ts"
 import { tagsOf } from "./ssr.ts"
@@ -491,5 +496,57 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     expect(faded?.at, "opacity lands at its entry's 0.2 s").toBeGreaterThan(17)
     expect(faded?.at, "opacity lands at its entry's 0.2 s").toBeLessThan(23)
     expect(faded?.body, "y still on its way").toMatch(/translateY\((1[0-9]|[5-9])\.?[\d]*px\)/)
+  })
+
+  it("AR18: a ward's animate from an async memo: its region streams once the data is in, its rule to the fetched target (#257 item 1)", async () => {
+    const Card = () => {
+      const x = after(20, 100)
+      const card = ward({ initial: { x: 0, opacity: 0 }, animate: () => ({ x: x(), opacity: 1 }), transition: { type: "tween", duration: 0.3 } })
+      return <div {...card} data-k="card" />
+    }
+    const writes = await stream(() => (
+      <Loading fallback={<p>loading</p>}>
+        <Card />
+      </Loading>
+    ))
+    expect(writes[0], "not in the shell: its region waits").not.toContain('data-k="card"')
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="card"'))!
+    expect(chunk, "in a late chunk").toBeDefined()
+    const css = appearPatches(chunk).join("")
+    const div = tagsOf(chunk).find((t) => t.attrs["data-k"] === "card")
+    const name = timing(css, propertyOf(div?.style.animation)).normal.split(" ")[0]!
+    const body = new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? ""
+    expect(body, "from initial").toContain("0%{transform:none;opacity:0}")
+    expect(body, "to the fetched target").toContain("100%{transform:translateX(100px);opacity:1}")
+  })
+
+  it("AR19: a key setup fixes, still loading on a server, is the client's error", () => {
+    const Card = () => {
+      const layout = after(20, true as const)
+      const card = ward({ animate: { x: 100 }, layout: () => layout() })
+      return <div {...card} data-k="card" />
+    }
+    const html = renderToString(() => (
+      <WardicProvider env={DomLive}>
+        <Errored fallback={(err) => <p data-err>{String((err() as Error).message)}</p>}>
+          <Card />
+        </Errored>
+      </WardicProvider>
+    ))
+    expect(html).toContain("ward(config): `layout` was still loading when the ward was made.")
+    // So is a pending `animate` a ward would start at.
+    const Starting = () => {
+      const x = after(20, 100)
+      const card = ward({ initial: false, animate: () => ({ x: x() }) })
+      return <div {...card} data-k="card" />
+    }
+    const starting = renderToString(() => (
+      <WardicProvider env={DomLive}>
+        <Errored fallback={(err) => <p data-err>{String((err() as Error).message)}</p>}>
+          <Starting />
+        </Errored>
+      </WardicProvider>
+    ))
+    expect(starting).toContain("with `initial={false}` a ward starts there")
   })
 })

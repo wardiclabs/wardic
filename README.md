@@ -348,6 +348,13 @@ function Card(props: { open: boolean }) {
 - A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`. Their keys complete from the config: every key it animates or styles, through `initial`, `animate`, `exit`, its variants, `whileHover`, `whileTap`, `whileDrag` and `style`, and `x`/`y` when it drags. Any other key is accepted too.
 - Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, which isn't a ref. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
 - The Live value helpers (`createTransform`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
+- **A config from async data.** A key the ward reads as it goes (`animate`, `while*`, `transition`, `style`, `custom`) may read an async memo. The ward's region waits for it under `<Loading>`, as for any async read, and the ward then plays from its `initial` to the fetched target; a refetch keeps the last target until the new one lands. Give it the memo, not a function that fetches: an accessor is called at every read, so one that returns a promise is an error. The keys a ward fixes when it's made (`initial`, `layout`, `drag`…) must be ready, and one still loading is an error naming it.
+
+  ```tsx
+  const x = createMemo(() => api.position(id()))   // async
+  const card = ward({ initial: { x: 0 }, animate: () => ({ x: x() }) })
+  <Loading fallback={<Skeleton />}><div {...card} /></Loading>
+  ```
 - **A spring's target that you both derive and set** is Solid's writable memo, given to `createSpring`. A write springs there, and the next change of what it derives from springs to that. Keep anything derived from a ward's value on its Atom (`read`, `createTransform`, `createSpring`), not in a memo: a memo over `card.read("x")` paints a frame behind the card.
 
   ```tsx
