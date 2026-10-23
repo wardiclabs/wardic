@@ -249,7 +249,16 @@ export class Lifecycle implements AnimationHooks {
     this.starts++
     this.flying = resolution
     this.failure = undefined
-    if (Predicate.isNotUndefined(this.setCount)) this.setCount(this.starts)
+    // From a microtask, as at the first read (#315): a Retarget starts in Solid's flush, the mount's
+    // among them, where `render` still watches for a pending read reaching its root. A `<Loading>`
+    // already showing its content doesn't catch one, so a plain `settled()` read under it was
+    // reported as an async read outside any boundary, though the mount wasn't held.
+    if (Predicate.isNotUndefined(this.setCount)) queueMicrotask(this.tellStarts)
+  }
+
+  /** `settled()`'s count set to the starts now: its read pends while one is in flight. */
+  private readonly tellStarts = (): void => {
+    UndefinedOr.map(this.setCount, (set) => set(this.starts))
   }
 
   settled(resolution: Resolution, previous: Resolution | undefined): void {
@@ -259,6 +268,9 @@ export class Lifecycle implements AnimationHooks {
     this.landedResolution = resolution
     this.landedPrevious = previous
     this.last = undefined
+    // In the landing's own flush, not a start's microtask after: the count equals the landings, so
+    // `settled()` reads the landing, never pending (SE6, a Retarget with nothing to animate).
+    this.tellStarts()
     const resolve = this.waiting
     if (Bool.and(Predicate.isUndefined(resolve), Predicate.isUndefined(this.events))) return
     this.waiting = undefined
@@ -440,7 +452,7 @@ export class Lifecycle implements AnimationHooks {
         this.waiting = resolve
       })
     }, CLIENT_ONLY)
-    if (this.starts !== this.landed) queueMicrotask(() => set(this.starts))
+    if (this.starts !== this.landed) queueMicrotask(this.tellStarts)
     return memo
   }
 }
