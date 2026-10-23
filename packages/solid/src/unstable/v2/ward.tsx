@@ -49,7 +49,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constFalse, constUndefined, identity, pipe } from "effect/Function"
+import { constFalse, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
@@ -112,7 +112,7 @@ import {
   warnDroppedTransform,
   withOnUpdate,
 } from "../../spine.ts"
-import { serverVariantNode, type WardicVariantContextValue } from "../../variant-tree.ts"
+import { inheritedContext, serverVariantNode, startsAtAnimate, type WardicVariantContextValue } from "../../variant-tree.ts"
 import { followAtom } from "./bridge.ts"
 import {
   appearStyle,
@@ -413,6 +413,37 @@ const REMADE =
   "and spread that: `const card = ward(config)` then `<div {...card} />`. Or give it to `ref={ward(config)}`, client-only."
 
 /**
+ * The keys a ward reads as it goes, through its target or its style (#257 item 1): one still loading
+ * when the ward is made holds its region until it lands. Any other key is fixed at setup.
+ */
+const LOADS_AS_IT_GOES: ReadonlySet<string> = new Set(["animate", "whileHover", "whileTap", "whileFocus", "whileInView", "whileDrag", "transition", "style", "custom"])
+
+/** A ward's setup key still loading when it's made (#257 item 1). */
+const loadingAtSetup = (key: string): string =>
+  `ward(config): \`${key}\` was still loading when the ward was made. A ward reads it once, when it's made: give it a value, or make the ward once its data is in.`
+
+/** A ward that starts at its `animate`, still loading when it's made (#257 item 1). */
+const STARTS_AT_PENDING =
+  "ward(config): `animate` was still loading when the ward was made, and with `initial={false}` a ward starts there. Give it an `initial`, or make the ward once its data is in."
+
+/** A name list standing for an `animate` still loading at setup, on a ward with `variants` (#257 item 1). */
+const LOADING_NAMES: ReadonlyArray<string> = []
+
+/**
+ * The config setup reads: a key still loading that setup fixes is an error (#257 item 1). A loading
+ * `animate` names the ward's own variants when it has `variants` (what it can name), and is a target
+ * of values otherwise: setup reads it only to tell which.
+ */
+const configAtSetup = (setup: { readonly config: WardConfigValues; readonly pending: ReadonlyArray<string> }): WardConfigValues => {
+  if (setup.pending.length === 0) return setup.config
+  const fixed = Arr.findFirst(setup.pending, (key) => Bool.not(LOADS_AS_IT_GOES.has(key)))
+  if (Option.isSome(fixed)) throw new Error(loadingAtSetup(fixed.value))
+  const config = setup.config
+  if (Bool.and(Arr.contains(setup.pending, "animate"), Predicate.isNotUndefined(config.variants))) return { ...config, animate: LOADING_NAMES as NonNullable<WardConfigValues["animate"]> }
+  return config
+}
+
+/**
  * Elements a ward has left in this task: a ward mounting one is {@link REMADE}. Cleared once, at the
  * task's end, by one microtask however many leave (#259: one a ward cost 0.2 ms an unmount of 1,000).
  */
@@ -437,7 +468,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const view = WARD_VIEW.of(config, internal.fixed)
   const cfg = (): WardConfigValues => view
   // The config at setup, a plain copy read untracked: what setup reads, the keys read once among it.
-  const initialConfig = WARD_VIEW.snapshotOf(view)
+  // A key still loading (#257 item 1) is left out of it: one the ward reads as it goes holds its
+  // region until it lands; one setup fixes is an error, naming it.
+  const setup = WARD_VIEW.setupOf(view)
+  const initialConfig = configAtSetup(setup)
 
   // Its place in variant orchestration (ADR-0007, #50).
   const node = createVariantNode(cfg, initialConfig, useVariantContext())
@@ -447,7 +481,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // The values it starts from, read once (ADR-0003): its `initial`, or the one it inherits, or its
   // `animate` with `initial={false}` (its own, inherited, or its presence's first render, #134).
-  const start = startOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
+  const presenceBlocks = presenceBlocksInitial(presence)
+  if (Bool.and(Arr.contains(setup.pending, "animate"), startsAtAnimate(initialConfig, node.inherited, presenceBlocks))) throw new Error(STARTS_AT_PENDING)
+  const start = startOf(initialConfig, node.inherited, presenceBlocks, untrack)
   const { project } = runtime.runSync(Renderer.Renderer)
 
   // The Starting style: the projected `initial`, carried by `style` until the gate's first commit
@@ -929,6 +965,29 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     return accessor
   }
 
+  // The element's style, read where it renders. The keys still loading at setup (#257 item 1) are
+  // read there too, with the target, so its region holds until they land and Solid retries it: the
+  // Retarget reads `transition` as it starts, untracked, which a pending one would throw out of.
+  // After that a refetch keeps the last value (Solid holds the previous one), and holds nothing.
+  const holdWhileLoading: () => void = Bool.match(setup.pending.length === 0, {
+    onTrue: () => constVoid,
+    onFalse: () => {
+      const config = cfg() as unknown as Readonly<Record<string, unknown>>
+      const loaded = createMemo((): true => {
+        Arr.forEach(setup.pending, (key) => void config[key])
+        target()
+        return true
+      })
+      return () => {
+        loaded()
+      }
+    },
+  })
+  const renderedStyle = (): JSX.CSSProperties => {
+    holdWhileLoading()
+    return elementStyle.style(userStyle()) as JSX.CSSProperties
+  }
+
   // The ward: a ref, and its own props. Under a presence, its element is told to it as it's made
   // (#286): its `key`, and whether it's a twin.
   const setMade = madeWith(presence, setElement, initialConfig)
@@ -941,7 +1000,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   }) as Ward
   Object.defineProperties(self, {
     ref: { value: self, enumerable: true },
-    style: { get: (): JSX.CSSProperties => elementStyle.style(userStyle()) as JSX.CSSProperties, enumerable: true },
+    style: { get: renderedStyle, enumerable: true },
     ...attributesOf(seed.attrs),
     ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
     Provider: { value: Provider },
@@ -956,7 +1015,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         withCallsOf()[1](undefined)
         return Object.defineProperties({} as WardProps, {
           ref: { value: withRef(own.ref, self), enumerable: true },
-          style: { get: (): JSX.CSSProperties => elementStyle.style(userStyle()) as JSX.CSSProperties, enumerable: true },
+          style: { get: renderedStyle, enumerable: true },
           ...attributesOf(seed.attrs),
           ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
         })
@@ -1018,9 +1077,19 @@ const readServerStyle = (value: unknown): unknown => readLive(value, serverRegis
  */
 const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   createUniqueId()
-  const c = WARD_VIEW.snapshotOf(WARD_VIEW.of(config, internal.fixed))
-  const node = serverVariantNode(c, useVariantContext())
-  const initialValues = startOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack).initialValues
+  const view = WARD_VIEW.of(config, internal.fixed)
+  // A key still loading (#257 item 1): one setup fixes is the client's error here too. One the ward
+  // reads as it goes is read again, throwing Solid's `NotReadyError`: a server waits for it and
+  // renders the component again, so its region streams once the data is in, Appear and all.
+  // Both are checked before the read that waits.
+  const setup = WARD_VIEW.setupOf(view)
+  const atSetup = configAtSetup(setup)
+  const parent = useVariantContext()
+  const presenceBlocks = presenceBlocksInitial(usePresenceContext())
+  if (Bool.and(Arr.contains(setup.pending, "animate"), startsAtAnimate(atSetup, inheritedContext(atSetup, parent), presenceBlocks))) throw new Error(STARTS_AT_PENDING)
+  const c = WARD_VIEW.snapshotOf(view)
+  const node = serverVariantNode(c, parent)
+  const initialValues = startOf(c, node.inherited, presenceBlocks, untrack).initialValues
   const layoutNode = isLayoutNode(c)
   const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode))
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant

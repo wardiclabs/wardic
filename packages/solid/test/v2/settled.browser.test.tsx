@@ -27,6 +27,7 @@ import { commands } from "vitest/browser"
 import "../browser-commands.ts"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { swallow } from "./swallow.ts"
 
 const TWEEN = { type: "tween", duration: 0.15 } as const
 // Clear of the page's one mouse, parked at (5, 5) for every browser file.
@@ -53,29 +54,6 @@ const mountCard = (config: WardConfig, ui: (card: Ward) => JSX.Element) => {
 const shown = (card: Ward): string =>
   `${JSON.stringify(card.settled()?.definition)} ${Bool.match(isPending(() => card.settled()), { onTrue: () => "pending", onFalse: () => "idle" })}`
 
-/** Swallow one Solid diagnostic code for the rest of the test: the console's warns and errors, before the diagnostics gate sees them. */
-const swallow = (code: string): { readonly seen: () => number; readonly restore: () => void } => {
-  const warn = console.warn
-  const error = console.error
-  let seen = 0
-  const filter =
-    (to: (...args: Array<unknown>) => void) =>
-    (...args: Array<unknown>): void => {
-      const message = String(args[0])
-      if (message.startsWith(`[${code}]`)) seen++
-      if (message.includes(`[${code}]`)) return
-      to(...args)
-    }
-  console.warn = filter(warn)
-  console.error = filter(error)
-  return {
-    seen: () => seen,
-    restore: () => {
-      console.warn = warn
-      console.error = error
-    },
-  }
-}
 
 describe("a ward's landings on Solid 2 (#257)", () => {
   it("SE1: undefined before the first landing, pending from the first frame, then the entrance's landing", async () => {

@@ -334,6 +334,57 @@ The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid
 - Every Solid 2 test and the lab's s14 and s18 rewritten per key.
 - **The lab:** s15 on the Solid 2 build gains a **store config** cell, the style opacity cell's twin with its config a shallow store: Store style replaces the store's `style` (0.5 ↔ 0.8) and shows at once, and a hover (or a phone's tap) goes to 1 and back to the store's value. Its three board runs pass headless; every other card is unchanged on both builds.
 
+## #257 item 1: an async config (2026-10-23)
+
+Item 1's second and third parts: what a ward does while its config reads a pending async value, and whether a `<Loading>` that refetches disposes a ward mid-animation. Item 1's grill (ADR-0046) had covered only the ward's own async values.
+
+**Probed first** (`.tmp/257-async/`): a ward whose `animate: () => ({ x: pos() })` read an async memo **never showed**.
+- With no boundary, the page stayed blank. Under `<Loading>`, the region never showed.
+- The cause: the setup copy of the config (`initialConfig`) read `animate` in the component's body, untracked. Solid links a pending node to the reader of an untracked read, re-running it once the node settles ("An untracked read of a pending node still re-runs its reader when the node settles", `read()` in `@solidjs/signals`). So the render that made the component ran again, made a new async memo, and pended again, for good.
+- A refetch inside `<Loading>` doesn't dispose a ward: the same element, made once, its animation going on (AC2).
+- An accessor returning a promise animated nothing: the promise was taken as an empty target.
+
+**Grilled 2026-10-23:**
+1. **A pending config holds the ward's region, as any pending read does (Q1: A).** The region shows once the config is in, and the ward plays from its Starting style to the fetched target. With no boundary, the root waits, and Solid warns, as for any async read. A refetch keeps the last target until the new one lands: Solid holds the previous value. Rejected: showing at once and moving when the data lands (B); an error (C).
+2. **Keys read as it goes may pend; keys setup fixes must be ready (Q2: A).**
+   - **May pend:** `animate`, `while*`, `transition`, `style`, `custom`.
+   - **Must be ready:** any other key, such as `layout`, `drag` or `initial`. A pending one is an error naming it: "``ward(config): `layout` was still loading when the ward was made…``".
+   - **`animate` is in both groups:** setup reads it only to tell whether it names variants. While it's pending, it names the ward's own variants if the ward has `variants`, and is a target of values otherwise.
+   - **`initial={false}` with a pending `animate`** is an error, as the ward would start there.
+   - Rejected: setup deferred until every key is in (B), and only `animate` allowed to pend (C).
+3. **An accessor returning a promise is an error (Q3: A),** showing the async memo to use. An accessor is called at every read of its key, so a promise from one would fetch at each. Supporting it would fetch twice per ward when it's made (B), or put a memo per key on every ward (C).
+
+**Built:**
+- **`config-view.ts`:**
+  - `setupOf(view)` reads the setup copy with no reader (`runWithOwner(null, …)`), so nothing re-runs, and untracked, which lifts the dev build's strict read of a component's body. A key whose read throws `NotReadyError` is left out and named.
+  - A per-key accessor that returns a thenable is the Q3 error.
+- **The ward:**
+  - `configAtSetup` throws for a pending setup key, and gives a pending `animate` on a ward with `variants` an empty name list.
+  - Its style, read where the element renders, also reads every key that was pending at setup, and its target, through one memo. That's what holds the region: Solid retries it when they land. A ward with nothing pending makes no memo.
+  - That covers the reads made outside a tracking scope once the region shows: the Retarget's `transition`, and the `while*` checks that start recognizers at mount. A pending key read there would throw with no boundary to reach; held, they've all landed by then.
+- **On a server,** the same errors are thrown before the read that waits. A pending key the ward reads as it goes is read again and throws, so the server waits and renders the component again: its region streams with its Appear rule to the fetched target (AR18).
+
+**Pinned by:**
+- `v2/async-config.browser.test.tsx` **AC1–AC8**:
+  - the region held, then the entrance to the fetched target, the component made once;
+  - a refetch holding the last target on the page, and one mid-animation keeping the ward;
+  - no boundary, with Solid's warning;
+  - a pending `style`, `transition` and `whileHover`;
+  - setup keys, `initial={false}`, and a promise accessor, each in `<Errored>`;
+  - a pending variant name followed by a Variant child (AC8), and, under a variant parent, a ward with a pending name taking no `initial` from the parent (AC9).
+- `v2/appear.ssr.test.tsx` **AR18–AR19**.
+- `test/v2/swallow.ts`: the `swallow` helper, moved out of `settled.browser.test.tsx` and shared.
+
+**Mutation-checked:** twelve single-point mutations, eleven caught:
+- the setup read only untracked (the render re-runs for good), or only with no reader (the dev build's strict read throws), or rethrowing a pending key (AC1–AC4);
+- the setup keys unchecked, on a client or a server (AC5, AR19);
+- a pending `animate` given no names (AC9, found surviving AC8 and pinned);
+- `initial={false}` unchecked, on a client or a server (AC6, AR19);
+- a promise accessor allowed (AC7);
+- no region hold, or one on the target alone (AC1, AC3, AC4).
+
+The twelfth counted a pending `while*` key as given, at the recognizers' mount-time check. It survived: the region hold covers the setup-time pending keys, so they've landed by mount. The guard was taken out.
+
 ## #257 item 2: no projection API (2026-10-23)
 
 Item 2 asked whether `createProjection`, Solid 2's derived store, should replace a ward's per-key accessors: `card.values.x` for `card.read("x")`. **Q1: A, no:** `read(key)` stays.
