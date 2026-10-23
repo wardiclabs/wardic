@@ -9,6 +9,8 @@
 // - WC4: the config's keys, and a target's values (`animate`'s, a variant's, a gesture's). A value or
 //   an accessor (#259's per-key config) left a union of both, and an editor nothing to complete
 //   inside it: before #301's PR 2 only the config's keys completed.
+// - WC5 (#306): inside `style` and `viewport`, as an accessor or a value. Checked against
+//   `WardConfig` itself, which the config is also bound by, TS read their types as `any`.
 import * as path from "node:path"
 import ts from "typescript"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -22,6 +24,8 @@ export const target = () => ward({ animate: { opacity: 1, transition: { /*WC2*/ 
 export const parent = () => ward({ variants: { shown: {} }, animate: "shown", transition: { /*WC3*/ } })
 export const keys = () => ward({ /*WC4a*/ })
 export const values = () => ward({ animate: { /*WC4b*/ }, variants: { open: { /*WC4c*/ } }, whileHover: { /*WC4d*/ } })
+export const style = () => ward({ style: { /*WC5a*/ }, viewport: { /*WC5b*/ } })
+export const accessors = () => ward({ style: () => ({ /*WC5c*/ }), viewport: () => ({ /*WC5d*/ }) })
 `
 
 let service: ts.LanguageService
@@ -86,5 +90,10 @@ describe("completion inside a ward's transitions (#301)", () => {
   it("WC4: the config's keys, and a target's values", () => {
     expect(offered("/*WC4a*/")).toEqual(expect.arrayContaining(["animate", "variants", "transition", "whileHover", "onUpdate"]))
     for (const marker of ["/*WC4b*/", "/*WC4c*/", "/*WC4d*/"]) expect(offered(marker), marker).toEqual(expect.arrayContaining(["opacity", "x", "background-color"]))
+  }, 60_000)
+
+  it("WC5: inside style and viewport, as a value or an accessor (#306)", () => {
+    for (const marker of ["/*WC5a*/", "/*WC5c*/"]) expect(offered(marker), marker).toEqual(expect.arrayContaining(["opacity", "background-color", "color"]))
+    for (const marker of ["/*WC5b*/", "/*WC5d*/"]) expect(offered(marker), marker).toEqual(["amount", "margin", "once", "root"])
   }, 60_000)
 })
