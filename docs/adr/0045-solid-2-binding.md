@@ -385,6 +385,22 @@ Item 1's second and third parts: what a ward does while its config reads a pendi
 
 The twelfth counted a pending `while*` key as given, at the recognizers' mount-time check. It survived: the region hold covers the setup-time pending keys, so they've landed by mount. The guard was taken out.
 
+## #257 item 12: `flush(fn)`, and `list.move` inside an action (2026-10-23)
+
+Item 12 asked whether the binding's two `fn(); flush()` calls should be Solid 2's `flush(fn)`, which runs `fn` "in a synchronous flush scope" so its writes "bypass microtask scheduling and drain synchronously when the callback returns". It also asked whether that behaves the same inside an `action`. **Q1: A, both changes below.**
+
+- **`flush(fn)` behaves the same** in both places: the full browser suite passed with it.
+  - **The Reorder group's `onReorder`,** so the DOM follows a gesture's or a keyboard lift's reorder within the controller's call. That keeps focus on a lifted item: moving a focused node can blur it.
+  - **The provider's `applyAndFlush`,** the gate's per-frame Starting-style switches (ADR-0034).
+  - In each, `fn`'s writes no longer schedule a microtask that the flush drains early and that then fires with nothing to do.
+- **Inside an action it doesn't work, nor did `fn(); flush()`.**
+  - An app calling `list.move()` inside an `action` got Solid's `FLUSH_IN_ACTION` error ("flush() inside an action body is not allowed"), and the action rejected. On main, the order was written before the throw.
+  - A gesture's or a keyboard reorder comes from an event handler, never an action. Only the app's `move` can run inside one, and nothing reads the DOM after it.
+  - So `move` calls `onReorder` with no flush. Its DOM update lands at Solid's next flush, before the frame, and inside an action it's held with the action's other writes.
+- **Rejected:** fixing `move` alone and keeping `fn(); flush()` (B); neither (C).
+
+**Pinned by:** `v2/reorder.browser.test.tsx` **RV15**: `list.move` inside an action resolves, its order reaches `onReorder`, and the item flies to its place. It fails on main with `FLUSH_IN_ACTION`. RV10, a `move` outside one, still flies.
+
 ## #257 item 8: no native Atom tracking (2026-10-23)
 
 Item 8 asked whether the binding should offer Solid 2's `enableExternalSource`. That's an adapter registered once for the whole app: Solid wraps every computation with it, and it lets Solid track a non-Solid reactive system's reads. With it, Solid would track Effect Atoms natively. **Probed first, at the user's ask; then Q1: A, no.** Every Atom handed to Solid keeps going through the one bridge, `followAtom` (`read(key)`, the Live-value helpers, `fromAtom`).

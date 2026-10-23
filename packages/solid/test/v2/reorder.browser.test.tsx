@@ -21,11 +21,13 @@
 // - RV12: an item's style stays reactive.
 // - RV13: the gesture's axis: in a y list a diagonal drag moves the item only on y.
 // - RV14: items rendered with `.map` log one warning per group when they remount; `<For>` logs none.
+// - RV15 (#257 item 12): `list.move` inside an `action`: the action resolves (a flush there is Solid's
+//   FLUSH_IN_ACTION), the order reaches `onReorder`, and the item flies to its place.
 import { DomLive } from "@wardic/dom"
 import { reorderGroup, reorderItem, WardicProvider } from "@wardic/solid/unstable/v2"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as Bool from "effect/Boolean"
-import { type Accessor, createSignal, flush, For } from "solid-js"
+import { type Accessor, action, createSignal, flush, For } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { page } from "vitest/browser"
 import { until } from "../browser-helpers.ts"
@@ -329,5 +331,23 @@ describe("reorderGroup and reorderItem", () => {
     } finally {
       for (const spy of spies) spy.mockRestore()
     }
+  })
+
+  it("RV15: list.move inside an action: the action resolves, the order reaches onReorder, and the item flies there", async () => {
+    const s = await mountReorder({ factories: true })
+    const c = s.item("c")
+    const before = c.getBoundingClientRect().top
+    const sampling = sampleFrames(() => c.getBoundingClientRect().top)
+    const moveToTop = action(function* () {
+      s.move("c", 0)
+      yield Promise.resolve()
+    })
+    await expect(moveToTop(), "no flush inside the action").resolves.toBeUndefined()
+    await wait(900)
+    expect(joined(s.reorders)).toEqual(["cabde"])
+    const frames = sampling.stop().map((f) => f.v)
+    const slot = before - 2 * 60
+    expect(frames.filter((top) => top < before - 1 && top > slot + 1).length, "it flies there").toBeGreaterThan(3)
+    expect(Math.abs(frames.at(-1)! - slot)).toBeLessThanOrEqual(0.5)
   })
 })
