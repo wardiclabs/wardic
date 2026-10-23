@@ -162,7 +162,7 @@ Wardic's took one name.
    - Per-value transitions (`transition={{ opacity: {…}, default: {…} }}`, Motion's `getValueTransition`) are another matter, filed as #301.
 3. **Each name orchestrates the Variant children's keys it sets** (Q3: A, Motion's `animateVariant` a name): its own `delayChildren`, `staggerChildren`, `staggerDirection` and `when`. An entrance name's stagger beside a toggled state's none: toggling the state moves every child at once.
    - Rejected: B (`when` for the list as a whole); C (one orchestration for the list).
-   - **Per-name `when` is PR 2** (Q6). Until then, `when` is the list's as a whole: the last name whose own transition sets it.
+   - **Per-name `when` came in PR 2** (Q6). PR 1 took `when` for the list as a whole, the last name whose own transition set it.
 4. **The whole list passes down** (Q4: A, Motion's): each Variant child resolves the names it has, in order, and skips the rest. That covers `initial`, `animate`, the inherited exit name (#290) and the gesture labels (#291). Rejected: B (only the names the parent has); C (the last name a child has).
 5. **The definition reported, in each binding's shape** (Q5: C):
    - **Solid 1** calls `onAnimationStart` once per name in the list, in order, and `onAnimationComplete` per name as the keys it drives settle. Every name is reported whenever the list changes, as Motion's. Ported callbacks that branch on the name go on working.
@@ -228,3 +228,28 @@ Wardic's took one name.
   - `when` from the last whole transition.
 
   The seventeenth, Solid 2's `variant` memo passing a fresh list on, is equivalent: its `equals` and `sameResolution` both compare name by name, so it starts no Retarget either way.
+
+**Built (PR 2): each name's own `when`.** Motion's `animateVariant` runs per name: with `beforeChildren`, a name's own animation and then its children's animations of that name; with `afterChildren`, the reverse. Other names run alongside.
+- **The gate:** a Variant child's keys of a list's name start once the name's gate opens. Its provider's keys of that name have settled since the list last changed, unless the name's `when` isn't `beforeChildren`; and for the child's own children, the same for `afterChildren` (`mayStartFor`, `canStartFor`, the variant node's `names`).
+- **Waiting, not re-running:** a shut name's legs start on the Retarget's token behind a gate machine that reads the gate each tick (`gatedBy`). A gate that opens starts that name's legs alone, and leaves the other names' running animations as they are, as Motion's per-name animations run on their own (NW3). A later Retarget ends the wait as it ends a leg.
+- **Held where they start:** a shut name's keys are written to the gate at their start values, so another name's first commit, which hands the element's style back (ADR-0034), doesn't drop them to their CSS value.
+- **Settles per name:** the spine tells a list's names as the legs of their keys settle (`nameSettlesOf`, shared with Solid 1's callbacks), to the variant node, which keeps them per name (`ownNames`, each record's `names`).
+  - **Solid 1** clears them when the trigger changes.
+  - **Solid 2** keeps the trigger each was settled at, so an earlier settle counts for nothing.
+  - **A name that drives no key** has no leg and settles at once, as Motion's empty variant does (NW5). A list's empty key groups make no leg.
+- **The whole-element gate** stays for a single name. A list's `when()` is `undefined`, its names each having their own.
+- **The Retarget's common path is as before.** A list's work is done apart, in hoisted functions called only for a list (`splitLegsOf`, `listingOf`), so the Retarget's other calls keep their inlining (docs/agents/effect-first.md). The first build made that work's checks on every Retarget, and every element allocated about 1% more. After it (`bench:solid`, N = 1,000, against main `3145f5b`, control −2.3%): Solid 1's Retarget +1.3% [−0.7%, +2.2%] warm, mount −0.4%, bytes +0.6%; Solid 2's Retarget −0.6% warm, mount +0.5%, bytes +0.3%.
+- **Exits inside a leaver** (#290) run per name too (`runName`): each name's own keys, then its Variant children's (or the reverse), the other names alongside. Each element's exit is prepared once and run a name at a time (`preparedOf`).
+- **Pinned by:**
+  - `test/variant-list-when.browser.test.tsx` NW1–NW6: `beforeChildren`, `afterChildren`, a gate opening without a restart, an exit list, and a name with no key of its own, first in its list and later;
+  - `test/v2/variant-lists.browser.test.tsx` LV4;
+  - VL14 and VL15, now each name's.
+- **Mutation-checked:** thirteen single-point mutations, each caught:
+  - no gate shut, or one that opens at once;
+  - each binding's names never settling (LV4, once it asserted the child arrives);
+  - each binding's `beforeChildren` ignored, and Solid 1's `afterChildren`;
+  - shut keys not held;
+  - a list's empty key groups making legs (NW5, and NW6 once the empty name was later in its list);
+  - each binding taking a list's `when` as a whole;
+  - an exit's names all at once, or each running every key.
+

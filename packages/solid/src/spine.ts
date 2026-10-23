@@ -16,6 +16,7 @@
  */
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Frame from "@wardic/core/Frame"
+import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Override from "@wardic/core/Override"
@@ -67,6 +68,7 @@ import {
   GESTURE_LAYERS,
   type GestureLayer,
   type GestureNames,
+  type NameOrchestration,
   activeNamesOf,
   type GestureHandDown,
   gesturesOn,
@@ -190,8 +192,9 @@ const keysByLayerOf = (
   extraDelay: ((name: string | undefined) => number) | undefined,
   extra: number,
   listed: boolean,
+  shut: ReadonlyArray<boolean> | undefined,
 ): ReadonlyArray<ReadonlySet<string>> | undefined => {
-  if (Bool.not(Bool.or(Arr.some(layers, hasOwnTransition), delaysDiffer(layers, extraDelay, extra)))) return undefined
+  if (Bool.not(Bool.or(Bool.or(Arr.some(layers, hasOwnTransition), delaysDiffer(layers, extraDelay, extra)), anyShutOf(shut)))) return undefined
   // A list's returns in a group of their own, after its layers' (#297).
   let returnsAt = 0
   if (listed) returnsAt = layers.length
@@ -373,6 +376,162 @@ const groupTransitionOf = (
   // A list's returns: the element's, at its whole orchestration's delay.
   if (Predicate.isUndefined(layer)) return staggeredOf(element, extraOf(extraDelay, undefined), reuse)
   return staggeredOf(transitionOfTarget(layer.transition, element), extraOf(extraDelay, layer), reuse)
+}
+
+/** No names. */
+const NO_NAMES: ReadonlyArray<string> = []
+
+/** No legs. */
+const NO_LEGS: ReadonlyArray<Leg> = []
+
+/** Each layer's gate shut now (#297's PR 2): a named one whose `when` holds its keys back. */
+const shutOf = (layers: ReadonlyArray<Layer>, byName: NameOrchestration | undefined): ReadonlyArray<boolean> | undefined => {
+  if (Predicate.isUndefined(byName)) return undefined
+  return Arr.map(layers, (layer) => {
+    const name = layer.name
+    if (Predicate.isUndefined(name)) return false
+    return Bool.not(byName.mayStart(name))
+  })
+}
+
+/** Whether any layer's gate is shut (#297's PR 2): none without a list. */
+const anyShutOf = (shut: ReadonlyArray<boolean> | undefined): boolean => {
+  if (Predicate.isUndefined(shut)) return false
+  return Arr.some(shut, identity)
+}
+
+/** A split Retarget's legs, each key group's (#291, #297), and the group each leg animates. */
+interface SplitLegs {
+  readonly legs: ReadonlyArray<Leg>
+  readonly tags: ReadonlyArray<number>
+}
+
+/**
+ * A split Retarget's legs (#291, #297): each key group on its transition. A list's group that drives
+ * no key makes no leg, settling at once as Motion's empty variant does, and its returns' Live values
+ * follow with its returns' group, last; any other's with the first group.
+ */
+const splitLegsOf = (
+  t: Values.Values,
+  from: Values.Values,
+  groups: ReadonlyArray<ReadonlySet<string>>,
+  resolution: Resolution,
+  listed: boolean,
+  transition: WardicTransition | undefined,
+  element: WardicTransition | undefined,
+  extraDelay: ((name: string | undefined) => number) | undefined,
+  reuse: (transition: WardicTransition) => WardicTransition,
+  reduce: boolean,
+  positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  velocities: Readonly<Record<string, number>>,
+  follow: Follows | undefined,
+): SplitLegs => {
+  let returnsAt = 0
+  if (listed) returnsAt = resolution.layers.length
+  const legs: Array<Leg> = []
+  const tags: Array<number> = []
+  Arr.forEach(groups, (group, i) => {
+    if (Bool.and(listed, group.size === 0)) return
+    let followed: Follows | undefined
+    if (i === returnsAt) followed = follow
+    const groupLegs = legsOf(from, pickKeys(t, groups, i), groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, velocities, followed)
+    Arr.forEach(groupLegs, (built) => {
+      legs.push(built)
+      tags.push(i)
+    })
+  })
+  return { legs, tags }
+}
+
+/** What a list's names make of a Retarget (#297): their settles told, and each shut one's legs' gate. */
+interface Listing {
+  readonly names: NameSettles | undefined
+  readonly legGates: ReadonlyArray<string | undefined> | undefined
+}
+
+/** What {@link listingOf} reads of a Retarget. */
+interface ListingOf {
+  readonly listed: boolean
+  readonly told: ToldNames | undefined
+  readonly byName: NameOrchestration | undefined
+  readonly resolution: Resolution
+  readonly groups: ReadonlyArray<ReadonlySet<string>> | undefined
+  readonly legGroups: ReadonlyArray<number> | undefined
+  readonly legCount: number
+  readonly shut: ReadonlyArray<boolean> | undefined
+  /** Write a shut group's keys where they start. */
+  readonly hold: (group: number) => void
+  readonly afterFlush: (fn: () => void) => void
+  readonly config: WardConfig
+}
+
+/**
+ * A list's names at a Retarget (#297): told settled as the legs of the keys each drives settle, to
+ * the binding's callbacks (Solid 1's, PR 1) and to its orchestration (PR 2), told moving now; and each
+ * shut name's legs waiting on its gate (PR 2), its keys held where they start, so another name's first
+ * commit, which hands the element's style back (ADR-0034), doesn't drop them to their CSS value.
+ */
+const listingOf = (of: ListingOf): Listing => {
+  const { listed, told, byName, resolution, groups, legGroups, legCount, shut, config } = of
+  const listNames = Bool.match(listed, { onTrue: () => resolution.variant as ReadonlyArray<string>, onFalse: () => NO_NAMES })
+  const orchestrated = Bool.and(listed, Predicate.isNotUndefined(byName))
+  const toldNames = UndefinedOr.match(told, { onUndefined: () => NO_NAMES, onDefined: (list) => list.names })
+  let names: NameSettles | undefined
+  if (Bool.or(orchestrated, Predicate.isNotUndefined(told))) {
+    if (orchestrated) (byName as NameOrchestration).moving(listNames)
+    names = nameSettlesOf(Arr.dedupe([...listNames, ...toldNames]), resolution, groups, legGroups, legCount, (settled) =>
+      of.afterFlush(() => {
+        UndefinedOr.map(told, (list) => {
+          const mine = Arr.filter(settled, (name) => Arr.contains(list.names, name))
+          if (mine.length > 0) list.tell(mine, config)
+        })
+        if (orchestrated) (byName as NameOrchestration).settled(Arr.filter(settled, (name) => Arr.contains(listNames, name)))
+      }))
+  }
+  let legGates: ReadonlyArray<string | undefined> | undefined
+  if (Bool.and(anyShutOf(shut), Predicate.isNotUndefined(legGroups))) {
+    const closed = shut as ReadonlyArray<boolean>
+    legGates = Arr.map(legGroups as ReadonlyArray<number>, (g) => gateNameOf(resolution.layers, closed, g))
+    Arr.forEach(closed, (isShut, g) => {
+      if (isShut) of.hold(g)
+    })
+  }
+  return { names, legGates }
+}
+
+/** The name a leg of key group `g` waits for, if its layer's gate is shut (#297's PR 2): a list's returns wait for none. */
+const gateNameOf = (layers: ReadonlyArray<Layer>, shut: ReadonlyArray<boolean>, g: number): string | undefined => {
+  if (shut[g] !== true) return undefined
+  return UndefinedOr.match(layers[g], { onUndefined: constUndefined, onDefined: (layer) => layer.name })
+}
+
+/** A gate's wait (#297's PR 2): done once `open()` says so, read each tick. */
+const gateWaitOf = (open: () => boolean): Machine.Machine<Frame.Frame<undefined>> =>
+  Machine.make({ settles: true, span: GATE_SPAN, start: () => () => ({ value: undefined, done: open() }) })
+
+const GATE_SPAN = { name: "wardic.spine.whenGate", attributes: {} }
+
+/** Nothing drawn while a gate is waited on. */
+const NO_SINK = (): undefined => undefined
+
+/**
+ * A leg that waits for its name's gate first (#297's PR 2), as Motion runs a variant's `when` per
+ * name: started once the gate opens, on the same token, so a later Retarget ends the wait as it ends
+ * a leg. Without a name, the leg as it is.
+ */
+const gatedBy = <R,>(
+  name: string | undefined,
+  byName: NameOrchestration | undefined,
+  options: Machine.RunOptions,
+  program: Effect.Effect<unknown, never, R>,
+): Effect.Effect<unknown, never, R | FrameLoop.FrameLoop> => {
+  if (Bool.or(Predicate.isUndefined(name), Predicate.isUndefined(byName))) return program
+  const orchestration = byName as NameOrchestration
+  const gated = name as string
+  return gateWaitOf(() => orchestration.mayStart(gated)).pipe(
+    Machine.run(NO_SINK, options),
+    Effect.flatMap((end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.succeed(end as unknown), onFalse: () => program })),
+  )
 }
 
 /** Whether a layer is on with its own transition: hoisted, as it's asked per Retarget. */
@@ -826,6 +985,12 @@ export interface ElementSpineOptions {
   readonly handoff: Handoff | undefined
   /** Told each Retarget's start and settle (#257); omitted, nothing is told. */
   readonly animation?: AnimationHooks | undefined
+  /**
+   * A list's names orchestrated each on their own (#297's PR 2): a name's keys start once its gate
+   * opens, and its starts and settles are told. Omitted for an element that joins nothing and
+   * provides nothing.
+   */
+  readonly byName?: NameOrchestration | undefined
 }
 
 /** What the follower reads of the element's Override stack and drag, untracked. */
@@ -860,7 +1025,7 @@ export interface ElementSpine {
  * Scope's close. The same shape as the projection system's end-of-task holds.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, canStart, config, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -1074,8 +1239,13 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // the end of that task and takes its first step at the next tick (ADR-0027 decision 5,
     // ADR-0033). Not `FiberSet.run`: forked from
     // a `runSync`, a leg would inherit that call's scheduler (ADR-0027, decision 6).
-    const runLeg = <R extends WardicServices>(program: Effect.Effect<unknown, never, R>): void =>
-      FiberSet.addUnsafe(legFibers, runtime.runFork(leg(program)))
+    // The name the leg being started waits for (#297's PR 2), set as each is started; none for most.
+    let gateNow: string | undefined
+    const runLeg = <R extends WardicServices>(program: Effect.Effect<unknown, never, R>): void => {
+      let run: Effect.Effect<unknown, never, R | FrameLoop.FrameLoop> = program
+      if (Predicate.isNotUndefined(gateNow)) run = gatedBy(gateNow, byName, runOptions, program)
+      FiberSet.addUnsafe(legFibers, runtime.runFork(leg(run)))
+    }
     // The transition, read at Retarget time so a change applies to the next Retarget. A child
     // with no local transition inherits the parent context's (ADR-0007).
     const c = config()
@@ -1107,44 +1277,22 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // each animation type runs on its own.
     // A list's names (#297) split them too, each name's at its own delay; a list's returns run on the
     // element's transition, in a group of their own, last.
-    // Guards, not matches: per Retarget, per element.
+    // Guards, not matches: per Retarget, per element. A list's work (#297) is done apart, for a list:
+    // the Retarget's other calls keep their inlining (docs/agents/effect-first.md).
     const listed = Array.isArray(resolution.variant)
-    const groups = keysByLayerOf(t, layers, extraDelay, extra, listed)
-    let returnsAt = 0
-    if (listed) returnsAt = layers.length
+    // A list's names each wait for their own `when` (#297's PR 2): the layers whose gate is shut now.
+    let shut: ReadonlyArray<boolean> | undefined
+    if (listed) shut = shutOf(layers, byName)
+    const groups = keysByLayerOf(t, layers, extraDelay, extra, listed, shut)
     const told = namesToldOf(animation, resolution, lastResolution)
-    // The first group's legs: every key, when they aren't split. The returns' follow goes with the
-    // group that holds the returns.
-    let followFirst = follow
-    if (Bool.and(Predicate.isNotUndefined(groups), returnsAt !== 0)) followFirst = undefined
-    let retargetLegs: ReadonlyArray<Leg> = legsOf(
-      from,
-      pickKeys(t, groups, 0),
-      groupTransitionOf(resolution, groups, 0, transition, elementTransition, extraDelay, options.reuse),
-      reduce,
-      positionalKeys,
-      snapshot.velocities,
-      followFirst,
-    )
-    // Which key group each leg animates, for a list's names told one by one.
-    let legGroups: Array<number> | undefined
+    // Every key on one transition when they aren't split, as before; else each group's legs, tagged.
+    let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
+    let legGroups: ReadonlyArray<number> | undefined
+    if (Predicate.isUndefined(groups)) retargetLegs = legsOf(from, t, transition, reduce, positionalKeys, snapshot.velocities, follow)
     if (Predicate.isNotUndefined(groups)) {
-      const tagged = Arr.map(retargetLegs, () => 0)
-      const rest = Arr.flatMap(Arr.range(1, groups.length - 1), (i) => {
-        const groupLegs = legsOf(
-          from,
-          pickKeys(t, groups, i),
-          groupTransitionOf(resolution, groups, i, transition, elementTransition, extraDelay, options.reuse),
-          reduce,
-          positionalKeys,
-          snapshot.velocities,
-          Bool.match(i === returnsAt, { onTrue: () => follow, onFalse: constUndefined }),
-        )
-        Arr.forEach(groupLegs, () => tagged.push(i))
-        return groupLegs
-      })
-      retargetLegs = [...retargetLegs, ...rest]
-      if (Predicate.isNotUndefined(told)) legGroups = tagged
+      const split = splitLegsOf(t, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, snapshot.velocities, follow)
+      retargetLegs = split.legs
+      legGroups = split.tags
     }
     // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
     // animation up as far in as its CSS has got, read at the legs' first tick.
@@ -1156,12 +1304,33 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
     reporting = retargetLegs.length
-    // A list's names, each told settled with the legs of the keys it drives (#297).
-    // A guard: the callback is made only for a list, not at every Retarget.
-    if (Predicate.isNotUndefined(told)) names = nameSettlesOf(told.names, resolution, groups, legGroups, retargetLegs.length, (settled) => gate.afterFlush(() => told.tell(settled, c)))
+    // A list's names (#297): told settled with the legs of the keys each drives, to the binding's
+    // callbacks and its orchestration, and each shut one's legs waiting on its gate (PR 2).
+    let legGates: ReadonlyArray<string | undefined> | undefined
+    if (Bool.or(listed, Predicate.isNotUndefined(told))) {
+      const listing = listingOf({
+        listed,
+        told,
+        byName,
+        resolution,
+        groups,
+        legGroups,
+        legCount: retargetLegs.length,
+        shut,
+        hold: (g) => {
+          const held = pickKeys(from, groups, g)
+          if (Bool.not(Rec.isEmptyRecord(held))) gate.write(id, held)
+        },
+        afterFlush: (fn) => gate.afterFlush(fn),
+        config: c,
+      })
+      names = listing.names
+      legGates = listing.legGates
+    }
     // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
     // built for the leg that needs it (#69's PR 2: a Retarget is per element).
-    Arr.forEach(retargetLegs, (leg: Leg): void => {
+    Arr.forEach(retargetLegs, (leg: Leg, i): void => {
+      if (Predicate.isNotUndefined(legGates)) gateNow = legGates[i]
       if (leg._tag === "Follow") {
         const key = leg.key
         const out: Record<string, number> = { [key]: 0 }

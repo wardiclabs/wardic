@@ -62,6 +62,7 @@ export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): v
     cfg: value,
     parent: node.inherited,
     extraDelay: node.extraDelay,
+    byName: node.names,
     canStart: node.canStart,
     bindGestures: node.bindGestures,
     onFrame: node.onFrame,

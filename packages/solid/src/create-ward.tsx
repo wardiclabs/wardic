@@ -64,7 +64,7 @@ import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
-import { type GestureStates, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
+import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
@@ -276,6 +276,8 @@ export interface RunSpineOptions {
    * Read at Retarget time. Optional — omitted = no extra delay.
    */
   readonly extraDelay?: ((name: string | undefined) => number) | undefined
+  /** A list's names orchestrated each on their own (#297's PR 2): the variant node's. */
+  readonly byName?: NameOrchestration | undefined
   /** A `<Reorder>` item's additions (internal; see {@link SpineInternals}). */
   readonly internal?: SpineInternals | undefined
   /**
@@ -341,7 +343,7 @@ const heldBack = (presence: PresenceContextValue | undefined, element: HTMLEleme
 }
 
 export function runSpine(opts: RunSpineOptions): void {
-  const { bindGestures, canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
+  const { bindGestures, byName, canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -614,6 +616,7 @@ export function runSpine(opts: RunSpineOptions): void {
         parent,
         canStart,
         extraDelay,
+        byName,
         onFrame,
         reducedMotion,
         positionalKeys,
@@ -771,6 +774,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     cfg,
     parent: node.inherited,
     extraDelay: node.extraDelay,
+    byName: node.names,
     canStart: node.canStart,
     bindGestures: node.bindGestures,
     onFrame: node.onFrame,

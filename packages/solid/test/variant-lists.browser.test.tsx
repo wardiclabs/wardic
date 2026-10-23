@@ -14,8 +14,9 @@
 // - VL11: an unknown name is skipped; an empty list is no name.
 // - VL12: a dynamic variant in a list resolves with `custom`.
 // - VL13: a list's returns run on the element's transition.
-// - VL14: `when` for a list as a whole (PR 1): the last name that sets it.
-// - VL15: the same, set by a later name in the list.
+// - VL14: a name's own `when` (PR 2: each name's; PR 1: the last name that set it), beside a later
+//   name with a transition of its own and no `when`.
+// - VL15: the same, the name with `when` later in the list.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, type WardicAnimationDefinition, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
@@ -263,11 +264,11 @@ describe("variant name lists on Solid 1 (#297)", () => {
     expect(xOf(q("el"))).toBeCloseTo(0, 0)
   })
 
-  it("VL14: when for a list as a whole: the last name that sets it", async () => {
+  it("VL14: a name's own when, beside a later name with a transition and no when", async () => {
     const parent: WardicVariants = {
       shown: { opacity: 1, transition: { type: "tween", duration: 0.4, when: "beforeChildren" } },
       hidden: { opacity: 0 },
-      // A later name with a transition of its own, without `when`: the list's `when` is still shown's.
+      // A later name with a transition of its own, without `when`: shown's `when` still holds its keys.
       wide: { transition: { type: "tween", duration: 0.2 } },
     }
     const child: WardicVariants = { shown: { x: 0 }, hidden: { x: -30 }, wide: {} }
@@ -285,7 +286,7 @@ describe("variant name lists on Solid 1 (#297)", () => {
     expect(xOf(q("child"))).toBeCloseTo(0, 0)
   })
 
-  it("VL15: when for a list as a whole, set by a later name in the list", async () => {
+  it("VL15: a name's own when, later in the list", async () => {
     const parent: WardicVariants = {
       wide: { transition: { type: "tween", duration: 0.2 } },
       shown: { opacity: 1, transition: { type: "tween", duration: 0.4, when: "beforeChildren" } },

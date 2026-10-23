@@ -426,6 +426,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
     cfg,
     parent: node.inherited,
     extraDelay: node.extraDelay,
+    byName: node.names,
     canStart: node.canStart,
     bindGestures: node.bindGestures,
     onFrame: node.onFrame,

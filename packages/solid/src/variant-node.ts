@@ -6,6 +6,7 @@
  * Membership is decided once, at setup, as `initial` is read. The names stay reactive.
  */
 import * as Stagger from "@wardic/core/Stagger"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -30,6 +31,10 @@ import {
   nameOf,
   ownOrInherited,
   directed,
+  mayStartOf,
+  type NameConfig,
+  nameConfigOf,
+  type NameOrchestration,
   passedThrough,
   staggerOf,
   staggerOfName,
@@ -57,6 +62,11 @@ export interface VariantNode {
    * follow them. Only an element whose Variant children join it has one.
    */
   readonly bindGestures: ((states: Accessor<GestureStates>) => void) | undefined
+  /**
+   * A list's names orchestrated each on their own (#297's PR 2): its spine's gates and per-name
+   * settles. Only an element that joins a provider or provides has one.
+   */
+  readonly names: NameOrchestration | undefined
 }
 
 /** The orchestration an element with variants of its own runs for its Variant children. */
@@ -65,6 +75,10 @@ interface OwnOrchestration {
   readonly canStart: () => boolean
   readonly settled: (done: boolean) => void
   readonly bindGestures: (states: Accessor<GestureStates>) => void
+  /** A list's name's own `afterChildren` (#297's PR 2): its keys wait for its children's of that name. */
+  readonly canStartFor: (name: string) => boolean
+  /** Its keys of a list's names settled, or moving again (#297's PR 2). */
+  readonly settledFor: (names: ReadonlyArray<string>, done: boolean) => void
 }
 
 /** A registered Variant child, as its ancestor's registry holds it. */
@@ -72,6 +86,8 @@ interface OwnOrchestration {
 interface ChildRecord {
   index: number
   total: number
+  /** The names of a list whose keys it has settled since the list last changed (#297's PR 2). */
+  readonly names: Set<string>
 }
 
 /**
@@ -89,12 +105,14 @@ const ownOrchestration = (
   // records, so a child's mount, unmount or settle costs the same at 1,000 children as at 1.
   const records = new Set<ChildRecord>()
   const [unsettled, setUnsettled] = createSignal(0)
+  // The names of a list whose own keys have settled since the list last changed (#297's PR 2).
+  const ownNames = new Set<string>()
   // True once this element's own animation settles; false again at each variant change.
   // Drives `beforeChildren`.
   const [ownSettled, setOwnSettled] = createSignal(false)
 
   const register = (): WardicChildRegistration => {
-    const record: ChildRecord = { index: 0, total: 1 }
+    const record: ChildRecord = { index: 0, total: 1, names: new Set() }
     // A child starts unsettled; its spine reports each frame, so only a change counts.
     let settled = false
     records.add(record)
@@ -118,6 +136,9 @@ const ownOrchestration = (
         return record.total
       },
       setSettled,
+      setSettledFor: (name, done) => {
+        Bool.match(done, { onTrue: () => record.names.add(name), onFalse: () => record.names.delete(name) })
+      },
       dispose,
     }
   }
@@ -174,30 +195,57 @@ const ownOrchestration = (
   // What its children's stagger and `when` snapshot at: its variant, and its gestures' names (#291).
   const trigger: Accessor<string> = createMemo((previous: string | undefined) => {
     const next = triggerKeyOf(variant(), gestures())
-    if (next !== previous) stale = true
+    if (next !== previous) {
+      stale = true
+      // Each name waits again (#297's PR 2): its keys, and its children's, settle anew.
+      ownNames.clear()
+      records.forEach((record) => record.names.clear())
+    }
     return next
   })
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()))
-  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => UndefinedOr.map(orchestration(), (t) => t.when)
+  // A list's names have each their own (#297's PR 2): none for the list as a whole.
+  const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
+    if (Array.isArray(variant())) return undefined
+    return UndefinedOr.map(orchestration(), (t) => t.when)
+  }
   const initial = handedDown<WardicVariantLabels | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // Each name's orchestration for the Variant children's keys of that name (#297, Motion's
   // `animateVariant` a name): its own transition's, else the element's. Kept per name until the
   // config changes; a key from no name takes the element's whole orchestration.
-  const byName: Accessor<Map<string, WardicStaggerConfig>> = createMemo(() => {
+  const byName: Accessor<Map<string, NameConfig>> = createMemo(() => {
     cfg()
     return new Map()
   })
-  const staggerFor = (name: string | undefined): WardicStaggerConfig => {
-    if (Predicate.isUndefined(name)) return stagger()
+  const configOf = (name: string): NameConfig => {
     const known = byName()
     const kept = known.get(name)
     if (Predicate.isNotUndefined(kept)) return kept
     const c = untrack(cfg)
-    const made = staggerOf(transitionOfTarget(ownTransitionOf(undefined, name, c.variants, c.custom), c.transition))
+    const made = nameConfigOf(transitionOfTarget(ownTransitionOf(undefined, name, c.variants, c.custom), c.transition))
     known.set(name, made)
     return made
   }
+  const staggerFor = (name: string | undefined): WardicStaggerConfig => {
+    if (Predicate.isUndefined(name)) return stagger()
+    return configOf(name).stagger
+  }
+  // Each of a list's names' own `when` (#297's PR 2), read by polling: which of its names' keys have
+  // settled since the list last changed (`ownNames`, above), and (in each record) its children's.
+  const mayStartFor = (name: string): boolean => Bool.or(untrack(() => configOf(name)).when !== "beforeChildren", ownNames.has(name))
+  const canStartFor = (name: string): boolean => {
+    if (untrack(() => configOf(name)).when !== "afterChildren") return true
+    let all = true
+    records.forEach((record) => {
+      if (Bool.not(record.names.has(name))) all = false
+    })
+    return all
+  }
+  const settledFor = (names: ReadonlyArray<string>, done: boolean): void =>
+    Arr.forEach(names, (name) => {
+      Bool.match(done, { onTrue: () => ownNames.add(name), onFalse: () => ownNames.delete(name) })
+    })
 
   // `beforeChildren` waits again at each trigger, until this element's own animation settles.
   createEffect(
@@ -212,13 +260,15 @@ const ownOrchestration = (
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited))
 
   return {
-    context: { variant, initial, transition, gestures, register, stagger, staggerFor, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => setOwnSettled(done),
     bindGestures: (on) => {
       setStates(() => on)
     },
+    canStartFor,
+    settledFor,
   }
 }
 
@@ -265,5 +315,31 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVa
       reportOwn(done)
     },
     bindGestures: bindOf(own),
+    names: namesOf(joined, own),
+  }
+}
+
+/**
+ * Its spine's per-name orchestration (#297's PR 2): a name's keys start once its provider's
+ * `beforeChildren` and its own `afterChildren` for that name allow; their starts and settles are told
+ * to both. None for an element that joins nothing and provides nothing: made per element, a guard.
+ */
+const namesOf = (
+  joined: { readonly context: WardicVariantContextValue; readonly registration: WardicChildRegistration } | undefined,
+  own: OwnOrchestration | undefined,
+): NameOrchestration | undefined => {
+  if (Bool.and(Predicate.isUndefined(joined), Predicate.isUndefined(own))) return undefined
+  const tell = (names: ReadonlyArray<string>, done: boolean): void => {
+    UndefinedOr.map(joined, ({ registration }) => UndefinedOr.map(registration.setSettledFor, (set) => Arr.forEach(names, (name) => set(name, done))))
+    UndefinedOr.map(own, (o) => o.settledFor(names, done))
+  }
+  return {
+    mayStart: (name) =>
+      Bool.and(
+        UndefinedOr.match(joined, { onUndefined: constTrue, onDefined: ({ context }) => mayStartOf(context, name) }),
+        UndefinedOr.match(own, { onUndefined: constTrue, onDefined: (o) => o.canStartFor(name) }),
+      ),
+    moving: (names) => tell(names, false),
+    settled: (names) => tell(names, true),
   }
 }

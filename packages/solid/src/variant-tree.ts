@@ -47,7 +47,24 @@ export interface WardicChildRegistration {
   readonly index: Accessor<number>
   readonly total: Accessor<number>
   readonly setSettled: (settled: boolean) => void
+  /**
+   * The child's keys of one of a list's names settled, or moving again (#297's PR 2): for that name's
+   * own `afterChildren`. Optional: left out, nothing per name.
+   */
+  readonly setSettledFor?: (name: string, settled: boolean) => void
   readonly dispose: () => void
+}
+
+/**
+ * A list's names orchestrated each on their own (#297's PR 2, Motion's `animateVariant` a name): whether
+ * a name's keys may start (its provider's `beforeChildren` for that name, and its own `afterChildren`),
+ * and what a spine tells as a list's names start moving and settle. Read by polling: a group waiting
+ * on a name's gate reads it each tick.
+ */
+export interface NameOrchestration {
+  readonly mayStart: (name: string) => boolean
+  readonly moving: (names: ReadonlyArray<string>) => void
+  readonly settled: (names: ReadonlyArray<string>) => void
 }
 
 /** The resolved stagger config the Provider exposes to its children. */
@@ -235,7 +252,13 @@ export interface WardicVariantContextValue {
    * their delay from it. `undefined` asks for {@link stagger}. Optional: left out, `stagger` for all.
    */
   readonly staggerFor?: (name: string | undefined) => WardicStaggerConfig
-  /** The parent's `when` mode, or `undefined` (default concurrent). */
+  /**
+   * For a list (#297's PR 2): whether a Variant child's keys of `name` may start, that name's own
+   * `beforeChildren`: true unless it has one and this element's keys of that name haven't settled
+   * since its list last changed. Optional: left out, always.
+   */
+  readonly mayStartFor?: (name: string) => boolean
+  /** The parent's `when` mode, or `undefined` (default concurrent); a list's names have each their own. */
   readonly when: Accessor<"beforeChildren" | "afterChildren" | undefined>
   /**
    * Whether children may START their inherited-variant Retarget yet. True
@@ -377,11 +400,30 @@ export const staggerOfName = (context: WardicVariantContextValue, name: string |
   return of(name)
 }
 
+/** Whether a context lets a Variant child's keys of a list's name start (#297's PR 2): its `mayStartFor`, else always. */
+export const mayStartOf = (context: WardicVariantContextValue, name: string): boolean => {
+  const of = context.mayStartFor
+  if (Predicate.isUndefined(of)) return true
+  return of(name)
+}
+
 /** A child's place in a stagger, turned by its `staggerDirection`: `-1` counts from the last. */
 export const directed = (index: number, total: number, direction: 1 | -1): number => {
   if (direction === -1) return total - 1 - index
   return index
 }
+
+/** A name's orchestration (#297): its stagger config, and its own `when`, from its own transition, else the element's. */
+export interface NameConfig {
+  readonly stagger: WardicStaggerConfig
+  readonly when: "beforeChildren" | "afterChildren" | undefined
+}
+
+/** A {@link NameConfig} from the transition a name orchestrates on. */
+export const nameConfigOf = (transition: WardicTransition | undefined): NameConfig => ({
+  stagger: staggerOf(transition),
+  when: UndefinedOr.map(transition, (t) => t.when),
+})
 
 /** The stagger config of a transition's stagger keys, each defaulted. */
 export const staggerWith = ({ staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1 }: WardicTransition): WardicStaggerConfig => ({
