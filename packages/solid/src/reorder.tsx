@@ -79,6 +79,12 @@ import { configOfMotion, MOTION_PROPS, wardic, type WardicMotionProps, type Ward
 export interface ReorderGroupConfig<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
+  /**
+   * Hears a user's reorder that changed the order, once, at its end (#257 item 3): a drag released,
+   * or a keyboard lift dropped, with the final order and the item that moved. What an app saves.
+   * Not a keyboard cancel, nor the group's `move`.
+   */
+  readonly onReorderEnd?: (end: ReorderController.End<V>) => void
   readonly axis?: CoreReorder.Axis
   /** The **Keyboard reorder** (ADR-0037): on unless `false`. Off, items get no keys, no tab stop and no instructions. */
   readonly keyboard?: boolean
@@ -162,6 +168,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     ReorderController.make<V>({
       values: () => untrack(cfg).values,
       onReorder: (values) => untrack(cfg).onReorder(values),
+      onReorderEnd: (end) => UndefinedOr.map(untrack(cfg).onReorderEnd, (tell) => tell(end)),
       axis: () => Option.fromUndefinedOr(untrack(cfg).axis),
       onAxis: setDetected,
       keyedWith: "<For>",
@@ -459,6 +466,8 @@ export type ReorderElementTag = keyof JSX.IntrinsicElements
 export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
+  /** A user's reorder that changed the order, at its end (#257 item 3): what an app saves. */
+  readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
   /** The keyboard reorder (ADR-0037): on unless `false`. */
   readonly keyboard?: boolean | undefined
@@ -493,6 +502,7 @@ export type ReorderItemProps<V, Tag extends ReorderElementTag = "li"> = {
 interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
+  readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
   readonly keyboard?: boolean | undefined
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
@@ -520,6 +530,7 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps
   const [local, rest] = splitProps(props as unknown as GroupLocal<V> & Record<string, unknown>, [
     "values",
     "onReorder",
+    "onReorderEnd",
     "axis",
     "keyboard",
     "announcements",
@@ -532,6 +543,7 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps
   const group = createReorderGroup<V>(() => ({
     values: local.values,
     onReorder: local.onReorder,
+    ...UndefinedOr.match(local.onReorderEnd, { onUndefined: () => ({}), onDefined: (onReorderEnd) => ({ onReorderEnd }) }),
     ...UndefinedOr.match(local.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
     ...UndefinedOr.match(local.keyboard, { onUndefined: () => ({}), onDefined: (keyboard) => ({ keyboard }) }),
     ...UndefinedOr.match(local.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) }),

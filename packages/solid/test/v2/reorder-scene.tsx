@@ -5,7 +5,7 @@
 // `reorderItem` on a plain `ul` / `li` (`factories`). Not a test file itself.
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { Reorder, reorderGroup, reorderItem, type WardicValues, WardicProvider } from "@wardic/solid/unstable/v2"
+import { Reorder, type ReorderGroup, reorderGroup, reorderItem, type WardicValues, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -145,6 +145,8 @@ export interface Scene {
   readonly group: () => HTMLElement
   /** `list.move` (the factories' scene only). */
   readonly move: (value: string, toIndex: number) => void
+  /** The group: `reorderGroup`'s, or the one `Reorder.Group` hands its `groupRef` (#257 item 3). */
+  readonly list: () => ReorderGroup<string>
 }
 
 const groupCss = (o: SceneOptions): JSX.CSSProperties => ({
@@ -171,6 +173,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES.slice(0, LAYOUTS[o.layout ?? "y"].n))
   let groupEl!: HTMLElement
   let move: (value: string, toIndex: number) => void = () => {}
+  let list!: ReorderGroup<string>
   const reorders: Array<ReadonlyArray<string>> = []
   const reorderTimes: Array<number> = []
   const onReorder = (values: Array<string>): void => {
@@ -181,6 +184,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   const components = (): JSX.Element => (
     <Reorder.Group
       ref={(el: HTMLElement) => (groupEl = el)}
+      groupRef={(group: ReorderGroup<string>) => (list = group)}
       values={order()}
       onReorder={onReorder}
       axis={o.axis?.()}
@@ -197,13 +201,14 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     </Reorder.Group>
   )
   const Factories = (): JSX.Element => {
-    const list = reorderGroup({ values: order, onReorder, axis: () => o.axis?.(), style: () => ({ ...groupCss(o), ...o.groupStyle?.() }) })
-    move = list.move
+    const group = reorderGroup({ values: order, onReorder, axis: () => o.axis?.(), style: () => ({ ...groupCss(o), ...o.groupStyle?.() }) })
+    list = group
+    move = group.move
     return (
-      <ul {...list} ref={[list, (el: HTMLElement) => (groupEl = el)]}>
+      <ul {...group} ref={[group, (el: HTMLElement) => (groupEl = el)]}>
         <For each={order()}>
           {(value) => {
-            const row = reorderItem(list, { value, style: () => ({ ...itemCss(o), ...o.itemStyle?.() }), ...optional("whileDrag", o.whileDrag) })
+            const row = reorderItem(group, { value, style: () => ({ ...itemCss(o), ...o.itemStyle?.() }), ...optional("whileDrag", o.whileDrag) })
             return (
               <li {...row} data-value={value}>
                 {value}
@@ -230,5 +235,6 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     item: (value) => document.querySelector<HTMLElement>(`[data-value="${value}"]`)!,
     group: () => groupEl,
     move,
+    list: () => list,
   }
 }

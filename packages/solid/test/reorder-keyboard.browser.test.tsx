@@ -21,6 +21,7 @@
 //   group's Scope ends its controller (#132's PR 3).
 // - KB12: an announcement spoken at once cancels a held arrow's waiting one: a drop right after a
 //   held arrow is the only thing said (#69's PR 2: the wait is Effect.sleep in a FiberHandle).
+// - KB13 (#257 item 3): `onReorderEnd` once at a drop elsewhere; none at a cancel or a drop in place.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
@@ -62,6 +63,8 @@ interface MountOptions {
   readonly page?: number
   /** Whether the group is mounted, under a provider that stays. */
   readonly shown?: Accessor<boolean>
+  /** Each `onReorderEnd` (#257 item 3). */
+  readonly onReorderEnd?: (end: ReorderController.End<string>) => void
 }
 
 /** A column of items (a to e by default), keyed with `<For>`; each scales to 1.05 while dragged or lifted. */
@@ -71,6 +74,7 @@ const mount = async (options: MountOptions = {}) => {
     <Reorder.Group
       values={values()}
       onReorder={setValues}
+      {...UndefinedOr.match(options.onReorderEnd, { onUndefined: () => ({}), onDefined: (onReorderEnd) => ({ onReorderEnd }) })}
       {...UndefinedOr.match(options.keyboard, { onUndefined: () => ({}), onDefined: (keyboard) => ({ keyboard }) })}
       {...UndefinedOr.match(options.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
       {...UndefinedOr.match(options.instructions, { onUndefined: () => ({}), onDefined: (instructions) => ({ instructions }) })}
@@ -426,4 +430,29 @@ it("KB12: an announcement spoken at once cancels a held arrow's waiting one: a d
   record.stop()
   expect(m.values()).toEqual(["b", "c", "a", "d", "e", "f", "g"])
   expect(record.texts, "the drop, and no stale place after it").toEqual(["Dropped a at position 3 of 7."])
+})
+
+it("KB13: onReorderEnd once at a drop elsewhere; none at a cancel or a drop in place (#257 item 3)", async () => {
+  const ends: Array<ReorderController.End<string>> = []
+  const m = await mount({ onReorderEnd: (end) => ends.push(end) })
+  m.item("b").focus()
+  await commands.realKey("press", "Space")
+  await commands.realKey("press", "ArrowDown")
+  await frames(3)
+  await commands.realKey("press", "ArrowDown")
+  await frames(3)
+  await commands.realKey("press", "Space")
+  await frames(2)
+  expect(ends).toEqual([{ values: ["a", "c", "d", "b", "e"], value: "b", from: 1, to: 3 }])
+  m.item("b").focus()
+  await commands.realKey("press", "Space")
+  await commands.realKey("press", "ArrowUp")
+  await frames(3)
+  await commands.realKey("press", "Escape")
+  await frames(2)
+  await commands.realKey("press", "Space")
+  await frames(2)
+  await commands.realKey("press", "Space")
+  await frames(2)
+  expect(ends.length, "a cancel, and a drop in place, call none").toBe(1)
 })

@@ -17,6 +17,7 @@ import { makeRunner } from "./internal/runner.ts"
 import * as ProjectionSystem from "./ProjectionSystem.ts"
 
 export {
+  type ReorderEnd as End,
   type ReorderItemDriver as ItemDriver,
   DEFAULT_REORDER_INSTRUCTIONS as DEFAULT_INSTRUCTIONS,
   REORDER_GROUP_STYLE as GROUP_STYLE,
