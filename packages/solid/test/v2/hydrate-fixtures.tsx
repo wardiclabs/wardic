@@ -33,7 +33,7 @@ import type { JSX } from "@solidjs/web"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { Atom } from "effect/reactivity"
-import { type Component, createSignal, For, Loading, Show } from "solid-js"
+import { type Component, createMemo, createSignal, For, Loading, Reveal, Show } from "solid-js"
 
 /** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
 let env: WardicEnv = DomLive
@@ -352,3 +352,21 @@ const WardicWrapped = wardic.create(Wrapped)
 
 /** `wardic.create(Component)`. */
 export const KCreate = (): JSX.Element => keyed(() => <WardicWrapped animate={{ opacity: 1 }} />)
+
+/** Two regions under `<Reveal>` (#257 item 13, AH13): the second's data first, an Appear element in it. */
+export const A9 = (): JSX.Element => {
+  const later = <A,>(ms: number, value: A): Promise<A> => new Promise((resolve) => setTimeout(() => resolve(value), ms))
+  const slow = createMemo(() => later(300, "slow"))
+  const fast = createMemo(() => later(30, "fast"))
+  return page(() => (
+    <Reveal>
+      <Loading fallback={<p data-k="fb1">first loading</p>}>
+        <p data-k="slow">{slow()}</p>
+      </Loading>
+      <Loading fallback={<p data-k="fb2">second loading</p>}>
+        <p>{fast()}</p>
+        <wardic.div data-k="fast" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: "tween", duration: 0.5 }} style={{ width: "40px", height: "40px" }} />
+      </Loading>
+    </Reveal>
+  ))
+}

@@ -341,6 +341,30 @@ Item 2 asked whether `createProjection`, Solid 2's derived store, should replace
 - **Why:** the same-frame rule (PR 3b). A value derived from a ward's paints in the ward's frame only on its Atom: `read(key)` gives an accessor that carries it, and a `style` given one follows the Atom, set where the gate writes. A projection's property is read through Solid, which shows a change at its flush, after the gate's write, so whatever is derived from `card.values.x` would paint a frame late. A property can't carry an Atom as an accessor does.
 - **The issue's three internal uses stay probes, not API:** the resolved target compared by value (`sameResolution`) as a projection's diff, `live-style.ts`'s `split` / `reconcile` of the user's style, and Reorder's `values` indexed by value. Each is taken up only if a probe shows it's cheaper or simpler than what's there.
 
+## #257 item 10: streams stay fibers into signals (2026-10-23)
+
+Item 10 asked whether the sensors and `streamToSignal` should be memos over `Stream.toAsyncIterableWith(stream, services)`, so that Solid owns their cancellation, in place of a fiber run into a signal. **Q1: A, no.** They keep their starting value, are never pending, and hold no update.
+
+- **Why:** a probe built `createHover` that way (`.tmp/257-10/`). `loadingValue` answers only the memo's first flight. Each re-run after it, such as the ref attached or moved to another element, was pending until the stream's next value, and a hover stream's next value waits on the user. Moved to a second element with an unrelated `setCount(1)` in the same flush, it showed the first element's `true` and held the count's write at 0 for over 300 ms, until the second element was hovered. Solid treats a pending read as an unfinished update, and a sensor's next value isn't coming soon.
+- **Rejected:** switching and giving each re-run a value at once (B), which fights the form it adopts and adds a promise hop per event on the gesture path; and adding an async `streamToSignal` for streams whose first value comes soon (C), which an app can already write as a memo over `toAsyncIterableWith`.
+- The gesture-timing check the item asked for is moot.
+
+## #257 item 13: hydration and held regions (2026-10-23)
+
+Item 13 compared Solid 2's `onHydrationEnd`, `<Reveal>` and `isDisposed` with what the binding does. **Q1: A, no API change; the held regions are pinned by tests.**
+
+- **`onHydrationEnd`** is "intended for test tooling and markers"; Solid's docs say to switch to a client-only value from `onSettled`. `fromAtom`'s Hydration hold and the Appear Handoff do that already.
+- **An entrance in a region Solid holds plays once the region shows,** with nothing changed in Wardic:
+  - On a client, a ward inside a `<Loading>` waiting on data is made at once, but isn't on the page until the data lands, and its entrance plays from then. One in a region `<Reveal>` holds plays at its reveal, not when its data lands.
+  - On a server stream, a chunk `<Reveal>` holds arrives in an inert `<template>`, and its placement comes with the region ahead of it. The Appear animation starts at that placement (357 ms, against the chunk at 50 ms), and the Handoff reads the CSS animation's own `startTime`.
+  - Solid holds the DOM, not Wardic, so tests pin it in case a Solid release changes it. AH13 fails with the fixture's `<Reveal>` taken out.
+- **`isDisposed(owner)`** isn't used: no late callback has written into a disposed ward. Item 9's audit runs every suite with Solid's diagnostics failing a test.
+- **Rejected:** `isDisposed` guards on the fibers' callbacks as defence (B), a check on per-event paths for nothing seen; and recording it with no tests (C).
+
+**Pinned by:**
+- `v2/held-regions.browser.test.tsx` **HR1** (a waiting `<Loading>`) and **HR2** (`<Reveal>`): not on the page before the region shows; the first frame on it near the start; moving; at rest.
+- `v2/appear.hydrate.browser.test.tsx` **AH13**, on the fixture A9: the held element off the page between the two chunks; its CSS animation from the reveal; near 0 at first sight; through the Handoff to rest. `runStreamed` now lands each late write at its own time when given a list.
+
 ## #257 item 4: errors and `<Errored>` (2026-10-23)
 
 The misuse errors reach `<Errored>` already. A failed animation now rejects `next("settled")`, throws from `settled()` and `each("settled")`, and clears at the next Retarget. A per-frame callback's run of throws is reported once. ADR-0046, *Amendment (#257 item 4)*; ADR-0030, *Amendment (#257 item 4)*.
