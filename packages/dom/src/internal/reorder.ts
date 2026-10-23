@@ -75,12 +75,33 @@ export interface ReorderControllerWiring {
   readonly announce?: ((message: string) => void) | undefined
 }
 
+/**
+ * A user's reorder that changed the order, at its end (#257 item 3): a pointer drag released, or a
+ * keyboard lift dropped, with the item at another index than at its start. What an app saves: the
+ * whole order, or the one item that moved and where.
+ */
+export interface ReorderEnd<V> {
+  /** The order at the end. */
+  readonly values: Array<V>
+  /** The item the user moved: the one dragged, or lifted. */
+  readonly value: V
+  /** Its index at the gesture's start. */
+  readonly from: number
+  /** Its index at the end. */
+  readonly to: number
+}
+
 /** {@link makeReorderController}'s options: what a binding hands its group. */
 export interface ReorderControllerOptions<V> {
   /** The app's values, in order. */
   readonly values: () => ReadonlyArray<V>
   /** Receives a new order; the app sets `values` from it. */
   readonly onReorder: (values: Array<V>) => void
+  /**
+   * Hears a user's reorder that changed the order, at its end (#257 item 3): once a gesture, not at
+   * each step, as `onReorder` is. Not a keyboard cancel, which puts the order back, nor `move`.
+   */
+  readonly onReorderEnd?: ((end: ReorderEnd<V>) => void) | undefined
   /** The app's axis, overriding detection; `None` to detect. */
   readonly axis?: (() => Option.Option<Reorder.Axis>) | undefined
   /** Called when the detected axis changes (after a Measure pass, or {@link ReorderController.resolve}). */
@@ -249,6 +270,16 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     if (Option.isSome(k.handle)) k.handle.value.lift(lifted)
     k.onLift(lifted)
   }
+  /** `value`'s index in the app's values now. */
+  const indexOf = (value: V): number => options.values().indexOf(value)
+  /** The end of a user's reorder of `value`, begun at `from`: told when it moved (#257 item 3). */
+  const ended = (value: V, from: number): void => {
+    const to = indexOf(value)
+    if (to === from) return
+    UndefinedOr.map(options.onReorderEnd, (tell) => tell({ values: [...options.values()], value, from, to }))
+  }
+  /** The lifted item's index at its lift. */
+  let liftedFrom = -1
   /** Drop the lifted item where it is and announce it: a drop key, or an interruption. */
   const dropLifted = (): void =>
     Option.match(Reorder.liftedValue(group), {
@@ -256,6 +287,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
       onSome: (value) => {
         Option.match(Reorder.drop(group, value), { onNone: constVoid, onSome: (placement) => announceNow(say("drop", value, placement)) })
         setLifted(value, false)
+        ended(value, liftedFrom)
       },
     })
   /** Focus back on the lifted item, if a reorder took it (moving a focused node can blur it), without scrolling. */
@@ -289,6 +321,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
             Option.match(Reorder.lift(group, value), {
               onNone: constVoid,
               onSome: (placement) => {
+                liftedFrom = indexOf(value)
                 setLifted(value, true)
                 announceNow(say("lift", value, placement))
               },
@@ -353,6 +386,8 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     // The gesture's axis (core's, fixed at its start), for Auto-scroll's axis.
     let gestureAxis: Reorder.Axis = "y"
     let inGesture = false
+    // Its index at the drag's start, for its `onReorderEnd` (#257 item 3).
+    let draggedFrom = -1
     const k: Keyed = { element: itemElement, handle: Option.none(), onLift }
     keyed.set(value, k)
     const end = (): void => {
@@ -388,6 +423,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
       onSample: (sample) => {
         if (sample.phase === "start") {
           inGesture = true
+          draggedFrom = indexOf(value)
           gestureAxis = Reorder.dragStart(group, value)
           return
         }
@@ -401,6 +437,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           return
         }
         end()
+        ended(value, draggedFrom)
       },
       onKey: onKeyOf(value),
       onBlur: () => {

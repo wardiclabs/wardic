@@ -120,6 +120,7 @@ export {
   type ReorderGroup,
   type ReorderGroupComponentProps,
   type ReorderGroupConfig,
+  type ReorderGroupEvents,
   type ReorderGroupProps,
   reorderGroup,
   type ReorderItemComponentProps,

@@ -10,7 +10,9 @@
 //   the app's own `tabindex` and ids (props, or a kept item's config) win or come first; with the
 //   keyboard reorder off, no tab stop.
 // - RS5: `Reorder.Item` outside a `Reorder.Group` throws, as Motion's does.
-import { Reorder, reorderGroup, reorderItem } from "@wardic/solid/unstable/v2"
+// - RS6 (#257 item 3): a group's `next("reorderEnd")` never settles on a server and its `each` ends at
+//   once: nothing happens there. `Reorder.Group`'s `groupRef` hands the group over there too.
+import { Reorder, type ReorderGroup, reorderGroup, reorderItem } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { For } from "solid-js"
@@ -142,5 +144,26 @@ describe("<Reorder> on a server, on Solid 2", () => {
 
   it("RS5: Reorder.Item outside a Reorder.Group throws, as Motion's does", () => {
     expect(() => serve(() => <Reorder.Item value="a">a</Reorder.Item>)).toThrow("Reorder.Item must be a child of Reorder.Group")
+  })
+
+  it("RS6: a group's next never settles on a server, its each ends at once, and groupRef hands it over (#257 item 3)", async () => {
+    let made: ReorderGroup<string> | undefined
+    let handed: ReorderGroup<string> | undefined
+    serve(() => {
+      made = reorderGroup({ values: ["a"], onReorder: () => {} })
+      return (
+        <Reorder.Group values={["a"]} onReorder={() => {}} groupRef={(list: ReorderGroup<string>) => (handed = list)}>
+          <Reorder.Item value="a">a</Reorder.Item>
+        </Reorder.Group>
+      )
+    })
+    expect(handed, "groupRef hands the group over").toBeDefined()
+    let settled = false
+    void made!.next("reorderEnd").then(() => (settled = true))
+    const seen: Array<unknown> = []
+    for await (const end of handed!.each("reorderEnd")) seen.push(end)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(seen, "each ends at once").toEqual([])
+    expect(settled, "next never settles").toBe(false)
   })
 })

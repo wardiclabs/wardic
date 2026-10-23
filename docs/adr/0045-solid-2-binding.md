@@ -334,6 +334,10 @@ The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid
 - Every Solid 2 test and the lab's s14 and s18 rewritten per key.
 - **The lab:** s15 on the Solid 2 build gains a **store config** cell, the style opacity cell's twin with its config a shallow store: Store style replaces the store's `style` (0.5 ↔ 0.8) and shows at once, and a hover (or a phone's tap) goes to 1 and back to the store's value. Its three board runs pass headless; every other card is unchanged on both builds.
 
+## #257 item 3: `reorderEnd` (2026-10-23)
+
+The group's `next("reorderEnd")` / `each("reorderEnd")`, `Reorder.Group`'s `groupRef`, and the optimistic save pattern the probes found: an optimistic store written by the save, a writable memo of it written by the drag, a memo over `each` and an effect. ADR-0020, *Amendment (#257 item 3)*.
+
 ## #257 item 9: the diagnostics audit (2026-10-21)
 
 #257 collects where the Solid 2 binding could lean on more of Solid 2. Item 9, the first taken, audits the binding against Solid 2's own tooling. It has three parts:

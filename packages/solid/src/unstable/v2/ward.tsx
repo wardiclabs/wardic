@@ -126,6 +126,7 @@ import {
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardSettled } from "./lifecycle.ts"
+import { neverLands, NO_EVENTS } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
 
@@ -1082,10 +1083,4 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = constUndefined
 
-/** A server's `next`: nothing happens there, and nothing disposes it. */
-const neverLands = (): Promise<never> => new Promise<never>(constUndefined)
 
-/** A server's `each`: nothing happens there, so it ends at once. */
-const NO_EVENTS: AsyncIterable<never> = {
-  [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true as const }) }),
-}

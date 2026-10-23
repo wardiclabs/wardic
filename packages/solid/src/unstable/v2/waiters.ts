@@ -1,6 +1,6 @@
 /**
- * `next(name)` and `each(name)` on Solid 2 (#257, ADR-0046): the waits a ward's lifecycle and a
- * presence handle hand over, by event name.
+ * `next(name)` and `each(name)` on Solid 2 (#257, ADR-0046): the waits a ward's lifecycle, a
+ * presence handle and a Reorder group hand over, by event name.
  *
  * - A wait resolves with the next `name` told after it.
  * - Disposal rejects every wait with a `DOMException` named `"AbortError"`, as Web Animations'
@@ -103,4 +103,12 @@ class Each<Events, E extends keyof Events> implements AsyncIterator<Events[E], u
   return(): Promise<IteratorResult<Events[E], undefined>> {
     return Promise.resolve(ENDED)
   }
+}
+
+/** A server's `next`: nothing happens there, and nothing disposes it. */
+export const neverLands = (): Promise<never> => new Promise<never>(() => {})
+
+/** A server's `each`: nothing happens there, so it ends at once. */
+export const NO_EVENTS: AsyncIterable<never> = {
+  [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve(ENDED) }),
 }

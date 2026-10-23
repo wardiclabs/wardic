@@ -7,6 +7,7 @@
 // 80x50 items, three to a row, each 10 px apart. Frames are read post-paint: every rAF
 // posts a MessageChannel message, whose handler runs after that frame's rendering
 // update (the layout lab's method).
+import type * as ReorderController from "@wardic/dom/ReorderController"
 import { cleanup, render } from "@solidjs/testing-library"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
@@ -158,6 +159,8 @@ export interface Scene {
   readonly reorders: ReadonlyArray<ReadonlyArray<string>>
   /** When each `onReorder` call ran (`performance.now()`). */
   readonly reorderTimes: ReadonlyArray<number>
+  /** Every `onReorderEnd` call (#257 item 3), in order. */
+  readonly ends: ReadonlyArray<ReorderController.End<string>>
   readonly item: (value: string) => HTMLElement
   readonly group: () => HTMLElement
   readonly scroller: HTMLElement | undefined
@@ -208,6 +211,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   const [groupEl, setGroupEl] = createSignal<HTMLElement>()
   const reorders: Array<ReadonlyArray<string>> = []
   const reorderTimes: Array<number> = []
+  const ends: Array<ReorderController.End<string>> = []
   const onReorder = (values: Array<string>): void => {
     reorders.push(values)
     reorderTimes.push(performance.now())
@@ -218,6 +222,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
       ref={(el: HTMLElement) => setGroupEl(el)}
       values={order()}
       onReorder={onReorder}
+      onReorderEnd={(end: ReorderController.End<string>) => ends.push(end)}
       axis={o.axis?.()}
       {...UndefinedOr.match(o.groupAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
       style={{ ...groupCss(o), ...o.groupStyle?.() }}
@@ -263,6 +268,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     setOrder,
     reorders,
     reorderTimes,
+    ends,
     item: (value) => document.querySelector<HTMLElement>(`[data-value="${value}"]`)!,
     group: () => groupEl()!,
     scroller: scroller(),

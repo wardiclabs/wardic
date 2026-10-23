@@ -165,6 +165,7 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 | `usePresence()`, `useIsPresent()`, `usePresenceData()` | the same names: `usePresence(() => el, (safeToRemove, custom) => …)` is called as the child leaves (its own code is disposed by then), which stays until `safeToRemove()`; on Solid 2, `const p = usePresence(); <div ref={p}>`, `await p.next("leave")`, `p.safeToRemove()`. `useIsPresent` is `false` from the leave, for handlers on the retained node (ADR-0048) |
 | `<AnimatePresence mode="popLayout">` | the same: the leaver is popped out of the flow where it was (`position: absolute`, its size kept) while it exits, and the children after it take its space at once, a `layout` one sliding there. It's pinned with inline styles, so there's no `root` prop (ADR-0048) |
 | `<AnimatePresence mode="wait">` | the same: the entering child goes on the page once every leaver has animated out and been removed. Solid builds it at once, so its own code (`onMount` included) runs then, off the page; its Wardic elements start once it's on the page (ADR-0048) |
+| `<Reorder.Group values onReorder>`, saving the order in each item's `onDragEnd` | `onReorderEnd={({ values, value, from, to }) => save(values)}`, once at the end of a user's reorder that changed the order: a drag released, or a keyboard lift dropped, not each crossover as `onReorder`, nor a keyboard cancel. On Solid 2, `list.each("reorderEnd")` (a `<Reorder.Group>` hands its group over with `groupRef`) (ADR-0020, *Amendment (#257 item 3)*) |
 | `<AnimatePresence onExitComplete={() => …}>` | the same, once every exiting child has animated out and been removed (ADR-0046); on Solid 2, a `createPresence()` handle |
 | `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onDragStart`, `onDrag`, `onDragEnd`: `(event, info) => …`; `onDragTransitionEnd={() => …}` | the same, called at the event (so `event.stopPropagation()` works), with `info.point` in the viewport, not the page (ADR-0047); on `wardic.*`, `onDrag*` are these, not the DOM's drag and drop; on Solid 2, `next(name)` |
 | `dragConstraints={{ left, right, top, bottom }}`, `dragConstraints={ref}`, `onMeasureDragConstraints` | the same box; a container as an accessor, a signal ref (`dragConstraints={frame}`) or `() => frame`, measured at each drag's start and when either resizes, keeping the element's place (ADR-0047) |
@@ -321,6 +322,50 @@ function Card(props: { open: boolean }) {
 - Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, which isn't a ref. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
 - The Live value helpers (`createTransform`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
 - Reorder has factories that are refs too: `const list = reorderGroup({ values: items, onReorder: setItems })` goes on the `<ul>` (`<ul {...list}>`), and `reorderItem(list, { value })` on each `<li>`. Each item is a ward. An item's own `tabindex` and `aria-describedby` go in its config, so the keyboard reorder's instructions are kept. `Reorder.Group` and `Reorder.Item` are there too.
+- **Saving a new order, optimistically:** a group tells `{ values, value, from, to }` once at the end of each user reorder that changed the order: `list.next("reorderEnd")` for one, `list.each("reorderEnd")` for all of them, as an async iterable (a `<Reorder.Group>` hands its group over with `groupRef`). A memo over `each` holds the latest as an async value, and an effect saves it:
+
+  ```tsx
+  function TaskList() {
+    const [tasks, setTasks] = createOptimisticStore<Task[]>(() => api.listTasks(), [])
+    const [order, setOrder] = createSignal(() => [...tasks])   // follows tasks; the drag writes it
+    const [saveError, setSaveError] = createSignal<Error>()
+
+    const save = action(function* (ids: string[]) {
+      setTasks((list) => ids.map((id) => list.find((task) => task.id === id)!))   // optimistic
+      yield api.saveOrder(ids)
+      refresh(tasks)
+    })
+
+    const list = reorderGroup({ values: order, onReorder: setOrder })
+    const reordered = createMemo(() => list.each("reorderEnd"))
+    createEffect(
+      () => reordered().values.map((task) => task.id),
+      (ids) => {
+        setSaveError(undefined)
+        save(ids).catch(setSaveError)
+      },
+    )
+
+    return (
+      <>
+        <Show when={saveError()}>{(error) => <p role="alert">Couldn't save the order: {error().message}</p>}</Show>
+        <ul {...list}>
+          <For each={order()}>
+            {(task) => {
+              const row = reorderItem(list, { value: task })
+              return <li {...row}>{task.title}</li>
+            }}
+          </For>
+        </ul>
+      </>
+    )
+  }
+  ```
+
+  - **The drag writes `order`, not `tasks`.** `onReorder` runs at each crossover, outside any action, and an optimistic write made there is dropped at once. `order` is a writable memo (`createSignal(fn)`): it follows `tasks`, from its load to each save's optimistic write and its refresh, and the drag overrides it until the next change.
+  - **A failed save needs no rollback code.** Solid drops the optimistic write when the action settles, `order` follows `tasks` back, and the item glides back to its slot.
+  - **Read the ids in the effect's compute,** a tracked scope: Solid's strict mode warns of store reads in its apply, and the action's first step runs there.
+  - **Keep the failure in state.** An action started from an effect hands its failure back as a rejected promise, which reaches no `<Errored>` boundary. Left unread, it's an unhandled rejection, so the example renders it.
 - Motion's components are there too: `<wardic.div animate={…}>` and `wardic.create(Component)`. There are no directives in Solid 2, so no `use:wardic`.
 - Motion's `onAnimationStart` and `onAnimationComplete` aren't props or config keys here; a ward hands its landings over as async values instead (#257, ADR-0046). `card.settled()` is the last landing (`{ definition, target, gestures }`), `undefined` before the first, and pending while an animation runs, so `isPending(() => card.settled())` is "animating". `await card.next("settled")` waits for the next landing, in a handler or an action; it rejects with an `AbortError` if the ward is disposed first. Motion's gesture callbacks are `next` names too: `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"` (each with the pointer's `point`) and `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"` (with `point`, `offset`, `delta` and `velocity`), and `"dragTransitionEnd"`, once the release comes to rest; a pan's `"panSessionStart"`, `"panStart"`, `"pan"` and `"panEnd"`, a pan that has started counting as a drag for its press, so `next("tap")` doesn't come after a swipe. Their `point` is in the viewport, as `clientX` and `getBoundingClientRect()` are, not the page as Motion's: `document.elementsFromPoint(point.x, point.y)` finds what a drag was dropped on. A component hands its ward over with `wardRef`: `<wardic.div wardRef={(card) => …}>`, and on `wardic.create(Component)` and `Reorder.Item`. Read `settled()` under `<Loading>`, as any async value; a read outside one still works, and Solid's dev build warns of it. On `<wardic.div>`, `onAnimationStart` is the DOM's CSS `animationstart` event, and `onDrag`, `onDragStart` and `onDragEnd` are the DOM's drag and drop.
 

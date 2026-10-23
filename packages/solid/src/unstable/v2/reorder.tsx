@@ -65,6 +65,7 @@ import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { type Ward, type WardConfig, wardConfigView, type WardStyle, wardWith } from "./ward.tsx"
 import { handOver, refsOf, wardic, type WardicProps, type WardRefProp } from "./wardic.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
+import { eachOf, neverLands, NO_EVENTS, Waiters } from "./waiters.ts"
 
 /**
  * A **Reorder group**'s config: the app's `values` in order, `onReorder` to receive a new order (the
@@ -97,6 +98,22 @@ const GROUP_VIEW = configView<ReorderGroupConfigValues<unknown>>(["values", "onR
 /** A group's config as a view of `config`. */
 const groupViewOf = <V,>(config: ReorderGroupConfig<V>): ReorderGroupConfigValues<V> => GROUP_VIEW.of(config) as ReorderGroupConfigValues<V>
 
+/**
+ * A **Reorder group**'s events (#257 item 3), as a ward's are (ADR-0046): `list.next(name)` and
+ * `list.each(name)`.
+ */
+export interface ReorderGroupEvents<V> {
+  /**
+   * A user's reorder that changed the order, once, at its end: a drag released, or a keyboard lift
+   * dropped, with the final order and the item that moved. What an app saves. Not a keyboard
+   * cancel, nor `list.move`.
+   */
+  readonly reorderEnd: ReorderController.End<V>
+}
+
+/** The `AbortError`'s message for a group's `next` its disposal cut off. */
+const GROUP_GONE = "The Reorder group was disposed before its next event."
+
 /** The props a spread of a {@link ReorderGroup} applies. */
 export interface ReorderGroupProps {
   /** The group: Solid calls it with the element. */
@@ -120,6 +137,31 @@ export interface ReorderGroup<V> extends ReorderGroupProps {
   readonly axis: Accessor<CoreReorder.Axis>
   /** Move a value in code, and announce it (ADR-0037). */
   readonly move: (value: V, toIndex: number) => void
+  /**
+   * A promise of the group's next `name` after the call (#257 item 3). It rejects with an
+   * `AbortError` once the group is disposed.
+   */
+  readonly next: <E extends keyof ReorderGroupEvents<V>>(name: E) => Promise<ReorderGroupEvents<V>[E]>
+  /**
+   * Every `name` from the call on, as an async iterable (#257 item 3): each step waits for the next
+   * one, so one that comes while a step's work runs is missed; it ends once the group is disposed.
+   * A memo over it holds the latest as an async value, which an effect can act on: an optimistic
+   * save at each reorder (the README's pattern).
+   *
+   * ```tsx
+   * const [tasks, setTasks] = createOptimisticStore<Task[]>(() => api.listTasks(), [])
+   * const [order, setOrder] = createSignal(() => [...tasks])   // follows tasks; the drag writes it
+   * const save = action(function* (ids: string[]) {
+   *   setTasks((list) => ids.map((id) => list.find((task) => task.id === id)!))   // optimistic
+   *   yield api.saveOrder(ids)
+   *   refresh(tasks)
+   * })
+   * const list = reorderGroup({ values: order, onReorder: setOrder })
+   * const reordered = createMemo(() => list.each("reorderEnd"))
+   * createEffect(() => reordered().values.map((task) => task.id), (ids) => save(ids).catch(setSaveError))
+   * ```
+   */
+  readonly each: <E extends keyof ReorderGroupEvents<V>>(name: E) => AsyncIterable<ReorderGroupEvents<V>[E]>
   /** Whether the items reorder by keyboard (ADR-0037). */
   readonly keyboard: Accessor<boolean>
   /** The items' instructions text (ADR-0037). */
@@ -211,6 +253,9 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   const runtime = useWardicRuntime()
   if (isServer) return serverReorderGroup(cfg)
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
+  // Its events (#257 item 3), ended with it.
+  const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
+  onCleanup(() => events.dispose())
   // The group's controller, over the provider's projection system and the Environment's channel to
   // assistive technology (ADR-0037), in a Scope of the group's own, closed with its owner.
   const scope = runtime.runSync(Scope.make())
@@ -224,6 +269,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
         untrack(() => cfg().onReorder)(values)
         flush()
       },
+      onReorderEnd: (end) => events.tell("reorderEnd", () => end),
       axis: () => Option.fromUndefinedOr(untrack(() => cfg().axis)),
       onAxis: setDetected,
       keyedWith: "<For>",
@@ -265,7 +311,15 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   return refCarrying<ReorderGroup<V>>(
     attach,
     { style: { get: () => groupStyleOf(cfg().style), enumerable: true } },
-    { group: controller.group, axis, move: (value: V, toIndex: number) => controller.move(value, toIndex), controller, ...keyboardOf(cfg) },
+    {
+      group: controller.group,
+      axis,
+      move: (value: V, toIndex: number) => controller.move(value, toIndex),
+      next: <E extends keyof ReorderGroupEvents<V>>(name: E) => events.wait(name),
+      each: <E extends keyof ReorderGroupEvents<V>>(name: E) => eachOf<ReorderGroupEvents<V>, E>(events, name),
+      controller,
+      ...keyboardOf(cfg),
+    },
   )
 }
 
@@ -284,7 +338,7 @@ const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfigValues<V>>): Reo
   return refCarrying<ReorderGroup<V>>(
     constUndefined,
     { style: { value: groupStyleOf(untrack(() => cfg().style)), enumerable: true } },
-    { group: controller.group, axis, move: constUndefined, controller, ...keyboardOf(cfg) },
+    { group: controller.group, axis, move: constUndefined, next: neverLands, each: () => NO_EVENTS, controller, ...keyboardOf(cfg) },
   )
 }
 
@@ -441,6 +495,11 @@ export type ReorderGroupComponentProps<V, Tag extends ReorderElementTag = "ul"> 
     readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
     readonly instructions?: string | undefined
     readonly as?: Tag
+    /**
+     * The group, handed over once, as it's made (#257 item 3), as `wardRef` hands over a ward: its
+     * `next(name)` and `each(name)` (`"reorderEnd"`) and its `move`.
+     */
+    readonly groupRef?: ((list: ReorderGroup<V>) => void) | undefined
   }
   & Omit<WardicProps<Tag>, "onReorder">
 
@@ -463,6 +522,7 @@ export type ReorderItemComponentProps<V, Tag extends ReorderElementTag = "li"> =
 interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
+  readonly groupRef?: ((list: ReorderGroup<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
   readonly keyboard?: boolean | undefined
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
@@ -482,7 +542,7 @@ interface ItemLocal<V> {
   readonly "aria-describedby"?: string | undefined
 }
 
-const GROUP_OWN = ["values", "onReorder", "axis", "keyboard", "announcements", "instructions", "as", "ref", "style", "children"] as const
+const GROUP_OWN = ["values", "onReorder", "axis", "keyboard", "announcements", "instructions", "as", "ref", "style", "children", "groupRef"] as const
 const ITEM_OWN = [...MOTION_PROPS, "value", "as", "ref", "style", "children", "tabindex", "aria-describedby", "wardRef"] as const
 
 /** The motion element for `tag` (`wardic[tag]`), as a plain component. */
@@ -497,6 +557,8 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupCompo
   const local = props as unknown as GroupLocal<V>
   // Its props are its config, read per key (#259).
   const list = reorderGroup<V>(local as unknown as ReorderGroupConfig<V>)
+  // The group, to its `groupRef` (#257 item 3), read once, untracked, as `ref` is.
+  UndefinedOr.map(untrack(() => local.groupRef), (give) => give(list))
   const Tag = wardicTag(UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "ul", onDefined: identity }))
   const rest = omit(props as unknown as Record<string, unknown>, ...GROUP_OWN)
   return (

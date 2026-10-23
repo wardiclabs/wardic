@@ -120,3 +120,63 @@ The same work fixes four engine problems that broke a reorder outright. Each has
 ## Note (#171, 2026-10-14): the siblings land on Motion's 0.45 s tween
 
 A layout animation now defaults to Motion's 0.45 s tween (ADR-0009 *Amendment (#171)*). Re-measured with a real mouse (`.tmp/171/reorder-timing.ts`, scenario 14): a displaced sibling lands exactly on its slot in 451 ms, against 751 ms on the old spring by the same measure (the 546 ms above settled by a looser one), and Motion's 433 ms plus its held frame. A release's Release offset stays a spring (ADR-0016, *Note (#171)*).
+
+## Amendment (#257 item 3, 2026-10-23): `reorderEnd`, saving a new order
+
+An app that saves a new order wants it shown at once, and put back if the save fails: Solid 2's optimistic writes inside an action (#257 item 3). `onReorder` doesn't fit a save. It's called at each Crossover while the user drags, so the order it carries is the one to show, not to keep. And a keyboard drop (ADR-0037) had no event at all.
+
+**Grilled 2026-10-23:**
+1. **An end-of-reorder hook on the group (Q1: A).**
+   - Solid 2 gets an event, as a ward's are (ADR-0046): `list.next("reorderEnd")` / `list.each("reorderEnd")`.
+   - Solid 1 gets a prop, as `onReorder` is: `onReorderEnd` on `Reorder.Group` and in `createReorderGroup`'s config.
+   - Rejected: each item's `dragEnd` (no keyboard drop, wired per item); Wardic owning the save (`save: (order) => Promise`), where Solid 2 has optimistic writes for it.
+2. **Only a user's reorder that changed the order (Q2: A):** a pointer drag released, or a keyboard lift dropped (by key, by a press, by focus leaving, or by the app changing `values`), with the item at another index than at the gesture's start.
+   - A drag dropped back where it began tells none.
+   - Nor does a keyboard cancel, which puts the order back, nor `list.move`, which is the app's own code.
+   - Rejected: every gesture's end with a `changed` flag; A plus `move`.
+3. **`{ values, value, from, to }` (Q3: A):** the final order, the item the user moved, and its index at the start and at the end. That fits a whole-order endpoint and a moved-item endpoint alike. Rejected: `{ values, previous }`; `values` alone.
+4. **`Reorder.Group`'s `groupRef` on Solid 2 (Q4: A)** hands the group over once, as it's made, as `wardRef` hands over a ward. Rejected: an `onReorderEnd` callback prop on Solid 2's component; both.
+
+**Probed first** (Solid 2 rc.15, in the browser), with Solid's docs (`createOptimistic`, `createOptimisticStore`, the *Mutations* guide, `createSignal`'s writable memo):
+- **The drag can't write an optimistic store.** An optimistic write lives in an action's transaction: one made outside any action "is discarded at the end of the current update" (the docs' pitfall), and the probe's store showed its source again at once. `onReorder` runs at each crossover, outside any action.
+- **The save can write one.** In the guide's shape, `createOptimisticStore(() => api.listTasks(), [])` is the durable order. A save action makes the optimistic write, `yield`s the request, and calls `refresh(tasks)`. A rejection drops the overlay when the action settles, with no rollback code.
+- **The drag writes a writable memo of the store,** `createSignal(() => [...tasks])`. It follows the store (its load, the save's optimistic write, the overlay dropped, the refresh), and each `onReorder` write overrides it until the next change. A failed save takes it back to the server's order, and the item glides back to its slot.
+- **No loop, no callback:**
+  - A memo over `list.each("reorderEnd")` holds the latest reorder as an async value. Solid consumes the iterable and owns its lifetime, and the pending memo doesn't hold the first render.
+  - An effect saves each one. Its compute reads the ids (a tracked scope: Solid's strict mode warns of store reads in an apply), and its apply calls the action, which is allowed there.
+  - Two drops in quick succession each save.
+- **The failure goes in state.**
+  - The docs' "an error the action does not catch … still reaches `Errored`" doesn't hold for an action an effect starts: with no catch, the probe's failure was an unhandled rejection, and its `<Errored>` never showed.
+  - So the pattern keeps it in state the page renders (`save(ids).catch(setSaveError)`), as the guide's *Layer state by lifetime* keeps its errors.
+- **Two earlier answers were wrong.** A first answer in the grill held that optimistic updates couldn't handle a reorder: they handle the save. A first draft of this PR rolled back by hand in a `catch`.
+- **The documented pattern** is in the README and the group's `each` doc. RE5 runs it as written.
+
+**Built:**
+- **`@wardic/dom`'s `ReorderController`** takes `onReorderEnd`, exported as `ReorderController.End<V>`.
+  - An item's index in `values` is recorded at a drag's start and at a lift.
+  - It's compared at the drag's end and at the lift's drop, and told when they differ.
+  - An item disposed mid-gesture, or unmounted while lifted, tells none.
+- **Solid 1** passes `onReorderEnd` through the group's config and `Reorder.Group`'s props.
+- **Solid 2:**
+  - The group keeps a `Waiters` of its events, disposed with it. `next` rejects with an `AbortError`, and `each` ends.
+  - On a server, `next` never settles and `each` ends at once, the helpers moved to `waiters.ts` and shared with the ward's.
+  - `Reorder.Group` takes `groupRef`.
+
+**Pinned by:**
+- **Solid 2,** `v2/reorder-end.browser.test.tsx` RE1–RE6, RE1–RE4 through both `groupRef` and `reorderGroup`:
+  - a drag's one end;
+  - a drag dropped back;
+  - keyboard drop, cancel and drop in place;
+  - `move`;
+  - the README's save pattern as written, against an async fake server: a failed save puts the order back, the item gliding between its slots, and shows its failure from state, with no unhandled rejection; a successful one keeps the order, reconciled, and clears the failure;
+  - disposal.
+- **Solid 2,** `v2/reorder.ssr.test.tsx` RS6: the server's.
+- **Solid 1:** `reorder.browser.test.tsx` RO22–RO23 and `reorder-keyboard.browser.test.tsx` KB13.
+
+**Mutation-checked:** eleven single-point mutations, all caught:
+- a drag's or a drop's end never told;
+- told when unmoved;
+- a drag's or a lift's start index lost;
+- Solid 2's events never told, `groupRef` never called, or its disposal leaving them;
+- the server's `each` never ending;
+- Solid 1's prop or config never wired.
