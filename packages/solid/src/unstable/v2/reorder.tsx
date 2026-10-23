@@ -143,16 +143,22 @@ export interface ReorderGroup<V> extends ReorderGroupProps {
    */
   readonly next: <E extends keyof ReorderGroupEvents<V>>(name: E) => Promise<ReorderGroupEvents<V>[E]>
   /**
-   * Every `name` from the call on, as an async iterable (#257 item 3), for `for await`; it ends once
-   * the group is disposed. Save a new order where the user's reorder ends:
+   * Every `name` from the call on, as an async iterable (#257 item 3): each step waits for the next
+   * one, so one that comes while a step's work runs is missed; it ends once the group is disposed.
+   * A memo over it holds the latest as an async value, which an effect can act on: an optimistic
+   * save at each reorder (the README's pattern).
    *
    * ```tsx
-   * const [items, setItems] = createSignal(() => saved())   // the saved order, written while dragging
-   * const save = action(function* (order) {
-   *   try { yield api.saveOrder(order); setSaved(order) } catch { setItems(saved()) }   // a failure glides back
+   * const [tasks, setTasks] = createOptimisticStore<Task[]>(() => api.listTasks(), [])
+   * const [order, setOrder] = createSignal(() => [...tasks])   // follows tasks; the drag writes it
+   * const save = action(function* (ids: string[]) {
+   *   setTasks((list) => ids.map((id) => list.find((task) => task.id === id)!))   // optimistic
+   *   yield api.saveOrder(ids)
+   *   refresh(tasks)
    * })
-   * const list = reorderGroup({ values: items, onReorder: setItems })
-   * for await (const end of list.each("reorderEnd")) save(end.values)
+   * const list = reorderGroup({ values: order, onReorder: setOrder })
+   * const reordered = createMemo(() => list.each("reorderEnd"))
+   * createEffect(() => reordered().values.map((task) => task.id), (ids) => save(ids).catch(setSaveError))
    * ```
    */
   readonly each: <E extends keyof ReorderGroupEvents<V>>(name: E) => AsyncIterable<ReorderGroupEvents<V>[E]>

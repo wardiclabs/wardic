@@ -137,11 +137,19 @@ An app that saves a new order wants it shown at once, and put back if the save f
 3. **`{ values, value, from, to }` (Q3: A):** the final order, the item the user moved, and its index at the start and at the end. That fits a whole-order endpoint and a moved-item endpoint alike. Rejected: `{ values, previous }`; `values` alone.
 4. **`Reorder.Group`'s `groupRef` on Solid 2 (Q4: A)** hands the group over once, as it's made, as `wardRef` hands over a ward. Rejected: an `onReorderEnd` callback prop on Solid 2's component; both.
 
-**Probed first** (Solid 2 rc.15, in the browser):
-- `createOptimisticStore`'s write outside an action doesn't stick: the store showed the source's order again at once. `onReorder` writes outside any action while dragging, so an optimistic store can't hold a drag's order. #257 item 3 had guessed it could.
-- An optimistic write inside an action reverts when its save rejects, but it only fits the drop.
-- What works is a writable memo of the saved order, `createSignal(() => saved())`. Each `onReorder` write sticks, and a save action at `reorderEnd` puts it back (`setItems(saved())`) in its `catch`. The `values` change re-measures, and the item glides back.
-- This is the documented pattern (README, the group's `each` doc).
+**Probed first** (Solid 2 rc.15, in the browser), with Solid's docs (`createOptimistic`, `createOptimisticStore`, the *Mutations* guide, `createSignal`'s writable memo):
+- **The drag can't write an optimistic store.** An optimistic write lives in an action's transaction: one made outside any action "is discarded at the end of the current update" (the docs' pitfall), and the probe's store showed its source again at once. `onReorder` runs at each crossover, outside any action.
+- **The save can write one.** In the guide's shape, `createOptimisticStore(() => api.listTasks(), [])` is the durable order. A save action makes the optimistic write, `yield`s the request, and calls `refresh(tasks)`. A rejection drops the overlay when the action settles, with no rollback code.
+- **The drag writes a writable memo of the store,** `createSignal(() => [...tasks])`. It follows the store (its load, the save's optimistic write, the overlay dropped, the refresh), and each `onReorder` write overrides it until the next change. A failed save takes it back to the server's order, and the item glides back to its slot.
+- **No loop, no callback:**
+  - A memo over `list.each("reorderEnd")` holds the latest reorder as an async value. Solid consumes the iterable and owns its lifetime, and the pending memo doesn't hold the first render.
+  - An effect saves each one. Its compute reads the ids (a tracked scope: Solid's strict mode warns of store reads in an apply), and its apply calls the action, which is allowed there.
+  - Two drops in quick succession each save.
+- **The failure goes in state.**
+  - The docs' "an error the action does not catch … still reaches `Errored`" doesn't hold for an action an effect starts: with no catch, the probe's failure was an unhandled rejection, and its `<Errored>` never showed.
+  - So the pattern keeps it in state the page renders (`save(ids).catch(setSaveError)`), as the guide's *Layer state by lifetime* keeps its errors.
+- **Two earlier answers were wrong.** A first answer in the grill held that optimistic updates couldn't handle a reorder: they handle the save. A first draft of this PR rolled back by hand in a `catch`.
+- **The documented pattern** is in the README and the group's `each` doc. RE5 runs it as written.
 
 **Built:**
 - **`@wardic/dom`'s `ReorderController`** takes `onReorderEnd`, exported as `ReorderController.End<V>`.
@@ -160,7 +168,7 @@ An app that saves a new order wants it shown at once, and put back if the save f
   - a drag dropped back;
   - keyboard drop, cancel and drop in place;
   - `move`;
-  - the save pattern: a failed save puts the order back, the item gliding between its slots, and a successful one keeps it;
+  - the README's save pattern as written, against an async fake server: a failed save puts the order back, the item gliding between its slots, and shows its failure from state, with no unhandled rejection; a successful one keeps the order, reconciled, and clears the failure;
   - disposal.
 - **Solid 2,** `v2/reorder.ssr.test.tsx` RS6: the server's.
 - **Solid 1:** `reorder.browser.test.tsx` RO22–RO23 and `reorder-keyboard.browser.test.tsx` KB13.

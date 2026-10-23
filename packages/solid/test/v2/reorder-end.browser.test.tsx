@@ -8,14 +8,15 @@
 // - RE3: a keyboard lift dropped elsewhere tells one; one cancelled (Escape), or dropped where it was
 //   lifted, tells none.
 // - RE4: `list.move` in code tells none.
-// - RE5: the save pattern: `values` a writable memo of the saved order, written while dragging; a save
-//   action at `reorderEnd` puts it back if the save fails, and the item glides back to its slot.
+// - RE5: the README's save pattern: an optimistic store from the server, a writable memo of it the
+//   drag writes, a memo over `list.each("reorderEnd")` and an effect that starts each save (an
+//   action). A failed save drops the optimistic write: the order goes back, the item glides back to
+//   its slot, and the failure shows from state, with no unhandled rejection.
 // - RE6: the group's disposal rejects a waiting `next` with an `AbortError`, and ends an `each`.
 import * as ReorderController from "@wardic/dom/ReorderController"
 import { DomLive } from "@wardic/dom"
 import { type ReorderGroup, reorderGroup, reorderItem, WardicProvider } from "@wardic/solid/unstable/v2"
-import * as Bool from "effect/Boolean"
-import { action, createSignal, For } from "solid-js"
+import { action, createEffect, createMemo, createOptimisticStore, createSignal, For, Loading, refresh, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "../browser-commands.ts"
@@ -109,58 +110,92 @@ describe.each([
   })
 })
 
-/** How long a save takes: past the drop's own glide (0.45 s), so the item has landed before it fails. */
+/** How long the fake server takes to save: past the drop's own glide (0.45 s), so the item has landed before a failure. */
 const SAVE_MS = 1000
 
+type Task = { readonly id: string; readonly title: string }
+
+const ITEM = { height: "40px", "margin-bottom": "8px", background: "#9cf" } as const
+
 describe("reorderEnd's save pattern on Solid 2 (#257 item 3)", () => {
-  it("RE5: a failed save puts the order back, and the item glides back to its slot", async () => {
+  it("RE5: an optimistic save at each reorderEnd; a failed one puts the order back, gliding, and shows its error", async () => {
+    // A fake server: its order, and a save that fails while `fail` is set.
+    let server: Array<Task> = ["a", "b", "c", "d"].map((id) => ({ id, title: id.toUpperCase() }))
+    let fail = true
+    const api = {
+      listTasks: (): Promise<Array<Task>> => new Promise((resolve) => setTimeout(() => resolve(server.map((task) => ({ ...task }))), 30)),
+      saveOrder: (ids: Array<string>): Promise<void> =>
+        new Promise((resolve, reject) =>
+          setTimeout(() => {
+            if (fail) return reject(new Error("offline"))
+            server = ids.map((id) => server.find((task) => task.id === id)!)
+            resolve()
+          }, SAVE_MS)),
+    }
+    const unhandled: Array<unknown> = []
+    const onUnhandled = (event: PromiseRejectionEvent): void => {
+      unhandled.push(event.reason)
+      event.preventDefault()
+    }
+    window.addEventListener("unhandledrejection", onUnhandled)
+    let order!: () => ReadonlyArray<Task>
+    let saveError!: () => Error | undefined
     let saves = 0
-    let ok = false
-    let list!: ReorderGroup<string>
-    let saved!: () => ReadonlyArray<string>
-    let items!: () => ReadonlyArray<string>
-    const Scene = () => {
-      const [savedOrder, setSaved] = createSignal<ReadonlyArray<string>>(["a", "b", "c", "d"])
-      // The saved order, written while dragging: a writable memo of it.
-      const [order, setOrder] = createSignal(() => savedOrder())
-      saved = savedOrder
-      items = order
-      const save = action(function* (next: ReadonlyArray<string>) {
+    // The README's pattern, as it's written there.
+    const TaskList = () => {
+      const [tasks, setTasks] = createOptimisticStore<Array<Task>>(() => api.listTasks(), [])
+      const [shown, setShown] = createSignal(() => [...tasks])
+      const [error, setError] = createSignal<Error>()
+      order = shown
+      saveError = error
+      const save = action(function* (ids: Array<string>) {
         saves++
-        try {
-          yield new Promise((resolve, reject) => setTimeout(() => Bool.match(ok, { onTrue: () => resolve(undefined), onFalse: () => reject(new Error("offline")) }), SAVE_MS))
-          setSaved(next)
-        } catch {
-          setOrder(savedOrder())
-        }
+        setTasks((list) => ids.map((id) => list.find((task) => task.id === id)!))
+        yield api.saveOrder(ids)
+        refresh(tasks)
       })
-      list = reorderGroup({ values: order, onReorder: setOrder, style: { position: "relative", "list-style": "none", margin: "0", padding: "0", width: "200px" } })
-      void (async () => {
-        for await (const end of list.each("reorderEnd")) void save(end.values)
-      })()
+      const list = reorderGroup({ values: shown, onReorder: setShown, style: { position: "relative", "list-style": "none", margin: "0", padding: "0", width: "200px" } })
+      const reordered = createMemo(() => list.each("reorderEnd"))
+      createEffect(
+        () => reordered().values.map((task) => task.id),
+        (ids) => {
+          setError(undefined)
+          save(ids).catch(setError)
+        },
+      )
       return (
-        <ul {...list}>
-          <For each={order()}>
-            {(value) => {
-              const row = reorderItem(list, { value, style: { height: "40px", "margin-bottom": "8px", background: "#9cf" } })
-              return (
-                <li {...row} data-value={value}>
-                  {value}
-                </li>
-              )
-            }}
-          </For>
-        </ul>
+        <>
+          <Show when={error()}>{(failed) => <p role="alert" data-error>{failed().message}</p>}</Show>
+          <ul {...list}>
+            <For each={shown()}>
+              {(task) => {
+                const row = reorderItem(list, { value: task, style: ITEM })
+                return (
+                  <li {...row} data-id={task.id}>
+                    {task.title}
+                  </li>
+                )
+              }}
+            </For>
+          </ul>
+        </>
       )
     }
     const { host } = mount(() => (
       <WardicProvider env={DomLive}>
-        <Scene />
+        <Loading fallback={<p>loading</p>}>
+          <TaskList />
+        </Loading>
       </WardicProvider>
     ))
+    await wait(150)
     await frames(4)
-    const item = (value: string): HTMLElement => host.querySelector<HTMLElement>(`[data-value="${value}"]`)!
-    const slotOfB = item("b").getBoundingClientRect().top
+    const ids = (): string => order().map((task) => task.id).join("")
+    const item = (id: string): HTMLElement => host.querySelector<HTMLElement>(`[data-id="${id}"]`)!
+    // Where an item is drawn in the list: the error, shown above the list, moves the list itself.
+    const topOf = (id: string): number => item(id).getBoundingClientRect().top - host.querySelector("ul")!.getBoundingClientRect().top
+    expect(ids(), "loaded from the server").toBe("abcd")
+    const slotOfB = topOf("b")
     item("b").focus()
     await commands.realKey("press", "Space")
     await commands.realKey("press", "ArrowDown")
@@ -169,34 +204,42 @@ describe("reorderEnd's save pattern on Solid 2 (#257 item 3)", () => {
     await frames(3)
     await commands.realKey("press", "Space")
     await frames(2)
-    expect(items(), "shown at once").toEqual(["a", "c", "d", "b"])
+    expect(ids(), "shown at once").toBe("acdb")
     expect(saves).toBe(1)
     await wait(600)
-    expect(items(), "still shown while the save is in flight").toEqual(["a", "c", "d", "b"])
-    const moved = item("b").getBoundingClientRect().top
+    expect(ids(), "still shown while the save is in flight").toBe("acdb")
+    const moved = topOf("b")
     expect(moved - slotOfB, "two slots down").toBeCloseTo(96, 0)
-    // The save fails: the order goes back, and b glides from where it was drawn to its old slot.
+    // The save fails: Solid drops the optimistic write, the order goes back, b glides from where it
+    // was drawn to its old slot, and the failure shows.
     const tops: Array<number> = []
     const until = performance.now() + 1100
     while (performance.now() < until) {
       await raf()
-      tops.push(item("b").getBoundingClientRect().top)
+      tops.push(topOf("b"))
     }
-    expect(items(), "put back").toEqual(["a", "b", "c", "d"])
-    expect(saved(), "nothing saved").toEqual(["a", "b", "c", "d"])
+    expect(ids(), "put back").toBe("abcd")
+    expect(server.map((task) => task.id).join(""), "nothing saved").toBe("abcd")
     expect(tops.some((top) => top > slotOfB + 5 && top < moved - 5), "glided between the slots").toBe(true)
     expect(tops.at(-1), "back in its slot").toBeCloseTo(slotOfB, 0)
-    // A save that succeeds keeps the order.
-    ok = true
+    expect(saveError()?.message, "the failure kept in state").toBe("offline")
+    expect(host.querySelector("[data-error]")?.textContent, "and shown").toBe("offline")
+    // A save that succeeds keeps the order, reconciled from the server, and clears the error.
+    fail = false
     item("c").focus()
     await commands.realKey("press", "Space")
     await commands.realKey("press", "ArrowDown")
     await frames(3)
     await commands.realKey("press", "Space")
-    await wait(SAVE_MS + 150)
+    await wait(SAVE_MS + 200)
     await frames(2)
-    expect(items()).toEqual(["a", "b", "d", "c"])
-    expect(saved(), "saved").toEqual(["a", "b", "d", "c"])
+    expect(ids()).toBe("abdc")
+    expect(server.map((task) => task.id).join(""), "saved").toBe("abdc")
+    expect(saves).toBe(2)
+    expect(saveError(), "cleared").toBeUndefined()
+    expect(host.querySelector("[data-error]")).toBeNull()
+    window.removeEventListener("unhandledrejection", onUnhandled)
+    expect(unhandled, "no unhandled rejection").toEqual([])
   })
 
   it("RE6: the group's disposal rejects a waiting next with an AbortError, and ends an each", async () => {

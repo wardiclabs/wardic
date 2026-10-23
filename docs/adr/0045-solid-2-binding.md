@@ -336,7 +336,7 @@ The Solid 1 page: every task within ±1%, bytes −0.5%. `--v2` (Solid 2 / Solid
 
 ## #257 item 3: `reorderEnd` (2026-10-23)
 
-The group's `next("reorderEnd")` / `each("reorderEnd")`, `Reorder.Group`'s `groupRef`, and the save pattern a probe found (a writable memo of the saved order, not `createOptimisticStore`): ADR-0020, *Amendment (#257 item 3)*.
+The group's `next("reorderEnd")` / `each("reorderEnd")`, `Reorder.Group`'s `groupRef`, and the optimistic save pattern the probes found: an optimistic store written by the save, a writable memo of it written by the drag, a memo over `each` and an effect. ADR-0020, *Amendment (#257 item 3)*.
 
 ## #257 item 9: the diagnostics audit (2026-10-21)
 
