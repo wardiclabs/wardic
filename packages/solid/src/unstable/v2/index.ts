@@ -23,7 +23,7 @@ export type { AnimateLayout } from "./provider.tsx"
  * (`ref={ward(config)}`, client-only). A kept ward has `.Provider` for its Variant children,
  * `.read(key)` and `.atom(key)` for its values.
  */
-export { type Ward, type WardChecked, type WardConfig, type WardProps, type WardRead, type WardStyle, ward } from "./ward.tsx"
+export { type Ward, type WardChecked, type WardConfig, type WardProps, type WardRead, type WardStyle, type WardWithProps, ward } from "./ward.tsx"
 export type { WardDragInfo, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "../../config.ts"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"

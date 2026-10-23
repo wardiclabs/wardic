@@ -391,3 +391,48 @@ Solid 1's `wardic.create(Component)` built its element's Ward itself, beside `cr
 - The forwarding check dropped, or never satisfied (`wardic-component`).
 
 The `use:wardic` directive and Reorder's item still call `runSpine` themselves (#253's scope).
+
+## Amendment (#264, 2026-10-23): `ward.with({ ref, style })`
+
+Motion's swipe card fades as it's dragged: its opacity is derived from its own `x`. A Solid 2 ward took its `style` in its config, but its `x` comes out of the ward (`read("x")`), so a style derived from it couldn't be given before the ward existed. The lab worked around it with a `let`, assigned after the ward, inside a `style` accessor.
+
+**Grilled 2026-10-23:**
+1. **`ward.with({ … })` at the spread (Q1: C),** Solid 1's factory call as a method:
+   ```tsx
+   const swipe = ward({ drag: "x", dragSnapToOrigin: true })
+   const opacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
+   <div {...swipe.with({ style: { opacity } })} />
+   ```
+   - **Why a method is safe in a spread:** Solid 2 re-runs a spread's expression on every props run (*Built (PR 1)* 1), which is why `{...ward(config)}` throws. A method on a kept ward makes nothing new, so re-running it is harmless.
+   - **Rejected:**
+     - A: the ward reading its `style` only at render, so an accessor could name a `const` made after it. The user: "I don't feel like that's a very good api". Today the ward reads `style` while it's made, and a forward `const` throws.
+     - B: a value made before the ward that the drag writes into, as Motion's `useMotionValue`, which breaks ADR-0043's rule that Wardic never writes into a value it's given.
+     - D: keep the `let` and document it.
+   - The user asked whether the shape was chosen for a memory issue. It wasn't: Q4's ref-carrying-props shape followed Solid 2's ref factories (Q3).
+2. **It takes `ref` and `style` (Q2: A),** Solid 1's `WardUserProps`. A `ref` written after the spread replaces the ward's own, so `.with` calls the user's (one, or a list) beside it, the user's first. Rejected: `style` only (B); any props (C), which JSX already merges.
+3. **Its style goes over the config's, key by key (Q3: A, `Style.over`).** The combined style is the element's everywhere: its `style` before and after the first commit, the Live values followed per frame, a key's Base value link (ADR-0022), and `read(key)`'s resting value. Rejected: replacing the config's whole (B); `style` only through `.with` (C).
+
+**Built:**
+- **Client:**
+  - The latest `.with()` props are the ward's, in a plain variable, as Solid 1's factory keeps them. The style getter and the spine read the combined style.
+  - `read(key)`'s resting memo also tracks a signal `.with()` writes. That's a third `ownedWrite`, as `.with` runs in the spread's computation. The style getter never tracks it, or the spread would run `.with` again in a loop. The signal is made at the first `read` or `.with`, as most elements call neither.
+  - A merge is kept per `.with` style object (`withStyleOver`), so a Live value sees the same object across a run's reads.
+- **Server:** `.with()` returns the combined Starting style, the Appear veto applied to it, and `read(key)` rests at it.
+- **Exports:** `WardWithProps`. `.with` isn't enumerable, so a spread of the ward doesn't carry it.
+- **The lab:** scenario 18's swipe card is `{...swipe.with({ ref, style: { opacity } })}`, its `let` gone. A real-mouse drag to x 90 painted opacity 0.4 (= 1 − 90/150), and back to 1 at its release.
+
+**Pinned by:**
+- `v2/ward-with.browser.test.tsx` WW1–WW5:
+  - the swipe card's opacity in the card's own frame;
+  - the merge, key by key;
+  - the ref beside the ward's;
+  - a reactive `.with` style;
+  - a return to `.with`'s value, and `read` resting there.
+- `v2/server.ssr.test.tsx` SV18: the Starting style and `read` on a server.
+
+**Mutation-checked:** eight single-point mutations, all caught:
+- `.with`'s style ignored;
+- the config's dropped, or laid over `.with`'s;
+- `read` not told of `.with`;
+- the ward's own ref, or the user's, dropped;
+- the server's style or `read` ignoring `.with`.

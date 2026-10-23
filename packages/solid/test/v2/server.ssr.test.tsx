@@ -23,6 +23,8 @@
 // - SV16: a ward's `each(name)` on a server ends at once: nothing happens there (#257).
 // - SV17: a presence handle on a server (#257): `createPresence()` reads not exiting, its `each` ends
 //   at once, and `<AnimatePresence ref>` hands a callback the server's handle.
+// - SV18 (#264): `ward.with({ style })` renders its style over the config's in the Starting style:
+//   Motion's swipe card, its opacity derived from its own `read("x")`; and `read(key)` rests there.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -309,5 +311,21 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     const [, label] = named(serve(() => <Scene />), "div")
     expect(readings).toEqual([0.5, 100, "rgb(128, 128, 128)", 50, 0, 0, 0, 0])
     expect(label?.style.opacity).toBe("0.5")
+  })
+
+  it("SV18: ward.with's style renders over the config's in the Starting style; read rests there (#264)", () => {
+    let readOpacity: (() => unknown) | undefined
+    const Scene = () => {
+      const swipe = ward({ initial: { x: 75 }, drag: "x", style: { width: "40px", opacity: 0.2 } })
+      const opacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
+      readOpacity = swipe.read("opacity")
+      return <div {...swipe.with({ style: { opacity } })} data-swipe />
+    }
+    const [card] = named(serve(() => <Scene />), "div")
+    expect(card?.style["opacity"], "its own x's opacity, over the config's").toBe("0.5")
+    expect(card?.style["width"], "the config's other keys").toBe("40px")
+    expect(card?.style["touch-action"], "a drag's defaults still").toBe("pan-y")
+    expect(card?.attrs["draggable"]).toBe("false")
+    expect(readOpacity?.(), "read rests at .with's").toBe(0.5)
   })
 })
