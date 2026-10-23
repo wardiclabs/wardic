@@ -46,6 +46,8 @@ export interface Snap {
   readonly _tag: "Snap"
   /** The keys it snaps: a spring starts each of them at rest after. */
   readonly keys: ReadonlyArray<string>
+  /** Each key it snaps, with the target the Retarget gave it (#325). */
+  readonly to: Values.Values
   readonly machine: () => Machine.Machine<Frame.Frame<Values.Values>>
 }
 
@@ -53,18 +55,24 @@ export interface Snap {
 export interface Follow {
   readonly _tag: "Follow"
   readonly key: string
+  /** Its key, with where its Live value was at the Retarget (#325). */
+  readonly to: Values.Values
   readonly machine: () => Machine.Machine<Frame.Frame<number> & { readonly velocity?: number }>
 }
 
 /** A leg over the numeric keys, carrying their velocities: a spring's. */
 export interface Numbers {
   readonly _tag: "Numbers"
+  /** Each key it animates, with its target (#325). */
+  readonly to: Values.Values
   readonly machine: () => Machine.Machine<Frame.MultiPhysics>
 }
 
 /** A leg over values through the Interpolators: a tween's keys, or a spring's strings. */
 export interface Blend {
   readonly _tag: "Blend"
+  /** Each key it animates, with its target (#325). */
+  readonly to: Values.Values
   readonly machine: () => Effect.Effect<Machine.Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry>
 }
 
@@ -307,6 +315,7 @@ const legsWith = (
       legs.push({
         _tag: "Follow",
         key,
+        to: { [key]: UndefinedOr.getOrThrow(rest[key]) },
         machine: () =>
           Machine.animate(0, 1, options).pipe(
             Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
@@ -315,7 +324,7 @@ const legsWith = (
     })
     // With every key snapped or following, there's nothing left to tween.
     if (Bool.or(Bool.and(!snapping, !following), hasKeys(fixed))) {
-      legs.push({ _tag: "Blend", machine: () => Machine.animateValues(Values.pick(from, fixed), fixed, options) })
+      legs.push({ _tag: "Blend", to: fixed, machine: () => Machine.animateValues(Values.pick(from, fixed), fixed, options) })
     }
     return legs
   }
@@ -330,15 +339,15 @@ const legsWith = (
     const start = from[key] as number
     const velocity = UndefinedOr.match(velocities[key], { onUndefined: () => 0, onDefined: identity })
     const chase = Machine.chase(UndefinedOr.getOrThrow(follow).targetOf(key, start), { ...springOpts, from: start, velocity })
-    legs.push({ _tag: "Follow", key, machine: () => settling(chase) })
+    legs.push({ _tag: "Follow", key, to: { [key]: UndefinedOr.getOrThrow(rest[key]) }, machine: () => settling(chase) })
   })
   if (hasKeys(numeric)) {
     const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
-    legs.push({ _tag: "Numbers", machine: () => Machine.springValues(numeric, springOpts, fromNumeric, velocities) })
+    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, fromNumeric, velocities) })
   }
   if (hasKeys(strings)) {
     const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))
-    legs.push({ _tag: "Blend", machine: () => Machine.springBlend(fromStrings, strings, springOpts) })
+    legs.push({ _tag: "Blend", to: strings, machine: () => Machine.springBlend(fromStrings, strings, springOpts) })
   }
   return legs
 }
@@ -362,6 +371,7 @@ const startingAtMatch: (input: { readonly leg: Leg; readonly at: LazyArg<number>
 const snapLeg = (from: Values.Values, positional: Values.Values, to: Values.Values, delay: () => number): Snap => ({
   _tag: "Snap",
   keys: Rec.keys(positional),
+  to: positional,
   machine: () => ReducedMotion.snap(Values.pick(from, positional), to, { delay: delay() }),
 })
 

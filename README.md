@@ -139,6 +139,8 @@ What differs is what Wardic names itself: one element's motion binding is a **wa
 
 One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a debugger pause) advances an animation 0.5 s, and it plays out the rest when frames resume, where Motion's jumps to where the elapsed time puts it. A shorter stall lands a tween, a spring or a layout animation where Motion's lands (ADR-0017, *Amendment (#23)*).
 
+An animation that changes some keys leaves the others running, as Motion's does. A hover that turns on mid-entrance animates its own keys, and the entrance's go on, their tween's timing unchanged. A key whose `transition` changed but not its target goes on with its old one, until its next change. One difference: an animation lands once every key it sets has landed, the ones it left running included (#325, ADR-0005). So that hover's `onAnimationComplete` (on Solid 2, `settled()`) comes once the entrance has landed too, where Motion's comes as the hover's own keys land.
+
 | Motion | Wardic |
 |---|---|
 | `motion.div` | `wardic.div` |

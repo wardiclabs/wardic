@@ -63,8 +63,12 @@ The point at which a Primitive reaches its rest thresholds; it produces a final 
 _Avoid_: finish, end, stop.
 
 **Retarget**:
-Replacing a running Primitive with a fresh one seeded from its last Frame: the running one is **Superseded**. A Physics primitive carries velocity across the seam; a Definite primitive restarts from the current value.
+Replacing a running Primitive with a fresh one seeded from its last Frame, for each key whose target changed: the running one gives the key up, and is **Superseded** once it has none left. A Physics primitive carries velocity across the seam; a Definite primitive restarts from the current value. A key whose target didn't change is a **Carried key**.
 _Avoid_: restart, cancel, interrupt (those name a mechanism, not the intent).
+
+**Carried key**:
+A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is.
+_Avoid_: protected key (Motion's name for it), kept key.
 
 **Superseded**:
 A run a Retarget ended before it settled. It leaves the **Frame loop** at once and ends normally: neither settled, so it counts toward nothing, nor failed, so nothing reports it.
@@ -75,7 +79,7 @@ The last value a binding has cached for each key it drives, a number or a string
 _Avoid_: state, current value.
 
 **Leg**:
-One Primitive run a Retarget starts: the numeric keys' and the string keys' are separate legs, and an element settles with its last.
+One Primitive run a Retarget starts: the numeric keys' and the string keys' are separate legs, and an element settles with its last. A Leg draws its keys until a later Retarget changes them, and one left with none is Superseded.
 _Avoid_: segment (a piece of one `animate` or `keyframes` run), track.
 
 **Value transition**:
