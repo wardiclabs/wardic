@@ -385,6 +385,35 @@ Item 1's second and third parts: what a ward does while its config reads a pendi
 
 The twelfth counted a pending `while*` key as given, at the recognizers' mount-time check. It survived: the region hold covers the setup-time pending keys, so they've landed by mount. The guard was taken out.
 
+## #257 item 8: no native Atom tracking (2026-10-23)
+
+Item 8 asked whether the binding should offer Solid 2's `enableExternalSource`. That's an adapter registered once for the whole app: Solid wraps every computation with it, and it lets Solid track a non-Solid reactive system's reads. With it, Solid would track Effect Atoms natively. **Probed first, at the user's ask; then Q1: A, no.** Every Atom handed to Solid keeps going through the one bridge, `followAtom` (`read(key)`, the Live-value helpers, `fromAtom`).
+
+**The probe** (branch `probe/257-8-adapter`, local and the bench server only; `.tmp/257-8/`):
+- **What it took.**
+  - `AtomRegistry` has no read hook, so the adapter wrapped the registry's `get` to record the Atoms a computation reads while Solid tracks it, and subscribed to each to trigger it.
+  - It needs Solid's `untrack` hook too, pausing the record. Without it, the ward's own Retarget, which reads the values it animates inside `untrack`, was tracked by its mount effect. That effect then re-ran every frame and restarted the animation, so the card never moved.
+- **What it gives,** across 35 frames of a card moving:
+  - `card.read("x")` in another element's `style`: on the card's frame in all 35.
+  - An Atom read through the adapter in a `style`: a frame behind in all 35.
+  - An Atom read through the adapter as JSX text: on the frame, as `fromAtom` or `read()` already are, since Solid's microtask flush lands before paint.
+  - So it gains no timing: only writing `registry.get(atom)` where `fromAtom(atom)` is written today, and only for text.
+- **What it costs,** on the `bench:solid` Solid 2 page (1,000 wards, with the adapter on and no Atom read through it), against main:
+
+  | | Change |
+  |---|---|
+  | mount | +17.7% |
+  | retarget | +5.6% |
+  | restRetarget | +4.9% |
+  | unmount | +23.6% |
+  | bytes allocated per element | +3.2% |
+  | heap kept per ward (production build) | about +2.4 KB, +24% |
+
+  Three tasks fail the gate. The Solid 1 page, untouched, was flat. Solid wraps every computation with the adapter, so an app's own computations pay the same.
+- **Solid's guide agrees:** "For a library with a `subscribe` method, the signal above is the smaller tool". Effect Atoms have one.
+
+**Rejected:** an app opt-in with the cost documented (B), which buys only the shorter text read.
+
 ## #257 item 2: no projection API (2026-10-23)
 
 Item 2 asked whether `createProjection`, Solid 2's derived store, should replace a ward's per-key accessors: `card.values.x` for `card.read("x")`. **Q1: A, no:** `read(key)` stays.
