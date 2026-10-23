@@ -12,22 +12,26 @@
 // - SE6: a Retarget with nothing to animate lands at once: never pending, `next` resolved.
 // - SE7: a first read during the entrance isn't pending: `<Loading>` shows its content, then the read
 //   pends and lands.
-// - SE8: a bare read with no `<Loading>` at all: the page mounts and the entrance lands (Solid's dev
-//   build warns of the read, as of any async read outside one; pending at its first read, it would
-//   have held the root's mount for good).
+// - SE8: a bare read with no `<Loading>` at all: the page mounts and the entrance lands. The read goes
+//   pending a microtask after the Retarget starts, past `render`'s watch on its mount, so Solid reports
+//   nothing (#315); pending at its first read, it would have held the root's mount for good.
 // - SE9: `settled` and `next` aren't props a spread applies.
 // - SE10: a Reorder item's keyboard lift (ADR-0037) lands with its `whileDrag` on, as `drag`; its drop with none.
+// - SE11 (#315): a plain `settled()` read under `<Loading>` through the entrance, with no `isPending` beside
+//   it, under the README's Environment (a reporter merged beside `DomLive`) as under `DomLive`: no report
+//   of an async read outside a boundary (the diagnostics gate), pending from the first frame, then landed.
 import { DomLive } from "@wardic/dom"
 import { reorderGroup, reorderItem, type Ward, ward, type WardConfig, type WardSettled, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
+import * as ErrorReporter from "effect/ErrorReporter"
+import * as Layer from "effect/Layer"
 import { createSignal, flush, For, isPending, Loading, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "../browser-commands.ts"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
-import { swallow } from "./swallow.ts"
 
 const TWEEN = { type: "tween", duration: 0.15 } as const
 // Clear of the page's one mouse, parked at (5, 5) for every browser file.
@@ -202,24 +206,18 @@ describe("a ward's landings on Solid 2 (#257)", () => {
     expect(host.querySelector("p")!.textContent).toBe('{"opacity":1} idle')
   })
 
-  it("SE8: with no Loading at all, the page mounts and the entrance lands", async () => {
-    const warning = swallow("ASYNC_OUTSIDE_LOADING_BOUNDARY")
-    try {
-      let el: HTMLElement | undefined
-      const { host } = mountCard({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN, style: BOX }, (card) => (
-        <>
-          <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
-          <p>{JSON.stringify(card.settled()?.definition)}</p>
-        </>
-      ))
-      expect(host.querySelector("p"), "the root mounted").not.toBeNull()
-      await until(() => host.querySelector("p")!.textContent === '{"opacity":1}', 2000)
-      expect(host.querySelector("p")!.textContent).toBe('{"opacity":1}')
-      expect(opacity(el)).toBe(1)
-      expect(warning.seen(), "Solid's dev build warns of the read").toBeGreaterThan(0)
-    } finally {
-      warning.restore()
-    }
+  it("SE8: with no Loading at all, the page mounts and the entrance lands, with no report (#315)", async () => {
+    let el: HTMLElement | undefined
+    const { host } = mountCard({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN, style: BOX }, (card) => (
+      <>
+        <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
+        <p>{JSON.stringify(card.settled()?.definition)}</p>
+      </>
+    ))
+    expect(host.querySelector("p"), "the root mounted").not.toBeNull()
+    await until(() => host.querySelector("p")!.textContent === '{"opacity":1}', 2000)
+    expect(host.querySelector("p")!.textContent).toBe('{"opacity":1}')
+    expect(opacity(el)).toBe(1)
   })
 
   it("SE10: a Reorder item's keyboard lift lands with drag on; its drop with none", async () => {
@@ -263,5 +261,35 @@ describe("a ward's landings on Solid 2 (#257)", () => {
     const keys = Object.keys({ ...card })
     expect(keys).not.toContain("settled")
     expect(keys).not.toContain("next")
+  })
+
+  it("SE11: a plain settled() read under <Loading> through the entrance: no report, pending, then landed (#315)", async () => {
+    for (const env of [DomLive, Layer.mergeAll(DomLive, ErrorReporter.layer([ErrorReporter.make(() => {})]))]) {
+      let card!: Ward
+      const { host, unmount } = mount(() => (
+        <WardicProvider env={env}>
+          {(() => {
+            card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN, style: BOX })
+            return (
+              <>
+                <div {...card} />
+                <Loading fallback={<p>fallback</p>}>
+                  <p data-p>{JSON.stringify(card.settled()?.definition)}</p>
+                </Loading>
+              </>
+            )
+          })()}
+        </WardicProvider>
+      ))
+      const landed = card.next("settled")
+      await raf()
+      expect(isPending(() => card.settled()), "pending through the entrance").toBe(true)
+      expect(host.querySelector("[data-p]")?.textContent, "the content, at once").toBe("")
+      await landed
+      flush()
+      await raf()
+      expect(host.querySelector("[data-p]")?.textContent).toBe('{"opacity":1}')
+      unmount()
+    }
   })
 })

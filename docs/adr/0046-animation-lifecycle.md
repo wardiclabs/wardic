@@ -315,3 +315,25 @@ Solid 2 halts every update on an error no boundary catches (`REACTIVITY_HALTED`)
 - the gate's run never ending or not kept (GC6, Solid 1's `onUpdate`), and the same for Solid 1's per-move callbacks.
 
 The one that survived is a failure told for a Retarget no longer in flight, with the guard removed. It can't happen: each Retarget ends every leg of the one before it (Superseded, or interrupted), so no leg of an older Retarget fails after a newer one starts. The guard mirrors `settled`'s.
+
+## Amendment (#315): a Retarget's start reaches `settled()` from a microtask
+
+#315 reported that a plain `card.settled()` read under `<Loading>` through a ward's entrance made Solid 2's dev build report `ASYNC_OUTSIDE_LOADING_BOUNDARY`, "the root mount will be deferred". It was filed as depending on the Environment. It doesn't:
+- Every Environment reports it, `DomLive` included.
+- The mount isn't held: the page is there when `render` returns, so the report is false.
+- An `isPending(() => card.settled())` read beside the plain one, as SE1 and SE7 had, hides it. That's why the tests hadn't seen it.
+
+**Why:** `render` watches for a pending read reaching its root through its own `flush()`, and stops when it returns (`enforceLoadingBoundary`). A ward's first Retarget starts in that flush, in its mount effect, and `started` set `settled()`'s count synchronously. So the memo went pending inside the watch. A `<Loading>` that has already shown its content doesn't catch a later pending read: it keeps the previous value. So the pending reached the root. An `isPending` read observes the flight, so a reader beside it was served the committed value and never went pending.
+
+**Fixed:**
+- `started` sets the count from a microtask, as the first read already did (PR 2a). So the read goes pending just after `render` returns, still before the first frame.
+- A landing sets it in its own flush. Its count then equals the landings, so `settled()` reads the landing and never pends. Without this, a Retarget with nothing to animate showed its landing a microtask late (SE6).
+
+**Pinned by:**
+- `v2/settled.browser.test.tsx`:
+  - **SE11:** a plain read under `<Loading>` through the entrance, under `DomLive` and the README's Environment: no report (the diagnostics gate), pending, then landed.
+  - **SE8:** a bare read with no boundary now mounts, lands and reports nothing. It used to expect the report.
+  - **SE6:** the landing in its own flush.
+- `v2/errors.browser.test.tsx` mounts its `settled()` readers with the ward again, through the entrance (the #315 workaround is gone), except ER7 and ER8, which test a first read made late.
+
+**Mutation-checked:** the count set at once in `started` (SE8, SE11, ER2, ER4…) and a landing leaving the count (SE6) are caught. A failure setting it too survived, since the start's microtask already sets it a microtask later, and was taken out.

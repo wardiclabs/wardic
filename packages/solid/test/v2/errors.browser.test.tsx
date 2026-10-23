@@ -118,11 +118,13 @@ describe("a failed animation fails the ward's waits (#257 item 4)", () => {
    * A ward animating `x` to `to()` (and its colour to `color()`) on `transition()`, its `settled()`
    * read in `<Errored>`, and, with `each`, a memo over `each("settled")` read in another.
    */
-  const scene = (env: WardicEnv, options: { readonly to: () => number; readonly transition: () => object; readonly color?: () => string; readonly each?: boolean }) => {
+  const scene = (
+    env: WardicEnv,
+    options: { readonly to: () => number; readonly transition: () => object; readonly color?: () => string; readonly each?: boolean; readonly late?: boolean },
+  ) => {
     let card!: Ward
-    // The readers mount once the entrance has landed: a first read during it, with an Environment
-    // other than `DomLive` itself, defers the root's mount on main too (#315).
-    const [readers, setReaders] = createSignal(false)
+    // The readers mount with the ward, read through its entrance (#315), or, `late`, only at `ready()`.
+    const [readers, setReaders] = createSignal(options.late !== true)
     /** The latest landing's x, through a memo over `each("settled")`, made under its own boundaries. */
     const Landings = () => {
       const landing = createMemo(() => card.each("settled"))
@@ -165,7 +167,7 @@ describe("a failed animation fails the ward's waits (#257 item 4)", () => {
         })()}
       </WardicProvider>
     ))
-    /** Let the entrance land, then mount the readers. */
+    /** Let the entrance land, and mount the readers if they're late. */
     const ready = async (): Promise<void> => {
       await settle()
       setReaders(true)
@@ -207,7 +209,7 @@ describe("a failed animation fails the ward's waits (#257 item 4)", () => {
   it("ER7: a first read after the failure goes to <Errored> too", async () => {
     const [to, setTo] = createSignal(0)
     const [good, setGood] = createSignal(true)
-    const { host, card, ready } = scene(DomLive, { to, transition: () => Bool.match(good(), { onTrue: () => GOOD, onFalse: () => BAD }) })
+    const { host, card, ready } = scene(DomLive, { to, transition: () => Bool.match(good(), { onTrue: () => GOOD, onFalse: () => BAD }), late: true })
     await settle()
     const waited = card().next("settled").then(() => "resolved", messageOf)
     setGood(false)
@@ -223,7 +225,7 @@ describe("a failed animation fails the ward's waits (#257 item 4)", () => {
   it("ER8: a first read after the failure and a landing reads the landing", async () => {
     const [to, setTo] = createSignal(0)
     const [good, setGood] = createSignal(true)
-    const { host, card, ready } = scene(DomLive, { to, transition: () => Bool.match(good(), { onTrue: () => GOOD, onFalse: () => BAD }) })
+    const { host, card, ready } = scene(DomLive, { to, transition: () => Bool.match(good(), { onTrue: () => GOOD, onFalse: () => BAD }), late: true })
     await settle()
     const failed = card().next("settled").then(() => "resolved", messageOf)
     setGood(false)
