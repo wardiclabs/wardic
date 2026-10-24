@@ -319,6 +319,7 @@ There were two causes:
    - The twins' frames as of the last pass is the same limit as a scroll during a flight.
    - The cost per frame for a Follower is six additions. A box is copied only when the two twins' frames differ.
    - The Root-frame reads no longer walk the element's ancestors for a scroll root.
+3. **A twin presence hands back keeps its frame.** Presence can hand back a twin whose node was already disposed (ADR-0010, *Amendments (#5)* and *(#181)*). That twin comes back as a leaving Follower, built from its last pass, which now carries that pass's fold. It used to start with the page's scroll folded in, whatever its frame was. The storefront's detail view still had that: its fixed frame leaves through a presence, and the photo's twin inside, locked onto the card, was drawn 420 px below it for the whole exit.
 
 The probe now gives Motion's numbers in all eight cases, each within a pixel: open and close, Crossfade and Switch, with and without `layoutRoot`, and the container row.
 
@@ -330,11 +331,12 @@ The probe now gives Motion's numbers in all eight cases, each within a pixel: op
 - TF5: closing by a Switch from a detail already detached, so its seed comes from its last pass's box;
 - TF6: twins alive together in and out of a scrolled container, the page unscrolled;
 - TF7: a fixed frame that scrolls itself, a container's scroll inside the scroll root and the page's outside it;
-- TF8: a keyed fixed presence child taken over on a scrolled page. It passes on `main`, and guards the Root-frame read on each side of a take-over.
+- TF8: a keyed fixed presence child taken over on a scrolled page. It passes on `main`, and guards the Root-frame read on each side of a take-over;
+- TF9: a detail whose fixed frame leaves through a presence, the card staying: the twin handed back paints on the card every frame of its exit.
 
-TF1–TF7 fail on `main`, about 420 px off (TF7 about 310).
+TF1–TF7 and TF9 fail on `main`, about 420 px off (TF7 about 310).
 
-**Mutation-checked:** eight single-point mutations, each failing the tests meant for it:
+**Mutation-checked:** nine single-point mutations, each failing the tests meant for it:
 - `between` without the folds (TF1, TF3, TF6, TF7);
 - `acrossFolds` without the page's share (TF1, TF3, TF7);
 - `acrossFolds` without the containers (TF6, TF7);
@@ -342,4 +344,5 @@ TF1–TF7 fail on `main`, about 420 px off (TF7 about 310).
 - a connected element's Root-frame box without the page's scroll (TF2, TF4, TF7, and two of `layout-id-scroll`'s);
 - a detached leaver's without it under a scroll root (TF5);
 - `rootBoxOf` without it (TF8, KL7);
-- a rebase keeping the page's scroll under a scroll root (TF2, TF8).
+- a rebase keeping the page's scroll under a scroll root (TF2, TF8);
+- a re-introduced leaving Follower starting with the page's scroll folded in again (TF9).

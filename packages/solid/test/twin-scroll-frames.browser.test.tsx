@@ -19,6 +19,8 @@
 //   inside it), opened by a Crossfade and closed by a Switch.
 // - TF8: a keyed `position: fixed` presence child taken over by its key on a scrolled page starts
 //   where its leaver painted (the Root frame read on each side of the take-over).
+// - TF9: closing a detail whose fixed frame leaves through a presence, the card staying: the detail,
+//   handed back as a leaving Follower, paints at the card's box every frame of its exit.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
@@ -263,6 +265,37 @@ describe("shared-layout twins in different scroll frames (#331)", () => {
     const closing = await paintedFrames(card(), 3)
     expectAt(closing[0]!, MODAL_HOME, "closing: the card's first frame", FIRST_STEP)
     await settledAt(card, cardBox, "the card lands home")
+  })
+
+  it("TF9: a detail leaving through a presence, the card staying: the leaving detail follows the card", async () => {
+    const [open, setOpen] = createSignal(false)
+    const EXIT = { type: "tween", duration: 0.6 } as const
+    const { container } = render(() => (
+      <WardicProvider env={DomLive}>
+        <div style={PAGE}>
+          <wardic.div data-card layoutId="product" transition={LINEAR} style={CARD} />
+        </div>
+        <AnimatePresence>
+          <Show when={open()}>
+            <wardic.div style={FRAME} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EXIT}>
+              <wardic.div data-detail layoutId="product" transition={LINEAR} style={MODAL} />
+            </wardic.div>
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    const card = (): HTMLElement => container.querySelector<HTMLElement>("[data-card]")!
+    const detail = (): HTMLElement => container.querySelector<HTMLElement>("[data-detail]")!
+    await scrollPage(SCROLL)
+    setOpen(true)
+    await settledAt(detail, MODAL_HOME, "the detail lands")
+    await afterPaint()
+    const leaving = detail()
+    setOpen(false)
+    const frames = await pairFrames(() => leaving, card, 8)
+    expect(leaving.isConnected, "still leaving").toBe(true)
+    expectAt(frames[0]![1], MODAL_HOME, "the card's first frame", FIRST_STEP)
+    frames.forEach(([d, c], i) => expectAt(d, c, `frame ${i}: the leaving detail where the card is`))
   })
 
   it("TF8: a keyed fixed presence child taken over on a scrolled page starts where its leaver painted", async () => {

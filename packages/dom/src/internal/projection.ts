@@ -1200,6 +1200,8 @@ interface LastPass {
   readonly box: Box.Box
   readonly paintDelta: Projection.Delta | undefined
   readonly unpaintDelta: Projection.Delta | undefined
+  /** The scroll folded into `box` (ADR-0012, *Amendment (#331)*): a node re-introduced from it starts in its frame. */
+  readonly fold: Fold
 }
 
 /**
@@ -2771,7 +2773,7 @@ export const makeProjectionSystem = (
 
   /** `node`'s last pass, `undefined` when it never had one. */
   const lastPassOf = (node: NodeState): LastPass | undefined =>
-    UndefinedOr.map(boxOf(node), (box): LastPass => ({ box, paintDelta: node.paintDelta, unpaintDelta: node.unpaintDelta }))
+    UndefinedOr.map(boxOf(node), (box): LastPass => ({ box, paintDelta: node.paintDelta, unpaintDelta: node.unpaintDelta, fold: node.fold }))
 
   /**
    * Hold `leaver` until the end of its task (#221). The first hold in a task schedules one
@@ -4125,7 +4127,7 @@ export const makeProjectionSystem = (
   const makeLeavingNode = (
     el: HTMLElement,
     layoutId: string | undefined,
-    recent: { readonly box: Box.Box; readonly paintDelta: Projection.Delta | undefined; readonly unpaintDelta: Projection.Delta | undefined },
+    recent: LastPass,
     onDone: (() => void) | undefined,
     layoutAnchor: Point.Point | false | undefined,
     chain: ReadonlyArray<PaintLink> | undefined,
@@ -4173,7 +4175,8 @@ export const makeProjectionSystem = (
     isScroll: false,
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
-    fold: ROOT_FOLD,
+    // Its box's frame as it was disposed (#331): one inside a scroll root folds no page scroll.
+    fold: recent.fold,
     layoutVersion: 0,
     raiseWhileDragged: false,
     raised: false,
