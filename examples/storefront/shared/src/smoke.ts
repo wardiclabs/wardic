@@ -8,12 +8,15 @@
  * - its demo moves, then settles: the example's `watch` element changes its computed opacity or
  *   transform after load, then holds still for 15 frames, within 5 s.
  *
+ * And that the store answers the browser itself, not only the server render: the visitor's cookie
+ * is kept, and the header's store settings, fetched when the panel opens, load.
+ *
  * Each page's screenshot lands in `<app>/.smoke/`, for a person to look at. Exits 1 on any failure.
  */
 import { spawn } from "node:child_process"
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { chromium, type ConsoleMessage, type Page } from "playwright"
+import { type BrowserContext, chromium, type ConsoleMessage, type Page } from "playwright"
 import { EXAMPLES, routeOf } from "./examples.ts"
 
 const APPS: Readonly<Record<string, { readonly port: number }>> = { solid1: { port: 4101 }, solid2: { port: 4102 } }
@@ -25,7 +28,9 @@ const base = `http://127.0.0.1:${config.port}`
 const shots = join(process.cwd(), ".smoke")
 mkdirSync(shots, { recursive: true })
 
-const server = spawn("npx", ["vite", "preview", "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"], { stdio: "pipe" })
+// The app's own Vite: `npx vite` from the app picks the repo root's older one.
+const vite = join(process.cwd(), "node_modules", ".bin", "vite")
+const server = spawn(vite, ["preview", "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"], { stdio: "pipe" })
 const stop = (): void => {
   server.kill("SIGTERM")
 }
@@ -101,12 +106,42 @@ const check = async (page: Page, route: string, watch: string | undefined): Prom
   return { route, problems }
 }
 
+/**
+ * The store, from the browser: the visitor's cookie is kept, so a cart lasts between requests, and a
+ * server function the browser calls itself decodes. The store settings' switch is an action whose
+ * settings the browser then fetches again: the panel must still show them, switched. In a context of
+ * its own, so its visitor, asking for failures, isn't the pages' visitor.
+ */
+const checkStore = async (context: BrowserContext, page: Page): Promise<Result> => {
+  const problems: Array<string> = []
+  await page.goto(base + "/")
+  await page.waitForLoadState("networkidle")
+  const cookies = await context.cookies(base)
+  if (!cookies.some((cookie) => cookie.name === "storefront-visitor")) problems.push("the visitor's cookie wasn't kept")
+  await page.click('button[aria-label="Store settings"]')
+  const failSwitch = '.settings-panel input[type="checkbox"]'
+  const switched = (on: boolean): Promise<boolean> =>
+    page
+      .click(failSwitch, { timeout: 5000 })
+      .then(() => page.waitForFunction(({ selector, on }) => (document.querySelector(selector) as HTMLInputElement | null)?.checked === on, { selector: failSwitch, on }, { timeout: 5000 }))
+      .then(() => true)
+      .catch(() => false)
+  await page.waitForSelector(failSwitch, { timeout: 5000 })
+  if (!(await switched(true))) problems.push("the store's settings, fetched again by the browser after a change, didn't load")
+  else if (!(await switched(false))) problems.push("the store's settings couldn't be switched back")
+  await page.waitForLoadState("networkidle")
+  return { route: "/ (the store, from the browser)", problems }
+}
+
 await ready()
 const browser = await chromium.launch()
 const results: Array<Result> = []
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   results.push(await check(await context.newPage(), "/", undefined))
+  const storeContext = await browser.newContext()
+  results.push(await checkStore(storeContext, await storeContext.newPage()))
+  await storeContext.close()
   for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch))
 } finally {
   await browser.close()
