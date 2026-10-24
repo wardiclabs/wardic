@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product, Wishlist } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, Reorder, type ReorderGroup, type Ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, Reorder, type ReorderGroup, wardic } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, Show, until, untrack } from "solid-js"
 import { visitorName } from "~/lib/store.ts"
 import { moveInSharedWishlist, resetSharedWishlist } from "~/server/store.ts"
@@ -22,26 +22,20 @@ export default function SharedWishlist() {
   // The order the list shows when nothing is held: the store's, or my drop's while it's on its way.
   // An optimistic value: it goes back to the store's by itself once the move has landed.
   const [shown, setShown] = createOptimistic<ReadonlyArray<string>>(() => server().items)
-  // The order my hands have made of the list (the group's `onReorder`, by pointer or by keys), until
-  // it's saved; and the piece a drag has in my hand.
+  // The order my hands have made of the list (the group's `onReorder`, by pointer or by keys), and
+  // the piece in my hand: from a hold's start to its end.
   const [mine, setMine] = createSignal<ReadonlyArray<string>>()
   const [held, setHeld] = createSignal<string>()
 
-  // Yours stays yours: while I drag a piece, the list is everyone else's order, kept live, with my
-  // piece where my drag has it. A keyboard lift tells nothing (#348), so a lifted piece shows my
-  // order as it is, and the store's next change replaces it.
+  // Yours stays yours: while I hold a piece, dragged or lifted with the keys, the list is everyone
+  // else's order, kept live, with my piece where my hands have it. Another visitor's move ends a
+  // keyboard lift there (a group drops a lift when its values change), and saves it where it is.
   const order = () => {
     const local = mine() ?? shown()
     const id = held()
     if (id === undefined) return local
     return withHeldAt(server().items, local, id)
   }
-  createEffect(
-    () => server().version,
-    () => {
-      if (untrack(held) === undefined) setMine(undefined)
-    },
-  )
 
   // A drop is a move: "put it after this one", which the store applies to its order as it is then,
   // so it means the same whatever others moved meanwhile. My order shows until the feed has it.
@@ -52,27 +46,24 @@ export default function SharedWishlist() {
     yield until(() => server().version >= saved.version)
   })
 
-  // Each piece's drag, from its ward: its start puts the piece in my hand, its end lets it go. Read
-  // as async values, the browser's (`ssrSource: "client"`): a server has no drags to tell.
-  const hearDrags = (card: Ward, id: string): void => {
-    const started = createMemo(() => card.each("dragStart"), { ssrSource: "client" })
-    const ended = createMemo(() => card.each("dragEnd"), { ssrSource: "client" })
-    createEffect(started, () => {
+  // The group's holds and reorders, read as async values, the browser's (`ssrSource: "client"`): a
+  // server has none to tell. A hold's start puts the piece in my hand, a drag's or a keyboard lift's;
+  // a reorder that changed the order is a move to save, with the piece and the order it left; the
+  // hold's end, after it, lets the piece go.
+  const hearHolds = (list: ReorderGroup<string>): void => {
+    const started = createMemo(() => list.each("holdStart"), { ssrSource: "client" })
+    const reordered = createMemo(() => list.each("reorderEnd"), { ssrSource: "client" })
+    const ended = createMemo(() => list.each("holdEnd"), { ssrSource: "client" })
+    createEffect(started, (start) => {
       setMine(untrack(order))
-      setHeld(id)
+      setHeld(start.value)
+    })
+    createEffect(reordered, (end) => {
+      move(end.value, end.values).catch((error: unknown) => setProblem(messageOf(error)))
     })
     createEffect(ended, () => {
-      setHeld(undefined)
-    })
-  }
-
-  // The group's reorders, from its `reorderEnd`: one for each drag or keyboard lift that changed the
-  // order, with the piece and the order it left. That's a move to save.
-  const hearReorders = (list: ReorderGroup<string>): void => {
-    const reordered = createMemo(() => list.each("reorderEnd"), { ssrSource: "client" })
-    createEffect(reordered, (end) => {
       setMine(undefined)
-      move(end.value, end.values).catch((error: unknown) => setProblem(messageOf(error)))
+      setHeld(undefined)
     })
   }
 
@@ -102,10 +93,10 @@ export default function SharedWishlist() {
         </button>
       </header>
       <Loading fallback={<p class="muted">Loading the wishlist…</p>}>
-        <Reorder.Group class="wish-list" values={order()} onReorder={setMine} groupRef={hearReorders}>
+        <Reorder.Group class="wish-list" values={order()} onReorder={setMine} groupRef={hearHolds}>
           <For each={order()}>
             {(id) => (
-              <Reorder.Item class="wish" value={id} data-id={id} wardRef={(card: Ward) => hearDrags(card, id)}>
+              <Reorder.Item class="wish" value={id} data-id={id}>
                 <img src={photoOf(id).small} width="56" height="56" alt="" draggable={false} />
                 <Show when={productOf(id)}>
                   {(product) => (
@@ -147,16 +138,31 @@ export default function SharedWishlist() {
   )
 }
 
-/** `server`'s order, with `id` just after the piece above it in `local`, or first if none is. */
+/**
+ * `server`'s order, with `id` just after the piece above it in `local`, or first if none is: `local`
+ * itself when that's the same order. A keyboard lift ends when the group's values change to any
+ * other array than the one it handed out (ADR-0037), so an unchanged order must be the same array.
+ */
 function withHeldAt(server: ReadonlyArray<string>, local: ReadonlyArray<string>, id: string): ReadonlyArray<string> {
   const others = server.filter((one) => one !== id)
   const above = local
     .slice(0, local.indexOf(id))
     .filter((one) => others.includes(one))
     .at(-1)
+  const merged = placedAfter(others, above, id)
+  if (sameOrder(merged, local)) return local
+  return merged
+}
+
+/** `others` with `id` just after `above`, or first without one. */
+function placedAfter(others: ReadonlyArray<string>, above: string | undefined, id: string): ReadonlyArray<string> {
   if (above === undefined) return [id, ...others]
   const at = others.indexOf(above) + 1
   return [...others.slice(0, at), id, ...others.slice(at)]
+}
+
+function sameOrder(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  return a.length === b.length && a.every((one, i) => one === b[i])
 }
 
 /** The piece just before `id` in `values`, or `null` when it's first. */
