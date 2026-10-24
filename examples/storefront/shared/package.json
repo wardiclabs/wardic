@@ -1,0 +1,24 @@
+{
+  "name": "@wardic/example-storefront-shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "What the storefront showcase's two apps share (#296): the catalog and its photos, the stylesheet, the examples' registry, the store in Effect, the Motion snippets and the smoke runner.",
+  "exports": {
+    "./catalog": "./src/catalog.ts",
+    "./images": "./src/images.ts",
+    "./examples": "./src/examples.ts",
+    "./server": "./src/server/index.ts",
+    "./styles.css": "./src/styles.css",
+    "./format": "./src/format.ts"
+  },
+  "scripts": {
+    "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "4.0.5"
+  },
+  "devDependencies": {
+    "vite": "8.3.4"
+  }
+}

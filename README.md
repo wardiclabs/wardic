@@ -25,6 +25,8 @@ Wardic is a fine-grained reactive animation engine built on [Effect v4](https://
 
 ## Quick look
 
+To see it in a real app first: [`examples/storefront`](examples/storefront) is a made-up ceramics shop whose every feature is an example, with the demo, why it's worth reaching for, and the code, built once on Solid 1 and once on Solid 2 (#296).
+
 ### Setup
 
 ```tsx
@@ -571,7 +573,7 @@ See [`plan.md`](./plan.md) for the full architectural design and decisions.
 
 ## Tooling
 
-- **Bun** for package management, testing, and build.
+- **Bun** for package management, testing, and build. **Node 24** in the dev shell, as the storefront's SolidStart 2 app requires.
 - **TypeScript** with `strict: true` and project references for incremental type-checking. `tsc` is TypeScript 7, the Go port (the `typescript-7` alias): `bun run typecheck` checks the packages, their tests and the examples. The `typescript` package stays 6 for typescript-eslint and anything using the compiler API, until they support 7 (#308).
 - **Changesets** for versioning across the multi-package release.
 - **ESM-only.** No CommonJS shipping.

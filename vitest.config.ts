@@ -30,6 +30,8 @@ export default defineConfig({
             "packages/test/test/**/*.test.ts",
             "packages/dom/test/**/*.node.test.ts",
             "examples/layout-lab/test/**/*.test.ts",
+            // The storefront showcase's store, in Effect (#296).
+            "examples/storefront/shared/test/**/*.test.ts",
           ],
         },
       },
