@@ -12,6 +12,10 @@
  * And that the store answers the browser itself, not only the server render: the visitor's cookie
  * is kept, and the header's store settings, fetched when the panel opens, load.
  *
+ * And each example as a visitor reaches it: from the gallery, by its link, rendered by the router in
+ * the browser, so the server functions it calls go from there. Each must render its demo with nothing
+ * logged and nothing uncaught.
+ *
  * Each page's screenshot lands in `<app>/.smoke/`, for a person to look at. Exits 1 on any failure.
  */
 import { spawn } from "node:child_process"
@@ -179,6 +183,42 @@ const checkStore = async (context: BrowserContext, page: Page): Promise<Result> 
   return { route: "/ (the store, from the browser)", problems }
 }
 
+/**
+ * Each example reached from the gallery by its link, the router rendering it in the browser (no
+ * document from the server), then the gallery loaded again. A server function an example calls
+ * from the browser must send its arguments: `undefined` isn't JSON, and Solid 2 refuses it.
+ */
+const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
+  const results: Array<Result> = []
+  const problems: Array<string> = []
+  let documents = 0
+  page.on("console", (message) => {
+    if (failing(message)) problems.push(`console ${message.type()}: ${message.text().slice(0, 200)}`)
+  })
+  page.on("pageerror", (error) => problems.push(`uncaught: ${error.message.slice(0, 200)}`))
+  page.on("request", (request) => {
+    if (request.resourceType() === "document") documents++
+  })
+  const quiet = quietOf(page)
+  await page.goto(base + "/", { waitUntil: "commit" })
+  await quiet()
+  for (const example of EXAMPLES) {
+    const route = routeOf(example)
+    problems.length = 0
+    documents = 0
+    await page.click(`a[href='${route}']`)
+    await page.waitForURL(base + route)
+    await quiet()
+    if ((await page.locator(".demo").count()) === 0) problems.push("no demo on the page")
+    if (documents > 0) problems.push("its link loaded a document from the server, not the router")
+    results.push({ route: `${route}, from the gallery's link`, problems: [...problems] })
+    // Back to the gallery, loaded afresh: a page that failed may have no link left to click.
+    await page.goto(base + "/", { waitUntil: "commit" })
+    await quiet()
+  }
+  return results
+}
+
 await ready()
 const browser = await chromium.launch()
 const results: Array<Result> = []
@@ -189,6 +229,7 @@ try {
   results.push(await checkStore(storeContext, await storeContext.newPage()))
   await storeContext.close()
   for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact))
+  results.push(...(await checkNavigation(await context.newPage())))
 } finally {
   await browser.close()
   stop()

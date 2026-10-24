@@ -55,6 +55,8 @@ Its tests (`shared/test`) run with the repo's `bun run test`.
 - the page answers with no error or warning logged, and no hydration mismatch;
 - the demo moves, then settles, after the clicks or drags the example asks for (`interact`) when it waits for the visitor. A live feed's open connection doesn't count against the network going quiet.
 
+It also reaches each example as a visitor does, from the gallery by its link, so the router renders it in the browser and its server functions are called from there; each must render its demo with nothing logged.
+
 It also checks the store from the browser, in a context of its own: the visitor's cookie is kept, and the store settings' switch, an action whose settings the browser fetches again, still shows them.
 
 Each page's screenshot lands in the app's `.smoke/`.
