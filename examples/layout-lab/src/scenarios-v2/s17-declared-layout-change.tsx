@@ -16,8 +16,8 @@
  * - **The pair** (Motion's `parallel-calls-intersecting`). Two calls in one click: one grows A,
  *   which pushes B down; the other shifts B right. B is watched for that run.
  * - **The callbacks**, as Solid 2 hears them (#257, ADR-0046): every tile counts its layout
- *   animations' starts and landings for the run, through `wardRef` and `card.each("layoutStart")` /
- *   `card.each("layoutComplete")`, and a declared run awaits `animateLayout`'s promise (Solid 1's
+ *   animations' starts and landings for the run, through `wardRef` and `card.when("layoutStart")` /
+ *   `card.when("layoutComplete")` (#355), and a declared run awaits `animateLayout`'s promise (Solid 1's
  *   card uses the props and `onSettled`, ADR-0039). The `callbacks` line under the buttons shows
  *   them, judged on as many completes as starts and the settling after the last complete, and each
  *   settling is noted on the timeline panel. A saved log keeps runs only, so neither is in it.
@@ -27,7 +27,7 @@
  */
 import { useAnimateLayout, type Ward, wardic } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
+import { createEffect, createSignal, For, Show } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
@@ -115,17 +115,12 @@ const View: ScenarioDef["View"] = (props) => {
     const t = tally()
     if (t !== undefined) props.ctx.mark(`settled: ${t.starts} starts, ${t.completes} completes`)
   }
-  /**
-   * A tile's ward: each of its layout animations' starts and landings counted, read as async values
-   * and an effect on each. They carry no value, so `equals: false`: each one is a change.
-   */
+  /** A tile's ward: each of its layout animations' starts and landings counted, by an effect on each (#355). */
   const hear = (card: Ward): void => {
-    const started = createMemo(() => card.each("layoutStart"), { equals: false })
-    const landed = createMemo(() => card.each("layoutComplete"), { equals: false })
-    createEffect(started, () => {
+    createEffect(card.when("layoutStart"), () => {
       onStart()
     })
-    createEffect(landed, () => {
+    createEffect(card.when("layoutComplete"), () => {
       onComplete()
     })
   }

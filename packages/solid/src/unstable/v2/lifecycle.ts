@@ -31,7 +31,7 @@ import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
 import { dragInfoOf, pointInfoOf, pointOfSample, type WardicDragInfo, type WardicPoint, type WardicPointInfo } from "../../gesture-info.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
-import { eachOf, Waiters } from "./waiters.ts"
+import { eachOf, type Listener, Waiters, whenOf } from "./waiters.ts"
 
 /** The gesture layers that were on for an animation: `whileHover`'s, `whileTap`'s and `whileDrag`'s (a drag, or a keyboard reorder's lift). */
 export interface WardGestures {
@@ -380,14 +380,26 @@ export class Lifecycle implements AnimationHooks {
    * gesture's recognizer, if the ward doesn't run it already.
    */
   wait<E extends WardEvent>(name: E): Promise<WardEvents[E]> {
-    if (Predicate.isUndefined(this.events)) {
-      this.events = new Waiters<WardEvents>(GONE)
-      if (this.disposed) this.events.dispose()
-    }
-    const waited = this.events.wait(name)
+    const waited = this.eventsNow().wait(name)
     const gesture = GESTURE_OF[name]
     if (Bool.and(Predicate.isNotUndefined(gesture), Bool.not(this.disposed))) this.wanted(gesture as WantedGesture)
     return waited
+  }
+
+  /**
+   * Hear every `name` from the call on (#355, `when`), until the returned stop or the ward's end. A
+   * gesture's event starts that gesture's recognizer, as a {@link wait} does.
+   */
+  readonly listen = <E extends WardEvent>(name: E, listener: Listener<WardEvents[E]>): (() => void) => {
+    const stop = this.eventsNow().listen(name, listener)
+    const gesture = GESTURE_OF[name]
+    if (Bool.and(Predicate.isNotUndefined(gesture), Bool.not(this.disposed))) this.wanted(gesture as WantedGesture)
+    return stop
+  }
+
+  /** `when(name)` (#355): every `name`, as a memo for an effect: see `whenOf`. */
+  when<E extends WardEvent>(name: E): Accessor<WardEvents[E]> {
+    return whenOf<WardEvents, E>(this, name)
   }
 
   /**
@@ -397,6 +409,15 @@ export class Lifecycle implements AnimationHooks {
    */
   each<E extends WardEvent>(name: E): AsyncIterable<WardEvents[E]> {
     return eachOf<WardEvents, E>(this, name)
+  }
+
+  /** The waits and listeners, made at the first: gone at once if the ward is. */
+  private eventsNow(): Waiters<WardEvents> {
+    if (Predicate.isUndefined(this.events)) {
+      this.events = new Waiters<WardEvents>(GONE)
+      if (this.disposed) this.events.dispose()
+    }
+    return this.events
   }
 
   /** The ward is gone: every `next` waiting is rejected, and any asked later at once. */

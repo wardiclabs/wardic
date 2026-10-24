@@ -171,7 +171,7 @@ Layout animations leave out the scroll of every scrolling element around them, w
 | `usePresence()`, `useIsPresent()`, `usePresenceData()` | the same names: `usePresence(() => el, (safeToRemove, custom) => …)` is called as the child leaves (its own code is disposed by then), which stays until `safeToRemove()`; on Solid 2, `const p = usePresence(); <div ref={p}>`, `await p.next("leave")`, `p.safeToRemove()`. `useIsPresent` is `false` from the leave, for handlers on the retained node (ADR-0048) |
 | `<AnimatePresence mode="popLayout">` | the same: the leaver is popped out of the flow where it was (`position: absolute`, its size kept) while it exits, and the children after it take its space at once, a `layout` one sliding there. It's pinned with inline styles, so there's no `root` prop (ADR-0048) |
 | `<AnimatePresence mode="wait">` | the same: the entering child goes on the page once every leaver has animated out and been removed. Solid builds it at once, so its own code (`onMount` included) runs then, off the page; its Wardic elements start once it's on the page (ADR-0048) |
-| `<Reorder.Group values onReorder>`, saving the order in each item's `onDragEnd` | `onReorderEnd={({ values, value, from, to }) => save(values)}`, once at the end of a user's reorder that changed the order: a drag released, or a keyboard lift dropped, not each crossover as `onReorder`, nor a keyboard cancel. On Solid 2, `list.each("reorderEnd")` (a `<Reorder.Group>` hands its group over with `groupRef`) (ADR-0020, *Amendment (#257 item 3)*) |
+| `<Reorder.Group values onReorder>`, saving the order in each item's `onDragEnd` | `onReorderEnd={({ values, value, from, to }) => save(values)}`, once at the end of a user's reorder that changed the order: a drag released, or a keyboard lift dropped, not each crossover as `onReorder`, nor a keyboard cancel. On Solid 2, `createEffect(list.when("reorderEnd"), …)`, the group made with `reorderGroup()` and given to `<Reorder.Group groupRef={list}>` (ADR-0020, *Amendment (#257 item 3)*; #349, #355) |
 | `<AnimatePresence onExitComplete={() => …}>` | the same, once every exiting child has animated out and been removed (ADR-0046); on Solid 2, a `createPresence()` handle |
 | `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onDragStart`, `onDrag`, `onDragEnd`: `(event, info) => …`; `onDragTransitionEnd={() => …}` | the same, called at the event (so `event.stopPropagation()` works), with `info.point` in the viewport, not the page (ADR-0047); on `wardic.*`, `onDrag*` are these, not the DOM's drag and drop; on Solid 2, `next(name)` |
 | `dragConstraints={{ left, right, top, bottom }}`, `dragConstraints={ref}`, `onMeasureDragConstraints` | the same box; a container as an accessor, a signal ref (`dragConstraints={frame}`) or `() => frame`, measured at each drag's start and when either resizes, keeping the element's place (ADR-0047) |
@@ -369,7 +369,7 @@ function Card(props: { open: boolean }) {
   setTarget(150)   // springs to 150; open()'s next change springs to its value
   ```
 - Reorder has factories that are refs too: `const list = reorderGroup({ values: items, onReorder: setItems })`, given to `<Reorder.Group groupRef={list}>`, and `reorderItem(list, { value })`, given to each `<Reorder.Item wardRef={row}>` (#349). Spread, they go on a `<ul>` (`<ul {...list}>`) and its `<li>`s. Each item is a ward. An item's own `tabindex` and `aria-describedby` go in its config, so the keyboard reorder's instructions are kept. `Reorder.Group` and `Reorder.Item` also take their config as props, as Motion's do.
-- **Saving a new order, optimistically:** a group tells `{ values, value, from, to }` once at the end of each user reorder that changed the order: `list.next("reorderEnd")` for one, `list.each("reorderEnd")` for all of them, as an async iterable (a `<Reorder.Group>` made from its props hands its own group to a function in `groupRef`). A memo over `each` holds the latest as an async value, and an effect saves it:
+- **Saving a new order, optimistically:** a group tells `{ values, value, from, to }` once at the end of each user reorder that changed the order: `list.next("reorderEnd")` for one, and `list.when("reorderEnd")` for an effect that acts on each (#355). A `<Reorder.Group>` made from its props hands its own group to a function in `groupRef`. The effect saves:
 
   ```tsx
   function TaskList() {
@@ -384,7 +384,7 @@ function Card(props: { open: boolean }) {
     })
 
     const list = reorderGroup({ values: order, onReorder: setOrder })
-    const reordered = createMemo(() => list.each("reorderEnd"))
+    const reordered = list.when("reorderEnd")
     createEffect(
       () => reordered().values.map((task) => task.id),
       (ids) => {
@@ -412,18 +412,18 @@ function Card(props: { open: boolean }) {
   - **A failed save needs no rollback code.** Solid drops the optimistic write when the action settles, `order` follows `tasks` back, and the item glides back to its slot.
   - **Read the ids in the effect's compute,** a tracked scope: Solid's strict mode warns of store reads in its apply, and the action's first step runs there.
   - **Keep the failure in state.** An action started from an effect hands its failure back as a rejected promise, which reaches no `<Errored>` boundary. Left unread, it's an unhandled rejection, so the example renders it.
-- **Holds:** an item in a user's hand, from its drag's start (not the press) or a keyboard lift, is a **Reorder hold**. The group tells:
-  - `list.each("holdStart")`, with `{ value, from }`;
-  - `list.each("holdEnd")`, once, whatever ended it, with `reorderEnd`'s fields and `how`: `"drop"`, `"cancel"` (Escape) or `"unmount"`. It comes after `reorderEnd` when the order changed.
+- **Holds:** an item in a user's hand, from its drag's start (not the press) or a keyboard lift, is a **Reorder hold**. The group tells, through `when`, `next` and `each`:
+  - `"holdStart"`, with `{ value, from }`;
+  - `"holdEnd"`, once, whatever ended it, with `reorderEnd`'s fields and `how`: `"drop"`, `"cancel"` (Escape) or `"unmount"`. It comes after `reorderEnd` when the order changed.
 
   One hold at a time. Solid 1 has `onHoldStart` / `onHoldEnd` on `Reorder.Group` (ADR-0020, *Amendment (#348)*).
 - Motion's components are there too: `<wardic.div animate={…}>` and `wardic.create(Component)`. There are no directives in Solid 2, so no `use:wardic`.
-- **A ward given to a component** (#349): `wardRef` takes a ward made with `ward(config)` as well as a function. The component then drives its element with that ward, so you get the tag's prop types, the variant context, and `wardic.create`'s ref forwarding, while the ward and whatever reads its `next` / `each` stay where you made it:
+- **A ward given to a component** (#349): `wardRef` takes a ward made with `ward(config)` as well as a function. The component then drives its element with that ward, so you get the tag's prop types, the variant context, and `wardic.create`'s ref forwarding, while the ward and whatever reads its `when` / `next` stay where you made it:
 
   ```tsx
   function Toast() {
     const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } })
-    const shown = createMemo(() => card.each("settled"), { ssrSource: "client" })
+    createEffect(card.when("settled"), () => announce("Saved"))   // each landing, any element
     return (
       <AnimatePresence>
         <Show when={open()}><wardic.div wardRef={card} class="toast" /></Show>
@@ -433,7 +433,7 @@ function Card(props: { open: boolean }) {
   ```
 
   - **Its config is where it was made.** A motion prop beside it (`animate`, `whileHover`, `layout`, `key`…) is a type error, and an error naming it. Put it in `ward({ … })`. `style` and `ref` go beside it, by `card.with()`'s rules: the style over the config's, key by key; the ref beside the ward's.
-  - **Its presence is the element's.** Each element registers with the `<AnimatePresence>` the component renders under, even when the ward was made outside it. Above, every close plays the exit, and every open enters fresh, from `initial` (or at `animate`, under `initial={false}`). The ward lives on, and its `next` / `each` hear every element.
+  - **Its presence is the element's.** Each element registers with the `<AnimatePresence>` the component renders under, even when the ward was made outside it. Above, every close plays the exit, and every open enters fresh, from `initial` (or at `animate`, under `initial={false}`). The ward lives on, and its `when` / `next` hear every element.
   - **Its variant parent is where it's made.** Made beside its parent, a child names it: `ward(config, { parent: list })` inherits `list`'s variant names and transition, and joins its stagger in the order the children were made. That works wherever the element renders, a portal included. Made with no `parent`, under another variant parent than its element's that it would inherit from, it's an error naming the fix. `inherit: false` stands alone.
   - **One element at a time.** A ward on a second element still on the page is an error, given or spread (one ward handed to every row of a `<For>`, say). One element after another is fine.
   - **Reorder's components** take theirs too: `<Reorder.Group groupRef={list}>` a `reorderGroup()`, and `<Reorder.Item wardRef={row}>` a `reorderItem(list, …)` of that group. Their config props are refused beside them, as a ward's are, and a plain ward or another group's item is an error. `reorderItem(list, config, { parent })` takes a parent too.
@@ -444,7 +444,7 @@ function Card(props: { open: boolean }) {
       <For each={order()}>
         {(item) => {
           const row = reorderItem(list, { value: item, whileDrag: { scale: 1.03 } })
-          const lifted = createMemo(() => row.each("dragStart"), { ssrSource: "client" })
+          createEffect(row.when("dragStart"), () => haptics.tap())
           return <Reorder.Item wardRef={row}>{item.name}</Reorder.Item>
         }}
       </For>
@@ -491,9 +491,8 @@ function Card(props: { open: boolean }) {
       refresh(props.list)                            // the list, without it
     })
 
-    // The latest release, as an async value, the browser's; an effect dismisses on a fling.
-    const released = createMemo(() => card.each("dragEnd"), { ssrSource: "client" })
-    createEffect(released, (release) => {
+    // Each release, through `when`: an effect dismisses on a fling.
+    createEffect(card.when("dragEnd"), (release) => {
       const flung = Math.abs(release.offset.x) >= 120 || Math.abs(release.velocity.x) >= 600
       if (flung) dismiss(release.offset.x < 0 ? "left" : "right").catch(() => toast("Couldn't dismiss it"))
     })
@@ -507,13 +506,17 @@ function Card(props: { open: boolean }) {
   }
   ```
 
-  **A ward's events as an async value:** a memo over `each(name)` holds the latest one, and an effect runs on each.
-  - On a page rendered on the server, give the memo `ssrSource: "client"` and make it under a `<Loading>`, as Solid asks of any source a server can't run. A server's `each` ends at once, and a streamed render hands its `undefined` to hydration, which keeps it: the effect gets `undefined` and never a release (#343).
-  - An event that carries no value (`layoutStart`, `layoutComplete`, `dragTransitionEnd`, `viewportEnter`, `viewportLeave`) needs `equals: false` too, or the memo sees no change.
-  - A memo keeps only the latest event, so two in one task run the effect once. To see every one, use `for await`.
+  **Acting on a ward's events: `when(name)`** (#355). It's a memo the ward makes for an effect, on a ward, a Reorder group and a presence handle:
+  - **It's pending until the first event,** so the effect runs at each one and never before. It's typed as the event, never `undefined`, so it needs no guard. Nothing else waits on it: the page mounts, and no `<Loading>` shows.
+  - **It works on any page.** On a page rendered on the server it's the browser's, with no `ssrSource` and no `<Loading>` to add: a server has no events to send.
+  - **It hears each event as it's told,** so none is lost between steps. Several in one flush run the effect once, with the latest. An event with no value (`layoutStart`, `exitComplete`…) runs it each time.
+  - **Read it in an effect, not in JSX.** In the element's own markup it would wait on a gesture its region holds back. To show the last event, set a signal in the effect.
+  - **Call it in a component's body,** as `createMemo`: each call makes one.
+  - **A failure:** `when("settled")` for an animation that fails goes to the effect's `error` arm (`createEffect(card.when("settled"), { effect, error })`). Without one, Solid logs it and skips the run.
+  - **The other forms:** for a sequence, `await card.next(name)`; for every event, a `for await` over `card.each(name)`. A memo over `each` misses one between its steps, and on a page rendered on the server it needs `ssrSource: "client"` and a `<Loading>` (#343).
 
-  **When an animation fails,** it never lands. That happens with a `transition` Wardic rejects (a `repeat: 1.5`, or a `duration` from a setting that came back `NaN`) or a step that throws. So `next("settled")` rejects with the error, `settled()` throws it (a read in JSX goes to the nearest `<Errored>`), and `each("settled")` throws it. The next animation that starts clears it. In the card above, a fly-out that fails makes `dismiss` throw: the optimistic side reverts, and the `catch` shows its toast. Before, `dismiss` waited for good. The failure is logged and reported to your `ErrorReporter` either way, so a ward whose outcome nothing reads can't stop the app. Misusing Wardic (a ward made inside a spread, `Reorder.Item` outside a group, no `<WardicProvider>`) throws where `<Errored>` catches it too. An `onUpdate` that throws every frame is logged once per run of throws.
-- Layout is async too (#257, ADR-0046). `useAnimateLayout()`'s call returns a promise of its callback's result, resolved once every layout animation the change started has ended: `await animateLayout(() => setItems(shuffled()))`, then re-enable the button. Calls in one task resolve together, and the provider's disposal rejects one still waiting with an `AbortError`. A layout element's animations are `next("layoutStart")` and `next("layoutComplete")` (and `each`), where Solid 1 has `onLayoutAnimationStart` / `onLayoutAnimationComplete` and `animateLayout`'s `onSettled`.
+  **When an animation fails,** it never lands. That happens with a `transition` Wardic rejects (a `repeat: 1.5`, or a `duration` from a setting that came back `NaN`) or a step that throws. So `next("settled")` rejects with the error, `settled()` throws it (a read in JSX goes to the nearest `<Errored>`), `each("settled")` throws it, and `when("settled")` hands it to its effect's `error` arm. The next animation that starts clears it. In the card above, a fly-out that fails makes `dismiss` throw: the optimistic side reverts, and the `catch` shows its toast. Before, `dismiss` waited for good. The failure is logged and reported to your `ErrorReporter` either way, so a ward whose outcome nothing reads can't stop the app. Misusing Wardic (a ward made inside a spread, `Reorder.Item` outside a group, no `<WardicProvider>`) throws where `<Errored>` catches it too. An `onUpdate` that throws every frame is logged once per run of throws.
+- Layout is async too (#257, ADR-0046). `useAnimateLayout()`'s call returns a promise of its callback's result, resolved once every layout animation the change started has ended: `await animateLayout(() => setItems(shuffled()))`, then re-enable the button. Calls in one task resolve together, and the provider's disposal rejects one still waiting with an `AbortError`. A layout element's animations are `"layoutStart"` and `"layoutComplete"` (through `when`, `next` and `each`), where Solid 1 has `onLayoutAnimationStart` / `onLayoutAnimationComplete` and `animateLayout`'s `onSettled`.
 - A presence's exits are heard through a handle, `createPresence()`, given to `<AnimatePresence ref>` (#257, ADR-0046). `presence.exiting()` is whether a child is exiting, a plain reactive boolean; `await presence.next("exitComplete")` waits until every exiting child has animated out and been removed, and `next("exitStart")` until a child leaves. `ref` is optional, and takes a plain callback too: `ref={(p) => (presence = p)}`.
 
   ```tsx

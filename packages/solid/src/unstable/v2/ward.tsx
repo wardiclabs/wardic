@@ -134,7 +134,7 @@ import {
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardSettled } from "./lifecycle.ts"
-import { neverLands, NO_EVENTS } from "./waiters.ts"
+import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, type VariantNode, WardicVariantContext } from "./variant-node.ts"
 
@@ -351,20 +351,29 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    */
   readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
   /**
-   * Every `name` from the call on, as an async iterable (#257): read through a memo, whose effect
-   * runs on the latest, or in a `for await`. On a page rendered on the server the memo is the
-   * browser's, `ssrSource: "client"`, made under a `<Loading>` (#343): a server's ends at once. A
-   * loop's each step waits as `next(name)` does, so one that comes while its body runs is missed; the
-   * loop ends once the ward is disposed, with no `AbortError`.
+   * Every `name` from the call on, as an async iterable (#257), for a `for await`: each step waits as
+   * `next(name)` does, so one that comes while its body runs is missed; the loop ends once the ward is
+   * disposed, with no `AbortError`. To act on each one in an effect, use {@link when}: a memo over
+   * `each` misses one between its steps, and on a page rendered on the server it needs
+   * `ssrSource: "client"` and a `<Loading>` (#343).
+   */
+  readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
+  /**
+   * Every `name` (#355), as a memo for an effect: pending until the first, so the effect runs at each
+   * one and never before, typed as the event, on any page (no `ssrSource`, no `<Loading>`). It hears
+   * each one as it's told, so none is lost between steps; several in one flush run the effect once,
+   * with the latest. A failure (`"settled"`'s) goes to the effect's `error` arm
+   * (`createEffect(card.when("settled"), { effect, error })`); without one, Solid logs it and skips
+   * the run. Read it in an effect, not in the element's own JSX, whose region it would wait on. Call
+   * it in a component's body, as `createMemo`.
    *
    * ```tsx
-   * const released = createMemo(() => card.each("dragEnd"), { ssrSource: "client" })
-   * createEffect(released, (release) => {
+   * createEffect(card.when("dragEnd"), (release) => {
    *   if (Math.abs(release.offset.x) >= 120) dismiss(release.offset.x < 0 ? "left" : "right")
    * })
    * ```
    */
-  readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
+  readonly when: <E extends WardEvent>(name: E) => Accessor<WardEvents[E]>
   /**
    * The ward's props with the element's own (#264, the Solid 1 ward's `ward({ ref, style })`): its
    * `ref` called beside the ward's, and its `style` over the config's, key by key. For a style made
@@ -1236,6 +1245,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     settled: { value: () => lifecycle.read() },
     next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
     each: { value: <E extends WardEvent>(name: E) => lifecycle.each(name) },
+    when: { value: <E extends WardEvent>(name: E) => lifecycle.when(name) },
     with: {
       value: (own: WardWithProps): WardProps => {
         given = own
@@ -1381,6 +1391,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     settled: { value: constUndefined },
     next: { value: neverLands },
     each: { value: () => NO_EVENTS },
+    when: { value: serverWhen },
     // The element's own style over the config's, rendered in its Starting style (#264).
     with: {
       value: (own: WardWithProps): WardProps => {

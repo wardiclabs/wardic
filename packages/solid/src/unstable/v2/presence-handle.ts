@@ -18,6 +18,7 @@
  *   child has animated out and been removed. An exit a re-entry interrupts doesn't complete: a
  *   waiting `next("exitComplete")` waits on for one that does. Both resolve with `undefined`.
  * - `each(name)`: every one, for `for await` (`waiters.ts`).
+ * - `when(name)`: every one, as a memo for an effect (#355).
  * - `createPresence()`'s owner disposed: waiting calls reject with an `AbortError`, and an `each` ends.
  *
  * `ref` also takes a plain callback, `ref={(p) => (presence = p)}`: it's handed the presence's own
@@ -30,7 +31,7 @@ import * as Predicate from "effect/Predicate"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
 import type { PresenceEvents as ControllerEvents } from "../../presence-controller.ts"
-import { eachOf, Waiters } from "./waiters.ts"
+import { eachOf, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
 /** What a presence handle's `next(name)` waits for (#257). */
 export interface PresenceEvents {
@@ -56,6 +57,11 @@ export interface Presence {
   readonly next: <E extends PresenceEvent>(name: E) => Promise<PresenceEvents[E]>
   /** Every `name` from the call on, for `for await`; it ends when the handle's owner is disposed. */
   readonly each: <E extends PresenceEvent>(name: E) => AsyncIterable<PresenceEvents[E]>
+  /**
+   * Every `name` (#355), as a memo for an effect: pending until the first, so the effect runs at each
+   * one, on any page. `createEffect(presence.when("exitComplete"), () => trigger.focus())`.
+   */
+  readonly when: <E extends PresenceEvent>(name: E) => Accessor<PresenceEvents[E]>
 }
 
 /** A handle's own hearing: what another handle given its source calls. Internal. */
@@ -105,6 +111,7 @@ export const makePresenceHandle = (): { readonly handle: Presence; readonly even
     exiting: { value: exiting },
     next: { value: <E extends PresenceEvent>(name: E) => waiters.wait(name) },
     each: { value: <E extends PresenceEvent>(name: E) => eachOf<PresenceEvents, E>(waiters, name) },
+    when: { value: <E extends PresenceEvent>(name: E) => whenOf<PresenceEvents, E>(waiters, name) },
     [HEAR]: {
       value: (hearer: ControllerEvents): void => {
         hearers.add(hearer)
@@ -133,6 +140,7 @@ const SERVER_PRESENCE: Presence = Object.defineProperties((() => {}) as unknown 
   exiting: { value: () => false },
   next: { value: (): Promise<never> => new Promise<never>(constUndefined) },
   each: { value: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true as const }) }) }) },
+  when: { value: serverWhen },
   [HEAR]: { value: () => {} },
 })
 

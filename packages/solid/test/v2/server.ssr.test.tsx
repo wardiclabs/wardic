@@ -33,6 +33,8 @@
 //   component's presence); a `parent` given, it starts from the parent's `initial` name, even
 //   rendered outside the parent's element.
 // - SV21 (#349): a motion prop beside a given ward throws on a server too.
+// - SV22 (#355): `when(name)` read by an effect, on a ward, a Reorder group and a presence handle,
+//   renders under no `<Loading>`: the server runs the effect's compute, never its function.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -49,11 +51,13 @@ import {
   createTime,
   createTransform,
   createVelocity,
+  reorderGroup,
   ward,
   wardic,
 } from "@wardic/solid/unstable/v2"
 import * as Effect from "effect/Effect"
 import type { JSX } from "@solidjs/web"
+import { createEffect } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr.ts"
 
@@ -420,5 +424,27 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
       return <wardic.div wardRef={card} animate={{ opacity: 0 }} />
     }
     expect(() => serve(() => <Card />)).toThrow("wardic.div: `animate` given beside a ward made outside it")
+  })
+
+  it("SV22: when(name) read by effects renders under no <Loading>, and no effect runs (#355)", () => {
+    let ran = 0
+    const Card = () => {
+      const card = ward({ drag: "x" })
+      const list = reorderGroup({ values: ["a"], onReorder: () => {} })
+      const presence = createPresence()
+      createEffect(card.when("dragEnd"), () => {
+        ran++
+      })
+      createEffect(list.when("reorderEnd"), () => {
+        ran++
+      })
+      createEffect(presence.when("exitComplete"), () => {
+        ran++
+      })
+      return <div {...card} class="card" />
+    }
+    const html = serve(() => <Card />)
+    expect(named(html, "div")[0]?.attrs.class).toBe("card")
+    expect(ran, "no effect ran on the server").toBe(0)
   })
 })

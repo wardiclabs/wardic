@@ -357,7 +357,7 @@ A minimal Solid 2 app without Wardic does the same, on rc.15 and rc.18.
   - `each`'s doc;
   - the Solid 2 layout lab's scenario 17, which renders in the browser only: `equals: false`, and the same counts as its loops gave;
   - the storefront's notifications (#342).
-- **Not done:** a server `each` that Solid leaves to the browser by itself (#343's option 2). Today only the memo's `ssrSource` says so.
+- **Not done:** a server `each` that Solid leaves to the browser by itself (#343's option 2). Today only the memo's `ssrSource` says so. *Superseded for effects by `when(name)` (#355), below: the ward makes the browser-only memo itself.*
 - **Pinned by** `test/v2/each-memo.hydrate.browser.test.tsx`, a streamed render hydrated:
   - HE1: the documented form hears nothing at hydration, then the release;
   - HE2: a plain memo adopts the server's `undefined` and never hears the release. If Solid changes that, the README can say less.
@@ -433,3 +433,75 @@ Every Wardic component takes one: `wardic.<tag>`, `wardic.create(Component)`, `R
 - **The first build** cost every ward about 35 small allocations for a path it never took: `UndefinedOr.match` option objects and their closures, and the given ward's `drive` and driver. Bytes per element per round rose 2.1% and mount 2.2% (IQR −0.5% to +2.4%), within the gate.
 - **The setup path now uses plain checks and module-level helpers.** `drive` is made when a component first asks for the share, and the driver object when a driving ward mounts. That leaves bytes at +0.4% (181.3 to 182.1 KB, IQR −0.1% to +0.4%).
 - **The timings** after the trim are mount +0.2%, Retarget +0.4%, at-rest Retarget +0.8% and unmount +0.7%, each IQR spanning zero. Both runs flagged the plain-div control as noisy (−8.6% and +21.5%) on an otherwise idle host, so these say "within a couple of percent", not more.
+
+## Amendment (#355, 2026-10-24): `when(name)`, a ward's events for an effect, on any page
+
+A memo over `each(name)` plus an effect was the README's way to act on each event. On a page rendered on the server it needed `ssrSource: "client"` and a `<Loading>` (*Note (#343)*), and a plain memo there was silently dead. `when(name)` replaces the pattern: a memo the ward makes, on a ward, a Reorder group and a presence handle. Grilled 2026-10-24 (#355, issuecomment-6389790229).
+
+```tsx
+createEffect(card.when("dragEnd"), (release) => { if (Math.abs(release.offset.x) > 120) dismiss() })
+createEffect(list.when("reorderEnd"), (end) => save(end.values))
+createEffect(presence.when("exitComplete"), () => trigger.focus())
+```
+
+**The route not taken:** `each` built on Solid's `from()`, the probe #355 was filed with. Solid 2 resumes a source branded "live" across hydration: the server takes its first value and closes it, and the browser takes it over (`armLiveTakeover`). With both sides branded, a plain memo over `each` worked on a server-rendered page, under a `<Loading>` or with none, after one `undefined` at hydration.
+- That `undefined` can't be avoided: a server source that never answers stalls the streamed render.
+- `from()` would also have changed `for await`, delivering an event that comes while a loop's body runs instead of missing it.
+- Chosen first (Q1), then dropped (Q4) once `when` covered the effect case. `each` stays a stream. The probe is in `.tmp/each-live/`.
+
+**Decisions:**
+1. **A helper, so nobody meets `ssrSource`** (Q2, the user's).
+   - Rejected: typing `each`'s memo as `T | undefined`; leaving the `undefined` to the docs.
+2. **`when(name)` is for effects** (Q3).
+   - **Pending until the first event**, so an effect over it runs at each one and never before. It's typed as the event, so it needs no guard.
+   - **Not a plain value** with an `undefined` placeholder: every effect would need a guard, which the user rejected.
+   - **Not a callback** (`card.on(name, fn)`): it would bring back what this ADR's decision 1 left out of Solid 2.
+   - **Pending suspends nothing in its use:** the page mounts, no `<Loading>` shows, no transition waits (probed on a browser-rendered page, and on a server-rendered one with no `<Loading>`).
+   - **Not for JSX.** A read in the element's own markup waits on a gesture its region holds back, so it never resolves (probed: the deadlock decision 3 hit with `settled()`). The docs say so; no dev warning (the user's pick).
+   - The user found "latest" wrong for a pending value, and chose `when`. It's also a transition key (`when: "beforeChildren"`); a method and a config key don't meet.
+3. **`each` stays a stream** (Q4), for `for await`. Its docs point to `when` for effects.
+
+**Built:**
+- **`Waiters.listen(name, listener)`**, beside its one-shot waits:
+  - every `name` as it's told;
+  - a failure of `name` ends the listener with it (`error`);
+  - the source's disposal lets its listeners go and tells them nothing, so a `when` keeps its last value, or stays pending, until its owner is disposed. Ending them would complete `from()`'s stream, and a `when` that never heard an event would settle on `undefined` and run its effect with it.
+  - `tell` reads its listeners with plain checks, as it runs at each drag sample once anything listens.
+- **The lifecycle's `listen`** starts a gesture's recognizer as its `wait` does, so `when("tap")` works on a ward with no `whileTap`.
+- **`whenOf(source, name)`, in the browser:** `createMemo(() => from((next, error) => source.listen(name, { next, error })), { equals: false })`. It needs no `ssrSource` of its own: the server's memo is browser-only, so nothing of it is serialized for this one to adopt.
+  - Solid's `from()` keeps the latest, and closes the listener when the memo's owner is disposed.
+  - `equals: false`, so an event with no value runs the effect each time.
+- **On a server** (`serverWhen`, which the server forms of the ward, the group and the presence handle call): a browser-only memo (`ssrSource: "client"`) with a provisional `undefined` (`loadingValue`). Solid's server runs an effect's compute but never its function, and a browser-only memo read there outside a `<Loading>` is an error (`ASYNC_OUTSIDE_LOADING_BOUNDARY`, probed). No effect sees the provisional value, and both sides make one memo, so hydration ids match (KH14).
+- **A given ward's `when`** (#349) hears its driving ward's element, through the shared lifecycle.
+- **A failure, found while building it:** Solid 2 routes an effect's compute-phase error to the effect's `error` arm (`createEffect(source, { effect, error })`). Without one, it logs it and skips the run; rethrown from `error`, it reaches `<Errored>`. So `when("settled")` for a failed animation goes to the `error` arm, not straight to `<Errored>` as the grill's default said.
+- **A finding, pinned:** a memo over `each("drag")` lost the second of two quick moves, because its wait was taken by the first. `when` heard both (WN3).
+- **The examples:**
+  - the README's swipe card, save-a-new-order pattern, given-ward toast and Reorder snippet;
+  - the storefront's notifications and wishlist (Solid 2);
+  - the layout lab's scenario 17.
+  
+  Each moved from a memo over `each` (with `ssrSource` or `equals: false`) to `when`.
+
+**Pinned by:**
+- `test/v2/when.browser.test.tsx`:
+  - WN1, effects at each release and never before;
+  - WN2, a gesture's recognizer started;
+  - WN3, two quick moves both heard;
+  - WN4, a valueless event each time, on a presence handle;
+  - WN5, a Reorder group's `reorderEnd`;
+  - WN6, a failure in the `error` arm;
+  - WN7, a given ward;
+  - WN8, disposal stops listening.
+- `test/v2/each-memo.hydrate.browser.test.tsx`, HE3: a streamed render with no `<Loading>`, nothing at hydration, then the release.
+- `test/v2/server.ssr.test.tsx`, SV22: effects over `when` render under no `<Loading>`, and none runs.
+- `test/v2/wardic.hydrate.browser.test.tsx`, KH14: the same hydration ids on both sides.
+
+**Mutation-checked** with 13 single-point mutations (`.tmp/355/mutate.py`):
+- Three survived the first run and were dead code, taken out:
+  - ending listeners when the source goes, which would also have settled a `when` on `undefined`;
+  - the server branch of `whenOf`, since the server forms call `serverWhen` directly;
+  - the browser memo's own `ssrSource`.
+- On the final code, 9 of 10 fail the tests meant for them.
+- M5, a stop that removes nothing, survives: a stopped listener feeds a `from()` stream that's already closed, so nothing shows. The removal is kept so listeners don't pile up on a ward that outlives the effects reading it.
+
+**Cost** (`bench:solid --binding 2`, N = 1,000, against main): `when` is one more method on each ward, and the listeners cost nothing until something listens. Mount +1.4% (IQR +0.4% to +1.8%), Retarget +0.8%, at-rest Retarget +0.3%, unmount −1.5%, bytes per element −0.1%. The plain-div control was flagged as noisy (+9.1%), so these say "within a couple of percent", not more.
