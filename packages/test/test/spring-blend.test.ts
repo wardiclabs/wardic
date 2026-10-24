@@ -50,7 +50,7 @@ it.effect("SB6: a Discrete pair switches on the first frame past the delay", () 
 
 it.effect("SB7: rest thresholds apply to the 0–100 progress, as to a numeric key travelling 100", () =>
   Effect.gen(function* () {
-    const options = { restDelta: 1, restVelocity: 1 }
+    const options = { restDelta: 1, restSpeed: 1 }
     expect((yield* blend({ w: "0px" }, { w: "100px" }, options)).length).toBe((yield* reference(options)).length)
   }),
 )

@@ -43,7 +43,7 @@ describe("SpringOptions: positive stiffness, mass and rest thresholds, non-negat
     ["damping", { damping: Number.NaN }],
     ["mass", { mass: 0 }],
     ["restDelta", { restDelta: 0 }],
-    ["restVelocity", { restVelocity: 0 }],
+    ["restSpeed", { restSpeed: 0 }],
     ["delay", { delay: -0.1 }],
     ["delay", { delay: Number.POSITIVE_INFINITY }],
     ["from", { from: Number.NaN }],
@@ -54,8 +54,8 @@ describe("SpringOptions: positive stiffness, mass and rest thresholds, non-negat
   rejects((bag) => Machine.springValues({ x: 1 }, bag), [["mass", { mass: -1 }]])
   rejects((bag) => Machine.chase(() => 1, bag), [["damping", { damping: -1 }]])
 
-  it("fills in its defaults: 170 / 26 / 1, rest at 0.01, no delay; `undefined` is missing", () => {
-    const defaults = { stiffness: 170, damping: 26, mass: 1, restDelta: 0.01, restVelocity: 0.01, delay: 0 }
+  it("fills in its defaults: 170 / 26 / 1, no delay, rest thresholds as given (else by distance, #344); `undefined` is missing", () => {
+    const defaults = { stiffness: 170, damping: 26, mass: 1, restDelta: undefined, restSpeed: undefined, delay: 0 }
     expect(Spring.resolve({})).toEqual(defaults)
     // A JS caller's: `exactOptionalPropertyTypes` keeps it out of TypeScript.
     expect(Spring.resolve({ stiffness: undefined, delay: undefined } as unknown as Machine.SpringOptions)).toEqual(defaults)
@@ -112,7 +112,7 @@ describe("AnimateOptions: a tween's fields, a whole number of repeats or Infinit
 describe("DecayOptions: a positive friction and rest speed, a non-negative delay", () => {
   rejects((bag) => Machine.decay(0, 100, bag), [
     ["friction", { friction: 0 }],
-    ["restVelocity", { restVelocity: 0 }],
+    ["restSpeed", { restSpeed: 0 }],
     ["delay", { delay: -1 }],
   ])
   rejects((bag) => Machine.decayVec({ x: 0, y: 0 }, { x: 1, y: 1 }, bag), [["friction", { friction: Number.NaN }]])
