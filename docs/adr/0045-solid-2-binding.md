@@ -614,3 +614,24 @@ Motion's swipe card fades as it's dragged: its opacity is derived from its own `
 - `read` not told of `.with`;
 - the ward's own ref, or the user's, dropped;
 - the server's style or `read` ignoring `.with`.
+
+## Amendment (#335, 2026-10-24): a ward's setup reads the update's in-flight values
+
+Found while porting #296's product detail to Solid 2. A `<Show>`'s narrowed accessor, read in a `wardic.<tag>`'s config, threw on open (`it().id` of `undefined`), and Solid reported `REACTIVITY_HALTED`:
+
+```tsx
+<Show when={item()}>{(it) => <wardic.div layoutId={`detail-${it().id}`} />}</Show>
+```
+
+A plain `<div title={`x-${it().id}`}>` in the same place worked.
+
+- **Why.** `setupOf` reads the setup copy with no reader, `runWithOwner(null, …)`, so a pending async key doesn't re-run the component (#257 item 1, above).
+  - Solid 2 shows a read outside the update's owner tree the committed values. Inside it, as the element's own render reads them, it gets the in-flight values.
+  - The accessor reads a memo of `when` that hadn't committed, so the setup got `undefined`.
+  - The same stale read made a `<For>` item added in the flush that changed a value its `initial` reads start at the old value, then animate across.
+- **Decided** (a bug with one fix, so not grilled): the setup reads under `latest()`, still with no reader, and untracked. It sees the in-flight values, the ones the render uses. A pending key still throws `NotReadyError`, and is still left out and named.
+- **Rejected:**
+  - Reading under the component's owner: #257 item 1's re-run is back, and AC1–AC4, AC8 and AC9 fail.
+  - A detached owner of its own: AC passes, but it still reads committed values, and the `<Show>` still throws.
+- **Pinned by** `test/v2/in-flight-setup.browser.test.tsx`, IF1–IF4: the narrowed accessor in a `wardic.<tag>`, under `<AnimatePresence>`, and in a `ward()`'s getters; and the `<For>` item starting at the new value. All four fail on `main`. Taking `latest` out again is the mutation that fails them.
+
