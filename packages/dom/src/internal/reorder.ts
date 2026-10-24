@@ -24,7 +24,7 @@
  * raised as a dragged one is, and the binding turns its `whileDrag` on. Focus leaving the item, a
  * press on it, or the app changing `values` drops it where it is; its unmount ends the lift unsaid.
  *
- * Each **Hold** (#348, ADR-0020 *Amendment (#348)*), an item in a user's hand from its drag's start or
+ * Each **Reorder hold** (#348, ADR-0020 *Amendment (#348)*), an item in a user's hand from its drag's start or
  * its lift, is told at its start and, once, at its end, whatever ends it: after `onReorderEnd`, when
  * it moved. One at a time: a hold's start ends the open one first, and that item's later release
  * tells nothing more.
@@ -96,21 +96,21 @@ export interface ReorderEnd<V> {
   readonly to: number
 }
 
-/** A **Hold**'s start (#348): the item taken in hand, by its drag's start or a keyboard lift, and its index then. */
+/** A **Reorder hold**'s start (#348): the item taken in hand, by its drag's start or a keyboard lift, and its index then. */
 export interface ReorderHoldStart<V> {
   readonly value: V
   readonly from: number
 }
 
 /**
- * How a **Hold** ended (#348): `"drop"`, released or dropped where it is (a pointer's release or
+ * How a **Reorder hold** ended (#348): `"drop"`, released or dropped where it is (a pointer's release or
  * cancel, a drop key, focus leaving, a press, the app's `values`, another hold); `"cancel"`, Escape,
  * the order put back; `"unmount"`, its item went away.
  */
 export type ReorderHoldHow = "drop" | "cancel" | "unmount"
 
 /**
- * A **Hold**'s end (#348), whatever ended it, once: the order then, the item, its index at the start
+ * A **Reorder hold**'s end (#348), whatever ended it, once: the order then, the item, its index at the start
  * and now (`-1` once it's out of the values), and how. After `onReorderEnd`, in the same task, when
  * the order changed.
  */
@@ -129,9 +129,9 @@ export interface ReorderControllerOptions<V> {
    * each step, as `onReorder` is. Not a keyboard cancel, which puts the order back, nor `move`.
    */
   readonly onReorderEnd?: ((end: ReorderEnd<V>) => void) | undefined
-  /** Hears each **Hold**'s start (#348): a drag of an item past its threshold, or a keyboard lift. */
+  /** Hears each **Reorder hold**'s start (#348): a drag of an item past its threshold, or a keyboard lift. */
   readonly onHoldStart?: ((start: ReorderHoldStart<V>) => void) | undefined
-  /** Hears each **Hold**'s end (#348), once, whatever ended it; after `onReorderEnd` when it moved. */
+  /** Hears each **Reorder hold**'s end (#348), once, whatever ended it; after `onReorderEnd` when it moved. */
   readonly onHoldEnd?: ((end: ReorderHoldEnd<V>) => void) | undefined
   /** The app's axis, overriding detection; `None` to detect. */
   readonly axis?: (() => Option.Option<Reorder.Axis>) | undefined
@@ -310,7 +310,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     UndefinedOr.map(options.onReorderEnd, (tell) => tell({ values: [...options.values()], value, from, to }))
   }
   // --- Holds (#348) ------------------------------------------------------------
-  /** The open **Hold**: the item in hand, how it was taken, and its index then. One at a time. */
+  /** The open **Reorder hold**: the item in hand, how it was taken, and its index then. One at a time. */
   let held: Option.Option<{ readonly value: V; readonly from: number; readonly by: "drag" | "lift" }> = Option.none()
   /** Whether `value`'s drag is the open hold: a drag a later hold took over tells nothing more. */
   const holdsDrag = (value: V): boolean => Option.exists(held, (h) => h.by === "drag" && h.value === value)

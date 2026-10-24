@@ -86,12 +86,12 @@ export interface ReorderGroupConfig<V> {
    */
   readonly onReorderEnd?: (end: ReorderController.End<V>) => void
   /**
-   * Hears each **Hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its
+   * Hears each **Reorder hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its
    * drag's start (past the threshold, not the press) or a keyboard lift, with its index then.
    */
   readonly onHoldStart?: (start: ReorderController.HoldStart<V>) => void
   /**
-   * Hears each **Hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`),
+   * Hears each **Reorder hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`),
    * Escape (`"cancel"`), or the item unmounting (`"unmount"`). After `onReorderEnd` when it moved.
    */
   readonly onHoldEnd?: (end: ReorderController.HoldEnd<V>) => void
@@ -480,9 +480,9 @@ export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly onReorder: (values: Array<V>) => void
   /** A user's reorder that changed the order, at its end (#257 item 3): what an app saves. */
   readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
-  /** Each **Hold**'s start (#348): an item taken in hand, by its drag's start or a keyboard lift. */
+  /** Each **Reorder hold**'s start (#348): an item taken in hand, by its drag's start or a keyboard lift. */
   readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
-  /** Each **Hold**'s end (#348), once, whatever ended it; after `onReorderEnd` when it moved. */
+  /** Each **Reorder hold**'s end (#348), once, whatever ended it; after `onReorderEnd` when it moved. */
   readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
   /** The keyboard reorder (ADR-0037): on unless `false`. */
