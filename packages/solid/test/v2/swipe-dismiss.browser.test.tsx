@@ -12,6 +12,9 @@
 // - SC5 (#257 item 4): a fly-out that fails (its own duration from a speed setting that's NaN): the
 //   action's `next("settled")` rejects, so it throws: a toast and no request, each swipe; one with the
 //   setting fixed dismisses the card. On main each swipe's action waited for good, with nothing shown.
+// - SC6 (#340): the fly-out takes `x` from the snap back: the card goes on out from where it was let
+//   go, never back toward its slot first. Before #340 it sprang home while it faded, and only went
+//   to -420 once the snap back had ended, unseen.
 import { DomLive } from "@wardic/dom"
 import { type WardDragInfo, ward, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -149,6 +152,9 @@ const swipe = async (el: HTMLElement, dx: number): Promise<void> => {
 /** The opacity the gate last committed onto `el`. */
 const opacity = (el: HTMLElement | null): number => Number(el?.style.opacity)
 
+/** The x `el` paints at. */
+const xOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).m41
+
 describe("a swipe-to-dismiss card, the request after the fly-out (#257)", () => {
   it("SC1: the request only once the card has landed off screen; the card leaves with no flash back", async () => {
     const api = makeApi("ok")
@@ -232,6 +238,25 @@ describe("a swipe-to-dismiss card, the request after the fly-out (#257)", () => 
     await until(() => card("a") === null, 3000)
     expect(card("a"), "it left the list").toBeNull()
     expect(api.calls).toEqual([{ id: "a", opacity: 0 }])
+  })
+
+  it("SC6: the fly-out takes x from the snap back: on out from the release, never back toward its slot (#340)", async () => {
+    const api = makeApi("ok")
+    const { card } = mountList(api)
+    await until(() => card("a") !== null, 2000)
+    await raf()
+    await raf()
+    const el = card("a")!
+    await swipe(el, -200)
+    const released = xOf(el)
+    const xs: Array<number> = []
+    await until(() => {
+      xs.push(xOf(el))
+      return opacity(el) === 0
+    }, 2000)
+    expect(released, "let go off to the left").toBeLessThan(-150)
+    expect(Math.max(...xs), "never back toward its slot").toBeLessThanOrEqual(released + 10)
+    expect(xOf(el), "landed off screen").toBeCloseTo(-420, 0)
   })
 
   it("SC4: a short swipe snaps back, and nothing is sent", async () => {

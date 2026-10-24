@@ -263,3 +263,67 @@ A free drag's release (its momentum or its spring back, on `dragSnapToOrigin` or
   - a glide with neither stays caught and tells nothing;
   - a click at rest, before a drag and after its release has rested, tells nothing.
 - Mutation-checked: 5, each failing its test; one survived until DT13 clicked after a release that had rested.
+
+## Amendment (#340, 2026-10-24): a new target for `x` or `y` takes a free release over
+
+A card with `drag="x"` and `dragSnapToOrigin`, flung right (`.tmp/296-live/notices.ts`, the same flick on each, Chromium): its `onDragEnd` (Solid 1), or a Solid 2 action on its `each("dragEnd")`, sets `animate` to `{ x: 420, opacity: 0 }`, the README's swipe-to-dismiss. Found by the storefront's notifications (#296). Each frame's left edge (px) and opacity, every 6th frame:
+
+| | from the release |
+|---|---|
+| Motion 14.6 (`.tmp/296-swipe/motion`) | 207,1.00 402,0.71 501,0.19 483,0.01 478,0.00 480,0.00 |
+| main, both bindings | 243,1.00 265,0.69 177,0.30 124,0.12 94,0.04 78,0.01 … 58,0.00, then 154 |
+| this branch, both bindings | 243,1.00 398,0.69 450,0.30 468,0.12 474,0.04 476,0.01 477,0.00 (its target) |
+
+The drag held `x`/`y` through its release (`drag-track.ts`'s design note): a Retarget meanwhile stripped them, and they came back once the release had rested. So the card faded out while it sprang home, and flew out unseen. Motion's release is an animation of the `x` value (`startAxisValueAnimation`), and a newer `animate` target for `x` starts another, which stops it (`MotionValue.start`). Its `onDragEnd` comes in the frame after the release starts.
+
+### Decisions
+
+Not grilled: Motion's behaviour, which the README's pattern assumes. Recorded on #340.
+
+1. **A Retarget that gives a free release's axis a new target takes `x`/`y` from it.** The release stops where it is, and the spring goes on from there at the release's velocity: each release frame's, kept on the Snapshot, or the release's own before its first frame. `Machine.inertiaVec`'s frames carry each axis's velocity for it.
+   - A new target is one a layer sets, different from the last Retarget's. A key a layer stops setting, a `whileTap` `y` at the release, stays where the drag dropped it (ADR-0022).
+   - On a one-axis release, only its axis counts: a new `y` leaves an `x` release be, as Motion's runs one animation per axis. On a two-axis release either counts, and both are taken: the other axis stops where it is (*Limits*).
+   - Rejected: waiting for the release, as before.
+2. **A release taken over tells no end**: no `onDragTransitionEnd`, no `next("dragTransitionEnd")`, as Motion's stopped animation never completes.
+3. **The app hears a free release's `"end"` once the release runs** (`onDragEnd`, `next("dragEnd")`), as Motion's `onDragEnd` comes after its release starts. A target set there finds the release to take. A layout node's order is as before.
+4. **`dragging` is handed back at the end of the takeover's task**, not in the Retarget that took it: a Solid 2 effect would be writing what it reads.
+   - Until then the drag holds nothing, so a Retarget in between leaves `x`/`y` on their way.
+   - The hand-back's own Retarget changes nothing else, so it is no new animation, as Motion's has none. The Retarget that took over goes on, lands, and is told as itself: `onAnimationComplete("right")`, not the hand-back's values.
+
+### What stays
+
+- While the pointer is down, the drag keeps `x`/`y`: a target set mid-drag waits for the release, and its end.
+- A Retarget that leaves `x`/`y` as they were (a `whileHover` ending, `opacity`) lets the release go on.
+- A layout node's Release offset (the projection's) is not affected. A grab still stops a release, and a press with no drag starts it again (*Amendment (#279)*).
+
+### Limits
+
+- A new target for one axis of a two-axis release stops both: the other stops where it is, where Motion's would glide on.
+- `whileDrag` stays on through a release, as before (ADR-0019); Motion's ends at the pointer's up. A takeover ends it with the hand-back.
+
+### Cost
+
+A Retarget compares its `x`/`y` targets with the last one's. `bench:solid` against main (11 paired reps, 1,000 elements, Chromium 147), warm:
+- Solid 1: mount +1.0%, Retarget −0.7%, at-rest Retarget +0.8%, unmount +0.3%;
+- Solid 2: mount −0.3%, Retarget +1.8%, at-rest Retarget +1.4%, unmount +1.9%;
+- bytes per element: −0.3% and +0.1%;
+- the plain-div control: −4.2%.
+
+None passes the gate.
+
+### Pinned by
+
+- `packages/solid/test/release-takeover.browser.test.tsx`, with the real mouse:
+  - RT1: a fling whose `onDragEnd` sets `x` flies on out, never back toward its slot;
+  - RT2: the release it stopped tells nothing;
+  - RT3: a Retarget that leaves `x` lets the release go on, home, and told;
+  - RT4: a target for `x` set while the pointer is down waits for the release;
+  - RT5: a new `y` on an `x` drag leaves the release be, then `y` goes to its target;
+  - RT6: a second Retarget before the hand-back leaves `x` on its way;
+  - RT7: `x` goes on at the release's speed; RT9: taken mid-release, at its speed there;
+  - RT8: a target that stops setting `x` lets the release go on, and it's told;
+  - RT10: the variant that took it over is told once, by its name.
+- `packages/solid/test/v2/swipe-dismiss.browser.test.tsx` SC6: the README's card flies on out from the release.
+- `packages/core/test/inertia.test.ts`: `inertiaVec`'s frames carry each axis's velocity.
+- On main, RT1, RT2, RT6, RT7, RT10 and SC6 fail. RT3–RT5 and RT8 pin what main already did; RT9 holds there too (the release just goes on), and pins the velocity a takeover mid-release carries. So do `base-values` M26 (a hover's `y` ending mid-fling) and v2 `drag` DG6b (a `whileTap` `y` the drag dropped), which an all-keys takeover broke.
+- Mutation-checked: 18 single-point mutations of the new code (`.tmp/340/mutate.py`); 15 fail the test meant for them. The 3 that survive each turn off the guard that keeps a release frame from writing after its takeover: the release is interrupted through the scheduler, so a frame could come between, and no test can time one there.
