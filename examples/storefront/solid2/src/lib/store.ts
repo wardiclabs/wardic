@@ -15,3 +15,7 @@ export const cart = query(() => Server.getCart(), "cart")
 export const orders = query(() => Server.getOrders(), "orders")
 
 export const settings = query(() => Server.getSettings(), "settings")
+
+export const visitorName = query(() => Server.getVisitorName(), "visitor-name")
+
+export const notices = query(() => Server.getNotices(), "notices")

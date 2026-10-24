@@ -20,6 +20,8 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Layout | Questions that open in place | `layout` with scale correction |
 | Layout | A cart drawer that keeps up | optimistic lines (Solid 1: pending submissions; Solid 2: an optimistic store) |
 | Layout | Order history in a scrolling panel | a re-sort through `animateLayout`, inside a scrolled panel |
+| Gestures | Notifications you swipe away | `drag="x"` with `dragSnapToOrigin`, a throw that flies on, an undo window, `<AnimatePresence mode="popLayout">` (Solid 2: one `action` around `next("settled")`) |
+| Gestures | A wishlist you rearrange by hand | `Reorder.Group` / `Reorder.Item` (Solid 1: each visitor's, saved with `onReorderEnd`; Solid 2: one list everyone shares, live across windows through `live()`) |
 
 ## Run it
 
@@ -40,7 +42,8 @@ The header's switches:
 
 The shop's data is served by server functions over one store, written in Effect (`shared/src/server`):
 - `Schema` decodes what each call is sent, and typed errors (`UnknownProduct`, `SimulatedFailure`, `InvalidArguments`) become a readable message at the edge (`runFor`).
-- Each part is a `Context.Service` with its `layer`: `Catalog`, `Carts`, `Orders`, `Latency`, and the `Visitor` each app provides from its cookie.
+- Each part is a `Context.Service` with its `layer`: `Catalog`, `Carts`, `Orders`, `Wishlists`, `Notifications`, `Latency`, and the `Visitor` each app provides from its cookie.
+- A wishlist move is "put it after this one", applied to the list as it is when it arrives, so it means the same whatever others moved meanwhile. `wishlistChanges` is the list now, then each change, as a `Stream` over a `PubSub`; `streamFor` hands it to a `live()` server function as an async iterable.
 - A visitor's past orders are made up from their id, the same each visit, dated back from the store's clock.
 - It keeps everything in memory for the server process's life. A restart empties every cart.
 
@@ -50,7 +53,7 @@ Its tests (`shared/test`) run with the repo's `bun run test`.
 
 `bun run test:storefront`, from the root, builds both apps and smoke-tests each production build. It opens every example's route in Chromium and checks:
 - the page answers with no error or warning logged, and no hydration mismatch;
-- the demo moves, then settles, after the clicks the example asks for (`interact`) when it waits for the visitor.
+- the demo moves, then settles, after the clicks or drags the example asks for (`interact`) when it waits for the visitor. A live feed's open connection doesn't count against the network going quiet.
 
 It also checks the store from the browser, in a context of its own: the visitor's cookie is kept, and the store settings' switch, an action whose settings the browser fetches again, still shows them.
 
@@ -58,7 +61,7 @@ Each page's screenshot lands in the app's `.smoke/`.
 
 ## Add an example
 
-1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, the selector the smoke test watches, and the clicks it makes first, if any.
+1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, the selector the smoke test watches, and the clicks it makes first, if any (a selector, or `drag:<selector>:<dx>:<dy>`).
 2. Its demo goes in each app's `src/examples/<id>/Demo.tsx`. That file is what the page shows as the code, so keep it about the pattern.
 3. Its route goes in `src/routes/<area>/<id>.tsx`, which renders `<ExamplePage id="<id>" demo={Demo} />`.
 4. If porting it from Motion isn't mechanical, its Motion version goes in `shared/motion/<id>.tsx` (React, `motion/react`), with the example's `motion` field naming it and saying what differs. The page shows it under "Coming from Motion". The shared package's `typecheck` checks it against `motion`, React and their types, which are its dev dependencies only.

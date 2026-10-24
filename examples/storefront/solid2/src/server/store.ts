@@ -5,15 +5,8 @@
  * The store decodes the arguments it was sent, and answers or rejects with a message a person can
  * read.
  */
-import { getRequestEvent } from "@solidjs/web"
 import * as Store from "@wardic/example-storefront-shared/server"
-
-/** The visitor the middleware found or made for this request. */
-const visitor = (): Store.VisitorInfo => {
-  const known = getRequestEvent()?.locals.visitor as Store.VisitorInfo | undefined
-  if (known === undefined) throw new Error("No visitor on the request: is the middleware wired?")
-  return known
-}
+import { visitor } from "./visitor.ts"
 
 export async function listProducts(category?: string) {
   return Store.runFor(visitor(), Store.listProducts(category))
@@ -37,6 +30,32 @@ export async function setCartQuantity(productId: string, quantity: number) {
 
 export async function getOrders() {
   return Store.runFor(visitor(), Store.getOrders)
+}
+
+/** The visitor's name, as the shared wishlist shows who moved what. */
+export async function getVisitorName() {
+  return visitor().name
+}
+
+/** Move a piece of the shared wishlist to just after another, or first: applied to its order as it is now. */
+export async function moveInSharedWishlist(productId: string, after: string | null) {
+  return Store.runFor(visitor(), Store.moveWishlistItem("shared", productId, after))
+}
+
+export async function resetSharedWishlist() {
+  return Store.runFor(visitor(), Store.resetWishlist("shared"))
+}
+
+export async function getNotices() {
+  return Store.runFor(visitor(), Store.getNotices)
+}
+
+export async function dismissNotice(id: string) {
+  return Store.runFor(visitor(), Store.dismissNotice(id))
+}
+
+export async function restoreNotices() {
+  return Store.runFor(visitor(), Store.restoreNotices)
 }
 
 export async function getSettings() {

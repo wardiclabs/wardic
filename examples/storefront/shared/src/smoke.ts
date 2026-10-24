@@ -17,7 +17,7 @@
 import { spawn } from "node:child_process"
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { type BrowserContext, chromium, type ConsoleMessage, type Page } from "playwright"
+import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Request } from "playwright"
 import { EXAMPLES, routeOf } from "./examples.ts"
 
 const APPS: Readonly<Record<string, { readonly port: number }>> = { solid1: { port: 4101 }, solid2: { port: 4102 } }
@@ -76,6 +76,45 @@ const sampleFrames = (page: Page, selector: string, ms: number): Promise<Readonl
     { selector, ms },
   )
 
+/**
+ * Waits for `page` to have loaded and its network to go quiet: no request open for half a second.
+ * As Playwright's `networkidle`, but a live feed (Solid 2's `live()`, under `/_server/live/`) stays
+ * open for as long as the page shows it, so it doesn't count.
+ */
+const quietOf = (page: Page): (() => Promise<void>) => {
+  const open = new Set<Request>()
+  page.on("request", (request) => {
+    if (!request.url().includes("/_server/live/")) open.add(request)
+  })
+  page.on("requestfinished", (request) => open.delete(request))
+  page.on("requestfailed", (request) => open.delete(request))
+  return async () => {
+    await page.waitForLoadState("load")
+    const start = Date.now()
+    let since = start
+    while (Date.now() - since < 500 && Date.now() - start < 30_000) {
+      if (open.size > 0) since = Date.now()
+      await page.waitForTimeout(50)
+    }
+  }
+}
+
+/**
+ * One of an example's steps: a click on a selector, or `drag:<selector>:<dx>:<dy>`, a press on its
+ * centre, a slow move by (dx, dy), and a release.
+ */
+const act = async (page: Page, step: string): Promise<void> => {
+  const drag = /^drag:(.+):(-?\d+):(-?\d+)$/.exec(step)
+  if (drag === null) return page.click(step)
+  const box = await page.locator(drag[1]!).boundingBox()
+  if (box === null) throw new Error(`smoke: nothing to drag at ${drag[1]}`)
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + Number(drag[2]), from.y + Number(drag[3]), { steps: 20 })
+  await page.mouse.up()
+}
+
 interface Result {
   readonly route: string
   readonly problems: ReadonlyArray<string>
@@ -91,12 +130,13 @@ const check = async (page: Page, route: string, watch: string | undefined, inter
   }
   page.on("console", onConsole)
   page.on("pageerror", onError)
+  const quiet = quietOf(page)
   const response = await page.goto(base + route, { waitUntil: "commit" })
   if (response === null || response.status() !== 200) problems.push(`status ${response?.status()}`)
   if (interact !== undefined) {
     // A demo that waits for the visitor: once it has hydrated, click it, then watch what that moves.
-    await page.waitForLoadState("networkidle")
-    for (const selector of [interact].flat()) await page.click(selector)
+    await quiet()
+    for (const step of [interact].flat()) await act(page, step)
   }
   if (watch !== undefined) {
     const samples = await sampleFrames(page, watch, 5000)
@@ -105,7 +145,7 @@ const check = async (page: Page, route: string, watch: string | undefined, inter
     if (!moved) problems.push(`"${watch}" never moved (${samples.length} frames sampled)`)
     else if (new Set(last).size !== 1) problems.push(`"${watch}" hadn't settled after 5 s`)
   }
-  await page.waitForLoadState("networkidle")
+  await quiet()
   await page.screenshot({ path: join(shots, `${route.replaceAll("/", "_") || "_"}.png`), fullPage: true })
   page.off("console", onConsole)
   page.off("pageerror", onError)

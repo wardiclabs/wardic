@@ -8,11 +8,14 @@
  * - **`Catalog`:** the twelve products, read-only.
  * - **`Carts`:** each visitor's cart, keyed by the visitor.
  * - **`Orders`:** each visitor's past orders, made up from their id, so they're the same each visit.
+ * - **`Wishlists`:** each visitor's own, and one every visitor shares, with a feed of its changes.
+ * - **`Notifications`:** what the shop has told each visitor, until they dismiss it.
  *
  * Everything lives in memory for the server process's lifetime: a showcase's store, reset by a
  * restart, shared by every visitor of the one process.
  */
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -20,11 +23,13 @@ import * as HashMap from "effect/HashMap"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as PubSub from "effect/PubSub"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { PRODUCTS } from "../catalog.ts"
-import { type Cart, type CartLine, Category, DEFAULT_SETTINGS, type Order, type OrderStatus, type Product, Settings } from "./model.ts"
+import { type Cart, type CartLine, Category, DEFAULT_SETTINGS, type Notice, type Order, type OrderStatus, type Product, ProductId, Settings, type Wishlist, WishlistScope } from "./model.ts"
 
 // --- Errors ----------------------------------------------------------------------------------
 
@@ -245,13 +250,137 @@ export class Orders extends Context.Service<
   ).pipe(Layer.provide(Catalog.layer))
 }
 
+// --- Wishlists -------------------------------------------------------------------------------
+
+/** What a wishlist starts with. */
+const WISHLIST_SEED: ReadonlyArray<string> = ["moon-vase", "tulip-bowl", "cut-carafe", "poppy-plate", "blossom-jar"]
+
+const freshWishlist = (): Wishlist => ({ items: WISHLIST_SEED, lastMove: undefined, version: 0 })
+
+/** `items` with `productId` moved to just after `after`, or first for `null`; at the end when `after` has gone. */
+const movedAfter = (items: ReadonlyArray<string>, productId: string, after: string | null): ReadonlyArray<string> => {
+  const rest = Arr.filter(items, (id) => id !== productId)
+  if (after === null) return Arr.prepend(rest, productId)
+  return Option.match(Arr.findFirstIndex(rest, (id) => id === after), {
+    onNone: () => Arr.append(rest, productId),
+    onSome: (index) => Arr.insertAt(rest, index + 1, productId).pipe(Option.getOrElse(() => Arr.append(rest, productId))),
+  })
+}
+
+/** A change to one list, as the feed carries it. */
+interface WishlistUpdate {
+  readonly listId: string
+  readonly wishlist: Wishlist
+}
+
+export class Wishlists extends Context.Service<
+  Wishlists,
+  {
+    readonly get: (listId: string) => Effect.Effect<Wishlist>
+    /** Move a piece to just after another, or first: applied to the list as it is now. */
+    readonly moveAfter: (listId: string, productId: string, after: string | null, by: string) => Effect.Effect<Wishlist>
+    /** Put a list back as it started. */
+    readonly reset: (listId: string, by: string) => Effect.Effect<Wishlist>
+    /** A list now, then after every change to it. */
+    readonly changes: (listId: string) => Stream.Stream<Wishlist>
+  }
+>()("@wardic/example-storefront/Wishlists") {
+  static readonly layer = Layer.effect(
+    Wishlists,
+    Effect.gen(function* () {
+      const lists = yield* Ref.make(HashMap.empty<string, Wishlist>())
+      const updates = yield* PubSub.unbounded<WishlistUpdate>()
+      const get = (listId: string) => Effect.map(Ref.get(lists), (all) => Option.getOrElse(HashMap.get(all, listId), freshWishlist))
+      const change = Effect.fnUntraced(function* (listId: string, f: (list: Wishlist) => Wishlist) {
+        const next = yield* Ref.modify(lists, (all) => {
+          const changed = f(Option.getOrElse(HashMap.get(all, listId), freshWishlist))
+          return [changed, HashMap.set(all, listId, changed)] as const
+        })
+        yield* PubSub.publish(updates, { listId, wishlist: next })
+        return next
+      })
+      return Wishlists.of({
+        get,
+        moveAfter: (listId, productId, after, by) =>
+          change(listId, (list) => {
+            if (Bool.not(Arr.contains(list.items, productId))) return list
+            return { items: movedAfter(list.items, productId, after), lastMove: { by, productId }, version: list.version + 1 }
+          }),
+        reset: (listId, by) => change(listId, (list) => ({ items: WISHLIST_SEED, lastMove: undefined, version: list.version + 1 })),
+        // Subscribed before the list is read, so no change slips between the two.
+        changes: (listId) =>
+          Stream.unwrap(
+            Effect.gen(function* () {
+              const subscription = yield* PubSub.subscribe(updates)
+              const now = yield* get(listId)
+              return Stream.concat(
+                Stream.make(now),
+                Stream.fromSubscription(subscription).pipe(
+                  Stream.filter((update) => update.listId === listId),
+                  Stream.map((update) => update.wishlist),
+                ),
+              )
+            }),
+          ),
+      })
+    }),
+  )
+}
+
+// --- Notifications ---------------------------------------------------------------------------
+
+/** What the shop has to tell every visitor, newest first. */
+const NOTICES: ReadonlyArray<Notice> = [
+  { id: "shipped", kind: "shipped", title: "Your order is on its way", body: "It left the studio this morning, wrapped in recycled paper." },
+  { id: "stock", kind: "stock", title: "Back in stock", body: "The Blossom Ginger Jar is back. Two left." },
+  { id: "price", kind: "price", title: "Price drop", body: "The Poppy Plate is now $48, down from $54." },
+  { id: "review", kind: "review", title: "How's your Moon Vase?", body: "Tell other collectors what you think of it." },
+]
+
+export class Notifications extends Context.Service<
+  Notifications,
+  {
+    /** The visitor's notifications, those they haven't dismissed. */
+    readonly list: Effect.Effect<ReadonlyArray<Notice>, never, Visitor>
+    readonly dismiss: (id: string) => Effect.Effect<ReadonlyArray<Notice>, never, Visitor>
+    /** Bring back every one the visitor dismissed. */
+    readonly restore: Effect.Effect<ReadonlyArray<Notice>, never, Visitor>
+  }
+>()("@wardic/example-storefront/Notifications") {
+  static readonly layer = Layer.effect(
+    Notifications,
+    Effect.gen(function* () {
+      const dismissed = yield* Ref.make(HashMap.empty<string, ReadonlyArray<string>>())
+      const shown = (gone: ReadonlyArray<string>) => Arr.filter(NOTICES, (notice) => Bool.not(Arr.contains(gone, notice.id)))
+      const goneFor = (visitorId: string) => Effect.map(Ref.get(dismissed), (all) => Option.getOrElse(HashMap.get(all, visitorId), () => Arr.empty<string>()))
+      return Notifications.of({
+        list: Effect.gen(function* () {
+          const visitor = yield* Visitor
+          return shown(yield* goneFor(visitor.id))
+        }),
+        dismiss: Effect.fnUntraced(function* (id: string) {
+          const visitor = yield* Visitor
+          const gone: ReadonlyArray<string> = Arr.append(yield* goneFor(visitor.id), id)
+          yield* Ref.update(dismissed, HashMap.set(visitor.id, gone))
+          return shown(gone)
+        }),
+        restore: Effect.gen(function* () {
+          const visitor = yield* Visitor
+          yield* Ref.update(dismissed, HashMap.remove(visitor.id))
+          return NOTICES
+        }),
+      })
+    }),
+  )
+}
+
 // --- The calls -------------------------------------------------------------------------------
 
 /** Every service the calls use. */
-export type Store = Latency | Catalog | Carts | Orders
+export type Store = Latency | Catalog | Carts | Orders | Wishlists | Notifications
 
 /** The store's services, built once per server process. */
-export const StoreLive: Layer.Layer<Store> = Layer.mergeAll(Latency.layer, Catalog.layer, Carts.layer, Orders.layer)
+export const StoreLive: Layer.Layer<Store> = Layer.mergeAll(Latency.layer, Catalog.layer, Carts.layer, Orders.layer, Wishlists.layer, Notifications.layer)
 
 /** A call: the visitor's latency step, then `effect`. */
 const call = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | SimulatedFailure, R | Latency | Visitor> =>
@@ -313,6 +442,69 @@ export const setCartQuantity = (productId: unknown, quantity: unknown) =>
 
 /** The visitor's past orders, newest first. */
 export const getOrders = call(Orders.use((orders) => orders.forVisitor))
+
+/** The id of the wishlist a scope names: the visitor's own, or the shared one. */
+const listIdOf = (scope: WishlistScope) => Visitor.useSync((visitor) => listIdFor(scope, visitor.id))
+
+const listIdFor = (scope: WishlistScope, visitorId: string): string => {
+  if (scope === "shared") return "shared"
+  return `mine:${visitorId}`
+}
+
+/** A wishlist: the visitor's (`"mine"`) or the one everyone shares (`"shared"`). */
+export const getWishlist = (scope: unknown) =>
+  call(
+    Effect.gen(function* () {
+      const listId = yield* listIdOf(yield* decoded(WishlistScope, scope))
+      return yield* Wishlists.use((wishlists) => wishlists.get(listId))
+    }),
+  )
+
+/** Move a piece of a wishlist to just after another (`after`), or first (`null`), in the list as it is now. */
+export const moveWishlistItem = (scope: unknown, productId: unknown, after: unknown) =>
+  call(
+    Effect.gen(function* () {
+      const listId = yield* listIdOf(yield* decoded(WishlistScope, scope))
+      const id = yield* decoded(ProductId, productId)
+      const anchor = yield* decoded(Schema.NullOr(ProductId), after)
+      const visitor = yield* Visitor
+      return yield* Wishlists.use((wishlists) => wishlists.moveAfter(listId, id, anchor, visitor.name))
+    }),
+  )
+
+/** Put a wishlist back as it started. */
+export const resetWishlist = (scope: unknown) =>
+  call(
+    Effect.gen(function* () {
+      const listId = yield* listIdOf(yield* decoded(WishlistScope, scope))
+      const visitor = yield* Visitor
+      return yield* Wishlists.use((wishlists) => wishlists.reset(listId, visitor.name))
+    }),
+  )
+
+/** A wishlist now, then after every change to it: what a live read yields. No latency step: it's a feed. */
+export const wishlistChanges = (scope: unknown) =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const listId = yield* listIdOf(yield* decoded(WishlistScope, scope))
+      return yield* Wishlists.use((wishlists) => Effect.succeed(wishlists.changes(listId)))
+    }),
+  )
+
+/** The visitor's notifications. */
+export const getNotices = call(Notifications.use((notifications) => notifications.list))
+
+/** Dismiss one of the visitor's notifications. */
+export const dismissNotice = (id: unknown) =>
+  call(
+    Effect.gen(function* () {
+      const notice = yield* decoded(Schema.String, id)
+      return yield* Notifications.use((notifications) => notifications.dismiss(notice))
+    }),
+  )
+
+/** Bring back the visitor's dismissed notifications. */
+export const restoreNotices = call(Notifications.use((notifications) => notifications.restore))
 
 /** The visitor's switches: read without the latency step, so the settings panel always answers. */
 export const getSettings = Latency.use((latency) => latency.settings)

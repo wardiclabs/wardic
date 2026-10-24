@@ -44,6 +44,30 @@ export async function getOrders() {
   return Store.runFor(visitor(), Store.getOrders)
 }
 
+export async function getMyWishlist() {
+  return Store.runFor(visitor(), Store.getWishlist("mine"))
+}
+
+export async function moveInMyWishlist(productId: string, after: string | null) {
+  return Store.runFor(visitor(), Store.moveWishlistItem("mine", productId, after))
+}
+
+export async function resetMyWishlist() {
+  return Store.runFor(visitor(), Store.resetWishlist("mine"))
+}
+
+export async function getNotices() {
+  return Store.runFor(visitor(), Store.getNotices)
+}
+
+export async function dismissNotice(id: string) {
+  return Store.runFor(visitor(), Store.dismissNotice(id))
+}
+
+export async function restoreNotices() {
+  return Store.runFor(visitor(), Store.restoreNotices)
+}
+
 export async function getSettings() {
   return Store.runFor(visitor(), Store.getSettings)
 }

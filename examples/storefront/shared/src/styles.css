@@ -1458,6 +1458,153 @@ button.product-card:hover .photo {
   }
 }
 
+/* --- The wishlist ------------------------------------------------------------------------- */
+
+.wishlist {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 560px;
+}
+
+.wishlist-head {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wish-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wish {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  box-shadow: var(--shadow-s);
+  cursor: grab;
+  user-select: none;
+}
+
+.wish:active {
+  cursor: grabbing;
+}
+
+.wish img {
+  border-radius: var(--radius-s);
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.wish-text {
+  display: grid;
+  gap: 2px;
+}
+
+.grip {
+  padding: 0 var(--space-3);
+  color: var(--muted);
+  letter-spacing: -0.2em;
+}
+
+.wishlist-foot {
+  min-height: 1.6em;
+}
+
+.moved-by {
+  font-size: var(--text-s);
+}
+
+/* --- Notifications ------------------------------------------------------------------------ */
+
+.notices {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 560px;
+}
+
+.notices-head {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notice-list {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A row holds its card, and "Dismissed · Undo" in the card's place once it has flown off. */
+.notice-row {
+  position: relative;
+}
+
+.notice {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  box-shadow: var(--shadow-s);
+  cursor: grab;
+  user-select: none;
+}
+
+.notice:active {
+  cursor: grabbing;
+}
+
+.notice[data-kind="shipped"] {
+  border-left-color: var(--ok);
+}
+
+.notice[data-kind="price"] {
+  border-left-color: var(--danger);
+}
+
+.notice[data-kind="review"] {
+  border-left-color: var(--muted);
+}
+
+/* Flown off, it's see-through, and mustn't take the Undo's clicks. */
+.notice.out {
+  pointer-events: none;
+}
+
+.notice-undo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-m);
+  font-size: var(--text-s);
+  color: var(--muted);
+}
+
+.notices-empty {
+  margin: 0;
+}
+
 .skeleton {
   border-radius: var(--radius-m);
   background: linear-gradient(90deg, var(--tile), color-mix(in srgb, var(--tile) 60%, var(--surface)), var(--tile));

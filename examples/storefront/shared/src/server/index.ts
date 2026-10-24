@@ -10,23 +10,31 @@ import * as Exit from "effect/Exit"
 import * as Match from "effect/Match"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Predicate from "effect/Predicate"
+import * as Stream from "effect/Stream"
 import { type Store, StoreLive, type StoreError, Visitor, type VisitorInfo } from "./store.ts"
 
 export * from "./model.ts"
 export {
   addToCart,
+  dismissNotice,
   getCart,
+  getNotices,
   getOrders,
   getProduct,
   getSettings,
+  getWishlist,
   InvalidArguments,
   listProducts,
+  moveWishlistItem,
+  resetWishlist,
+  restoreNotices,
   setCartQuantity,
   setSettings,
   SimulatedFailure,
   UnknownProduct,
   visitorFromId,
   type VisitorInfo,
+  wishlistChanges,
 } from "./store.ts"
 
 /** The store, built once per server process, shared by every visitor of it. */
@@ -42,6 +50,17 @@ const messageOf: (error: StoreError) => string = Match.type<StoreError>().pipe(
 
 /** Whether a squashed cause is one of the store's typed failures. */
 const isStoreError = (u: unknown): u is StoreError => Predicate.hasProperty(u, "_tag")
+
+/** A store failure as the `Error` a person reads. */
+const readable = (error: StoreError): Error => new Error(messageOf(error))
+
+/**
+ * A store feed for `visitor`, as an async iterable: what a `live()` server function yields from. It
+ * runs while it's iterated, and stops when the reader does; a failure throws from the iteration
+ * with a message a person can read.
+ */
+export const streamFor = <A>(visitor: VisitorInfo, stream: Stream.Stream<A, StoreError, Store | Visitor>): Promise<AsyncIterable<A>> =>
+  runtime.runPromise(Stream.toAsyncIterableEffect(stream.pipe(Stream.provideService(Visitor, visitor), Stream.mapError(readable))))
 
 /** Run a store call for `visitor`: its value, or a rejection with a readable message. */
 export const runFor = <A>(visitor: VisitorInfo, call: Effect.Effect<A, StoreError, Store | Visitor>): Promise<A> =>
