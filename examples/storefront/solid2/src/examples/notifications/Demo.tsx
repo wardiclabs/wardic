@@ -68,6 +68,7 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
   const [undoable, setUndoable] = createOptimistic(false)
   // The side it leaves by, once the store has it: its row then goes, and the card stays off.
   const [gone, setGone] = createSignal<Side>("right")
+  // The card's ward, made here with what reads it (`next`, `each`), and given to its element (#349).
   const card = ward({
     drag: "x",
     dragSnapToOrigin: true,
@@ -117,10 +118,10 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
           </wardic.p>
         </Show>
       </AnimatePresence>
-      <article class={["notice", { out: out() !== undefined }]} data-kind={props.notice().kind} {...card}>
+      <wardic.article class={["notice", { out: out() !== undefined }]} data-kind={props.notice().kind} wardRef={card}>
         <strong>{props.notice().title}</strong>
         <span class="muted">{props.notice().body}</span>
-      </article>
+      </wardic.article>
     </wardic.li>
   )
 }

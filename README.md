@@ -327,7 +327,7 @@ On SVG, the attributes that are also CSS properties play too: `opacity`, `fill`,
 
 `@wardic/solid/unstable/v2` is Wardic for Solid 2, tracking its release candidate: last tested with `solid-js` and `@solidjs/web` **2.0.0-rc.18**. Any release may change it. Once Solid 2.0 is stable it becomes `@wardic/solid`, and the Solid 1 binding moves to `@wardic/solid/v1`.
 
-Its element primitive is `ward(config)`: a ref that carries its props. Make it once, in a component's body (or a `<For>` callback), then spread it, which puts its starting style in server HTML, or give it to `ref`, client-only:
+Its element primitive is `ward(config)`: a ref that carries its props. Make it once, in a component's body (or a `<For>` callback), then give it to a Wardic component's `wardRef`, which drives its element with it (#349), or spread it on a plain element. Either way its starting style goes in server HTML. Given to `ref`, it's client-only:
 
 ```tsx
 import { ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -335,7 +335,7 @@ import { ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 function Card(props: { open: boolean }) {
   // A key that changes is an accessor (or a getter, a store's property, a component's prop).
   const card = ward({ initial: { opacity: 0 }, animate: () => ({ opacity: 1, x: props.open ? 100 : 0 }), style: { color: "red" } })
-  return <div {...card} class="card" />
+  return <wardic.div wardRef={card} class="card" />   // or spread: <div {...card} class="card" />
 }
 
 <div ref={ward({ animate: { scale: 1.1 } })} />                  // client-only
@@ -344,12 +344,12 @@ function Card(props: { open: boolean }) {
 
 - **A config is read per key.** Each key is a value, or an accessor of it: `animate: () => …`, a getter, a store's property (`ward(store)`), or a component's prop (`ward(props)`, which is what `<wardic.div>` does). A change re-runs only what reads that key, so a `style` change doesn't re-resolve `animate`. A plain value is a constant, as a literal prop is: `ward({ animate: { x: x() } })` reads `x` once. `initial`, `drag` and its settings, and `layout` and its keys are read once, at setup (a Layout mode at each layout animation's start). The callbacks (`onUpdate`, `onReorder`) are functions as they are. The whole config as an accessor (`ward(() => ({ … }))`) isn't taken: a key's accessor does the same, read only where that key is. For a store, make it shallow (`createStore(config, { shallow: true })`, its values replaced whole): on the bench it Retargets 3–7% faster than a deep one, whose values are proxies. A deep store works too, a deep set (`draft.animate.opacity = 1`) included.
 - `{...ward(config)}` inline doesn't work: Solid 2 runs a spread's expression again on every update, making a new ward each time, and Wardic throws when it sees one. Keep the ward in a variable.
-- **`card.with({ ref, style })`** gives the element's own ref and style where the ward is spread, as Solid 1's `ward({ ref, style })` does (#264). Its style goes over the config's, key by key, and its ref is called beside the ward's: a `ref` written after the spread would replace the ward's own. It's for a style made after the ward, such as Motion's swipe card, whose opacity comes from its own `x`:
+- **The element's own `style` and `ref`** go beside a given ward as props: the style over the config's, key by key, the ref beside the ward's. On a spread, `card.with({ ref, style })` gives them, as Solid 1's `ward({ ref, style })` does (#264): a `ref` written after the spread would replace the ward's own. It's for a style made after the ward, such as Motion's swipe card, whose opacity comes from its own `x`:
 
   ```tsx
   const swipe = ward({ drag: "x", dragSnapToOrigin: true })
   const opacity = createTransform(swipe.read("x"), [-150, 0, 150], [0, 1, 0])
-  return <div {...swipe.with({ style: { opacity } })} />
+  return <wardic.div wardRef={swipe} style={{ opacity }} />   // spread: <div {...swipe.with({ style: { opacity } })} />
   ```
 - A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`. Their keys complete from the config: every key it animates or styles, through `initial`, `animate`, `exit`, its variants, `whileHover`, `whileTap`, `whileDrag` and `style`, and `x`/`y` when it drags. Any other key is accepted too.
 - Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, which isn't a ref. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
@@ -359,7 +359,7 @@ function Card(props: { open: boolean }) {
   ```tsx
   const x = createMemo(() => api.position(id()))   // async
   const card = ward({ initial: { x: 0 }, animate: () => ({ x: x() }) })
-  <Loading fallback={<Skeleton />}><div {...card} /></Loading>
+  <Loading fallback={<Skeleton />}><wardic.div wardRef={card} /></Loading>
   ```
 - **A spring's target that you both derive and set** is Solid's writable memo, given to `createSpring`. A write springs there, and the next change of what it derives from springs to that. Keep anything derived from a ward's value on its Atom (`read`, `createTransform`, `createSpring`), not in a memo: a memo over `card.read("x")` paints a frame behind the card.
 
@@ -368,8 +368,8 @@ function Card(props: { open: boolean }) {
   const x = createSpring(target)
   setTarget(150)   // springs to 150; open()'s next change springs to its value
   ```
-- Reorder has factories that are refs too: `const list = reorderGroup({ values: items, onReorder: setItems })` goes on the `<ul>` (`<ul {...list}>`), and `reorderItem(list, { value })` on each `<li>`. Each item is a ward. An item's own `tabindex` and `aria-describedby` go in its config, so the keyboard reorder's instructions are kept. `Reorder.Group` and `Reorder.Item` are there too.
-- **Saving a new order, optimistically:** a group tells `{ values, value, from, to }` once at the end of each user reorder that changed the order: `list.next("reorderEnd")` for one, `list.each("reorderEnd")` for all of them, as an async iterable (a `<Reorder.Group>` hands its group over with `groupRef`). A memo over `each` holds the latest as an async value, and an effect saves it:
+- Reorder has factories that are refs too: `const list = reorderGroup({ values: items, onReorder: setItems })`, given to `<Reorder.Group groupRef={list}>`, and `reorderItem(list, { value })`, given to each `<Reorder.Item wardRef={row}>` (#349). Spread, they go on a `<ul>` (`<ul {...list}>`) and its `<li>`s. Each item is a ward. An item's own `tabindex` and `aria-describedby` go in its config, so the keyboard reorder's instructions are kept. `Reorder.Group` and `Reorder.Item` also take their config as props, as Motion's do.
+- **Saving a new order, optimistically:** a group tells `{ values, value, from, to }` once at the end of each user reorder that changed the order: `list.next("reorderEnd")` for one, `list.each("reorderEnd")` for all of them, as an async iterable (a `<Reorder.Group>` made from its props hands its own group to a function in `groupRef`). A memo over `each` holds the latest as an async value, and an effect saves it:
 
   ```tsx
   function TaskList() {
@@ -396,14 +396,14 @@ function Card(props: { open: boolean }) {
     return (
       <>
         <Show when={saveError()}>{(error) => <p role="alert">Couldn't save the order: {error().message}</p>}</Show>
-        <ul {...list}>
+        <Reorder.Group groupRef={list}>
           <For each={order()}>
             {(task) => {
               const row = reorderItem(list, { value: task })
-              return <li {...row}>{task.title}</li>
+              return <Reorder.Item wardRef={row}>{task.title}</Reorder.Item>
             }}
           </For>
-        </ul>
+        </Reorder.Group>
       </>
     )
   }
@@ -450,11 +450,11 @@ function Card(props: { open: boolean }) {
       </For>
     </Reorder.Group>
     ```
-- Motion's `onAnimationStart` and `onAnimationComplete` aren't props or config keys here; a ward hands its landings over as async values instead (#257, ADR-0046). `card.settled()` is the last landing (`{ definition, target, gestures }`), `undefined` before the first, and pending while an animation runs, so `isPending(() => card.settled())` is "animating". `await card.next("settled")` waits for the next landing, in a handler or an action; it rejects with an `AbortError` if the ward is disposed first. Motion's gesture callbacks are `next` names too: `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"` (each with the pointer's `point`) and `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"` (with `point`, `offset`, `delta` and `velocity`), and `"dragTransitionEnd"`, once the release comes to rest (not one a new target for `x` or `y` took over: it stops there, and the new animation goes on from where it was, at its speed, as Motion's does, #340); a pan's `"panSessionStart"`, `"panStart"`, `"pan"` and `"panEnd"`, a pan that has started counting as a drag for its press, so `next("tap")` doesn't come after a swipe. Their `point` is in the viewport, as `clientX` and `getBoundingClientRect()` are, not the page as Motion's: `document.elementsFromPoint(point.x, point.y)` finds what a drag was dropped on. A component hands its ward over with `wardRef`: `<wardic.div wardRef={(card) => …}>`, and on `wardic.create(Component)` and `Reorder.Item`. Read `settled()` under `<Loading>`, as any async value; a read outside one still works, and Solid's dev build warns of it. On `<wardic.div>`, `onAnimationStart` is the DOM's CSS `animationstart` event, and `onDrag`, `onDragStart` and `onDragEnd` are the DOM's drag and drop.
+- Motion's `onAnimationStart` and `onAnimationComplete` aren't props or config keys here; a ward hands its landings over as async values instead (#257, ADR-0046). `card.settled()` is the last landing (`{ definition, target, gestures }`), `undefined` before the first, and pending while an animation runs, so `isPending(() => card.settled())` is "animating". `await card.next("settled")` waits for the next landing, in a handler or an action; it rejects with an `AbortError` if the ward is disposed first. Motion's gesture callbacks are `next` names too: `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"` (each with the pointer's `point`) and `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"` (with `point`, `offset`, `delta` and `velocity`), and `"dragTransitionEnd"`, once the release comes to rest (not one a new target for `x` or `y` took over: it stops there, and the new animation goes on from where it was, at its speed, as Motion's does, #340); a pan's `"panSessionStart"`, `"panStart"`, `"pan"` and `"panEnd"`, a pan that has started counting as a drag for its press, so `next("tap")` doesn't come after a swipe. Their `point` is in the viewport, as `clientX` and `getBoundingClientRect()` are, not the page as Motion's: `document.elementsFromPoint(point.x, point.y)` finds what a drag was dropped on. A ward made in your component is read where you made it, and given to the element's `wardRef` (#349). A component's own ward is handed over through a function there instead: `<wardic.div wardRef={(card) => …}>`, and on `wardic.create(Component)` and `Reorder.Item`. Read `settled()` under `<Loading>`, as any async value; a read outside one still works, and Solid's dev build warns of it. On `<wardic.div>`, `onAnimationStart` is the DOM's CSS `animationstart` event, and `onDrag`, `onDragStart` and `onDragEnd` are the DOM's drag and drop.
 
   ```tsx
   const card = ward({ animate: () => (open() ? "open" : "shut"), variants })
-  <div {...card} />
+  <wardic.div wardRef={card} />
   <Loading><p>{isPending(() => card.settled()) ? "moving" : card.settled()?.definition}</p></Loading>
 
   // A drop target, found where the drag ended.
@@ -500,7 +500,7 @@ function Card(props: { open: boolean }) {
 
     return (
       <>
-        <article {...card}>{props.notice.text}</article>
+        <wardic.article wardRef={card}>{props.notice.text}</wardic.article>
         <Show when={undoable()}><p>Dismissed · <button onClick={() => undoNow()}>Undo</button></p></Show>
       </>
     )

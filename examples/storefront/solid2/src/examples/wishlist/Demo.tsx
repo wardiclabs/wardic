@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product, Wishlist } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, Reorder, type ReorderGroup, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, Reorder, reorderGroup, wardic } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, Show, until, untrack } from "solid-js"
 import { visitorName } from "~/lib/store.ts"
 import { moveInSharedWishlist, resetSharedWishlist } from "~/server/store.ts"
@@ -46,11 +46,14 @@ export default function SharedWishlist() {
     yield until(() => server().version >= saved.version)
   })
 
-  // The group's holds and reorders, read as async values, the browser's (`ssrSource: "client"`): a
-  // server has none to tell. A hold's start puts the piece in my hand, a drag's or a keyboard lift's;
-  // a reorder that changed the order is a move to save, with the piece and the order it left; the
-  // hold's end, after it, lets the piece go.
-  const hearHolds = (list: ReorderGroup<string>): void => {
+  // The list: its Reorder group made here and given to `Reorder.Group` (#349), beside what hears it.
+  // The group's holds and reorders are async values the browser reads (`ssrSource: "client"`): a
+  // server has none to tell, and a memo like that is made under a `<Loading>`, as the list is. A
+  // hold's start puts the piece in my hand, a drag's or a keyboard lift's; a reorder that changed the
+  // order is a move to save, with the piece and the order it left; the hold's end, after it, lets the
+  // piece go.
+  const List = () => {
+    const list = reorderGroup({ values: order, onReorder: setMine })
     const started = createMemo(() => list.each("holdStart"), { ssrSource: "client" })
     const reordered = createMemo(() => list.each("reorderEnd"), { ssrSource: "client" })
     const ended = createMemo(() => list.each("holdEnd"), { ssrSource: "client" })
@@ -65,6 +68,28 @@ export default function SharedWishlist() {
       setMine(undefined)
       setHeld(undefined)
     })
+    return (
+      <Reorder.Group class="wish-list" groupRef={list}>
+        <For each={order()}>
+          {(id) => (
+            <Reorder.Item class="wish" value={id} data-id={id}>
+              <img src={photoOf(id).small} width="56" height="56" alt="" draggable={false} />
+              <Show when={productOf(id)}>
+                {(product) => (
+                  <span class="wish-text">
+                    <strong>{product().name}</strong>
+                    <span class="muted">{formatPrice(product().price)}</span>
+                  </span>
+                )}
+              </Show>
+              <span class="grip" aria-hidden="true">
+                ⋮⋮
+              </span>
+            </Reorder.Item>
+          )}
+        </For>
+      </Reorder.Group>
+    )
   }
 
   const productOf = (id: string): Product | undefined => PRODUCTS.find((product) => product.id === id)
@@ -93,26 +118,7 @@ export default function SharedWishlist() {
         </button>
       </header>
       <Loading fallback={<p class="muted">Loading the wishlist…</p>}>
-        <Reorder.Group class="wish-list" values={order()} onReorder={setMine} groupRef={hearHolds}>
-          <For each={order()}>
-            {(id) => (
-              <Reorder.Item class="wish" value={id} data-id={id}>
-                <img src={photoOf(id).small} width="56" height="56" alt="" draggable={false} />
-                <Show when={productOf(id)}>
-                  {(product) => (
-                    <span class="wish-text">
-                      <strong>{product().name}</strong>
-                      <span class="muted">{formatPrice(product().price)}</span>
-                    </span>
-                  )}
-                </Show>
-                <span class="grip" aria-hidden="true">
-                  ⋮⋮
-                </span>
-              </Reorder.Item>
-            )}
-          </For>
-        </Reorder.Group>
+        <List />
       </Loading>
       <Loading>
         <div class="wishlist-foot">
