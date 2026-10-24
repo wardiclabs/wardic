@@ -74,3 +74,67 @@ export const hydrateFixture2 = async (name: string, code: () => JSX.Element): Pr
   const claimed = (k: string): boolean => server.has(k) && host.querySelector(`[data-k="${k}"]`) === server.get(k)
   return { host, html, head, headNodes, claimed, dispose: cleanup }
 }
+
+/** Run each `<script>` under `root` as the parser would: an `innerHTML` one doesn't. */
+const runScripts = (root: ParentNode): void => {
+  for (const old of [...root.querySelectorAll("script")]) {
+    const script = document.createElement("script")
+    script.textContent = old.textContent
+    old.replaceWith(script)
+  }
+}
+
+/** A landed write's node: a `<script>` run as a parser would, or the scripts inside it. */
+const runLanded = (node: Node): void => {
+  if (node instanceof HTMLScriptElement) {
+    const script = document.createElement("script")
+    script.textContent = node.textContent
+    node.replaceWith(script)
+    return
+  }
+  if (node instanceof Element) runScripts(node)
+}
+
+/**
+ * Stream fixture `name` (`renderToStream`, #343) and hydrate it with `code` once every write has
+ * landed: the shell in a host, each later write after it, their scripts run as a parser would. What a
+ * server serialized for the page (an async memo's value) is on `_$HY` when hydration starts.
+ */
+export const hydrateStreamed2 = async (name: string, code: () => JSX.Element): Promise<Hydrated2> => {
+  const { writes, head, script, error } = await commands.serverStream2(FIXTURES_FILE, name, name)
+  if (error !== "") throw new Error(`stream of ${name} failed: ${error}`)
+  const headNodes = appendHtml(document.head, head)
+  injectHydrationScript(script)
+  // A page before its JS has no client fragment handler (`_$HY.f`), so a chunk's `$df` places it
+  // itself; an earlier test's hydration installed one on this shared page, put back to hydrate.
+  const hy = (globalThis as { _$HY?: Record<string, unknown> })._$HY!
+  const clientFragments = hy.f
+  delete hy.f
+  const [shell = "", ...later] = writes
+  const host = document.createElement("div")
+  host.innerHTML = shell
+  document.body.append(host)
+  runScripts(host)
+  const landed: Array<Node> = []
+  for (const write of later) {
+    const nodes = appendHtml(document.body, write)
+    landed.push(...nodes)
+    for (const node of nodes) runLanded(node)
+  }
+  const server = new Map([...host.querySelectorAll<HTMLElement>("[data-k]")].map((el) => [el.dataset.k!, el]))
+  if (clientFragments !== undefined && hy.f === undefined) hy.f = clientFragments
+  hy.done = false
+  const dispose = hydrate(code, host, { renderId: name })
+  let done = false
+  const cleanup = (): void => {
+    if (done) return
+    done = true
+    dispose()
+    host.remove()
+    for (const node of [...headNodes, ...landed]) if (node.parentNode !== null) node.parentNode.removeChild(node)
+  }
+  cleanups.push(cleanup)
+  const claimed = (k: string): boolean => server.has(k) && host.querySelector(`[data-k="${k}"]`) === server.get(k)
+  return { host, html: writes.join(""), head, headNodes, claimed, dispose: cleanup }
+}
+

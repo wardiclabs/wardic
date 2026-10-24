@@ -339,3 +339,25 @@ The one that survived is a failure told for a Retarget no longer in flight, with
 **Mutation-checked:** the count set at once in `started` (SE8, SE11, ER2, ER4…) and a landing leaving the count (SE6) are caught. A failure setting it too survived, since the start's microtask already sets it a microtask later, and was taken out.
 
 *Note (#325, 2026-10-23):* a Retarget lands when every key it resolves has landed, the keys it carries included: a key whose target didn't change keeps its running Leg (ADR-0005, *Amendment (#325)*, Q2 B). `settled()`, `next("settled")` and Solid 1's `onAnimationComplete` hear it then, and a list's name waits for its carried keys too. Motion's completion counts only the animations a change started. *Amendment (#257 item 4)* said no Leg of an older Retarget can fail after a newer one starts. A carried Leg can, and its failure fails the newer Retarget, the one it counts toward.
+
+## Note (#343, 2026-10-24): a ward's events through a memo, on a page rendered on the server
+
+The README reads a card's releases as an async value: `createMemo(() => card.each("dragEnd"))` and an effect. On a page rendered on the server, that broke:
+- A server's `each` ends at once: nothing happens there.
+- A streamed render serializes the memo's answer, `undefined`, and hydration adopts it.
+- The effect ran once with `undefined` and never heard a release.
+
+A minimal Solid 2 app without Wardic does the same, on rc.15 and rc.18.
+
+- **The form to use:** `createMemo(() => card.each(name), { ssrSource: "client" })`, made under a `<Loading>`. Solid computes it in the browser only. Outside a `<Loading>`, the server's render fails with `ASYNC_OUTSIDE_LOADING_BOUNDARY`.
+  - An event that carries no value (`layoutStart`, `layoutComplete`, `dragTransitionEnd`, `viewportEnter`, `viewportLeave`) needs `equals: false`, or the memo sees no change.
+  - A memo keeps the latest event: two in one task run its effect once. `for await` sees each.
+- **Where it's used:**
+  - the README's swipe pattern;
+  - `each`'s doc;
+  - the Solid 2 layout lab's scenario 17, which renders in the browser only: `equals: false`, and the same counts as its loops gave;
+  - the storefront's notifications (#342).
+- **Not done:** a server `each` that Solid leaves to the browser by itself (#343's option 2). Today only the memo's `ssrSource` says so.
+- **Pinned by** `test/v2/each-memo.hydrate.browser.test.tsx`, a streamed render hydrated:
+  - HE1: the documented form hears nothing at hydration, then the release;
+  - HE2: a plain memo adopts the server's `undefined` and never hears the release. If Solid changes that, the README can say less.

@@ -455,8 +455,8 @@ function Card(props: { open: boolean }) {
       refresh(props.list)                            // the list, without it
     })
 
-    // The latest release, as an async value; an effect dismisses on a fling.
-    const released = createMemo(() => card.each("dragEnd"))
+    // The latest release, as an async value, the browser's; an effect dismisses on a fling.
+    const released = createMemo(() => card.each("dragEnd"), { ssrSource: "client" })
     createEffect(released, (release) => {
       const flung = Math.abs(release.offset.x) >= 120 || Math.abs(release.velocity.x) >= 600
       if (flung) dismiss(release.offset.x < 0 ? "left" : "right").catch(() => toast("Couldn't dismiss it"))
@@ -470,6 +470,11 @@ function Card(props: { open: boolean }) {
     )
   }
   ```
+
+  **A ward's events as an async value:** a memo over `each(name)` holds the latest one, and an effect runs on each.
+  - On a page rendered on the server, give the memo `ssrSource: "client"` and make it under a `<Loading>`, as Solid asks of any source a server can't run. A server's `each` ends at once, and a streamed render hands its `undefined` to hydration, which keeps it: the effect gets `undefined` and never a release (#343).
+  - An event that carries no value (`layoutStart`, `layoutComplete`, `dragTransitionEnd`, `viewportEnter`, `viewportLeave`) needs `equals: false` too, or the memo sees no change.
+  - A memo keeps only the latest event, so two in one task run the effect once. To see every one, use `for await`.
 
   **When an animation fails,** it never lands. That happens with a `transition` Wardic rejects (a `repeat: 1.5`, or a `duration` from a setting that came back `NaN`) or a step that throws. So `next("settled")` rejects with the error, `settled()` throws it (a read in JSX goes to the nearest `<Errored>`), and `each("settled")` throws it. The next animation that starts clears it. In the card above, a fly-out that fails makes `dismiss` throw: the optimistic side reverts, and the `catch` shows its toast. Before, `dismiss` waited for good. The failure is logged and reported to your `ErrorReporter` either way, so a ward whose outcome nothing reads can't stop the app. Misusing Wardic (a ward made inside a spread, `Reorder.Item` outside a group, no `<WardicProvider>`) throws where `<Errored>` catches it too. An `onUpdate` that throws every frame is logged once per run of throws.
 - Layout is async too (#257, ADR-0046). `useAnimateLayout()`'s call returns a promise of its callback's result, resolved once every layout animation the change started has ended: `await animateLayout(() => setItems(shuffled()))`, then re-enable the button. Calls in one task resolve together, and the provider's disposal rejects one still waiting with an `AbortError`. A layout element's animations are `next("layoutStart")` and `next("layoutComplete")` (and `each`), where Solid 1 has `onLayoutAnimationStart` / `onLayoutAnimationComplete` and `animateLayout`'s `onSettled`.

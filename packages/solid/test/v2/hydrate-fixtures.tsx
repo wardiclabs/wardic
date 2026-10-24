@@ -32,8 +32,9 @@ import {
 import type { JSX } from "@solidjs/web"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom } from "effect/reactivity"
-import { type Component, createMemo, createSignal, For, Loading, Reveal, Show } from "solid-js"
+import { type Component, createEffect, createMemo, createSignal, For, Loading, Reveal, Show } from "solid-js"
 
 /** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
 let env: WardicEnv = DomLive
@@ -370,3 +371,39 @@ export const A9 = (): JSX.Element => {
     </Reveal>
   ))
 }
+
+/** What HE1–HE2's card heard: each release's `offset.x` through the memo, or `undefined`. */
+export const heard: Array<number | undefined> = []
+
+/**
+ * A card whose releases are read as an async value (#343): a memo over `card.each("dragEnd")` with
+ * `options`, and an effect. Made under a `<Loading>`, and streamed from a server, whose `each` ends
+ * at once.
+ */
+const releasedWith = (options: { readonly ssrSource?: "client" }) => (): JSX.Element => {
+  const card = ward({ drag: "x" })
+  const released = createMemo(() => card.each("dragEnd"), options)
+  createEffect(released, (release) => {
+    heard.push(UndefinedOr.map(release, (r) => r.offset.x))
+  })
+  return <div data-k="card" {...card} style={{ width: "80px", height: "40px", background: "#8af" }} />
+}
+const ReleasedInBrowser = releasedWith({ ssrSource: "client" })
+const ReleasedPlain = releasedWith({})
+
+/** HE1: the README's form, `ssrSource: "client"`. */
+export const HE1 = (): JSX.Element =>
+  page(() => (
+    <Loading fallback={<p>loading</p>}>
+      <ReleasedInBrowser />
+    </Loading>
+  ))
+
+/** HE2: a plain memo over `each`. */
+export const HE2 = (): JSX.Element =>
+  page(() => (
+    <Loading fallback={<p>loading</p>}>
+      <ReleasedPlain />
+    </Loading>
+  ))
+

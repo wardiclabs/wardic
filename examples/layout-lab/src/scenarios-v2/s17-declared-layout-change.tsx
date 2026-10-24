@@ -27,7 +27,7 @@
  */
 import { useAnimateLayout, type Ward, wardic } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
-import { createSignal, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"
 
 /** The scenario id, also the View root's `data-scenario` value. */
@@ -115,14 +115,19 @@ const View: ScenarioDef["View"] = (props) => {
     const t = tally()
     if (t !== undefined) props.ctx.mark(`settled: ${t.starts} starts, ${t.completes} completes`)
   }
-  /** A tile's ward: each of its layout animations' starts and landings counted, until it's disposed. */
+  /**
+   * A tile's ward: each of its layout animations' starts and landings counted, read as async values
+   * and an effect on each. They carry no value, so `equals: false`: each one is a change.
+   */
   const hear = (card: Ward): void => {
-    void (async () => {
-      for await (const _start of card.each("layoutStart")) onStart()
-    })()
-    void (async () => {
-      for await (const _landing of card.each("layoutComplete")) onComplete()
-    })()
+    const started = createMemo(() => card.each("layoutStart"), { equals: false })
+    const landed = createMemo(() => card.each("layoutComplete"), { equals: false })
+    createEffect(started, () => {
+      onStart()
+    })
+    createEffect(landed, () => {
+      onComplete()
+    })
   }
 
   /** The row, one place on: A moves 100 px or more each time. */

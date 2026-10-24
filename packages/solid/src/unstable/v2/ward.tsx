@@ -320,14 +320,17 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
    */
   readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
   /**
-   * Every `name` from the call on, as an async iterable (#257), for `for await`: each step waits
-   * as `next(name)` does, so one that comes while the loop's body runs is missed. The loop ends
-   * once the ward is disposed, with no `AbortError`.
+   * Every `name` from the call on, as an async iterable (#257): read through a memo, whose effect
+   * runs on the latest, or in a `for await`. On a page rendered on the server the memo is the
+   * browser's, `ssrSource: "client"`, made under a `<Loading>` (#343): a server's ends at once. A
+   * loop's each step waits as `next(name)` does, so one that comes while its body runs is missed; the
+   * loop ends once the ward is disposed, with no `AbortError`.
    *
    * ```tsx
-   * for await (const release of card.each("dragEnd")) {
-   *   if (Math.abs(release.offset.x) >= 120) await dismiss(release.offset.x < 0 ? "left" : "right")
-   * }
+   * const released = createMemo(() => card.each("dragEnd"), { ssrSource: "client" })
+   * createEffect(released, (release) => {
+   *   if (Math.abs(release.offset.x) >= 120) dismiss(release.offset.x < 0 ? "left" : "right")
+   * })
    * ```
    */
   readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
