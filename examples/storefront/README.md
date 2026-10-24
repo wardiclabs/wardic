@@ -6,7 +6,20 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 |---|---|---|
 | [`solid1`](solid1) | SolidStart 2.1 on Solid 1.9, `@wardic/solid` | Solid 1 patterns: `createAsync` over Solid Router's `query`, `action`, `<Suspense>` |
 | [`solid2`](solid2) | Solid 2 on `@solidjs/vite-plugin` (`start: true`, `ssr: true`, `serverFunctions: { components: true }`), `@wardic/solid/unstable/v2` | Solid 2 patterns: async memos under `<Loading>`, server components, and the binding's async values |
-| [`shared`](shared) | | What both use: the catalog and photos, the stylesheet, the examples' words, the store, the smoke test |
+| [`shared`](shared) | | What both use: the catalog and photos, the stylesheet, the examples' words, the store, the Motion snippets, the smoke test |
+
+## The examples
+
+| Area | Example | Shows |
+|---|---|---|
+| Entrances | The product grid | `variants`, `staggerChildren` |
+| Layout | A product opens into its detail view | `layoutId` twins between a scrolled page and a `position: fixed` view, `layout="position"` |
+| Layout | Filter the shop, switch the view | `layout` with `<AnimatePresence mode="popLayout">`, a grid ↔ list switch |
+| Layout | Tabs on a product page | a `layoutId` indicator, `<AnimatePresence mode="wait">` |
+| Layout | Add to cart, and see it's done | a button whose width follows its label |
+| Layout | Questions that open in place | `layout` with scale correction |
+| Layout | A cart drawer that keeps up | optimistic lines (Solid 1: pending submissions; Solid 2: an optimistic store) |
+| Layout | Order history in a scrolling panel | a re-sort through `animateLayout`, inside a scrolled panel |
 
 ## Run it
 
@@ -27,7 +40,8 @@ The header's switches:
 
 The shop's data is served by server functions over one store, written in Effect (`shared/src/server`):
 - `Schema` decodes what each call is sent, and typed errors (`UnknownProduct`, `SimulatedFailure`, `InvalidArguments`) become a readable message at the edge (`runFor`).
-- Each part is a `Context.Service` with its `layer`: `Catalog`, `Carts`, `Latency`, and the `Visitor` each app provides from its cookie.
+- Each part is a `Context.Service` with its `layer`: `Catalog`, `Carts`, `Orders`, `Latency`, and the `Visitor` each app provides from its cookie.
+- A visitor's past orders are made up from their id, the same each visit, dated back from the store's clock.
 - It keeps everything in memory for the server process's life. A restart empties every cart.
 
 Its tests (`shared/test`) run with the repo's `bun run test`.
@@ -36,15 +50,18 @@ Its tests (`shared/test`) run with the repo's `bun run test`.
 
 `bun run test:storefront`, from the root, builds both apps and smoke-tests each production build. It opens every example's route in Chromium and checks:
 - the page answers with no error or warning logged, and no hydration mismatch;
-- the demo moves, then settles.
+- the demo moves, then settles, after the clicks the example asks for (`interact`) when it waits for the visitor.
+
+It also checks the store from the browser, in a context of its own: the visitor's cookie is kept, and the store settings' switch, an action whose settings the browser fetches again, still shows them.
 
 Each page's screenshot lands in the app's `.smoke/`.
 
 ## Add an example
 
-1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, and the selector the smoke test watches.
+1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, the selector the smoke test watches, and the clicks it makes first, if any.
 2. Its demo goes in each app's `src/examples/<id>/Demo.tsx`. That file is what the page shows as the code, so keep it about the pattern.
 3. Its route goes in `src/routes/<area>/<id>.tsx`, which renders `<ExamplePage id="<id>" demo={Demo} />`.
+4. If porting it from Motion isn't mechanical, its Motion version goes in `shared/motion/<id>.tsx` (React, `motion/react`), with the example's `motion` field naming it and saying what differs. The page shows it under "Coming from Motion". The shared package's `typecheck` checks it against `motion`, React and their types, which are its dev dependencies only.
 
 ## The photos
 

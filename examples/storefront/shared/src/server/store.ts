@@ -7,11 +7,13 @@
  *   they asked the next call to, so loading states and rollbacks show when someone wants to see them.
  * - **`Catalog`:** the twelve products, read-only.
  * - **`Carts`:** each visitor's cart, keyed by the visitor.
+ * - **`Orders`:** each visitor's past orders, made up from their id, so they're the same each visit.
  *
  * Everything lives in memory for the server process's lifetime: a showcase's store, reset by a
  * restart, shared by every visitor of the one process.
  */
 import * as Arr from "effect/Array"
+import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as HashMap from "effect/HashMap"
@@ -22,7 +24,7 @@ import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { PRODUCTS } from "../catalog.ts"
-import { type Cart, type CartLine, Category, DEFAULT_SETTINGS, type Product, Settings } from "./model.ts"
+import { type Cart, type CartLine, Category, DEFAULT_SETTINGS, type Order, type OrderStatus, type Product, Settings } from "./model.ts"
 
 // --- Errors ----------------------------------------------------------------------------------
 
@@ -50,11 +52,11 @@ export class Visitor extends Context.Service<Visitor, VisitorInfo>()("@wardic/ex
 
 const NAMES = ["Fox", "Heron", "Otter", "Wren", "Lynx", "Finch", "Hare", "Moth", "Badger", "Plover", "Vole", "Kestrel"] as const
 
+/** A number from a string, the same each time. */
+const hashOf = (text: string): number => Arr.reduce(Arr.fromIterable(text), 0, (sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0)
+
 /** A visitor from their cookie's id, named after an animal by the id, so the name stays the same each visit. */
-export const visitorFromId = (id: string): VisitorInfo => {
-  const hash = Arr.reduce(Arr.fromIterable(id), 0, (sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0)
-  return { id, name: UndefinedOr.getOrThrow(NAMES[hash % NAMES.length]) }
-}
+export const visitorFromId = (id: string): VisitorInfo => ({ id, name: UndefinedOr.getOrThrow(NAMES[hashOf(id) % NAMES.length]) })
 
 // --- Latency ---------------------------------------------------------------------------------
 
@@ -171,13 +173,85 @@ export class Carts extends Context.Service<
   ).pipe(Layer.provide(Catalog.layer))
 }
 
+// --- Orders ----------------------------------------------------------------------------------
+
+const ORDER_COUNT = 14
+const DAY = 86_400_000
+
+/** A number in [0, 1) from `seed` and `n`, the same each time (a 32-bit integer hash). */
+const noise = (seed: number, n: number): number => {
+  const a = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) >>> 0, 0x85ebca6b) >>> 0
+  const b = Math.imul((a ^ (a >>> 13)) >>> 0, 0xc2b2ae35) >>> 0
+  return ((b ^ (b >>> 16)) >>> 0) / 4_294_967_296
+}
+
+/** An integer in [0, `below`) from `seed` and `n`. */
+const pick = (seed: number, n: number, below: number): number => Math.floor(noise(seed, n) * below)
+
+/** Where an order placed `daysAgo` days ago has got to. */
+const statusOf = (daysAgo: number): OrderStatus => {
+  if (daysAgo <= 2) return "Preparing"
+  if (daysAgo <= 6) return "On its way"
+  return "Delivered"
+}
+
+/** Order `i` of a visitor whose id hashes to `seed`, placed `daysAgo` days before `now`. */
+const orderOf = (products: ReadonlyArray<Product>, seed: number, now: number, i: number, daysAgo: number): Order => {
+  const lines = Arr.dedupeWith(
+    Arr.makeBy(1 + pick(seed, i * 7, 3), (k): CartLine => ({
+      productId: UndefinedOr.getOrThrow(products[pick(seed, i * 7 + 1 + k, products.length)]).id,
+      quantity: 1 + pick(seed, i * 7 + 4 + k, 2),
+    })),
+    (a, b) => a.productId === b.productId,
+  )
+  const priceOf = (id: string): number => Option.getOrThrow(Arr.findFirst(products, (product) => product.id === id)).price
+  return {
+    id: `KC-${10_000 + (ORDER_COUNT - i) * 37 + pick(seed, i * 7 + 6, 30)}`,
+    placedOn: new Date(now - daysAgo * DAY).toISOString().slice(0, 10),
+    status: statusOf(daysAgo),
+    lines,
+    total: Arr.reduce(lines, 0, (sum, line) => sum + priceOf(line.productId) * line.quantity),
+  }
+}
+
+/** A visitor's orders up to `now`, newest first: the first placed a day or two ago, the rest weeks apart. */
+const ordersOf = (products: ReadonlyArray<Product>, visitorId: string, now: number): ReadonlyArray<Order> => {
+  const seed = hashOf(visitorId)
+  const gaps = Arr.makeBy(ORDER_COUNT, (i) => 1 + pick(seed, 1000 + i, Math.min(2 + i * 6, 30)))
+  const daysAgo = Arr.scan(gaps, 0, (sum, gap) => sum + gap).slice(1)
+  return Arr.map(daysAgo, (days, i) => orderOf(products, seed, now, i, days))
+}
+
+export class Orders extends Context.Service<
+  Orders,
+  {
+    /** The visitor's past orders, newest first. */
+    readonly forVisitor: Effect.Effect<ReadonlyArray<Order>, never, Visitor>
+  }
+>()("@wardic/example-storefront/Orders") {
+  static readonly layer = Layer.effect(
+    Orders,
+    Effect.gen(function* () {
+      const catalog = yield* Catalog
+      const products = yield* catalog.all
+      return Orders.of({
+        forVisitor: Effect.gen(function* () {
+          const visitor = yield* Visitor
+          const now = yield* Clock.currentTimeMillis
+          return ordersOf(products, visitor.id, now)
+        }),
+      })
+    }),
+  ).pipe(Layer.provide(Catalog.layer))
+}
+
 // --- The calls -------------------------------------------------------------------------------
 
 /** Every service the calls use. */
-export type Store = Latency | Catalog | Carts
+export type Store = Latency | Catalog | Carts | Orders
 
 /** The store's services, built once per server process. */
-export const StoreLive: Layer.Layer<Store> = Layer.mergeAll(Latency.layer, Catalog.layer, Carts.layer)
+export const StoreLive: Layer.Layer<Store> = Layer.mergeAll(Latency.layer, Catalog.layer, Carts.layer, Orders.layer)
 
 /** A call: the visitor's latency step, then `effect`. */
 const call = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | SimulatedFailure, R | Latency | Visitor> =>
@@ -236,6 +310,9 @@ export const setCartQuantity = (productId: unknown, quantity: unknown) =>
       return yield* carts.setQuantity(id, howMany)
     }),
   )
+
+/** The visitor's past orders, newest first. */
+export const getOrders = call(Orders.use((orders) => orders.forVisitor))
 
 /** The visitor's switches: read without the latency step, so the settings panel always answers. */
 export const getSettings = Latency.use((latency) => latency.settings)

@@ -16,6 +16,7 @@ export * from "./model.ts"
 export {
   addToCart,
   getCart,
+  getOrders,
   getProduct,
   getSettings,
   InvalidArguments,

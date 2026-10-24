@@ -9,6 +9,8 @@
 //   product is `UnknownProduct`; each visitor has a cart of their own.
 // - ST5: a visitor's name comes from their id, the same each visit.
 // - ST6: `runFor`, the apps' edge, answers with the value, or rejects with a message a person can read.
+// - ST7: a visitor's orders are the same each visit, newest first, placed up to now, each total its
+//   lines' prices; the newest few are still on their way; another visitor's differ.
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -16,7 +18,8 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as TestClock from "effect/testing/TestClock"
 import { runFor } from "../src/server/index.ts"
-import { addToCart, getCart, getSettings, listProducts, setCartQuantity, setSettings, StoreLive, Visitor, visitorFromId } from "../src/server/store.ts"
+import { PRODUCTS } from "../src/catalog.ts"
+import { addToCart, getCart, getOrders, getSettings, listProducts, setCartQuantity, setSettings, StoreLive, Visitor, visitorFromId } from "../src/server/store.ts"
 
 const ADA = visitorFromId("ada")
 const BO = visitorFromId("bo")
@@ -110,4 +113,30 @@ describe("the storefront's store (#296)", () => {
     await runFor(visitor, setSettings({ delay: 0, failNext: true }))
     await expect(runFor(visitor, getCart)).rejects.toThrow("you asked the next request to fail")
   })
+
+  it.effect("ST7: a visitor's orders are the same each visit, newest first, each total its lines' prices", () =>
+    fresh(
+      Effect.gen(function* () {
+        yield* as(ADA, noDelay)
+        yield* as(BO, noDelay)
+        // A year in, so the newest orders are recent and the oldest still after 1970.
+        yield* TestClock.adjust("365 days")
+        const today = new Date(365 * 86_400_000).toISOString().slice(0, 10)
+        const orders = yield* as(ADA, getOrders)
+        expect(orders).toHaveLength(14)
+        expect(yield* as(ADA, getOrders), "the same next visit").toEqual(orders)
+        const days = orders.map((order) => order.placedOn)
+        expect(days, "newest first").toEqual([...days].sort().reverse())
+        expect(days.every((day) => day < today), "all placed before today").toBe(true)
+        expect(new Set(orders.map((order) => order.id)).size, "numbers unique").toBe(14)
+        const price = (id: string) => PRODUCTS.find((product) => product.id === id)!.price
+        for (const order of orders) {
+          expect(order.lines.length).toBeGreaterThan(0)
+          expect(order.total).toBe(order.lines.reduce((sum, line) => sum + price(line.productId) * line.quantity, 0))
+        }
+        expect(orders[0]!.status, "the newest is still being prepared").toBe("Preparing")
+        expect(orders.at(-1)!.status).toBe("Delivered")
+        expect(yield* as(BO, getOrders), "another visitor's differ").not.toEqual(orders)
+      }),
+    ))
 })

@@ -8,6 +8,10 @@ import * as Server from "~/server/store.ts"
 
 export const products = query((category?: string) => Server.listProducts(category), "products")
 
+export const product = query((id: string) => Server.getProduct(id), "product")
+
 export const cart = query(() => Server.getCart(), "cart")
+
+export const orders = query(() => Server.getOrders(), "orders")
 
 export const settings = query(() => Server.getSettings(), "settings")

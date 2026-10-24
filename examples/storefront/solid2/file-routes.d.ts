@@ -51,6 +51,48 @@ declare module "virtual:file-routes" {
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/index")>;
       $$route?: undefined;
+    },
+    {
+      path: "/layout/add-to-cart";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/add-to-cart")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/layout/browse";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/browse")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/layout/cart-drawer";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/cart-drawer")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/layout/delivery-faq";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/delivery-faq")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/layout/order-history";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/order-history")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/layout/product-detail";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-detail")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/layout/product-tabs";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-tabs")>;
+      $$route?: undefined;
     }
   ];
   export default routes;
@@ -70,6 +112,62 @@ declare module "virtual:file-routes" {
       id: "/*404";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/[...404]")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/browse";
+      id: "/layout/browse";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/browse")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/add-to-cart";
+      id: "/layout/add-to-cart";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/add-to-cart")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/cart-drawer";
+      id: "/layout/cart-drawer";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/cart-drawer")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/delivery-faq";
+      id: "/layout/delivery-faq";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/delivery-faq")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/product-tabs";
+      id: "/layout/product-tabs";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-tabs")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/order-history";
+      id: "/layout/order-history";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/order-history")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/layout/product-detail";
+      id: "/layout/product-detail";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-detail")>;
       $$route?: undefined;
       children?: undefined;
     },

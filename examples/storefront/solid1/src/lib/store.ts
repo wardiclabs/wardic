@@ -8,7 +8,23 @@ import * as Server from "./server.ts"
 
 export const products = query((category?: string) => Server.listProducts(category), "products")
 
+export const product = query((id: string) => Server.getProduct(id), "product")
+
 export const cart = query(() => Server.getCart(), "cart")
+
+/** Add to the cart; the header's count and any open cart read it again. */
+export const addToCart = action(async (productId: string, quantity: number) => {
+  await Server.addToCart(productId, quantity)
+  return revalidate(cart.key)
+}, "add-to-cart")
+
+/** Set a cart line's quantity; 0 removes it. */
+export const setCartQuantity = action(async (productId: string, quantity: number) => {
+  await Server.setCartQuantity(productId, quantity)
+  return revalidate(cart.key)
+}, "set-cart-quantity")
+
+export const orders = query(() => Server.getOrders(), "orders")
 
 export const settings = query(() => Server.getSettings(), "settings")
 
@@ -18,3 +34,5 @@ export const saveSettings = action(async (next: Settings) => {
 }, "save-settings")
 
 export const highlighted = query((exampleId: string) => Server.highlightedSource(exampleId), "highlighted")
+
+export const highlightedMotion = query((file: string) => Server.highlightedMotion(file), "highlighted-motion")
