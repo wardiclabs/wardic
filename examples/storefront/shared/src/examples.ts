@@ -174,10 +174,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     why: [
       "A swipe should feel like brushing a card off the table: it follows your finger sideways, and if you let go gently it springs back. Throw it, far enough or fast enough, and it keeps going the way you threw it, at the speed you threw it. Each card is draggable on x only, snapping back to where it was unless the release counts as a throw.",
       "A dismissal you can't take back is unkind, so the request waits. The card flies off, \"Dismissed · Undo\" takes its place for four seconds, and only then is the store told. An undo, or a store that refuses, brings the card back the way it went.",
-      "When the store has it, the row leaves the list at once and the rows below glide up into the gap: the list is an `AnimatePresence` in `popLayout` mode, and each row a `layout` element. On Solid 2 the card's throw, its landing, the undo window and the request are one `action`, waiting on the card's `next(\"settled\")`.",
+      "When the store has it, the row leaves the list at once and the rows below glide up into the gap: the list is an `AnimatePresence` in `popLayout` mode, and each row a `layout` element. On Solid 2 the card's throw, its landing, the undo window and the request are one `action`, waiting on the card's `next(\"settled\")`. The card's ward is made in its row, beside that action and the releases it reads, and given to the card's `wardic.article` through `wardRef`.",
     ],
     reducedMotion: "The card still follows your finger; a throw sends it off at once, and the rows below move up at once.",
-    uses: ["drag=\"x\"", "dragSnapToOrigin", "AnimatePresence mode=\"popLayout\"", "next(\"settled\") in an action (Solid 2)"],
+    uses: ["drag=\"x\"", "dragSnapToOrigin", "AnimatePresence mode=\"popLayout\"", "next(\"settled\") in an action (Solid 2)", "a ward given to wardRef (Solid 2)"],
     interact: ['drag:.notice-row[data-id="shipped"] .notice:220:0'],
     watch: '.notice-row[data-id="shipped"] .notice',
   },
@@ -189,10 +189,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     why: [
       "Rearranging a list should feel like moving things on a table: the piece follows your hand, the others slide out of its way, and when you let go it settles into the gap. Each piece is a `Reorder.Item` in a `Reorder.Group`. The group changes the order as the piece you hold passes its neighbours, and every other piece animates to its new place.",
       "The order is saved when you let go, once per drag, as \"put it after this one\": the store applies that to its order as it is then, so it means the same whatever else changed meanwhile.",
-      "On Solid 2 the list is shared by every visitor. The page arrives with the order as it was when the server rendered it, then follows a `live()` server function, which sends the order again each time anyone moves a piece. Other people's moves glide into place while you watch. While you hold a piece, dragged or lifted with the keys, theirs move around it, but yours stays in your hand, and your drop shows at once while it's saved. The group tells each hold's start and end, and each reorder, and the page reads them from Wardic as async values: `holdStart`, `reorderEnd` and `holdEnd`.",
+      "On Solid 2 the list is shared by every visitor. The page arrives with the order as it was when the server rendered it, then follows a `live()` server function, which sends the order again each time anyone moves a piece. Other people's moves glide into place while you watch. While you hold a piece, dragged or lifted with the keys, theirs move around it, but yours stays in your hand, and your drop shows at once while it's saved. The group tells each hold's start and end, and each reorder, and the page reads them from Wardic as async values: `holdStart`, `reorderEnd` and `holdEnd`. The group is made with `reorderGroup()` beside those reads, and given to `Reorder.Group` through `groupRef`.",
     ],
     reducedMotion: "The piece you hold still follows your hand; the others move to their new places at once, and so does the drop.",
-    uses: ["Reorder.Group", "Reorder.Item", "live() and the group's holds (Solid 2)"],
+    uses: ["Reorder.Group", "Reorder.Item", "live() and the group's holds (Solid 2)", "a group given to groupRef (Solid 2)"],
     motion: {
       file: "wishlist.tsx",
       note: "Motion's `Reorder.Group` tells each step of a drag (`onReorder`), not its end, so a Motion list saves from each item's `onDragEnd` and keeps where the drag began itself. Wardic's group also tells `onReorderEnd`: once a gesture, only when the order changed, with the piece and where it went, and for a keyboard reorder too. The Solid 1 app saves with it. The Solid 2 app reads it as `list.each(\"reorderEnd\")`, with the group's `holdStart` and `holdEnd`, which keep the piece in your hand, dragged or lifted, while other people's moves arrive.",
