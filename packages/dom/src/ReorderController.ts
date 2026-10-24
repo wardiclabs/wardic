@@ -18,6 +18,9 @@ import * as ProjectionSystem from "./ProjectionSystem.ts"
 
 export {
   type ReorderEnd as End,
+  type ReorderHoldEnd as HoldEnd,
+  type ReorderHoldHow as HoldHow,
+  type ReorderHoldStart as HoldStart,
   type ReorderItemDriver as ItemDriver,
   DEFAULT_REORDER_INSTRUCTIONS as DEFAULT_INSTRUCTIONS,
   REORDER_GROUP_STYLE as GROUP_STYLE,

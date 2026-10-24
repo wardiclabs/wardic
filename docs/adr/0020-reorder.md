@@ -180,3 +180,57 @@ An app that saves a new order wants it shown at once, and put back if the save f
 - Solid 2's events never told, `groupRef` never called, or its disposal leaving them;
 - the server's `each` never ending;
 - Solid 1's prop or config never wired.
+
+## Amendment (#348, 2026-10-24): a hold, from its start to its end
+
+A group told a reorder's end, but not when an item was taken in hand, nor a hold that ended with nothing changed. A pointer drag had its item's `dragStart` and `dragEnd`; a **Keyboard reorder**'s lift told nothing. The storefront's shared wishlist (#296) keeps the piece in your hand where you put it while other visitors' moves arrive. It could do that for a drag, but not for a lift. CONTEXT.md names it: a **Hold**.
+
+**Grilled 2026-10-24, all recommended options:**
+1. **On the group (Q1),** beside `reorderEnd`. One pair for any item, pointer or keys, built once in `@wardic/dom`'s `ReorderController` (`onHoldStart`, `onHoldEnd`).
+   - Solid 2: `list.next` / `list.each("holdStart" | "holdEnd")`.
+   - Solid 1: `onHoldStart` / `onHoldEnd` on `Reorder.Group` and in `createReorderGroup`'s config.
+   - Rejected: the items' wards, wired per item; both.
+2. **A pointer hold starts at the drag's start (Q2),** past its threshold, with its Drag claim: the item's `dragStart`, Motion's `onDragStart`. A press that never drags is no hold, nor is a drag a parent claims. A keyboard hold starts at the lift.
+   - Rejected: the press, which makes every click a hold.
+3. **Every hold ends exactly once (Q3),** whatever ends it:
+   - a release, moved or not;
+   - a pointer cancel or a lost release;
+   - a keyboard drop (key, focus leaving, a press, the app changing `values`, lifting another);
+   - Escape;
+   - the item unmounting mid-hold.
+
+   The group's own disposal ends `each` as before, with no end. Rejected: a user's ends only, which leaves an app's held state set after an unmount.
+4. **Payloads (Q4):**
+   - start: `{ value, from }`;
+   - end: `{ values, value, from, to, how }`, `reorderEnd`'s fields plus `how`:
+     - `"drop"`: any release or drop, a pointer cancel included;
+     - `"cancel"`: Escape, the order put back;
+     - `"unmount"`, with `to` `-1` once the item is out of the values.
+
+   Rejected: the input (`"pointer" | "keyboard"`) too; the value alone.
+5. **`reorderEnd`, then `holdEnd` (Q5),** in one task, when the order changed. An app that saves on the first and clears its held state on the second never shows the old order between them.
+6. **`holdStart` / `holdEnd` (Q6).** Rejected:
+   - `reorderStart` / `reorderStop`: Stop and End read alike;
+   - `grab` / `release`: pointer words, and a release is already a drag's.
+7. **One at a time (Q7),** as core's single gesture slot already is.
+   - A hold's start ends the open one first: a lift is dropped where it is (its `reorderEnd` if it moved, then its end), and another item's drag ends as if released.
+   - That drag's later release tells nothing more.
+   - Keys during a drag were already left alone, so only a drag after a lift meets this, and only when its press didn't move focus (focus leaving had dropped the lift).
+
+**Built:**
+- `@wardic/dom`'s controller keeps the open hold, its item, its input and its start index. It tells the start at a drag's start sample and at a lift.
+- It tells the end in each of a lift's ends: `dropLifted`, Escape, an unmount. For a drag, at its end sample or its unmount; a drag a later hold took over tells nothing more.
+- The types are `ReorderController.HoldStart<V>`, `HoldEnd<V>` and `HoldHow`.
+- Solid 1 passes the two props through; Solid 2 tells them on the group's `Waiters`, as `reorderEnd`.
+
+**Found on the way: a lift dropped by its own values.** A lift ends when the app changes `values` (ADR-0037), told by the binding re-reading them: Solid 1's `on(() => values)`, Solid 2's effect. Both re-read when anything the values are made of changes, even if the array comes out the same. The controller counted any array but the last one it handed out (`asked`) as the app's, and a lift with no move yet had handed none out. So the first harmless re-read dropped it. The storefront's wishlist re-reads them at each hold's start, and its keyboard reorder stopped working. Now the values a lift begins with count as the group's own.
+
+**Pinned by** `reorder-hold.browser.test.tsx` (Solid 1, HO1–HO11) and `v2/reorder-hold.browser.test.tsx` (Solid 2, HD1–HD11), with the real mouse and keys:
+- a drag's start at the drag, not the press, then `reorderEnd` and its end;
+- a click is no hold; a drag dropped back ends with no `reorderEnd`;
+- a lift dropped elsewhere; Escape as a `cancel`; focus leaving;
+- a drag after a lift whose press moved no focus ends the lift first, each hold ending once;
+- the dragged item unmounting, its release telling nothing more; another item unmounting, leaving the hold be; an item unmounting after its hold ended, telling nothing more;
+- a lift outlives a re-read of the values that changes nothing (HO11, HD11, which fail before the fix above).
+
+On the controller before this change, all but "a click is no hold" fail in both. Mutation-checked: 11 single-point mutations of the controller (`.tmp/348/mutate.py`); 10 fail the tests meant for them. The one that survives drops the guard on a drag another hold took over. That needs two drags at once, which the Drag claim refuses on a group's axis (ADR-0019, *Amendment (#29)*), unless the items take none (`dragPropagation`).

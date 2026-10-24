@@ -132,6 +132,8 @@ export interface SceneOptions {
   readonly whileDrag?: WardicValues
   /** Through `reorderGroup` / `reorderItem` on a plain `ul` / `li`, not the components. */
   readonly factories?: boolean
+  /** Read with the values, so a change to it re-reads them, unchanged (#348). */
+  readonly alsoRead?: Accessor<unknown>
 }
 
 export interface Scene {
@@ -181,11 +183,16 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     reorderTimes.push(performance.now())
     setOrder(values)
   }
+  /** The values, read with `alsoRead` when there is one. */
+  const values = (): ReadonlyArray<string> => {
+    o.alsoRead?.()
+    return order()
+  }
   const components = (): JSX.Element => (
     <Reorder.Group
       ref={(el: HTMLElement) => (groupEl = el)}
       groupRef={(group: ReorderGroup<string>) => (list = group)}
-      values={order()}
+      values={values()}
       onReorder={onReorder}
       axis={o.axis?.()}
       {...optional("as", o.groupAs)}
@@ -201,7 +208,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     </Reorder.Group>
   )
   const Factories = (): JSX.Element => {
-    const group = reorderGroup({ values: order, onReorder, axis: () => o.axis?.(), style: () => ({ ...groupCss(o), ...o.groupStyle?.() }) })
+    const group = reorderGroup({ values, onReorder, axis: () => o.axis?.(), style: () => ({ ...groupCss(o), ...o.groupStyle?.() }) })
     list = group
     move = group.move
     return (
