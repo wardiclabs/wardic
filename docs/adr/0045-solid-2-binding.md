@@ -462,6 +462,19 @@ Item 2 asked whether `createProjection`, Solid 2's derived store, should replace
 
 - **Why:** the same-frame rule (PR 3b). A value derived from a ward's paints in the ward's frame only on its Atom: `read(key)` gives an accessor that carries it, and a `style` given one follows the Atom, set where the gate writes. A projection's property is read through Solid, which shows a change at its flush, after the gate's write, so whatever is derived from `card.values.x` would paint a frame late. A property can't carry an Atom as an accessor does.
 - **The issue's three internal uses stay probes, not API:** the resolved target compared by value (`sameResolution`) as a projection's diff, `live-style.ts`'s `split` / `reconcile` of the user's style, and Reorder's `values` indexed by value. Each is taken up only if a probe shows it's cheaper or simpler than what's there.
+  - **The first was probed, and found #325.** A diff of changed keys was meant to tell the spine which keys to Retarget. It showed the spine restarted every key it resolved, where Motion keeps an unchanged key's animation running. The spine now compares each key's target against its running Leg's itself, so the diff wasn't needed, and `sameResolution` stays the target memo's equality (ADR-0005, *Amendment (#325)*).
+  - **The other two weren't probed before #257 closed:** #327.
+
+## #257 item 11: the copies into Atoms stay effects (2026-10-23)
+
+Item 11 asked whether the two effects that copy a Solid value into an Atom should be derivations. Solid's guide *Avoid unnecessary effects* replaces an effect that copies one reactive value into another with a writable memo (`createSignal(fn)`) or a projection writing into its draft. **Q1: A, no change.**
+
+- **The two copies:**
+  - **`mirrorOf`** (`live-value.ts`): a plain accessor given to `createSpring`, `createVelocity` and the other helpers is copied into an Atom, as those helpers run on Atoms.
+  - **`read(key)`'s resting mirror** (`ward.tsx`): where the key rests, its `style` value, is copied into an Atom, so `read` combines it with the gate's output in the same frame.
+- **Why:** the guide's own rule says when an effect is right: "Does a settled reactive result need to leave Solid and drive an imperative system? Use an effect." Both copies write into an `AtomRegistry`, which Solid doesn't own. A writable memo or a projection gives another Solid value, so either would still need an effect to reach the Atom: the same mirror, with a Solid node in front of it.
+- **The cost the guide names, a copy a step behind its source,** is known: the Atom gets the value at Solid's effect phase. That's why a value derived from a ward carries its Atom (`read` and the helpers), and only a plain accessor is mirrored (PR 3b's same-frame rule).
+- **No probe:** the guide answers it. Rejected: a probe anyway (B), which could only measure a node added in front of the same effect.
 
 ## #257 item 10: streams stay fibers into signals (2026-10-23)
 
