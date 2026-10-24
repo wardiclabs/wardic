@@ -687,9 +687,27 @@ const unpaintedOf = (node: NodeState, box: Box.Box): Box.Box => {
 
 /**
  * A box in twin `from`'s frame, in twin `to`'s (ADR-0012, *Amendment (#136)*): through
- * where it paints, so twins under different transforms meet on screen.
+ * where it paints, so twins under different transforms meet on screen, and out of `from`'s fold
+ * into `to`'s (*Amendment (#331)*), so twins in different scroll frames do too: a scrolled
+ * container, or a `position: fixed` element, between them. The folds are the last pass's, sampled
+ * with the page's scroll at `rootScroll`.
  */
-const between = (from: NodeState, to: NodeState, box: Box.Box): Box.Box => unpaintedOf(to, paintedOf(from, box))
+const between = (from: NodeState, to: NodeState, box: Box.Box, rootScroll: Point.Point): Box.Box =>
+  unpaintedOf(to, acrossFolds(from.fold, to.fold, paintedOf(from, box), rootScroll))
+
+/**
+ * `box` in a frame with `from` folded into it, moved into one with `to` (ADR-0012, *Amendment
+ * (#331)*): `from`'s scroll taken out, `to`'s put in. `box` itself when the two add the same, as for
+ * twins side by side. Per frame for a Follower.
+ */
+const acrossFolds = (from: Fold, to: Fold, box: Box.Box, rootScroll: Point.Point): Box.Box => {
+  const fromRoot = rootShareOf(from, rootScroll)
+  const toRoot = rootShareOf(to, rootScroll)
+  const dx = to.x + toRoot.x - from.x - fromRoot.x
+  const dy = to.y + toRoot.y - from.y - fromRoot.y
+  if (dx === 0 && dy === 0) return box
+  return offsetBox(box, { x: dx, y: dy })
+}
 
 /** Whether two boxes have the same width and height (within {@link BOX_EPSILON}). */
 const sameSize = (a: Box.Box, b: Box.Box): boolean =>
@@ -1182,6 +1200,8 @@ interface LastPass {
   readonly box: Box.Box
   readonly paintDelta: Projection.Delta | undefined
   readonly unpaintDelta: Projection.Delta | undefined
+  /** The scroll folded into `box` (ADR-0012, *Amendment (#331)*): a node re-introduced from it starts in its frame. */
+  readonly fold: Fold
 }
 
 /**
@@ -1290,6 +1310,12 @@ interface Fold {
 const ROOT_FOLD: Fold = { containers: [], x: 0, y: 0, root: true }
 /** Nothing folds: a node that is itself, or sits right under, a scroll root. */
 const NO_FOLD: Fold = { containers: [], x: 0, y: 0, root: false }
+
+/** The root scroll a fold takes: all of it, unless a scroll root is on the way. Per frame. */
+const rootShareOf = (fold: Fold, rootScroll: Point.Point): Point.Point => {
+  if (fold.root) return rootScroll
+  return ZERO_POINT
+}
 
 /** Each system's pass-end listeners ({@link onPassEnd}). */
 const passEnds = new WeakMap<Omit<ProjectionSystem, "dispose">, Set<() => void>>()
@@ -2148,7 +2174,7 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(box)) return
     const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
     // Lock onto the lead's box, where it paints (#136): the two may sit under different transforms.
-    let target = between(lead, node, lead.lastTarget)
+    let target = between(lead, node, lead.lastTarget, passScroll)
     // A Follower whose mode animates position only keeps its own size, at its Lead's top-left
     // (ADR-0009, *Amendment (#42)*; Motion's applyTransformsToTarget). Plain calls: per frame.
     const leadBox = lead.layoutBox
@@ -2464,6 +2490,12 @@ export const makeProjectionSystem = (
   const painted = new Set<NodeState>()
 
   /**
+   * The page's scroll as the last pass read it, which every node's fold was sampled with: what takes
+   * a box between twins' frames outside a pass (ADR-0012, *Amendment (#331)*).
+   */
+  let passScroll: Point.Point = ZERO_POINT
+
+  /**
    * The fold of everything from `el` up to the page (inclusive of `el`), memoized per
    * pass by element so the nodes under one container share it and each container's
    * scroll is read once. A `layoutScroll` node contributes its sampled scroll and is a
@@ -2627,9 +2659,7 @@ export const makeProjectionSystem = (
    * The scroll the fold adds to `node`'s box (ADR-0012): its containers' scroll at
    * its last pass (Motion's `removeElementScroll` adds the offset back to undo the
    * scroll's visual effect; every container that can scroll counts, not only
-   * `layoutScroll` ones), plus `rootScroll` unless a scroll root is on the way. With
-   * `ZERO_POINT` as `rootScroll` it is the containers' share alone: what rebases a
-   * Root-frame Switch seed into the node's Scroll-stable frame.
+   * `layoutScroll` ones), plus `rootScroll` unless a scroll root is on the way.
    */
   const scrollOffset = (node: NodeState, rootScroll: Point.Point): Point.Point => {
     const fold = node.fold
@@ -2638,12 +2668,6 @@ export const makeProjectionSystem = (
     const dy = fold.y + root.y
     if (dx === 0 && dy === 0) return ZERO_POINT
     return { x: dx, y: dy }
-  }
-
-  /** The root scroll a fold takes: all of it, unless a scroll root is on the way. Per frame. */
-  const rootShareOf = (fold: Fold, rootScroll: Point.Point): Point.Point => {
-    if (fold.root) return rootScroll
-    return ZERO_POINT
   }
 
   /**
@@ -2667,32 +2691,24 @@ export const makeProjectionSystem = (
   }
 
   /**
-   * Whether the root's scroll is part of `node`'s frame (ADR-0012; CONTEXT.md **Root
-   * frame**): not when the node, or one of its ancestors, is a `position: fixed`
-   * scroll root (a fixed `layoutScroll` node's style read live, any other element's
-   * from the cache). Walks the LIVE DOM ancestry — it serves a node at dispose, when
-   * the last pass's parent links and samples may be stale — so call it inside a read
-   * window.
+   * What takes a **Root frame** box into `node`'s Scroll-stable frame (ADR-0012, *Amendment
+   * (#331)*): its containers' scroll put in, and the page's, which the Root frame always carries,
+   * taken back out when its fold leaves it out (a scroll root on the way). `rootScroll` is the
+   * pass's. The zero point when the two frames are the same, as for a node at the top level.
    */
-  const isRootAt = (el: HTMLElement): boolean => {
-    const node = elementToNode.get(el)
-    if (Predicate.isNotUndefined(node) && node.isScroll) return isScrollRoot(el)
-    return isFixedNow(el)
+  const rootFrameShift = (node: NodeState, rootScroll: Point.Point): Point.Point => {
+    const own = scrollOffset(node, rootScroll)
+    const dx = own.x - rootScroll.x
+    const dy = own.y - rootScroll.y
+    if (dx === 0 && dy === 0) return ZERO_POINT
+    return { x: dx, y: dy }
   }
-  const rootScrollAppliesAt = (at: HTMLElement): boolean => {
-    if (isRootAt(at)) return false
-    const doc = at.ownerDocument
-    for (let el = at.parentElement; el !== null && el !== doc.body && el !== doc.documentElement; el = el.parentElement) {
-      if (isRootAt(el)) return false
-    }
-    return true
-  }
-  const rootScrollApplies = (node: NodeState): boolean => rootScrollAppliesAt(node.element)
 
   /**
    * `node`'s box in the **Root frame** (CONTEXT.md; ADR-0012 *Amendment (#13)*): the
    * viewport box plus the root's scroll, containers' scroll left as rendered —
-   * Motion's `measuredBox`: where the twin paints, its own projection included (ADR-0010
+   * Motion's `measuredBox`. Inside a scroll root too (*Amendment (#331)*), so a twin there and one
+   * outside compare directly. Where the twin paints, its own projection included (ADR-0010
    * *Amendment (#170)*), so a twin disposed mid-flight seeds from where it was seen. While the
    * element is connected it is read fresh, as painted, which costs the one forced layout the
    * binding's seed read used to. Once disconnected it is derived from where it last painted
@@ -2700,17 +2716,16 @@ export const makeProjectionSystem = (
    * its paint delta (ADR-0012 *Amendment (#136)*), by taking the containers' share of the fold
    * back out — at each container's LIVE scroll while it is still connected (its last-pass sample
    * otherwise), so a container scrolled since the last pass doesn't shift the seed. The root's
-   * scroll needs no such care: the Root frame carries it, so it cancels. `undefined` when there
-   * is neither.
+   * scroll needs no such care where its fold takes it: the Root frame carries it, so it cancels.
+   * Where its fold leaves it out, the page's scroll now is added. `undefined` when there is
+   * neither.
    */
   const rootFrameBox = (node: NodeState): Box.Box | undefined => {
     const el = node.element
     if (el.isConnected) {
       // As painted, its own projection included (#170): a twin disposed mid-flight seeds from
       // where it was seen, as Motion's `measuredBox` does.
-      const viewport = Box.fromBounds(readLayoutBox(el))
-      if (rootScrollApplies(node)) return offsetBox(viewport, measureDocumentScroll())
-      return viewport
+      return offsetBox(Box.fromBounds(readLayoutBox(el)), measureDocumentScroll())
     }
     // As drawn, its own scale included (ADR-0010 *Amendment (#8)*).
     const stored = UndefinedOr.map(paintedNowOf(node), (box) => drawnOf(node, box))
@@ -2721,11 +2736,17 @@ export const makeProjectionSystem = (
     let dy = 0
     for (const container of node.fold.containers) {
       const scroll = containerScrollOf(container)
-      dx += scroll.x
-      dy += scroll.y
+      dx -= scroll.x
+      dy -= scroll.y
+    }
+    // The page's scroll, which the Root frame always carries, added where its fold leaves it out (#331).
+    if (Bool.not(node.fold.root)) {
+      const page = measureDocumentScroll()
+      dx += page.x
+      dy += page.y
     }
     if (dx === 0 && dy === 0) return stable
-    return offsetBox(stable, { x: -dx, y: -dy })
+    return offsetBox(stable, { x: dx, y: dy })
   }
 
   /** A scroll container's scroll: read live while it's in the document, else as last read. */
@@ -2752,7 +2773,7 @@ export const makeProjectionSystem = (
 
   /** `node`'s last pass, `undefined` when it never had one. */
   const lastPassOf = (node: NodeState): LastPass | undefined =>
-    UndefinedOr.map(boxOf(node), (box): LastPass => ({ box, paintDelta: node.paintDelta, unpaintDelta: node.unpaintDelta }))
+    UndefinedOr.map(boxOf(node), (box): LastPass => ({ box, paintDelta: node.paintDelta, unpaintDelta: node.unpaintDelta, fold: node.fold }))
 
   /**
    * Hold `leaver` until the end of its task (#221). The first hold in a task schedules one
@@ -2975,6 +2996,7 @@ export const makeProjectionSystem = (
     let documentScroll: Point.Point
     try {
       documentScroll = measureDocumentScroll()
+      passScroll = documentScroll
       // The page's boxes as this round reads the layout (#261): a delivery reporting these sizes is its echo.
       Iter.forEach(pageBoxes, recordPageBox)
       for (const node of ordered) {
@@ -3207,7 +3229,7 @@ export const makeProjectionSystem = (
               onDefined: identity,
               onUndefined: () => UndefinedOr.match(lead.layoutBox, { onDefined: identity, onUndefined: () => lead.retained }),
             }),
-            (box) => undrawnFor(node, between(lead, node, drawnOf(lead, box))),
+            (box) => undrawnFor(node, between(lead, node, drawnOf(lead, box), documentScroll)),
           ))
         if (Predicate.isNotUndefined(priorBox)) {
           // It blends from the prior Lead's look as drawn, and the prior Lead's own blend ends: it
@@ -3237,7 +3259,7 @@ export const makeProjectionSystem = (
         //     Switch seed is, and drawn there on its first frame, its own scale divided out. A Switch
         //     seed the same leaving twin left is passed over: the key decides where it comes from.
         if (Predicate.isNotUndefined(enteredFrom)) {
-          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(enteredFrom, scrollOffset(node, ZERO_POINT))))
+          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(enteredFrom, rootFrameShift(node, documentScroll))))
           if (Bool.not(boxesEqual(origin, newBox))) {
             node.origin = shapedOrigin(node, origin, newBox)
             node.layoutBox = newBox
@@ -3254,13 +3276,13 @@ export const makeProjectionSystem = (
         // (2) SWITCH: a disposed twin left this node a seed — no live twin in the
         //     stack. The seed is in the Root frame; rebase it into this node's
         //     Scroll-stable frame by adding its containers' scroll (sampled this
-        //     pass) and taking out what its ancestors' transforms paint (#136), then
-        //     FLIP from it to the measured box (a move, no crossfade — the leaver is
-        //     gone). ADR-0012 / ADR-0010 *Amendment (#13)*.
+        //     pass), taking the page's back out under a scroll root (#331), and taking
+        //     out what its ancestors' transforms paint (#136), then FLIP from it to the
+        //     measured box (a move, no crossfade — the leaver is gone). ADR-0012 /
+        //     ADR-0010 *Amendment (#13)*.
         if (Predicate.isNotUndefined(seed)) {
-          const containers = scrollOffset(node, ZERO_POINT)
           // Drawn there on its first frame, its own scale divided out (ADR-0010 *Amendment (#8)*).
-          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(seed, containers)))
+          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(seed, rootFrameShift(node, documentScroll))))
           // It blends from the leaver's look as drawn (ADR-0010 *Amendment (#166)*), so a Switch at an
           // equal box animates too when the two look different (Motion's: any `resumeFrom` animates).
           const differs = UndefinedOr.match(seedBlend, { onUndefined: constFalse, onDefined: (look) => looksOtherThan(node, look) })
@@ -4053,7 +4075,7 @@ export const makeProjectionSystem = (
     const fromStored = paintedNowOf(from)
     if (Predicate.isUndefined(fromStored)) return
     if (Predicate.isUndefined(ownBox)) return
-    const fromBox = undrawnFor(node, between(from, node, drawnOf(from, fromStored)))
+    const fromBox = undrawnFor(node, between(from, node, drawnOf(from, fromStored), passScroll))
     // A handover, even with nothing to move (#5, Motion's): a leaver `handleLeave` re-introduces
     // rides it, fading out as this twin fades in. With none, each frame writes this twin as the Lead
     // it is: shown, and taking its own pointer input (#165).
@@ -4105,7 +4127,7 @@ export const makeProjectionSystem = (
   const makeLeavingNode = (
     el: HTMLElement,
     layoutId: string | undefined,
-    recent: { readonly box: Box.Box; readonly paintDelta: Projection.Delta | undefined; readonly unpaintDelta: Projection.Delta | undefined },
+    recent: LastPass,
     onDone: (() => void) | undefined,
     layoutAnchor: Point.Point | false | undefined,
     chain: ReadonlyArray<PaintLink> | undefined,
@@ -4153,7 +4175,8 @@ export const makeProjectionSystem = (
     isScroll: false,
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
-    fold: ROOT_FOLD,
+    // Its box's frame as it was disposed (#331): one inside a scroll root folds no page scroll.
+    fold: recent.fold,
     layoutVersion: 0,
     raiseWhileDragged: false,
     raised: false,
@@ -4393,9 +4416,7 @@ export const makeProjectionSystem = (
   // As it paints, as a connected twin's Switch seed is read (#170), in the Root frame (#286).
   const rootBoxOf: ProjectionSystem["rootBoxOf"] = (el) => {
     if (Bool.not(el.isConnected)) return Option.none()
-    const viewport = Box.fromBounds(readLayoutBox(el))
-    if (rootScrollAppliesAt(el)) return Option.some(offsetBox(viewport, measureDocumentScroll()))
-    return Option.some(viewport)
+    return Option.some(offsetBox(Box.fromBounds(readLayoutBox(el)), measureDocumentScroll()))
   }
 
   // The factor it had faded to, then gone as at its handover's end (#286).

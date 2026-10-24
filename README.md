@@ -143,6 +143,8 @@ One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a de
 
 An animation that changes some keys leaves the others running, as Motion's does. A hover that turns on mid-entrance animates its own keys, and the entrance's go on, their tween's timing unchanged. A key whose `transition` changed but not its target goes on with its old one, until its next change. One difference: an animation lands once every key it sets has landed, the ones it left running included (#325, ADR-0005). So that hover's `onAnimationComplete` (on Solid 2, `settled()`) comes once the entrance has landed too, where Motion's comes as the hover's own keys land.
 
+Layout animations leave out the scroll of every scrolling element around them, with no `layoutScroll`, and inside a `position: fixed` element they leave out the page's scroll, with no `layoutRoot`. A `layoutId` pair across those meets where each one paints: a card in a scrolled page opening into a fixed detail view, or a twin inside a scrolled list and one outside it (ADR-0012, *Amendment (#331)*).
+
 | Motion | Wardic |
 |---|---|
 | `motion.div` | `wardic.div` |

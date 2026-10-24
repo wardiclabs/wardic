@@ -41,7 +41,7 @@ A **Scroll-stable frame** depends on the node's own `layoutScroll` ancestry. Tha
 
 **Rejected: option A, fold each twin with its own ancestry.** Store the leaver's Scroll-stable box as the seed. For twins in `layoutScroll` containers scrolled `C_L` (leaver) and `C_E` (enterer), the origin then paints `C_L − C_E` away from the leaver: correct only when the two containers happen to share a scroll, and #13's bug class again whenever they don't.
 
-**Residual of B.** The seed is fixed at capture. If the leaver's container scrolls between the capture and the enterer's first measure, the enterer starts from where the leaver was painted at capture, off by that scroll. For the ordinary `<Show>` swap the capture (the leaver's dispose) and the enterer's registration fall in the same flush, so the residual is about 0. A change in the root's scroll over the same gap cancels, because both the seed and the enterer's box carry the root's scroll. Twins on opposite sides of a scroll root (one under a `position: fixed` `layoutScroll` container, one not) differ by the root's scroll; this is a limit, shared with Motion's `measurePageBox`, which also skips the root's scroll inside a scroll root.
+**Residual of B.** The seed is fixed at capture. If the leaver's container scrolls between the capture and the enterer's first measure, the enterer starts from where the leaver was painted at capture, off by that scroll. For the ordinary `<Show>` swap the capture (the leaver's dispose) and the enterer's registration fall in the same flush, so the residual is about 0. A change in the root's scroll over the same gap cancels, because both the seed and the enterer's box carry the root's scroll. Twins on opposite sides of a scroll root (one under a `position: fixed` `layoutScroll` container, one not) differ by the root's scroll; this is a limit, shared with Motion's `measurePageBox`, which also skips the root's scroll inside a scroll root. *Amendment (#331)* lifts this limit: the Root frame carries the root's scroll inside a scroll root too.
 
 **Pinned by** `packages/solid/test/layout-id-scroll.browser.test.tsx`, which includes twins in two differently scrolled `layoutScroll` containers (the case that separates B from A).
 
@@ -287,3 +287,62 @@ Grilled 2026-10-14:
   - a rotated ancestor mapped anyway (AT4b);
   - the binding registering no values (MS1);
   - the coordinator back in the loop's first lane (MS3–MS4, and the coordinator test's lane).
+
+## Amendment (#331, 2026-10-24): twins in different scroll frames meet on screen
+
+Found while building #296's storefront: a product card in a scrolled page opens into a `position: fixed` detail view, with the two sharing a `layoutId`. The two twins met off by the page's scroll, opening and closing.
+
+**Probed** (`.tmp/fixed-twin/`, Chromium, production builds, framer-motion 13.4.0, a 1 s linear layout tween). The card is 200×150, painted at (300, 180). The detail is 400×300 at (100, 100) inside a fixed frame. The page is scrolled 420 px, or, in the last row, a plain container around the card:
+
+| Opening, first frame → end | Motion | `main` |
+|---|---|---|
+| Card stays (a Crossfade) | the detail (300, 180) → (100, 100); the card follows it | the detail starts at **(300, 600)**; the card ends at **(100, −320)** |
+| Card unmounts (a Switch) | the detail (300, 180) → (100, 100) | the detail starts at **(300, 600)** |
+| A scrolled container, the card staying | as the first row | as the first row |
+
+Closing was off by the same amount. Motion was right in every case, with or without `layoutRoot` on the fixed frame.
+
+There were two causes:
+
+1. **Twins alive together were converted through transforms only.** `between` takes a box from one twin's frame to the other's through their ancestors' transforms (*Amendments (#136)* and *(#137)*), but not through their folds. So twins with different scroll folded in met off by the difference. That hit a Crossfade's origin, a Follower's lock each frame, and a Follower promoted when its Lead leaves, whether a scrolled container or a fixed element was between them. CONTEXT.md's **Root frame** said a Follower's lock went through its containers' scroll, but the code didn't.
+2. **The Root frame left the page's scroll out under a scroll root.** *Amendment (#13)*'s residual records this as a limit shared with Motion. That held only while a fixed `layoutScroll` container was the only scroll root. *Amendment (Reorder)* made every plain `position: fixed` element one. Motion's `measurePageBox` adds the page's scroll to a plain fixed element's box, so its twins meet. So a Switch into or out of a fixed frame was off by the page's scroll in Wardic only.
+
+**Decided** (a bug with one fix, so not grilled). Motion's rule, where only a fixed `layoutScroll` element is a scroll root, was the alternative. It would undo *Amendment (Reorder)*'s fixed rule and #7's fixed nav bar (RS2), where a fixed subtree's boxes would take the page's scroll and a scroll between passes would read as a move.
+
+1. **The Root frame always carries the page's scroll**, inside a scroll root too, so a twin there and one outside compare directly.
+   - `rootFrameBox` and `rootBoxOf` add it for every element.
+   - A disconnected leaver whose fold left it out gets the page's scroll as it is then.
+   - A Root-frame box is rebased into a node's frame (`rootFrameShift`, for a Switch seed and a presence take-over). Its containers' scroll is added, and the page's taken back out when the node's fold leaves it out.
+   - This goes past Motion for a fixed `layoutScroll` container, where Motion leaves the page's scroll out.
+2. **`between` also moves a box out of one twin's fold and into the other's** (`acrossFolds`): the first one's scroll is taken out and the second's put in.
+   - Outside a pass, the page's scroll is the one that pass sampled every fold with (`passScroll`): a Follower's lock each frame, and a promotion.
+   - The twins' frames as of the last pass is the same limit as a scroll during a flight.
+   - The cost per frame for a Follower is six additions. A box is copied only when the two twins' frames differ.
+   - The Root-frame reads no longer walk the element's ancestors for a scroll root.
+3. **A twin presence hands back keeps its frame.** Presence can hand back a twin whose node was already disposed (ADR-0010, *Amendments (#5)* and *(#181)*). That twin comes back as a leaving Follower, built from its last pass, which now carries that pass's fold. It used to start with the page's scroll folded in, whatever its frame was. The storefront's detail view still had that: its fixed frame leaves through a presence, and the photo's twin inside, locked onto the card, was drawn 420 px below it for the whole exit.
+
+The probe now gives Motion's numbers in all eight cases, each within a pixel: open and close, Crossfade and Switch, with and without `layoutRoot`, and the container row.
+
+**Pinned by** solid's TF1–TF8 (`twin-scroll-frames.browser.test.tsx`, real paint, the page scrolled 420 px):
+- TF1: a Crossfade across a fixed frame: the detail's first frame at the card, and the card on the detail every frame;
+- TF2: a Switch across it;
+- TF3: closing, the card promoted from the detail;
+- TF4: closing by a Switch;
+- TF5: closing by a Switch from a detail already detached, so its seed comes from its last pass's box;
+- TF6: twins alive together in and out of a scrolled container, the page unscrolled;
+- TF7: a fixed frame that scrolls itself, a container's scroll inside the scroll root and the page's outside it;
+- TF8: a keyed fixed presence child taken over on a scrolled page. It passes on `main`, and guards the Root-frame read on each side of a take-over;
+- TF9: a detail whose fixed frame leaves through a presence, the card staying: the twin handed back paints on the card every frame of its exit.
+
+TF1–TF7 and TF9 fail on `main`, about 420 px off (TF7 about 310).
+
+**Mutation-checked:** nine single-point mutations, each failing the tests meant for it:
+- `between` without the folds (TF1, TF3, TF6, TF7);
+- `acrossFolds` without the page's share (TF1, TF3, TF7);
+- `acrossFolds` without the containers (TF6, TF7);
+- the pass's page scroll never kept (TF1, TF3, TF7);
+- a connected element's Root-frame box without the page's scroll (TF2, TF4, TF7, and two of `layout-id-scroll`'s);
+- a detached leaver's without it under a scroll root (TF5);
+- `rootBoxOf` without it (TF8, KL7);
+- a rebase keeping the page's scroll under a scroll root (TF2, TF8);
+- a re-introduced leaving Follower starting with the page's scroll folded in again (TF9).
