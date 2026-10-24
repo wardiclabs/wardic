@@ -635,3 +635,18 @@ A plain `<div title={`x-${it().id}`}>` in the same place worked.
   - A detached owner of its own: AC passes, but it still reads committed values, and the `<Show>` still throws.
 - **Pinned by** `test/v2/in-flight-setup.browser.test.tsx`, IF1–IF4: the narrowed accessor in a `wardic.<tag>`, under `<AnimatePresence>`, and in a `ward()`'s getters; and the `<For>` item starting at the new value. All four fail on `main`. Taking `latest` out again is the mutation that fails them.
 
+## Amendment (#337, 2026-10-24): a ward an optimistic write makes inside an action
+
+Found while building #296's cart drawer on Solid 2. A cart line added optimistically, its ward made by a `createOptimisticStore` write inside an `action`, stayed at its `initial` values. The console showed `TypeError: Cannot read properties of undefined (reading 'dragging')`.
+
+- **Why.** The ward's target memo compares resolutions with `sameResolution`. A memo made inside the action's transaction has nothing committed yet, and Solid 2 calls its `equals` with `undefined` for the previous value. The comparison threw, Solid logged it with `console.error` and left the memo errored, so the target never moved.
+  - A plain signal set inside an action isn't affected: its write is held until the action settles, so its ward is made after it.
+- **Decided** (a bug with one fix): the target memo's `equals` (`sameTarget`) counts a missing value on either side as a change.
+- **The test setup** fails a Solid 2 browser test on an error Solid only logs: `console.error` with an `Error`, as a throw in a memo's comparison, an effect or a handler is reported. Before, it failed only on a coded diagnostic or a hydration key miss. All 331 tests passed under it as they were, so nothing else was hiding.
+- **Pinned by** `test/v2/in-action.browser.test.tsx`, OA1–OA3, on an optimistic store over a server list:
+  - OA1: the added row animates to its target;
+  - OA2: refused, the overlay drops, and the row, a `layout` element under `<AnimatePresence mode="popLayout">`, exits and goes;
+  - OA3: kept, the refreshed row is the same element, at its target.
+
+  All three fail on `main`.
+
