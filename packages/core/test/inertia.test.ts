@@ -105,6 +105,17 @@ describe("inertiaVec", () => {
     expect(frames.at(-1)!).toEqual({ x: 100, y: -100, done: true })
   })
 
+  it("carries each axis's velocity, frame for frame each axis's inertia's (#340)", () => {
+    const step = Machine.inertiaVec({ x: 20, y: 0 }, { x: 600, y: -300 }, { ...BOTH, x: { max: 100 }, y: { min: -100 } }).start()
+    const x = run(Machine.inertia(20, 600, { ...BOTH, max: 100 }))
+    const y = run(Machine.inertia(0, -300, { ...BOTH, min: -100 }))
+    for (let k = 0; k < 60; k++) {
+      const f = step(DT)
+      expect(f.velocity.x, `frame ${k + 1}: x's velocity`).toBeCloseTo(x[Math.min(k, x.length - 1)]!.velocity, 9)
+      expect(f.velocity.y, `frame ${k + 1}: y's velocity`).toBeCloseTo(y[Math.min(k, y.length - 1)]!.velocity, 9)
+    }
+  })
+
   it("rests on its glide with no edges: y glides to 0.8 × −300", () => {
     const step = Machine.inertiaVec({ x: 20, y: 0 }, { x: 0, y: -300 }, BOTH).start()
     let last = step(DT)

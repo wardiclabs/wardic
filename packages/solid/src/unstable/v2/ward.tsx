@@ -797,7 +797,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const locked = initialConfig.dragDirectionLock === true
     // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
     const constraints = trackConstraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints)
-    UndefinedOr.map(dragAxis, (axis) =>
+    const dragTrack = UndefinedOr.map(dragAxis, (axis) =>
       driveDragTrack({
         run: (track) => runFor({ fibers }, track),
         gate,
@@ -854,6 +854,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       presence: presenceRecord,
       projected: Predicate.isNotUndefined(layout),
       dragAxis,
+      drag: dragTrack,
       handoff,
       animation: lifecycle,
     })

@@ -60,6 +60,7 @@ import type {
 } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
+import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
@@ -685,6 +686,10 @@ const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(E
 export const sameResolution = (a: Resolution, b: Resolution): boolean =>
   Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant)]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base)
 
+/** Whether `resolution` is `last` with only its `dragging` handed back (#340). */
+const handsBackOnly = (resolution: Resolution, last: Resolution | undefined): boolean =>
+  UndefinedOr.match(last, { onUndefined: () => false, onDefined: (l) => sameResolution({ ...resolution, dragging: l.dragging }, l) })
+
 /** Motion's `definition` of an animation (#257): a variant name, or its target values. */
 export type AnimationDefinition = WardicVariantLabels | Values.Values
 
@@ -1133,6 +1138,8 @@ export interface ElementSpineOptions {
   readonly projected: boolean
   /** Its drag axis, `undefined` without a drag (ADR-0004). */
   readonly dragAxis: boolean | "x" | "y" | undefined
+  /** Its drag track, whose release a Retarget may take `x`/`y` from (#340); omitted, the drag holds them while `dragging`. */
+  readonly drag?: DragTrack | undefined
   /** Its Appear animation, while hydrating (#48, ADR-0044 decision 6). */
   readonly handoff: Handoff | undefined
   /** Told each Retarget's start and settle (#257); omitted, nothing is told. */
@@ -1348,8 +1355,40 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     keepTheRest()
   }
 
+  // The translate targets of the last Retarget that ran, held or not: what a takeover of the drag's
+  // release looks for a change in (#340).
+  let lastX: number | string | undefined = undefined
+  let lastY: number | string | undefined = undefined
+  // A Retarget took `x`/`y` from the release, and the hand-back of `dragging` hasn't come yet.
+  let tookRelease = false
+  /**
+   * Whether the drag holds `x`/`y` for this Retarget (ADR-0004): while its pointer is down and
+   * through its release, unless this Retarget gives the release's axis a new target. Then it takes
+   * them from the release (#340, ADR-0016 *Amendment (#340)*), as a newer animation of Motion's value
+   * stops the one running, and they go on from where the release has them, at its velocity. A key a
+   * layer stops setting is no new target: it stays where the drag dropped it (ADR-0022).
+   */
+  const dragHolds = (resolution: Resolution): boolean => {
+    const { x, y } = resolution.resolved
+    const newX = Bool.and(Predicate.isNotUndefined(x), x !== lastX)
+    const newY = Bool.and(Predicate.isNotUndefined(y), y !== lastY)
+    lastX = x
+    lastY = y
+    if (Bool.not(resolution.dragging)) return false
+    // From a takeover to the hand-back of `dragging` at the end of its task, the drag holds nothing.
+    if (tookRelease) return false
+    return UndefinedOr.match(options.drag, {
+      onUndefined: () => true,
+      onDefined: (drag) => {
+        if (Bool.not(Bool.or(newX, newY))) return true
+        tookRelease = drag.takeRelease({ x: newX, y: newY })
+        return Bool.not(tookRelease)
+      },
+    })
+  }
+
   const retarget = (resolution: Resolution): void => {
-    const { resolved, base, dragging: held } = resolution
+    const { resolved, base } = resolution
 
     // `when` start-gate (ADR-0007): when canStart() is false, the keys whose target changed freeze
     // where they are (#325: the rest run on), and the element waits; the binding retargets once
@@ -1361,6 +1400,17 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (Predicate.isNotUndefined(onFrame)) onFrame(false)
       return
     }
+    // The hand-back of `dragging` after a takeover (#340): the last Retarget already ran with `x`/`y`
+    // its own, so one that changes nothing else is no new animation, as Motion's has none. It goes
+    // on, and lands and is told as itself.
+    if (Bool.and(tookRelease, Bool.not(resolution.dragging))) {
+      tookRelease = false
+      if (handsBackOnly(resolution, lastResolution)) {
+        lastResolution = resolution
+        return
+      }
+    }
+    const held = dragHolds(resolution)
 
     // A key a Retarget drove and no layer sets now returns to its Base value
     // (ADR-0022); with none, it stays where it is (as before #47).

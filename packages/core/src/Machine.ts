@@ -813,11 +813,17 @@ export const inertia = (initial: number, velocity: number, options: InertiaOptio
     },
   })
 
+/** A two-axis inertia's frame: its point, and each axis's velocity there. */
+export interface PointPhysics extends Frame.Frame<Point.Point> {
+  readonly velocity: Point.Point
+}
+
 /**
  * Two-axis inertia: both axes stepped together, one `Point` per tick, each with its own edges,
- * settling once both rest. A drag's release in the Solid binding (ADR-0016, *Amendment (#140)*).
+ * settling once both rest. A drag's release in the Solid binding (ADR-0016, *Amendment (#140)*),
+ * whose velocity an animation that takes the release over starts from (#340).
  */
-export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options: InertiaVecOptions = NO_OPTIONS): Machine<Frame.Frame<Point.Point>> =>
+export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options: InertiaVecOptions = NO_OPTIONS): Machine<PointPhysics> =>
   make({
     settles: true,
     span: { name: "wardic.inertiaVec", attributes: {} },
@@ -833,7 +839,7 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
         const sy = Inertia.step(y, clamped, ry)
         x = sx.state
         y = sy.state
-        return { value: { x: sx.value, y: sy.value }, done: sx.done && sy.done }
+        return { value: { x: sx.value, y: sy.value }, velocity: { x: sx.velocity, y: sy.velocity }, done: sx.done && sy.done }
       }
     },
   })

@@ -8,7 +8,11 @@
  * driving every OTHER key + `whileDrag`. Ownership of `x`/`y` is DYNAMIC: the
  * drag owns them while held AND during the release tail; once the release
  * settles, ownership returns to the spring (so a later `animate.x`/`y` or a
- * layout/Reorder FLIP can take over from the rested position).
+ * layout/Reorder FLIP can take over from the rested position). A Retarget that
+ * changes `x` or `y` during the release takes them over sooner (#340, ADR-0016
+ * *Amendment (#340)*), as a newer animation of Motion's value does: the release
+ * stops where it is, tells no end, and the spring goes on from there, at the
+ * release's velocity ({@link DragTrack.takeRelease}).
  *
  * This module is the RESPONSE half (binding orchestration). Core ships the
  * RECOGNITION (`drag()`, kept to its axis and holding its **Drag claim**), the
@@ -51,7 +55,9 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import { constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
@@ -292,8 +298,9 @@ const directSet = (opts: DragTrackOptions, p: Point.Point): void => {
 /**
  * A gesture's bookkeeping, run as each sample arrives, before its response: "start"
  * marks the gesture held; "end" clears it and, for a projection node (ADR-0016), starts its
- * Release offset at the sample's velocity (`dragEnd`) and hands back `dragging`, then
- * reports the sample.
+ * Release offset at the sample's velocity (`dragEnd`) and hands back `dragging`. The "end" is
+ * reported after its response, once the release runs, as Motion's `onDragEnd` comes after its
+ * release starts: a target for `x`/`y` the app sets there takes it over (#340).
  */
 const settleGesture = (sample: Drag.Sample, state: TrackState, opts: DragTrackOptions): void =>
   Match.value(sample.phase).pipe(
@@ -310,7 +317,6 @@ const settleGesture = (sample: Drag.Sample, state: TrackState, opts: DragTrackOp
           opts.setDragging(false)
         },
       })
-      reportSample(opts, sample)
     }),
     Match.exhaustive,
   )
@@ -376,19 +382,27 @@ const follow = (sample: Drag.Sample, state: TrackState, opts: DragTrackOptions):
  * A release that dies, on a drag transition core rejects (#66, ADR-0025 *Amendment (#66)*) or a
  * throw in its frames, fails alone: reported, the element rests where it was dropped, and the track
  * goes on to the next drag.
+ *
+ * Its velocity stays on the Snapshot, each frame's, from the release's own at its start; and once
+ * `taken` is done (#340, {@link DragTrack.takeRelease}), it stops where it is and tells no end: a
+ * Retarget has `x`/`y`, from that position and velocity.
  */
 const release = (
   opts: DragTrackOptions,
   state: TrackState,
   position: Point.Point,
   velocity: Point.Point,
+  taken: Deferred.Deferred<void>,
 ): Effect.Effect<void, never, FrameLoop.FrameLoop> => {
   const cfg = opts.config
 
-  // A run's sink on the Frame loop is a plain call (ADR-0027, decision 8).
-  const tapFrame = (p: Point.Point): undefined => {
+  // A run's sink on the Frame loop is a plain call (ADR-0027, decision 8). One a takeover beat to
+  // the loop writes nothing: the fiber's interruption comes through the scheduler (#340).
+  const tapFrame = (p: Point.Point, v: Point.Point): undefined => {
+    if (Bool.not(MutableRef.get(state).releasing)) return undefined
     MutableRef.update(state, (s) => ({ ...s, position: p }))
     directSet(opts, p)
+    keepVelocity(opts, v)
     return undefined
   }
 
@@ -404,24 +418,72 @@ const release = (
   const edges = edgesOf(cfg, bounds)
   const v = releaseVelocity(cfg, velocity)
   const transition = cfg.transition
+  // Before its first frame, a takeover starts from the release's velocity, on the axes it runs on.
+  keepVelocity(opts, onAxes(v, axis))
 
   // The position now; the hand-back at the end of the release's task, once every other
   // consumer of the same event has handled it: a press that ends with the drag (`whileTap`)
   // then finds `x`/`y` still the drag's, so a key the drag moved stays where it was dropped.
+  // A takeover ends the release at once, its end untold (#340).
+  const untilTaken = (run: Effect.Effect<void, never, FrameLoop.FrameLoop>) => Effect.raceFirst(run, Deferred.await(taken))
   if (restsWhereDropped(position, v, axis, edges, transition)) {
-    return Effect.sync(() => directSet(opts, position)).pipe(Effect.andThen(Microtask.next), Effect.andThen(done))
+    return untilTaken(
+      Effect.sync(() => {
+        if (MutableRef.get(state).releasing) directSet(opts, position)
+      }).pipe(Effect.andThen(Microtask.next), Effect.andThen(done)),
+    )
   }
   // Only the axes the gesture moved run (Motion's `shouldDrag`): the other stays where it is.
-  return Match.value(axis).pipe(
-    Match.when("x", () =>
-      Machine.inertia(position.x, v.x, { ...transition, ...edges.x }).pipe(Machine.run((frame) => tapFrame({ x: frame.value, y: position.y })))),
-    Match.when("y", () =>
-      Machine.inertia(position.y, v.y, { ...transition, ...edges.y }).pipe(Machine.run((frame) => tapFrame({ x: position.x, y: frame.value })))),
-    Match.orElse(() => Machine.inertiaVec(position, v, { ...transition, ...edges }).pipe(Machine.run((frame) => tapFrame(frame.value)))),
-    Effect.catchDefect((defect) =>
-      Report.failure("wardic.drag: a release failed", Cause.die(defect)).pipe(Effect.andThen(Effect.sync(() => tapFrame(position))))),
-    Effect.andThen(done),
+  return untilTaken(
+    Match.value(axis).pipe(
+      Match.when("x", () =>
+        Machine.inertia(position.x, v.x, { ...transition, ...edges.x }).pipe(
+          Machine.run((frame) => tapFrame({ x: frame.value, y: position.y }, { x: frame.velocity, y: 0 })),
+        )),
+      Match.when("y", () =>
+        Machine.inertia(position.y, v.y, { ...transition, ...edges.y }).pipe(
+          Machine.run((frame) => tapFrame({ x: position.x, y: frame.value }, { x: 0, y: frame.velocity })),
+        )),
+      Match.orElse(() => Machine.inertiaVec(position, v, { ...transition, ...edges }).pipe(Machine.run((frame) => tapFrame(frame.value, frame.velocity)))),
+      Effect.catchDefect((defect) =>
+        Report.failure("wardic.drag: a release failed", Cause.die(defect)).pipe(Effect.andThen(Effect.sync(() => tapFrame(position, ORIGIN))))),
+      Effect.andThen(done),
+    ),
   )
+}
+
+/** `v` on the axes a release runs on, 0 on the other. */
+const onAxes = (v: Point.Point, axis: Drag.Axis): Point.Point =>
+  Match.value(axis).pipe(
+    Match.when("x", () => ({ x: v.x, y: 0 })),
+    Match.when("y", () => ({ x: 0, y: v.y })),
+    Match.orElse(() => v),
+  )
+
+/** Whether `retargeted` names an axis a release on `axis` runs on (#340). */
+const onReleaseAxis = (axis: Drag.Axis, retargeted: { readonly x: boolean; readonly y: boolean }): boolean =>
+  Match.value(axis).pipe(
+    Match.when("x", () => retargeted.x),
+    Match.when("y", () => retargeted.y),
+    Match.orElse(() => Bool.or(retargeted.x, retargeted.y)),
+  )
+
+/** A release's velocity on the Snapshot, after its direct-set zeroed it (#340). */
+const keepVelocity = (opts: DragTrackOptions, v: Point.Point): void => {
+  opts.snapshot.velocities.x = v.x
+  opts.snapshot.velocities.y = v.y
+}
+
+/** A running drag track, for the spine's Retargets (#340). */
+export interface DragTrack {
+  /**
+   * Take `x`/`y` from a free drag's running release (#340) for a Retarget that gives `retargeted`
+   * new targets, as a newer animation of Motion's value stops the one running: the release stops
+   * where it is and tells no end, and `dragging` is handed back at the end of the task (not in the
+   * caller's Retarget, which reads it). `false`, and nothing done, when no release runs, a gesture
+   * is on, or none of `retargeted` is an axis the release runs on (Motion's runs one per axis).
+   */
+  readonly takeRelease: (retargeted: { readonly x: boolean; readonly y: boolean }) => boolean
 }
 
 /**
@@ -440,20 +502,22 @@ const release = (
  * {@link DragTrackConfig} — drag config is a document, not reactive); only the
  * `dragging` signal the spine reads is reactive.
  */
-export const driveDragTrack = (opts: DragTrackOptions): void => {
+export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
   const { config, element } = opts
+  const state: TrackState = MutableRef.make<DragTrackState>({
+    base: ORIGIN,
+    position: ORIGIN,
+    held: false,
+    axis: "xy",
+    bounds: config.constraints,
+    releasing: false,
+    stopped: false,
+  })
+  // The running release's takeover (#340): done by `takeRelease`, from outside the track's fiber.
+  let taken: Deferred.Deferred<void> = Deferred.makeUnsafe<void>()
 
   opts.run(
     Effect.gen(function* () {
-      const state: TrackState = MutableRef.make<DragTrackState>({
-        base: ORIGIN,
-        position: ORIGIN,
-        held: false,
-        axis: "xy",
-        bounds: config.constraints,
-        releasing: false,
-        stopped: false,
-      })
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
       const probe = yield* Probe.Probe
@@ -553,8 +617,12 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
 
       /** A free drag's release from `position` with `velocity`, run in `releasing` (#279: recorded as running). */
       const startRelease = (position: Point.Point, velocity: Point.Point): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
-        Effect.sync(() => MutableRef.update(state, (s) => ({ ...s, releasing: true, stopped: false }))).pipe(
-          Effect.andThen(FiberHandle.run(releasing, release(opts, state, position, velocity))),
+        Effect.sync(() => {
+          MutableRef.update(state, (s) => ({ ...s, releasing: true, stopped: false }))
+          taken = Deferred.makeUnsafe<void>()
+          return taken
+        }).pipe(
+          Effect.flatMap((ended) => FiberHandle.run(releasing, release(opts, state, position, velocity, ended))),
           Effect.asVoid,
         )
 
@@ -581,7 +649,7 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
               FiberHandle.clear(releasing).pipe(Effect.andThen(measureAtStart), Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
             Match.when("move", () =>
               FiberHandle.clear(releasing).pipe(Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
-            Match.when("end", () => releaseFrom(sample)),
+            Match.when("end", () => releaseFrom(sample).pipe(Effect.andThen(Effect.sync(() => reportSample(opts, sample))))),
             Match.exhaustive,
           )
         })
@@ -640,4 +708,19 @@ export const driveDragTrack = (opts: DragTrackOptions): void => {
       yield* Effect.raceFirst(inputs.pipe(Effect.andThen(FiberHandle.awaitEmpty(releasing))), FiberHandle.join(releasing))
     }).pipe(Effect.scoped),
   )
+
+  return {
+    takeRelease: (retargeted) => {
+      const st = MutableRef.get(state)
+      if (Bool.or(st.held, Bool.not(st.releasing))) return false
+      if (Bool.not(onReleaseAxis(st.axis, retargeted))) return false
+      MutableRef.update(state, (s) => ({ ...s, releasing: false }))
+      Deferred.doneUnsafe(taken, Exit.void)
+      // A gesture begun since, in this task, keeps `dragging`.
+      queueMicrotask(() => {
+        if (Bool.not(MutableRef.get(state).held)) opts.setDragging(false)
+      })
+      return true
+    },
+  }
 }

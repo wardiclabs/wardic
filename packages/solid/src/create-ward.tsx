@@ -60,7 +60,7 @@ import {
   untrack,
 } from "solid-js"
 import { fromAtom, streamToSignal } from "./bridge.ts"
-import { dragTransitionOf, type DragTrackConfig, runDragTrack } from "./drag.ts"
+import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
@@ -503,6 +503,8 @@ export function runSpine(opts: RunSpineOptions): void {
       // document. The track's single fiber is scoped to this owner's onCleanup.
       const dragCfg = dragAxisOf(untrack(cfg), internal)
       const [dragging, setDragging] = createSignal(false)
+      // Its hold on `x`/`y`, for the spine's Retargets (#340).
+      let dragTrack: DragTrack | undefined
       if (Predicate.isNotUndefined(dragCfg)) {
         const c0d = untrack(cfg)
         // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
@@ -517,7 +519,7 @@ export function runSpine(opts: RunSpineOptions): void {
           directionLock: c0d.dragDirectionLock,
           transition: dragTransition,
         }
-        runDragTrack({
+        dragTrack = runDragTrack({
           runtime,
           gate,
           id,
@@ -634,6 +636,7 @@ export function runSpine(opts: RunSpineOptions): void {
         presence: presenceRec,
         projected: Predicate.isNotUndefined(layoutHandle),
         dragAxis: dragCfg,
+        drag: dragTrack,
         handoff,
         // Motion's onAnimationStart / onAnimationComplete (#257).
         animation: animationCallbacks(runtime, id),
