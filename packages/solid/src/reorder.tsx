@@ -85,6 +85,16 @@ export interface ReorderGroupConfig<V> {
    * Not a keyboard cancel, nor the group's `move`.
    */
   readonly onReorderEnd?: (end: ReorderController.End<V>) => void
+  /**
+   * Hears each **Hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its
+   * drag's start (past the threshold, not the press) or a keyboard lift, with its index then.
+   */
+  readonly onHoldStart?: (start: ReorderController.HoldStart<V>) => void
+  /**
+   * Hears each **Hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`),
+   * Escape (`"cancel"`), or the item unmounting (`"unmount"`). After `onReorderEnd` when it moved.
+   */
+  readonly onHoldEnd?: (end: ReorderController.HoldEnd<V>) => void
   readonly axis?: CoreReorder.Axis
   /** The **Keyboard reorder** (ADR-0037): on unless `false`. Off, items get no keys, no tab stop and no instructions. */
   readonly keyboard?: boolean
@@ -169,6 +179,8 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
       values: () => untrack(cfg).values,
       onReorder: (values) => untrack(cfg).onReorder(values),
       onReorderEnd: (end) => UndefinedOr.map(untrack(cfg).onReorderEnd, (tell) => tell(end)),
+      onHoldStart: (start) => UndefinedOr.map(untrack(cfg).onHoldStart, (tell) => tell(start)),
+      onHoldEnd: (end) => UndefinedOr.map(untrack(cfg).onHoldEnd, (tell) => tell(end)),
       axis: () => Option.fromUndefinedOr(untrack(cfg).axis),
       onAxis: setDetected,
       keyedWith: "<For>",
@@ -468,6 +480,10 @@ export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly onReorder: (values: Array<V>) => void
   /** A user's reorder that changed the order, at its end (#257 item 3): what an app saves. */
   readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
+  /** Each **Hold**'s start (#348): an item taken in hand, by its drag's start or a keyboard lift. */
+  readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
+  /** Each **Hold**'s end (#348), once, whatever ended it; after `onReorderEnd` when it moved. */
+  readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
   /** The keyboard reorder (ADR-0037): on unless `false`. */
   readonly keyboard?: boolean | undefined
@@ -503,6 +519,8 @@ interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
+  readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
+  readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
   readonly keyboard?: boolean | undefined
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
@@ -531,6 +549,8 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps
     "values",
     "onReorder",
     "onReorderEnd",
+    "onHoldStart",
+    "onHoldEnd",
     "axis",
     "keyboard",
     "announcements",
@@ -544,6 +564,8 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps
     values: local.values,
     onReorder: local.onReorder,
     ...UndefinedOr.match(local.onReorderEnd, { onUndefined: () => ({}), onDefined: (onReorderEnd) => ({ onReorderEnd }) }),
+    ...UndefinedOr.match(local.onHoldStart, { onUndefined: () => ({}), onDefined: (onHoldStart) => ({ onHoldStart }) }),
+    ...UndefinedOr.match(local.onHoldEnd, { onUndefined: () => ({}), onDefined: (onHoldEnd) => ({ onHoldEnd }) }),
     ...UndefinedOr.match(local.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
     ...UndefinedOr.match(local.keyboard, { onUndefined: () => ({}), onDefined: (keyboard) => ({ keyboard }) }),
     ...UndefinedOr.match(local.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) }),

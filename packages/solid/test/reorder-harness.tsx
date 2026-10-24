@@ -150,6 +150,8 @@ export interface SceneOptions {
   readonly whileDrag?: WardicValues
   /** Each item's `dragElastic` (#140): its release's bounce. */
   readonly dragElastic?: number
+  /** Read with the values, so a change to it re-reads them, unchanged (#348). */
+  readonly alsoRead?: Accessor<unknown>
 }
 
 export interface Scene {
@@ -161,6 +163,8 @@ export interface Scene {
   readonly reorderTimes: ReadonlyArray<number>
   /** Every `onReorderEnd` call (#257 item 3), in order. */
   readonly ends: ReadonlyArray<ReorderController.End<string>>
+  /** Every `onHoldStart`, `onReorderEnd` and `onHoldEnd` call (#348), in order, as `start a 0`, `reorder a 0→2`, `end a 0→2 drop`. */
+  readonly holds: ReadonlyArray<string>
   readonly item: (value: string) => HTMLElement
   readonly group: () => HTMLElement
   readonly scroller: HTMLElement | undefined
@@ -204,6 +208,12 @@ export const itemCss = (o: SceneOptions): JSX.CSSProperties => {
   }
 }
 
+/** `order`'s values, read with `o.alsoRead` when there is one. */
+const valuesOf = (order: Accessor<ReadonlyArray<string>>, o: SceneOptions): ReadonlyArray<string> => {
+  o.alsoRead?.()
+  return order()
+}
+
 /** Mount `values` (default the layout's count) as a `Reorder.Group` of `Reorder.Item`s keyed by `<For>`. */
 export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES.slice(0, o.n ?? LAYOUTS[o.layout ?? "y"].n))
@@ -212,6 +222,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   const reorders: Array<ReadonlyArray<string>> = []
   const reorderTimes: Array<number> = []
   const ends: Array<ReorderController.End<string>> = []
+  const holds: Array<string> = []
   const onReorder = (values: Array<string>): void => {
     reorders.push(values)
     reorderTimes.push(performance.now())
@@ -220,9 +231,14 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
   const group = (): JSX.Element => (
     <Reorder.Group
       ref={(el: HTMLElement) => setGroupEl(el)}
-      values={order()}
+      values={valuesOf(order, o)}
       onReorder={onReorder}
-      onReorderEnd={(end: ReorderController.End<string>) => ends.push(end)}
+      onReorderEnd={(end: ReorderController.End<string>) => {
+        ends.push(end)
+        holds.push(`reorder ${end.value} ${end.from}→${end.to}`)
+      }}
+      onHoldStart={(start: ReorderController.HoldStart<string>) => holds.push(`start ${start.value} ${start.from}`)}
+      onHoldEnd={(end: ReorderController.HoldEnd<string>) => holds.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)}
       axis={o.axis?.()}
       {...UndefinedOr.match(o.groupAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
       style={{ ...groupCss(o), ...o.groupStyle?.() }}
@@ -269,6 +285,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     reorders,
     reorderTimes,
     ends,
+    holds,
     item: (value) => document.querySelector<HTMLElement>(`[data-value="${value}"]`)!,
     group: () => groupEl()!,
     scroller: scroller(),

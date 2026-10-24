@@ -109,6 +109,16 @@ export interface ReorderGroupEvents<V> {
    * cancel, nor `list.move`.
    */
   readonly reorderEnd: ReorderController.End<V>
+  /**
+   * A **Hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its drag's
+   * start (past the threshold, not the press) or a keyboard lift, with its index then.
+   */
+  readonly holdStart: ReorderController.HoldStart<V>
+  /**
+   * A **Hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`), Escape
+   * (`"cancel"`), or the item unmounting (`"unmount"`). After `reorderEnd` when it moved.
+   */
+  readonly holdEnd: ReorderController.HoldEnd<V>
 }
 
 /** The `AbortError`'s message for a group's `next` its disposal cut off. */
@@ -275,6 +285,8 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
         flush(() => onReorder(values))
       },
       onReorderEnd: (end) => events.tell("reorderEnd", () => end),
+      onHoldStart: (start) => events.tell("holdStart", () => start),
+      onHoldEnd: (end) => events.tell("holdEnd", () => end),
       axis: () => Option.fromUndefinedOr(untrack(() => cfg().axis)),
       onAxis: setDetected,
       keyedWith: "<For>",
