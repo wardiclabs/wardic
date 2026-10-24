@@ -23,7 +23,18 @@ export type { AnimateLayout } from "./provider.tsx"
  * (`ref={ward(config)}`, client-only). A kept ward has `.Provider` for its Variant children,
  * `.read(key)` and `.atom(key)` for its values.
  */
-export { type Ward, type WardChecked, type WardConfig, type WardProps, type WardRead, type WardStyle, type WardWithProps, ward } from "./ward.tsx"
+export {
+  type AnyWard,
+  type Ward,
+  type WardChecked,
+  type WardConfig,
+  type WardOptions,
+  type WardProps,
+  type WardRead,
+  type WardStyle,
+  type WardWithProps,
+  ward,
+} from "./ward.tsx"
 export type { WardDragInfo, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "../../config.ts"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
@@ -51,7 +62,7 @@ export type {
  * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the
  * element's own props and the motion props; a `wardic.create(Component)` component forwards its `ref`.
  */
-export { type Wardic, type WardicProps, type WardicWrappable, type WardRefProp, wardic } from "./wardic.tsx"
+export { type NoMotionProps, type Wardic, type WardicMotion, type WardicProps, type WardicWrappable, type WardRefCallback, wardic } from "./wardic.tsx"
 export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 
 /**
@@ -115,16 +126,22 @@ export type { Live, LiveSource, SpringAccessor } from "../../live-style.ts"
  * refs carrying their props as a ward is, and Motion's `Reorder.Group` / `Reorder.Item` on them.
  */
 export {
+  type AnyReorderGroup,
+  type AnyReorderItem,
+  type GroupRefCallback,
   Reorder,
   type ReorderElementTag,
   type ReorderGroup,
   type ReorderGroupComponentProps,
   type ReorderGroupConfig,
   type ReorderGroupEvents,
+  type ReorderGroupOf,
   type ReorderGroupProps,
   reorderGroup,
+  type ReorderItem,
   type ReorderItemComponentProps,
   type ReorderItemConfig,
   type ReorderItemLayout,
+  type ReorderItemOf,
   reorderItem,
 } from "./reorder.tsx"
