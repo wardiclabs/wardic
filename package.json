@@ -6,7 +6,8 @@
   "license": "MIT",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "examples/storefront/*"
   ],
   "scripts": {
     "build": "node_modules/typescript-7/bin/tsc --build",
@@ -16,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:storefront": "bun run --filter='@wardic/example-storefront-solid*' smoke",
     "lint": "eslint packages/core/src packages/core/bench packages/core/test packages/dom packages/solid packages/test",
     "bench:core": "bun packages/core/bench/run.ts",
     "bench:solid": "bun packages/solid/bench/run.ts",

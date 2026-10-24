@@ -27,3 +27,6 @@ dist/
 # Logs & OS cruft
 *.log
 .DS_Store
+
+# The storefront showcase's smoke screenshots (#296).
+.smoke/
