@@ -58,8 +58,12 @@ const Proto = {
   },
 }
 
-/** A fresh token, with no runs. */
-export const make = (): Supersede => Object.assign(Object.create(Proto), { runs: [] })
+/** A fresh token, with no runs. Built in place: the binding makes one per Leg (#325). */
+export const make = (): Supersede => {
+  const token = Object.create(Proto)
+  token.runs = []
+  return token
+}
 
 /** Whether `u` is a token. */
 export const isSupersede = (u: unknown): u is Supersede => Predicate.hasProperty(u, TypeId)

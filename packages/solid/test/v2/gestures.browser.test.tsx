@@ -119,7 +119,9 @@ describe("a ward's gestures on Solid 2", () => {
     let a!: HTMLElement
     let b!: HTMLElement
     const Box = () => {
-      const card = ward({ animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, style: { width: "40px", height: "40px" } })
+      // Clear of the page's one mouse, parked at (5, 5) for every browser file: under it, the second
+      // element is hovered for real.
+      const card = ward({ animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, style: { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } })
       return (
         <Show when={second()} fallback={<div {...card} ref={[card, (n: HTMLElement) => (a = n)]} />}>
           <div {...card} ref={[card, (n: HTMLElement) => (b = n)]} />

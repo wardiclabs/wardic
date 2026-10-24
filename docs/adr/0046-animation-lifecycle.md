@@ -337,3 +337,5 @@ The one that survived is a failure told for a Retarget no longer in flight, with
 - `v2/errors.browser.test.tsx` mounts its `settled()` readers with the ward again, through the entrance (the #315 workaround is gone), except ER7 and ER8, which test a first read made late.
 
 **Mutation-checked:** the count set at once in `started` (SE8, SE11, ER2, ER4…) and a landing leaving the count (SE6) are caught. A failure setting it too survived, since the start's microtask already sets it a microtask later, and was taken out.
+
+*Note (#325, 2026-10-23):* a Retarget lands when every key it resolves has landed, the keys it carries included: a key whose target didn't change keeps its running Leg (ADR-0005, *Amendment (#325)*, Q2 B). `settled()`, `next("settled")` and Solid 1's `onAnimationComplete` hear it then, and a list's name waits for its carried keys too. Motion's completion counts only the animations a change started. *Amendment (#257 item 4)* said no Leg of an older Retarget can fail after a newer one starts. A carried Leg can, and its failure fails the newer Retarget, the one it counts toward.

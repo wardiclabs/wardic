@@ -476,7 +476,11 @@ describe("a Retarget ends the spine's legs before it starts its own, and an unmo
     // Each leg settled or was Superseded by the next Retarget (#200): none failed, none was interrupted.
     expect(counted.ends().filter((exit) => Exit.isFailure(exit) && !interrupted(exit))).toEqual([])
     expect(counted.ends().filter(interrupted)).toEqual([])
-    expect(counted.ends().filter(superseded).length).toBeGreaterThanOrEqual(6)
+    // Only `opacity` changes, so only its leg is Superseded at each Retarget; the colour's runs on
+    // and settles once (#325, Motion's per-key rule).
+    expect(counted.ends().filter(superseded).length).toBeGreaterThanOrEqual(3)
+    expect(counted.ends().filter(superseded).length).toBeLessThanOrEqual(4)
+    expect(counted.ends().filter((exit) => Exit.isSuccess(exit) && !superseded(exit)).length, "the last opacity leg and the one colour leg settle").toBe(2)
     expect(logs.filter((log) => log.level === "ERROR")).toEqual([])
   })
 

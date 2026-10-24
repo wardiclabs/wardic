@@ -253,3 +253,4 @@ Wardic's took one name.
   - each binding taking a list's `when` as a whole;
   - an exit's names all at once, or each running every key.
 
+*Note (#325, 2026-10-23):* a Retarget now keeps a key whose target didn't change on its running Leg (ADR-0005, *Amendment (#325)*), and starts no Leg for a key that landed there. So a Variant child whose values didn't change starts none: no stagger delays it, and an `afterChildren` provider doesn't wait on a no-op Leg of its. A Retarget with no Leg, its own or carried, reports its element settled at the gate's next flush, so a provider whose values didn't change still releases its `beforeChildren` children (SW-j). Under a `when` gate, a key an earlier change started runs on toward its unchanged target; the gated change's keys still wait where they are, the Legs it started just before the gate shut included.

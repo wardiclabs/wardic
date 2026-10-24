@@ -61,3 +61,103 @@ The decision stands: the retained Measurement is the default "before", and since
    - `measureLayoutBox`, the public single-element read, clears only that element's own transform, so an ancestor's transform stays in its box (as its doc says).
    - Every box the engine animates from is read in a pass: a node registering, a trigger, a drag's grab after a width change (which runs the blocked pass first, ADR-0018 *Amendment (#39)*), and a Declared layout change's Measurements.
    - A new read that the engine animates from has to go through a pass too.
+
+## Amendment (#325, 2026-10-23): a Retarget carries the keys whose target didn't change
+
+Found while probing #257 item 2. A Retarget ended every **Leg** and started one for every key it resolved, so a key whose target didn't change started its timing again. A tween's or a repeat's restarted with a fresh duration, which a spring hid by carrying its velocity. That happened whenever a gesture layer, a variant change or one key moved while others were mid-flight. In probe K1, `x` and `opacity` were on a 1 s linear tween, and only `opacity`'s target changed at 0.5 s: `x` landed at 1500 ms on both bindings, against Motion's 1000.
+
+**Motion** (`motion-dom/src/render/utils/animation-state.ts`, `animateChanges`, at `16c6122`) compares each key with its last resolved value, per animation type. A changed key is marked to animate. An unchanged one goes in the type's `protectedKeys`, which `animateTarget` skips (`shouldBlockAnimation`), so its running animation goes on. A keyframes target counts as changed when its frames change or its variant does.
+
+**Grilled 2026-10-23:**
+1. **Motion's rule (Q1: A).** A key the Retarget resolves to the same target as its running Leg keeps that Leg: a **Carried key** (CONTEXT.md). A key whose last Leg landed at that target starts none and stays where it is. Every other key starts a Leg from where it paints, with its velocity, as before.
+   - The comparison is `===` on the resolved value. The binding has no keyframe targets yet, so Motion's frame-by-frame comparison and its variant clause have nothing to apply to.
+   - Rejected: keeping today's restart (a spring hides it, a tween and a repeat don't).
+2. **A Retarget lands when every key it resolves has landed (Q2: B),** its own Legs and the ones it carries. `settled()`, `next("settled")` and Solid 1's `onAnimationComplete` all hear it then (ADR-0046). A list's name waits for the keys it carries too (#297).
+   - Rejected: Motion's (A). Its completion counts only the animations the change started, so a hover's completion comes while the entrance it left running still runs. Also rejected: a different rule per binding (C).
+3. **Gesture layers, variants, `transition` and orchestration follow the same rule (Q3: A):**
+   - A hover turning on mid-entrance animates its own keys, and the entrance's run on. Turning off, its keys return to their Base values, and the rest run on.
+   - A variant change that resolves a key to the same value (`open: { x: 0 }` to `shut: { x: 0 }`) carries it, or leaves it at rest.
+   - A key whose `transition` changed but not its target runs on its old one. The new one applies at its next change, as Motion's protected keys do.
+   - A Variant child whose keys didn't change, under its provider's stagger or `when`, starts no Leg, so nothing delays it. Its landing waits for the keys it carries.
+   - A drag's release and a return to a moving Live value aren't Retarget Legs, and keep their own rules (ADR-0016, ADR-0043).
+   - Rejected: restarting a key whose `transition` changed (B), the one row where that differs from Motion, at the cost of the restart this fixes.
+4. **The cost** was left to the build, gated by `bench:solid`. It went past the gate on some runs, and was accepted (2026-10-24, A): about 1 µs per element per Retarget for Motion's behaviour (*Measured*, below).
+   - Rejected: one token per Retarget, with a leg that ends alone interrupted (it measured the same within noise, and brought back an interrupt path); further micro-optimisation, as what's left is spread thin across the bookkeeping.
+
+**Built** (`spine.ts`, `retarget-legs.ts`):
+- **Each Leg is its own record (`Running`).** It holds:
+  - its machines' run options, with a token of its own (one per Retarget before, ADR-0027 *Amendment (#200)*);
+  - the keys it animates, with the target each was given (`Leg.to`, from the builder);
+  - the landing its frames and its end count toward.
+
+  The spine keeps each key's owner: the Leg that draws it, or the last one that did, landed.
+- **A Retarget walks its keys.**
+  - A key whose owner has the same target stays. A running owner is carried: it's pointed at the new landing and counted once, however many keys it carries. A landed one counts nothing.
+  - Any other key's owner gives the key up, and the key starts afresh.
+  - A key no longer resolved (one a drag holds, or one with no Base value) is given up too, and stays where it is, as before.
+  - A Leg left with no key is ended: Superseded, or interrupted if its token didn't reach it. One left with some draws only those from then on. Each frame copies them into one object (`keepingOnly`), so it can't pull a key back toward the target it gave up.
+  - A Leg whose failure ended it gives up its keys, so the next Retarget starts them afresh, not taken for running. A Leg its token didn't reach is interrupted, and that isn't a failure: nothing is told.
+- **No keys make no Leg.** A Retarget whose keys all stay starts none, and so does a split group with none of its keys left. Before, a tween with no keys still ran for its duration.
+- **A Retarget with no Leg, its own or carried, lands at once.** Its returns settle, and it reports the element settled at the gate's next flush, after the effects that start its orchestration's wait (ADR-0007). Without that report, a provider whose own values didn't change would hold its `beforeChildren` children for good, now that it starts no Leg (SW-j).
+- **Under a `when` gate (ADR-0007):**
+  - A key the gated Retarget resolves to its running Leg's target runs on, if an earlier change started that Leg. The element reports unsettled meanwhile.
+  - Every other running key freezes where it is, as all of them did before.
+  - The change the gate holds may have started Legs just before the gate shut. A child Retargets before its provider's effect resets the `beforeChildren` wait, and an `afterChildren` provider starts before its children report. Those Legs freeze too: the first build carried them, and stagger-when's (c), (d) and SW-d caught a child rising with its parent.
+
+**Measured** (`bench:solid`, the bench box after `wardic-quiet`, against main `c8615e5`, 11 paired reps):
+- **The final build's run, warm:**
+
+  | head / base | mount | Retarget | at-rest Retarget | unmount | bytes / element |
+  |---|---|---|---|---|---|
+  | Solid 1 | +0.7% | +7.1% (fails the gate) | +2.0% | +1.1% | +0.5% |
+  | Solid 2 | +0.2% | +4.3% | +4.5% | +1.3% | +1.0% |
+
+- **Across five runs of this build and the ones before it,** the mid-flight Retarget read +3.2% to +7.1%, and the at-rest one +2.0% to +6.7%. That's about 1 µs per element on a Retarget of about 22. Mount and unmount stayed within about ±4%, and bytes per element within +2%. Cold Retargets (not gated) read +4–18%.
+- **Cut on the way:**
+  - A Superseded Leg's exit builds nothing: an `Effect.sync` there ran inline in every Retarget.
+  - An owner is cleared in place, so the Map isn't left with a hole a key at each Retarget.
+  - `Supersede.make` builds its token without a temporary object.
+  - The Own-value reads share the Retarget's one walk over its keys.
+- **Tried and dropped:**
+  - `Iter.forEach` over arrays allocates an iterator result a step (`next`, +1 KB per element per round).
+  - One token per Retarget: the same within noise, as above.
+
+**Changed tests:**
+- `frame-loop.browser.test.tsx`, the #76 test: each `opacity` Retarget now supersedes `opacity`'s Leg alone, and the colour's runs on and settles once.
+- `v2/gestures.browser.test.tsx`, GE5: its boxes moved clear of the page's one mouse, parked at (5, 5) for every browser file. With KC13 in the run, on main too, its second element came up under the mouse and was hovered for real.
+- `reduced-motion.browser.test.tsx`, RM-S10: its sampler reads each frame after its paint, as `paintedFrames` does. It read inside a rAF callback, which the Frame loop's ran ahead of only while a Leg kept the loop busy: the element's no-op tween with no keys. With a spring, the same test failed on main.
+
+**Pinned by:** each test runs the element beside a twin whose keys don't change, mounted in the same task, and reads each frame after its paint. So a carried key has to draw what the twin's draws, frame by frame, whatever the host's load.
+- `v2/carried-keys.browser.test.tsx`:
+  - **KC1:** one key of two changes mid-flight; the other lands with its twin's.
+  - **KC2:** a hover on and off mid-entrance.
+  - **KC3:** a variant change resolving a key to the same value.
+  - **KC4:** a changed `transition` on an unchanged key, and the new one at its next change.
+  - **KC5:** the landing waits for two carried keys on one Leg, counted once.
+  - **KC6:** an `afterChildren` provider isn't held by a child whose values didn't change.
+  - **KC7:** a landed key stays at rest, and the Retarget lands without it.
+  - **KC8:** a `beforeChildren` gate: an earlier change's key runs on, and the gated change's waits.
+  - **KC9:** a Leg a Retarget took a key from never draws it again.
+  - **KC10:** a key whose Leg failed starts afresh.
+  - **KC12:** a key handed back to its style and set again to that value is held by the layer.
+  - **KC13:** a spring's colour leg ends alone when only the colour changes; its numeric leg runs on, and nothing is reported failed.
+- `carried-keys.browser.test.tsx` (Solid 1): **KC1**; **KC5**, `onAnimationComplete`; **KC11**, a list's name whose keys carry on is told when they land.
+- `v2/stagger-when.browser.test.tsx` **SW-j** now pins the report of a Retarget with no Leg.
+
+KC1–KC6, KC8 and KC9 fail on main on Solid 2, and KC1 and KC5 on Solid 1. KC7 and KC10–KC13 pin paths the build added.
+
+**Mutation-checked:** fifteen single-point mutations, thirteen caught:
+- never carrying a key (KC1–KC6, both bindings);
+- no masking (KC8, KC9);
+- carried Legs not counted (KC5, both bindings), or counted once a key (KC5);
+- a landed key starting a no-op Leg (KC6), or its Leg never marked landed (KC7);
+- no report for a Retarget with no Leg (SW-j);
+- the gate freezing every key (KC8), or carrying the Legs of the change it holds (stagger-when (c), (d), SW-d);
+- a list's names not waiting on carried Legs (KC11);
+- a failed Leg keeping its keys (KC10);
+- a key no longer resolved kept running (M24, DG6b);
+- a handed-back key keeping its owner (KC12).
+
+The two that survive are guards no test reaches:
+- **A Leg's interrupt when its token didn't reach it.** Counted across the carried-keys, stagger, list, base-value and frame-loop suites, it never fired: a Superseded Leg exits inline (ADR-0027, *Amendment (#200)*).
+- **A landing's check that it's still the last Retarget's.**

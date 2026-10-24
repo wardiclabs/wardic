@@ -598,6 +598,8 @@ So the cost isn't the number of layers: an interrupt with none costs about 3 µs
 
 **Follow-ups:** bumping Effect to 4.0.5 makes the interrupts left (presence's exits, drag releases, the recognizers) about 3.5× cheaper. It's its own change, with its own gates and benches.
 
+*Note (#325, 2026-10-23):* a token is now per **Leg**, not per Retarget. A Retarget keeps the Leg of a key whose target didn't change running, a **Carried key**, so it can't end the Retarget before it whole. It gives up each changed key's Leg, and ends a Leg left with none: Superseded, as decision 4 has it, or interrupted when its token didn't reach it. An unmount ends every running Leg's token, then closes the Scope (ADR-0005, *Amendment (#325)*).
+
 ## Amendment (#209, 2026-10-20): a run an `afterTick` hook starts keeps the burst
 
 Found building the Solid 2 binding (ADR-0045). A burst ended at the first tick with no run left, counted after the tick's steps but before its `afterTick` hooks. A run a hook started in that tick was added while the burst still held its subscription, so it started no burst, and `endAll` ended it with the burst, as an interrupt.

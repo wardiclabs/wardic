@@ -37,6 +37,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as FiberSet from "effect/FiberSet"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
@@ -235,12 +236,6 @@ const TRANSLATE_KEY_LIST: ReadonlyArray<string> = Arr.fromIterable(TRANSLATE_KEY
 /** Whether a value map has any key. */
 const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRecord)
 
-/** Whether a leg FiberSet still holds a fiber: a leg its Retarget's token didn't reach (#200). */
-const holdsFibers = (set: FiberSet.FiberSet<void, never>): boolean => {
-  if (set.state._tag === "Closed") return false
-  return set.state.backing.size > 0
-}
-
 /**
  * Whether two transitions have the same keys, each holding the same value (`===`), an entry the
  * same fields (#301: a stagger makes each entry anew).
@@ -394,6 +389,124 @@ const NO_NAMES: ReadonlyArray<string> = []
 /** No legs. */
 const NO_LEGS: ReadonlyArray<Leg> = []
 
+/**
+ * Where a Retarget's legs land (#257, #325): what each running leg's frames and end are told to.
+ * The last Retarget's, which every running leg counts toward, the ones it carried included.
+ */
+interface Landing {
+  /** A leg drew a frame: its last, when `done`. */
+  readonly report: (done: boolean) => void
+  /** A leg settled. */
+  readonly settled: () => void
+  /** A leg failed (#257 item 4). */
+  readonly failed: (cause: Cause.Cause<unknown>) => void
+}
+
+/**
+ * A gated Retarget's landing (ADR-0007 `when`, #325): the legs it carries report the element
+ * unsettled, as it still owes an animation, and land nothing; the Retarget once the gate opens
+ * counts them.
+ */
+const gatedLandingOf = (onFrame: ((done: boolean) => void) | undefined): Landing => ({
+  report: () => {
+    if (Predicate.isNotUndefined(onFrame)) onFrame(false)
+  },
+  settled: constVoid,
+  failed: constVoid,
+})
+
+/**
+ * A running leg (#325): the keys it draws, each with the target its Retarget resolved, and the
+ * landing its frames and end count toward. It's its machines' run options, with its own token
+ * (#200): a later Retarget that resolves a key to the same target leaves the leg that key, every
+ * other key is given up, and a leg left with none is ended.
+ */
+interface Running extends Machine.RunOptions {
+  /** Each key it animates, with the target its Retarget gave it. */
+  readonly targets: Values.Values
+  /** The resolution of the Retarget that started it: a `when` gate holds that change's legs. */
+  readonly resolution: Resolution
+  /** How many of its keys it still draws. */
+  count: number
+  /** A frame's values for the keys it still draws: the frame's own while it draws all of them. */
+  values: (value: Values.Values) => Values.Values
+  /** The same, for a frame's velocities. */
+  velocities: (velocity: Readonly<Record<string, number>>) => Readonly<Record<string, number>>
+  /** It drew its last frame: its keys landed. */
+  done: boolean
+  /** It gave up a key in this Retarget: what it still draws is worked out at the Retarget's end. */
+  losing: boolean
+  fiber: Fiber.Fiber<void> | undefined
+  /** The landing it counts toward: its Retarget's, then the one of each Retarget that carried it. */
+  landing: Landing
+  /** A list's names its end is told to (#297), for the Retarget it counts toward. */
+  names: ((end: unknown) => void) | undefined
+}
+
+/** No running legs. */
+const NO_RUNNING: ReadonlyArray<Running> = []
+
+/** No values: what a spine's Retarget keys are before its first. */
+const NO_VALUES: Values.Values = {}
+
+/**
+ * Each key's Leg (#325): the one that draws it, or the last one that did, landed; `undefined` once
+ * none does. A key's entry is cleared in place, never deleted: a Retarget that gives up and restarts
+ * every key would otherwise leave the Map a hole a key each time, and rehash it.
+ */
+type Owners = Map<string, Running | undefined>
+
+/** A Leg's run ended at an unmount, unless it landed. Hoisted: called per key at each unmount. */
+const endUnlessLanded = (running: Running | undefined): void => {
+  if (Predicate.isUndefined(running)) return
+  if (Bool.not(running.done)) Supersede.end(running.supersede)
+}
+
+/** A leg over the keys of `to` (#325), counting toward `landing`: the spine gives it the keys. */
+const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing): Running => ({
+  supersede: Supersede.make(),
+  targets: to,
+  resolution,
+  count: 0,
+  values: identity,
+  velocities: identity,
+  done: false,
+  losing: false,
+  fiber: undefined,
+  landing,
+  names: undefined,
+})
+
+/** A leg's frame drawn (#325): its last lands the keys it draws. Per frame: plain calls. */
+const drew = (running: Running, done: boolean): void => {
+  if (done) running.done = true
+  running.landing.report(done)
+}
+
+/**
+ * A frame's values for `kept` alone (#325): a leg a later Retarget took keys from draws only the
+ * rest. Built once, when it gives them up; each frame copies into the one object it returns.
+ */
+const keepingOnly = <A,>(kept: ReadonlyArray<string>): ((value: Readonly<Record<string, A>>) => Readonly<Record<string, A>>) => {
+  const out: Record<string, A> = {}
+  let frame: Readonly<Record<string, A>> = out
+  const copy = (key: string): void => {
+    out[key] = frame[key] as A
+  }
+  return (value) => {
+    frame = value
+    Arr.forEach(kept, copy)
+    return out
+  }
+}
+
+/** The groups of the keys a carried leg draws (#297, #325): the first alone when the keys aren't split. */
+const groupsOfLeg = (running: Running, groups: ReadonlyArray<ReadonlySet<string>> | undefined, owners: Owners): ReadonlyArray<number> => {
+  if (Predicate.isUndefined(groups)) return [0]
+  const keys = Arr.filter(Rec.keys(running.targets), (key) => owners.get(key) === running)
+  return Arr.filter(Arr.makeBy(groups.length, identity), (g) => Arr.some(keys, (key) => UndefinedOr.match(groups[g], { onUndefined: constFalse, onDefined: (group) => group.has(key) })))
+}
+
 /** Each layer's gate shut now (#297's PR 2): a named one whose `when` holds its keys back. */
 const shutOf = (layers: ReadonlyArray<Layer>, byName: NameOrchestration | undefined): ReadonlyArray<boolean> | undefined => {
   if (Predicate.isUndefined(byName)) return undefined
@@ -417,9 +530,10 @@ interface SplitLegs {
 }
 
 /**
- * A split Retarget's legs (#291, #297): each key group on its transition. A list's group that drives
- * no key makes no leg, settling at once as Motion's empty variant does, and its returns' Live values
- * follow with its returns' group, last; any other's with the first group.
+ * A split Retarget's legs (#291, #297): each key group on its transition, over the keys that start a
+ * leg (`t`, #325). A group with none of them makes no leg: a list's settles at once as Motion's empty
+ * variant does, unless keys it drives stay running. A list's returns' Live values follow with its
+ * returns' group, last; any other's with the first group.
  */
 const splitLegsOf = (
   t: Values.Values,
@@ -440,11 +554,13 @@ const splitLegsOf = (
   if (listed) returnsAt = resolution.layers.length
   const legs: Array<Leg> = []
   const tags: Array<number> = []
-  Arr.forEach(groups, (group, i) => {
-    if (Bool.and(listed, group.size === 0)) return
+  Arr.forEach(groups, (_, i) => {
+    // A group whose keys all stay starts none (#325), as one that drives no key.
+    const picked = pickKeys(t, groups, i)
+    if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, pickKeys(t, groups, i), groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, velocities, followed)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, velocities, followed)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -468,6 +584,8 @@ interface ListingOf {
   readonly groups: ReadonlyArray<ReadonlySet<string>> | undefined
   readonly legGroups: ReadonlyArray<number> | undefined
   readonly legCount: number
+  /** For each running leg it carries (#325), the groups of the keys it draws. */
+  readonly carriedGroups: ReadonlyArray<ReadonlyArray<number>>
   readonly shut: ReadonlyArray<boolean> | undefined
   /** Write a shut group's keys where they start. */
   readonly hold: (group: number) => void
@@ -482,14 +600,14 @@ interface ListingOf {
  * commit, which hands the element's style back (ADR-0034), doesn't drop them to their CSS value.
  */
 const listingOf = (of: ListingOf): Listing => {
-  const { listed, told, byName, resolution, groups, legGroups, legCount, shut, config } = of
+  const { listed, told, byName, resolution, groups, legGroups, legCount, carriedGroups, shut, config } = of
   const listNames = Bool.match(listed, { onTrue: () => resolution.variant as ReadonlyArray<string>, onFalse: () => NO_NAMES })
   const orchestrated = Bool.and(listed, Predicate.isNotUndefined(byName))
   const toldNames = UndefinedOr.match(told, { onUndefined: () => NO_NAMES, onDefined: (list) => list.names })
   let names: NameSettles | undefined
   if (Bool.or(orchestrated, Predicate.isNotUndefined(told))) {
     if (orchestrated) (byName as NameOrchestration).moving(listNames)
-    names = nameSettlesOf(Arr.dedupe([...listNames, ...toldNames]), resolution, groups, legGroups, legCount, (settled) =>
+    names = nameSettlesOf(Arr.dedupe([...listNames, ...toldNames]), resolution, groups, legGroups, legCount, carriedGroups, (settled) =>
       of.afterFlush(() => {
         UndefinedOr.map(told, (list) => {
           const mine = Arr.filter(settled, (name) => Arr.contains(list.names, name))
@@ -639,14 +757,19 @@ const namesToldOf = (animation: AnimationHooks | undefined, resolution: Resoluti
   return { names: definition as ReadonlyArray<string>, tell }
 }
 
-/** A list's names told settled one by one (#297): what each leg's end is told to, legs started in the Retarget's order. */
+/**
+ * A list's names told settled one by one (#297): what each leg's end is told to, legs started in the
+ * Retarget's order, and each running leg it carries (#325), by its place in `carriedGroups`.
+ */
 interface NameSettles {
   readonly leg: () => (end: unknown) => void
+  readonly carried: (i: number) => (end: unknown) => void
 }
 
 /**
  * A list's names, each told settled with the last leg of the keys it drives (#297): its layer's group,
- * or every leg's when the keys aren't split. A name that drives none is told at once.
+ * or every leg's when the keys aren't split, the running legs the Retarget carries among them (#325).
+ * A name that drives none is told at once.
  */
 const nameSettlesOf = (
   names: ReadonlyArray<string>,
@@ -654,6 +777,7 @@ const nameSettlesOf = (
   groups: ReadonlyArray<ReadonlySet<string>> | undefined,
   legGroups: ReadonlyArray<number> | undefined,
   legCount: number,
+  carriedGroups: ReadonlyArray<ReadonlyArray<number>>,
   tell: (names: ReadonlyArray<string>) => void,
 ): NameSettles => {
   const groupOf = (name: string): number => {
@@ -662,16 +786,32 @@ const nameSettlesOf = (
   }
   // The legs still running in each group.
   const left = new Map<number, number>()
+  const add = (g: number): void => {
+    left.set(g, Option.getOrElse(Option.fromUndefinedOr(left.get(g)), () => 0) + 1)
+  }
   UndefinedOr.match(legGroups, {
     onUndefined: () => {
       if (legCount > 0) left.set(0, legCount)
     },
-    onDefined: (tags) => Arr.forEach(tags, (g) => left.set(g, Option.getOrElse(Option.fromUndefinedOr(left.get(g)), () => 0) + 1)),
+    onDefined: (tags) => Arr.forEach(tags, add),
   })
+  Arr.forEach(carriedGroups, (gs) => Arr.forEach(gs, add))
   const running = (name: string): boolean => left.has(groupOf(name))
   let pending = Arr.filter(names, running)
   const idle = Arr.filter(names, (name) => Bool.not(running(name)))
   if (idle.length > 0) tell(idle)
+  // A leg in group `g` ended: the names of that group are told once its last has.
+  const endIn = (g: number): void => {
+    const n = Option.getOrElse(Option.fromUndefinedOr(left.get(g)), () => 1) - 1
+    if (n > 0) {
+      left.set(g, n)
+      return
+    }
+    left.delete(g)
+    const done = Arr.filter(pending, (name) => groupOf(name) === g)
+    pending = Arr.filter(pending, (name) => groupOf(name) !== g)
+    if (done.length > 0) tell(done)
+  }
   let next = 0
   return {
     leg: () => {
@@ -680,16 +820,12 @@ const nameSettlesOf = (
       return (end) => {
         // A Superseded leg (#200) settles nothing: the next Retarget's tells.
         if (Supersede.isSuperseded(end)) return
-        const n = Option.getOrElse(Option.fromUndefinedOr(left.get(g)), () => 1) - 1
-        if (n > 0) {
-          left.set(g, n)
-          return
-        }
-        left.delete(g)
-        const done = Arr.filter(pending, (name) => groupOf(name) === g)
-        pending = Arr.filter(pending, (name) => groupOf(name) !== g)
-        if (done.length > 0) tell(done)
+        endIn(g)
       }
+    },
+    carried: (i) => (end) => {
+      if (Supersede.isSuperseded(end)) return
+      Arr.forEach(UndefinedOr.match(carriedGroups[i], { onUndefined: (): ReadonlyArray<number> => [], onDefined: identity }), endIn)
     },
   }
 }
@@ -1080,6 +1216,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     Arr.forEach(settled, ([key]) => {
       returning.delete(key)
       driven.delete(key)
+      owners.set(key, undefined)
     })
     const toStyle = Arr.map(Arr.filter(settled, ([, source]) => source === "style"), ([key]) => key)
     const routedNow = (key: string): boolean => UndefinedOr.match(live, { onUndefined: constFalse, onDefined: (routes) => routes.routes(key) })
@@ -1112,26 +1249,113 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
 
   const legScope = Scope.makeUnsafe()
   const legFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(legScope)))
-  // The running legs' token (#200, ADR-0027 *Amendment (#200)*): a Retarget ends it and starts
-  // its own, so its legs are Superseded, not interrupted: off the loop at once, their fibers
-  // ended normally, at about a sixth of an interrupt's cost.
-  let generation = Supersede.make()
+  // Each key's leg (#325, Motion's per-key rule): the running leg that draws it, or the last one that
+  // did, landed. A Retarget leaves a key its running leg when it resolves it to the same target, starts
+  // none for a key whose last leg landed there, and starts every other key afresh. Each leg has its
+  // own token (#200, ADR-0027 *Amendment (#200)*), ended once it has no key left: Superseded, not
+  // interrupted, so off the loop at once and its fiber ended normally, at about a sixth of an
+  // interrupt's cost.
+  const owners: Owners = new Map()
+  // The legs that gave up a key in this Retarget: what each still draws is worked out at its end.
+  const losing: Array<Running> = []
+  // The landing every running leg counts toward: the last Retarget's.
+  let current: Landing | undefined
+  // A gated Retarget's (ADR-0007 `when`, #325): made at the first.
+  let gated: Landing | undefined
   // The variant name the last started Retarget resolved, for its successor's `definition` (#257).
   let lastResolution: Resolution | undefined
 
+  // A leg with no key left ends. Its fiber ends inline (ADR-0027, *Amendment (#200)*); one its token
+  // didn't reach, none of its runs on the loop, is interrupted.
+  const endLeg = (running: Running): void => {
+    Supersede.end(running.supersede)
+    const fiber = running.fiber
+    if (Predicate.isUndefined(fiber)) return
+    if (Predicate.isNotUndefined(fiber.pollUnsafe())) return
+    runtime.runFork(Fiber.interrupt(fiber))
+  }
+
+  // A leg takes its keys (#325): each key's owner from now on. One callback a spine, not one a leg.
+  let owning: Running | undefined
+  const ownKey = (key: string): void => {
+    owners.set(key, owning)
+  }
+  const own = (running: Running): void => {
+    const keys = Rec.keys(running.targets)
+    running.count = keys.length
+    owning = running
+    Arr.forEach(keys, ownKey)
+  }
+
+  // `key`'s leg gives it up: a leg ends with its last key, and draws only the rest before.
+  const giveUp = (key: string, running: Running): void => {
+    owners.set(key, undefined)
+    if (running.done) return
+    running.count--
+    if (running.count === 0) return endLeg(running)
+    if (running.losing) return
+    running.losing = true
+    losing.push(running)
+  }
+
+  // The keys the Retarget being worked out resolves, for `giveUpUnresolved`: one callback a spine,
+  // not one a Retarget.
+  let resolvedNow: Values.Values = NO_VALUES
+  const giveUpUnresolved = (owner: Running | undefined, key: string): void => {
+    if (Predicate.isUndefined(owner)) return
+    if (Bool.not(Object.hasOwn(resolvedNow, key))) giveUp(key, owner)
+  }
+
+  // Each leg that gave up keys draws the ones it kept from now on: once per such leg, a Retarget.
+  const keepTheRest = (): void => {
+    if (losing.length === 0) return
+    Arr.forEach(losing, (running) => {
+      running.losing = false
+      if (running.count === 0) return
+      const kept = Arr.filter(Rec.keys(running.targets), (key) => owners.get(key) === running)
+      running.values = keepingOnly(kept)
+      running.velocities = keepingOnly(kept)
+    })
+    losing.length = 0
+  }
+
+  // A key's leg ended by a failure (#257 item 4): nothing draws its keys, so a later Retarget starts them afresh.
+  const forget = (running: Running): void =>
+    Arr.forEach(Rec.keys(running.targets), (key) => {
+      if (owners.get(key) === running) owners.set(key, undefined)
+    })
+
+  // A gated Retarget (ADR-0007 `when`, #325): a running key it resolves to its leg's target runs on,
+  // the element reported unsettled meanwhile, when an earlier change started that leg; every other
+  // running key freezes where it is. The change the gate holds may have started legs just before
+  // it shut (a child Retargets before its provider's effect resets its `beforeChildren` wait; an
+  // `afterChildren` provider starts before its children report): those freeze too, as before.
+  const hold = (resolution: Resolution): void => {
+    if (Predicate.isUndefined(gated)) gated = gatedLandingOf(onFrame)
+    const landing = gated
+    const resolved = resolution.resolved
+    current = landing
+    owners.forEach((running, key) => {
+      if (Predicate.isUndefined(running)) return
+      if (running.done) return
+      if (Bool.every([Object.hasOwn(resolved, key), running.targets[key] === resolved[key], Bool.not(sameResolution(running.resolution, resolution))])) {
+        running.landing = landing
+        running.names = undefined
+        return
+      }
+      giveUp(key, running)
+    })
+    keepTheRest()
+  }
+
   const retarget = (resolution: Resolution): void => {
     const { resolved, base, dragging: held } = resolution
-    Supersede.end(generation)
-    generation = Supersede.make()
-    // One options object for this Retarget's legs, each joining its token.
-    const runOptions = { supersede: generation }
-    // A leg its token didn't reach (one not on the loop) is interrupted, as before.
-    if (holdsFibers(legFibers)) runtime.runFork(FiberSet.clear(legFibers))
 
-    // `when` start-gate (ADR-0007): when canStart() is false, freeze at the
-    // snapshot (the previous legs are already interrupted) and bail; the
-    // binding retargets once the gate flips true.
+    // `when` start-gate (ADR-0007): when canStart() is false, the keys whose target changed freeze
+    // where they are (#325: the rest run on), and the element waits; the binding retargets once
+    // the gate flips true.
     if (Predicate.isNotUndefined(canStart) && !canStart()) {
+      hold(resolution)
       // Report NOT settled: a gated child sits at its snapshot, still
       // owing an animation, so it must not count as settled (afterChildren).
       if (Predicate.isNotUndefined(onFrame)) onFrame(false)
@@ -1167,60 +1391,29 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // keys re-enter normally (post-drag handoff: the spring continues x/y only
     // if `animate` sets them, from the snapshot's rested position).
     if (held) Arr.forEach(TRANSLATE_KEY_LIST, (key) => delete t[key])
-    // Every key's Own value is read at its first need, before anything writes it, so a
-    // return later finds the element's value, not Wardic's (ADR-0022, D3). The read is
-    // kept: a later need is a lookup. A transform key reads nothing.
-    Arr.forEach(Rec.keys(t), (key) => {
-      if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
-    })
-    // Each key starts from its Snapshot value, coerced to its target's shape (ADR-0024,
-    // D1). A key with no value yet, or one whose value can't take that shape, starts
-    // from its Base value's start links, read here at its first need (ADR-0022, D3);
-    // with none, it starts at its target (no motion).
-    const started: Record<string, string> = {}
-    Arr.forEach(Rec.keys(t), (key) => {
-      const like = t[key]
-      const coerced = OwnValues.valueLike(snapshot.values[key], like)
-      if (Option.isSome(coerced)) {
-        snapshot.values[key] = coerced.value
-        return
-      }
-      Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
-        onSome: (s) => {
-          snapshot.values[key] = s.value
-          started[key] = s.source
-        },
-        onNone: () => {
-          snapshot.values[key] = like
-          started[key] = "target"
-        },
-      })
-    })
-    const from: Values.Values = Rec.map(t, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
-    // The keys this Retarget returns; once every leg settles, a key back at its
-    // `style` value is handed back to the element's style (D4) and the rest rest inline.
+    // The keys this Retarget returns; once it lands, a key back at its `style` value is
+    // handed back to the element's style (D4) and the rest rest inline.
     const returns = [...returning]
-    // Each leg: the base-value log at the head of the first, and, once the leg's run
-    // settles, a count toward settling the returns, so the per-frame handlers stay as
-    // they were.
-    let pendingLog = Bool.match(returns.length > 0 || Bool.not(Rec.isEmptyRecord(started)), {
-      onTrue: (): Effect.Effect<void> | undefined => baseLog(started, returns),
-      onFalse: constUndefined,
-    })
+    // The transition, read at Retarget time so a change applies to the next Retarget. A child
+    // with no local transition inherits the parent context's (ADR-0007).
+    const c = config()
+
+    // This Retarget's landing (#257, #325): it lands when every leg drawing a key it resolves has
+    // settled, its own and the ones it carries. A leg's end, told apart (ADR-0027, decision 7): a
+    // settle counts; a Superseded end (a Retarget, an unmount, #200) or an interruption (a leg its
+    // token didn't reach) is nothing; anything else (a step or a sink that threw, the Frame loop's
+    // own failure) is logged and reported (ADR-0030, decision 4), and doesn't count.
     let legs = 0
     // The variant the Retarget before this one resolved, set once this one starts (#257).
     let previous: Resolution | undefined
-    const legDone = Effect.sync(() => {
+    const legDone = (): void => {
+      if (current !== landing) return
       if (--legs !== 0) return
       settleReturns(returns)
       // The Retarget settled with its last leg (#257): told once the gate has flushed its last frame,
       // so the element shows where it landed.
       if (Predicate.isNotUndefined(animation)) gate.afterFlush(() => animation.settled(resolution, previous, c))
-    })
-    // A leg's end, told apart (ADR-0027, decision 7): a settle counts toward the returns;
-    // a Superseded end (a Retarget, an unmount, #200) or an interruption (a leg its token
-    // didn't reach) is nothing; anything else (a step or a sink that threw, the Frame loop's
-    // own failure) is logged and reported (ADR-0030, decision 4), and doesn't count.
+    }
     // A leg's failure (#257 item 4): the Retarget can't land, so a binding waiting on it is told,
     // once, at once: a leg that fails before it writes leaves no flush to wait for. A leg failing
     // as it's built, before `started` is told, is told right after it.
@@ -1239,16 +1432,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (startedTold) return tellFailed(error)
       failedEarly = { error }
     }
-    const legEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
-      Exit.match(exit, {
-        // A Superseded leg (#200) counts toward nothing: the next Retarget's legs settle the returns.
-        onSuccess: (end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.void, onFalse: () => legDone }),
-        onFailure: (cause) =>
-          Report.failure("wardic.spine: a leg failed", cause).pipe(
-            Effect.annotateLogs({ id }),
-            Effect.andThen(Effect.sync(() => legFailed(cause))),
-          ),
-      })
     // The element settles with its last leg (ADR-0024, D5): a string leg can outlast the
     // numeric one, so each leg's frames report, and only the last leg's settle reports done.
     let reporting = 0
@@ -1257,10 +1440,102 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (done) settled++
       if (Predicate.isNotUndefined(onFrame)) onFrame(settled === reporting)
     }
+    const landing: Landing = { report, settled: legDone, failed: legFailed }
+    current = landing
+
+    // Per key (#325, Motion's): a key whose running leg heads where this Retarget resolves it runs
+    // on, counted toward this landing; one whose last leg landed there stays; every other's leg
+    // gives it up, and it starts from its Snapshot value, coerced to its target's shape (ADR-0024,
+    // D1). A key with no value yet, or one whose value can't take that shape, starts from its Base
+    // value's start links, read here at its first need (ADR-0022, D3); with none, it starts at its
+    // target (no motion).
+    //
+    // Every key's Own value is read first, at its first need, before anything writes it, so a return
+    // later finds the element's value, not Wardic's (ADR-0022, D3). The read is kept: a later need is
+    // a lookup. A transform key reads nothing.
+    let stays: Set<string> | undefined
+    let carried: Array<Running> | undefined
+    const started: Record<string, string> = {}
+    Arr.forEach(Rec.keys(t), (key) => {
+      if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
+      const like = t[key]
+      const owner = owners.get(key)
+      if (Predicate.isNotUndefined(owner)) {
+        if (owner.targets[key] === like) {
+          if (Predicate.isUndefined(stays)) stays = new Set()
+          stays.add(key)
+          if (Bool.or(owner.done, owner.landing === landing)) return
+          owner.landing = landing
+          owner.names = undefined
+          legs++
+          reporting++
+          if (Predicate.isUndefined(carried)) carried = []
+          carried.push(owner)
+          return
+        }
+        giveUp(key, owner)
+      }
+      const coerced = OwnValues.valueLike(snapshot.values[key], like)
+      if (Option.isSome(coerced)) {
+        snapshot.values[key] = coerced.value
+        return
+      }
+      Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
+        onSome: (s) => {
+          snapshot.values[key] = s.value
+          started[key] = s.source
+        },
+        onNone: () => {
+          snapshot.values[key] = like
+          started[key] = "target"
+        },
+      })
+    })
+    // A key no longer resolved (one the drag holds, or one with no Base value) is given up: it stays
+    // where it is.
+    resolvedNow = t
+    owners.forEach(giveUpUnresolved)
+    keepTheRest()
+    // The keys this Retarget starts legs for: all of them, unless some stay.
+    let fresh: Values.Values = t
+    if (Predicate.isNotUndefined(stays)) {
+      const kept = stays
+      fresh = Rec.filter(t, (_, key) => Bool.not(kept.has(key)))
+    }
+    const from: Values.Values = Rec.map(fresh, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+    // Each leg: the base-value log at the head of the first, and, once the leg's run
+    // settles, a count toward this landing, so the per-frame handlers stay as they were.
+    let pendingLog = Bool.match(returns.length > 0 || Bool.not(Rec.isEmptyRecord(started)), {
+      onTrue: (): Effect.Effect<void> | undefined => baseLog(started, returns),
+      onFalse: constUndefined,
+    })
+    const legEnded = (running: Running) => (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
+      Exit.match(exit, {
+        // A Superseded leg (#200) counts toward nothing, nor tells a name: the next Retarget's legs
+        // land. Nothing made for it: a Retarget ends its element's legs inline.
+        onSuccess: (end) => {
+          if (Supersede.isSuperseded(end)) return Effect.void
+          return Effect.sync(() => {
+            running.landing.settled()
+            UndefinedOr.map(running.names, (tell) => tell(end))
+          })
+        },
+        // A leg its token didn't reach is interrupted: its keys are given up already, and it isn't a failure.
+        onFailure: (cause) => {
+          if (Cause.hasInterruptsOnly(cause)) return Effect.void
+          return Report.failure("wardic.spine: a leg failed", cause).pipe(
+            Effect.annotateLogs({ id }),
+            Effect.andThen(Effect.sync(() => {
+              forget(running)
+              running.landing.failed(cause)
+            })),
+          )
+        },
+      })
     // A list's names told settled one by one (#297, Solid 1's callbacks): each as the legs of the keys
     // it drives settle. Made only for a list with a binding that's told so.
     let names: NameSettles | undefined
-    const leg = <R,>(program: Effect.Effect<unknown, never, R>): Effect.Effect<void, never, R> => {
+    const leg = <R,>(running: Running, program: Effect.Effect<unknown, never, R>): Effect.Effect<void, never, R> => {
       legs++
       const log = pendingLog
       pendingLog = undefined
@@ -1268,9 +1543,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         onUndefined: () => program,
         onDefined: (head) => Effect.andThen(head, program),
       })
-      if (Predicate.isUndefined(names)) return run.pipe(Effect.onExit(legEnded), Effect.asVoid)
-      const settles = names.leg()
-      return run.pipe(Effect.onExit((exit) => Effect.andThen(legEnded(exit), Effect.sync(() => Exit.match(exit, { onSuccess: (end) => settles(end), onFailure: constVoid })))), Effect.asVoid)
+      if (Predicate.isNotUndefined(names)) running.names = names.leg()
+      return run.pipe(Effect.onExit(legEnded(running)), Effect.asVoid)
     }
     // Start a leg in this element's FiberSet: forked on the provider's runtime, which runs
     // it inline up to its add on the loop, so every leg started in a task is on the loop by
@@ -1279,14 +1553,13 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // a `runSync`, a leg would inherit that call's scheduler (ADR-0027, decision 6).
     // The name the leg being started waits for (#297's PR 2), set as each is started; none for most.
     let gateNow: string | undefined
-    const runLeg = <R extends WardicServices>(program: Effect.Effect<unknown, never, R>): void => {
+    const runLeg = <R extends WardicServices>(running: Running, program: Effect.Effect<unknown, never, R>): void => {
       let run: Effect.Effect<unknown, never, R | FrameLoop.FrameLoop> = program
-      if (Predicate.isNotUndefined(gateNow)) run = gatedBy(gateNow, byName, runOptions, program)
-      FiberSet.addUnsafe(legFibers, runtime.runFork(leg(run)))
+      if (Predicate.isNotUndefined(gateNow)) run = gatedBy(gateNow, byName, running, program)
+      const fiber = runtime.runFork(leg(running, run))
+      running.fiber = fiber
+      FiberSet.addUnsafe(legFibers, fiber)
     }
-    // The transition, read at Retarget time so a change applies to the next Retarget. A child
-    // with no local transition inherits the parent context's (ADR-0007).
-    const c = config()
     const elementTransition = ownOrInherited(c.transition, parent)
     // The base target's own transition (#277): the keys its layer drives animate on it.
     const baseTransition = transitionOfTarget(resolution.transition, elementTransition)
@@ -1321,14 +1594,17 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // A list's names each wait for their own `when` (#297's PR 2): the layers whose gate is shut now.
     let shut: ReadonlyArray<boolean> | undefined
     if (listed) shut = shutOf(layers, byName)
+    // Every key the Retarget resolves goes in its layer's group, the ones that stay too (#325): a
+    // name's settle waits for them.
     const groups = keysByLayerOf(t, layers, extraDelay, extra, listed, shut)
     const told = namesToldOf(animation, resolution, lastResolution)
     // Every key on one transition when they aren't split, as before; else each group's legs, tagged.
+    // A key that stays starts none, and no keys make no leg (#325).
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
-    if (Predicate.isUndefined(groups)) retargetLegs = legsOf(from, t, transition, reduce, positionalKeys, snapshot.velocities, follow)
+    if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, snapshot.velocities, follow)
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(t, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, snapshot.velocities, follow)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, snapshot.velocities, follow)
       retargetLegs = split.legs
       legGroups = split.tags
     }
@@ -1337,15 +1613,17 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isNotUndefined(handoff)) {
       const taken = handoff
       handoff = undefined
-      checkHandoff(runtime, id, taken, { tag, from, to: t, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c) })
+      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c) })
       const at = startAtOf(taken, baseTransition, delayOf(transition))
       retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
-    reporting = retargetLegs.length
-    // A list's names (#297): told settled with the legs of the keys each drives, to the binding's
-    // callbacks and its orchestration, and each shut one's legs waiting on its gate (PR 2).
+    reporting += retargetLegs.length
+    // A list's names (#297): told settled with the legs of the keys each drives, the ones a key that
+    // stays carries too (#325), to the binding's callbacks and its orchestration, and each shut
+    // one's legs waiting on its gate (PR 2).
     let legGates: ReadonlyArray<string | undefined> | undefined
     if (Bool.or(listed, Predicate.isNotUndefined(told))) {
+      const carriedLegs = UndefinedOr.match(carried, { onUndefined: (): ReadonlyArray<Running> => NO_RUNNING, onDefined: identity })
       const listing = listingOf({
         listed,
         told,
@@ -1354,25 +1632,34 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         groups,
         legGroups,
         legCount: retargetLegs.length,
+        carriedGroups: Arr.map(carriedLegs, (running) => groupsOfLeg(running, groups, owners)),
         shut,
         hold: (g) => {
-          const held = pickKeys(from, groups, g)
-          if (Bool.not(Rec.isEmptyRecord(held))) gate.write(id, held)
+          const kept = pickKeys(from, groups, g)
+          if (Bool.not(Rec.isEmptyRecord(kept))) gate.write(id, kept)
         },
         afterFlush: (fn) => gate.afterFlush(fn),
         config: c,
       })
       names = listing.names
       legGates = listing.legGates
+      UndefinedOr.map(names, (settles) =>
+        Arr.forEach(carriedLegs, (running, i) => {
+          running.names = settles.carried(i)
+        }))
     }
     // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
-    // built for the leg that needs it (#69's PR 2: a Retarget is per element).
+    // built for the leg that needs it (#69's PR 2: a Retarget is per element). Each leg draws
+    // the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {
       if (Predicate.isNotUndefined(legGates)) gateNow = legGates[i]
+      const running = runningOf(leg.to, resolution, landing)
+      own(running)
       if (leg._tag === "Follow") {
         const key = leg.key
         const out: Record<string, number> = { [key]: 0 }
         runLeg(
+          running,
           Effect.suspend(() =>
             leg.machine().pipe(
               Machine.run((frame) => {
@@ -1381,61 +1668,78 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
                 snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
                 gate.write(id, out)
                 recordFrame(out)
-                report(frame.done)
+                drew(running, frame.done)
                 return undefined
-              }, runOptions),
+              }, running),
             )),
         )
         return
       }
       if (leg._tag === "Numbers") {
         runLeg(
+          running,
           Effect.suspend(() =>
             leg.machine().pipe(
               Machine.run((frame) => {
                 // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys into the snapshot
                 // rather than replacing it, so the drag's direct-set x/y survive alongside the
                 // spring's keys (drag owns x/y, spring owns the rest) and the post-drag
-                // handoff continues from the rested position.
-                snapshot.values = { ...snapshot.values, ...frame.value }
-                snapshot.velocities = { ...snapshot.velocities, ...frame.velocity }
-                gate.write(id, frame.value)
-                recordFrame(frame.value)
-                report(frame.done)
+                // handoff continues from the rested position. Only the keys it still draws (#325).
+                const value = running.values(frame.value)
+                snapshot.values = { ...snapshot.values, ...value }
+                snapshot.velocities = { ...snapshot.velocities, ...running.velocities(frame.velocity) }
+                gate.write(id, value)
+                recordFrame(value)
+                drew(running, frame.done)
                 return undefined
-              }, runOptions),
+              }, running),
             )),
         )
         return
       }
       // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are.
       const sink = (frame: Frame.Frame<Values.Values>): undefined => {
-        snapshot.values = { ...snapshot.values, ...frame.value }
-        gate.write(id, frame.value)
-        recordFrame(frame.value)
-        report(frame.done)
+        const value = running.values(frame.value)
+        snapshot.values = { ...snapshot.values, ...value }
+        gate.write(id, value)
+        recordFrame(value)
+        drew(running, frame.done)
         return undefined
       }
       if (leg._tag === "Snap") {
         // A snapped key comes to rest, so a later spring starts it at rest.
         snapshot.velocities = { ...snapshot.velocities, ...Rec.fromEntries(Arr.map(leg.keys, (key) => [key, 0] as const)) }
-        runLeg(Effect.suspend(() => leg.machine().pipe(Machine.run(sink, runOptions))))
+        runLeg(running, Effect.suspend(() => leg.machine().pipe(Machine.run(sink, running))))
         return
       }
       runLeg(
+        running,
         Effect.suspend(leg.machine).pipe(
           InterpolatorRegistry.withKeyRules(elementRules),
-          Effect.flatMap(Machine.run(sink, runOptions)),
+          Effect.flatMap(Machine.run(sink, running)),
         ),
       )
     })
-    // The Retarget started, its legs on their way (#257); with none, it settled at once.
+    // The Retarget started, its legs on their way (#257); with none, its own or carried, it landed
+    // at once (#325): its returns settle, and the element reports settled at the gate's next flush,
+    // after the effects that start its orchestration's wait (ADR-0007).
     previous = lastResolution
     lastResolution = resolution
+    const landed = legs === 0
+    if (landed) {
+      settleReturns(returns)
+      UndefinedOr.map(pendingLog, (log) => runtime.runFork(log))
+      if (Predicate.isNotUndefined(onFrame)) {
+        const tell = onFrame
+        gate.afterFlush(() => {
+          if (current === landing) tell(true)
+        })
+      }
+    }
     if (Predicate.isNotUndefined(animation)) {
       animation.started(resolution, previous, c)
       startedTold = true
-      if (retargetLegs.length === 0) animation.settled(resolution, previous, c)
+      if (landed) animation.settled(resolution, previous, c)
       UndefinedOr.map(failedEarly, (early) => tellFailed(early.error))
     }
   }
@@ -1503,7 +1807,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   const dispose = (): void => {
     if (Predicate.isNotUndefined(live)) live.stop()
     // The legs end normally first, so closing the Scope has nothing left to interrupt.
-    Supersede.end(generation)
+    owners.forEach(endUnlessLanded)
     runtime.runFork(Scope.close(legScope, Exit.void))
   }
 

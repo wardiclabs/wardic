@@ -86,16 +86,26 @@ const mountMover = async (config: ReducedMotion.Config | undefined, transition: 
   }
 }
 
-/** Width and opacity painted on each of `n` frames from now. */
+/**
+ * Width and opacity painted on each of `n` frames from now, each read just after its paint (a
+ * `MessageChannel` message each rAF posts, as `paintedFrames`): a read inside a rAF callback queued
+ * ahead of the Frame loop's sees the frame before, as an idle loop's first tick runs after it (#325).
+ */
 const widthAndOpacity = (box: HTMLElement, n: number): Promise<ReadonlyArray<{ readonly width: number; readonly opacity: number }>> =>
   new Promise((resolve) => {
     const out: Array<{ width: number; opacity: number }> = []
-    const step = (): void => {
+    const channel = new MessageChannel()
+    const post = (): void => channel.port2.postMessage(undefined)
+    channel.port1.onmessage = () => {
       out.push({ width: box.getBoundingClientRect().width, opacity: Number(getComputedStyle(box).opacity) })
-      if (out.length < n) requestAnimationFrame(step)
-      else resolve(out)
+      if (out.length < n) {
+        requestAnimationFrame(post)
+        return
+      }
+      channel.port1.close()
+      resolve(out)
     }
-    requestAnimationFrame(step)
+    requestAnimationFrame(post)
   })
 
 /** A box that grows `width` 50 → 250 px and fades in under reduced motion "always", on `env`. */
