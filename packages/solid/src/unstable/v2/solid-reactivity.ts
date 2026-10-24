@@ -35,7 +35,7 @@ const SETTLED = { name: "onSettled", ...CLIENT_ONLY }
  * and a server's `onSettled` takes the same one, but code that runs on the client only has no server
  * call to take it: the keys after it would miss the server's markup. A tracked effect's declared
  * options are only `name`; it passes them to its node, as every computation does, which reads
- * `transparent` (`@solidjs/signals` rc.15, dev and prod builds).
+ * `transparent` (`@solidjs/signals` rc.15 to rc.18, dev and prod builds).
  */
 export const onSettledClientOnly = (callback: () => void | (() => void)): void => createTrackedEffect(() => untrack(callback), SETTLED)
 

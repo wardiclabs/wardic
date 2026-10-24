@@ -650,3 +650,26 @@ Found while building #296's cart drawer on Solid 2. A cart line added optimistic
 
   All three fail on `main`.
 
+## Note (#345, 2026-10-24): rc.18
+
+Bumped per decision 9:
+- `solid-js`, `@solidjs/web` and `@solidjs/babel-plugin` pinned at 2.0.0-rc.18 in dev; the peer floor is `^2.0.0-rc.18`;
+- the examples: `@solidjs/router` 2.0.0-next.42 and `@solidjs/vite-plugin` 3.0.0-next.51.
+
+rc.16 to rc.18 changed one thing in Wardic, a type:
+- rc.18 types `data-*` attributes (`string | number | boolean | undefined`). So `Component<Record<string, unknown>>`, which `wardic.create`'s implementation returned and the tags' cache kept, is no longer assignable from a `Component<WardicProps<Tag>>`.
+- Both are now `Component<never>`: every component is one. `create`'s overloads, the public types, are unchanged.
+- `onSettledClientOnly` still passes `transparent` through a tracked effect's options to its node, which reads it (`@solidjs/signals` rc.18, `owner.js`).
+
+What else changed upstream, for apps on this binding:
+- **rc.16:** data server functions called during hydration are sent on a page with server components (solidjs/solid#4033). Before, the frames client held every call made before the document's last chunk.
+- **rc.16, rc.17:** a server-rendered `live()` read reconnects after hydration.
+- **rc.17:** `live()` implies `GET`.
+- **rc.16:** keyed `<For>`'s reconciler, and hydrating a streamed `<Loading>` whose fragment was revealed early.
+
+The storefront's Solid 2 wishlist (#296) worked around the first two.
+
+- **Checked:**
+  - the v2 browser, hydration and SSR suites, unchanged and all passing;
+  - `bench:solid --binding 2`, rc.18 against rc.15 (11 paired reps, 1,000 elements): warm mount −0.2%, Retarget +1.9%, at-rest Retarget −1.4%, unmount −1.5%, bytes −0.3%; no gate failure;
+  - `examples/solid2-start` built and every route loaded with nothing logged.

@@ -325,7 +325,7 @@ On SVG, the attributes that are also CSS properties play too: `opacity`, `fill`,
 
 ### Solid 2 (unstable)
 
-`@wardic/solid/unstable/v2` is Wardic for Solid 2, tracking its release candidate: last tested with `solid-js` and `@solidjs/web` **2.0.0-rc.15**. Any release may change it. Once Solid 2.0 is stable it becomes `@wardic/solid`, and the Solid 1 binding moves to `@wardic/solid/v1`.
+`@wardic/solid/unstable/v2` is Wardic for Solid 2, tracking its release candidate: last tested with `solid-js` and `@solidjs/web` **2.0.0-rc.18**. Any release may change it. Once Solid 2.0 is stable it becomes `@wardic/solid`, and the Solid 1 binding moves to `@wardic/solid/v1`.
 
 Its element primitive is `ward(config)`: a ref that carries its props. Make it once, in a component's body (or a `<For>` callback), then spread it, which puts its starting style in server HTML, or give it to `ref`, client-only:
 
