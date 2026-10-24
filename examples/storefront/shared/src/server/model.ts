@@ -60,6 +60,33 @@ export const Order = Schema.Struct({
 })
 export type Order = typeof Order.Type
 
+/** Which wishlist: the visitor's own, or the one every visitor shares. */
+export const WishlistScope = Schema.Literals(["mine", "shared"])
+export type WishlistScope = typeof WishlistScope.Type
+
+/** A wishlist's last move: who made it, and which piece. */
+export const WishlistMove = Schema.Struct({ by: Schema.String, productId: ProductId })
+export type WishlistMove = typeof WishlistMove.Type
+
+/** A wishlist: its pieces in order. */
+export const Wishlist = Schema.Struct({
+  items: Schema.Array(ProductId),
+  /** The last move, for "Heron moved the Tulip Bowl"; none before the first. */
+  lastMove: Schema.UndefinedOr(WishlistMove),
+  /** One more with every change: of two orders, the newer has the higher. */
+  version: Schema.Int,
+})
+export type Wishlist = typeof Wishlist.Type
+
+/** A notification the shop sends a visitor. */
+export const Notice = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literals(["shipped", "stock", "price", "review"]),
+  title: Schema.String,
+  body: Schema.String,
+})
+export type Notice = typeof Notice.Type
+
 /** The visitor's switches for showing the async paths on purpose. */
 export const Settings = Schema.Struct({
   /** The artificial delay on each store call, in ms. */

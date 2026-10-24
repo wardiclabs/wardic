@@ -58,6 +58,13 @@ export const handOver = (props: WardRefProp, ward: Ward): void => {
  */
 export type WardicWrappable = { readonly ref?: JSX.Ref<HTMLElement> }
 
+/**
+ * A component, whatever its props: every `Component<P>` is one. What `create`'s overloads return,
+ * each a public `Component<WardicProps<Tag>>`, and what the tags' cache keeps. Since Solid 2 rc.18
+ * types `data-*` attributes, a `Component<Record<string, unknown>>` is no longer one of them.
+ */
+type AnyComponent = Component<never>
+
 /** The user's `ref` and `style`, read off a component's props. */
 interface RefStyle {
   readonly ref?: unknown
@@ -91,7 +98,7 @@ export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(el
 export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): Component<WardicProps<Tag>>
 export function create<P>(component: Component<P & WardicWrappable>): Component<P & WardicMotionProps & { readonly style?: WardStyle | string | undefined } & WardRefProp>
 export function create(tag: string): Component<WardicProps<keyof JSX.IntrinsicElements>>
-export function create(arg: string | Component<Record<string, unknown>>): Component<Record<string, unknown>> {
+export function create(arg: string | Component<Record<string, unknown>>): AnyComponent {
   return Bool.match(Predicate.isString(arg), {
     onTrue: () => tagComponent(arg as string),
     onFalse: () => wrapComponent(arg as Component<Record<string, unknown>>),
@@ -150,7 +157,7 @@ export type Wardic = { readonly create: typeof create } & {
   readonly [Tag in keyof JSX.IntrinsicElements]: Component<WardicProps<Tag>>
 }
 
-const cache = new Map<string, Component<Record<string, unknown>>>()
+const cache = new Map<string, AnyComponent>()
 
 /**
  * `wardic.<tag>` (cached, so `wardic.div === wardic.div`) and `wardic.create`.

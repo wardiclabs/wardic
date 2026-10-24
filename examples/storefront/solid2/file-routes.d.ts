@@ -47,6 +47,18 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/gestures/notifications";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/gestures/notifications")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/gestures/wishlist";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/gestures/wishlist")>;
+      $$route?: undefined;
+    },
+    {
       path: "/";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/index")>;
@@ -124,6 +136,14 @@ declare module "virtual:file-routes" {
       children?: undefined;
     },
     {
+      path: "/gestures/wishlist";
+      id: "/gestures/wishlist";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/gestures/wishlist")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
       path: "/layout/add-to-cart";
       id: "/layout/add-to-cart";
       page: true;
@@ -176,6 +196,14 @@ declare module "virtual:file-routes" {
       id: "/entrances/product-grid";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/entrances/product-grid")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/gestures/notifications";
+      id: "/gestures/notifications";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/gestures/notifications")>;
       $$route?: undefined;
       children?: undefined;
     }
