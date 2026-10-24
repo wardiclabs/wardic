@@ -7,6 +7,8 @@
 //   nothing at hydration, then the release, with its offset.
 // - HE2: a plain memo adopts the server's `undefined`: the effect runs once with it, and never hears
 //   the release. The trap the README's form avoids: if Solid changes this, the README can say less.
+// - HE3 (#355): `card.when("dragEnd")` in an effect, with no `<Loading>`: the server renders, the
+//   effect hears nothing at hydration (no `undefined`), then the release.
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import * as F from "./hydrate-fixtures.tsx"
@@ -57,5 +59,16 @@ describe("a memo over each(…) across a streamed server render (#343)", () => {
     await swipe(h.host.querySelector<HTMLElement>('[data-k="card"]')!, 60)
     await frames(10)
     expect(F.heard, "no release heard").toEqual([undefined])
+  })
+
+  it("HE3: when(name) in an effect, under no <Loading>, hears the release and nothing before it (#355)", async () => {
+    const h = await hydrateStreamed2("HE3", F.HE3)
+    await frames(4)
+    expect(h.claimed("card"), "the server's card hydrated").toBe(true)
+    expect(F.heard, "nothing at hydration").toEqual([])
+    await swipe(h.host.querySelector<HTMLElement>('[data-k="card"]')!, 60)
+    await until(() => F.heard.length > 0, 2000)
+    expect(F.heard).toHaveLength(1)
+    expect(F.heard[0], "the release's offset").toBeGreaterThan(40)
   })
 })

@@ -46,25 +46,21 @@ export default function SharedWishlist() {
     yield until(() => server().version >= saved.version)
   })
 
-  // The list: its Reorder group made here and given to `Reorder.Group` (#349), beside what hears it.
-  // The group's holds and reorders are async values the browser reads (`ssrSource: "client"`): a
-  // server has none to tell, and a memo like that is made under a `<Loading>`, as the list is. A
-  // hold's start puts the piece in my hand, a drag's or a keyboard lift's; a reorder that changed the
-  // order is a move to save, with the piece and the order it left; the hold's end, after it, lets the
-  // piece go.
+  // The list: its Reorder group made here and given to `Reorder.Group` (#349), beside what hears it,
+  // under the page's `<Loading>`, as its order reads the store. The group's holds and reorders, each
+  // heard by an effect through `when` (#355): a hold's start puts the piece in my hand, a drag's or a
+  // keyboard lift's; a reorder that changed the order is a move to save, with the piece and the order
+  // it left; the hold's end, after it, lets the piece go.
   const List = () => {
     const list = reorderGroup({ values: order, onReorder: setMine })
-    const started = createMemo(() => list.each("holdStart"), { ssrSource: "client" })
-    const reordered = createMemo(() => list.each("reorderEnd"), { ssrSource: "client" })
-    const ended = createMemo(() => list.each("holdEnd"), { ssrSource: "client" })
-    createEffect(started, (start) => {
+    createEffect(list.when("holdStart"), (start) => {
       setMine(untrack(order))
       setHeld(start.value)
     })
-    createEffect(reordered, (end) => {
+    createEffect(list.when("reorderEnd"), (end) => {
       move(end.value, end.values).catch((error: unknown) => setProblem(messageOf(error)))
     })
-    createEffect(ended, () => {
+    createEffect(list.when("holdEnd"), () => {
       setMine(undefined)
       setHeld(undefined)
     })

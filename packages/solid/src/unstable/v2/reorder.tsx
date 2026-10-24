@@ -65,7 +65,7 @@ import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { type AnyWard, type Ward, type WardConfig, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { drivenWard, givenOf, handOver, type NoMotionProps, refsOf, refuseBeside, wardic, type WardicMotion, type WardRefCallback } from "./wardic.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
-import { eachOf, neverLands, NO_EVENTS, Waiters } from "./waiters.ts"
+import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
 /**
  * A **Reorder group**'s config: the app's `values` in order, `onReorder` to receive a new order (the
@@ -164,10 +164,15 @@ export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
    */
   readonly next: <E extends keyof ReorderGroupEvents<V>>(name: E) => Promise<ReorderGroupEvents<V>[E]>
   /**
-   * Every `name` from the call on, as an async iterable (#257 item 3): each step waits for the next
-   * one, so one that comes while a step's work runs is missed; it ends once the group is disposed.
-   * A memo over it holds the latest as an async value, which an effect can act on: an optimistic
-   * save at each reorder (the README's pattern).
+   * Every `name` from the call on, as an async iterable (#257 item 3), for a `for await`: each step
+   * waits for the next one, so one that comes while a step's work runs is missed; it ends once the
+   * group is disposed. To act on each one in an effect, use {@link when}.
+   */
+  readonly each: <E extends keyof ReorderGroupEvents<V>>(name: E) => AsyncIterable<ReorderGroupEvents<V>[E]>
+  /**
+   * Every `name` (#355), as a memo for an effect, as a ward's `when` is: pending until the first, so
+   * the effect runs at each one, on any page. An optimistic save at each reorder (the README's
+   * pattern):
    *
    * ```tsx
    * const [tasks, setTasks] = createOptimisticStore<Task[]>(() => api.listTasks(), [])
@@ -178,11 +183,11 @@ export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
    *   refresh(tasks)
    * })
    * const list = reorderGroup({ values: order, onReorder: setOrder })
-   * const reordered = createMemo(() => list.each("reorderEnd"))
+   * const reordered = list.when("reorderEnd")
    * createEffect(() => reordered().values.map((task) => task.id), (ids) => save(ids).catch(setSaveError))
    * ```
    */
-  readonly each: <E extends keyof ReorderGroupEvents<V>>(name: E) => AsyncIterable<ReorderGroupEvents<V>[E]>
+  readonly when: <E extends keyof ReorderGroupEvents<V>>(name: E) => Accessor<ReorderGroupEvents<V>[E]>
   /** Whether the items reorder by keyboard (ADR-0037). */
   readonly keyboard: Accessor<boolean>
   /** The items' instructions text (ADR-0037). */
@@ -352,6 +357,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
       },
       next: <E extends keyof ReorderGroupEvents<V>>(name: E) => events.wait(name),
       each: <E extends keyof ReorderGroupEvents<V>>(name: E) => eachOf<ReorderGroupEvents<V>, E>(events, name),
+      when: <E extends keyof ReorderGroupEvents<V>>(name: E) => whenOf<ReorderGroupEvents<V>, E>(events, name),
       controller,
       ...keyboardOf(cfg),
     },
@@ -373,7 +379,7 @@ const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfigValues<V>>): Reo
   return refCarrying<ReorderGroup<V>>(
     constUndefined,
     { style: { value: groupStyleOf(untrack(() => cfg().style)), enumerable: true } },
-    { group: controller.group, axis, move: constUndefined, next: neverLands, each: () => NO_EVENTS, controller, ...keyboardOf(cfg) },
+    { group: controller.group, axis, move: constUndefined, next: neverLands, each: () => NO_EVENTS, when: serverWhen, controller, ...keyboardOf(cfg) },
   )
 }
 

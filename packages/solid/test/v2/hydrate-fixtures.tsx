@@ -6,6 +6,7 @@ import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
   createDrag,
+  createPresence,
   createFocus,
   createHover,
   createInView,
@@ -354,6 +355,29 @@ const WardicWrapped = wardic.create(Wrapped)
 /** `wardic.create(Component)`. */
 export const KCreate = (): JSX.Element => keyed(() => <WardicWrapped animate={{ opacity: 1 }} />)
 
+/** `when(name)` (#355) on a ward, a Reorder group and a presence handle, each in an effect. */
+export const KWhen = (): JSX.Element =>
+  keyed(() => {
+    const card = ward({ drag: "x" })
+    const [items, setItems] = createSignal(["a", "b"])
+    const list = reorderGroup({ values: items, onReorder: setItems })
+    const presence = createPresence()
+    createEffect(card.when("dragEnd"), () => {})
+    createEffect(list.when("reorderEnd"), () => {})
+    createEffect(presence.when("exitComplete"), () => {})
+    return (
+      <>
+        <div {...card}>card</div>
+        <ul {...list} />
+        <AnimatePresence ref={presence}>
+          <Show when={true}>
+            <wardic.p exit={{ opacity: 0 }}>in</wardic.p>
+          </Show>
+        </AnimatePresence>
+      </>
+    )
+  })
+
 /**
  * Wards given to `wardRef` (#349): on `wardic.*` with a child made with its `parent`, on
  * `wardic.create`, under a presence, and a group and its items given to `Reorder`'s components.
@@ -434,6 +458,16 @@ export const HE1 = (): JSX.Element =>
       <ReleasedInBrowser />
     </Loading>
   ))
+
+/** HE3 (#355): `card.when("dragEnd")` in an effect, under no `<Loading>`. */
+export const HE3 = (): JSX.Element =>
+  page(() => {
+    const card = ward({ drag: "x" })
+    createEffect(card.when("dragEnd"), (release) => {
+      heard.push(release.offset.x)
+    })
+    return <div data-k="card" {...card} style={{ width: "80px", height: "40px", background: "#8af" }} />
+  })
 
 /** HE2: a plain memo over `each`. */
 export const HE2 = (): JSX.Element =>

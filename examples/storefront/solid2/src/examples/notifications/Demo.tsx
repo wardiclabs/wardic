@@ -98,10 +98,9 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
     refresh(props.list)
   })
 
-  // The latest release, as an async value, and an effect that throws the card on a fling. Read in
-  // the browser only: a server has no releases to send it, and the server's render would be adopted.
-  const released = createMemo(() => card.each("dragEnd"), { ssrSource: "client" })
-  createEffect(released, (release) => {
+  // Each release, through `when` (#355): an effect that throws the card on a fling, from the first
+  // release on, on any page.
+  createEffect(card.when("dragEnd"), (release) => {
     const flung = Math.abs(release.offset.x) >= FLING_OFFSET || Math.abs(release.velocity.x) >= FLING_VELOCITY
     if (flung) dismiss(sideOf(release.offset.x)).catch(() => props.onProblem("Couldn't dismiss it. It's back."))
   })
