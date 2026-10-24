@@ -385,6 +385,32 @@ Item 1's second and third parts: what a ward does while its config reads a pendi
 
 The twelfth counted a pending `while*` key as given, at the recognizers' mount-time check. It survived: the region hold covers the setup-time pending keys, so they've landed by mount. The guard was taken out.
 
+## #257 item 5: a ward mounts in a user effect still (2026-10-23)
+
+Item 5 asked whether a ward should mount, and start its Retargets, in `createRenderEffect`, which Solid 2's docs reserve for "renderer plumbing", rather than in `createEffect`, after the render queue. **Probed; Q1: A, no.**
+
+- **The probe** (branch `probe/257-5-render-effect`, local and the bench server only):
+  - **First frame:** a ward mounted by a `<Show>` painted its entrance's first step (opacity 0.08 of a 0.2 s tween) in the first frame after the mount both ways, in five runs of five. There's no earlier frame to win.
+  - **`onSettled`:** both ways it saw the ref set, the element connected, and the Starting style in place.
+  - **Suites:** the Solid 2 browser and hydration suites passed both ways (316 and 27).
+  - **`bench:solid`, the Solid 2 page:** mount +0.7%, retarget −0.3%, restRetarget −0.1%, unmount −0.2%, and bytes per element −0.3%.
+- **So the mount stays in a user effect.** It changes nothing anyone can see, and a user effect keeps the mount's work (registering with the gate, building the spine, starting fibers) out of Solid's render phase.
+
+## #257 item 6: a Live value's watch stays an effect (2026-10-23)
+
+Item 6 asked whether the follower's per-key watch (`solid-reactivity.ts`'s `watch`, a root and an effect a key) should be `createReaction`, which tracks once and reacts once. **Probed; Q1: A, no.**
+
+- **What it took:** a reaction must be re-armed at each change, so the watch re-reads its accessor every time. It still needs its root under the ward's owner, so that `stop` and the ward's disposal end it, and a watch made inside an effect's apply works.
+- **What it costs** (branch `probe/257-6-reaction`, local; `.tmp/257-6/`; Solid's production build, 1,000 elements each following a signal through `style`, median of 12 paired runs):
+
+  | | effect (kept) | reaction |
+  |---|---|---|
+  | mount | 23.4 ms | 21.0 ms |
+  | one update of the 1,000 watches | 1.50 ms | 2.50 ms (+67%) |
+  | unmount | 6.2 ms | 6.2 ms |
+
+- **So the watch stays an effect.** A Live value often moves every frame, so the update is the hot path, and the reaction's mount saving comes once per element.
+
 ## #257 item 12: `flush(fn)`, and `list.move` inside an action (2026-10-23)
 
 Item 12 asked whether the binding's two `fn(); flush()` calls should be Solid 2's `flush(fn)`, which runs `fn` "in a synchronous flush scope" so its writes "bypass microtask scheduling and drain synchronously when the callback returns". It also asked whether that behaves the same inside an `action`. **Q1: A, both changes below.**
