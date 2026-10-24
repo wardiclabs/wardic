@@ -24,12 +24,24 @@ export async function listProducts(category?: string) {
   return Store.runFor(visitor(), Store.listProducts(category))
 }
 
+export async function getProduct(id: string) {
+  return Store.runFor(visitor(), Store.getProduct(id))
+}
+
 export async function getCart() {
   return Store.runFor(visitor(), Store.getCart)
 }
 
 export async function addToCart(productId: string, quantity: number) {
   return Store.runFor(visitor(), Store.addToCart(productId, quantity))
+}
+
+export async function setCartQuantity(productId: string, quantity: number) {
+  return Store.runFor(visitor(), Store.setCartQuantity(productId, quantity))
+}
+
+export async function getOrders() {
+  return Store.runFor(visitor(), Store.getOrders)
 }
 
 export async function getSettings() {
@@ -42,6 +54,16 @@ export async function setSettings(settings: Store.Settings) {
 
 /** Each demo's source, read here on the server, so the browser never downloads it to show it. */
 const SOURCES = import.meta.glob<string>("../examples/*/Demo.tsx", { query: "?raw", import: "default", eager: true })
+
+/** Each Motion snippet (#296 Q4), read here on the server too: typechecked against `motion` in the shared package. */
+const MOTION = import.meta.glob<string>("../../../shared/motion/*.tsx", { query: "?raw", import: "default", eager: true })
+
+/** A Motion snippet, highlighted for both themes, for an example's "Coming from Motion" panel. */
+export async function highlightedMotion(file: string) {
+  const source = MOTION[`../../../shared/motion/${file}`]
+  if (source === undefined) throw new Error(`No Motion snippet "${file}"`)
+  return codeToHtml(source, { lang: "tsx", themes: { light: "github-light", dark: "github-dark" }, defaultColor: false })
+}
 
 /** An example's demo, highlighted for both themes: HTML the code panel shows as it is. */
 export async function highlightedSource(exampleId: string) {

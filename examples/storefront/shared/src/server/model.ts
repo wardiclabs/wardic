@@ -43,6 +43,23 @@ export type CartLine = typeof CartLine.Type
 export const Cart = Schema.Struct({ lines: Schema.Array(CartLine) })
 export type Cart = typeof Cart.Type
 
+/** Where an order has got to. */
+export const OrderStatus = Schema.Literals(["Preparing", "On its way", "Delivered"])
+export type OrderStatus = typeof OrderStatus.Type
+
+/** A past order. */
+export const Order = Schema.Struct({
+  /** Its number, as the shop prints it (`KC-10421`). */
+  id: Schema.String,
+  /** The day it was placed, an ISO date (`2026-09-14`). */
+  placedOn: Schema.String,
+  status: OrderStatus,
+  lines: Schema.Array(CartLine),
+  /** What it came to, in cents. */
+  total: Cents,
+})
+export type Order = typeof Order.Type
+
 /** The visitor's switches for showing the async paths on purpose. */
 export const Settings = Schema.Struct({
   /** The artificial delay on each store call, in ms. */

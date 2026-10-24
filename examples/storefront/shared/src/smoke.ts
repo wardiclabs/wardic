@@ -6,7 +6,8 @@
  * - it answers 200, with nothing logged as an error or a warning, no uncaught error, and no
  *   hydration mismatch;
  * - its demo moves, then settles: the example's `watch` element changes its computed opacity or
- *   transform after load, then holds still for 15 frames, within 5 s.
+ *   transform after load (after a click on its `interact` element, for a demo that waits for the
+ *   visitor), then holds still for 15 frames, within 5 s.
  *
  * And that the store answers the browser itself, not only the server render: the visitor's cookie
  * is kept, and the header's store settings, fetched when the panel opens, load.
@@ -80,7 +81,7 @@ interface Result {
   readonly problems: ReadonlyArray<string>
 }
 
-const check = async (page: Page, route: string, watch: string | undefined): Promise<Result> => {
+const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined): Promise<Result> => {
   const problems: Array<string> = []
   const onConsole = (message: ConsoleMessage): void => {
     if (failing(message)) problems.push(`console ${message.type()}: ${message.text().slice(0, 200)}`)
@@ -92,6 +93,11 @@ const check = async (page: Page, route: string, watch: string | undefined): Prom
   page.on("pageerror", onError)
   const response = await page.goto(base + route, { waitUntil: "commit" })
   if (response === null || response.status() !== 200) problems.push(`status ${response?.status()}`)
+  if (interact !== undefined) {
+    // A demo that waits for the visitor: once it has hydrated, click it, then watch what that moves.
+    await page.waitForLoadState("networkidle")
+    for (const selector of [interact].flat()) await page.click(selector)
+  }
   if (watch !== undefined) {
     const samples = await sampleFrames(page, watch, 5000)
     const moved = new Set(samples).size > 1
@@ -138,11 +144,11 @@ const browser = await chromium.launch()
 const results: Array<Result> = []
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-  results.push(await check(await context.newPage(), "/", undefined))
+  results.push(await check(await context.newPage(), "/", undefined, undefined))
   const storeContext = await browser.newContext()
   results.push(await checkStore(storeContext, await storeContext.newPage()))
   await storeContext.close()
-  for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch))
+  for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact))
 } finally {
   await browser.close()
   stop()

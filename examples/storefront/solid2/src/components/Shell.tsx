@@ -1,8 +1,11 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
+import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
-import { createMemo, createSignal, Loading, Show } from "solid-js"
+import type { Settings } from "@wardic/example-storefront-shared/server"
+import { wardic } from "@wardic/solid/unstable/v2"
+import { action, createMemo, createSignal, Loading, Show } from "solid-js"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
-import { settings } from "~/lib/store.ts"
+import { cart, settings } from "~/lib/store.ts"
 import { setSettings } from "~/server/store.ts"
 
 const THEME_LABEL: Record<Theme, string> = { system: "Theme: system", light: "Theme: light", dark: "Theme: dark" }
@@ -28,7 +31,13 @@ function StoreSettings() {
   )
 }
 
-/** The switches, read through an async memo: the router revalidates it when a save lands. */
+/** Save the switches, then read them again. */
+const saveSettings = action(function* (next: Settings) {
+  yield setSettings(next)
+  revalidate(settings.key)
+})
+
+/** The switches, read through an async memo, read again after each save. */
 function SettingsForm() {
   const now = createMemo(() => settings())
   return (
@@ -43,14 +52,36 @@ function SettingsForm() {
           max="2000"
           step="100"
           value={now().delay}
-          onChange={(event) => setSettings({ delay: Number(event.currentTarget.value), failNext: now().failNext })}
+          onChange={(event) => saveSettings({ delay: Number(event.currentTarget.value), failNext: now().failNext })}
         />
       </label>
       <label class="switch">
-        <input type="checkbox" checked={now().failNext} onChange={(event) => setSettings({ delay: now().delay, failNext: event.currentTarget.checked })} />
+        <input type="checkbox" checked={now().failNext} onChange={(event) => saveSettings({ delay: now().delay, failNext: event.currentTarget.checked })} />
         <span>Fail the next request</span>
       </label>
     </>
+  )
+}
+
+/** The cart's count, which pops each time it changes: a new count is a new element, growing in. */
+function CartButton() {
+  const current = createMemo(() => cart())
+  const count = () => current().lines.reduce((sum, line) => sum + line.quantity, 0)
+  return (
+    <a class="icon-button cart-button" href="/layout/cart-drawer" title="Cart" aria-label="Cart">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M6 7h12l-1 13H7L6 7Z M9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+      </svg>
+      <Loading>
+        <Show when={count()} keyed>
+          {(n) => (
+            <wardic.span class="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
+              {n}
+            </wardic.span>
+          )}
+        </Show>
+      </Loading>
+    </a>
   )
 }
 
@@ -77,6 +108,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
               {THEME_ICON[preferences.theme()]}
             </button>
             <StoreSettings />
+            <CartButton />
           </div>
         </div>
       </header>

@@ -19,12 +19,24 @@ export async function listProducts(category?: string) {
   return Store.runFor(visitor(), Store.listProducts(category))
 }
 
+export async function getProduct(id: string) {
+  return Store.runFor(visitor(), Store.getProduct(id))
+}
+
 export async function getCart() {
   return Store.runFor(visitor(), Store.getCart)
 }
 
 export async function addToCart(productId: string, quantity: number) {
   return Store.runFor(visitor(), Store.addToCart(productId, quantity))
+}
+
+export async function setCartQuantity(productId: string, quantity: number) {
+  return Store.runFor(visitor(), Store.setCartQuantity(productId, quantity))
+}
+
+export async function getOrders() {
+  return Store.runFor(visitor(), Store.getOrders)
 }
 
 export async function getSettings() {

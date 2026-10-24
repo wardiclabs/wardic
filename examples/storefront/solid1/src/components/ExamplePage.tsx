@@ -7,7 +7,7 @@ import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { type Component, createSignal, For, Show, Suspense } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { highlighted } from "~/lib/store.ts"
+import { highlighted, highlightedMotion } from "~/lib/store.ts"
 
 /** Text with `backticked` code. */
 export function Prose(props: { readonly text: string }) {
@@ -29,6 +29,25 @@ function CodePanel(props: { readonly id: string }) {
       <h2 id="code-title">The code</h2>
       <div class="code-file">
         <header>examples/{props.id}/Demo.tsx</header>
+        <Suspense fallback={<pre>Highlighting…</pre>}>
+          <div innerHTML={html()} />
+        </Suspense>
+      </div>
+    </section>
+  )
+}
+
+/** Where porting from Motion isn't mechanical (#296 Q4): what differs, and Motion's version. */
+function MotionPanel(props: { readonly file: string; readonly note: string }) {
+  const html = createAsync(() => highlightedMotion(props.file))
+  return (
+    <section class="code" aria-labelledby="motion-title">
+      <h2 id="motion-title">Coming from Motion</h2>
+      <p class="motion-note">
+        <Prose text={props.note} />
+      </p>
+      <div class="code-file">
+        <header>Motion (React): {props.file}</header>
         <Suspense fallback={<pre>Highlighting…</pre>}>
           <div innerHTML={html()} />
         </Suspense>
@@ -82,6 +101,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
         </For>
       </section>
       <CodePanel id={props.id} />
+      <Show when={example.motion}>{(motion) => <MotionPanel file={motion().file} note={motion().note} />}</Show>
     </main>
   )
 }

@@ -1,8 +1,9 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
+import { wardic } from "@wardic/solid"
 import { createSignal, type JSX, Show, Suspense } from "solid-js"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
-import { saveSettings, settings } from "~/lib/store.ts"
+import { cart, saveSettings, settings } from "~/lib/store.ts"
 
 const THEME_LABEL: Record<Theme, string> = { system: "Theme: system", light: "Theme: light", dark: "Theme: dark" }
 const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" }
@@ -51,6 +52,32 @@ function StoreSettings() {
   )
 }
 
+/** The cart's count, which pops each time it changes: a new count is a new element, growing in. */
+function CartButton() {
+  const current = createAsync(() => cart())
+  const count = () => {
+    const lines = current()
+    if (lines === undefined) return 0
+    return lines.lines.reduce((sum, line) => sum + line.quantity, 0)
+  }
+  return (
+    <A class="icon-button cart-button" href="/layout/cart-drawer" aria-label={`Cart: ${count()} items`} title="Cart">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M6 7h12l-1 13H7L6 7Z M9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+      </svg>
+      <Suspense>
+        <Show when={count()} keyed>
+          {(n) => (
+            <wardic.span class="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
+              {n}
+            </wardic.span>
+          )}
+        </Show>
+      </Suspense>
+    </A>
+  )
+}
+
 export function Shell(props: { readonly children: JSX.Element }) {
   const preferences = usePreferences()
   return (
@@ -74,6 +101,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
               {THEME_ICON[preferences.theme()]}
             </button>
             <StoreSettings />
+            <CartButton />
           </div>
         </div>
       </header>

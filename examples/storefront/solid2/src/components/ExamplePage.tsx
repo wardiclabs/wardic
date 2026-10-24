@@ -6,7 +6,7 @@ import { Dynamic, dynamic } from "@solidjs/web"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { type Component, createSignal, For, Loading, Show } from "solid-js"
-import { codeFile } from "~/server/code.tsx"
+import { codeFile, motionFile } from "~/server/code.tsx"
 
 /** Text with `backticked` code. */
 export function Prose(props: { readonly text: string }) {
@@ -29,6 +29,22 @@ function CodePanel(props: { readonly id: string }) {
       <h2 id="code-title">The code</h2>
       <Loading fallback={<pre class="muted">Highlighting…</pre>}>
         <CodeFile />
+      </Loading>
+    </section>
+  )
+}
+
+/** Where porting from Motion isn't mechanical (#296 Q4): what differs, and Motion's version, a server component too. */
+function MotionPanel(props: { readonly file: string; readonly note: string }) {
+  const MotionFile = dynamic(() => motionFile(props.file))
+  return (
+    <section class="code" aria-labelledby="motion-title">
+      <h2 id="motion-title">Coming from Motion</h2>
+      <p class="motion-note">
+        <Prose text={props.note} />
+      </p>
+      <Loading fallback={<pre class="muted">Highlighting…</pre>}>
+        <MotionFile />
       </Loading>
     </section>
   )
@@ -79,6 +95,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
         </For>
       </section>
       <CodePanel id={props.id} />
+      <Show when={example.motion}>{(motion) => <MotionPanel file={motion().file} note={motion().note} />}</Show>
     </main>
   )
 }
