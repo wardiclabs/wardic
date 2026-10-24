@@ -201,9 +201,9 @@ _Avoid_: edge scroll, drag scroll.
 A **Reorder group** item moved with the keyboard instead of a drag: lifted with a key, moved one place per arrow key, then dropped or cancelled, each step animating as a drag's reorder does and each announced to assistive technology. Built into every group (#43); Motion has none.
 _Avoid_: keyboard drag (nothing is dragged), keyboard sort.
 
-**Hold**:
-A **Reorder group** item in a user's hand: from its drag's start (past the drag's threshold, not the press) or its **Keyboard reorder** lift, to its release or drop, its cancel, or its unmount. Every hold ends once, whatever ends it; one that changed the order is told as a reorder too, before its end (#348).
-_Avoid_: grab, lift (the keyboard's alone), keyboard drag.
+**Reorder hold**:
+A **Reorder group** item in a user's hand: from its drag's start (past the drag's threshold, not the press) or its **Keyboard reorder** lift, to its release or drop, its cancel, or its unmount. Every reorder hold ends once, whatever ends it; one that changed the order is told as a reorder too, before its end (#348). Its events keep the short names, `holdStart` and `holdEnd`.
+_Avoid_: hold alone (a run's **Hold** is frame time), grab, lift (the keyboard's alone), keyboard drag.
 
 **Announcement**:
 A message spoken to assistive technology, such as a **Keyboard reorder**'s "Dropped Milk at position 3 of 6". Core words it; the Environment's Announcer delivers it (in the DOM, a live region shared by the page). Each one replaces the last.

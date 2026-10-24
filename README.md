@@ -412,7 +412,7 @@ function Card(props: { open: boolean }) {
   - **A failed save needs no rollback code.** Solid drops the optimistic write when the action settles, `order` follows `tasks` back, and the item glides back to its slot.
   - **Read the ids in the effect's compute,** a tracked scope: Solid's strict mode warns of store reads in its apply, and the action's first step runs there.
   - **Keep the failure in state.** An action started from an effect hands its failure back as a rejected promise, which reaches no `<Errored>` boundary. Left unread, it's an unhandled rejection, so the example renders it.
-- **Holds:** an item in a user's hand, from its drag's start (not the press) or a keyboard lift, is a **Hold**. The group tells:
+- **Holds:** an item in a user's hand, from its drag's start (not the press) or a keyboard lift, is a **Reorder hold**. The group tells:
   - `list.each("holdStart")`, with `{ value, from }`;
   - `list.each("holdEnd")`, once, whatever ended it, with `reorderEnd`'s fields and `how`: `"drop"`, `"cancel"` (Escape) or `"unmount"`. It comes after `reorderEnd` when the order changed.
 

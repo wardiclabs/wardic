@@ -110,12 +110,12 @@ export interface ReorderGroupEvents<V> {
    */
   readonly reorderEnd: ReorderController.End<V>
   /**
-   * A **Hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its drag's
+   * A **Reorder hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its drag's
    * start (past the threshold, not the press) or a keyboard lift, with its index then.
    */
   readonly holdStart: ReorderController.HoldStart<V>
   /**
-   * A **Hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`), Escape
+   * A **Reorder hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`), Escape
    * (`"cancel"`), or the item unmounting (`"unmount"`). After `reorderEnd` when it moved.
    */
   readonly holdEnd: ReorderController.HoldEnd<V>
