@@ -25,7 +25,7 @@ import * as Bool from "effect/Boolean"
 import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { NotReadyError, runWithOwner, untrack } from "solid-js"
+import { latest, NotReadyError, runWithOwner, untrack } from "solid-js"
 import type { Accessor } from "solid-js"
 
 /**
@@ -148,6 +148,9 @@ export const configView = <C extends object>(keys: ReadonlyArray<keyof C & strin
     // re-running it when the node settles, so a component's body read would re-run the render that
     // made it, making its async source again (#257 item 1). With none, the read just throws.
     // `untrack` also lifts the dev build's strict read of a component body, which would throw first.
-    setupOf: (view) => runWithOwner(null, () => untrack(() => setup(view))),
+    // And under `latest` (#335): a read outside the update's owner tree sees the values from before
+    // it, so a `<Show>`'s narrowed accessor read `undefined`; `latest` reads the in-flight ones, as
+    // the element's own render does.
+    setupOf: (view) => runWithOwner(null, () => untrack(() => latest(() => setup(view)))),
   }
 }
