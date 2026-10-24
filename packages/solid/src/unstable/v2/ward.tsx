@@ -216,6 +216,17 @@ type UnreadProp = Exclude<(typeof MOTION_PROPS_V2)[number], (typeof WARD_KEYS)[n
 const everyPropRead: [UnreadProp] extends [never] ? true : UnreadProp = true
 void everyPropRead
 
+/**
+ * The target memo's comparison (#337): {@link sameResolution}, and a change when there's nothing to
+ * compare with. Solid 2 calls a memo's `equals` with no previous value when the memo was made inside
+ * an action's transaction, as a ward an optimistic write makes is, before anything has committed.
+ */
+const sameTarget = (a: Resolution | undefined, b: Resolution | undefined): boolean => {
+  if (Predicate.isUndefined(a)) return false
+  if (Predicate.isUndefined(b)) return false
+  return sameResolution(a, b)
+}
+
 /** A ward's config read per key (#259). */
 const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints"])
 
@@ -605,7 +616,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         snapshot,
       )
     },
-    { equals: sameResolution, transparent: true },
+    { equals: sameTarget, transparent: true },
   )
   // Its gesture states, for what its variant node hands down (#291): bound at setup, before its
   // children read them. Read from the gestures themselves, not the target: a gesture whose layer
