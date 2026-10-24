@@ -27,6 +27,12 @@
 //   Motion's swipe card, its opacity derived from its own `read("x")`; and `read(key)` rests there.
 // - SV19 (#257 item 7): `createSpring` reads its source, with or without `skipInitialAnimation`; its
 //   `jump` does nothing, and the source accessor isn't given one.
+// - SV20 (#349): a ward given to a component's `wardRef` renders its Starting style on the element,
+//   the component's `style` over it; on `wardic.circle` its attribute keys render as attributes (the
+//   component's tag); under `<AnimatePresence initial={false}>` it starts at `animate` (the
+//   component's presence); a `parent` given, it starts from the parent's `initial` name, even
+//   rendered outside the parent's element.
+// - SV21 (#349): a motion prop beside a given ward throws on a server too.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -346,5 +352,73 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     expect(card?.style["touch-action"], "a drag's defaults still").toBe("pan-y")
     expect(card?.attrs["draggable"]).toBe("false")
     expect(readOpacity?.(), "read rests at .with's").toBe(0.5)
+  })
+
+  it("SV20: a given ward renders its Starting style with the component's tag, presence and style (#349)", () => {
+    const Card = () => {
+      const card = ward({ initial: { opacity: 0, x: 20 }, animate: { opacity: 1, x: 0 }, style: { color: "red", width: "10px" } })
+      return <wardic.div wardRef={card} class="card" style={{ width: "40px" }} />
+    }
+    const [div] = named(serve(() => <Card />), "div")
+    expectStartingStyle(div, { opacity: 0, x: 20 })
+    expect(div?.attrs.class).toBe("card")
+    expect(div?.style.width, "the component's style over the config's").toBe("40px")
+    expect(div?.style.color).toBe("red")
+
+    const Dot = () => {
+      const dot = ward({ initial: { cx: 10, r: 5 }, animate: { cx: 40 } })
+      return (
+        <svg>
+          <wardic.circle wardRef={dot} />
+        </svg>
+      )
+    }
+    const [circle] = named(serve(() => <Dot />), "circle")
+    expect(circle?.attrs.cx, "an attribute, by the component's tag").toBe("10")
+    expect(circle?.attrs.r).toBe("5")
+
+    const Toast = () => {
+      const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+      return (
+        <AnimatePresence initial={false}>
+          <wardic.div wardRef={card} />
+        </AnimatePresence>
+      )
+    }
+    expectStartingStyle(named(serve(() => <Toast />), "div")[0], { opacity: 1 })
+
+    const VARIANTS = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
+    const List = () => {
+      const list = ward({ initial: "hidden", animate: "shown", variants: VARIANTS })
+      const row = ward({ variants: VARIANTS }, { parent: list })
+      return (
+        <wardic.ul wardRef={list}>
+          <wardic.li wardRef={row} />
+        </wardic.ul>
+      )
+    }
+    expectStartingStyle(named(serve(() => <List />), "li")[0], { opacity: 0 })
+
+    // A chosen parent, its element rendered outside the parent's (a portal's case).
+    const Apart = () => {
+      const list = ward({ initial: "hidden", animate: "shown", variants: VARIANTS })
+      const tip = ward({ variants: VARIANTS }, { parent: list })
+      return (
+        <>
+          <wardic.ul wardRef={list} />
+          <wardic.p wardRef={tip} />
+        </>
+      )
+    }
+    expectStartingStyle(named(serve(() => <Apart />), "p")[0], { opacity: 0 })
+  })
+
+  it("SV21: a motion prop beside a given ward throws on a server too (#349)", () => {
+    const Card = () => {
+      const card = ward({ animate: { opacity: 1 } })
+      // @ts-expect-error -- a motion prop beside a given ward (#349)
+      return <wardic.div wardRef={card} animate={{ opacity: 0 }} />
+    }
+    expect(() => serve(() => <Card />)).toThrow("wardic.div: `animate` given beside a ward made outside it")
   })
 })

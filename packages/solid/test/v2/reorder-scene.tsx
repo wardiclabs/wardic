@@ -1,8 +1,9 @@
 // The `<Reorder>` scene and real-input helpers for the Solid 2 binding's Reorder tests (#209 PR 3b),
 // as the Solid 1 binding's `reorder-harness.tsx` has them: a column of 200x50 items (a 60 px pitch),
 // a row of 80x50 items (a 90 px pitch) and a wrapped grid of 80x50 items, three to a row, each 10 px
-// apart. The scene renders through `Reorder.Group` / `Reorder.Item`, or through `reorderGroup` /
-// `reorderItem` on a plain `ul` / `li` (`factories`). Not a test file itself.
+// apart. The scene renders through `Reorder.Group` / `Reorder.Item`, through `reorderGroup` /
+// `reorderItem` on a plain `ul` / `li` (`factories`), or through the factories given to the
+// components (`given`, #349). Not a test file itself.
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
 import { Reorder, type ReorderGroup, reorderGroup, reorderItem, type WardicValues, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -132,6 +133,8 @@ export interface SceneOptions {
   readonly whileDrag?: WardicValues
   /** Through `reorderGroup` / `reorderItem` on a plain `ul` / `li`, not the components. */
   readonly factories?: boolean
+  /** Through `reorderGroup` / `reorderItem` given to `Reorder.Group`'s `groupRef` and `Reorder.Item`'s `wardRef` (#349). */
+  readonly given?: boolean
   /** Read with the values, so a change to it re-reads them, unchanged (#348). */
   readonly alsoRead?: Accessor<unknown>
 }
@@ -226,9 +229,31 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
       </ul>
     )
   }
-  const { unmount } = mount(() => (
-    <WardicProvider env={DomLive}>{Bool.match(o.factories === true, { onTrue: () => <Factories />, onFalse: components })}</WardicProvider>
-  ))
+  const Given = (): JSX.Element => {
+    // The scene's style in the group's config, the user's on the component, over it (#349).
+    const group = reorderGroup({ values, onReorder, axis: () => o.axis?.(), style: () => groupCss(o) })
+    list = group
+    move = group.move
+    return (
+      <Reorder.Group groupRef={group} ref={(el: HTMLElement) => (groupEl = el)} {...optional("as", o.groupAs)} style={o.groupStyle?.()}>
+        <For each={order()}>
+          {(value) => {
+            const row = reorderItem(group, { value, ...optional("whileDrag", o.whileDrag) })
+            return (
+              <Reorder.Item wardRef={row} data-value={value} {...optional("as", o.itemAs)} style={{ ...itemCss(o), ...o.itemStyle?.() }}>
+                {value}
+              </Reorder.Item>
+            )
+          }}
+        </For>
+      </Reorder.Group>
+    )
+  }
+  const scene = (): JSX.Element => {
+    if (o.given === true) return <Given />
+    return Bool.match(o.factories === true, { onTrue: () => <Factories />, onFalse: components })
+  }
+  const { unmount } = mount(() => <WardicProvider env={DomLive}>{scene()}</WardicProvider>)
   unmountScene = unmount
   await settle()
   return {

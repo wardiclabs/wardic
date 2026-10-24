@@ -234,3 +234,7 @@ A group told a reorder's end, but not when an item was taken in hand, nor a hold
 - a lift outlives a re-read of the values that changes nothing (HO11, HD11, which fail before the fix above).
 
 On the controller before this change, all but "a click is no hold" fail in both. Mutation-checked: 11 single-point mutations of the controller (`.tmp/348/mutate.py`); 10 fail the tests meant for them. The one that survives drops the guard on a drag another hold took over. That needs two drags at once, which the Drag claim refuses on a group's axis (ADR-0019, *Amendment (#29)*), unless the items take none (`dragPropagation`).
+
+## Note (#349, 2026-10-24): a group and its items, made outside the components
+
+On Solid 2, `Reorder.Group`'s `groupRef` takes a group made with `reorderGroup()` as well as a function, and `Reorder.Item`'s `wardRef` takes an item made with `reorderItem(list, …)`. The components then render them. Their config props are refused beside them. A plain ward, or another group's item, is an error, and a plain ward is a type error too (`reorderItem` returns a `ReorderItem<V>`). `reorderItem(list, config, { parent })` takes a variant parent, as `ward()` does. The decisions are ADR-0046's, *Amendment (#349)*.

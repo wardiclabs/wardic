@@ -29,6 +29,13 @@
  *   ward's.
  * - **Its target is compared by value** (`sameResolution`): a `style` or `transition` change in its
  *   config doesn't Retarget, as Motion's doesn't; a new variant name does.
+ * - **Given to a component** (#349, ADR-0046 *Amendment (#349)*): a Wardic component's `wardRef`
+ *   takes a ward, and drives its element with a ward of its own for each element, its *driving
+ *   ward*: on this one's config, variant node and lifecycle, under the component's presence and with
+ *   its tag. This one follows its driver (`read`, `atom`, a `next`'s gestures) while its element is
+ *   mounted, one at a time, and is never mounted itself. `ward(config, { parent })` names its
+ *   variant parent when it's made outside the tree. A ward on two elements on the page at once,
+ *   given or spread, throws.
  * - **Presence and layout** (PR 2 of #209): under an `<AnimatePresence>` the mount registers its exit
  *   record, kept current from its config's `exit`; a `layout`, `layoutId`, `layoutScroll` or
  *   `layoutRoot` element registers one projection node (`layout-member.ts`), re-measured when its
@@ -64,6 +71,7 @@ import {
   createUniqueId,
   getOwner,
   isHydrating,
+  type Owner,
   onCleanup,
   runWithOwner,
   type Signal,
@@ -128,7 +136,7 @@ import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-
 import { Lifecycle, type WardEvent, type WardEvents, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
-import { createVariantNode, useVariantContext, WardicVariantContext } from "./variant-node.ts"
+import { createVariantNode, useVariantContext, type VariantNode, WardicVariantContext } from "./variant-node.ts"
 
 /**
  * A Wardic element's `style` (#130, ADR-0043): every CSS property and the transform keys (`x`,
@@ -270,10 +278,33 @@ export interface WardProps {
 }
 
 /**
- * One element's motion binding: a ref carrying its props (see the module). Spread it, or give it
- * to `ref` (alone, or in an array with your own).
+ * A ward's mark (#349): what tells a ward given to a component's `wardRef` from a function handed the
+ * component's own ward. Internal: its value is the ward's {@link WardShare}.
  */
-export interface Ward<C extends WardConfig = WardConfig> extends WardProps {
+export const WARD: unique symbol = Symbol("wardic.ward")
+
+/** Any ward, whatever its config: what `wardRef` takes in, and `parent` (#349). */
+export interface AnyWard {
+  readonly [WARD]: unknown
+}
+
+/** `ward(config, options)`'s options (#349). */
+export interface WardOptions {
+  /**
+   * Its variant parent (ADR-0007, #50), for a ward made outside the tree its element renders in: it
+   * inherits that ward's variant names and transition, and joins its stagger and `when`, as an
+   * element rendered under it would. Stagger counts children in the order they're made. Left out,
+   * it's the one where the ward is made. A ward given to a component with none, under another
+   * variant parent it would inherit from, is an error.
+   */
+  readonly parent?: AnyWard | undefined
+}
+
+/**
+ * One element's motion binding: a ref carrying its props (see the module). Spread it, give it to
+ * `ref` (alone, or in an array with your own), or give it to a Wardic component's `wardRef` (#349).
+ */
+export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyWard {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
   /** The ward itself, as a spread's `merge` reads it. */
@@ -380,7 +411,76 @@ export interface WardInternals {
   readonly onMount?: ((element: HTMLElement) => () => void) | undefined
   /** Values fixed over the config's, read as its own are: a `<Reorder>` item's `layout`, its Layout mode. */
   readonly fixed?: Fixed<WardConfigValues> | undefined
+  /** A `<Reorder>` item's group, which `Reorder.Item` checks a given item against (#349). */
+  readonly group?: unknown
+  /** The component it's made for, named in its errors (#349). */
+  readonly name?: string | undefined
+  /** Its variant parent, given (`ward(config, { parent })`, #349). */
+  readonly parent?: AnyWard | undefined
+  /**
+   * The ward given to the component this one drives an element for (#349): its config, variant node
+   * and lifecycle are this one's, and it follows this one's element while it's mounted.
+   */
+  readonly share?: WardShare | undefined
 }
+
+/**
+ * What a ward shares with the wards a component given it makes, one an element (#349). Internal:
+ * a ward's {@link WARD} value.
+ */
+export interface WardShare {
+  /** Its config, as it was given. */
+  readonly config: WardConfig
+  /** Its config at setup: what a component reads of it (its Provider, the parent check). */
+  readonly setup: WardConfigValues
+  /** What made it adds (a `<Reorder>` item's), and its parent. */
+  readonly internal: WardInternals
+  /** The variant context it was made under, or its given parent's. */
+  readonly parent: WardicVariantContextValue | undefined
+  /** Whether its parent was given (`ward(config, { parent })`). */
+  readonly chosen: boolean
+  /** What its `.Provider` hands down: a child's `parent` given as this ward. */
+  readonly provided: WardicVariantContextValue | undefined
+  /** Its variant node, on the client: a driving ward's. */
+  readonly node: VariantNode | undefined
+  /** Its lifecycle, on the client: a driving ward's, so `settled`, `next` and `each` hear it. */
+  readonly lifecycle: Lifecycle | undefined
+  /**
+   * A driving ward's element mounted: this ward follows it until the returned release. One at a
+   * time: `name` (the component) is in the error a second one throws.
+   */
+  readonly drive: (driver: Driver, name: string) => () => void
+}
+
+/** A ward driving an element for a given ward (#349): what the given ward's `read`, `atom` and `next` follow. */
+export interface Driver {
+  /** Start the recognizers a `next` now asks for, on its element. */
+  readonly wanted: () => void
+  /** Its `read(key)`'s Atom: what it shows for `key`. */
+  readonly readAtom: (key: string) => Atom.Atom<unknown>
+  /** Its `atom(key)`: the gate's output for `key`. */
+  readonly atom: (key: string) => Atom.Atom<unknown>
+}
+
+/** A ward's share, or `undefined` for anything else (a function handed a component's own ward). */
+export const shareOf = (value: unknown): WardShare | undefined => {
+  if (Bool.not(Predicate.hasProperty(value, WARD))) return undefined
+  return (value as Record<typeof WARD, WardShare>)[WARD]
+}
+
+/** A ward driving an element while another is: a ward drives one element at a time (#349's Q5). */
+const secondElement = (name: string): string =>
+  `${name}: this ward is already on another element. A ward drives one element at a time: make one for each element, ` +
+  "in the <For> callback or a component of its own, rather than giving or spreading the same one twice."
+
+/** Whether `other` is an element other than `el` still on the page (#349's Q5). */
+const stillOn = (other: HTMLElement | undefined, el: HTMLElement | undefined): boolean => {
+  if (Predicate.isUndefined(other)) return false
+  return Bool.and(other !== el, other.isConnected)
+}
+
+/** What a ward's errors call it: the component it drives an element for, else `ward(config)`. */
+const nameOf = (internal: WardInternals): string => UndefinedOr.match(internal.name, { onUndefined: () => "ward(config)", onDefined: identity })
 
 const NO_INTERNALS: WardInternals = {}
 
@@ -412,9 +512,42 @@ const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantC
  * or a root, under a `WardicProvider`. Its config's type is kept, so `read` and `atom` complete the
  * keys it animates.
  */
-export function ward<const C extends WardConfig>(config: WardChecked<C>): Ward<C> {
-  return wardWith(config, NO_INTERNALS) as Ward<C>
+export function ward<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C> {
+  return wardWith(
+    config,
+    UndefinedOr.match(UndefinedOr.map(options, (o) => o.parent), { onUndefined: () => NO_INTERNALS, onDefined: (parent): WardInternals => ({ parent }) }),
+  ) as Ward<C>
 }
+
+/**
+ * The variant context a ward is made under (#349): a driving ward's given ward's, else its given
+ * parent's, else the one around it.
+ */
+const variantParentOf = (internal: WardInternals): WardicVariantContextValue | undefined => {
+  const share = internal.share
+  if (Predicate.isNotUndefined(share)) return share.parent
+  const parent = shareOf(internal.parent)
+  if (Predicate.isNotUndefined(parent)) return parent.provided
+  return useVariantContext()
+}
+
+/** A ward's variant node: a driving ward's is its given ward's (#349), any other its own, made now. */
+const nodeFor = (share: WardShare | undefined, cfg: () => WardConfigValues, config: WardConfigValues, parent: WardicVariantContextValue | undefined): VariantNode => {
+  const shared = UndefinedOr.map(share, nodeOfShare)
+  if (Predicate.isNotUndefined(shared)) return shared
+  return createVariantNode(cfg, config, parent)
+}
+const nodeOfShare = (share: WardShare): VariantNode | undefined => share.node
+
+/** A ward's lifecycle: a driving ward's is its given ward's (#349), any other its own, made now. */
+const lifecycleFor = (share: WardShare | undefined, owner: Owner | null, want: () => void): Lifecycle => {
+  const shared = UndefinedOr.map(share, lifecycleOfShare)
+  if (Predicate.isNotUndefined(shared)) return shared
+  return new Lifecycle(owner, want)
+}
+const lifecycleOfShare = (share: WardShare): Lifecycle | undefined => share.lifecycle
+/** A mount's element. */
+const elementOfMount = (m: { readonly element: HTMLElement }): HTMLElement => m.element
 
 /**
  * A ward mounting an element another ward left in the same task: a spread's expression
@@ -476,6 +609,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const positionalKeys = useWardicPositionalKeys()
   const owner = getOwner()
   const reactivity = reactivityIn(owner)
+  const registry = registryOf(runtime)
   // SSR/hydration-stable: the server ward makes the same one call.
   const id = createUniqueId()
   // Its config, read per key where it's read (#259): a change re-runs only what reads the key.
@@ -487,8 +621,13 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const setup = WARD_VIEW.setupOf(view)
   const initialConfig = configAtSetup(setup)
 
-  // Its place in variant orchestration (ADR-0007, #50).
-  const node = createVariantNode(cfg, initialConfig, useVariantContext())
+  // A ward a component was given (#349), whose element this one drives: its variant node and its
+  // lifecycle are that ward's, so its children, stagger and `next` readers are where it was made.
+  const share = internal.share
+  // Its place in variant orchestration (ADR-0007, #50): where it's made, its given parent's (#349),
+  // or its given ward's.
+  const parent = variantParentOf(internal)
+  const node = nodeFor(share, cfg, initialConfig, parent)
 
   // The nearest <AnimatePresence> (ADR-0007), or none.
   const presence = usePresenceContext()
@@ -637,8 +776,22 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its Retargets' starts and landings (#257, ADR-0046): `settled()` and `next("settled")`, each with
   // the gesture layers its target was resolved with.
   // A gesture's event asked for starts its recognizer on the mounted element (and on later mounts).
-  const lifecycle = new Lifecycle(owner, () => {
+  // The ward driving an element for this one, given to a component (#349): its `read`, `atom` and
+  // `next` follow that element. Followed through an Atom made at the first `read`, `atom` or drive.
+  let driver: Driver | undefined
+  let driven: Atom.Writable<Driver | undefined> | undefined
+  const drivenAtom = (): Atom.Writable<Driver | undefined> => {
+    if (Predicate.isNotUndefined(driven)) return driven
+    const atom = Atom.make<Driver | undefined>(driver)
+    runWithOwner(owner, () => onCleanup(registry().mount(atom)))
+    driven = atom
+    return atom
+  }
+
+  // A driving ward's are its given ward's (#349), whose `next` starts them on the element it drives.
+  const lifecycle = lifecycleFor(share, owner, () => {
     UndefinedOr.map(mounted, startRecognizers)
+    UndefinedOr.map(driver, (d) => d.wanted())
   })
 
 
@@ -712,6 +865,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     }
   }
   let mounted: Mounted | undefined
+  // The last two elements given to its ref, for a second one still on the page as it mounts (#349's Q5).
+  let refdLast: HTMLElement | undefined
+  let refdBefore: HTMLElement | undefined
   // Inside a child `mode="wait"` holds off the page (#277, ADR-0048), it mounts once the child is on
   // it: `shown` ticks then, and the mount effect, which reads `ticked`, runs again. Only under a
   // presence: with none, its compute calls a no-op and makes nothing. `held` cancels the wait.
@@ -745,13 +901,28 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     justLeft.add(left)
   }
   // Its element's mount goes, and its lifecycle's waits are rejected (#257): one cleanup.
+  // A driving ward's lifecycle is its given ward's, which outlives the element (#349).
   onCleanup(() => {
     unmount()
-    lifecycle.dispose()
+    if (Predicate.isUndefined(share)) lifecycle.dispose()
   })
 
   const mount = (el: HTMLElement): Mounted => {
     if (justLeft.has(el)) throw new Error(REMADE)
+    // The ward a component was given follows this element while it's mounted (#349): one at a time.
+    let undrive: (() => void) | undefined
+    if (Predicate.isNotUndefined(share)) {
+      undrive = share.drive(
+        {
+          wanted: () => {
+            UndefinedOr.map(mounted, startRecognizers)
+          },
+          readAtom: (key) => readEntry(key).atom,
+          atom: (key) => gate.valueOf(id, key),
+        },
+        nameOf(internal),
+      )
+    }
     // The gate commits each frame onto the element (ADR-0006, ADR-0034); the hooks switch its
     // `style`. An element with `onUpdate` at mount is told each committed frame (#233). While
     // hydrating, its Appear animation is found here, taken over by its first Retarget that starts,
@@ -876,6 +1047,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       inView: false,
       focus: false,
       dispose: () => {
+        if (Predicate.isNotUndefined(undrive)) undrive()
         UndefinedOr.map(mountedHook, (end) => end())
         spine.dispose()
         Arr.forEach(fibers, (fiber) => runtime.runFork(Fiber.interrupt(fiber)))
@@ -926,6 +1098,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     ({ el, resolution }) => {
       if (Predicate.isUndefined(el)) return
       if (Predicate.isUndefined(mounted) || mounted.element !== el) {
+        // Another element it was spread on, or the one it's on, still on the page: a ward drives one
+        // element at a time (#349's Q5). One the page has let go of is left behind.
+        if (Bool.or(stillOn(refdBefore, el), stillOn(UndefinedOr.map(mounted, elementOfMount), el))) throw new Error(secondElement("ward(config)"))
+        refdBefore = undefined
         // Held off the page: nothing starts until it's on it.
         if (heldBack(el)) return
         // A new element starts with no gesture on, read from its gesture state (#257's audit).
@@ -953,14 +1129,14 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // carries its Atom (#209 PR 3's Q2): a `style` given it follows the Atom, set at the gate's write,
   // so a key derived from it paints in the same frame. Where the key rests is Solid's (the user's
   // style), mirrored into an Atom of its own.
-  const registry = registryOf(runtime)
-  let reads: Map<string, Accessor<unknown>> | undefined
-  const read = (key: string): Accessor<unknown> => {
+  let reads: Map<string, ReadEntry> | undefined
+  const readEntry = (key: string): ReadEntry => {
     if (Predicate.isUndefined(reads)) reads = new Map()
     const known = reads.get(key)
     if (Predicate.isNotUndefined(known)) return known
     const output = gate.valueOf(id, key)
-    const accessor = runWithOwner(owner, () => {
+    const following = drivenAtom()
+    const entry = runWithOwner(owner, (): ReadEntry => {
       const resting = createMemo(() => {
         withCallsOf()[0]()
         return restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw))
@@ -974,10 +1150,20 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         },
         CLIENT_ONLY_DEFERRED,
       )
-      return followAtom(registry(), Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity })))
+      const own = Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity }))
+      // Given to a component (#349): what the element it drives shows, while it's there.
+      const atom = Atom.make((get) => UndefinedOr.match(get(following), { onUndefined: () => get(own), onDefined: (d) => get(d.readAtom(key)) }))
+      return { accessor: followAtom(registry(), atom), atom }
     })
-    reads.set(key, accessor)
-    return accessor
+    reads.set(key, entry)
+    return entry
+  }
+  const read = (key: string): Accessor<unknown> => readEntry(key).accessor
+  // Its `atom(key)`: the gate's output, or, given to a component (#349), the one of the element it drives.
+  const atomOf = (key: string): Atom.Atom<unknown> => {
+    const own = gate.valueOf(id, key)
+    const following = drivenAtom()
+    return Atom.make((get) => UndefinedOr.match(get(following), { onUndefined: () => get(own), onDefined: (d) => get(d.atom(key)) }))
   }
 
   // The element's style, read where it renders. The keys still loading at setup (#257 item 1) are
@@ -1005,22 +1191,48 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // The ward: a ref, and its own props. Under a presence, its element is told to it as it's made
   // (#286): its `key`, and whether it's a twin.
+  // What it shares with a component it's given to (#349), made when one asks.
+  let shared: WardShare | undefined
+  const sharedNow = (): WardShare => {
+    if (Predicate.isNotUndefined(shared)) return shared
+    /**
+     * A ward driving an element for this one, given to a component (#349): followed until the release,
+     * its `read` and `atom` Atoms reading the driver's. One at a time, and not while this one is on an
+     * element of its own (#349's Q5).
+     */
+    const drive = (next: Driver, name: string): (() => void) => {
+      if (Bool.or(Predicate.isNotUndefined(driver), stillOn(UndefinedOr.map(mounted, elementOfMount), undefined))) throw new Error(secondElement(name))
+      driver = next
+      UndefinedOr.map(driven, (atom) => registry().set(atom, next))
+      return () => {
+        if (driver !== next) return
+        driver = undefined
+        UndefinedOr.map(driven, (atom) => registry().set(atom, undefined))
+      }
+    }
+    shared = { config, setup: initialConfig, internal, parent, chosen: Predicate.isNotUndefined(internal.parent), provided: node.provided, node, lifecycle, drive }
+    return shared
+  }
+
   const setMade = madeWith(presence, setElement, initialConfig)
   const self = ((value?: unknown): Ward | undefined => {
     if (isElement(value)) {
+      if (Bool.and(Predicate.isNotUndefined(refdLast), refdLast !== value)) refdBefore = refdLast
+      refdLast = value
       setMade(value)
       return undefined
     }
     return self
   }) as Ward
   Object.defineProperties(self, {
+    [WARD]: { get: sharedNow },
     ref: { value: self, enumerable: true },
     style: { get: renderedStyle, enumerable: true },
     ...attributesOf(seed.attrs),
     ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
     Provider: { value: Provider },
     read: { value: read },
-    atom: { value: (key: string) => gate.valueOf(id, key) },
+    atom: { value: atomOf },
     settled: { value: () => lifecycle.read() },
     next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
     each: { value: <E extends WardEvent>(name: E) => lifecycle.each(name) },
@@ -1038,6 +1250,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     },
   })
   return self
+}
+
+/** A key's `read`: its accessor, and the Atom it follows. */
+interface ReadEntry {
+  readonly accessor: Accessor<unknown>
+  readonly atom: Atom.Atom<unknown>
 }
 
 /** No `.with()` props: the config's style alone. */
@@ -1099,7 +1317,8 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // Both are checked before the read that waits.
   const setup = WARD_VIEW.setupOf(view)
   const atSetup = configAtSetup(setup)
-  const parent = useVariantContext()
+  // Where it's made, its given parent's, or its given ward's (#349).
+  const parent = variantParentOf(internal)
   const presenceBlocks = presenceBlocksInitial(usePresenceContext())
   if (Bool.and(Arr.contains(setup.pending, "animate"), startsAtAnimate(atSetup, inheritedContext(atSetup, parent), presenceBlocks))) throw new Error(STARTS_AT_PENDING)
   const c = WARD_VIEW.snapshotOf(view)
@@ -1138,7 +1357,20 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   let given: WardWithProps = NO_WITH
   const attributes = { ...seed.attrs, ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }) }
   const self = ((): Ward => self) as Ward
+  // What it shares with a component it's given to (#349): a server's component renders its own.
+  const shared: WardShare = {
+    config,
+    setup: atSetup,
+    internal,
+    parent,
+    chosen: Predicate.isNotUndefined(internal.parent),
+    provided: appear.provided,
+    node: undefined,
+    lifecycle: undefined,
+    drive: () => constVoid,
+  }
   Object.defineProperties(self, {
+    [WARD]: { value: shared },
     ref: { value: noRef, enumerable: true },
     style: { value: style, enumerable: true },
     ...attributesOf(attributes),

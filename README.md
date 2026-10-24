@@ -418,6 +418,38 @@ function Card(props: { open: boolean }) {
 
   One hold at a time. Solid 1 has `onHoldStart` / `onHoldEnd` on `Reorder.Group` (ADR-0020, *Amendment (#348)*).
 - Motion's components are there too: `<wardic.div animate={…}>` and `wardic.create(Component)`. There are no directives in Solid 2, so no `use:wardic`.
+- **A ward given to a component** (#349): `wardRef` takes a ward made with `ward(config)` as well as a function. The component then drives its element with that ward, so you get the tag's prop types, the variant context, and `wardic.create`'s ref forwarding, while the ward and whatever reads its `next` / `each` stay where you made it:
+
+  ```tsx
+  function Toast() {
+    const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } })
+    const shown = createMemo(() => card.each("settled"), { ssrSource: "client" })
+    return (
+      <AnimatePresence>
+        <Show when={open()}><wardic.div wardRef={card} class="toast" /></Show>
+      </AnimatePresence>
+    )
+  }
+  ```
+
+  - **Its config is where it was made.** A motion prop beside it (`animate`, `whileHover`, `layout`, `key`…) is a type error, and an error naming it. Put it in `ward({ … })`. `style` and `ref` go beside it, by `card.with()`'s rules: the style over the config's, key by key; the ref beside the ward's.
+  - **Its presence is the element's.** Each element registers with the `<AnimatePresence>` the component renders under, even when the ward was made outside it. Above, every close plays the exit, and every open enters fresh, from `initial` (or at `animate`, under `initial={false}`). The ward lives on, and its `next` / `each` hear every element.
+  - **Its variant parent is where it's made.** Made beside its parent, a child names it: `ward(config, { parent: list })` inherits `list`'s variant names and transition, and joins its stagger in the order the children were made. That works wherever the element renders, a portal included. Made with no `parent`, under another variant parent than its element's that it would inherit from, it's an error naming the fix. `inherit: false` stands alone.
+  - **One element at a time.** A ward on a second element still on the page is an error, given or spread (one ward handed to every row of a `<For>`, say). One element after another is fine.
+  - **Reorder's components** take theirs too: `<Reorder.Group groupRef={list}>` a `reorderGroup()`, and `<Reorder.Item wardRef={row}>` a `reorderItem(list, …)` of that group. Their config props are refused beside them, as a ward's are, and a plain ward or another group's item is an error. `reorderItem(list, config, { parent })` takes a parent too.
+
+    ```tsx
+    const list = reorderGroup({ values: order, onReorder: setOrder })
+    <Reorder.Group groupRef={list}>
+      <For each={order()}>
+        {(item) => {
+          const row = reorderItem(list, { value: item, whileDrag: { scale: 1.03 } })
+          const lifted = createMemo(() => row.each("dragStart"), { ssrSource: "client" })
+          return <Reorder.Item wardRef={row}>{item.name}</Reorder.Item>
+        }}
+      </For>
+    </Reorder.Group>
+    ```
 - Motion's `onAnimationStart` and `onAnimationComplete` aren't props or config keys here; a ward hands its landings over as async values instead (#257, ADR-0046). `card.settled()` is the last landing (`{ definition, target, gestures }`), `undefined` before the first, and pending while an animation runs, so `isPending(() => card.settled())` is "animating". `await card.next("settled")` waits for the next landing, in a handler or an action; it rejects with an `AbortError` if the ward is disposed first. Motion's gesture callbacks are `next` names too: `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"` (each with the pointer's `point`) and `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"` (with `point`, `offset`, `delta` and `velocity`), and `"dragTransitionEnd"`, once the release comes to rest (not one a new target for `x` or `y` took over: it stops there, and the new animation goes on from where it was, at its speed, as Motion's does, #340); a pan's `"panSessionStart"`, `"panStart"`, `"pan"` and `"panEnd"`, a pan that has started counting as a drag for its press, so `next("tap")` doesn't come after a swipe. Their `point` is in the viewport, as `clientX` and `getBoundingClientRect()` are, not the page as Motion's: `document.elementsFromPoint(point.x, point.y)` finds what a drag was dropped on. A component hands its ward over with `wardRef`: `<wardic.div wardRef={(card) => …}>`, and on `wardic.create(Component)` and `Reorder.Item`. Read `settled()` under `<Loading>`, as any async value; a read outside one still works, and Solid's dev build warns of it. On `<wardic.div>`, `onAnimationStart` is the DOM's CSS `animationstart` event, and `onDrag`, `onDragStart` and `onDragEnd` are the DOM's drag and drop.
 
   ```tsx

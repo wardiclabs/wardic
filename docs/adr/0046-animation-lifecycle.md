@@ -361,3 +361,75 @@ A minimal Solid 2 app without Wardic does the same, on rc.15 and rc.18.
 - **Pinned by** `test/v2/each-memo.hydrate.browser.test.tsx`, a streamed render hydrated:
   - HE1: the documented form hears nothing at hydration, then the release;
   - HE2: a plain memo adopts the server's `undefined` and never hears the release. If Solid changes that, the README can say less.
+
+## Amendment (#349, 2026-10-24): a ward made outside a component, given to its `wardRef`
+
+Decision 2 had `wardRef` hand a component's ward out. On Solid 2 it now takes one in too: a ward made with `ward(config)`, which the component drives its element with. The ward then lives where its state and its `next` / `each` readers are, and its element still gets what a Wardic component gives:
+- its tag's prop types;
+- its variant context;
+- `wardic.create`'s ref forwarding.
+
+Every Wardic component takes one: `wardic.<tag>`, `wardic.create(Component)`, `Reorder.Item`. `Reorder.Group` takes a Reorder group the same way, through `groupRef`. Grilled 2026-10-24 (#349, issuecomment-6388260457).
+
+**Decisions:**
+1. **One prop, both ways** (the user's): `wardRef` hands a function the component's own ward, as before, and drives a ward given to it. Solid 2 only: Solid 1 keeps `createWard`'s spread.
+2. **Motion props beside a given ward are refused** (Q1): every one, not only the keys the ward sets. A given ward is configured where it's made, and several keys are fixed then anyway (`drag`, `layout`, the gestures it listens for, its exit record).
+   - It's a type error, and an error at setup naming the props.
+   - `style` and `ref` go beside it, by `ward.with()`'s rules (#264): the style over the config's, key by key; the ref beside the ward's.
+   - Rejected: dropping them with a dev warning; laying them over the ward's config.
+3. **`ward(config, { parent })`** (Q2, the user's idea) gives a ward made outside the tree its variant parent, and so does `reorderItem(list, config, { parent })`.
+   - It inherits the parent's names and transition, and joins its stagger and `when`.
+   - Stagger counts children in the order they're made.
+   - It's an options argument, not a config key, so it never becomes a motion prop on `wardic.*`, where the tree gives the parent.
+   - Rejected: `list.child(config)`; no option (make the child under the parent's element).
+4. **Presence is the element's** (Q3). The component hands the ward its `<AnimatePresence>`, element by element.
+   - The exit plays on the leaving element.
+   - The ward lives on, and the next element enters fresh, from `initial`, or at `animate` under `initial={false}`.
+   - Rejected: the presence where the ward is made, with a mismatch throwing (a toast would need a component of its own); `ward(config, { presence })`.
+5. **A variant parent that doesn't match the tree throws, unless chosen** (Q4).
+   - An explicit `parent` always wins, wherever the element renders (a portal).
+   - A ward made with no `parent`, under another variant parent than its element's, that would inherit from it (a **Variant child**), throws naming `{ parent }` or `inherit: false`.
+   - Rejected: a dev warning; no check.
+6. **One element at a time** (Q5). A ward on a second element still on the page throws, given or spread: the ward's mount checks it.
+   - One element after another is fine. An element still exiting under a presence doesn't count.
+   - A spread on two elements used to move the ward silently to the newer one.
+7. **Reorder mirrors `wardic.*`** (Q6).
+   - A given item must be one of the `Reorder.Group` around it.
+   - `reorderItem` returns a `ReorderItem<V, C>`, so a plain ward is a type error.
+   - A given group's config props are refused, as a ward's motion props are.
+
+**Built:**
+- **A driving ward.** For each element, the component makes a ward of its own: its *driving ward*.
+  - It's built on the given ward's config, with the given ward's variant node and lifecycle.
+  - It's made in the component, so it has the component's presence and tag: an SVG element's attribute keys, the server's Starting style, its hydration ids (KH13).
+  - Its mount makes it the given ward's driver, and its unmount lets go.
+  - **Why not one ward re-pointed at each element:** a ward's start is fixed when it's made: its Starting style, its presence's `initial={false}`, its Snapshot. Each element entering fresh under the component's presence is what a ward made in the component already does. The driving ward reuses that path whole, so a ward that's never given changes by a few checks only.
+- **The given ward follows its driver.**
+  - `read(key)` and `atom(key)` read through an Atom set to the driver while one drives. Keys asked earlier are read through the driver as it starts.
+  - A `next` asking for a gesture starts its recognizer on the driver's element.
+  - `settled`, `next` and `each` are the shared lifecycle's, which a driving ward doesn't dispose.
+  - The given ward's own machinery, made by `ward()`, stays idle: it's never mounted itself. Only a given ward pays for it.
+- **The variant node is shared** so that its `when`, stagger and children are the given ward's: a child made with `{ parent: list }` registers with `list`'s node, which `list`'s driving ward reports to (GW5b).
+- **Types.** `wardRef` is one of two branches (`WardicMotion`):
+  - the motion props, with a `WardRefCallback`;
+  - or none of them (`NoMotionProps`), with a ward (`AnyWard`).
+
+  The callback is branded never to be a ward, so `(w) => …` still infers `w`, and a ward given with a motion prop matches neither branch. `WardRefProp` is gone. The Reorder types are `ReorderGroupOf`, `ReorderItemOf`, `GroupRefCallback`, `AnyReorderGroup`, `AnyReorderItem` and `ReorderItem`.
+- **Q5 for a spread.** A ward's ref keeps its last two elements, and mounting one while the other is still on the page throws. It allocates nothing.
+
+**Pinned by:**
+- `test/v2/given-ward.browser.test.tsx`, GW1–GW13 and GW5b;
+- `test/v2/server.ssr.test.tsx`, SV20 and SV21;
+- `test/v2/wardic.hydrate.browser.test.tsx`, KH13;
+- the Reorder scene's `given` mode (`test/v2/reorder-scene.tsx`).
+
+**Mutation-checked** with single-point mutations (`.tmp/349/mutate.py`). All 28 on the final code fail the tests meant for them.
+- M13, a driving ward taking the variant context around it instead of its given ward's, at first survived: only a server render shows it, for a chosen `parent` rendered outside its element. SV20's portal case was added for it.
+- M5, a driving ward with a variant node of its own, at first survived; GW5b was added for it.
+- Two others survived, reading the driver's keys before the given ward's Atom reads them, and were dead code, taken out.
+- M30, a callback not handed the ward, covers the rewritten path every component takes (GX8, SV15).
+
+**Cost** (`bench:solid --binding 2`, N = 1,000, against main):
+- **The first build** cost every ward about 35 small allocations for a path it never took: `UndefinedOr.match` option objects and their closures, and the given ward's `drive` and driver. Bytes per element per round rose 2.1% and mount 2.2% (IQR −0.5% to +2.4%), within the gate.
+- **The setup path now uses plain checks and module-level helpers.** `drive` is made when a component first asks for the share, and the driver object when a driving ward mounts. That leaves bytes at +0.4% (181.3 to 182.1 KB, IQR −0.1% to +0.4%).
+- **The timings** after the trim are mount +0.2%, Retarget +0.4%, at-rest Retarget +0.8% and unmount +0.7%, each IQR spanning zero. Both runs flagged the plain-div control as noisy (−8.6% and +21.5%) on an otherwise idle host, so these say "within a couple of percent", not more.

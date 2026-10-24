@@ -354,6 +354,42 @@ const WardicWrapped = wardic.create(Wrapped)
 /** `wardic.create(Component)`. */
 export const KCreate = (): JSX.Element => keyed(() => <WardicWrapped animate={{ opacity: 1 }} />)
 
+/**
+ * Wards given to `wardRef` (#349): on `wardic.*` with a child made with its `parent`, on
+ * `wardic.create`, under a presence, and a group and its items given to `Reorder`'s components.
+ */
+export const KGiven = (): JSX.Element =>
+  keyed(() => {
+    const VARIANTS = { a: { opacity: 0.5 }, b: { opacity: 1 } }
+    const list = ward({ initial: "a", animate: "b", variants: VARIANTS })
+    const row = ward({ variants: VARIANTS }, { parent: list })
+    const wrapped = ward({ animate: { opacity: 1 } })
+    const toast = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } })
+    const [items, setItems] = createSignal(["a", "b"])
+    const group = reorderGroup({ values: items, onReorder: setItems })
+    return (
+      <>
+        <wardic.ul wardRef={list}>
+          <wardic.li wardRef={row}>row</wardic.li>
+        </wardic.ul>
+        <WardicWrapped wardRef={wrapped} />
+        <AnimatePresence>
+          <Show when={true}>
+            <wardic.div wardRef={toast}>toast</wardic.div>
+          </Show>
+        </AnimatePresence>
+        <Reorder.Group groupRef={group}>
+          <For each={items()}>
+            {(value) => {
+              const item = reorderItem(group, { value })
+              return <Reorder.Item wardRef={item}>{value}</Reorder.Item>
+            }}
+          </For>
+        </Reorder.Group>
+      </>
+    )
+  })
+
 /** Two regions under `<Reveal>` (#257 item 13, AH13): the second's data first, an Appear element in it. */
 export const A9 = (): JSX.Element => {
   const later = <A,>(ms: number, value: A): Promise<A> => new Promise((resolve) => setTimeout(() => resolve(value), ms))
