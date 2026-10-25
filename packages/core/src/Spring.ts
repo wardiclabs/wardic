@@ -49,6 +49,34 @@ export interface Resolved {
    * landing on its target; `Infinity` for one that ends at rest, every other.
    */
   readonly duration: number
+  /** Its step as Motion's closed form, and the last one worked out (#370): internal, see {@link Exact}. */
+  readonly exact: Exact
+}
+
+/**
+ * A spring's step over a `dt`, as Motion's closed form (#370, `motion-dom`'s `generators/spring.ts` at
+ * 16c6122): exact for any `dt`, from wherever it is. The solution is linear in the displacement from
+ * the target `d` and the velocity `v`, so a step is a matrix on them: `d' = dd·d + dv·v`, `v' = vd·d + vv·v`.
+ * Its physics' constants are worked out when the spring is resolved. The matrix for the last `dt`
+ * it stepped is kept, so every element on one spring config, which share its `Resolved`, shares one
+ * `exp`/`sin`/`cos` a frame. Internal: written through {@link matrixFor}, by {@link step},
+ * `Machine.springValues` and `Easing.spring`.
+ */
+export interface Exact {
+  /** How it's damped: 0 under (it oscillates), 1 critically, 2 over. */
+  readonly kind: 0 | 1 | 2
+  /** Its undamped angular frequency, `√(stiffness / mass)`. */
+  readonly w0: number
+  /** Its decay rate, `damping / (2 · mass)`. */
+  readonly decay: number
+  /** Its damped angular frequency (under), or its hyperbolic one (over); unused when critical. */
+  readonly freq: number
+  /** The `dt` the matrix is for: -1 before its first. */
+  dt: number
+  dd: number
+  dv: number
+  vd: number
+  vv: number
 }
 
 /** A leg's rest thresholds (#344): at rest within `delta` of its target and `speed` per second. */
@@ -213,8 +241,93 @@ export const resolve: (options: SpringOptions) => Resolved = cachedResolver(Opti
     restSpeed: decoded.restSpeed,
     delay: decoded.delay,
     duration: physics.duration,
+    exact: exactOf(physics.stiffness, physics.damping, physics.mass),
   }
 })
+
+/**
+ * Within this of a damping ratio of 1, a spring steps as critically damped (#370): exactly 1 would
+ * divide by a damped frequency of 0, and either side of it the two formulas meet to well under it.
+ */
+const CRITICAL_BAND = 1e-9
+
+/** How a spring of damping ratio `ratio` is damped: {@link Exact}'s `kind`. Statement `if`s. */
+const kindOf = (ratio: number): 0 | 1 | 2 => {
+  if (Math.abs(ratio - 1) < CRITICAL_BAND) return 1
+  if (ratio < 1) return 0
+  return 2
+}
+
+/** A spring's {@link Exact}, its matrix not yet worked out. */
+const exactOf = (stiffness: number, damping: number, mass: number): Exact => {
+  const w0 = Math.sqrt(stiffness / mass)
+  const ratio = damping / (2 * Math.sqrt(stiffness * mass))
+  return {
+    kind: kindOf(ratio),
+    w0,
+    decay: damping / (2 * mass),
+    freq: w0 * Math.sqrt(Math.abs(1 - ratio * ratio)),
+    dt: -1,
+    dd: 1,
+    dv: 0,
+    vd: 0,
+    vv: 1,
+  }
+}
+
+/**
+ * Work out `exact`'s matrix for a step of `dt` (#370): Motion's three solutions, from a displacement
+ * `d` and a velocity `v`.
+ * - Under: `e^(−decay·t)` times a rotation at `freq`.
+ * - Critical: `e^(−w0·t)` times a line in `t`.
+ * - Over: two decaying exponentials, at `−decay ± freq`. Motion's `cosh`/`sinh` overflow for a large
+ *   `freq·t` (it caps it at 300), where these only underflow to 0.
+ * Once per spring config per frame: statement `if`s.
+ */
+const refresh = (m: Exact, dt: number): void => {
+  m.dt = dt
+  const w2 = m.w0 * m.w0
+  if (m.kind === 0) {
+    const e = Math.exp(-m.decay * dt)
+    // sin(freq·t) / freq: its limit as freq → 0 is t, and a small sine is exact to its last bit.
+    const s = Math.sin(m.freq * dt) / m.freq
+    const c = Math.cos(m.freq * dt)
+    m.dd = e * (c + m.decay * s)
+    m.dv = e * s
+    m.vd = -e * w2 * s
+    m.vv = e * (c - m.decay * s)
+    return
+  }
+  if (m.kind === 1) {
+    const e = Math.exp(-m.w0 * dt)
+    m.dd = e * (1 + m.w0 * dt)
+    m.dv = e * dt
+    m.vd = -e * w2 * dt
+    m.vv = e * (1 - m.w0 * dt)
+    return
+  }
+  const r1 = m.freq - m.decay
+  const r2 = -m.freq - m.decay
+  const e1 = Math.exp(r1 * dt)
+  const e2 = Math.exp(r2 * dt)
+  const span = 2 * m.freq
+  m.dd = (r1 * e2 - r2 * e1) / span
+  m.dv = (e1 - e2) / span
+  m.vd = (w2 * (e2 - e1)) / span
+  m.vv = (r1 * e1 - r2 * e2) / span
+}
+
+/**
+ * `spring`'s step matrix for `dt` (#370, {@link Exact}): the one it keeps when `dt` is the last
+ * one's, else worked out and kept. Tier 3, for a stepper written out in place (`Machine.springValues`,
+ * `Easing.spring`); `step` is the one to call. The matrix is the spring's, overwritten by the next
+ * `dt`: read it before stepping anything else on it.
+ */
+export const matrixFor = (spring: Resolved, dt: number): Exact => {
+  const m = spring.exact
+  if (m.dt !== dt) refresh(m, dt)
+  return m
+}
 
 /**
  * Motion's default rest thresholds (#344, `motion-dom` `spring.ts`'s `springDefaults` at
@@ -275,35 +388,28 @@ export const init = (options: SpringOptions): State => ({
   elapsed: 0,
 })
 
-const SPRING_SUBSTEP = 1 / 240
-
 /** At rest (#344, as Motion's): no faster than `rest.speed`, and no farther from the target than `rest.delta`. */
 const atRest = (position: number, velocity: number, target: number, rest: Rest): boolean =>
   Math.abs(velocity) <= rest.speed && Math.abs(position - target) <= rest.delta
 
 /**
- * One frame of a resolved spring toward `target`. Only the part of `dt` past the spring's
- * `delay` is integrated, in substeps of at most 1/240 s; it settles at rest within `rest` (the
- * leg's, from {@link restFor}), landing exactly on `target`. A caller stepping by hand per frame
- * resolves its options with `resolve`, and its thresholds with `restFor`, once a leg.
+ * One frame of a resolved spring toward `target`. Only the part of `dt` past the spring's `delay`
+ * moves it, in one exact step, Motion's closed form (#370, {@link Exact}); it settles at rest within
+ * `rest` (the leg's, from {@link restFor}), landing exactly on `target`. A caller stepping by hand
+ * per frame resolves its options with `resolve`, and its thresholds with `restFor`, once a leg.
  */
 export const step = (state: State, dt: number, target: number, spring: Resolved, rest: Rest): PhysicsStepResult<State> => {
-  const { stiffness, damping, mass } = spring
   const elapsed = state.elapsed + dt
   let position = state.position
   let velocity = state.velocity
 
-  // Only integrate the portion of this frame past the delay.
+  // Only the portion of this frame past the delay.
   const simDt = Math.max(0, Math.min(dt, elapsed - spring.delay))
   if (simDt > 0) {
-    const stepCount = Math.max(1, Math.ceil(simDt / SPRING_SUBSTEP))
-    const h = simDt / stepCount
-    for (let i = 0; i < stepCount; i++) {
-      const springForce = -stiffness * (position - target)
-      const dampingForce = -damping * velocity
-      velocity += ((springForce + dampingForce) / mass) * h
-      position += velocity * h
-    }
+    const m = matrixFor(spring, simDt)
+    const d = position - target
+    position = target + m.dd * d + m.dv * velocity
+    velocity = m.vd * d + m.vv * velocity
   }
 
   const settled = simDt > 0 && atRest(position, velocity, target, rest)

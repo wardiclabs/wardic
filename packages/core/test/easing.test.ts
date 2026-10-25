@@ -51,11 +51,39 @@ it("springEasing is normalized and monotone at the ends", () => {
   expect(ease(0.5)).toBeGreaterThan(0)
 })
 
-it("springEasing's curve is the same since its bag is decoded (#225): main's samples at b429963", () => {
-  const defaults = Easing.spring()
-  expect([0.1, 0.25, 0.5, 0.75].map(defaults)).toEqual([0.47106338743795767, 0.8971595320988142, 0.9951913745458054, 0.9997920031627241])
-  const bouncy = Easing.spring({ stiffness: 300, damping: 10, mass: 2 })
-  expect([0.1, 0.25, 0.5, 0.75].map(bouncy)).toEqual([1.194085310278693, 1.0194798369298201, 1.0099502090092494, 0.999782822567119])
+it("springEasing's curve is the spring's exact path, sampled every 1/240 s to rest (#370)", () => {
+  /** The unit spring's exact path, from rest at 0 toward 1, `t` s on: the textbook solutions, under, critical and over. */
+  const pathAt = (k: number, c: number, m: number, t: number): { readonly x: number; readonly v: number } => {
+    const w0 = Math.sqrt(k / m)
+    const ratio = c / (2 * Math.sqrt(k * m))
+    const decay = c / (2 * m)
+    if (ratio < 1) {
+      const wd = w0 * Math.sqrt(1 - ratio * ratio)
+      const e = Math.exp(-decay * t)
+      return { x: 1 - e * (Math.cos(wd * t) + (decay / wd) * Math.sin(wd * t)), v: e * ((w0 * w0) / wd) * Math.sin(wd * t) }
+    }
+    const wh = w0 * Math.sqrt(ratio * ratio - 1)
+    const [r1, r2] = [-decay + wh, -decay - wh]
+    const [a, b] = [r2 / (r1 - r2), -r1 / (r1 - r2)]
+    return { x: 1 + a * Math.exp(r1 * t) + b * Math.exp(r2 * t), v: r1 * a * Math.exp(r1 * t) + r2 * b * Math.exp(r2 * t) }
+  }
+  for (const [k, c, m] of [[170, 26, 1], [300, 10, 2], [100, 40, 1]] as const) {
+    // The samples: every 1/240 s until the first at rest within 1e-4 and 1e-4 a second.
+    const samples = [0]
+    for (let n = 1; n <= 2400; n++) {
+      const { x, v } = pathAt(k, c, m, n / 240)
+      samples.push(x)
+      if (Math.abs(x - 1) < 1e-4 && Math.abs(v) < 1e-4) break
+    }
+    const last = samples.length - 1
+    const curve = Easing.spring({ stiffness: k, damping: c, mass: m })
+    for (const t of [0.1, 0.25, 0.5, 0.75]) {
+      const at = t * last
+      const lo = Math.floor(at)
+      const expected = samples[lo]! + (samples[lo + 1]! - samples[lo]!) * (at - lo)
+      expect(curve(t), `${k}/${c}/${m} at ${t}`).toBeCloseTo(expected, 9)
+    }
+  }
 })
 
 it("nameOf (#48, ADR-0044): a Penner easing's own name, a factory's call; None for an app's own function", () => {

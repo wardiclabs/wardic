@@ -90,3 +90,5 @@ Stated:
 - So the time-based cases live around the steps: `stepTimed`, the chase's own run, `springValues`' timed wrapper, and `Resolved` as one literal. On the standalone copy every measure reads as base's: a chase frame, a `springValues` frame, and a `springValues` build, on Bun and Node.
 
 Known: Wardic's springs step semi-implicit Euler at 240 Hz where Motion's solve in closed form, so a path differs from Motion's by up to 2.3 px of 100 near its start (TB2). A physics spring's does as much (1.6 px for Motion's 100 / 10), so it predates #359.
+
+*Resolved by #370 (ADR-0054):* springs step in Motion's closed form now, so TB2 and TB6 hold Motion's paths to 1e-6.

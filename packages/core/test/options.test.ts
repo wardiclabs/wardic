@@ -60,8 +60,8 @@ describe("SpringOptions: positive stiffness, mass, rest thresholds and visual du
   rejects((bag) => Machine.chase(() => 1, bag), [["damping", { damping: -1 }]])
 
   it("fills in its defaults: 170 / 26 / 1, no delay, rest thresholds as given (else by distance, #344); `undefined` is missing", () => {
-    // Ends at rest: no duration (#359).
-    const defaults = { stiffness: 170, damping: 26, mass: 1, restDelta: undefined, restSpeed: undefined, delay: 0, duration: Number.POSITIVE_INFINITY }
+    // Ends at rest: no duration (#359). With its step's matrix (#370), internal.
+    const defaults = { stiffness: 170, damping: 26, mass: 1, restDelta: undefined, restSpeed: undefined, delay: 0, duration: Number.POSITIVE_INFINITY, exact: expect.any(Object) }
     expect(Spring.resolve({})).toEqual(defaults)
     // A JS caller's: `exactOptionalPropertyTypes` keeps it out of TypeScript.
     expect(Spring.resolve({ stiffness: undefined, delay: undefined } as unknown as Machine.SpringOptions)).toEqual(defaults)

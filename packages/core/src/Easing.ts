@@ -186,8 +186,8 @@ interface SpringSim {
  * Unlike the live `Machine.spring` primitive (which settles to a static target;
  * interruption is the binding's responsibility, and moving-target follow lives
  * in `chase` — see ADR-0001), this is a one-shot easing for cases that need a
- * `(t) => progress` function — the spring is simulated 0 → 1 to rest, then
- * sampled and re-normalized.
+ * `(t) => progress` function — the spring is run 0 → 1 to rest, sampled every
+ * 1/240 s on its exact solution (Motion's closed form, #370), then re-normalized.
  *
  * Its bag is decoded as every spring bag is (`Spring.resolve`, #225, ADR-0025 *Amendment (#225)*), when
  * it's called: a value no spring can take (a stiffness or mass at or below 0, a negative damping, NaN,
@@ -197,7 +197,8 @@ interface SpringSim {
  * own rest thresholds and step.
  */
 export const spring = (options: SpringOptions = NO_SPRING): Easing => {
-  const { stiffness, damping, mass, duration } = Spring.resolve(options)
+  const resolved = Spring.resolve(options)
+  const { stiffness, damping, mass, duration } = resolved
   const restDelta = 1e-4
   const restSpeed = 1e-4
   // A time-based spring's curve is its run to its duration (#359), on steps of about 1/240 s that end
@@ -206,15 +207,17 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
   const dt = Bool.match(timed, { onTrue: () => duration / Math.max(1, Math.round(duration * 240)), onFalse: () => 1 / 240 })
   // Half a step short, so a sum of steps a hair under the end doesn't take one more.
   const lastStart = Math.min(duration, 10) - dt / 2
+  // The spring's exact step over `dt` (#370), copied out: its matrix is the spring's, and a run on
+  // the same options could step it with another `dt`.
+  const { dd, dv, vd, vv } = Spring.matrixFor(resolved, dt)
 
   /** One step of the unit spring, or `None` once it has come to rest (one that ends at rest) or run out of time. */
   const advance = (sim: SpringSim): Option.Option<readonly [number, SpringSim]> =>
     Option.liftPredicate(sim, (s) => Bool.and(Bool.or(timed, !s.rested), s.elapsed < lastStart)).pipe(
       Option.map((s) => {
-        const force = -stiffness * (s.position - 1)
-        const dampingForce = -damping * s.velocity
-        const velocity = s.velocity + ((force + dampingForce) / mass) * dt
-        const position = s.position + velocity * dt
+        const d = s.position - 1
+        const position = 1 + dd * d + dv * s.velocity
+        const velocity = vd * d + vv * s.velocity
         const rested = Bool.and(Math.abs(velocity) < restSpeed, Math.abs(position - 1) < restDelta)
         return [position, { position, velocity, elapsed: s.elapsed + dt, rested }] as const
       }),
