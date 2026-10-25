@@ -15,8 +15,8 @@
 // - LY11 (#257): `animateLayout` animates a keyed `<For>`'s reorder, and its promise resolves with its
 //   callback's result once the reorder has landed.
 // - LY12: a layout node's Starting style on the client is drawn through its projection at rest (#245).
-// - LY13: the projection owns a layout node's translate (ADR-0016): its own `x` isn't returned when
-//   `animate` drops it.
+// - LY13 (#363): a layout node's own `x` is drawn on its projection, and returns, as any key does,
+//   when `animate` drops it.
 // - LY14: `<LayoutGroup>`'s dependency alone re-measures: a node a plain sibling pushed FLIPs.
 // - LY15: `layoutScroll` folds a container's scroll out: a re-measure after scrolling isn't a FLIP.
 // - LY16: `layoutAnchor={false}` projects a child absolutely: on a slower transition than its
@@ -413,23 +413,29 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     expect(layout.style.opacity).toBe("0.5")
   })
 
-  it("LY13: the projection owns a layout node's translate: its own x isn't returned when animate drops it", async () => {
+  it("LY13: a layout node's own x is drawn, and returned when animate drops it (#363)", async () => {
     const [on, setOn] = createSignal(true)
     let card!: ReturnType<typeof ward>
     const Box = () => {
       card = ward({ layout: true, animate: () => Bool.match(on(), { onTrue: () => ({ x: 50, opacity: 1 }), onFalse: () => ({ opacity: 1 }) }), transition: { type: "tween", duration: 0.1 } })
-      return <div {...card} style={{ width: "40px", height: "40px" }} />
+      return <div data-ly13 {...card} style={{ width: "40px", height: "40px" }} />
     }
-    mount(() => (
+    const { host } = mount(() => (
       <WardicProvider env={DomLive}>
         <Box />
       </WardicProvider>
     ))
+    const el = host.querySelector<HTMLElement>("[data-ly13]")!
+    const drawnX = (): number => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41
     const x = card.read("x")
     await until(() => x() === 50)
+    await frames(2)
+    expect(drawnX(), "drawn at its own x").toBeCloseTo(50, 1)
     flushed(setOn)(false)
-    await frames(20)
-    expect(x(), "not returned to 0").toBe(50)
+    await until(() => x() === 0)
+    await frames(2)
+    expect(x(), "returned to its Base value").toBe(0)
+    expect(drawnX(), "and drawn there").toBeCloseTo(0, 1)
   })
 
   it("LY14: LayoutGroup's dependency alone re-measures: a node a plain sibling pushed FLIPs", async () => {

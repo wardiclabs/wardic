@@ -42,11 +42,11 @@ describe("RendererDomLive.project — projection branch (ADR-0009)", () => {
     })
   })
 
-  it("weaves the element's animated rotate between inverse-scale and element-scale; ignores x (projection owns translate) and multiplies its scale in", () => {
-    // x:999 is owned by the projection -> ignored; rotate woven; scale:5 multiplies the
+  it("weaves the element's animated rotate between inverse-scale and element-scale; adds its own x and multiplies its scale in", () => {
+    // x:999 adds to the projection's translate (#363); rotate woven; scale:5 multiplies the
     // element scale (Motion's targetWithTransforms); opacity copied through.
     expect(renderer.project({ ...proj(delta(-50, -20, 1, 1), treeScale(1, 1)), x: 999, scale: 5, rotate: 45, opacity: 0.5 })).toEqual({
-      transform: "translate3d(-50px, -20px, 0px) rotate(45deg) scale(5, 5)",
+      transform: "translate3d(949px, -20px, 0px) rotate(45deg) scale(5, 5)",
       opacity: 0.5,
     })
   })

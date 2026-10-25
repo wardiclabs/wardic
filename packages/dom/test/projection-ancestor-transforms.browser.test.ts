@@ -8,6 +8,7 @@
 // - AT1: an ancestor that isn't a node, its registered scale changing each frame: the Follower is
 //   drawn on the Lead every frame, with the page scrolled too;
 // - AT2: a `layout` ancestor's own scale: the Lead starts on its twin, the Follower on it every frame;
+//   AT2b (#363): its own translate, sliding in, and with its scale;
 // - AT3: nested ancestors, a translate inside a scale, both changing;
 // - AT4, AT5: guards: an ancestor with a rotation, and a transform Wardic doesn't own, are converted
 //   as of the pass: what they do after it changes nothing the engine writes. AT4b: the rotated one
@@ -19,6 +20,7 @@ import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
@@ -118,6 +120,42 @@ describe("a twin's conversions follow Wardic's own ancestor transforms (#137)", 
       expect(apart(follower, lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.5)
     }
     // It goes on from its twin: its first frame no further from it than its next step.
+    expect(apart(leads[0]!, thumbAt), "the Lead starts on its twin").toBeLessThanOrEqual(apart(leads[1]!, leads[0]!) + 0.5)
+    e.dispose()
+  })
+
+  for (const withScale of [false, true]) it(`AT2b: a layout ancestor's own translate sliding in${Bool.match(withScale, { onTrue: () => ", with its scale", onFalse: () => "" })}: the Lead starts on its twin, the Follower on it every frame (#363)`, async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const thumb = el(root, "position:absolute;left:20px;top:300px;width:60px;height:40px")
+    register(e, "thumb", thumb, { layoutId: "twin" })
+    await endOfTask()
+    fireFrame()
+    let own = 0.8
+    let slide = 120
+    const modal = el(root, "position:absolute;left:300px;top:100px;width:300px;height:240px")
+    register(e, "modal", modal, {
+      layout: true,
+      ownTranslate: () => ({ x: slide, y: slide / 4 }),
+      ...Bool.match(withScale, { onTrue: () => ({ ownScale: () => ({ x: own, y: own }) }), onFalse: () => ({}) }),
+    } as Partial<ProjectionSystem.RegisterNodeOptions>)
+    const big = el(modal, "position:absolute;left:50px;top:40px;width:200px;height:150px")
+    register(e, "big", big, { layoutId: "twin" })
+    await endOfTask()
+    const origin = centre(layoutOf(modal))
+    const thumbAt = layoutOf(thumb)
+    const leads: Array<Box.Box> = []
+    for (let i = 1; i <= 40; i++) {
+      slide = 120 * Math.exp(-i / 6)
+      if (withScale) own = scaleAt(i - 1)
+      fireFrame()
+      // The modal draws its own scale about its centre, then its own translate (the fake sink paints nothing).
+      const lead = transformed(projected(layoutOf(big), sk, ["modal", "big"]), origin, Bool.match(withScale, { onTrue: () => own, onFalse: () => 1 }), slide, slide / 4)
+      leads.push(lead)
+      const follower = projected(layoutOf(thumb), sk, ["thumb"])
+      expect(apart(follower, lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.5)
+    }
     expect(apart(leads[0]!, thumbAt), "the Lead starts on its twin").toBeLessThanOrEqual(apart(leads[1]!, leads[0]!) + 0.5)
     e.dispose()
   })

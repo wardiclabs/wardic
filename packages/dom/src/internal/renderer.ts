@@ -188,11 +188,10 @@ const formatStyleValue = (key: string, value: unknown): unknown => {
  * User-animated transform funcs woven INTO a projection transform (ADR-0009,
  * Motion's `buildProjectionTransform`): `rotate`/`skew` compose with a layout
  * projection and are emitted between the inverse-tree-scale and the element
- * scale, each left out at its identity, 0 (ADR-0009 *Amendment (#57)*). Translate is intentionally absent — the projection OWNS it, so a layout
- * element's animated `x`/`y` are ignored (ADR-0016: a drag feeds the projection).
- * The element's own `scale`/`scaleX`/`scaleY` multiply the element scale instead
- * (see {@link ownScale}). `z` is folded into the projection's `translate3d`
- * (handled inline).
+ * scale, each left out at its identity, 0 (ADR-0009 *Amendment (#57)*). The element's own
+ * translate is added to the projection's ({@link ownTranslate}, #363), its own
+ * `scale`/`scaleX`/`scaleY` multiply the element scale ({@link ownScale}), and `z` is folded
+ * into the projection's `translate3d` (handled inline).
  */
 const PROJECTION_WOVEN: ReadonlyArray<{ readonly key: string; readonly fn: string }> = [
   { key: "rotate", fn: "rotate" },
@@ -215,6 +214,41 @@ const PROJECTION_WOVEN: ReadonlyArray<{ readonly key: string; readonly fn: strin
  */
 const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY"): number =>
   numberOr(latest.scale, 1) * numberOr(latest[axisKey], 1)
+
+/**
+ * A translate key's pixels on a projected element (#363): a number, or a px string. Another unit
+ * (`%`, `rem`) can't be added to the projection's pixel translate without measuring, so it's 0, as
+ * Motion's target box can't take one either. Per frame.
+ */
+const pxOf = (value: unknown): number => {
+  if (Predicate.isNumber(value)) return value
+  if (!Predicate.isString(value)) return 0
+  if (!value.endsWith("px")) return 0
+  const px = Number.parseFloat(value)
+  if (Number.isFinite(px)) return px
+  return 0
+}
+
+/**
+ * The element's own translate on one axis (#363, ADR-0009 *Amendment (#363)*): `x` plus
+ * `translateX` (or `y` plus `translateY`), in page pixels. Motion lays a layout element's own `x`
+ * and `y` on its target box (`transformBox(targetWithTransforms, latestValues)`,
+ * `applyTransformsToTarget` at 16c6122), so its delta carries them, divided by the tree scale where
+ * it's drawn: this is added to the projection's translate the same way. Motion leaves
+ * `translateX`/`translateY` out; nothing set on a layout element is dropped here.
+ */
+const ownTranslate = (latest: Record<string, unknown>, key: "x" | "y", translateKey: "translateX" | "translateY"): number => pxOf(latest[key]) + pxOf(latest[translateKey])
+
+/**
+ * An element's own translate, from its value-map: what the renderer draws on top of its projection
+ * ({@link ownTranslate}). A binding hands it to its projection node (`ownTranslate`), so a twin, a
+ * handover and a Follower start from, and are drawn, where it is drawn (#363). Tier 2, for binding
+ * authors.
+ */
+export const ownTranslateOf = (values: Record<string, unknown>): Point.Point => ({
+  x: ownTranslate(values, "x", "translateX"),
+  y: ownTranslate(values, "y", "translateY"),
+})
 
 /**
  * An element's own scale per axis, from its value-map: what the renderer draws on top of its
@@ -258,11 +292,14 @@ const buildProjectionTransform = (
 ): string => {
   const funcs: Array<string> = []
 
-  const tx = delta.x.translate / treeScale.x
-  const ty = delta.y.translate / treeScale.y
+  // The element's own translate, in page pixels, on the projection's: divided by the tree scale
+  // together, as Motion's target box carries it (#363).
+  const tx = (delta.x.translate + ownTranslate(latest, "x", "translateX")) / treeScale.x
+  const ty = (delta.y.translate + ownTranslate(latest, "y", "translateY")) / treeScale.y
   const z = latest["z"]
-  if (tx !== 0 || ty !== 0 || (Predicate.isNotUndefined(z) && !isIdentity(z, 0))) {
-    funcs.push(`translate3d(${tx}px, ${ty}px, ${zArgOf(z)})`)
+  const translateZ = latest["translateZ"]
+  if (tx !== 0 || ty !== 0 || (Predicate.isNotUndefined(z) && !isIdentity(z, 0)) || (Predicate.isNotUndefined(translateZ) && !isIdentity(translateZ, 0))) {
+    funcs.push(`translate3d(${tx}px, ${ty}px, ${zArgOf(z, translateZ)})`)
   }
 
   if (treeScale.x !== 1 || treeScale.y !== 1) {
@@ -286,8 +323,9 @@ const buildProjectionTransform = (
   return funcs.join(" ")
 }
 
-/** `translate3d`'s z argument: the element's own `z`, else none. */
-const zArgOf = (z: unknown): string => {
+/** `translate3d`'s z argument: the element's own `z`, plus its `translateZ` in pixels when it has one (#363), else none. */
+const zArgOf = (z: unknown, translateZ: unknown): string => {
+  if (Predicate.isNotUndefined(translateZ)) return `${pxOf(z) + pxOf(translateZ)}px`
   if (Predicate.isUndefined(z)) return "0px"
   return formatTransformValue("z", z)
 }
@@ -308,10 +346,9 @@ const projectedOpacity = (projection: Projection.Value, values: Record<string, u
  *
  *   - PROJECTION (ADR-0009): when the reserved `Projection.KEY` is present,
  *     the transform is assembled by {@link buildProjectionTransform} from that
- *     node's `delta`/`treeScale`, weaving the element's own animated
- *     `rotate`/`skew` and multiplying in its own `scale`/`scaleX`/`scaleY` (read
- *     from the same value-map). The element's `x`/`y` are skipped — the projection
- *     owns translate.
+ *     node's `delta`/`treeScale`, adding the element's own translate (`x`, `y`,
+ *     `translate*`, #363), weaving its own animated `rotate`/`skew` and multiplying
+ *     in its own `scale`/`scaleX`/`scaleY` (read from the same value-map).
  *   - NORMAL: group all present transform keys into one canonical `transform`
  *     string (the value-spine path), leaving out each at its identity; with
  *     every one at its identity, `none` (ADR-0023). With no transform key, no

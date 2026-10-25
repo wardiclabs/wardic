@@ -531,9 +531,9 @@ export function runSpine(opts: RunSpineOptions): void {
           setDragging,
           config: trackConfig,
           container: constraints.container,
-          // ADR-0016: a drag on a LAYOUT node feeds the projection (the renderer
-          // ignores a projected element's raw x/y), so the dragged item follows the
-          // pointer and FLIPs to its slot on release. Free drag (no handle) is unchanged.
+          // ADR-0016: a drag on a LAYOUT node feeds the projection, not its own x/y
+          // (drawn on top, #363), so the dragged item follows the pointer and FLIPs to
+          // its slot on release. Free drag (no handle) is unchanged.
           ...UndefinedOr.match(layoutHandle, { onUndefined: () => ({}), onDefined: (projection) => ({ projection }) }),
           ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
           // Its samples to a `<Reorder>` item's group, and to the app's drag callbacks (#273).

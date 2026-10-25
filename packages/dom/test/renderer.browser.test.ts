@@ -3,7 +3,7 @@ import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { RendererDomLive } from "../src/internal/renderer.ts"
+import { ownTranslateOf, RendererDomLive } from "../src/internal/renderer.ts"
 
 /** An identity projection delta + tree-scale, for the @projection opacity tests. */
 const IDENTITY_PROJECTION = {
@@ -105,6 +105,39 @@ describe("RendererDomLive.project (pure)", () => {
       transform: "translateX(10px)",
       opacity: 0.5,
     })
+  })
+})
+
+// A projected element's own translate (#363, ADR-0009 *Amendment (#363)*): added to its projection's
+// translate in page pixels, then divided by the tree scale, as Motion's target box carries it.
+// - OT1: at rest, its own x and y are its whole translate.
+// - OT2: on a projection's delta and under a tree scale: (delta + own) / treeScale.
+// - OT3: `translateX`/`translateY` add to `x`/`y`; a px string counts, another unit can't.
+// - OT4: `translateZ` adds to `z`; a `z` alone keeps its unit.
+describe("a projected element's own translate (#363)", () => {
+  it("OT1: at rest, its own x and y are its whole translate", () => {
+    expect(renderer.project({ x: 10, y: -4, [Projection.KEY]: IDENTITY_PROJECTION }).transform).toBe("translate3d(10px, -4px, 0px)")
+    expect(renderer.project({ x: 0, y: 0, [Projection.KEY]: IDENTITY_PROJECTION }).transform, "at its identity, none").toBe("none")
+  })
+
+  it("OT2: on a projection's delta and under a tree scale, (delta + own) / treeScale", () => {
+    const projection = {
+      delta: { x: { translate: 30, scale: 1, origin: 0.5, originPoint: 0 }, y: { translate: -6, scale: 1, origin: 0.5, originPoint: 0 } },
+      treeScale: { x: 2, y: 2 },
+    }
+    expect(renderer.project({ x: 10, y: 2, [Projection.KEY]: projection }).transform).toBe("translate3d(20px, -2px, 0px) scale(0.5, 0.5) scale(2, 2)")
+  })
+
+  it("OT3: translateX and translateY add to x and y; a px string counts, another unit can't", () => {
+    const values = { x: 10, translateX: "5px", y: "3%", translateY: "2rem" }
+    expect(renderer.project({ ...values, [Projection.KEY]: IDENTITY_PROJECTION }).transform).toBe("translate3d(15px, 0px, 0px)")
+    expect(ownTranslateOf(values), "what the engine is handed").toEqual({ x: 15, y: 0 })
+    expect(ownTranslateOf({}), "none").toEqual({ x: 0, y: 0 })
+  })
+
+  it("OT4: translateZ adds to z; a z alone keeps its unit", () => {
+    expect(renderer.project({ z: 5, translateZ: "3px", [Projection.KEY]: IDENTITY_PROJECTION }).transform).toBe("translate3d(0px, 0px, 8px)")
+    expect(renderer.project({ z: "1em", [Projection.KEY]: IDENTITY_PROJECTION }).transform).toBe("translate3d(0px, 0px, 1em)")
   })
 })
 

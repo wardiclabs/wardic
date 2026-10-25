@@ -258,3 +258,58 @@ ADR-0051 gave a value's transition this amendment's rule 7, and Motion's fields 
 
 Pinned by LTS5 (`layout-transition.browser.test.tsx`).
 
+
+## Amendment (#363, 2026-10-25): a layout element's own translate is drawn on its projection
+
+The renderer drew a projected element's transform from its projection alone, weaving in its own `rotate`/`skew` and multiplying in its own scale (*Amendment (Reorder)*). It dropped its own `x`, `y` and `translate*`: "the projection owns translate". ADR-0016 stated that as a given, and ADR-0044 Q7 matched the server to it. So a `layout` element never showed an `x` or `y` animation, or even an `x` at rest. The storefront's cart line (`layout`, `initial={{ x: 32 }}`) faded in but never slid. Found by #296's storefront, filed as #363.
+
+Motion draws them (`.reference/motion` at 16c6122, `create-projection-node.ts`, `applyTransformsToTarget`). It copies the target box, lays the element's latest values onto it (`transformBox(targetWithTransforms, latestValues)`), and draws the delta to that box. So its own `x` moves a layout element exactly as it moves a plain one. Probed: framer-motion 13.4.0 on React 19 draws a `layout` box mounted from `x: 32`, and one changed from 32 to 0, frame for frame as it draws a plain one. Wardic drew 0 throughout (`.tmp/357/motion-layout-x.ts`).
+
+Grilled 2026-10-25:
+1. **Drawn in the renderer and known to the engine through an accessor, as the own scale is** (Q1).
+   - The renderer adds the own translate to the projection's before dividing by the tree scale: `(delta.translate + own) / treeScale`. That is Motion's: its own `x` goes into the target box in page pixels.
+   - The binding hands the engine `ownTranslate` beside `ownScale` (ADR-0010 *Amendment (#8)*). Everything that starts "where the node is drawn" counts it: `drawnOf`/`undrawnFor` (handovers, Switch seeds, promotions, a take-over's box), a Follower drawn where its Lead is (at the Lead's own translate, its own taken back, as Motion's `lead.latestValues`), and the paint chain (#137: a layout ancestor sliding in moves a twin inside it).
+   - A value animation on `x` keeps writing through the gate alone. No projection pass runs a frame for it.
+   - Rejected: folding it into the engine's target, Motion's structure, which would run the projection pass every frame of an `x` animation on a layout node; the renderer alone, which would make a twin, a handover or a promotion jump by the own translate.
+2. **A draggable layout element keeps ADR-0016** (Q2).
+   - Its drag and its release stay in its projection target, and its own `x`/`y` are drawn on top of them. A constant own `x` is an offset through the drag.
+   - An `x` animation on a draggable layout element moves it on top of its drag, where Motion's drag drives `x` itself. That's a divergence. A takeover of a layout node's release by a new `x` target (#340's, for layout drags) will be filed if a real case needs it.
+   - Rejected: that takeover now; dragging through `x`/`y` as Motion does, which would rebuild Reorder's drag and the Release offset.
+3. **Every own translate key is drawn** (Q3): `x` + `translateX` and `y` + `translateY`, summed, and `translateZ` with `z`.
+   - That differs from Motion, which drops `translate*` on a layout element.
+   - A number or a px string is drawn. Another unit (`%`, `rem`) can't be added to a pixel translate without measuring, so it's left out, as Motion can't take one either.
+   - Rejected: Motion's `x` and `y` only.
+
+Following from these:
+- **A projected element's translate keys are ordinary keys again.** They return to their Base value (ADR-0022), so a `whileHover: { x: 8 }` on a layout element comes back. A keyed child's seed carries them (ADR-0048, #286). The spine's projected exceptions are gone.
+- **A layout drag starts from its slot,** the origin, not from the element's `x`. The drag track had read the element's `x` as its base, which a layout element always had at 0. With an own `x` set, the drag counted it twice (OT7).
+- **The server draws them** (ADR-0044 Q7, reversed): a layout node's Starting style and its Appear rule draw its own translate on its projection at rest, as the client now does, and the sampler judges it as any key. Otherwise it would jump by it at hydration.
+- **A Measure pass is unaffected:** it holds the whole tree's transforms at identity before it reads (ADR-0012 *Amendment (#136)*), so an own translate never reaches a layout box.
+- **A leaving node is drawn without its own values,** as before for its scale.
+- Reduced motion is unchanged: `x` and `y` are positional, so they snap.
+
+### Pinned by
+
+- `packages/dom/test/renderer.browser.test.ts`, OT1–OT4: at rest, own `x`/`y` are the whole translate; on a delta under a tree scale, `(delta + own) / treeScale`; `translate*` added, a px string counted, another unit not; `translateZ` with `z`.
+- `packages/dom/test/projection-own-translate.browser.test.ts`, XT1–XT5 (#8's XS cases with an own translate): a crossfade from a twin held at its own translate, its Follower on its Lead every frame; a promotion; a new Lead moving into its own place; Switch seeds both ways; an own scale and translate together.
+- `packages/dom/test/projection-ancestor-transforms.browser.test.ts`, AT2b: a layout ancestor sliding in by its own translate (and scaling): the Lead starts on its twin, the Follower on it every frame.
+- `packages/solid/test/own-translate.browser.test.tsx`, real paint, OT1–OT8: mounted from `x: 32`, frame for frame as a plain element; at rest and changed; a `whileHover` return; an exit's slide; a layout move under an own `x`; a layout child riding its parent's own `x` once; a drag and its release with an own `x` on top; a `layoutId` twin at its own `x` taking over from one at its own `x`, through the binding's `ownTranslate`.
+- Solid 2: LY13 (`v2/layout.browser.test.tsx`), drawn and returned.
+- The server: AP16 (`appear.node.test.ts`), AR13 on both bindings, AH11's hydration on both, now draw it.
+
+**Mutation-checked** with 14 single-point mutations (`.tmp/363/mutate.py`), all killed.
+- They covered: the own translate dropped; it added after the tree scale; `translateX` unsummed; a px string read as 0; any unit read as px; `translateZ` ignored; `drawnOf`, `undrawnFor`, the Follower's target and the paint chain each without it; the binding handing no `ownTranslate`; the spine's projected exceptions restored; a layout drag starting from its own `x`; and Appear's sampler leaving it unjudged.
+- The binding's accessor first survived. OT8's incoming twin had no own `x`, and a twin still on the page is read where it paints, which already includes its own translate. Its incoming twin now carries one, which only `undrawnFor` can take back.
+
+**Cost:** nothing in `bench:core` or `bench:solid` draws a layout element, so the projected path was timed with #27's probe (`.tmp/363/`, a production build of main against this branch, every `@wardic/*` subpath resolved per side). It measures the median Refresh-frame callback at N = 1,000, over 11 pages each:
+
+| workload | main | this branch |
+|---|---|---|
+| `glued` | 1.10 ms | 1.10 ms (+1%) |
+| `delay` | 1.26 ms | 1.29 ms (+3%) |
+| `flip` | 1.66 ms | 1.70 ms (+2%) |
+| `scaled` | 2.12 ms | 2.16 ms (+2%) |
+| `held` | 1.11 ms | 1.13 ms (+1%) |
+
+Each is inside its own run-to-run spread (`flip` ranged 1.56–1.72 on main and 1.55–1.81 here). The renderer reads four more keys per projected element per frame, and the engine one more accessor where it reads the own scale.
+

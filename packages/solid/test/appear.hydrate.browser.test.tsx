@@ -20,8 +20,8 @@
 //   then snaps, as the engine's snap does (the rule fills forwards).
 // - AH10 (#245): an SVG circle's `cx`, `r` and `opacity` and a path's stroke dash, attributes played
 //   as CSS, handed off mid-flight to the engine's attributes.
-// - AH11 (#245): a layout card's entrance (scale, opacity, its own y): drawn as the client draws a
-//   layout node, its y left out, from first paint; handed off mid-flight; and its next layout change
+// - AH11 (#245, #363): a layout card's entrance (scale, opacity, its own y): drawn as the client draws
+//   a layout node, its y on its projection's translate, from first paint; handed off mid-flight; and its next layout change
 //   animates from its true box, measured past the CSS at mount.
 // - AH12 (#245): a list's items streamed in a late chunk that lands before the JS: each plays its
 //   CSS from the chunk's landing, staggered among the late ones, and is handed off with no step;
@@ -456,7 +456,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
   })
 
   it("AH11: a layout card drawn as a layout node from first paint, handed off, its next layout change from its true box (#245)", async () => {
-    const card = tween({ opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1 }, { easing: EASE_OUT, duration: 1.2 })
+    const card = tween({ opacity: 0, scale: 0.5, y: 30 }, { opacity: 1, scale: 1, y: 0 }, { easing: EASE_OUT, duration: 1.2 })
     // The layout change, once the entrance has ended: the spacer above grows by 60 px.
     const grow = { afterMs: 1900, act: () => (globalThis as { __a7grow?: () => void }).__a7grow?.() }
     // The client's debug logs, for its Handoff's check.
@@ -466,17 +466,18 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     )
     cleanups.push(() => setAppearEnv(DomLive))
     const r = await run("A7", A7, { hydrateAfter: 350, forMs: 2700, then: grow })
-    // The client starts it from the server's Starting style, no translate, and its spec is the server's.
-    expect(r.hydratedStyle.card, "the Starting style hydration keeps").toBe("scale(0.5, 0.5)")
+    // The client starts it from the server's Starting style, its own y on its projection at rest (#363),
+    // and its spec is the server's.
+    expect(r.hydratedStyle.card, "the Starting style hydration keeps").toBe("translate3d(0px, 30px, 0px) scale(0.5, 0.5)")
     expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
-    // Its own y is never drawn: a layout node's translate is its projection's (ADR-0016).
+    // Its own y is drawn, on its projection's translate, before and after the Handoff (#363).
     const before = r.frames.filter((f) => !f.hydrated && f.drawn.card!.css)
     expect(before.some((f) => f.drawn.card!.scale > 0.55 && f.drawn.card!.scale < 0.95), "it moved before hydration").toBe(true)
     const start = r.startOf.card!
     const entrance = { ...r, frames: r.frames.filter((f) => f.at - start < 1700) }
     expect(followsMachine(entrance, "card", (s) => {
       const v = machineAt(card, s)
-      return { opacity: v.opacity as number, y: 0 }
+      return { opacity: v.opacity as number, y: v.y as number }
     })).toBeGreaterThan(30)
     // Its scale, through the Handoff to rest.
     for (const f of r.frames.filter((frame) => frame.at >= start && frame.at - start < 1500)) {

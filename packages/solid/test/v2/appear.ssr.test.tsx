@@ -18,7 +18,7 @@
 //   Starting style.
 // - AR10: a component wrap and a kept ward's spread pass their animation through `style`.
 // - AR12: SVG attributes play as CSS; a group writing geometry is defined whole under one `@supports`.
-// - AR13: a layout node plays, its own `x` and `y` left out of its Starting style and its rule.
+// - AR13 (#363): a layout node plays, its own `x` and `y` drawn on its projection in its Starting style and its rule.
 // - AR14: a stream's late chunk brings its own rules as a head patch: the rules the head didn't send
 //   and the chunk's slots; the shell group's late children staggered among themselves from 0; a
 //   group led in the chunk as in the shell; the head holding none of the chunk's slots. An element
@@ -316,7 +316,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     expect(timing(css, propertyOf(sized?.style.animation)).normal).toBe("")
   })
 
-  it("AR13: a layout node plays, its own x and y left out of its Starting style and its rule (#245)", () => {
+  it("AR13: a layout node plays, drawn through its projection at rest, its own translate on top (#245, #363)", () => {
     const entrance = { initial: { opacity: 0, y: 40, rotate: 10 }, animate: { opacity: 1, y: 0, rotate: 0 } } as const
     const Card = (p: { readonly ref?: JSX.Ref<HTMLElement>; readonly style?: JSX.CSSProperties | string }) => <article ref={p.ref} style={p.style} />
     const WCard = wardic.create(Card)
@@ -336,23 +336,23 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
       return { name, body: new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? "" }
     }
     for (const k of ["layout", "shared"]) {
-      expect(div(k)?.style.transform, k).toBe("rotate(10deg)")
+      expect(div(k)?.style.transform, k).toBe("translate3d(0px, 40px, 0px) rotate(10deg)")
       expect(div(k)?.style.opacity, k).toBe("0")
     }
     expect(div("plain")?.style.transform).toBe("translateY(40px) rotate(10deg)")
     const article = tagsOf(html).find((t) => t.name === "article")
-    expect(article?.style.transform, "a component wrap's too").toBe("rotate(10deg)")
+    expect(article?.style.transform, "a component wrap's too").toBe("translate3d(0px, 40px, 0px) rotate(10deg)")
     const wrapName = timing(css, propertyOf(article?.style.animation)).normal.split(" ")[0]!
     expect(new RegExp(`@keyframes ${wrapName}\\{(.*?\\})\\}`).exec(css)?.[1], "its rule draws the same").toBe(ruleOf("layout").body)
     const layout = ruleOf("layout")
-    expect(layout.body.startsWith("0%{transform:rotate(10deg);opacity:0}"), layout.body).toBe(true)
-    expect(layout.body).not.toContain("translate")
+    expect(layout.body.startsWith("0%{transform:translate3d(0px, 40px, 0px) rotate(10deg);opacity:0}"), layout.body).toBe(true)
     expect(ruleOf("shared").name, "a layoutId node's too").toBe(layout.name)
     const plain = ruleOf("plain")
     expect(plain.body.startsWith("0%{transform:translateY(40px) rotate(10deg);opacity:0}"), plain.body).toBe(true)
     expect(plain.name, "named apart: the client's spec names it the same").not.toBe(layout.name)
-    expect(div("slide")?.style.transform).toBe("none")
-    expect(ruleOf("slide").body).toBe("0%,100%{transform:none}")
+    expect(div("slide")?.style.transform).toBe("translate3d(-30px, 0px, 0px)")
+    expect(ruleOf("slide").body.startsWith("0%{transform:translate3d(-30px, 0px, 0px)}"), ruleOf("slide").body).toBe(true)
+    expect(ruleOf("slide").body, "it slides home").toContain("100%{transform:none}")
   })
 
   /** Stream `ui` as a document under a provider, each write as the stream sent it. */

@@ -4,7 +4,7 @@ A draggable element that is *also* a projection node (`layout`/`layoutId`) drive
 
 ## Why
 
-For a projection node the renderer **ignores the element's own `x`/`y`**: when `@projection` is present, `buildProjectionTransform` *owns* translate and weaves only `rotate`/`skew` (ADR-0009). So the drag track's `gate.write({x, y})` silently does nothing for a layout element — the element doesn't move at all (this is the real defect under the old "drag+layoutId unsupported" warning, and it hits plain `layout` too). The drag must therefore feed the projection, exactly as Motion's drag feeds `targetDelta` (`target = layoutBox + targetDelta`).
+For a projection node the renderer **ignores the element's own `x`/`y`**: when `@projection` is present, `buildProjectionTransform` *owns* translate and weaves only `rotate`/`skew` (ADR-0009). So the drag track's `gate.write({x, y})` silently does nothing for a layout element — the element doesn't move at all (this is the real defect under the old "drag+layoutId unsupported" warning, and it hits plain `layout` too). The drag must therefore feed the projection, exactly as Motion's drag feeds `targetDelta` (`target = layoutBox + targetDelta`). *Since ADR-0009 *Amendment (#363)* the renderer draws the element's own translate on top of its projection, as Motion does; the drag still goes through the projection target, and an own `x` adds to it.*
 
 ## Decisions (grilled against `motion-dom`'s projection `targetDelta`)
 

@@ -23,8 +23,8 @@
 //   `supports`; `width`, `height` and `d` still refused.
 // - AP15 (#245): a sheet defines a slot under `@supports` for its rules' geometry properties and the
 //   ones its binding passes (its group's), the reduced block too.
-// - AP16 (#245): a layout node's spec is drawn through its projection at rest: its own translate
-//   left out and not judged, though the spec settles with it; named apart from a plain one.
+// - AP16 (#245, #363): a layout node's spec is drawn through its projection at rest, its own
+//   translate on top, as the client draws it; named apart from a plain one.
 // - AP17 (#245): a sheet's `css()` writes what's new since its last call: a late chunk's rules
 //   the head didn't send, and the slots defined since; `chunkStyle` wraps it, "" for none.
 import * as Machine from "@wardic/core/Machine"
@@ -326,19 +326,19 @@ describe("SVG attributes (#245)", () => {
 })
 
 describe("layout nodes (#245)", () => {
-  it("AP16: a layout node's spec is drawn through its projection at rest, its own translate left out", () => {
+  it("AP16: a layout node's spec is drawn through its projection at rest, its own translate on top (#363)", () => {
     const machine = () => Machine.springValues({ y: 0, opacity: 1, rotate: 0 }, {}, { y: 40, opacity: 0, rotate: 10 })
     const plain = ok(Appear.keyframes({ key: "AP16", tag: "div", machine }))
     const projected = ok(Appear.keyframes({ key: "AP16", tag: "div", machine, projected: true }))
     expect(projected.name, "named apart").not.toBe(plain.name)
     expect(Appear.nameOf({ key: "AP16", tag: "div", projected: true })).toBe(projected.name)
-    expect(projected.css).toContain("0%{transform:rotate(10deg);opacity:0}")
-    expect(projected.css).not.toContain("translate")
+    // Its own y on its projection's translate, as the renderer draws a layout node (#363).
+    expect(projected.css).toContain("0%{transform:translate3d(0px, 40px, 0px) rotate(10deg);opacity:0}")
     expect(plain.css).toContain("0%{transform:translateY(40px) rotate(10deg);opacity:0}")
-    // Only its own y: nothing it draws moves, one stop at rest; the spec settles with the y all the same.
+    // Only its own y: it slides, judged as any key, and settles where its y does.
     const slide = ok(Appear.keyframes({ key: "AP16 slide", tag: "div", machine: () => Machine.springValues({ y: 0 }, {}, { y: 40 }), projected: true }))
-    expect(slide.css).toBe(`@keyframes ${slide.name}{0%,100%{transform:none}}`)
-    expect(slide.duration).toBe(0)
+    expect(slide.css).toContain("0%{transform:translate3d(0px, 40px, 0px)}")
+    expect(slide.duration, "it moves for as long as it runs").toBeCloseTo(slide.settled, 6)
     expect(slide.settled, "when it settles, for `when`").toBeGreaterThan(0.5)
   })
 })

@@ -27,9 +27,9 @@
 //   root, with the rules the head didn't send and the chunk's slots; a late Variant child of a
 //   group the shell led is timed as a fresh mount (stagger among the late ones); a group led in
 //   the chunk as in the shell; the head holds none of the chunk's slots.
-// - AR13 (#245): a layout node plays, drawn through its projection at rest as the client draws it:
-//   its Starting style and its rule leave its own `x` and `y` out, keep its rotate and opacity, and
-//   its rule is named apart from a plain element's.
+// - AR13 (#245, #363): a layout node plays, drawn through its projection at rest as the client draws
+//   it: its Starting style and its rule draw its own `x` and `y` on the projection's translate, with
+//   its rotate and opacity, and its rule is named apart from a plain element's.
 // - AR15 (#277): a target's own transition times its Appear animation: an `animate` map's, and a
 //   dynamic variant's resolved with `custom` (its delay from the item's index, held in its rule).
 // - AR16 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
@@ -312,7 +312,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(timing(css, propertyOf(sized?.style.animation)).normal).toBe("")
   })
 
-  it("AR13: a layout node plays, its own x and y left out of its Starting style and its rule (#245)", () => {
+  it("AR13: a layout node plays, drawn through its projection at rest, its own translate on top (#245, #363)", () => {
     const entrance = { initial: { opacity: 0, y: 40, rotate: 10 }, animate: { opacity: 1, y: 0, rotate: 0 } } as const
     const Card = (p: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties }) => <article ref={p.ref} style={p.style} />
     const WCard = wardic.create(Card)
@@ -331,27 +331,28 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
       const name = timing(css, propertyOf(div(k)?.style.animation)).normal.split(" ")[0]!
       return { name, body: new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? "" }
     }
-    // The Starting style: the rotate and opacity, no translate, as the client's first commit draws it.
+    // The Starting style: its own y on its projection at rest, the rotate and opacity, as the client's
+    // first commit draws it (#363).
     for (const k of ["layout", "shared"]) {
-      expect(div(k)?.style.transform, k).toBe("rotate(10deg)")
+      expect(div(k)?.style.transform, k).toBe("translate3d(0px, 40px, 0px) rotate(10deg)")
       expect(div(k)?.style.opacity, k).toBe("0")
     }
     expect(div("plain")?.style.transform).toBe("translateY(40px) rotate(10deg)")
     const article = tagsOf(html).find((t) => t.name === "article")
-    expect(article?.style.transform, "a component wrap's too").toBe("rotate(10deg)")
+    expect(article?.style.transform, "a component wrap's too").toBe("translate3d(0px, 40px, 0px) rotate(10deg)")
     const wrapName = timing(css, propertyOf(article?.style.animation)).normal.split(" ")[0]!
     expect(new RegExp(`@keyframes ${wrapName}\\{(.*?\\})\\}`).exec(css)?.[1], "its rule draws the same").toBe(ruleOf("layout").body)
     // Its rule: the same, every stop.
     const layout = ruleOf("layout")
-    expect(layout.body.startsWith("0%{transform:rotate(10deg);opacity:0}"), layout.body).toBe(true)
-    expect(layout.body).not.toContain("translate")
+    expect(layout.body.startsWith("0%{transform:translate3d(0px, 40px, 0px) rotate(10deg);opacity:0}"), layout.body).toBe(true)
     expect(ruleOf("shared").name, "a layoutId node's too").toBe(layout.name)
     const plain = ruleOf("plain")
     expect(plain.body.startsWith("0%{transform:translateY(40px) rotate(10deg);opacity:0}"), plain.body).toBe(true)
     expect(plain.name, "named apart: the client's spec names it the same").not.toBe(layout.name)
-    // Only its own x animating: nothing it draws moves, one stop at rest.
-    expect(div("slide")?.style.transform).toBe("none")
-    expect(ruleOf("slide").body).toBe("0%,100%{transform:none}")
+    // Only its own x animating: it slides, as the client draws it (#363).
+    expect(div("slide")?.style.transform).toBe("translate3d(-30px, 0px, 0px)")
+    expect(ruleOf("slide").body.startsWith("0%{transform:translate3d(-30px, 0px, 0px)}"), ruleOf("slide").body).toBe(true)
+    expect(ruleOf("slide").body, "it slides home").toContain("100%{transform:none}")
   })
 
   it("AR14: a stream's late chunk brings its own rules, after its first root, keyless (#245)", async () => {
