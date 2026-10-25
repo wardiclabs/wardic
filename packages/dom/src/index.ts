@@ -7,7 +7,7 @@
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
  *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`,
- *     `DomInterpolators`, `DomPositionalKeys`, `DomKeyRules`);
+ *     `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`, `DomKeyRules`);
  *   - dom's own concepts, by the glossary's names: `FlushGate`, `ProjectionSystem`,
  *     `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `ScrollOffset`, `Appear`, `OwnValues`
  *     and `Report`.
@@ -19,6 +19,7 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Announcer from "@wardic/core/Announcer"
+import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Probe from "@wardic/core/Probe"
 import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
@@ -27,6 +28,7 @@ import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import * as DomAnnouncer from "./DomAnnouncer.ts"
 import * as DomClock from "./DomClock.ts"
+import * as DomDefaultTransition from "./DomDefaultTransition.ts"
 import * as DomInput from "./DomInput.ts"
 import * as DomInterpolators from "./DomInterpolators.ts"
 import * as DomPositionalKeys from "./DomPositionalKeys.ts"
@@ -42,6 +44,7 @@ export * as DomRenderer from "./DomRenderer.ts"
 export * as DomAnnouncer from "./DomAnnouncer.ts"
 export * as DomInterpolators from "./DomInterpolators.ts"
 export * as DomPositionalKeys from "./DomPositionalKeys.ts"
+export * as DomDefaultTransition from "./DomDefaultTransition.ts"
 export * as DomKeyRules from "./DomKeyRules.ts"
 export * as FlushGate from "./FlushGate.ts"
 export * as ProjectionSystem from "./ProjectionSystem.ts"
@@ -81,11 +84,12 @@ export const DomLive: Layer.Layer<
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
+  | DefaultTransition.DefaultTransition
   | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 > = FrameLoop.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(DomClock.layer, DomRenderer.layer, DomInput.layer, DomProbe.layer, DomInterpolators.layer, DomPositionalKeys.layer, DomAnnouncer.layer),
+    Layer.mergeAll(DomClock.layer, DomRenderer.layer, DomInput.layer, DomProbe.layer, DomInterpolators.layer, DomPositionalKeys.layer, DomDefaultTransition.layer, DomAnnouncer.layer),
   ),
   Layer.provideMerge(AtomRegistry.layer),
 )

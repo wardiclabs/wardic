@@ -74,7 +74,7 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { runScoped, useWardicAppear, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { runScoped, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
@@ -360,6 +360,8 @@ export function runSpine(opts: RunSpineOptions): void {
   // Whether reduced motion applies (ADR-0029), read at each Retarget.
   const reducedMotion = useWardicReducedMotion()
   const positionalKeys = useWardicPositionalKeys()
+  // What a key with no transition of its own runs on (ADR-0051).
+  const defaultTransition = useWardicDefaultTransition()
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
@@ -627,6 +629,7 @@ export function runSpine(opts: RunSpineOptions): void {
         onFrame,
         reducedMotion,
         positionalKeys,
+        defaultTransition,
         start,
         snapshot,
         reuse,

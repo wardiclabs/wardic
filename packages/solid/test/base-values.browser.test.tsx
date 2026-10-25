@@ -42,7 +42,8 @@ describe("a while* key with no base value (#47): wardic.div", () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} whileTap={{ scale: 0.8 }} />
+        {/* Core's 170 / 26 spring, which doesn't overshoot: a scale's Default transition (550 / 30, ADR-0051) dips past 0.8, and this checks where it starts. */}
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} whileTap={{ scale: 0.8 }} transition={{ type: "spring", stiffness: 170, damping: 26 }} />
       </WardicProvider>
     ))
     const rec = recorder(el, scaleOf)

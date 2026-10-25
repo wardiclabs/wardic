@@ -36,7 +36,7 @@ describe("per-value transitions' types (#301)", () => {
     expectTypeOf<{ readonly inherit: true; readonly delay: 0.1 }>().toExtend<WardicValueTransition>()
     const spring: WardicTransition = { opacity: { stiffness: 300, damping: 20 } }
     const tween: WardicTransition = { opacity: { type: "tween", duration: 0.2 } }
-    // @ts-expect-error a duration is a tween's, as on a whole transition
+    // No `type`: a tween's fields make a tween, as on a whole transition (ADR-0051).
     const untyped: WardicTransition = { opacity: { duration: 0.2 } }
     // @ts-expect-error the orchestration is the whole transition's
     const staggered: WardicTransition = { opacity: { staggerChildren: 0.1 } }

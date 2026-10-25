@@ -314,7 +314,9 @@ describe("a ward given to a Wardic component's wardRef (#349)", () => {
         })()}
       </WardicProvider>
     ))
-    await until(() => opacityOf(at(host, "toast")) === 1)
+    // Its landing, not a painted 1: an eased-out tween paints "1" a frame before it lands (#357), and
+    // an exit then would interrupt the entry, which then doesn't land.
+    await until(() => landings.length === 1)
     expect(opacityOf(at(host, "toast")), "entered").toBe(1)
     const leaving = at(host, "toast")
     setOpen(false)

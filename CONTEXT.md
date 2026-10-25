@@ -86,6 +86,10 @@ _Avoid_: segment (a piece of one `animate` or `keyframes` run), track.
 One value's own transition, inside an element's, a variant's, a gesture target's or an exit's (#301, Motion's): an entry under the value's name. A key runs on its value transition, else the transition's `default` entry, else the transition's own fields; a layout animation on its `layout` entry the same way. Keys on different value transitions are separate Legs. The orchestration (`staggerChildren`, `when` and the rest) stays the whole transition's.
 _Avoid_: per-key transition, override (that's the **Override stack**'s word).
 
+**Default transition**:
+What a key runs on when its transition isn't defined: none given, or one with only orchestration (`delay`, `staggerChildren`, `when` and the rest), as Motion's `isTransitionDefined` has it. Its **Environment** picks it, by key and target (the DOM's, Motion's: a spring for a transform, a stiffer one for a scale, critically damped toward 0, and a 0.3 s ease for the rest); an Environment with no opinion runs every key on one spring (#357).
+_Avoid_: fallback transition, implicit transition.
+
 ### Value blending
 
 **Interpolator**:

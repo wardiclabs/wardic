@@ -11,6 +11,7 @@
  * scoped-fiber runner (`runScoped` / `useWardicFiber`) that interrupts forked
  * fibers on consumer unmount.
  */
+import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -178,6 +179,15 @@ export function useWardicGate(): FlushGate.Shape {
  */
 export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
   return fromContext(useContext(WardicContext), "useWardicPositionalKeys", (value) => value.positionalKeys)
+}
+
+/**
+ * Reads the Environment's Default transition (ADR-0051): what a key with no transition of its own
+ * runs on. Throws a clear, named error outside a `WardicProvider`. Internal: not exported from the
+ * package.
+ */
+export function useWardicDefaultTransition(): DefaultTransition.DefaultTransition["Service"] {
+  return fromContext(useContext(WardicContext), "useWardicDefaultTransition", (value) => value.defaultTransition)
 }
 
 /**

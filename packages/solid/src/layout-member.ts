@@ -9,10 +9,8 @@ import type * as Box from "@wardic/core/Box"
 import type * as Point from "@wardic/core/Point"
 import type * as Projection from "@wardic/core/Projection"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue } from "effect/Function"
-import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -20,36 +18,21 @@ import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardConfig, WardicTransition } from "./config.ts"
 import type { PresenceSeed } from "./presence-record.ts"
-import { type MotionTransition, motionOf, transitionForKey } from "./retarget-legs.ts"
+import { runOf, transitionForKey } from "./retarget-legs.ts"
 import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.ts"
 
-/** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */
-const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restSpeed"] as const
-
-/** A transition that isn't a tween: `type: "spring"`, or no `type`, as its machines take it (#243). */
-type SpringTransition = Exclude<MotionTransition, { readonly type: "tween" }>
-
-/** Whether a transition with no `type` sets a spring field. */
-const hasSpringField = (t: SpringTransition): boolean => Arr.some(SPRING_FIELDS, (key) => Predicate.isNotUndefined(t[key]))
-
 /**
- * A transition that isn't a tween, as a layout animation's: a spring when it says so or sets a spring
- * field; anything else, a `delay` alone say, is Motion's default tween with its delay, so it never
- * turns a layout animation into a spring (ADR-0009 *Amendment (#171)*).
+ * One transition as a layout animation's (ADR-0009 *Amendment (#171)*, ADR-0051): as it runs, a value's
+ * rule (a spring when it says so or gives a spring field, else a tween, Motion's fields filled in), so
+ * a ported `{ duration: 0.5 }` is a 0.5 s tween. One that defines none, a `delay` alone say, is
+ * Motion's default layout tween with its delay: it never turns a layout animation into a spring.
  */
-const springOrDefault = (t: SpringTransition): ProjectionSystem.LayoutTransition =>
-  Bool.match(Bool.or(t.type === "spring", hasSpringField(t)), {
-    onTrue: (): ProjectionSystem.LayoutTransition => ({ ...t, type: "spring" }),
-    onFalse: () =>
+const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransition =>
+  UndefinedOr.match(runOf(t), {
+    onDefined: (run): ProjectionSystem.LayoutTransition => run,
+    onUndefined: () =>
       UndefinedOr.match(t.delay, { onUndefined: () => ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, onDefined: (delay): ProjectionSystem.LayoutTransition => ({ ...ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, delay }) }),
   })
-
-/** One transition as a layout animation's (ADR-0009 *Amendment (#171)*): a tween keeps its timing. */
-const asLayoutTransition = (t: MotionTransition): ProjectionSystem.LayoutTransition =>
-  Match.value(t).pipe(
-    Match.when({ type: "tween" }, (tween): ProjectionSystem.LayoutTransition => ({ ...tween, type: "tween" })),
-    Match.orElse(springOrDefault),
-  )
 
 /**
  * The element's layout transition (ADR-0009 *Amendment (#171)*, *Amendment (#301)*): Motion's
@@ -57,7 +40,7 @@ const asLayoutTransition = (t: MotionTransition): ProjectionSystem.LayoutTransit
  * engine's default, Motion's 0.45 s tween.
  */
 const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<ProjectionSystem.LayoutTransition> =>
-  Option.map(Option.fromUndefinedOr(motionOf(transitionForKey(t, "layout"))), asLayoutTransition)
+  Option.map(Option.fromUndefinedOr(transitionForKey(t, "layout")), asLayoutTransition)
 
 /** A layout node's options: what a binding's `useLayoutMember` registers with the projection system. */
 export interface UseLayoutMemberOptions {

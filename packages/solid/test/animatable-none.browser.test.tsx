@@ -37,7 +37,8 @@ const shadowOf = (el: Element): { readonly blur: number; readonly alpha: number 
 const blurOf = (el: Element): number | "none" => {
   const filter = getComputedStyle(el).filter
   if (filter === "none") return "none"
-  return Number.parseFloat(/blur\(([\d.]+)px\)/.exec(filter)![1]!)
+  // A radius near 0 is painted in exponent form (`blur(3.1e-05px)`), as a tween's ends are.
+  return Number.parseFloat(/blur\(([\d.e+-]+)px\)/.exec(filter)![1]!)
 }
 
 /** Every value of `read` painted over `ms`. */

@@ -13,6 +13,7 @@
  * - **At mount** the spine finds the element's animation ({@link handoffOf}), starts its first legs
  *   that far in, and removes it in its first commit.
  */
+import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
@@ -20,6 +21,7 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Stagger from "@wardic/core/Stagger"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
+import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as OwnValues from "@wardic/dom/OwnValues"
@@ -34,7 +36,7 @@ import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import { entriesOf, type Leg, legsOf, transitionForKey } from "./retarget-legs.ts"
+import { entriesOf, type Leg, legsOf, runOf, transitionForKey } from "./retarget-legs.ts"
 
 // --- The mount animation, on both sides -------------------------------------------------------
 
@@ -95,9 +97,9 @@ export const keyOf = (m: MountAnimation): Option.Option<string> => {
   return Option.map(base, (text) => `${text}|reduced:${m.reduced}`)
 }
 
-/** Whether a transition repeats for ever: a tween's `repeat: Infinity`. */
+/** Whether a transition repeats for ever: a tween's `repeat: Infinity`, a tween as it runs (ADR-0051). */
 export const repeatsForever = (transition: WardicTransition | undefined): boolean =>
-  UndefinedOr.match(transition, { onUndefined: () => false, onDefined: (t) => Bool.and(t.type === "tween", (t as Machine.AnimateOptions).repeat === Number.POSITIVE_INFINITY) })
+  UndefinedOr.match(runOf(transition), { onUndefined: () => false, onDefined: (run) => Bool.and(run.type === "tween", (run as Machine.AnimateOptions).repeat === Number.POSITIVE_INFINITY) })
 
 /** A transition's own delay, 0 without one. */
 const ownDelayOf = (transition: WardicTransition | undefined): number =>
@@ -169,6 +171,9 @@ const keyOfLeg = (leg: Leg): Option.Option<string> =>
 /** The DOM's Positional keys, which a server's reduced rule snaps (ADR-0029, ADR-0036). */
 const DOM_POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
 
+/** The DOM's Default transition, which a key with no transition defined samples as the client runs it (ADR-0051). */
+const DOM_DEFAULTS: DefaultTransition.DefaultTransition["Service"] = { transitionFor: DomDefaultTransition.transitionFor }
+
 /**
  * Whether a value's own transition drives one of its keys while anything repeats for ever (#301): one
  * CSS cycle can't hold a key that stops beside one that repeats, nor two cycles' lengths. With every
@@ -197,8 +202,8 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
         projected: m.layout,
         machine: () =>
           Bool.match(repeatsForever(m.transition), {
-            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, {})), repeatDelay),
-            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, {})),
+            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {})), repeatDelay),
+            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {})),
           }),
       })
     },

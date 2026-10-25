@@ -8,6 +8,8 @@
 // - LTS3: a `delay` alone keeps the default tween, held first; a spring field makes it a spring.
 // - LTS4 (#301): with no `layout` entry, `default` drives layout over the own fields; a `layout` entry
 //   wins over `default`.
+// - LTS5 (#357, ADR-0051): with no `type`, a tween's field makes a tween, eased out as Motion's;
+//   `{ type: "spring" }` is Motion's 100 / 10, which overshoots (core's 170 / 26 didn't).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
@@ -15,6 +17,7 @@ import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
+import { EASE_OUT } from "../src/retarget-legs.ts"
 import { raf } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -113,4 +116,17 @@ it("LTS4: with no layout entry, default drives layout over the own fields; a lay
   expect(landedAfter(samples, 1), "its layout entry's 0.2 s tween, s").toBeLessThan(0.25)
   const at = samples.findIndex((s) => Math.abs(s.lefts[0]! - 200) < 1e-3)
   expect(samples[at + 6]!.lefts[2]!, "default's slow spring, not the own 0.2 s").toBeLessThan(195)
+})
+
+it("LTS5: no type and a tween's field: a tween eased out; { type: \"spring\" }: Motion's 100 / 10, past its slot (#357)", async () => {
+  const samples = await flight([{ duration: 0.6 }, { type: "spring" }])
+  expect(landedAfter(samples, 0), "a 0.6 s tween, s").toBeGreaterThan(0.55)
+  expect(landedAfter(samples, 0), "a 0.6 s tween, s").toBeLessThan(0.67)
+  // Eased out: an eighth of the way in it has gone near a fifth (`easeOut(0.125)` is 0.19), where
+  // the default layout ease has gone 0.04. Its start is known to a frame, so give a frame's worth.
+  const start = startOf(samples, 0)
+  const early = samples.find((s) => s.t - start >= 75)!
+  const x = (early.t - start) / 600
+  expect(early.lefts[0]! / 200, `at ${x.toFixed(3)} of the way in`).toBeGreaterThan(EASE_OUT(x) - 0.06)
+  expect(Math.max(...samples.map((s) => s.lefts[1]!)), "Motion's bouncy spring, past its slot").toBeGreaterThan(215)
 })

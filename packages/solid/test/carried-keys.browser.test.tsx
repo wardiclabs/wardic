@@ -9,6 +9,7 @@
 // - KC11: a list's name whose keys carry on is told complete when they land, after the name whose
 //   key changed (#297's names, each told with the legs of the keys it drives).
 import { cleanup, render } from "@solidjs/testing-library"
+import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
 import { type WardicAnimationDefinition, type WardicTransition, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
@@ -17,8 +18,8 @@ import { afterEach, describe, expect, it } from "vitest"
 
 afterEach(cleanup)
 
-const TWEEN = { type: "tween", duration: 0.6, ease: "linear" } as const
-const FAST = { type: "tween", duration: 0.1, ease: "linear" } as const
+const TWEEN = { type: "tween", duration: 0.6, easing: Easing.linear } as const
+const FAST = { type: "tween", duration: 0.1, easing: Easing.linear } as const
 const BOX = { display: "block", width: "20px", height: "20px" } as const
 
 const xOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41

@@ -20,7 +20,7 @@ Wardic also called the speed threshold `restVelocity` on a spring and a decay, w
    - Rejected: the 0–1 progress's own thresholds.
 3. **`restVelocity` becomes `restSpeed`, everywhere, with no alias** (Q3). The spring's and the `decay`'s, in `@wardic/core` (`SpringOptions`, `DecayOptions`, `Spring.Resolved`) and every binding's transition types. A leftover `restVelocity` is a type error in an object literal.
    - Rejected: the spring only; both names.
-4. **Motion's per-value default transitions are a follow-up, #357** (Q4). With no transition, Wardic runs every value on one 170 / 26 spring, where Motion picks by value. That changes how every animation without a transition looks; this ADR changes when springs land.
+4. **Motion's per-value default transitions are a follow-up, #357** (Q4). With no transition, Wardic runs every value on one 170 / 26 spring, where Motion picks by value. That changes how every animation without a transition looks; this ADR changes when springs land. *Done in ADR-0051: the Environment picks each key's, the DOM's Motion's.*
 
 Defaults, stated:
 - Both thresholds compare with `<=`, as Motion's do (Wardic's used `<`).

@@ -21,6 +21,7 @@
  * @module
  */
 import type * as Box from "@wardic/core/Box"
+import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -323,6 +324,8 @@ export interface PresenceOptions {
   /** Whether reduced motion applies now (ADR-0029), read at each exit. */
   readonly reducedMotion: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
+  /** What an exit's key with no transition of its own runs on (ADR-0051). */
+  readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** The presence's `initial` prop: `false` starts the child present at its first render at its `animate` (#134). */
   readonly initial: () => boolean | undefined
   /** What its binding hears of its exits (#257); left out, nothing is told. */
@@ -410,7 +413,7 @@ export const exitCompleteEvents = (runtime: WardicRuntime, onExitComplete: () =>
 
 /** A presence's work: see the module. */
 export const makePresence = (options: PresenceOptions): PresenceController => {
-  const { runtime, projection, reducedMotion, positionalKeys } = options
+  const { runtime, projection, reducedMotion, positionalKeys, defaultTransition } = options
   const { commit, project } = runtime.runSync(Renderer.Renderer)
 
   /**
@@ -780,11 +783,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // name's alone when its `when` orders it (#297's PR 2).
     const reduce = reducedMotion()
     const legs = UndefinedOr.match(exit.groups, {
-      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, NO_VELOCITIES),
+      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, NO_VELOCITIES),
       onDefined: (groups) =>
         Arr.flatMap(
           Arr.filter(groups, (group) => Bool.or(Predicate.isUndefined(only), group.name === only)),
-          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, NO_VELOCITIES),
+          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, NO_VELOCITIES),
         ),
     })
     return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })

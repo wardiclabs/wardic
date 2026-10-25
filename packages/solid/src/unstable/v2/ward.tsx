@@ -127,6 +127,7 @@ import {
   useWardicAppear,
   useWardicGate,
   useWardicPositionalKeys,
+  useWardicDefaultTransition,
   useWardicProjection,
   useWardicReducedMotion,
   useWardicRuntime,
@@ -616,6 +617,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const projection = useWardicProjection()
   const reducedMotion = useWardicReducedMotion()
   const positionalKeys = useWardicPositionalKeys()
+  const defaultTransition = useWardicDefaultTransition()
   const owner = getOwner()
   const reactivity = reactivityIn(owner)
   const registry = registryOf(runtime)
@@ -1028,6 +1030,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       onFrame: node.onFrame,
       reducedMotion,
       positionalKeys,
+      defaultTransition,
       start,
       snapshot,
       reuse,

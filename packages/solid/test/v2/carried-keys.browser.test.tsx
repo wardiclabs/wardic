@@ -28,6 +28,7 @@
 //   the numeric one runs on, and nothing is reported failed.
 //
 // A provider whose own values didn't change still releases its `beforeChildren` children: SW-j.
+import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
 import { type Ward, ward, type WardConfig, type WardicTransition, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -37,8 +38,8 @@ import { describe, expect, it } from "vitest"
 import { envWith, type Logged } from "../report-env.ts"
 import { mount } from "./mount.tsx"
 
-const TWEEN = { type: "tween", duration: 0.6, ease: "linear" } as const
-const FAST = { type: "tween", duration: 0.1, ease: "linear" } as const
+const TWEEN = { type: "tween", duration: 0.6, easing: Easing.linear } as const
+const FAST = { type: "tween", duration: 0.1, easing: Easing.linear } as const
 const BOX = { width: "20px", height: "20px" } as const
 
 const matrixOf = (el: HTMLElement): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
@@ -286,7 +287,7 @@ describe("a Retarget carries the keys whose target didn't change (#325)", () => 
       const child = ward({
         initial: { x: 0, opacity: 0 },
         variants: { a: { x: 100, opacity: 1 }, b: { x: 100, opacity: 0.2 } },
-        transition: { type: "tween", duration: 1, ease: "linear" },
+        transition: { type: "tween", duration: 1, easing: Easing.linear },
       })
       return <div {...child.with({ ref: (n: HTMLElement) => (els[p.i] = n), style: BOX })} />
     }

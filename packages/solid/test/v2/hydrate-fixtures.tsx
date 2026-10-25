@@ -2,6 +2,7 @@
 // server (Node) by the v2-hydrate project's commands and hydrated in Chromium from this one module.
 // Appear animations' A1–A8 are the Solid 1 binding's (`../appear-fixtures.tsx`) on Solid 2. Each
 // element to watch carries `data-k`. Not a test file itself.
+import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
@@ -97,7 +98,7 @@ export const A5 = (): JSX.Element =>
       style={{ width: "20px", height: "20px" }}
       initial={{ rotate: 0 }}
       animate={{ rotate: 360 }}
-      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY }}
+      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY, easing: Easing.linear }}
     />
   ))
 

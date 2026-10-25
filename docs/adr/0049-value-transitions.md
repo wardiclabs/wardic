@@ -31,7 +31,7 @@ Wardic had the `layout` entry alone (ADR-0009 *Amendment (#171)*, its Q3: "no ot
 
 **Defaults, stated rather than asked:**
 - **What's an entry:** a field holding a plain object (not an array, not a function), apart from the orchestration's. A value's name, `default` and `layout` are the only ones the types allow.
-- **An entry is a spring or a tween** (`WardicValueTransition`), `inherit` too, but no orchestration. A duration needs `type: "tween"`, as on a whole transition.
+- **An entry is a spring or a tween** (`WardicValueTransition`), `inherit` too, but no orchestration. A duration needs `type: "tween"`, as on a whole transition. *Since ADR-0051, a tween's fields make a tween with no `type`, and a key whose transition, entry or not, defines none runs on its Environment's Default transition.*
 - **The reduced-motion opt-out is the whole transition's,** like the orchestration (ADR-0029's `respectReducedMotion`, which Motion doesn't have). An entry without its own takes the top level's: `{ respectReducedMotion: false, x: {…} }` doesn't snap `x`. One with its own keeps it. A layout animation reads its `layout` entry's the same way.
 - **No cost without entries:** a transition's entries are worked out once per transition object and kept (a `WeakMap`), so a transition with none costs one lookup per Retarget. Each entry is resolved once too, so every key on it runs on the same object. Those keys then share their legs, and #66's decode cache hits.
 - **Exits, lists and gestures split by entry as they split by layer:** a group's transition, whichever layer or name gave it, splits its keys by entry when its legs are built.

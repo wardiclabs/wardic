@@ -28,6 +28,7 @@ import * as Latch from "effect/Latch"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -156,6 +157,11 @@ export function useWardicGate(): FlushGate.Shape {
 /** The Environment's Positional keys (ADR-0036): which keys reduced motion Snaps. Internal. */
 export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
   return fromContext(contextValue(), "useWardicPositionalKeys", (value) => value.positionalKeys)
+}
+
+/** The Environment's Default transition (ADR-0051): what a key with no transition of its own runs on. Internal. */
+export function useWardicDefaultTransition(): DefaultTransition.DefaultTransition["Service"] {
+  return fromContext(contextValue(), "useWardicDefaultTransition", (value) => value.defaultTransition)
 }
 
 /** Whether reduced motion applies now (ADR-0029); always `false` during a server render. Internal. */
