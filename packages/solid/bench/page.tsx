@@ -19,6 +19,10 @@
  * lands inside one: the runner starts Chromium with `--expose-gc`. What a side allocates is held by
  * the runner's bytes gate instead.
  *
+ * `?kind=retained` (#318): N `wardic.div`s with `whileHover` and `whileTap`, so each starts its hover
+ * and press recognizers at mount, animated to rest. It runs no rounds: the runner mounts and unmounts
+ * it through `__wardicRetained` and reads the heap kept per element between, after forced GCs.
+ *
  * `?kind=live` and `?kind=live-plain` (`--live`, #130): N `wardic.div`s whose `opacity` is a Live
  * value (one signal, in `style`), against N plain `div`s whose style binds the same signal. Per round:
  * the mount, then 60 frames each moving the signal from a task after a paint: **set**, that task's
@@ -87,7 +91,16 @@ const LivePlain = () => (
     <For each={items}>{() => <div class="b" style={{ opacity: String(live()), "background-color": BLUE }} />}</For>
   </Show>
 )
-const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain } as const
+const Retained = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => <wardic.div class="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} whileHover={{ opacity: 0.9 }} whileTap={{ opacity: 0.8 }} />}
+      </For>
+    </Show>
+  </WardicProvider>
+)
+const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain, retained: Retained } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
   return <Page />
@@ -205,6 +218,25 @@ const liveRound = async (): Promise<LiveRound> => {
   const mid = (xs: ReadonlyArray<number>): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
   return { mount, set: mid(sets), frame: mid(frameTimes), unmount }
 }
+
+/** `?kind=retained`'s mount, settled at rest, and its unmount, for the runner's heap readings (#318). */
+export interface RetainedPage {
+  readonly mount: () => Promise<void>
+  readonly unmount: () => Promise<void>
+}
+const retained: RetainedPage = {
+  mount: async () => {
+    setShown(true)
+    await until(() => Bool.and(boxes().length === n, boxes().every((el) => el.style.opacity === "1")))
+    await frames(10)
+  },
+  unmount: async () => {
+    setShown(false)
+    if (boxes().length !== 0) throw new Error("bench:solid: still mounted")
+    await frames(10)
+  },
+}
+;(globalThis as unknown as { __wardicRetained: RetainedPage }).__wardicRetained = retained
 
 ;(globalThis as unknown as { __wardicBenchSolid: unknown }).__wardicBenchSolid = async (rounds: number): Promise<ReadonlyArray<Round | LiveRound>> => {
   await frames(5)

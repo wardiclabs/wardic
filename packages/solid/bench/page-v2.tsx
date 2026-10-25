@@ -1,7 +1,8 @@
 /**
  * `bench:solid --v2`'s page (#209): `page.tsx`'s `wardic` page on the Solid 2 binding,
  * `@wardic/solid/unstable/v2`, the same N `wardic.div`s and the same rounds, built with Solid 2's
- * compile. The runner pairs it with `page.tsx` on the same head.
+ * compile. The runner pairs it with `page.tsx` on the same head. `?kind=retained` (#318) is `page.tsx`'s,
+ * on this binding: wards with `whileHover` and `whileTap`, for the runner's heap readings.
  */
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -20,6 +21,7 @@ interface Target {
 
 const params = new URLSearchParams(location.search)
 const n = Number(params.get("n") ?? "1000")
+const kind = params.get("kind") ?? "wardic"
 const [shown, setShown] = createSignal(false)
 const [target, setTarget] = createSignal<Target>({ o: 1, c: WHITE })
 const items = Array.from({ length: n }, (_, i) => i)
@@ -29,24 +31,35 @@ style.textContent = ".b{display:inline-block;width:8px;height:8px}"
 document.head.append(style)
 const host = document.createElement("div")
 document.body.append(host)
-render(
-  () => (
-    <WardicProvider env={DomLive}>
-      <Show when={shown()}>
-        <For each={items}>
-          {() => (
-            <wardic.div
-              class="b"
-              initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
-              animate={{ opacity: target().o, "background-color": target().c }}
-            />
-          )}
-        </For>
-      </Show>
-    </WardicProvider>
-  ),
-  host,
+const Wardic = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => (
+          <wardic.div
+            class="b"
+            initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
+            animate={{ opacity: target().o, "background-color": target().c }}
+          />
+        )}
+      </For>
+    </Show>
+  </WardicProvider>
 )
+const Retained = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => <wardic.div class="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} whileHover={{ opacity: 0.9 }} whileTap={{ opacity: 0.8 }} />}
+      </For>
+    </Show>
+  </WardicProvider>
+)
+const pages = { wardic: Wardic, retained: Retained } as const
+render(() => {
+  const Page = pages[kind as keyof typeof pages]
+  return <Page />
+}, host)
 
 const frames = (k: number): Promise<void> =>
   new Promise((resolve) => {
@@ -118,6 +131,22 @@ const round = async () => {
   if (boxes().length !== 0) throw new Error("bench:solid: still mounted")
   await frames(6)
   return { mount, firstFrame, retarget, restRetarget, unmount }
+}
+
+/** `?kind=retained`'s mount, settled at rest, and its unmount, for the runner's heap readings (#318). */
+;(globalThis as unknown as { __wardicRetained: unknown }).__wardicRetained = {
+  mount: async () => {
+    setShown(true)
+    flush()
+    await until(() => boxes().length === n && boxes().every((el) => el.style.opacity === "1"))
+    await frames(10)
+  },
+  unmount: async () => {
+    setShown(false)
+    flush()
+    if (boxes().length !== 0) throw new Error("bench:solid: still mounted")
+    await frames(10)
+  },
 }
 
 ;(globalThis as unknown as { __wardicBenchSolid: unknown }).__wardicBenchSolid = async (rounds: number) => {

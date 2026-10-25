@@ -1,6 +1,6 @@
 /// <reference types="node" />
 /**
- * `bun run bench:solid [--base <ref>] [--head <ref>] [--binding 1|2] [--reps 11] [--n 1000] [--rounds 4] [--alloc-reps 3]`
+ * `bun run bench:solid [--base <ref>] [--head <ref>] [--binding 1|2] [--reps 11] [--n 1000] [--rounds 4] [--alloc-reps 3] [--retained-reps 3]`
  *
  * The bindings' start-cost bench (#87, ADR-0040, decision 6): `--head`'s core, dom and solid
  * (default: the working tree) against `--base`'s (default: `main`), at N `wardic.div`s in
@@ -19,8 +19,10 @@
  * - **Paired reps.** Each rep runs base and head back to back, each on a fresh cross-origin isolated
  *   page (`performance.now()` at 5 µs), in alternating order. A page runs `--rounds` rounds: the
  *   first is reported as cold, the median of the rest as warm.
- * - **Noise control.** The `plain` page, N plain `div`s on the same signal, is the same code on
- *   both sides. If its median ratio is off by more than ±5%, the run is too noisy to judge.
+ * - **Noise control.** The `plain` page, `CONTROL_SCALE` × N plain `div`s on the same signal, is the
+ *   same code on both sides. If its median ratio is off by more than ±5%, the run is too noisy to
+ *   judge. At N its tasks were 0.4–1.1 ms, and one slow warm round of three moved a page's total by
+ *   15–20%, so the control flapped on a quiet host (#318); at 10 × N they're about 22 ms in total.
  * - **Time gate,** warm only: a task fails when its median ratio passes +5% and its 25th
  *   percentile is above 0%, so at least three pairs in four ran slower (`bench:core`'s gate). Cold
  *   is reported, not gated.
@@ -32,6 +34,12 @@
  *   heap profiler, objects freed by either GC counted: what a side allocates per element per round,
  *   its tasks and the frames between them together. It fails as a task does (+5% median, 25th
  *   percentile above 0), so what the GC per task leaves out of the times is still held.
+ * - **Retained gate** (#318): `--retained-reps` paired `retained` pages per side and binding, each N
+ *   `wardic.div`s with `whileHover` and `whileTap` (their hover and press recognizers started at
+ *   mount), mounted, settled at rest and unmounted three times. The heap is read after two full GCs
+ *   (CDP's `HeapProfiler.collectGarbage`, then `Runtime.getHeapUsage`) before each mount, at rest, and
+ *   after the unmount. What a side keeps per element, the median of its cycles, fails as a task does.
+ *   What an unmount leaves is reported, not gated: about 0, and a ratio of two zeros is noise.
  *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
  * when one fails, and 2 when the run is too noisy.
@@ -50,7 +58,7 @@ import { execSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { chromium, type Page } from "playwright"
+import { type CDPSession, chromium, type Page } from "playwright"
 import { build, type Plugin } from "vite"
 import solid from "vite-plugin-solid"
 import * as Arr from "effect/Array"
@@ -63,6 +71,8 @@ import type { LiveRound, Round } from "./page.tsx"
 
 const GATE = 1.05
 const NOISE = 0.05
+/** The control page's elements, against the Wardic pages' N: enough that its tasks can be timed (#318). */
+const CONTROL_SCALE = 10
 /** The heap profiler's mean sampling interval, in bytes: a page's rounds take about 170,000 samples. */
 const ALLOC_INTERVAL = 4096
 const PACKAGES = ["core", "dom", "solid"] as const
@@ -83,6 +93,7 @@ const reps = Number(arg("reps", "11"))
 const n = Number(arg("n", "1000"))
 const rounds = Number(arg("rounds", "4"))
 const allocReps = Number(arg("alloc-reps", "3"))
+const retainedReps = Number(arg("retained-reps", "3"))
 const liveMode = process.argv.includes("--live")
 const v2Mode = process.argv.includes("--v2")
 const bindingArg = arg("binding", "both")
@@ -91,7 +102,7 @@ if (Bool.not(["1", "2", "both"].includes(bindingArg))) throw new Error(`bench:so
 /** A build: a side's Solid 1 page (`base`, `head`) or its Solid 2 page (`v2Base`, `v2Head`). */
 type Side = "base" | "head" | "v2Base" | "v2Head"
 const isV2 = (side: Side): boolean => Bool.or(side === "v2Base", side === "v2Head")
-type Kind = "wardic" | "plain" | "live" | "live-plain"
+type Kind = "wardic" | "plain" | "live" | "live-plain" | "retained"
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
 const commitOf = (ref: string): string =>
@@ -254,7 +265,8 @@ const openPage = async (side: Side, kind: Kind): Promise<{ readonly page: Page; 
       headers: { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" },
     })
   })
-  await page.goto(`http://localhost:4174/?n=${n}&kind=${kind}`)
+  const elements = Bool.match(kind === "plain", { onTrue: () => n * CONTROL_SCALE, onFalse: () => n })
+  await page.goto(`http://localhost:4174/?n=${elements}&kind=${kind}`)
   if (!(await page.evaluate(() => crossOriginIsolated))) throw new Error("bench:solid: page not cross-origin isolated")
   await page.addScriptTag({ url: "http://localhost:4174/page.js" })
   return { page, errors }
@@ -295,6 +307,43 @@ const allocatedPage = async (side: Side): Promise<number> => {
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} allocation: ${errors.join("; ")}`)
   return bytesOf(profile.head as HeapNode) / (rounds * n)
+}
+
+/** Mount and unmount cycles on each `retained` page: the median of them is the page's (#318). */
+const RETAINED_CYCLES = 3
+
+/** The heap the page's JS holds after two full GCs, in bytes. */
+const heldBy = async (cdp: CDPSession): Promise<number> => {
+  await cdp.send("HeapProfiler.collectGarbage")
+  await cdp.send("HeapProfiler.collectGarbage")
+  return (await cdp.send("Runtime.getHeapUsage")).usedSize
+}
+
+/** What one `retained` page of `side`'s build keeps (#318), in bytes per element. */
+interface Retained {
+  /** Mounted, at rest: its wards, their recognizers and everything they hold. */
+  readonly kept: number
+  /** After the unmount, against before the mount. */
+  readonly left: number
+}
+
+const retainedPage = async (side: Side): Promise<Retained> => {
+  const { page, errors } = await openPage(side, "retained")
+  const cdp = await page.context().newCDPSession(page)
+  const call = (name: "mount" | "unmount"): Promise<void> =>
+    page.evaluate((m) => (globalThis as unknown as { __wardicRetained: Record<string, () => Promise<void>> }).__wardicRetained[m]!(), name)
+  const cycles: Array<Retained> = []
+  for (let c = 0; c < RETAINED_CYCLES; c++) {
+    const before = await heldBy(cdp)
+    await call("mount")
+    const mounted = await heldBy(cdp)
+    await call("unmount")
+    const after = await heldBy(cdp)
+    cycles.push({ kept: (mounted - before) / n, left: (after - before) / n })
+  }
+  await page.close()
+  if (errors.length > 0) throw new Error(`bench:solid: ${side} retained: ${errors.join("; ")}`)
+  return { kept: median(cycles.map((c) => c.kept)), left: median(cycles.map((c) => c.left)) }
 }
 
 if (liveMode) {
@@ -392,6 +441,12 @@ for (let r = 0; r < allocReps; r++) {
   for (const binding of bindings) for (const side of order) allocated[binding][side].push(await allocatedPage(SIDES[binding][side]))
   process.stderr.write(`bytes ${r + 1}/${allocReps}\r`)
 }
+const retained: Record<Binding, Record<"base" | "head", Array<Retained>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
+for (let r = 0; r < retainedReps; r++) {
+  const order = orderOf(r)
+  for (const binding of bindings) for (const side of order) retained[binding][side].push(await retainedPage(SIDES[binding][side]))
+  process.stderr.write(`retained ${r + 1}/${retainedReps}\r`)
+}
 await browser.close()
 
 const warm = (page: ReadonlyArray<Round>, task: (typeof TASKS)[number]): number => median(page.slice(1).map((round) => round[task]))
@@ -401,7 +456,7 @@ const total = (page: ReadonlyArray<Round>): number => TASKS.reduce((sum, task) =
 const controlRatios = runs.plain.head.map((page, r) => total(page) / total(runs.plain.base[r]!))
 const control = median(controlRatios)
 const noisy = Math.abs(control - 1) > NOISE
-console.log(`control (plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${when(noisy, "  too noisy: rerun on a quiet host")}\n`)
+console.log(`control (${n * CONTROL_SCALE} plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${when(noisy, "  too noisy: rerun on a quiet host")}\n`)
 
 const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid)", solid2: "Solid 2 (@wardic/solid/unstable/v2)" }
 let failed = false
@@ -432,6 +487,19 @@ for (const binding of bindings) {
   console.log(
     `  ${"bytes".padEnd(14)}${(median(bytes.base) / 1024).toFixed(1).padEnd(10)}${(median(bytes.head) / 1024).toFixed(1).padEnd(10)}` +
       `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${when(allocFails, "  FAIL")}\n`,
+  )
+  const held = retained[binding]
+  const keptRatios = held.head.map((h, r) => h.kept / held.base[r]!.kept)
+  const keptFails = quantile(keptRatios, 0.5) > GATE && quantile(keptRatios, 0.25) > 1
+  failed ||= keptFails
+  console.log("retained (KB per element, a ward with whileHover and whileTap at rest; head / base paired per rep: median [p25 – p75])")
+  console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
+  console.log(
+    `  ${"kept".padEnd(14)}${(median(held.base.map((h) => h.kept)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.kept)) / 1024).toFixed(2).padEnd(10)}` +
+      `${percent(quantile(keptRatios, 0.5))} [${percent(quantile(keptRatios, 0.25))} – ${percent(quantile(keptRatios, 0.75))}]${when(keptFails, "  FAIL")}`,
+  )
+  console.log(
+    `  ${"after unmount".padEnd(14)}${(median(held.base.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}not gated\n`,
   )
 }
 

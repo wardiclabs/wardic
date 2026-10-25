@@ -146,3 +146,23 @@ The first A/A (main `54fd4bd` against itself, 11 reps, 3 for bytes) read:
 - bytes −0.4% [−0.5% – −0.4%], at 190 KB per element per round.
 
 The old mode's A/A read unmount −2.1% [−13.8% – −1.5%].
+
+## Amendment (#318, 2026-10-25): a retained-memory gate
+
+#318 found that a ward's gesture recognizer is the biggest thing it keeps. A hover recognizer held about 15 KB of heap per element against about 10 KB for the ward itself. Neither gate saw it: the times measure a task's JS, and the bytes gate measures what a round allocates, not what stays. Grilled 2026-10-25 (Q4): a gate on bytes kept, landed before the recognizer change so that change shows its drop against it.
+
+- **A `retained` page on each binding:** N `wardic.div`s with `whileHover` and `whileTap`, so their hover and press recognizers start at mount, animated to rest.
+- **The measure:** `--retained-reps` paired pages per side and binding (3 by default), each mounting and unmounting three times. After two full GCs (CDP's `HeapProfiler.collectGarbage`), the runner reads `Runtime.getHeapUsage` before each mount, at rest, and after the unmount.
+  - A side's **kept** is the median of its cycles' (at rest − before) / N. It fails as a task does: +5% median with its 25th percentile above 0.
+  - **After unmount** is reported, not gated. It's about 0, and a ratio of two numbers near zero is noise; a leak shows as a number that grows.
+- **Rejected:** adding the gate with the recognizer change; no gate, with the probe's numbers recorded in an ADR only.
+- **The noise control at 10 × N plain `div`s** (`CONTROL_SCALE`).
+  - At N, its four tasks were 0.4–1.1 ms, about 3 ms in all, each the median of three warm rounds. One slow round (a 2.4 ms mount, a 1.4 ms Retarget) moved a page's total by 15–20%.
+  - So it flapped on a quiet host: −9.3%, +14.0%, −1.0% and +14.3% in four runs on 2026-10-25, three of them "too noisy". The fourth was this gate's first full run: its Wardic rows all within gate, and kept at +0.0% on both bindings.
+  - At 10 × N its tasks total about 22 ms, and five reps read +0.1% [−0.0% – +0.8%]. It's still the same code on both sides, and still only a noise detector.
+
+The first full A/A (main `10b7d6f` against the same code, 11 reps, 3 for bytes and kept) gated, exit 0:
+- control −4.4% [−8.7% – −1.1%];
+- Solid 1: kept 38.01 against 38.03 KB per element, +0.1% [−0.1% – +0.1%]. Warm tasks were within −0.2% and +1.3%, and bytes −0.3%;
+- Solid 2: kept 35.44 against 35.45 KB, +0.0% [−0.1% – +0.0%]. Warm tasks were within −1.3% and +1.6%, and bytes −0.2%;
+- after unmount, 0.12–0.20 KB per element on every side.
