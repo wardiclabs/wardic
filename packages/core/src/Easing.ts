@@ -1,13 +1,17 @@
 /**
  * The `Easing` module: an easing maps normalized time `t` in [0, 1] to eased progress. The
- * Penner set (names kept), `cubicBezier`, `steps`, and `spring`, a spring baked into a curve.
+ * Penner set (names kept), `cubicBezier`, `steps`, and `spring`, a spring baked into a curve; and
+ * Motion's named easings (`easeIn`, `easeOut`, `backIn`, `anticipate`…), which an `ease` names as
+ * a string, beside a bézier's four numbers or a function: a {@link Definition} (#360, ADR-0052).
  * Plain functions callers write as well as take (`(t) => t * t`), so no prototype (ADR-0028,
  * decision 1); every easing runs per frame (ADR-0025).
  */
 import bezier from "bezier-easing"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 
@@ -251,3 +255,89 @@ Arr.forEach(
  * another.
  */
 export const nameOf = (easing: Easing): Option.Option<string> => Option.fromUndefinedOr(NAMES.get(easing))
+
+// --- Motion's easings (#360, ADR-0052) --------------------------------------------------------
+
+/** `easing` played backwards: Motion's `reverseEasing`, which turns an ease-in into an ease-out. Per frame. */
+const reversed = (easing: Easing): Easing => (t) => 1 - easing(1 - t)
+
+/**
+ * `easing` over the first half and mirrored over the second: Motion's `mirrorEasing`, which turns
+ * an ease-in into an ease-in-out. Per frame.
+ */
+const mirrored = (easing: Easing): Easing => (t) => {
+  if (t <= 0.5) return easing(2 * t) / 2
+  return (2 - easing(2 * (1 - t))) / 2
+}
+
+/** Motion's `easeIn`: `cubic-bezier(0.42, 0, 1, 1)`, CSS's `ease-in`. */
+export const easeIn: Easing = named(bezier(0.42, 0, 1, 1), "easeIn")
+
+/** Motion's `easeOut`: `cubic-bezier(0, 0, 0.58, 1)`, CSS's `ease-out`. A tween's default (ADR-0051). */
+export const easeOut: Easing = named(bezier(0, 0, 0.58, 1), "easeOut")
+
+/** Motion's `easeInOut`: `cubic-bezier(0.42, 0, 0.58, 1)`, CSS's `ease-in-out`. */
+export const easeInOut: Easing = named(bezier(0.42, 0, 0.58, 1), "easeInOut")
+
+/** Motion's `circIn`: a quarter circle, slow then steep (the Penner `easeInCirc`'s curve). */
+export const circIn: Easing = named((t) => 1 - Math.sin(Math.acos(t)), "circIn")
+
+/** Motion's `circOut`: {@link circIn} reversed. */
+export const circOut: Easing = named(reversed(circIn), "circOut")
+
+/** Motion's `circInOut`: {@link circIn} mirrored. */
+export const circInOut: Easing = named(mirrored(circIn), "circInOut")
+
+/** Motion's `backOut`: `cubic-bezier(0.33, 1.53, 0.69, 0.99)`, past its end and back. Not the Penner `easeOutBack`. */
+export const backOut: Easing = named(bezier(0.33, 1.53, 0.69, 0.99), "backOut")
+
+/** Motion's `backIn`: {@link backOut} reversed, back before it goes. */
+export const backIn: Easing = named(reversed(backOut), "backIn")
+
+/** Motion's `backInOut`: {@link backIn} mirrored. */
+export const backInOut: Easing = named(mirrored(backIn), "backInOut")
+
+/** Motion's `anticipate`: {@link backIn} over the first half, then an exponential ease out. Per frame. */
+export const anticipate: Easing = named((t) => {
+  if (t >= 1) return 1
+  const p = t * 2
+  if (p < 1) return 0.5 * backIn(p)
+  return 0.5 * (2 - Math.pow(2, -10 * (p - 1)))
+}, "anticipate")
+
+/** Motion's names for its easings (`motion-utils`' `easingLookup`, at 16c6122): what an `ease` string can be. */
+export type Name = "linear" | "easeIn" | "easeOut" | "easeInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "anticipate"
+
+/** Each of Motion's names, and its curve. */
+const BY_NAME: Readonly<Record<Name, Easing>> = { linear, easeIn, easeOut, easeInOut, circIn, circOut, circInOut, backIn, backOut, backInOut, anticipate }
+
+/** Motion's names, for a decode to check an `ease` string against. */
+export const NAMES_LIST: ReadonlyArray<Name> = Object.keys(BY_NAME) as ReadonlyArray<Name>
+
+/** A cubic bézier's control points, `[x1, y1, x2, y2]`: Motion's `BezierDefinition`. */
+export type Bezier = readonly [number, number, number, number]
+
+/**
+ * An Easing as an `ease` gives it (CONTEXT.md **Easing definition**, #360), as Motion's `Easing`:
+ * one of Motion's names, a cubic bézier's four numbers, or the function itself.
+ */
+export type Definition = Name | Bezier | Easing
+
+/** Whether `definition` is a bézier's points: an array whose first item is a number (Motion's `isBezierDefinition`). */
+export const isBezier = (definition: unknown): definition is Bezier =>
+  Bool.and(Array.isArray(definition), Predicate.isNumber((definition as ReadonlyArray<unknown>)[0]))
+
+/** {@link resolve}'s matcher, built once, at module load. */
+const resolveDefinition: (definition: Definition) => Easing = Match.type<Definition>().pipe(
+  Match.when(Predicate.isFunction, (easing) => easing as Easing),
+  Match.when(isBezier, ([x1, y1, x2, y2]) => cubicBezier(x1, y1, x2, y2)),
+  Match.orElse((name) => BY_NAME[name as Name]),
+)
+
+/**
+ * The Easing `definition` names (#360): a name's curve, a bézier through its points
+ * ({@link cubicBezier}, named, so Appear keys it), or the function as it is. Not per frame: an
+ * option bag's decode resolves its `ease` once (#66).
+ */
+export const resolve = (definition: Definition): Easing => resolveDefinition(definition)
+

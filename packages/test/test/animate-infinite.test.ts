@@ -19,7 +19,7 @@ it.effect("Machine.toStream(Machine.animate({ repeat: Infinity })) never auto-te
     // than N frames here.
     // Effect v4: Stream.runCollect returns ReadonlyArray<A> directly (no Chunk wrapper).
     const frames = (yield* Stream.runCollect(
-      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: Easing.linear, repeat: Infinity })).pipe(Stream.take(N)),
+      Machine.toStream(Machine.animate(0, 100, { duration: 1, ease: Easing.linear, repeat: Infinity })).pipe(Stream.take(N)),
     )) as ReadonlyArray<Frame.Frame<number>>
 
     // Assert — emission count equals N (never settled on its own).

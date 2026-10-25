@@ -4,7 +4,8 @@
  */
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
-import type * as Easing from "./Easing.ts"
+import * as UndefinedOr from "effect/UndefinedOr"
+import * as Easing from "./Easing.ts"
 
 /** Where a stagger originates within the set of children. */
 export type Origin = "first" | "last" | "center" | number
@@ -13,8 +14,8 @@ export type Origin = "first" | "last" | "center" | number
 export interface Options {
   /** Origin index the delay grows outward from. Default `"first"`. */
   readonly from?: Origin
-  /** Optional easing applied across the index distribution. */
-  readonly ease?: Easing.Easing
+  /** How the delay grows across the children: an Easing definition (#360), Motion's `stagger`'s `ease`. Default linear. */
+  readonly ease?: Easing.Definition
 }
 
 const resolveOrigin = (from: Origin, total: number): number =>
@@ -38,7 +39,9 @@ export const make = (
   amount: number,
   options: Options = {},
 ): ((index: number, total: number) => number) => {
-  const { from = "first", ease } = options
+  const { from = "first" } = options
+  // Resolved once, here: a name or a bézier's numbers to its curve (#360).
+  const ease = UndefinedOr.map(options.ease, Easing.resolve)
   return (index, total) => {
     const origin = resolveOrigin(from, total)
     const dist = Math.abs(origin - index)

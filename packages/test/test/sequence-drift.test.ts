@@ -27,7 +27,7 @@ describe("an endless animate keeps wall time over 30 runs (#226)", () => {
     for (const duration of [0.12, 0.3, 1]) {
       for (const repeatType of ["loop", "reverse", "mirror"] as const) {
         it(`${hz} Hz, ${duration} s runs, ${repeatType}`, () => {
-          const options = { duration, repeat: Number.POSITIVE_INFINITY, repeatType, easing: linear }
+          const options = { duration, repeat: Number.POSITIVE_INFINITY, repeatType, ease: linear }
           const step = Machine.animate(0, 100, options).start()
           const dts = jittered(hz, Math.ceil(31 * duration * hz))
           let wall = 0

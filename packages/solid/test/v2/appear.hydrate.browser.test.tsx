@@ -27,6 +27,7 @@
 // - AH13 (#257 item 13): a region `<Reveal>` holds (its data first, its chunk landing before the
 //   region ahead of it) isn't on the page until its reveal, and its Appear animation plays from then,
 //   not from its chunk's arrival: Solid holds the chunk in its inert `<template>`.
+import * as Easing from "@wardic/core/Easing"
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
@@ -43,7 +44,6 @@ import { DomLive } from "@wardic/dom"
 import { hydrate, type JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { EASE_OUT } from "../../src/retarget-legs.ts"
 import { A1, A2, A3, A4, A5, A6, A7, A8, A9, setAppearEnv } from "./hydrate-fixtures.tsx"
 import "../browser-commands.ts"
 
@@ -393,7 +393,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
   })
 
   it("AH2: a tween handed off mid-flight", async () => {
-    const machine = tween({ opacity: 0, x: 0 }, { opacity: 1, x: 200 }, { easing: EASE_OUT, duration: 1.2 })
+    const machine = tween({ opacity: 0, x: 0 }, { opacity: 1, x: 200 }, { ease: Easing.easeOut, duration: 1.2 })
     const r = await run("A3", A3, { hydrateAfter: 400, forMs: 1600 })
     expect(followsMachine(r, "slow", (s) => {
       const v = machineAt(machine, s)
@@ -424,7 +424,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
   it("AH5: a stagger: each item from its own delay, through the Handoff", async () => {
     const r = await run("A2", A2, { hydrateAfter: 260, forMs: 1300 })
     ;["i0", "i1", "i2"].forEach((k, i) => {
-      const machine = tween({ opacity: 0, x: -30 }, { opacity: 1, x: 0 }, { easing: EASE_OUT, duration: 0.5, delay: 0.12 * i })
+      const machine = tween({ opacity: 0, x: -30 }, { opacity: 1, x: 0 }, { ease: Easing.easeOut, duration: 0.5, delay: 0.12 * i })
       expect(followsMachine(r, k, (s) => {
         const v = machineAt(machine, s)
         return { opacity: v.opacity as number, x: v.x as number }
@@ -433,10 +433,10 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
   })
 
   it("AH6: when: beforeChildren: the child waits for its parent, before and after the Handoff", async () => {
-    const parent = tween({ opacity: 0 }, { opacity: 1 }, { easing: EASE_OUT, duration: 0.3 })
+    const parent = tween({ opacity: 0 }, { opacity: 1 }, { ease: Easing.easeOut, duration: 0.3 })
     // The child starts when the parent's tween settles, stepped in 60 Hz frames as the server samples
     // it: the frame its steps' sum reaches 0.3 s (18 × 1/60 rounds just over; 30 × 1/60 for 0.5 s just under).
-    const child = tween({ opacity: 0, y: 20 }, { opacity: 1, y: 0 }, { easing: EASE_OUT, duration: 0.4, delay: settledAt(parent) })
+    const child = tween({ opacity: 0, y: 20 }, { opacity: 1, y: 0 }, { ease: Easing.easeOut, duration: 0.4, delay: settledAt(parent) })
     const r = await run("A4", A4, { hydrateAfter: 150, forMs: 1200 })
     followsMachine(r, "parent", (s) => ({ opacity: machineAt(parent, s).opacity as number }))
     expect(followsMachine(r, "child", (s) => {
@@ -456,7 +456,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     const r = await run("A2", A2, { hydrateAfter: 200, forMs: 1300 })
     ;["i0", "i1", "i2"].forEach((k, i) => {
       const delay = 0.12 * i
-      const opacity = tween({ opacity: 0 }, { opacity: 1 }, { easing: EASE_OUT, duration: 0.5, delay })
+      const opacity = tween({ opacity: 0 }, { opacity: 1 }, { ease: Easing.easeOut, duration: 0.5, delay })
       // A display frame near the snap can land on either side of it: those frames don't count.
       const nearSnap = (s: number) => Math.abs(s - delay) < 0.02
       const want = (s: number) => {
@@ -476,8 +476,8 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
   })
 
   it("AH10: SVG attributes played as CSS, handed off mid-flight to the engine's attributes (#245)", async () => {
-    const dot = tween({ cx: 10, r: 4, opacity: 0 }, { cx: 90, r: 16, opacity: 1 }, { easing: EASE_OUT, duration: 1.2 })
-    const line = tween({ pathLength: 0 }, { pathLength: 1 }, { easing: EASE_OUT, duration: 1.2 })
+    const dot = tween({ cx: 10, r: 4, opacity: 0 }, { cx: 90, r: 16, opacity: 1 }, { ease: Easing.easeOut, duration: 1.2 })
+    const line = tween({ pathLength: 0 }, { pathLength: 1 }, { ease: Easing.easeOut, duration: 1.2 })
     const r = await run("A6", A6, { hydrateAfter: 450, forMs: 1700 })
     const before = r.frames.filter((f) => !f.hydrated && f.drawn.dot!.css)
     expect(before.some((f) => f.drawn.dot!.cx > 15 && f.drawn.dot!.cx < 85), "it moved before hydration").toBe(true)
@@ -495,7 +495,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
   })
 
   it("AH11: a layout card drawn as a layout node from first paint, handed off, its next layout change from its true box (#245)", async () => {
-    const card = tween({ opacity: 0, scale: 0.5, y: 30 }, { opacity: 1, scale: 1, y: 0 }, { easing: EASE_OUT, duration: 1.2 })
+    const card = tween({ opacity: 0, scale: 0.5, y: 30 }, { opacity: 1, scale: 1, y: 0 }, { ease: Easing.easeOut, duration: 1.2 })
     // The layout change, once the entrance has ended: the spacer above grows by 60 px.
     const grow = { afterMs: 1900, act: () => (globalThis as { __a7grow?: () => void }).__a7grow?.() }
     // The client's debug logs, for its Handoff's check.
@@ -545,7 +545,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     const before = r.frames.filter((f) => !f.hydrated && f.drawn.s0 !== undefined && f.drawn.s0.css)
     expect(before.some((f) => f.drawn.s0!.opacity > 0.1 && f.drawn.s0!.opacity < 0.95), "it moved before hydration").toBe(true)
     items.forEach((k, i) => {
-      const machine = tween({ opacity: 0, x: -30 }, { opacity: 1, x: 0 }, { easing: EASE_OUT, duration: 0.5, delay: 0.12 * i })
+      const machine = tween({ opacity: 0, x: -30 }, { opacity: 1, x: 0 }, { ease: Easing.easeOut, duration: 0.5, delay: 0.12 * i })
       expect(followsMachine(r, k, (s) => {
         const v = machineAt(machine, s)
         return { opacity: v.opacity as number, x: v.x as number }

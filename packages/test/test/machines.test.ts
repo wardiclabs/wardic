@@ -225,15 +225,15 @@ describe("the composites against Motion's timing (#226)", () => {
   /** An asymmetric easing, so `"reverse"` and `"mirror"` differ. */
   const CUBE = (t: number) => t * t * t
   const animateCases: ReadonlyArray<readonly [string, RunOptions, boolean]> = [
-    ["one run", { duration: 0.3, delay: 0, repeat: 0, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
-    ["repeat 2, a delay held once (#77)", { duration: 0.3, delay: 0.05, repeat: 2, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
-    ["repeat 3, reverse, swapped endpoints", { duration: 0.25, delay: 0, repeat: 3, repeatDelay: 0, repeatType: "reverse", easing: CUBE }, true],
-    ["repeat 3, mirror, a repeatDelay", { duration: 0.25, delay: 0, repeat: 3, repeatDelay: 0.07, repeatType: "mirror", easing: CUBE }, false],
-    ["repeat 2, reverse, a repeatDelay and a delay", { duration: 0.2, delay: 0.05, repeat: 2, repeatDelay: 0.07, repeatType: "reverse", easing: CUBE }, false],
-    ["repeat Infinity", { duration: 0.2, delay: 0, repeat: Infinity, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
-    ["repeat Infinity, mirror, a delay held once (#77)", { duration: 0.2, delay: 0.05, repeat: Infinity, repeatDelay: 0, repeatType: "mirror", easing: CUBE }, false],
-    ["repeat Infinity, reverse, a repeatDelay", { duration: 0.12, delay: 0, repeat: Infinity, repeatDelay: 0.05, repeatType: "reverse", easing: CUBE }, false],
-    ["a delay of 0.3, past the 0.25 s stall", { duration: 0.4, delay: 0.3, repeat: 0, repeatDelay: 0, repeatType: "loop", easing: CUBE }, false],
+    ["one run", { duration: 0.3, delay: 0, repeat: 0, repeatDelay: 0, repeatType: "loop", ease: CUBE }, false],
+    ["repeat 2, a delay held once (#77)", { duration: 0.3, delay: 0.05, repeat: 2, repeatDelay: 0, repeatType: "loop", ease: CUBE }, false],
+    ["repeat 3, reverse, swapped endpoints", { duration: 0.25, delay: 0, repeat: 3, repeatDelay: 0, repeatType: "reverse", ease: CUBE }, true],
+    ["repeat 3, mirror, a repeatDelay", { duration: 0.25, delay: 0, repeat: 3, repeatDelay: 0.07, repeatType: "mirror", ease: CUBE }, false],
+    ["repeat 2, reverse, a repeatDelay and a delay", { duration: 0.2, delay: 0.05, repeat: 2, repeatDelay: 0.07, repeatType: "reverse", ease: CUBE }, false],
+    ["repeat Infinity", { duration: 0.2, delay: 0, repeat: Infinity, repeatDelay: 0, repeatType: "loop", ease: CUBE }, false],
+    ["repeat Infinity, mirror, a delay held once (#77)", { duration: 0.2, delay: 0.05, repeat: Infinity, repeatDelay: 0, repeatType: "mirror", ease: CUBE }, false],
+    ["repeat Infinity, reverse, a repeatDelay", { duration: 0.12, delay: 0, repeat: Infinity, repeatDelay: 0.05, repeatType: "reverse", ease: CUBE }, false],
+    ["a delay of 0.3, past the 0.25 s stall", { duration: 0.4, delay: 0.3, repeat: 0, repeatDelay: 0, repeatType: "loop", ease: CUBE }, false],
   ]
   for (const [name, o, reverse] of animateCases) {
     it(`animate: ${name}`, () => {
@@ -253,7 +253,7 @@ describe("the composites against Motion's timing (#226)", () => {
   ] as const
   for (const [name, stops, duration, delay] of keyframesCases) {
     it(`keyframes: ${name}`, () => {
-      const frames = stepped(Machine.keyframes(stops, { duration, delay, easing: CUBE }))
+      const frames = stepped(Machine.keyframes(stops, { duration, delay, ease: CUBE }))
       expect(frames.length).toBeGreaterThanOrEqual(5)
       for (const [i, { frame, time }] of frames.entries()) {
         expect(frame.value, `frame ${i}, at ${time}`).toBeCloseTo(motionKeyframesAt(time, stops, duration, delay, CUBE), 9)
@@ -276,7 +276,7 @@ describe("the composites against Motion's timing (#226)", () => {
 
   it.effect("animateValues: strings, a Discrete pair and visibility, repeat 1 mirrored, a delay: animate's progress, blended", () =>
     Effect.gen(function* () {
-      const options = { duration: 0.4, repeat: 1, repeatType: "mirror" as const, delay: 0.05, easing: Easing.easeInOutCubic }
+      const options = { duration: 0.4, repeat: 1, repeatType: "mirror" as const, delay: 0.05, ease: Easing.easeInOutCubic }
       const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistry.layer))
       const machine = yield* Machine.animateValues(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistry.layer))
       const progress = Machine.toStream(Machine.animate(0, 1, options)).pipe(Stream.map((frame) => blend(frame.value, frame.done)))
@@ -330,7 +330,7 @@ const bothDrivers = <F extends Frame.Frame<unknown>>(build: () => Effect.Effect<
   })
 
 describe("every constructor through both drivers", () => {
-  const OPTIONS = { duration: 0.3, repeat: 2, repeatType: "mirror" as const, delay: 0.05, easing: Easing.easeInOutCubic }
+  const OPTIONS = { duration: 0.3, repeat: 2, repeatType: "mirror" as const, delay: 0.05, ease: Easing.easeInOutCubic }
   const FROM = { x: 0, filter: "blur(2px) brightness(0.5)", width: "10px", "pointer-events": "auto", visibility: "visible" }
   const TO = { x: 40, filter: "blur(8px) brightness(1)", width: "200px", "pointer-events": "none", visibility: "hidden" }
   const cases: ReadonlyArray<
@@ -376,7 +376,7 @@ describe("every constructor through both drivers", () => {
 })
 
 describe("every combinator through both drivers", () => {
-  const tween = (from: number, to: number) => Machine.tween(from, to, { duration: 0.2, easing: Easing.easeInOutCubic })
+  const tween = (from: number, to: number) => Machine.tween(from, to, { duration: 0.2, ease: Easing.easeInOutCubic })
   const cases: ReadonlyArray<readonly [string, () => Effect.Effect<Machine.Machine<Frame.Frame<unknown>>>]> = [
     ["map", () => Effect.succeed(tween(0, 10).pipe(Machine.map((frame) => ({ value: frame.value * 3, done: frame.done }))))],
     ["concat", () => Effect.succeed(tween(0, 10).pipe(Machine.concat(Machine.spring(-10, { stiffness: 300 }))))],

@@ -31,7 +31,7 @@ import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
 import type { WardicTransition } from "../src/config.ts"
-import { EASE_OUT, type Leg, legsOf, runOf } from "../src/retarget-legs.ts"
+import { type Leg, legsOf, runOf } from "../src/retarget-legs.ts"
 
 const F = 1 / 60
 
@@ -45,7 +45,7 @@ const ONE_SPRING = Effect.runSync(Effect.provide(Effect.gen(function* () { retur
 /** Motion's DOM defaults, as `default-transitions.ts` has them at 16c6122. */
 const TRANSFORM = { stiffness: 500, damping: 25, restSpeed: 10 }
 const SCALE = { stiffness: 550, damping: 30, restSpeed: 10 }
-const EASE = { duration: 0.3, easing: Easing.cubicBezier(0.25, 0.1, 0.35, 1) }
+const EASE = { duration: 0.3, ease: Easing.cubicBezier(0.25, 0.1, 0.35, 1) }
 
 const FROM: Values.Values = { x: 0, y: 0, scale: 1, opacity: 0, backgroundColor: "#000" }
 const TO: Values.Values = { x: 100, y: 50, scale: 2, opacity: 1, backgroundColor: "#fff" }
@@ -148,7 +148,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
     expect(shapeOf(legs)).toEqual(["Numbers x,y", "Numbers scale", "Blend backgroundColor", "Blend opacity"])
     expectRunsAs(legs[0]!, springOver(["x", "y"], TRANSFORM), "x and y: their default")
     expectRunsAs(legs[2]!, tweenOver(["backgroundColor"], EASE), "the colour: its default")
-    expectRunsAs(legs[3]!, tweenOver(["opacity"], { duration: 1, easing: EASE_OUT }), "opacity: its entry, eased out")
+    expectRunsAs(legs[3]!, tweenOver(["opacity"], { duration: 1, ease: Easing.easeOut }), "opacity: its entry, eased out")
     // `default` with a delay alone: every key on its own default, held.
     const held = legsFor({ default: { delay: 0.1 } })
     expect(shapeOf(held)).toEqual(["Numbers x,y", "Numbers scale", "Blend opacity,backgroundColor"])
@@ -159,7 +159,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
     // A tween's field: every key on one tween, Motion's easeOut.
     const tween = legsFor({ duration: 0.5 })
     expect(shapeOf(tween)).toEqual(["Blend x,y,scale,opacity,backgroundColor"])
-    expectRunsAs(tween[0]!, tweenOver(["x", "y", "scale", "opacity", "backgroundColor"], { duration: 0.5, easing: EASE_OUT }), "a 0.5 s tween, eased out")
+    expectRunsAs(tween[0]!, tweenOver(["x", "y", "scale", "opacity", "backgroundColor"], { duration: 0.5, ease: Easing.easeOut }), "a 0.5 s tween, eased out")
     // A spring field: a spring with Motion's other fields, 10 and 1.
     const spring = legsFor({ stiffness: 300 })
     expect(shapeOf(spring)).toEqual(["Numbers x,y,scale,opacity", "Blend backgroundColor"])
@@ -182,9 +182,9 @@ describe("the Default transition (#357, ADR-0051)", () => {
     const damped = legsFor({ type: "spring", damping: 26 }, { from: { x: 0 }, to: { x: 100 } })
     expectRunsAs(damped[0]!, Machine.springValues({ x: 100 }, { stiffness: 100, damping: 26, mass: 1 }, { x: 0 }) as Run, "its damping, Motion's stiffness")
     const tween = legsFor({ type: "tween" }, { from: { x: 0 }, to: { x: 100 } })
-    expectRunsAs(tween[0]!, tweenOver(["x"], { easing: EASE_OUT }), "0.3 s, eased out")
-    const linear = legsFor({ type: "tween", easing: Easing.linear }, { from: { x: 0 }, to: { x: 100 } })
-    expectRunsAs(linear[0]!, tweenOver(["x"], { easing: Easing.linear }), "its own easing")
+    expectRunsAs(tween[0]!, tweenOver(["x"], { ease: Easing.easeOut }), "0.3 s, eased out")
+    const linear = legsFor({ type: "tween", ease: Easing.linear }, { from: { x: 0 }, to: { x: 100 } })
+    expectRunsAs(linear[0]!, tweenOver(["x"], { ease: Easing.linear }), "its own easing")
   })
 
   it("DT7: an Environment with no opinion runs every key on core's spring, as before", () => {
@@ -196,7 +196,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
   it("DT8: a transition's run is worked out once per object; one that defines none has none", () => {
     const given: WardicTransition = { duration: 0.5 }
     expect(runOf(given)).toBe(runOf(given))
-    expect(runOf(given)).toEqual({ type: "tween", duration: 0.5, easing: EASE_OUT })
+    expect(runOf(given)).toEqual({ type: "tween", duration: 0.5, ease: Easing.easeOut })
     expect(runOf(undefined)).toBeUndefined()
     expect(runOf({ delay: 0.2, respectReducedMotion: false })).toBeUndefined()
     expect(runOf({ type: "spring" })).toEqual({ type: "spring", stiffness: 100, damping: 10, mass: 1 })

@@ -18,8 +18,8 @@ import { afterEach, describe, expect, it } from "vitest"
 
 afterEach(cleanup)
 
-const TWEEN = { type: "tween", duration: 0.6, easing: Easing.linear } as const
-const FAST = { type: "tween", duration: 0.1, easing: Easing.linear } as const
+const TWEEN = { type: "tween", duration: 0.6, ease: Easing.linear } as const
+const FAST = { type: "tween", duration: 0.1, ease: Easing.linear } as const
 const BOX = { display: "block", width: "20px", height: "20px" } as const
 
 const xOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41

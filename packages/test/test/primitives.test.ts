@@ -13,7 +13,7 @@ const quarter = [0.25, 0.25, 0.25, 0.25]
 
 it.effect("tween emits eased progress and lands exactly on the target", () =>
   Effect.gen(function* () {
-    const frames = yield* Stream.runCollect(Machine.toStream(Machine.tween(0, 100, { duration: 1, easing: Easing.linear }))).pipe(
+    const frames = yield* Stream.runCollect(Machine.toStream(Machine.tween(0, 100, { duration: 1, ease: Easing.linear }))).pipe(
       Effect.provide(TestClock.layer(quarter)),
     )
     expect(values(frames)).toEqual([25, 50, 75, 100])
@@ -35,7 +35,7 @@ it.effect("tween clamps and completes even if frames overshoot the duration", ()
 it.effect("animate honors reverse", () =>
   Effect.gen(function* () {
     const frames = yield* Stream.runCollect(
-      Machine.toStream(Machine.animate(0, 100, { duration: 1, easing: Easing.linear, reverse: true })),
+      Machine.toStream(Machine.animate(0, 100, { duration: 1, ease: Easing.linear, reverse: true })),
     ).pipe(Effect.provide(TestClock.layer(quarter)))
     expect(values(frames)).toEqual([75, 50, 25, 0])
     expect(frames.at(-1)?.done).toBe(true)
@@ -45,7 +45,7 @@ it.effect("animate honors reverse", () =>
 it.effect("animate repeats", () =>
   Effect.gen(function* () {
     const frames = yield* Stream.runCollect(
-      Machine.toStream(Machine.animate(0, 10, { duration: 1, easing: Easing.linear, repeat: 1 })),
+      Machine.toStream(Machine.animate(0, 10, { duration: 1, ease: Easing.linear, repeat: 1 })),
     ).pipe(Effect.provide(TestClock.layer([...quarter, ...quarter])))
     expect(values(frames)).toEqual([2.5, 5, 7.5, 10, 2.5, 5, 7.5, 10])
     expect(frames.at(-1)?.done).toBe(true)
@@ -102,7 +102,7 @@ it.effect("decay slows to a stop and only ever moves forward", () =>
 it.effect("animateValues interpolates each key through the registry in lockstep", () =>
   Effect.gen(function* () {
     const frames = yield* Stream.runCollect(
-      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: Easing.linear }).pipe(
+      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, ease: Easing.linear }).pipe(
         Effect.map(Machine.toStream),
         Stream.unwrap,
       ),
@@ -124,7 +124,7 @@ it.effect("animateValues honors reverse and repeat (modifiers propagate through 
       Machine.animateValues(
         { x: 0, opacity: 0 },
         { x: 100, opacity: 1 },
-        { duration: 1, easing: Easing.linear, reverse: true, repeat: 1 },
+        { duration: 1, ease: Easing.linear, reverse: true, repeat: 1 },
       ).pipe(Effect.map(Machine.toStream), Stream.unwrap),
     ).pipe(Effect.provide(testLayer(ticks)))
 

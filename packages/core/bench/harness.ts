@@ -17,6 +17,7 @@
  */
 /// <reference path="./culori.d.ts" />
 import { formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -115,6 +116,17 @@ const SPRING = (i: number) =>
   [{ x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 }, {}, { x: 0, y: 0, scale: 1, opacity: 0 }] as const
 
 /**
+ * A tween's easing under the key `core` reads (#360): `ease` since the rename, `easing` before it,
+ * so base and head run the same curve across it. A core since #360 rejects `easing`, so each gets
+ * only its own.
+ */
+const easeFor = (core: Core, easing: (t: number) => number): CoreModule.Machine.AnimateOptions =>
+  Bool.match("resolve" in core.Easing, {
+    onTrue: () => ({ ease: easing }) as CoreModule.Machine.AnimateOptions,
+    onFalse: () => ({ easing }) as unknown as CoreModule.Machine.AnimateOptions,
+  })
+
+/**
  * `animateValues` with every modifier (ADR-0028, decision 7; one leaf since #226, where it was the
  * deepest stack): an infinite `repeat` turned every other run, and a `delay` spread over the
  * elements, so each element's turns fall on different frames. A 0.15 s run is about 9 frames, so
@@ -122,7 +134,7 @@ const SPRING = (i: number) =>
  */
 const REPEAT = (core: Core, i: number) => ({
   duration: 0.15,
-  easing: core.Easing.easeInOutCubic,
+  ...easeFor(core, core.Easing.easeInOutCubic),
   repeat: Number.POSITIVE_INFINITY,
   // Every other run turned: `repeatType` since #226, `yoyo` before it. Each core reads its own key and
   // ignores the other, so base and head run the same workload across the rename.
@@ -161,14 +173,14 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   {
     name: "animateValues",
     make: (core, i) =>
-      streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.Easing.easeInOutCubic })),
+      streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, ...easeFor(core, core.Easing.easeInOutCubic) })),
   },
   { name: "springBlend", make: (core, i) => streamOf(core, core.Machine.springBlend(STRING_FROM(i), STRING_TO)) },
   { name: "chase", make: (core, i) => core.Machine.toStream(core.Machine.chase(() => chaseTarget + (i % 10))) },
   {
     name: "animateComplex",
     make: (core, i) =>
-      streamOf(core, core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.Easing.easeInOutCubic })),
+      streamOf(core, core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, ...easeFor(core, core.Easing.easeInOutCubic) })),
   },
   { name: "animateRepeat", make: (core, i) => streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i))) },
   {
@@ -179,14 +191,14 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))) },
   {
     name: "animateValues/loop",
-    machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, easing: core.Easing.easeInOutCubic }),
+    machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, ...easeFor(core, core.Easing.easeInOutCubic) }),
   },
   { name: "springBlend/loop", machine: (core, i) => core.Machine.springBlend(STRING_FROM(i), STRING_TO) },
   { name: "chase/loop", machine: (core, i) => Effect.succeed(core.Machine.chase(() => chaseTarget + (i % 10))) },
   {
     name: "animateComplex/loop",
     machine: (core, i) =>
-      core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, easing: core.Easing.easeInOutCubic }),
+      core.Machine.animateValues(COMPLEX_FROM(i), COMPLEX_TO, { duration: 2, ...easeFor(core, core.Easing.easeInOutCubic) }),
   },
   { name: "animateRepeat/loop", machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT(core, i)) },
   {

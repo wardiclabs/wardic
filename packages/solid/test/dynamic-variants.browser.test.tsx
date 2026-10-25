@@ -112,7 +112,7 @@ describe("dynamic variants on Solid 1 (#277)", () => {
   })
 
   it("DV6: inherit: true lays it over the element's transition; without it, it replaces it", async () => {
-    const linear = { type: "tween", duration: 0.6, easing: Easing.linear } as const
+    const linear = { type: "tween", duration: 0.6, ease: Easing.linear } as const
     const own = { to: { x: 100, transition: { inherit: true, delay: 0.2 } } } as const satisfies WardicVariants
     const replaced = { to: { x: 100, transition: { delay: 0.2 } } } as const satisfies WardicVariants
     const q = mount(() => (
@@ -171,7 +171,7 @@ describe("dynamic variants on Solid 1 (#277)", () => {
 
   it("DV10: an animate map's own transition drives the animation to it", async () => {
     const q = mount(() => (
-      <wardic.div data-k="a" initial={{ x: 0 }} animate={{ x: 100, transition: { type: "tween", duration: 0.6, easing: Easing.linear } }} />
+      <wardic.div data-k="a" initial={{ x: 0 }} animate={{ x: 100, transition: { type: "tween", duration: 0.6, ease: Easing.linear } }} />
     ))
     const t0 = performance.now()
     await until_(t0, 0.3)

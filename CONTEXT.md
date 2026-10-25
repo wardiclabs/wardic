@@ -105,8 +105,12 @@ A shadow (`boxShadow`, `textShadow`) is a list of shadows, matched one by one. A
 _Avoid_: path (a path is one kind of complex value).
 
 **Easing**:
-A reshaping of normalized time `t`∈[0,1]→[0,1] applied by Definite primitives; orthogonal to interpolation.
+A reshaping of normalized time `t`∈[0,1]→[0,1] applied by Definite primitives; orthogonal to interpolation. A transition gives it as `ease`, Motion's word, in any of Motion's forms (an **Easing definition**).
 _Avoid_: curve, interpolator.
+
+**Easing definition**:
+How an `ease` names its Easing, as Motion's do: one of Motion's names (`"easeOut"`, `"backIn"`, `"anticipate"`…), a cubic bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or the function itself (#360).
+_Avoid_: easing type, timing function (CSS's word).
 
 **Discrete pair**:
 A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two complex values with different counts of colours, a path into a longer one, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).

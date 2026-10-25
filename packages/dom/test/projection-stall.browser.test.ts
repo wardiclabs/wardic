@@ -27,7 +27,7 @@ const flight = async (plan: ReadonlyArray<number>) => {
   const sk = makeSink()
   const e = makeEngine(sk.sink)
   const box = el(stage(), "position:absolute;left:0;top:0;width:100px;height:50px")
-  const node = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "tween", duration: 1, easing: Easing.linear }) })
+  const node = e.system.register({ id: "a", element: box, transition: () => Option.some({ type: "tween", duration: 1, ease: Easing.linear }) })
   await endOfTask()
   fireFrame()
   box.style.left = "200px"

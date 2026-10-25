@@ -6,7 +6,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 
 /**
- * A tween's `duration` is optional (#107): when it's missing it's 0.3 s, per field like `easing`
+ * A tween's `duration` is optional (#107): when it's missing it's 0.3 s, per field like `ease`
  * and `delay`, so the rest of the options still apply. Each constructor without a `duration` gives
  * the Frames, and the span, that `duration: 0.3` gives.
  */
@@ -18,11 +18,11 @@ const framesOf = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>): 
   return DTS.map((dt) => step(dt))
 }
 
-const MODIFIERS = { easing: Easing.easeInOutCubic, delay: 0.1, repeat: 2, repeatType: "reverse" as const, repeatDelay: 0.05 }
+const MODIFIERS = { ease: Easing.easeInOutCubic, delay: 0.1, repeat: 2, repeatType: "reverse" as const, repeatDelay: 0.05 }
 
 describe("a missing duration is 0.3 s, and the other options still apply", () => {
   it("tween", () => {
-    const options = { easing: Easing.easeInOutCubic, delay: 0.1 }
+    const options = { ease: Easing.easeInOutCubic, delay: 0.1 }
     expect(framesOf(Machine.tween(0, 16, options))).toEqual(framesOf(Machine.tween(0, 16, { duration: 0.3, ...options })))
     expect(Machine.tween(0, 16, {}).span.attributes).toEqual({ from: 0, to: 16, duration: 0.3 })
   })

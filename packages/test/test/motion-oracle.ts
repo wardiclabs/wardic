@@ -17,12 +17,12 @@ export interface RunOptions {
   readonly repeat: number
   readonly repeatDelay: number
   readonly repeatType: "loop" | "reverse" | "mirror"
-  readonly easing: (t: number) => number
+  readonly ease: (t: number) => number
 }
 
 /** A two-stop generator's value `elapsed` seconds in: Motion's keyframes generator over `[from, to]`. */
 const tweenAt = (elapsed: number, from: number, to: number, o: RunOptions): number =>
-  from + (to - from) * o.easing(Math.min(Math.max(elapsed / o.duration, 0), 1))
+  from + (to - from) * o.ease(Math.min(Math.max(elapsed / o.duration, 0), 1))
 
 /** Where a run from `from` to `to` is `t` seconds in: `JSAnimation.tick` (motion-dom 13.3.0, `:122-221`). */
 export const motionRunAt = (t: number, from: number, to: number, o: RunOptions): number => {
@@ -61,12 +61,12 @@ export const motionRunDone = (t: number, o: RunOptions): boolean =>
  * Where keyframes through `stops` are `t` seconds into `duration` (after `delay`): Motion's keyframes
  * generator with its default offsets, evenly spaced, and one easing for every Segment.
  */
-export const motionKeyframesAt = (t: number, stops: ReadonlyArray<number>, duration: number, delay: number, easing: (t: number) => number): number => {
+export const motionKeyframesAt = (t: number, stops: ReadonlyArray<number>, duration: number, delay: number, ease: (t: number) => number): number => {
   const progress = Math.min(Math.max((t - delay) / duration, 0), 1)
   const segments = stops.length - 1
   const i = Math.min(Math.floor(progress * segments), segments - 1)
   const local = progress * segments - i
   const a = stops[i] as number
   const b = stops[i + 1] as number
-  return a + (b - a) * easing(local)
+  return a + (b - a) * ease(local)
 }

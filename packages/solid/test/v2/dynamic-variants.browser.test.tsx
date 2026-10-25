@@ -76,7 +76,7 @@ describe("dynamic variants on Solid 2 (#277)", () => {
                 initial="enter"
                 animate="center"
                 exit="exit"
-                transition={{ type: "tween", duration: 0.6, easing: Easing.linear }}
+                transition={{ type: "tween", duration: 0.6, ease: Easing.linear }}
               />
             )}
           </Show>
@@ -98,7 +98,7 @@ describe("dynamic variants on Solid 2 (#277)", () => {
       <WardicProvider env={DomLive}>
         <AnimatePresence>
           <Show when={open()}>
-            <wardic.div data-k="a" initial={false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.6, easing: Easing.linear }} />
+            <wardic.div data-k="a" initial={false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.6, ease: Easing.linear }} />
           </Show>
         </AnimatePresence>
       </WardicProvider>

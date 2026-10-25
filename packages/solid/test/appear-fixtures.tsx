@@ -66,7 +66,7 @@ export const A5 = (): JSX.Element =>
       style={{ width: "20px", height: "20px" }}
       initial={{ rotate: 0 }}
       animate={{ rotate: 360 }}
-      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY, easing: Easing.linear }}
+      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY, ease: Easing.linear }}
     />
   ))
 

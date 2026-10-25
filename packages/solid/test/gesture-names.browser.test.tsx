@@ -79,7 +79,7 @@ describe("gesture props taking a variant name on Solid 1 (#291)", () => {
     const q = mount(() => (
       <wardic.div
         data-k="a"
-        whileHover={{ x: 100, transition: { type: "tween", duration: 0.6, easing: Easing.linear } }}
+        whileHover={{ x: 100, transition: { type: "tween", duration: 0.6, ease: Easing.linear } }}
         transition={{ type: "tween", duration: 0.05 }}
         style={BOX}
       />

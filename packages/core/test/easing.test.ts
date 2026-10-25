@@ -2,9 +2,12 @@ import * as Easing from "@wardic/core/Easing"
 import { expect, it } from "@effect/vitest"
 import * as Option from "effect/Option"
 
-/** The Penner easings: every `Easing` export but the generators (`cubicBezier`, `steps`, `spring`). */
+/** Motion's own easings (#360), beside the Penner set: `motion-ease.test.ts` checks them. */
+const MOTION = new Set(["easeIn", "easeOut", "easeInOut"])
+
+/** The Penner easings: every `Easing` export but the generators (`cubicBezier`, `steps`, `spring`) and Motion's. */
 const penner = Object.entries(Easing)
-  .filter(([name]) => name === "linear" || name.startsWith("ease"))
+  .filter(([name]) => name === "linear" || (name.startsWith("ease") && !MOTION.has(name)))
   .map(([, fn]) => fn as Easing.Easing)
 
 it("all easings pin the endpoints", () => {

@@ -40,7 +40,7 @@ afterEach(() => {
 type Sink = ReturnType<typeof makeSink>
 
 const SPRING: ProjectionSystem.LayoutTransition = { type: "spring" }
-const LINEAR: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.2, easing: Easing.linear }
+const LINEAR: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.2, ease: Easing.linear }
 
 /** Register `elements` (as `n0`, `n1`…) on `transition` and run their first pass. */
 const mount = async (e: Engine, elements: ReadonlyArray<HTMLElement>, transition: ProjectionSystem.LayoutTransition = SPRING): Promise<Array<ProjectionSystem.NodeHandle>> => {

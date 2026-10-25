@@ -39,7 +39,7 @@ afterEach(() => {
 const SCROLL = 420
 // Linear, as these tests were written for: Motion's `ease: "linear"` here was never Wardic's (#360), and
 // a tween left without an easing has eased out since #357.
-const LINEAR = { layout: { type: "tween", duration: 0.6, easing: Easing.linear } } as const
+const LINEAR = { layout: { type: "tween", duration: 0.6, ease: Easing.linear } } as const
 const PAGE = { position: "relative", height: "3000px" } as const
 const CARD = { position: "absolute", left: "300px", top: "600px", width: "200px", height: "150px" } as const
 const FRAME = { position: "fixed", inset: "0" } as const
@@ -272,7 +272,7 @@ describe("shared-layout twins in different scroll frames (#331)", () => {
 
   it("TF9: a detail leaving through a presence, the card staying: the leaving detail follows the card", async () => {
     const [open, setOpen] = createSignal(false)
-    const EXIT = { type: "tween", duration: 0.6, easing: Easing.linear } as const
+    const EXIT = { type: "tween", duration: 0.6, ease: Easing.linear } as const
     const { container } = render(() => (
       <WardicProvider env={DomLive}>
         <div style={PAGE}>
@@ -302,7 +302,7 @@ describe("shared-layout twins in different scroll frames (#331)", () => {
   })
 
   it("TF8: a keyed fixed presence child taken over on a scrolled page starts where its leaver painted", async () => {
-    const SLOW = { type: "tween", duration: 0.6, easing: Easing.linear } as const
+    const SLOW = { type: "tween", duration: 0.6, ease: Easing.linear } as const
     const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "toast"])
     const { container } = render(() => (
       <WardicProvider env={DomLive}>

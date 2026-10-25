@@ -1,7 +1,6 @@
 // The DOM Environment's Default transition (ADR-0051, #357): Motion's by value (`motion-dom`'s
 // `default-transitions.ts`, `getDefaultTransition`, at 16c6122).
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
-import * as Easing from "@wardic/core/Easing"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -17,7 +16,7 @@ it("DD1: a transform's is a 500 / 25 spring; a scale's 550, critically damped to
   for (const key of ["opacity", "backgroundColor", "background-color", "width", "filter", "--accent", "pathLength", "constructor"]) {
     const ease = DomDefaultTransition.transitionFor(key, 1)
     expect(ease, key).toMatchObject({ type: "tween", duration: 0.3 })
-    expect(Easing.nameOf((ease as { readonly easing: Easing.Easing }).easing), key).toEqual(Easing.nameOf(Easing.cubicBezier(0.25, 0.1, 0.35, 1)))
+    expect((ease as { readonly ease: unknown }).ease, key).toEqual([0.25, 0.1, 0.35, 1])
   }
 })
 

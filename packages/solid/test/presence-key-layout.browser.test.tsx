@@ -23,8 +23,8 @@ import { afterPaint, paintedFrames, until } from "./browser-helpers.ts"
 afterEach(cleanup)
 
 // Linear, as these tests were written for: a tween with no easing eases out since #357 (ADR-0051).
-const SLOW = { type: "tween", duration: 0.6, easing: Easing.linear } as const
-const CROSSFADE = { type: "tween", duration: 1.2, easing: Easing.linear } as const
+const SLOW = { type: "tween", duration: 0.6, ease: Easing.linear } as const
+const CROSSFADE = { type: "tween", duration: 1.2, ease: Easing.linear } as const
 const ROW = { display: "block", height: "30px", margin: "0", padding: "0" } as const
 
 /** The end of the task: a take-over's values are drawn there, before any paint. */
