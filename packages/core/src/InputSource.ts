@@ -1,20 +1,19 @@
 /**
- * The `InputSource` module: input as Environment-agnostic event streams (ADR-0004, ADR-0019),
- * behind the `InputSource.InputSource` service, its event shapes, and `heldPointer`, the Held
- * pointer contract every Environment builds its pointer streams from (ADR-0028, decision 11).
+ * The `InputSource` module: input as Environment-agnostic **Input feeds** (ADR-0004, ADR-0019,
+ * #318), behind the `InputSource.InputSource` service, its event shapes, and `heldPointer`, the
+ * Held pointer contract every Environment builds its pointer feeds from (ADR-0028, decision 11).
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
-import * as Effect from "effect/Effect"
 import { constFalse, constTrue, constVoid } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Queue from "effect/Queue"
-import * as Stream from "effect/Stream"
+import * as InputFeed from "./InputFeed.ts"
+import * as Outbox from "./internal/outbox.ts"
 import type * as Point from "./Point.ts"
 
 /**
@@ -160,23 +159,25 @@ export interface FocusLikeEvent {
 }
 
 /**
- * Raw event streams from the environment. `target` is environment-defined and
- * opaque to the engine (an element in the DOM, a node in a scene graph, etc.).
+ * Input from the environment, as **Input feeds** (#318): each a **Shared source** per target,
+ * calling its consumers inside the platform's dispatch. `target` is environment-defined and opaque
+ * to the engine (an element in the DOM, a node in a scene graph, etc.). A consumer that wants a
+ * Stream reads one through `InputFeed.toStream`.
  *
  * `pointer(target)` carries the pointer events over `target` and every **Held
  * pointer**'s: once a pointer goes down on `target`, its moves, release and cancel
- * keep reaching this stream wherever they land, until its release, its cancel or a
+ * keep reaching this feed wherever they land, until its release, its cancel or a
  * move with no button pressed (ADR-0019). Core's `heldPointer` implements that
  * for an Environment.
  */
 export class InputSource extends Context.Service<InputSource, {
-  readonly pointer: (target: unknown) => Stream.Stream<PointerLikeEvent>
+  readonly pointer: (target: unknown) => InputFeed.InputFeed<PointerLikeEvent>
   /**
    * The keys at `target` or inside it (ADR-0037): a **Shared source** per target, delivered inside
    * the platform's dispatch, after the app's own handlers, so a consumer reads whether one took
    * the key and can still take it itself.
    */
-  readonly keyboard: (target: unknown) => Stream.Stream<KeyboardLikeEvent>
+  readonly keyboard: (target: unknown) => InputFeed.InputFeed<KeyboardLikeEvent>
   // No wheel until a recognizer needs one, which then defines it and its units (ADR-0036,
   // *Amendment (#189)*).
   /**
@@ -184,18 +185,18 @@ export class InputSource extends Context.Service<InputSource, {
    * (environment-agnostic) source: every subscriber sees the same script of
    * transitions, regardless of the underlying DOM/native focus model.
    */
-  readonly focus: (target: unknown) => Stream.Stream<FocusLikeEvent>
+  readonly focus: (target: unknown) => InputFeed.InputFeed<FocusLikeEvent>
 }>()("@wardic/InputSource") {}
 
 /**
  * `heldPointer` — the Environment-agnostic realization of the **Held pointer**
  * contract of `InputSource.pointer(target)` (ADR-0019): once a pointer goes down on
- * the target, its moves, release and cancel keep reaching the target's stream
+ * the target, its moves, release and cancel keep reaching the target's feed
  * wherever they land, until it is released.
  *
- * An Environment hands it two {@link PointerFeed}s and gets back the target's stream:
+ * An Environment hands it two {@link PointerFeed}s and gets back the target's feed (#318):
  *
- * - `target`: the pointer events on the target itself, for the stream's whole life.
+ * - `target`: the pointer events on the target itself, for the feed's whole life.
  * - `global`: page-wide pointer events, subscribed only while a pointer that went down
  *   on the target is held. It is subscribed synchronously inside the target's `down`
  *   emit, so no event after the down can be missed (a subscription made later, after a
@@ -212,7 +213,7 @@ export class InputSource extends Context.Service<InputSource, {
  * lifted), means its release was lost where no event reports it: the helper ends the
  * hold with an unpressed move at its last position (decision 7), before the down
  * reaches any target, and the down itself is left to the target it lands on. `global`
- * is unsubscribed synchronously when no pointer is held, and when the stream ends.
+ * is unsubscribed synchronously when no pointer is held, and when the feed stops.
  *
  * A scroll moves a held pointer (ADR-0019, *Amendment (Reorder)*): the page under it
  * moved, so it is somewhere else on the page, as Motion's pan session counts it
@@ -228,13 +229,12 @@ export class InputSource extends Context.Service<InputSource, {
  * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
  * authors, like `Clock.fromRefreshFrames`. Nothing here names a DOM type.
  *
- * Delivery is inline (ADR-0032): each feed's callback ends with `Queue.flushUnsafe`, so the
- * stream's consumer, waiting on the queue, handles the events before the platform's dispatch
- * returns. Without it the queue releases its taker through Effect's scheduler, a
- * `setTimeout(0)` in a browser, after the frame's paint (#32).
+ * Delivery is inline (ADR-0032): each platform callback ends with a flush of what it pushed,
+ * so the consumer hears the events before the platform's dispatch returns, after the hold's
+ * state is updated. `InputFeed.toStream` keeps that for a Stream consumer.
  *
- * Observability: the per-event path is the hot path and stays quiet; the Environment's
- * Shared source wrapper carries the subscribe span and log.
+ * Observability: the per-event path is the hot path and stays quiet; a consumer carries the
+ * subscribe span and log.
  */
 
 /**
@@ -313,177 +313,174 @@ const stopFeed = (stop: Stop): void =>
   Option.match(MutableRef.getAndSet(stop, Option.none()), { onNone: constVoid, onSome: (stopIt) => stopIt() })
 
 /**
- * The target's `pointer` stream, with every Held pointer's events wherever they land
- * (see the module doc). One ordered emit: every feed offers into the same queue, in the
- * order the platform calls them, and each feed's callback ends with a flush, so a waiting
- * consumer handles the events inside the platform's dispatch (ADR-0032).
+ * The target's `pointer` feed, with every Held pointer's events wherever they land (see the
+ * module doc). One ordered emit (#318): every platform feed pushes into the same outbox, in the
+ * order the platform calls them, and each callback ends with a flush, so the consumer hears the
+ * events inside the platform's dispatch (ADR-0032).
  */
-export const heldPointer = (options: HeldPointerOptions): Stream.Stream<PointerLikeEvent> =>
-  Stream.callback<PointerLikeEvent>((queue) =>
-    Effect.acquireRelease(
-      Effect.sync(() => {
-        // Each held pointer: where a lost release leaves it, and the scroll since its down.
-        const held = new Map<number, Held>()
-        const stopGlobal: Stop = MutableRef.make(Option.none())
-        const stopScroll: Stop = MutableRef.make(Option.none())
-        // The platform event the page-wide feed forwarded last, so the target's copy of it is dropped.
-        const lastGlobalRaw = MutableRef.make(Option.none<unknown>())
-        // Each scrolled source's last position, for the hold.
-        const scrollPositions = new Map<unknown, { x: number; y: number }>()
+export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<PointerLikeEvent> => (emit) => {
+  // Each held pointer: where a lost release leaves it, and the scroll since its down.
+  const held = new Map<number, Held>()
+  const stopGlobal: Stop = MutableRef.make(Option.none())
+  const stopScroll: Stop = MutableRef.make(Option.none())
+  // The platform event the page-wide feed forwarded last, so the target's copy of it is dropped.
+  const lastGlobalRaw = MutableRef.make(Option.none<unknown>())
+  // Each scrolled source's last position, for the hold.
+  const scrollPositions = new Map<unknown, { x: number; y: number }>()
 
-        /**
-         * A feed's callback, then a flush: the stream's consumer, waiting on the queue, takes
-         * what the callback offered inside the platform's dispatch, with no scheduler hop
-         * (ADR-0032). One flush per callback, after the hold's state is updated, so a
-         * consumer never sees it half-updated. A consumer that is busy (an emit from inside
-         * its own handling) isn't waiting: the events stay queued, in order, for its next take.
-         */
-        const flushed =
-          <Args extends ReadonlyArray<unknown>>(feed: (...args: Args) => void) =>
-          (...args: Args): void => {
-            feed(...args)
-            Queue.flushUnsafe(queue)
+  // What a callback emits, held until its hold's state is updated (`internal/outbox.ts`).
+  const outbox = Outbox.make(emit)
+
+  /**
+   * A feed's callback, then a flush: the consumer hears what the callback pushed inside the
+   * platform's dispatch, with no scheduler hop (ADR-0032). One flush per callback, after
+   * the hold's state is updated, so a consumer never sees it half-updated. One that makes
+   * the platform dispatch again from its handling leaves those events waiting, in order,
+   * for this flush to go on with.
+   */
+  const flushed =
+    <Args extends ReadonlyArray<unknown>>(feed: (...args: Args) => void) =>
+    (...args: Args): void => {
+      feed(...args)
+      outbox.flush()
+    }
+
+  const stopFeeds = (): void => {
+    stopFeed(stopGlobal)
+    stopFeed(stopScroll)
+    scrollPositions.clear()
+  }
+
+  const unhold = (pointerId: number): void => {
+    held.delete(pointerId)
+    if (held.size === 0) stopFeeds()
+  }
+
+  /** A held pointer's event, from either feed: forwarded with its scroll shift, and the hold kept or ended. */
+  const forward = (h: Held, event: PointerLikeEvent): void => {
+    const out = shifted(h, event)
+    outbox.push(out)
+    Bool.match(endsHold(event), {
+      onTrue: () => unhold(event.pointerId),
+      onFalse: () => {
+        // An enter or a leave doesn't move the pointer: a scroll's move carries the last
+        // move's event, as Motion's `lastMoveEvent` (#273).
+        if (event.type !== "move") return
+        h.last = out
+        h.moved = true
+      },
+    })
+  }
+
+  const fromScroll = (source: unknown, position: Point.Point, timeStamp: number): void =>
+    Option.match(Option.fromUndefinedOr(scrollPositions.get(source)), {
+      onNone: () => {
+        scrollPositions.set(source, { x: position.x, y: position.y })
+      },
+      onSome: (last) => {
+        const dx = position.x - last.x
+        const dy = position.y - last.y
+        if (Bool.and(dx === 0, dy === 0)) return
+        last.x = position.x
+        last.y = position.y
+        Iter.forEach(held.values(), (h) => {
+          h.dx += dx
+          h.dy += dy
+          // Until it has moved since its down, a scroll emits nothing for it.
+          if (h.moved) {
+            const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, scroll: { x: h.dx, y: h.dy }, button: "none", timeStamp }
+            h.last = moved
+            outbox.push(moved)
           }
+        })
+      },
+    })
 
-        const stopFeeds = (): void => {
-          stopFeed(stopGlobal)
-          stopFeed(stopScroll)
-          scrollPositions.clear()
-        }
-
-        const unhold = (pointerId: number): void => {
-          held.delete(pointerId)
-          if (held.size === 0) stopFeeds()
-        }
-
-        /** A held pointer's event, from either feed: forwarded with its scroll shift, and the hold kept or ended. */
-        const forward = (h: Held, event: PointerLikeEvent): void => {
-          const out = shifted(h, event)
-          Queue.offerUnsafe(queue, out)
-          Bool.match(endsHold(event), {
-            onTrue: () => unhold(event.pointerId),
-            onFalse: () => {
-              // An enter or a leave doesn't move the pointer: a scroll's move carries the last
-              // move's event, as Motion's `lastMoveEvent` (#273).
-              if (event.type !== "move") return
-              h.last = out
-              h.moved = true
-            },
-          })
-        }
-
-        const fromScroll = (source: unknown, position: Point.Point, timeStamp: number): void =>
-          Option.match(Option.fromUndefinedOr(scrollPositions.get(source)), {
-            onNone: () => {
-              scrollPositions.set(source, { x: position.x, y: position.y })
-            },
-            onSome: (last) => {
-              const dx = position.x - last.x
-              const dy = position.y - last.y
-              if (Bool.and(dx === 0, dy === 0)) return
-              last.x = position.x
-              last.y = position.y
-              Iter.forEach(held.values(), (h) => {
-                h.dx += dx
-                h.dy += dy
-                // Until it has moved since its down, a scroll emits nothing for it.
-                if (h.moved) {
-                  const moved: PointerLikeEvent = { ...h.last, type: "move", x: h.last.x + dx, y: h.last.y + dy, scroll: { x: h.dx, y: h.dy }, button: "none", timeStamp }
-                  h.last = moved
-                  Queue.offerUnsafe(queue, moved)
-                }
-              })
-            },
-          })
-
-        const fromGlobal = (event: PointerLikeEvent, raw: unknown): void =>
-          Match.value(event).pipe(
-            Match.when({ type: "down" }, (down) =>
-              Iter.forEach(Arr.fromIterable(held), ([pointerId, h]) => {
-                if (supersedes(down, h.last)) {
-                  // Its release, wherever it was, isn't known to have landed on the target: no tap.
-                  Queue.offerUnsafe(queue, { ...h.last, type: "move", pressed: false, button: "none", onTarget: false, timeStamp: down.timeStamp })
-                  unhold(pointerId)
-                }
-              }),
-            ),
-            Match.when({ type: Match.is("move", "up", "cancel") }, (e) =>
-              Option.match(Option.fromUndefinedOr(held.get(e.pointerId)), {
-                onNone: constVoid,
-                onSome: (h) => {
-                  MutableRef.set(lastGlobalRaw, Option.fromUndefinedOr(raw))
-                  forward(h, e)
-                },
-              }),
-            ),
-            Match.orElse(constVoid),
-          )
-
-        /** Subscribe the page-wide and scroll feeds, at the first hold. */
-        const startFeeds = (): void => {
-          Option.fromUndefinedOr(options.global).pipe(
-            Option.filter(() => Option.isNone(MutableRef.get(stopGlobal))),
-            Option.match({
-              onNone: constVoid,
-              onSome: (global) => {
-                const stop = global(flushed(fromGlobal))
-                // The feed may have ended the hold while subscribing.
-                Bool.match(held.size === 0, { onTrue: stop, onFalse: () => MutableRef.set(stopGlobal, Option.some(stop)) })
-              },
-            }),
-          )
-          Option.fromUndefinedOr(options.scroll).pipe(
-            Option.filter(() => Bool.and(Option.isNone(MutableRef.get(stopScroll)), held.size > 0)),
-            Option.match({
-              onNone: constVoid,
-              onSome: (scroll) => MutableRef.set(stopScroll, Option.some(scroll(flushed(fromScroll)))),
-            }),
-          )
-        }
-
-        /** A down on the target holds its pointer; a second down for a held pointer (its release was lost) keeps the one hold, from this down. */
-        const hold = (down: PointerLikeEvent): void => {
-          const first = held.size === 0
-          Option.match(Option.fromUndefinedOr(held.get(down.pointerId)), {
-            onNone: () => {
-              held.set(down.pointerId, { last: down, dx: 0, dy: 0, moved: false })
-            },
-            onSome: (h) => {
-              h.last = down
-              h.dx = 0
-              h.dy = 0
-              h.moved = false
-            },
-          })
-          if (first) startFeeds()
-          Queue.offerUnsafe(queue, down)
-        }
-
-        const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
-          // The same platform event, already forwarded from the page-wide feed.
-          if (Option.exists(MutableRef.get(lastGlobalRaw), (last) => last === raw)) {
-            MutableRef.set(lastGlobalRaw, Option.none())
-            return
+  const fromGlobal = (event: PointerLikeEvent, raw: unknown): void =>
+    Match.value(event).pipe(
+      Match.when({ type: "down" }, (down) =>
+        Iter.forEach(Arr.fromIterable(held), ([pointerId, h]) => {
+          if (supersedes(down, h.last)) {
+            // Its release, wherever it was, isn't known to have landed on the target: no tap.
+            outbox.push({ ...h.last, type: "move", pressed: false, button: "none", onTarget: false, timeStamp: down.timeStamp })
+            unhold(pointerId)
           }
-          Match.value(event).pipe(
-            Match.when({ type: "down" }, hold),
-            Match.orElse((e) =>
-              Option.match(Option.fromUndefinedOr(held.get(e.pointerId)), {
-                onNone: () => {
-                  Queue.offerUnsafe(queue, e)
-                },
-                onSome: (h) => forward(h, e),
-              }),
-            ),
-          )
-        }
+        }),
+      ),
+      Match.when({ type: Match.is("move", "up", "cancel") }, (e) =>
+        Option.match(Option.fromUndefinedOr(held.get(e.pointerId)), {
+          onNone: constVoid,
+          onSome: (h) => {
+            MutableRef.set(lastGlobalRaw, Option.fromUndefinedOr(raw))
+            forward(h, e)
+          },
+        }),
+      ),
+      Match.orElse(constVoid),
+    )
 
-        const stopTarget = options.target(flushed(fromTarget))
-        return (): void => {
-          stopTarget()
-          stopFeeds()
-        }
+  /** Subscribe the page-wide and scroll feeds, at the first hold. */
+  const startFeeds = (): void => {
+    Option.fromUndefinedOr(options.global).pipe(
+      Option.filter(() => Option.isNone(MutableRef.get(stopGlobal))),
+      Option.match({
+        onNone: constVoid,
+        onSome: (global) => {
+          const stop = global(flushed(fromGlobal))
+          // The feed may have ended the hold while subscribing.
+          Bool.match(held.size === 0, { onTrue: stop, onFalse: () => MutableRef.set(stopGlobal, Option.some(stop)) })
+        },
       }),
-      (stop) => Effect.sync(stop),
-    ),
-  )
+    )
+    Option.fromUndefinedOr(options.scroll).pipe(
+      Option.filter(() => Bool.and(Option.isNone(MutableRef.get(stopScroll)), held.size > 0)),
+      Option.match({
+        onNone: constVoid,
+        onSome: (scroll) => MutableRef.set(stopScroll, Option.some(scroll(flushed(fromScroll)))),
+      }),
+    )
+  }
+
+  /** A down on the target holds its pointer; a second down for a held pointer (its release was lost) keeps the one hold, from this down. */
+  const hold = (down: PointerLikeEvent): void => {
+    const first = held.size === 0
+    Option.match(Option.fromUndefinedOr(held.get(down.pointerId)), {
+      onNone: () => {
+        held.set(down.pointerId, { last: down, dx: 0, dy: 0, moved: false })
+      },
+      onSome: (h) => {
+        h.last = down
+        h.dx = 0
+        h.dy = 0
+        h.moved = false
+      },
+    })
+    if (first) startFeeds()
+    outbox.push(down)
+  }
+
+  const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
+    // The same platform event, already forwarded from the page-wide feed.
+    if (Option.exists(MutableRef.get(lastGlobalRaw), (last) => last === raw)) {
+      MutableRef.set(lastGlobalRaw, Option.none())
+      return
+    }
+    Match.value(event).pipe(
+      Match.when({ type: "down" }, hold),
+      Match.orElse((e) =>
+        Option.match(Option.fromUndefinedOr(held.get(e.pointerId)), {
+          onNone: () => {
+            outbox.push(e)
+          },
+          onSome: (h) => forward(h, e),
+        }),
+      ),
+    )
+  }
+
+  const stopTarget = options.target(flushed(fromTarget))
+  return (): void => {
+    stopTarget()
+    stopFeeds()
+  }
+}

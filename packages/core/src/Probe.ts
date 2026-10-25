@@ -7,6 +7,7 @@ import type * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
 import type { Atom } from "effect/reactivity"
+import type * as InputFeed from "./InputFeed.ts"
 
 /** Geometry of a measured target, in the environment's coordinate space. */
 export interface Bounds {
@@ -105,7 +106,8 @@ export class Probe extends Context.Service<Probe, {
   readonly observeResize: (target: unknown) => Stream.Stream<Bounds>
   /**
    * A target's intersection with the viewport, or `options`' root (#273): each report as it enters
-   * or leaves, the first as it starts.
+   * or leaves, the first as it starts. An **Input feed** (#318): one observer per subscriber, since
+   * each may ask its own root, margin and amount.
    */
-  readonly observeIntersection: (target: unknown, options?: IntersectionOptions) => Stream.Stream<Intersection>
+  readonly observeIntersection: (target: unknown, options?: IntersectionOptions) => InputFeed.InputFeed<Intersection>
 }>()("@wardic/Probe") {}

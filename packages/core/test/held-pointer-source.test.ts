@@ -1,3 +1,4 @@
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
@@ -87,7 +88,7 @@ const start = (target: Feed, global?: Feed, scroll?: ScrollFeedFake) =>
   Effect.gen(function* () {
     const seen: Array<InputSource.PointerLikeEvent> = []
     const fiber = yield* Effect.forkChild(
-      Stream.runForEach(InputSource.heldPointer({ target: target.feed, global: global?.feed, scroll: scroll?.feed }), (event) =>
+      Stream.runForEach(InputFeed.toStream(InputSource.heldPointer({ target: target.feed, global: global?.feed, scroll: scroll?.feed })), (event) =>
         Effect.sync(() => {
           seen.push(event)
         })),
@@ -624,7 +625,7 @@ describe("InputSource.heldPointer", () => {
       })
       const seen: Array<string> = []
       const fiber = Effect.runFork(
-        Stream.runForEach(InputSource.heldPointer({ target: target.feed, global: global?.feed, scroll: scroll?.feed }), (event) =>
+        Stream.runForEach(InputFeed.toStream(InputSource.heldPointer({ target: target.feed, global: global?.feed, scroll: scroll?.feed })), (event) =>
           Effect.sync(() => {
             seen.push(key(event))
             onEvent(event)

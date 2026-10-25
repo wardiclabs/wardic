@@ -9,7 +9,7 @@
  * ADR-0028 in `docs/adr/`. The services (`Clock`, `RefreshFrameSource`, `Renderer`,
  * `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`, `DefaultTransition`) are each `X.X`,
  * with the shared constructors the Environments build on (`Clock.layer`, `Clock.fromRefreshFrames`,
- * `InputSource.heldPointer`, `InterpolatorRegistry.layer`, `FrameLoop.layer`,
+ * `InputSource.heldPointer`, `InputFeed.byTarget`, `InterpolatorRegistry.layer`, `FrameLoop.layer`,
  * `DefaultTransition.oneSpring`). Design decisions and the project glossary live in `CONTEXT.md`
  * and `docs/adr/`.
  */
@@ -26,6 +26,7 @@ export * as Flip from "./Flip.ts"
 export * as Frame from "./Frame.ts"
 export * as FrameLoop from "./FrameLoop.ts"
 export * as Inertia from "./Inertia.ts"
+export * as InputFeed from "./InputFeed.ts"
 export * as InputSource from "./InputSource.ts"
 export * as Interpolator from "./Interpolator.ts"
 export * as InterpolatorRegistry from "./InterpolatorRegistry.ts"

@@ -7,6 +7,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 import { Atom } from "effect/reactivity"
+import * as Arr from "effect/Array"
+import * as Feeds from "../src/feeds.ts"
 
 /** Build a PointerLikeEvent: a primary mouse (`makePointerLikeEvent`), pressed except at the release or a leave. */
 const ev = (
@@ -125,7 +127,7 @@ const scriptedProbe = (script: ReadonlyArray<boolean>, asked: Array<Probe.Inters
     observeResize: () => Stream.empty,
     observeIntersection: (_target, options) => {
       asked.push(options)
-      return Stream.fromIterable(script.map((intersecting, i) => ({ intersecting, raw: `entry ${i}` })))
+      return Feeds.script(Arr.map(script, (intersecting, i) => ({ intersecting, raw: `entry ${i}` })))
     },
   })
 

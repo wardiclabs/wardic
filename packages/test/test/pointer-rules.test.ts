@@ -1,4 +1,5 @@
 import type * as Drag from "@wardic/core/Drag"
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
@@ -290,8 +291,8 @@ const scrolledInput = () => {
           return () => (emitScroll = undefined)
         },
       }),
-    keyboard: () => Stream.empty,
-    focus: () => Stream.empty,
+    keyboard: () => InputFeed.empty,
+    focus: () => InputFeed.empty,
   })
   return {
     layer,
