@@ -16,7 +16,7 @@
  * Both MUST be called within a Solid owner (component body / `createRoot`) —
  * they register `onCleanup` and read the runtime from context.
  */
-import type * as Recognizer from "@wardic/core/Recognizer"
+import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
@@ -61,7 +61,7 @@ export const streamToSignal = <A>(
  * reported). Must be called within a Solid owner under a `WardicProvider`.
  */
 export const watchToSignal = <A>(
-  watchOf: (handlers: Recognizer.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+  watchOf: (handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
   initial: A,
 ): Accessor<A> => {
   const [get, set] = createSignal(initial)

@@ -58,7 +58,6 @@ import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import { constFalse, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
@@ -85,7 +84,7 @@ import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
 import { trackConstraintsOf } from "../../drag-constraints.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import { driveDragTrack } from "../../drag-track.ts"
-import { reported, type WardicServices } from "../../runtime.ts"
+import type { WardicServices } from "../../runtime.ts"
 import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
@@ -809,33 +808,19 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   })
 
 
-  // The mounted element: registered with the gate, its layout node, its spine built over it, its
-  // drag track's fiber, and the Scope its gesture watches run in (#318), made at its first watch: a
-  // ward with no gesture makes and closes none.
+  // The mounted element: registered with the gate, its layout node, its spine built over it, and how
+  // to run a watch in its watch Scope (#318, #379): its gesture watches and its drag track.
   interface Mounted {
     readonly element: HTMLElement
     readonly spine: ElementSpine
     readonly layout: ProjectionSystem.NodeHandle | undefined
-    readonly fibers: Array<Fiber.Fiber<unknown, unknown>>
-    scope: Scope.Closeable | undefined
+    readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
     hover: boolean
     press: boolean
     pan: boolean
     inView: boolean
     focus: boolean
     readonly dispose: () => void
-  }
-  /** Run a recognizer's or the drag track's fiber on the provider's runtime, for the mount's life. */
-  const runFor = (m: { readonly fibers: Array<Fiber.Fiber<unknown, unknown>> }, effect: Effect.Effect<void, unknown, WardicServices>): void => {
-    m.fibers.push(runtime.runFork(reported(effect)))
-  }
-  /**
-   * Run a gesture watch in the mount's Scope (#318, ADR-0055): subscribed now, with no fiber of its own,
-   * until the unmount closes the Scope.
-   */
-  const watchFor = (m: Mounted, watch: Effect.Effect<void, never, Scope.Scope | WardicServices>): void => {
-    if (Predicate.isUndefined(m.scope)) m.scope = Scope.makeUnsafe()
-    runtime.runSync(watch.pipe(Scope.provide(m.scope)))
   }
   /** A handler's throw, reported as a fiber's failure is (ADR-0030, decision 4); the watch goes on. */
   const onDefect = (cause: Cause.Cause<never>): void => {
@@ -849,8 +834,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const startRecognizers = (m: Mounted): void => {
     if (Bool.and(Bool.or(untrack(wantsHover), lifecycle.wantsHover), Bool.not(m.hover))) {
       m.hover = true
-      watchFor(
-        m,
+      m.watch(
         Recognizer.watchHover(m.element, {
           on: (transition) => {
             setGesture(m.element, "hovered", transition.active)
@@ -862,8 +846,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     }
     if (Bool.and(Bool.or(untrack(wantsPress), lifecycle.wantsPress), Bool.not(m.press))) {
       m.press = true
-      watchFor(
-        m,
+      m.watch(
         Recognizer.watchPress(m.element, {
           on: (press) => {
             setGesture(m.element, "pressed", press.phase === "start")
@@ -876,13 +859,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // A pan sets no layer: only a `next` wants it (#273).
     if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
       m.pan = true
-      watchFor(m, Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample), onDefect }))
+      m.watch(Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample), onDefect }))
     }
     // In view as its `viewport` says, read when it starts (#273).
     if (Bool.and(Bool.or(untrack(wantsInView), lifecycle.wantsInView), Bool.not(m.inView))) {
       m.inView = true
-      watchFor(
-        m,
+      m.watch(
         Recognizer.watchInView(m.element, inViewOptionsOf(untrack(cfg).viewport), {
           on: (transition) => {
             setGesture(m.element, "inView", transition.active)
@@ -895,7 +877,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Focused as the browser shows it (`:focus-visible`, #273).
     if (Bool.and(untrack(wantsFocus), Bool.not(m.focus))) {
       m.focus = true
-      watchFor(m, Recognizer.watchFocus(m.element, { visible: true }, { on: (focused) => setGesture(m.element, "focused", focused), onDefect }))
+      m.watch(Recognizer.watchFocus(m.element, { visible: true }, { on: (focused) => setGesture(m.element, "focused", focused), onDefect }))
     }
   }
   let mounted: Mounted | undefined
@@ -998,7 +980,14 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     })
     // A `<Reorder>` item's group registers the node, until the unmount.
     const handedOver = UndefinedOr.map(layout, (handle) => UndefinedOr.map(internal.onLayoutHandle, (onHandle) => onHandle(handle)))
-    const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
+    // Its watch Scope (#318, #379, ADR-0055): its gesture watches and its drag track run in it, each
+    // subscribed at once with no fiber of its own, until the unmount closes it. Made at the first
+    // watch: a ward with no gesture makes and closes none.
+    let watchScope: Scope.Closeable | undefined
+    const watchIn = (watch: Effect.Effect<void, never, Scope.Scope | WardicServices>): void => {
+      if (Predicate.isUndefined(watchScope)) watchScope = Scope.makeUnsafe()
+      runtime.runSync(watch.pipe(Scope.provide(watchScope)))
+    }
     if (internal.defaultsOnElement === true) UndefinedOr.map(dragDefaults, (defaults) => applyDragDefaults(el, defaults))
     // The drag track (ADR-0004): the pointer direct-sets `x`/`y` while the spring drives the rest and
     // `whileDrag`; on a layout node it feeds the projection (ADR-0016).
@@ -1007,7 +996,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const constraints = trackConstraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints)
     const dragTrack = UndefinedOr.map(dragAxis, (axis) =>
       driveDragTrack({
-        run: (track) => runFor({ fibers }, track),
+        watch: (track) => watchIn(track(onDefect)),
+        fork: (response) => void runtime.runFork(response),
         gate,
         id,
         element: el,
@@ -1075,8 +1065,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       element: el,
       spine,
       layout,
-      fibers,
-      scope: undefined,
+      watch: watchIn,
       hover: false,
       press: false,
       pan: false,
@@ -1086,9 +1075,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         if (Predicate.isNotUndefined(undrive)) undrive()
         UndefinedOr.map(mountedHook, (end) => end())
         spine.dispose()
-        Arr.forEach(fibers, (fiber) => runtime.runFork(Fiber.interrupt(fiber)))
-        // Its gesture watches' listeners go, and their spans end.
-        UndefinedOr.map(m.scope, (scope) => runtime.runSync(Scope.close(scope, Exit.void)))
+        // Its gesture watches' and drag track's listeners go, a running release stops, and their spans end.
+        UndefinedOr.map(watchScope, (scope) => runtime.runSync(Scope.close(scope, Exit.void)))
         // The group lets go of the node before it's disposed.
         UndefinedOr.map(handedOver, (release) => release())
         UndefinedOr.map(layout, (node) => node.dispose())

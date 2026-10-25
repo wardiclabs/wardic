@@ -11,12 +11,22 @@
 //   leaves its events for the outer flush; a throw leaves the rest for the next flush.
 // - IF6: heldPointer as a feed: a held pointer's page-wide release reaches it, and the target's copy
 //   of the same platform event doesn't, with no Stream between.
+// - IF7: watch (#379) hears each event inside the emit while its Scope is open; a throw goes to
+//   onDefect, as a die, and it goes on; with no onDefect the throw goes up the emit; the close stops
+//   the feed.
+// - IF8: watchWith: a handler that returns false stops the feed, even from inside the feed's start;
+//   onEnd is told when the feed runs out, once.
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Outbox from "../src/internal/outbox.ts"
+import * as Arr from "effect/Array"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import { constVoid } from "effect/Function"
+import * as MutableRef from "effect/MutableRef"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { describe, expect, it } from "vitest"
 
@@ -168,5 +178,54 @@ describe("Input feeds (#318)", () => {
     expect(heard).toEqual(["down@0", "up@50"])
     expect(emitTo.global, "and unsubscribed at the release").toBeUndefined()
     stop()
+  })
+
+  it("IF7: watch hears each event inside the emit while its Scope is open; a throw goes to onDefect and it goes on; the close stops the feed", () => {
+    const { state, feed } = controlled<number>()
+    const heard: Array<number> = []
+    const defects: Array<Cause.Cause<never>> = []
+    const scope = Effect.runSync(Scope.make())
+    const on = (n: number): void => {
+      if (n === 2) throw new Error("two")
+      heard.push(n)
+    }
+    Effect.runSync(InputFeed.watch(feed, { on, onDefect: (cause) => defects.push(cause) }).pipe(Scope.provide(scope)))
+    expect(state.starts, "subscribed at once").toBe(1)
+    state.emit!(1)
+    expect(heard, "inside the emit").toEqual([1])
+    state.emit!(2)
+    state.emit!(3)
+    expect(heard, "the next event still heard").toEqual([1, 3])
+    expect(defects).toHaveLength(1)
+    expect(Cause.hasDies(defects[0]!), "a die").toBe(true)
+    Effect.runSync(Scope.close(scope, Exit.void))
+    expect(state.stops, "the close stops the feed").toBe(1)
+    // With no onDefect, the throw goes up the emit, as a listener's would.
+    const bare = controlled<number>()
+    Effect.runSync(Effect.scoped(Effect.andThen(InputFeed.watch(bare.feed, { on }), Effect.sync(() => expect(() => bare.state.emit!(2)).toThrow("two")))))
+  })
+
+  it("IF8: watchWith: a handler that returns false stops the feed, even from inside its start; onEnd is told once", () => {
+    const stops = MutableRef.make(0)
+    const ends = MutableRef.make(0)
+    const heard: Array<number> = []
+    // A source that emits as it starts, then ends.
+    const eager: InputFeed.InputFeed<number> = (emit, end) => {
+      Arr.forEach([1, 2, 3], emit)
+      end()
+      return () => MutableRef.increment(stops)
+    }
+    const upTo = (last: number) => () => (n: number) => {
+      heard.push(n)
+      return n < last
+    }
+    Effect.runSync(Effect.scoped(InputFeed.watchWith(eager, upTo(2), { onEnd: () => MutableRef.increment(ends) })))
+    expect(heard, "nothing after the stop").toEqual([1, 2])
+    expect(MutableRef.get(stops), "stopped once, as it started").toBe(1)
+    expect(MutableRef.get(ends), "a stopped watch hears no end").toBe(0)
+    heard.length = 0
+    Effect.runSync(Effect.scoped(InputFeed.watchWith(eager, upTo(9), { onEnd: () => MutableRef.increment(ends) })))
+    expect(heard).toEqual([1, 2, 3])
+    expect(MutableRef.get(ends), "the end told once").toBe(1)
   })
 })

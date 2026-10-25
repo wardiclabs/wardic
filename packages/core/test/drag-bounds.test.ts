@@ -1,5 +1,7 @@
 import * as Drag from "@wardic/core/Drag"
 import { describe, expect, it } from "@effect/vitest"
+import * as Effect from "effect/Effect"
+import * as Stream from "effect/Stream"
 
 // An element constraint's bounds (#273, ADR-0047): Motion's `calcViewportConstraints`, `calcOrigin`
 // and `scalePositionWithinConstraints`.
@@ -9,6 +11,8 @@ import { describe, expect, it } from "@effect/vitest"
 // - DB3: sameBounds, edge by edge, an absent axis or edge included.
 // - DB4: progressWithin: 0 at min, 1 at max, clamped; ½ for no length.
 // - DB5: keepPlace: the same place in the new bounds, on the axes the drag moves, where both have both edges.
+// - DB6: within (#379): a sample's offset kept within bounds, elastic past them, delta and velocity
+//   left; withinBounds is its Stream form.
 
 const box = (left: number, top: number, width: number, height: number): Drag.Edges => ({ left, top, right: left + width, bottom: top + height })
 
@@ -46,5 +50,27 @@ describe("an element constraint's bounds (#273)", () => {
     expect(Drag.keepPlace({ x: 150, y: 100 }, "xy", from, to)).toEqual({ x: 75, y: 50 })
     expect(Drag.keepPlace({ x: 150, y: 100 }, "x", from, to), "y isn't moved").toEqual({ x: 75, y: 100 })
     expect(Drag.keepPlace({ x: 150, y: 100 }, "xy", { x: { min: 0 } }, to), "an open edge: stays").toEqual({ x: 150, y: 100 })
+  })
+
+  it("DB6: within keeps a sample's offset within bounds, elastic past them, and leaves delta and velocity; withinBounds maps it", () => {
+    const sample: Drag.Sample = {
+      point: { x: 150, y: 10 },
+      offset: { x: 150, y: 10 },
+      delta: { x: 5, y: 1 },
+      velocity: { x: 300, y: 20 },
+      phase: "move",
+      timeStamp: 16,
+      scroll: { x: 0, y: 0 },
+      raw: undefined,
+      axis: "xy",
+    }
+    const bounds: Drag.Bounds = { x: { min: 0, max: 100 } }
+    const clamped = Drag.within(sample, bounds)
+    expect(clamped.offset, "a hard clamp by default; an axis with no range passes").toEqual({ x: 100, y: 10 })
+    expect(clamped.delta).toEqual(sample.delta)
+    expect(clamped.velocity).toEqual(sample.velocity)
+    expect(Drag.within(bounds, { elastic: 0.5 })(sample).offset.x, "elastic past the edge").toBe(125)
+    const mapped = Effect.runSync(Stream.runCollect(Stream.make(sample).pipe(Drag.withinBounds(bounds, { elastic: 0.5 }))))
+    expect(Array.from(mapped)[0]!.offset.x, "withinBounds is its Stream form").toBe(125)
   })
 })

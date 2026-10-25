@@ -1,7 +1,8 @@
 /**
  * The binding-orchestrated drag track (ADR-0004 response half), Solid-free (#209): each binding
- * runs it through `driveDragTrack`, handing it a `run` for its one fiber and a `setDragging` for its
- * `dragging` signal. The Solid 1 binding's `runDragTrack` (`drag.ts`) wraps it.
+ * runs it through `driveDragTrack`, handing it a `watch` for its element's watch Scope, a `fork` for
+ * its responses and a `setDragging` for its `dragging` signal. The Solid 1 binding's `runDragTrack`
+ * (`drag.ts`) wraps it.
  *
  * DESIGN (locked via grilling, subtask 22c): on a drag-enabled element `x`/`y`
  * are DIRECT-SET by the pointer (1:1, NOT sprung) while the spring spine keeps
@@ -20,26 +21,25 @@
  * constraints on the element's x/y, the release driver, the gate writes, and the
  * snapshot sync are response concerns and live here (ADR-0004, ADR-0016 *Amendment (#140)*).
  *
- * STRUCTURE (ADR-0032): input is handled inside its event. Two consumers, each a
- * `Stream.runForEach` that applies what arrives in place, with no scheduler hop
- * between a pointer event and its gate write:
- *   - the drag's samples: a gesture's bookkeeping, then the direct-set, or at the
- *     "end" the release;
- *   - bare pointer-downs from the Primary pointer ("grabs"), which stop a running
- *     release, so a re-grab mid-release stops the tail where it is, and the ends of
- *     its presses, which let a projection node's release go on after a press that
- *     didn't drag.
- * No `merge` and no `switchMap`: a `merge` yields once per element, so a second
- * event in one task (a move and its up, a move and a scroll) waited a task, and
- * `switchMap` forked every sample's inner, a task more. The release runs in a
- * `FiberHandle`, started inline, so it is on the Frame loop before its task ends;
- * the next sample or grab interrupts it, which removes it from the loop at once.
+ * STRUCTURE (ADR-0032, ADR-0055 *Amendment (#379)*): input is handled inside its event, by two
+ * watches in the element's watch Scope, with no fiber of the track's own at rest:
+ *   - the drag's samples (`Recognizer.watchDrag`): a gesture's bookkeeping, then the direct-set,
+ *     or at the "end" the release;
+ *   - bare pointer-downs from the Primary pointer ("grabs", `InputFeed.watch`), which stop a
+ *     running release, so a re-grab mid-release stops the tail where it is, and the ends of its
+ *     presses, which let a projection node's release go on after a press that didn't drag.
+ * Each response is an Effect, run by `fork` on the provider runtime: its fiber starts at once and
+ * runs to its end inside the event (stopping a release interrupts a parked fiber in the caller's
+ * stack), and a release it starts, in a `FiberHandle`, is forked from it, keeping the runtime's
+ * scheduler, so it is on the Frame loop before its task ends. The next sample or grab interrupts it,
+ * which removes it from the loop at once. A response that fails is reported, and the next event's
+ * runs (ADR-0055 *Amendment (#379)*, Q4).
  *
  * The samples subscribe before the grabs, so one event's samples reach the track
  * before its grab: a Stale gesture's "end" (ADR-0019, rule B) starts its release and
  * the grab of the same down stops it before its first frame, on every Environment.
- * The track's state is a plain `MutableRef`: each handler runs to completion, and a
- * release is stopped before the next handler changes the state.
+ * The track's state is a plain `MutableRef`: each response runs to completion, and a
+ * release is stopped before the next response changes the state.
  */
 import * as Drag from "@wardic/core/Drag"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
@@ -64,6 +64,7 @@ import { constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
+import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { DragContainer } from "./drag-constraints.ts"
@@ -116,10 +117,18 @@ export interface DragTrackConfig {
 /** Options for {@link driveDragTrack}. */
 export interface DragTrackOptions {
   /**
-   * Runs the track's one fiber for as long as the element has its drag: the binding's own
-   * `runScoped`, interrupted when the element goes (#209: each binding's Solid owns it).
+   * Runs the track in the element's watch Scope (#379, ADR-0055): its watches subscribed now, with no
+   * fiber, until the element goes and the Scope closes, which stops a running release. A throw from a
+   * watch's fold goes to the `onDefect` it's given (#209: each binding's Solid owns the Scope).
    */
-  readonly run: (track: Effect.Effect<void, unknown, WardicServices>) => void
+  readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
+  /**
+   * Runs a response forked on the provider runtime (#379): its fiber starts at once and runs to its
+   * end inside the event. A release it forks keeps the runtime's scheduler, a host's if it gave one
+   * (ADR-0027 decision 6, ADR-0041 *Amendment (#208)*), not a `runSync`'s sync one, which would resume
+   * the release's yields on a microtask.
+   */
+  readonly fork: (response: Effect.Effect<void, never, WardicServices>) => void
   /** The provider-owned flush gate (ADR-0006); the drag writes `x`/`y` into `id`. */
   readonly gate: FlushGate.Shape
   /** The element's gate id (shared with the spine, so writes merge). */
@@ -501,10 +510,10 @@ export interface DragTrack {
  * pointer-down grabs, each in place as it arrives (ADR-0032; the module doc). A drag
  * refused its claim emits nothing, so a draggable ancestor of the element that claimed
  * neither follows the pointer nor turns `whileDrag` on; its grab still stops its running
- * release (ADR-0019, *Amendment (#29)*). The WHOLE track runs under ONE fiber via
- * `runScoped`, so the caller's `onCleanup` interrupts it (dropping the Shared-source
- * ref-count and stopping any in-flight release); a failure of either consumer or of a
- * release fails it.
+ * release (ADR-0019, *Amendment (#29)*). The track runs in the element's watch Scope
+ * (`opts.watch`, #379), with no fiber at rest: closing it stops the watches (dropping the
+ * shared feed's count) and any in-flight release. A response that fails, or a release, is
+ * reported, and the track goes on.
  *
  * The drag config is read ONCE at setup (the caller passes a static
  * {@link DragTrackConfig} — drag config is a document, not reactive); only the
@@ -521,10 +530,10 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
     releasing: false,
     stopped: false,
   })
-  // The running release's takeover (#340): done by `takeRelease`, from outside the track's fiber.
+  // The running release's takeover (#340): done by `takeRelease`, from outside the track's responses.
   let taken: Deferred.Deferred<void> = Deferred.makeUnsafe<void>()
 
-  opts.run(
+  opts.watch((onDefect) =>
     Effect.gen(function* () {
       // The running release, if any: the next sample or grab interrupts it.
       const releasing = yield* FiberHandle.make<void>()
@@ -570,7 +579,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
           }),
         )
       /** Watch the element and `box` for resizes, from now on: once per container. */
-      const watch = (container: DragContainer, box: Element): Effect.Effect<void> =>
+      const watchResizes = (container: DragContainer, box: Element): Effect.Effect<void> =>
         Effect.suspend(() => {
           if (watched === box) return Effect.void
           watched = box
@@ -595,14 +604,15 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
                     },
                   })),
                 ),
-              onDefined: (box) => measured(container, box).pipe(Effect.tap((bounds) => Effect.sync(() => setBounds(bounds))), Effect.andThen(watch(container, box))),
+              onDefined: (box) => measured(container, box).pipe(Effect.tap((bounds) => Effect.sync(() => setBounds(bounds))), Effect.andThen(watchResizes(container, box))),
             })
           ),
       })
       // A container already there is watched from the start: its first delivery records the bounds.
-      yield* UndefinedOr.match(opts.container, {
-        onUndefined: () => Effect.void,
-        onDefined: (container) => UndefinedOr.match(container.element(), { onUndefined: () => Effect.void, onDefined: (box) => watch(container, box) }),
+      // Forked, so its fiber runs on the runtime's scheduler, not this setup's `runSync`'s.
+      UndefinedOr.match(opts.container, {
+        onUndefined: constVoid,
+        onDefined: (container) => UndefinedOr.match(container.element(), { onUndefined: constVoid, onDefined: (box) => opts.fork(watchResizes(container, box)) }),
       })
 
       const input = yield* InputSource.InputSource
@@ -615,13 +625,6 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
         onDefined: (at) => () => toDragAxis(at()),
       })
       const { propagation = false } = config
-      // The constraints bound the element's x/y, so they're applied where the gesture's offset
-      // meets its base, in `follow` and at the release (ADR-0016, *Amendment (#140)*).
-      const samples: Stream.Stream<Drag.Sample, never, InputSource.InputSource> = Recognizer.drag(element, {
-        axis,
-        claim: Bool.not(propagation),
-        lock: config.directionLock === true,
-      })
 
       /** A free drag's release from `position` with `velocity`, run in `releasing` (#279: recorded as running). */
       const startRelease = (position: Point.Point, velocity: Point.Point): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
@@ -702,19 +705,29 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
           onDefined: (projection) => Effect.sync(() => projection.resumeRelease()),
         })
       })
-      const presses = InputFeed.toStream(input.pointer(element)).pipe(Stream.filter(Predicate.or(isGrab, isPressEnd)))
-      const onPress = (event: InputSource.PointerLikeEvent): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
-        Bool.match(isGrab(event), { onTrue: () => onGrab, onFalse: () => onPressEnd })
 
-      // Started inline, in this order, so the samples subscribe before the grabs. Once both
-      // inputs end (a test's script), the track ends when its release does; a failure of
-      // either input fails the track (a release reports its own, #66).
-      const inputs = Effect.all([Stream.runForEach(samples, onSample), Stream.runForEach(presses, onPress)], {
-        concurrency: "unbounded",
-        discard: true,
+      /**
+       * A response, run inside its event (`opts.fork`): one that fails is reported, and the next
+       * event's runs (ADR-0055 *Amendment (#379)*, Q4). A release reports its own (#66).
+       */
+      const respond = (response: Effect.Effect<void, never, FrameLoop.FrameLoop>): void =>
+        opts.fork(response.pipe(Effect.catchCause((cause) => Report.failure("wardic.drag: a response failed", cause))))
+
+      // Subscribed in this order, so the samples hear an event before the grabs. The constraints
+      // bound the element's x/y, so they're applied where the gesture's offset meets its base, in
+      // `follow` and at the release (ADR-0016, *Amendment (#140)*).
+      yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true }, {
+        on: (sample) => respond(onSample(sample)),
+        onDefect,
       })
-      yield* Effect.raceFirst(inputs.pipe(Effect.andThen(FiberHandle.awaitEmpty(releasing))), FiberHandle.join(releasing))
-    }).pipe(Effect.scoped),
+      yield* InputFeed.watch(input.pointer(element), {
+        on: (event) => {
+          if (isGrab(event)) return respond(onGrab)
+          if (isPressEnd(event)) respond(onPressEnd)
+        },
+        onDefect,
+      })
+    }),
   )
 
   return {

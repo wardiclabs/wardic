@@ -12,6 +12,13 @@
 // - WT6: `watchInView` with `once` hears the first entry only; without, each entry and leave.
 // - WT7: a pan's count in the Drag activity is given back when the Scope closes mid-pan.
 // - WT8: a feed that runs out (a script) tells `onEnd`; the Streams over watches end with it.
+// - WT9: `watchDrag` (#379) tells a gesture's start, moves and end inside the push, kept to its axis;
+//   its claim is taken before `on` hears the start and given back before it hears the end.
+// - WT10: a throw from `on` at the start goes to `onDefect` and keeps no claim: the gesture goes on to
+//   its end, then nothing is active, and the next gesture is told.
+// - WT11: closing the Scope mid-gesture gives the claim back.
+// - WT12: a gesture another target's claim refuses tells nothing, its end included; `claim: false`
+//   is never refused and only counts.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
@@ -21,6 +28,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as MutableRef from "effect/MutableRef"
+import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
@@ -163,3 +171,87 @@ it.effect("WT8: a feed that runs out tells onEnd; the Streams over watches end w
     const collected = yield* Stream.runCollect(Recognizer.hoverEvents("el")).pipe(Effect.provide(TestInput.layer([ev("enter")])))
     expect(Array.from(collected).map((t) => t.active)).toEqual([true])
   }))
+
+/** A drag of a primary mouse along x: down at 0, past the threshold at 20, on to 40, up there. */
+const gesture = (t0: number): ReadonlyArray<InputSource.PointerLikeEvent> => [
+  ev("down", 0, t0),
+  ev("move", 20, t0 + 16),
+  ev("move", 40, t0 + 32),
+  ev("up", 40, t0 + 48),
+]
+
+it.effect("WT9: watchDrag tells a gesture inside the push, kept to its axis; its claim is held from before the start to before the end", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    yield* Effect.gen(function* () {
+      const activity = yield* DragActivity.DragActivity
+      const told: Array<string> = []
+      yield* opened(Recognizer.watchDrag("el", { axis: "x" }, {
+        on: (s) => told.push(`${s.phase} ${s.offset.x},${s.offset.y} ${s.axis} active:${activity.isDragActive()}`),
+      }))
+      const [down, start, move, up] = gesture(0)
+      yield* input.push(down!)
+      yield* input.push(start!)
+      expect(told, "the start, inside its push, with the claim already held").toEqual(["start 20,0 x active:true"])
+      yield* input.push(move!)
+      yield* input.push(up!)
+      expect(told.slice(1)).toEqual(["move 40,0 x active:true", "end 40,0 x active:false"])
+    }).pipe(Effect.provide(input.layer))
+  }))
+
+it.effect("WT10: a throw from on at the start goes to onDefect and keeps no claim; the next gesture is told", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    yield* Effect.gen(function* () {
+      const activity = yield* DragActivity.DragActivity
+      const defects: Array<Cause.Cause<never>> = []
+      const phases: Array<string> = []
+      yield* opened(Recognizer.watchDrag("el", {}, {
+        on: (s) => {
+          phases.push(s.phase)
+          if (phases.length === 1) throw new Error("the response broke")
+        },
+        onDefect: (cause) => defects.push(cause),
+      }))
+      yield* Effect.forEach(gesture(0), input.push, { discard: true })
+      expect(defects, "reported once").toHaveLength(1)
+      expect(activity.isDragActive(), "no claim kept").toBe(false)
+      yield* Effect.forEach(gesture(100), input.push, { discard: true })
+      expect(phases).toEqual(["start", "move", "end", "start", "move", "end"])
+    }).pipe(Effect.provide(input.layer))
+  }))
+
+it.effect("WT11: closing the Scope mid-gesture gives the claim back", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    yield* Effect.gen(function* () {
+      const activity = yield* DragActivity.DragActivity
+      const scope = yield* opened(Recognizer.watchDrag("el", {}, { on: () => undefined }))
+      const [down, start] = gesture(0)
+      yield* input.push(down!)
+      yield* input.push(start!)
+      expect(activity.isDragActive(), "held mid-gesture").toBe(true)
+      yield* Scope.close(scope, Exit.void)
+      expect(activity.isDragActive(), "given back at the close").toBe(false)
+    }).pipe(Effect.provide(input.layer))
+  }))
+
+it.effect("WT12: a gesture another target's claim refuses tells nothing, its end included; claim: false only counts", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    yield* Effect.gen(function* () {
+      const activity = yield* DragActivity.DragActivity
+      const refused: Array<string> = []
+      const free: Array<string> = []
+      yield* opened(Recognizer.watchDrag("el", { axis: "x" }, { on: (s) => refused.push(s.phase) }))
+      yield* opened(Recognizer.watchDrag("el", { axis: "x", claim: false }, { on: (s) => free.push(s.phase) }))
+      const other = activity.claim("other", "x")
+      expect(Option.isSome(other), "another target holds x").toBe(true)
+      yield* Effect.forEach(gesture(0), input.push, { discard: true })
+      expect(refused, "refused: nothing told").toEqual([])
+      expect(free, "claim: false is never refused").toEqual(["start", "move", "end"])
+      Option.map(other, (release) => release())
+      expect(activity.isDragActive(), "nothing kept").toBe(false)
+    }).pipe(Effect.provide(input.layer))
+  }))
+
