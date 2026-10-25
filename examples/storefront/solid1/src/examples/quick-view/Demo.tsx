@@ -64,13 +64,11 @@ export default function QuickView() {
           {(piece) => (
             <>
               <wardic.div class="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { delay: 0.16 } }} onClick={close} />
-              {/* The frame is a Wardic element, with no motion of its own, so the presence runs the
-                  exits inside it: a plain one would go at once, taking the dialog with it (#392). */}
-              <wardic.div class="detail-frame">
+              <div class="detail-frame">
                 <wardic.article class="quick-view" role="dialog" aria-modal="true" aria-label={piece.name} {...panel}>
                   <QuickViewBody piece={piece} onClose={close} />
                 </wardic.article>
-              </wardic.div>
+              </div>
             </>
           )}
         </Show>

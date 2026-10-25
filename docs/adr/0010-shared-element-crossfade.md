@@ -498,3 +498,9 @@ On main, the equivalents of the hand-off, the expiry and the twin-leaver mutatio
 A keyed presence child back while its leaver exits takes over from it (ADR-0048, *Keys*), and the projection meets it at the new node's first measure:
 - **A take-over branch** comes between the crossfade and the Switch. A node registered with `enteredFrom` (its leaver's box as painted, in the Root frame, `rootBoxOf`) moves from there as a layout change: rebased and drawn as a Switch seed is, but with no handover, as nothing else is drawn there.
 - **A keyed twin back while it crossfades out:** `dropLeaver` ends its leaving Follower at once (`finishLeaver`) and returns the factor it had faded to. The new Lead's crossfade from the prior Lead then fades from there (`fadeFrom`), not from 0, as Motion's same element would go on (ADR-0048, Q8: D). Leads and Followers are decided as before.
+
+## Note (#392, 2026-10-25): a plain leaving child hands back its twins too
+
+*Amendment (#181)* hands back the twins inside "a leaving presence child that isn't a twin". In the code, that was a Wardic child only: a plain child (not a Wardic element) left at once, its twins with it, so their other twins popped in at full size.
+
+Since ADR-0048's *Plain leaving children (#392)*, a plain leaving child with a twin inside it hands it back too, and stays until the handover ends. That's what CONTEXT.md's **Crossfade** already said ("whatever the child is"), and what Motion's presence child does. The handover itself is unchanged.

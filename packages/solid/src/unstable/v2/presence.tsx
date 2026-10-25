@@ -76,8 +76,9 @@ export interface AnimatePresenceProps {
  * Wraps its children (a conditional one, `<Show>`, or a `<For>`'s) and animates each one's exit
  * before it's removed (#277): each that leaves exits in its place, and one that comes back mid-exit
  * is a new node, entering beside the leaver.
- * The child is a `wardic.*` element or an element with a ward on it, whose config's `exit` is the
- * exit's target. Inside a `<WardicProvider>`.
+ * A leaving child runs its own `exit` if it's a `wardic.*` element or an element with a ward on
+ * it, and the exits of the Wardic elements inside it either way, staying until they've ended; a
+ * plain child with nothing inside it to wait for goes at once (#392). Inside a `<WardicProvider>`.
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // A server render has no exit to drive: the same boundaries, a context that registers nothing.

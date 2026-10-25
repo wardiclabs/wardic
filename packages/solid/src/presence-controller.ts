@@ -41,7 +41,6 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
-import type * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -65,12 +64,11 @@ const treeOf = (rec: PresenceRecord): PresenceTree => UndefinedOr.match(rec.tree
 /** No elements: a leaving child with none inside it exiting. */
 const NO_PARTS: ReadonlyArray<HTMLElement> = []
 
-/** Records by where their elements are in the document. */
-const DOCUMENT_ORDER: Order.Order<PresenceRecord> = (a, b) => {
-  if (a.element === b.element) return 0
-  if (a.element.compareDocumentPosition(b.element) & Node.DOCUMENT_POSITION_FOLLOWING) return -1
-  return 1
-}
+/** No records: nothing registered inside a leaving child. */
+const NO_RECORDS: ReadonlyArray<PresenceRecord | undefined> = []
+
+/** No record of its own: a plain leaving child (#392). */
+const NO_OWN: ReadonlyArray<PresenceRecord> = []
 
 /** A leaving element's exit, and its Variant children's, resolved at the leave (#290). */
 interface ExitNode {
@@ -630,9 +628,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
-  // it, then runs its own exit, and goes once both have ended.
-  const leave = (rec: PresenceRecord, custom: unknown, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
-    const el = rec.element
+  // it, then runs its own exit and the exits inside it, and goes once all have ended. A plain child
+  // (not a Wardic element, no `rec`) runs only those inside it (#392), as Motion's presence child does.
+  const leave = (el: HTMLElement, rec: PresenceRecord | undefined, custom: unknown, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
     // A keyed one is what a child back under its key takes over from (#286), the latest the one.
     UndefinedOr.map(keyOf(el), (key) => keyedLeavers.set(key, el))
     const drop = projection.handBackWithin(el, () => partDone(el))
@@ -644,31 +642,55 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       debug("leave: hands back its twins")
     }
     tellLeave(el, inside, true)
-    driveExit(rec, custom)
+    driveExit(el, rec, custom)
   }
 
   /**
    * The Wardic elements inside a leaving child (#290), in document order, each running its own exit
    * with the child's: every registered one but a twin, whose crossfade replaces its exit (#181).
    */
-  const partsOf = (el: HTMLElement): ReadonlyArray<PresenceRecord> =>
-    Arr.sort(
-      Arr.filter(Arr.fromIterable(registry.values()), (part) =>
-        Bool.and(Bool.and(part.element !== el, el.contains(part.element)), Bool.not(treeOf(part).twin))),
-      DOCUMENT_ORDER,
-    )
+  const partsOf = (el: HTMLElement): ReadonlyArray<PresenceRecord> => Arr.filter(registeredWithin(el), isPart)
+
+  /**
+   * The records of the elements inside `el`, in document order, `undefined` for one not registered:
+   * found by walking its own elements (#392), as many steps as it has, not as the presence has records.
+   */
+  const registeredWithin = (el: HTMLElement): ReadonlyArray<PresenceRecord | undefined> => {
+    if (registry.size === 0) return NO_RECORDS
+    return Arr.map(Arr.fromIterable(el.getElementsByTagName("*")), (inner) => registry.get(inner as HTMLElement))
+  }
+
+  /** A registered element but a twin. */
+  const isPart = (part: PresenceRecord | undefined): part is PresenceRecord => {
+    if (Predicate.isUndefined(part)) return false
+    return Bool.not(treeOf(part).twin)
+  }
+
+  /**
+   * Whether a leaving child stays to exit (#392): a Wardic element, or a plain one with something
+   * inside it to wait for, a Wardic element (an exit to run, a twin to hand back) or a hook's hold.
+   */
+  const retains = (el: HTMLElement): boolean => {
+    if (registry.has(el)) return true
+    if (holdsIn(el)) return true
+    return registersWithin(el)
+  }
+
+  /** Whether a Wardic element made under this presence is inside `el`. */
+  const registersWithin = (el: HTMLElement): boolean => Arr.some(registeredWithin(el), Predicate.isNotUndefined)
 
   /**
    * A leaving child's exit, and the exits inside it (#290), as Motion's `animateVariant` runs them:
    * each element's own exit, its Variant children's on the name it hands down, in its exit
    * orchestration (`delayChildren`, the stagger, `when`), and every other element's from the leave.
+   * A plain child (no `rec`) has no exit of its own: the elements inside it are the roots (#392).
    * The child goes once all of them, and the handovers of the twins it handed back, have ended.
    */
-  const driveExit = (rec: PresenceRecord, custom: unknown): void => {
-    const el = rec.element
+  const driveExit = (el: HTMLElement, rec: PresenceRecord | undefined, custom: unknown): void => {
     const parts = partsOf(el)
     exitParts.set(el, Arr.map(parts, (part) => part.element))
-    const byElement = new Map<Element, PresenceRecord>(Arr.map([rec, ...parts], (r) => [r.element, r] as const))
+    const own = UndefinedOr.match(rec, { onUndefined: () => NO_OWN, onDefined: Arr.of })
+    const byElement = new Map<Element, PresenceRecord>(Arr.map([...own, ...parts], (r) => [r.element, r] as const))
     // The nearest element inside the child its Variant children join: one that provides a context.
     const providerOf = (node: Element | null): PresenceRecord | undefined => {
       if (node === null) return undefined
@@ -687,8 +709,12 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       const exit = node.exitOf(custom, inherited)
       return { rec: node, exit, kids: Arr.map(joinersOf(node), (kid) => nodeOf(kid, exit.name)) }
     }
-    // The child's own tree, and each element inside it that joins nothing inside it, from the leave.
-    const roots = [nodeOf(rec, undefined), ...Arr.map(Arr.filter(parts, (part) => Bool.not(joinsTo.has(part))), (part) => nodeOf(part, undefined))]
+    // The child's own tree, if it's a Wardic element, and each element inside it that joins nothing
+    // inside it, from the leave.
+    const roots = [
+      ...Arr.map(own, (r) => nodeOf(r, undefined)),
+      ...Arr.map(Arr.filter(parts, (part) => Bool.not(joinsTo.has(part))), (part) => nodeOf(part, undefined)),
+    ]
     if (Bool.not(Arr.some(roots, busy))) {
       debug("exit: immediate (no target)")
       partDone(el)
@@ -702,7 +728,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
         Effect.ensuring(Effect.sync(() => partDone(el))),
         Effect.withSpan(
           "wardic.presence.exit",
-          { attributes: { parts: parts.length + 1 } },
+          { attributes: { parts: parts.length + own.length } },
           // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
           { captureStackTrace: false },
         ),
@@ -871,11 +897,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     popped = true
   }
 
-  /** Measure each child leaving in this change with an exit to run, before the change is applied (#277). */
+  /**
+   * Measure each child leaving in this change that stays to exit, before the change is applied (#277):
+   * a plain one too, with something inside it to wait for (#392).
+   */
   const measureLeavers = (resolved: unknown): void => {
     const kept = new Set(elementsOf(resolved))
     Arr.forEach(previous, (placed) => {
-      if (Bool.or(kept.has(placed.el), Bool.not(registry.has(placed.el)))) return
+      if (kept.has(placed.el)) return
+      if (Bool.not(retains(placed.el))) return
       UndefinedOr.map(popBoxOf(placed.el), (box) => pops.set(placed.el, box))
     })
   }
@@ -893,14 +923,17 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // The presence hooks inside it (#277's PR 5b): told it left; `usePresence`'s hold it until released.
     const inside = watchesIn(el)
     const holds = Arr.filter(inside, (watch) => watch.holds).length
-    // A child with no record (not a Wardic element) and nothing holding it has no exit: it's gone at once (#257).
+    // A plain child (not a Wardic element) with nothing inside it to wait for, no Wardic element
+    // (an exit to run, a twin to hand back) and no hook holding it, is gone at once (#257, #392).
     if (Bool.and(Predicate.isUndefined(rec), holds === 0)) {
-      if (Bool.not(leaving.has(el))) {
-        leaveStarts(el)
-        tellLeave(el, inside, false)
-        leaveEnds(el, true)
+      if (Bool.not(registersWithin(el))) {
+        if (Bool.not(leaving.has(el))) {
+          leaveStarts(el)
+          tellLeave(el, inside, false)
+          leaveEnds(el, true)
+        }
+        return
       }
-      return
     }
     if (Bool.or(exiting.has(el), pending.has(el))) return
     leaveStarts(el)
@@ -910,10 +943,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     places.set(el, placed)
     // `popLayout` (#277): out of the flow where it was, so the children after it take their places.
     popOut(el)
-    // A plain child a hook holds (#277's PR 5b): retained, as Motion's presence child, until released.
+    // A plain child (#392): retained, as Motion's presence child, until the exits inside it, the
+    // handovers of its twins and the hooks holding it (#277's PR 5b) have all ended.
     if (Predicate.isUndefined(rec)) {
-      pending.set(el, holds)
-      tellLeave(el, inside, true)
+      leave(el, undefined, customNow(), inside, holds)
       return
     }
     // Shared-element crossfade (ADR-0010): if the projection has a live twin (Lead) to crossfade
@@ -932,7 +965,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       return
     }
     // Its exit, resolved now (#277): with the presence's `custom` when it has one, else the child's last.
-    leave(rec, customNow(), inside, holds)
+    leave(el, rec, customNow(), inside, holds)
   }
 
   /** The presence hooks inside `el` (#277's PR 5b): those whose element it holds. */
@@ -1131,12 +1164,16 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   /**
    * Whether an entering child waits (#277): under `mode="wait"`, while a child exits, or one shown at
-   * the last change is leaving now with an exit to run (a Wardic element, registered).
+   * the last change is leaving now and stays to exit (a Wardic element, or a plain one with something
+   * inside it to wait for, #392).
    */
   const waits = (kept: ReadonlySet<HTMLElement>): boolean =>
     Bool.or(
       leaving.size > 0,
-      Arr.some(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), Bool.or(registry.has(placed.el), holdsIn(placed.el)))),
+      Arr.some(previous, (placed) => {
+        if (kept.has(placed.el)) return false
+        return retains(placed.el)
+      }),
     )
 
   const shown = (resolved: unknown): unknown => {

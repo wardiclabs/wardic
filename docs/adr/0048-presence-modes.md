@@ -38,7 +38,7 @@ Both bindings share the work in `packages/solid/src/presence-controller.ts`, so 
    - **Each leaver runs its own exit,** from where it is drawn, as a lone child's did.
    - **`onExitComplete` comes once no leaver is left,** the last by completing, as Motion's (ADR-0046's "complete"). On Solid 2, `next("exitComplete")` likewise, and `exiting()` is on while any child exits.
    - **`<AnimatePresence initial={false}>`** starts every child of the first render at its `animate` (ADR-0007 *Amendment (#134)*). A child added later animates in from its `initial`.
-   - **A plain child** (not a Wardic element) leaves at once, as before.
+   - **A plain child** (not a Wardic element) leaves at once, as before. *Amended by* Plain leaving children *(#392)*: only one with nothing inside it to wait for.
    - **A leaver hands back its twins** (ADR-0010 *Amendment (#181)*) and crossfades as a twin (`handleLeave`), each on its own, as a lone child did.
 
 ## Built (PR 1)
@@ -64,7 +64,7 @@ In Solid, the change that removes the old child builds the new one. The presence
    - Rejected: C, a presence-owned render function (`<AnimatePresence mode="wait" value={tab()}>{(tab) => …}`) that builds the child only once the leavers are gone, as Motion. It's another API, and `<Show>` and `<Switch>` children couldn't wait.
    - Asked as well: whether `mode="popLayout"` (PR 3) covers it. It doesn't: `popLayout` doesn't wait at all. The new child enters at once, and the leaver animates out of the flow, on top.
 2. **Defaults stated, not asked:**
-   - **When a child waits:** under `mode="wait"`, while a child exits, or one is leaving in this change with an exit to run. A plain child (not a Wardic element) leaves at once, and one with no `exit` is removed at once, so neither holds anything up.
+   - **When a child waits:** under `mode="wait"`, while a child exits, or one is leaving in this change with an exit to run. A plain child (not a Wardic element) leaves at once, and one with no `exit` is removed at once, so neither holds anything up. *Since #392,* a plain child with something inside it to wait for exits and holds the entering one up too.
    - **A switch again mid-wait:** the child held in between never goes on the page; the latest one does, as Motion renders `pendingPresentChildren`.
    - **The old child back mid-exit is a new node** (decision 1 of *Many children*): it waits until the old one has gone. Motion's keyed child would reverse its exit instead; #286 would key them.
    - **Many children under `wait`:** every entering child waits while any child exits, and the children that stay, stay. Motion renders only the exiting children then (its present ones unmount), and warns that `wait` with many children "will lead to odd visual behaviour".
@@ -326,8 +326,71 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
   - At its take-over, the presence ends its exit (uncompleted), and `ProjectionSystem.dropLeaver` ends its leaving Follower at once (`finishLeaver`), returning the factor it had faded to.
   - The seed carries that (`fade`), and the new node registers with it as `fadeFrom`. The handover its first measure begins fades from there.
 
+## Plain leaving children (grilled 2026-10-25, #392)
+
+**The gap.** A plain `<AnimatePresence>` child (not a Wardic element) left at once (decision 1 of *Many children*), even with Wardic elements inside it that have exits. The exits inside a leaver (PR 5a) ran only under a Wardic leaver, since `driveExit` took the leaver's record. So the Wardic elements in a plain wrapper went with it, unexited. A twin inside one wasn't handed back either, so its other twin popped in at full size. Found by #388's storefront quick view: a plain `div.detail-frame` around a `wardic.article` with an `exit`.
+
+**Motion,** probed in Chromium (framer-motion 14.6, `.tmp/392/motion-probe.ts`):
+- Every `motion` element with an `exit` registers with its presence child (`ExitAnimationFeature`), as does every `layout` or `layoutId` element (`MeasureLayout`'s `usePresence`). `PresenceChild` keeps the child until all of them have called back, however deep they sit under plain elements.
+- A plain `div` around a `motion.article` with a 0.4 s `exit` stayed while it faded, and went at 423 ms.
+- A plain `div` around a `motion.div` with no `exit` was gone in the next frame.
+- A plain `div` around a `layoutId` twin stayed about 470 ms while the twin handed over.
+
+1. **Motion's rule** (Q1: A). A plain leaving child runs the exits of the Wardic elements inside it, as a Wardic leaver does (PR 5a):
+   - each element runs its own exit from the leave;
+   - Variant children follow the name their provider hands down;
+   - the child stays until all of them have ended and every hook holding it is released.
+
+   With nothing inside it to wait for, it still goes at once (MC7 unchanged). While it's retained, `popLayout` pops it, `mode="wait"` waits for it, and `onExitComplete` and `exiting()` count it.
+   - Rejected:
+     - B, keeping "leaves at once" and documenting it: Motion ports that wrap their `motion` elements in a plain `div` would silently lose their exits;
+     - C, an opt-in prop on the presence.
+2. **It hands back the twins inside it** (Q2: A), as a Wardic leaver does (ADR-0010 *Amendment (#181)*), and stays until their handovers end. Measured on a twin inside a leaving `position: fixed` frame:
+
+   | | Detail | Card | Wrapper gone |
+   |---|---|---|---|
+   | plain frame, before | vanishes at 0 ms | snaps from opacity 0 to 1 at full size by 32 ms, then shrinks | at once |
+   | plain frame, now (as a Wardic frame was) | out by 331 ms | in by 148 ms | 481 ms |
+   | Motion | out by 321 ms | in by 138 ms | about 470 ms |
+
+   - Rejected: B, exits only, the twins still going with the child.
+3. **A linear `partsOf`** (Q3: A). Plain leavers now take the Wardic leaver's path, whose `partsOf` tested every record of the presence against every leaver with `contains` (N × N). It now walks the leaver's own elements and looks each up in the registry; a walk is already in document order, so the sort went. Removing 1,000 children in one update (medians of 7, Chromium):
+
+   | Shape | Before | Linear walk |
+   |---|---|---|
+   | Wardic | 61 ms | 40 ms |
+   | Wardic, a span inside | 114 ms | 63.5 ms |
+
+   One leaver holding 5,000 plain elements and one Wardic element costs 5.9 ms with the walk against 5.5 ms with the scan.
+   - Rejected:
+     - B, also putting every leaver back before any exit reads a style: about 7 µs more saved per leaver (40 → 33 ms) for a reordering of `present`'s leave loop;
+     - C, keeping the scan: about 110 ms per 1,000 plain children with a Wardic element inside.
+
+## Built (#392)
+
+- **`retains(el)`:** a Wardic leaver, or a plain one with a hook holding it or a registered element inside it (`registersWithin`: an exit to run, or a twin to hand back).
+- **`left`:**
+  - A plain child that retains nothing goes at once, as before.
+  - Any other takes `leave` with no record. It's put back, popped under `popLayout`, hands back its twins (`handBackWithin`), drives the exits inside it, and is counted in `pending` as one part for the exit, one per hold, and one for the handovers.
+- **`driveExit(el, rec, custom)`:** with no record, the elements inside are the roots of the exit tree. With a record, the leaver's own tree comes first, as before.
+- **`measureLeavers` and `waits`** ask `retains`. A plain child held only by a hook is now popped under `popLayout` too: before, only Wardic leavers were measured.
+- **`partsOf`** walks `registeredWithin(el)`, the leaver's own elements looked up in the registry, with nothing to walk when the presence has no records. `DOCUMENT_ORDER` went.
+- **Removing 1,000 children in one update,** after the change:
+
+  | Shape | Before | After |
+  |---|---|---|
+  | plain, nothing inside | 1.2 ms | 1.4 ms |
+  | plain, a Wardic span inside | 8.7 ms, exits skipped | 41.0 ms, exits run |
+  | Wardic | 61.1 ms | 40.1 ms |
+  | Wardic, a span inside | 114.0 ms | 64.2 ms |
+
+- **The storefront:**
+  - the quick view's frame is a plain `div` again;
+  - the product detail now closes with Motion's crossfade: the card is in by about 150 ms, the detail out by about 360 ms and removed at about 470–500 ms, in both apps.
+
 ## Consequences
 
+- **#392: a behaviour change.** A plain presence child with Wardic elements inside it now waits for their exits and their twins' handovers, where it went at once. Exits that never ran now play, and a twin inside one now crossfades back to its other twin. A plain child with nothing inside it to wait for is unchanged. A leaver's parts are found in a walk of its own elements, linear in a mass removal (decision 3 of *Plain leaving children*).
 - **#286 PR 2:** `ProjectionSystem.rootBoxOf` and `dropLeaver`, and `RegisterNodeOptions.enteredFrom` and `fadeFrom`. A layout node registers through one more guard; nothing else changes without a take-over. On `bench:solid` (N = 1,000, against main `8b8417b`, control −1.5%): Solid 1's Retarget −1.8% warm, mount +0.1%, bytes +0.0%; Solid 2's Retarget +1.2% warm, mount −0.3%, bytes −0.2%.
 - **#286 PR 1:** `key` on both bindings' Wardic elements and `use:wardic`. Without a key, nothing changes. Under a presence, each Wardic element's ref tells the presence it was made (a WeakMap entry), and each mount asks for a seed (a WeakMap lookup). Outside a presence, nothing is made or asked: on `bench:solid` (N = 1,000, no presence on the page, against main `b85b742`, control +0.7%), Solid 1's Retarget read −0.7% warm and −4.5% cold, mount −0.6%, bytes −0.1%; Solid 2's Retarget +0.6% warm, mount −0.1%, bytes −0.1%.
 - **A behaviour change:** a lone child toggled back mid-exit no longer cuts its leaver short. ADR-0046's "an exit a re-entry interrupts doesn't complete" and ADR-0010 *Amendment (#181)*'s "presence's re-entry interrupts a stale exit" no longer hold: see their *Note (#277)*.
@@ -342,6 +405,27 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
 
 ## Pinned by
 
+- **#392, solid (Solid 1):** `test/presence-plain.browser.test.tsx` PN1–PN9:
+  - a Wardic element inside a plain child runs its exit, the child staying until it ends, `onExitComplete` after;
+  - with no exit inside it, it goes at once;
+  - a Variant child exits on its provider's name;
+  - a twin inside it hands back, the child staying for the crossfade;
+  - `popLayout` pops it, and a `layout` sibling slides in;
+  - `wait` waits for it;
+  - a hook's hold and an exit together;
+  - the presence unmounted mid-exit;
+  - a plain child held only by a hook popped.
+- **#392, solid (Solid 2):** `test/v2/presence-plain.browser.test.tsx` PN10–PN11, under the diagnostics gate: the exit inside a plain child, and a twin's hand-back.
+- **#392 mutation-checked:** nine single-point mutations, each caught:
+  - a plain leaver ignoring what's inside it (PN1, PN3–PN6, PN8);
+  - handing back nothing (PN4);
+  - popLayout measuring Wardic leavers only (PN5, PN9);
+  - `wait` ignoring plain leavers (PN6);
+  - no record ever found inside;
+  - twins counted as parts (PH6);
+  - a twin alone not retaining (PN4);
+  - a Wardic leaver's own exit dropped;
+  - a plain leaver retained as a hold only (PN1–PN4).
 - **solid (Solid 1):** `test/presence-many.browser.test.tsx` MC1–MC9, around a `<For>`:
   - an item removed from the middle exits in its place, and a later change doesn't bring it back;
   - two neighbours removed together, in their order;
