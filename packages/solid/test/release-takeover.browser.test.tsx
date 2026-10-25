@@ -206,8 +206,10 @@ describe("a target for x during a drag's release takes over (#340)", () => {
   })
 
   it("RT7: x goes on at the release's speed", async () => {
+    let thrown = 0
     const c = await mountCard(
       (info, setTarget) => {
+        thrown = info.velocity.x
         if (Math.abs(info.offset.x) >= 120) setTarget({ x: 420, opacity: 1 })
       },
       { type: "spring", stiffness: 20, damping: 10 },
@@ -218,10 +220,13 @@ describe("a target for x during a drag's release takes over (#340)", () => {
     await mouse.up(pointer)
     await wait(300)
     const frames = sampling.stop()
-    const start = frames[0]!.frameAt
-    // From rest, this spring moves x about 5 px in 60 ms; at the throw's ~1,000 px/s, about 60.
-    const at60 = frames.find((f) => f.frameAt - start >= 60)!.v
-    expect(at60 - released, "carried on at the throw's speed").toBeGreaterThan(30)
+    expect(thrown, "thrown, px/s").toBeGreaterThan(500)
+    // Its first frame on the move, wherever the up's round trip put it (#361), against the throw's
+    // speed: 0.81–0.87 of it, measured; with half its velocity it would be ~0.43, from rest under 0.1.
+    const first = frames.findIndex((f) => f.v > released + 0.5)
+    expect(first, "it moves").toBeGreaterThan(-1)
+    const [from, to] = [frames[first]!, frames[first + 1]!]
+    expect((to.v - from.v) / (to.frameAt - from.frameAt), "carried on at the throw's speed, px/ms").toBeGreaterThan((thrown / 1000) * 0.65)
   })
 
   it("RT8: a target that stops setting x is no new target: the release goes on, home, and told", async () => {
@@ -251,14 +256,17 @@ describe("a target for x during a drag's release takes over (#340)", () => {
     await mouse.up(pointer)
     await wait(400)
     const frames = sampling.stop()
-    const before = frames.filter((f) => f.frameAt < takenAt).slice(-3)
-    const after = frames.filter((f) => f.frameAt > takenAt).slice(0, 3)
-    const speed = (fs: typeof frames) => (fs.at(-1)!.v - fs[0]!.v) / (fs.at(-1)!.frameAt - fs[0]!.frameAt)
-    const releasing = speed(before)
-    // The snap back's speed then, carried on: from rest, this spring would barely move toward 420.
+    // The release's last whole frame before the takeover, and the takeover's first whole frame after
+    // it (#361): over three frames each, the spring's braking put the ratio on a 0.4 bound (0.39–0.42).
+    const i = frames.findIndex((f) => f.frameAt > takenAt)
+    const speedOf = (a: number, b: number) => (frames[b]!.v - frames[a]!.v) / (frames[b]!.frameAt - frames[a]!.frameAt)
+    const releasing = speedOf(i - 2, i - 1)
+    const taken = speedOf(i, i + 1)
     expect(Math.abs(releasing), "the release was moving").toBeGreaterThan(0.3)
-    expect(Math.sign(speed(after)), "the same way").toBe(Math.sign(releasing))
-    expect(Math.abs(speed(after)), "at about its speed").toBeGreaterThan(Math.abs(releasing) * 0.4)
+    // The snap back's speed then, carried on: from rest, this spring would move the other way, toward 420.
+    expect(Math.sign(taken), "the same way").toBe(Math.sign(releasing))
+    // 0.51–0.55 of it, measured, the spring braking it a frame on.
+    expect(Math.abs(taken), "at about its speed").toBeGreaterThan(Math.abs(releasing) * 0.3)
   })
 
   it("RT10: the variant that took it over lands as itself, told once by name", async () => {
