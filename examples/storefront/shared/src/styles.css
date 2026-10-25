@@ -8,20 +8,23 @@
 
 :root {
   color-scheme: light;
-  --paper: #f6f1ea;
-  --surface: #fffdf9;
-  --tile: #ece6dd;
-  --ink: #221d18;
-  --muted: #6e655b;
-  --line: #e2d9cc;
-  --accent: #a24d26;
-  --accent-ink: #fff8f2;
-  --accent-soft: #f3e1d5;
-  --ok: #3f7a52;
-  --danger: #b03a2e;
-  --shadow-s: 0 1px 2px rgb(40 28 16 / 0.06), 0 1px 1px rgb(40 28 16 / 0.04);
-  --shadow-m: 0 6px 18px rgb(40 28 16 / 0.08), 0 2px 4px rgb(40 28 16 / 0.05);
-  --shadow-l: 0 24px 60px rgb(30 20 10 / 0.18), 0 6px 16px rgb(30 20 10 / 0.08);
+  /* Nord's Snow Storm (#365): text and accents deepened from Polar Night and Frost to pass WCAG AA. */
+  --paper: #eceff4;
+  --surface: #f8f9fb;
+  --tile: #e5e9f0;
+  --ink: #2e3440;
+  --muted: #4c566a;
+  --line: #d8dee9;
+  --accent: #3b6a9e;
+  --accent-ink: #f8f9fb;
+  --accent-soft: #dbe6f1;
+  --ok: #3b6630;
+  --danger: #a8424c;
+  --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
+  --glow: rgb(94 129 172 / 0.28);
+  --shadow-s: 0 1px 2px rgb(46 52 64 / 0.06), 0 1px 1px rgb(46 52 64 / 0.04);
+  --shadow-m: 0 6px 18px rgb(46 52 64 / 0.08), 0 2px 4px rgb(46 52 64 / 0.05);
+  --shadow-l: 0 24px 60px rgb(46 52 64 / 0.18), 0 6px 16px rgb(46 52 64 / 0.08);
 
   --radius-s: 8px;
   --radius-m: 14px;
@@ -36,7 +39,8 @@
   --space-8: 72px;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  /* Headings and names: the system sans (#365), set tighter and heavier than the body. */
+  --font-display: var(--font-sans);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --text-s: 0.875rem;
   --text-m: 1rem;
@@ -47,17 +51,19 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --paper: #171411;
-  --surface: #211d19;
-  --tile: #2b2622;
-  --ink: #f1ebe3;
-  --muted: #a99e91;
-  --line: #3a332c;
-  --accent: #e08a5c;
-  --accent-ink: #1d120b;
-  --accent-soft: #3d2a1f;
-  --ok: #7fbf8f;
-  --danger: #ef8a7c;
+  --paper: #2e3440;
+  --surface: #3b4252;
+  --tile: #434c5e;
+  --ink: #eceff4;
+  --muted: #c3cad6;
+  --line: #4c566a;
+  --accent: #88c0d0;
+  --accent-ink: #2e3440;
+  --accent-soft: #3e5363;
+  --ok: #cfe0bf;
+  --danger: #eba3aa;
+  --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
+  --glow: rgb(136 192 208 / 0.35);
   --shadow-s: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-m: 0 6px 18px rgb(0 0 0 / 0.35);
   --shadow-l: 0 24px 60px rgb(0 0 0 / 0.5);
@@ -66,17 +72,19 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --paper: #171411;
-    --surface: #211d19;
-    --tile: #2b2622;
-    --ink: #f1ebe3;
-    --muted: #a99e91;
-    --line: #3a332c;
-    --accent: #e08a5c;
-    --accent-ink: #1d120b;
-    --accent-soft: #3d2a1f;
-    --ok: #7fbf8f;
-    --danger: #ef8a7c;
+    --paper: #2e3440;
+    --surface: #3b4252;
+    --tile: #434c5e;
+    --ink: #eceff4;
+    --muted: #c3cad6;
+    --line: #4c566a;
+    --accent: #88c0d0;
+    --accent-ink: #2e3440;
+    --accent-soft: #3e5363;
+    --ok: #cfe0bf;
+    --danger: #eba3aa;
+    --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
+    --glow: rgb(136 192 208 / 0.35);
     --shadow-s: 0 1px 2px rgb(0 0 0 / 0.3);
     --shadow-m: 0 6px 18px rgb(0 0 0 / 0.35);
     --shadow-l: 0 24px 60px rgb(0 0 0 / 0.5);
@@ -108,10 +116,10 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-serif);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 650;
   line-height: 1.15;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
@@ -181,6 +189,8 @@ button {
 .button.accent {
   background: var(--accent);
   color: var(--accent-ink);
+  /* A soft glow (#365). */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), 0 6px 24px var(--glow);
 }
 
 .button.quiet {
@@ -251,7 +261,9 @@ button {
   z-index: 20;
   background: color-mix(in srgb, var(--paper) 88%, transparent);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--line);
+  /* The aurora's hairline (#365). */
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, var(--aurora)) 1;
 }
 
 .site-header .page {
@@ -267,9 +279,10 @@ button {
   gap: var(--space-2);
   white-space: nowrap;
   text-decoration: none;
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 1.35rem;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .brand small {
@@ -334,6 +347,16 @@ button {
   }
 }
 
+@media (max-width: 420px) {
+  /* "Wardic Northlight" stacks on two lines, so a phone's header keeps every tool on screen (#365). */
+  .brand {
+    white-space: normal;
+    max-width: 6em;
+    font-size: 1.05rem;
+    line-height: 1.05;
+  }
+}
+
 @media (max-width: 560px) {
   .brand small {
     display: none;
@@ -377,10 +400,40 @@ button {
 /* --- Home and gallery --------------------------------------------------------------------- */
 
 .hero {
+  position: relative;
+  isolation: isolate;
   padding: var(--space-8) 0 var(--space-7);
   display: grid;
   gap: var(--space-4);
   max-width: 720px;
+}
+
+/*
+ * The aurora behind the hero (#365): Frost teal, Aurora green and purple, blurred. It's still, so
+ * the demos stay the only motion on the page.
+ */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -40% -30% -20% -30%;
+  z-index: -1;
+  background:
+    radial-gradient(40% 55% at 20% 40%, color-mix(in srgb, #88c0d0 55%, transparent), transparent 70%),
+    radial-gradient(35% 50% at 55% 30%, color-mix(in srgb, #a3be8c 40%, transparent), transparent 70%),
+    radial-gradient(40% 55% at 85% 45%, color-mix(in srgb, #b48ead 45%, transparent), transparent 70%);
+  filter: blur(40px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .hero::before {
+  opacity: 0.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hero::before {
+    opacity: 0.45;
+  }
 }
 
 .hero h1 {
@@ -657,7 +710,7 @@ button {
 }
 
 .product-card .name {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 1.1rem;
   font-weight: 600;
 }
@@ -698,7 +751,7 @@ button.product-card:hover .photo {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgb(24 16 9 / 0.5);
+  background: rgb(46 52 64 / 0.55);
   backdrop-filter: blur(3px);
 }
 
@@ -748,7 +801,7 @@ button.product-card:hover .photo {
 }
 
 .detail .name {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 2rem;
   line-height: 1.1;
   justify-self: start;
@@ -941,7 +994,7 @@ button.product-card:hover .photo {
 
 .shop-item .name {
   grid-area: name;
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 1.1rem;
   font-weight: 600;
 }
@@ -998,7 +1051,7 @@ button.product-card:hover .photo {
 
 .product-info .name,
 .buy-body .name {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 1.75rem;
   line-height: 1.15;
 }
@@ -1195,7 +1248,7 @@ button.product-card:hover .photo {
 }
 
 .drawer-head h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 1.4rem;
 }
 
@@ -1358,7 +1411,7 @@ button.product-card:hover .photo {
 }
 
 .orders-head h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 1.3rem;
 }
 
@@ -1635,4 +1688,16 @@ button.product-card:hover .photo {
   flex-wrap: wrap;
   gap: var(--space-4);
   justify-content: space-between;
+}
+
+/* --- Micro-interactions (#365): the shapes Wardic animates (shared/src/micro.ts) -------------- */
+
+/* A gallery card's halo: `--glow` runs 0 to 1 under its hover, focus and press. */
+.example-card {
+  box-shadow: var(--shadow-s), 0 10px 32px -10px color-mix(in srgb, var(--accent) calc(var(--glow, 0) * 55%), transparent);
+}
+
+/* A glyph that turns or nudges (the cog, the theme icon, a back arrow) needs a box of its own. */
+.glyph {
+  display: inline-block;
 }

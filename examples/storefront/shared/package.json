@@ -10,7 +10,8 @@
     "./examples": "./src/examples.ts",
     "./server": "./src/server/index.ts",
     "./styles.css": "./src/styles.css",
-    "./format": "./src/format.ts"
+    "./format": "./src/format.ts",
+    "./micro": "./src/micro.ts"
   },
   "scripts": {
     "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit && ../../../node_modules/typescript-7/bin/tsc --noEmit -p motion"

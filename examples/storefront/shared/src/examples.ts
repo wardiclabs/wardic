@@ -55,8 +55,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       "A grid that appears all at once is a wall of pictures. Revealing the cards one after another gives the eye a path through them, from the first product to the last, and the page feels like it's arriving rather than loading.",
       "The grid names a variant, and every card under it follows: the grid's `staggerChildren` delays each card by its place, so the order is the layout's order, whatever the products are. Change the products, and the reveal follows. No card knows its own delay.",
     ],
-    reducedMotion: "The cards fade in, still one after another, but don't rise: movement is dropped, opacity stays.",
-    uses: ["variants", "staggerChildren", "initial", "animate"],
+    reducedMotion: "The cards fade in, still one after another, but don't rise: movement is dropped, opacity stays. Under the pointer they don't lift and their photos don't grow.",
+    uses: ["variants", "staggerChildren", "initial", "animate", "whileHover"],
     watch: ".product-card",
   },
   {

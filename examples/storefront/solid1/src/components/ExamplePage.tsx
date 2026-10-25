@@ -4,10 +4,15 @@
  */
 import { A, createAsync } from "@solidjs/router"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
+import { BACK } from "@wardic/example-storefront-shared/micro"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { type Component, createSignal, For, Show, Suspense } from "solid-js"
 import { Dynamic } from "solid-js/web"
+import { wardic } from "@wardic/solid"
 import { highlighted, highlightedMotion } from "~/lib/store.ts"
+
+/** The crumbs' link home: its hover's name passes to its arrow, which nudges toward where it goes (#365). */
+const BackLink = wardic.create(A)
 
 /** Text with `backticked` code. */
 export function Prose(props: { readonly text: string }) {
@@ -66,7 +71,13 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
   return (
     <main class="page example">
       <nav class="crumbs" aria-label="Breadcrumb">
-        <A href="/">Examples</A> / {area.title}
+        <BackLink href="/" initial="rest" animate="rest" whileHover="hover" whileFocus="hover">
+          <wardic.span class="glyph" variants={BACK}>
+            ←
+          </wardic.span>{" "}
+          Examples
+        </BackLink>{" "}
+        / {area.title}
       </nav>
       <header class="example-head">
         <p class="eyebrow">{area.title}</p>
