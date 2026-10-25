@@ -187,7 +187,7 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
   const { stiffness, damping, mass } = Spring.resolve(options)
   const dt = 1 / 240
   const restDelta = 1e-4
-  const restVelocity = 1e-4
+  const restSpeed = 1e-4
   const maxTime = 10
 
   /** One step of the unit spring, or `None` once it has come to rest or run out of time. */
@@ -198,7 +198,7 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
         const dampingForce = -damping * s.velocity
         const velocity = s.velocity + ((force + dampingForce) / mass) * dt
         const position = s.position + velocity * dt
-        const rested = Bool.and(Math.abs(velocity) < restVelocity, Math.abs(position - 1) < restDelta)
+        const rested = Bool.and(Math.abs(velocity) < restSpeed, Math.abs(position - 1) < restDelta)
         return [position, { position, velocity, elapsed: s.elapsed + dt, rested }] as const
       }),
     )

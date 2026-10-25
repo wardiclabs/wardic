@@ -243,3 +243,7 @@ Inside the coordinator's tick, the engine doesn't write a node's value again whe
   - RG6: `drawsSame` counts each field the renderer reads, and not `originPoint`.
 
   Mutations: 12 single-point mutations of the gate's guards and the comparison's fields; 11 caught. The survivor drops `!node.leaving`. A leaving node commits straight to the renderer, without the element's own values, and the guard keeps those commits out of a gate rule that only reasons about gate writes. Building a node that turns leaving in place with an unchanged value mid-tick, to tell the two apart, wasn't worth it.
+
+## Note (#344, 2026-10-24): a layout spring rests as Motion's 0 → 1000 progress does
+
+A layout animation's progress runs 0 → 1 here and 0 → 1000 in Motion (`create-projection-node.ts`'s `animationTarget`). A spring on it rested within 0.01 of 1 and 0.01 per second: a bouncy one (400 / 10) stopped 4.26 px short of a 600 px move and snapped, a damped one under a pixel. Its thresholds are now Motion's for a move of 1000, divided by 1000 (0.05% of the move and 0.2%/s), and a layout transition's own `restDelta` and `restSpeed` are read in Motion's 0–1000 units (ADR-0050, decision 2).

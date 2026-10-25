@@ -183,10 +183,13 @@ export interface SpringOptions {
   readonly mass?: number
   /** Initial velocity (units/second). Default 0. */
   readonly velocity?: number
-  /** Rest threshold for position delta from target. Default 0.01. */
+  /**
+   * At rest within this of the target. Default, as Motion's (#344): 0.5 for a move of 5 or more,
+   * 0.005 for one shorter (opacity, scale, a nudge), by each value's distance at each Retarget.
+   */
   readonly restDelta?: number
-  /** Rest threshold for velocity. Default 0.01. */
-  readonly restVelocity?: number
+  /** At rest no faster than this, per second. Default, as Motion's (#344): 2 for a move of 5 or more, 0.01 for one shorter. */
+  readonly restSpeed?: number
   /** Delay before the animation starts, in seconds. */
   readonly delay?: number
 }
@@ -195,8 +198,8 @@ export interface SpringOptions {
 export interface DecayOptions {
   /** Exponential friction coefficient — higher stops sooner. Default 3. */
   readonly friction?: number
-  /** Velocity below which motion is considered at rest. Default 0.1. */
-  readonly restVelocity?: number
+  /** At rest below this speed, per second. Default 0.1. */
+  readonly restSpeed?: number
   /** Delay before the animation starts, in seconds. */
   readonly delay?: number
 }
@@ -701,6 +704,29 @@ export const tween = (from: number, to: number, options: TweenOptions): Machine<
   return tweenLeaf(from, to, resolved, tweenSpan(from, to, resolved.seconds))
 }
 
+/** A run's new target (#344): its thresholds again, by its distance from `position`, if that changed its granularity. */
+const retarget = (rest: RunRest, target: number, position: number): void => {
+  rest.goal = target
+  const distance = target - position
+  const granular = Math.abs(distance) < GRANULAR
+  if (granular === rest.granular) return
+  rest.granular = granular
+  rest.delta = Spring.restDeltaFor(rest.spring, distance)
+  rest.speed = Spring.restSpeedFor(rest.spring, distance)
+}
+
+/** A spring run's thresholds, the target they're for, and its spring (#344): one object, written in place. */
+interface RunRest {
+  delta: number
+  speed: number
+  goal: number
+  granular: boolean
+  readonly spring: Spring.Resolved
+}
+
+/** {@link Spring.GRANULAR}, read once, declared before the runs that read it (a later `const` costs JavaScriptCore a check at each read). */
+const GRANULAR = Spring.GRANULAR
+
 /**
  * The spring stepper toward `getTarget()`, read afresh on every step, so a moving target is
  * followed without stale snapshots: `chase`'s run, and `spring`'s toward a static target.
@@ -708,10 +734,36 @@ export const tween = (from: number, to: number, options: TweenOptions): Machine<
 const springRun =
   (getTarget: () => number, spring: Spring.Resolved, options: SpringOptions) => (): ((dt: number) => Frame.Physics) => {
     let state = Spring.init(options)
+    // Its rest thresholds by its distance (#344), as Motion's retarget works them out at each new
+    // target: only whether the distance is granular can change them, and with both given they
+    // never do. A new target is noticed before the step and handled after it (`retarget`): any
+    // arithmetic on a number before the step made JavaScriptCore (Bun's, Safari's) compile the run
+    // ~2.5× slower, where a check after it costs nothing (#344's bench, `.tmp/344/standalone2.ts`).
+    // So a new leg's thresholds take over from its second frame, its distance read where its first
+    // step left it: on its first frame the last leg's still apply. A sub-pixel retarget of a pixel
+    // spring at rest can rest at once, within 0.5, where Motion's would glide that far.
+    const first = getTarget()
+    const rest: RunRest = {
+      delta: Spring.restDeltaFor(spring, first - state.position),
+      speed: Spring.restSpeedFor(spring, first - state.position),
+      goal: first,
+      granular: Math.abs(first - state.position) < GRANULAR,
+      spring,
+    }
     // Per frame (ADR-0025): the spring resolved when the machine is built, `dt` clamped (#78).
+    if (Bool.and(Predicate.isNotUndefined(spring.restDelta), Predicate.isNotUndefined(spring.restSpeed))) {
+      return (dt) => {
+        const result = Spring.step(state, Math.min(dt, MAX_DT), getTarget(), spring, rest)
+        state = result.state
+        return { value: result.value, velocity: result.velocity, done: result.done }
+      }
+    }
     return (dt) => {
-      const result = Spring.step(state, Math.min(dt, MAX_DT), getTarget(), spring)
+      const target = getTarget()
+      const moved = target !== rest.goal
+      const result = Spring.step(state, Math.min(dt, MAX_DT), target, spring, rest)
       state = result.state
+      if (moved) retarget(rest, target, result.value)
       return { value: result.value, velocity: result.velocity, done: result.done }
     }
   }
@@ -881,6 +933,9 @@ export const springValues = (
       const positions = Arr.map(keys, (key) => startOf(from, key, options.from))
       const velocities = Arr.map(keys, (key) => startOf(velocity, key, options.velocity))
       const elapsed = Arr.map(keys, () => 0)
+      // Each key's rest thresholds, by its own distance (#344), as Motion's are per value.
+      const restDeltas = Arr.map(keys, (_, i) => Spring.restDeltaFor(spring, targets[i] - positions[i]))
+      const restSpeeds = Arr.map(keys, (_, i) => Spring.restSpeedFor(spring, targets[i] - positions[i]))
       // The Frame's records, built from `{}` a key at a time. Built with `Rec.fromEntries`, the
       // step allocated 0.38 MB a frame on Node's `springValues/loop`, against 0.14, and ran slower
       // (ADR-0030, *Implementation in #111*).
@@ -892,7 +947,7 @@ export const springValues = (
       const frame = { value: recordOf(positions), velocity: recordOf(velocities), done: false }
       const frameValue = frame.value
       const frameVelocity = frame.velocity
-      const { stiffness, damping, mass, restDelta, restVelocity, delay } = spring
+      const { stiffness, damping, mass, delay } = spring
       // Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), then a
       // counted loop over the keys with plain reads, nothing allocated, the run's records and the
       // spring's fields read as this closure's locals. Each key steps by `Spring.step`'s
@@ -920,7 +975,7 @@ export const springValues = (
               position += speed * h
             }
           }
-          const settled = simDt > 0 && Math.abs(speed) < restVelocity && Math.abs(position - goal) < restDelta
+          const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[i] && Math.abs(position - goal) <= restDeltas[i]
           if (settled) {
             position = goal
             speed = 0
@@ -1156,7 +1211,8 @@ export const animateValues = (
  * 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
  *
  * - The progress spans 0–100 as a numeric key travelling 100 would, so `restDelta` and
- *   `restVelocity` mean the same for both, and a string key beside an `x` going 0 → 100 lands with it.
+ *   `restSpeed` mean the same for both (its default thresholds a move of 100's, #344), and a string
+ *   key beside an `x` going 0 → 100 lands with it.
  * - It always starts from rest: `options.from` and `options.velocity` don't move it. A velocity
  *   in a key's units has no meaning on the progress.
  * - Past 1, a key does what its Interpolator does past 1: a unit string or number overshoots, and

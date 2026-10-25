@@ -182,7 +182,7 @@ export interface DecayState {
 /** A decay's options with every default filled in. */
 export interface ResolvedDecay {
   readonly friction: number
-  readonly restVelocity: number
+  readonly restSpeed: number
   readonly delay: number
 }
 
@@ -193,10 +193,10 @@ export interface ResolvedDecay {
 export const resolveDecay: (options: DecayOptions) => ResolvedDecay = cachedResolver(
   {
     friction: field(Positive, 3),
-    restVelocity: field(Positive, 0.1),
+    restSpeed: field(Positive, 0.1),
     delay: field(NonNegative, 0),
   },
-  ({ friction, restVelocity, delay }): ResolvedDecay => ({ friction, restVelocity, delay }),
+  ({ friction, restSpeed, delay }): ResolvedDecay => ({ friction, restSpeed, delay }),
 )
 
 export const initDecay = (initial: number, velocity: number): DecayState => ({
@@ -224,6 +224,6 @@ export const stepDecay = (state: DecayState, dt: number, decay: ResolvedDecay): 
     velocity *= kept
   }
 
-  const done = simDt > 0 && Math.abs(velocity) < decay.restVelocity
+  const done = simDt > 0 && Math.abs(velocity) < decay.restSpeed
   return { state: { position, velocity, elapsed }, value: position, velocity, done }
 }

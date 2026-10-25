@@ -412,12 +412,12 @@ Decision 6 left the option bags' Schemas to #66, because a decode validates and 
 
    | Bag | Field | Valid |
    |---|---|---|
-   | spring | `stiffness`, `mass`, `restDelta`, `restVelocity` | finite, > 0 |
+   | spring | `stiffness`, `mass`, `restDelta`, `restSpeed` | finite, > 0 |
    |  | `damping` | finite, ≥ 0 (0 is an undamped spring) |
    |  | `from`, `velocity` | finite |
    | tween | `duration` | finite, ≥ 0 (0 is instant) |
    |  | `easing` | a function |
-   | decay | `friction`, `restVelocity` | finite, > 0 |
+   | decay | `friction`, `restSpeed` | finite, > 0 |
    | inertia | `timeConstant`, `bounceStiffness`, `restDelta`, `restSpeed` | finite, > 0 |
    |  | `bounceDamping` | finite, ≥ 0 |
    |  | `power` | finite |
@@ -482,3 +482,5 @@ Decision 6 left the option bags' Schemas to #66, because a decode validates and 
 **Tests:** `options.test.ts` gains `Easing.spring`'s rows: `mass: 0`, NaN and `"170"` stiffness, a negative damping, and a rejected `restDelta` and `from` the curve doesn't read, each throwing its `SchemaError` naming the field. It accepts the defaults, a bouncy bag, and a transition-shaped bag. `easing.test.ts` pins the curve against main's at four samples on two bags, equal to the last bit. Mutation: baking without the decode fails the six rejection rows.
 
 **Gates:** typecheck, lint, unit (1113), browser (1017), and the lab's tsc and vitest (208). No bench and no lab drives: no per-frame code changed, and nothing in Wardic calls `Easing.spring`.
+
+*Note (#344, 2026-10-24):* the spring's and the decay's `restVelocity` is `restSpeed` (ADR-0050), and a spring's `restDelta` and `restSpeed` have no default: a leg's are Motion's, by its distance, unless given.

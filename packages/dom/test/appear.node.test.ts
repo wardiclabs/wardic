@@ -4,7 +4,9 @@
 // - AP1: a spring's rule: its name, its length in 60 Hz frames, where it settles, its first and last
 //   stops.
 // - AP2: every sample a dropped stop stood for is within its key's tolerance of the line drawn
-//   (a length in px, a scale at 0.001), and the default spring keeps under a third of its frames.
+//   (a length in px, a scale at 0.001), and each rule stays small: under 30 stops. (It was "under a
+//   third of the frames" until #344's thresholds cut the tail the sampler dropped most of: the
+//   default spring now runs 46 frames, not 67, and keeps 22 stops, where it kept 20.)
 // - AP3: a bouncy spring's overshoot peaks are kept, within tolerance.
 // - AP4: a linear tween is two stops; an eased one keeps its curve.
 // - AP5: a discrete change keeps the stops on both sides of it.
@@ -112,14 +114,14 @@ describe("the sampler (#48, ADR-0044)", () => {
     expect(rule.css.endsWith("100%{transform:none;opacity:1}}")).toBe(true)
   })
 
-  it("AP2: every sample a dropped stop stood for is within its key's tolerance; under a third of the frames kept", () => {
+  it("AP2: every sample a dropped stop stood for is within its key's tolerance; under 30 stops kept", () => {
     for (const options of [{}, { stiffness: 120, damping: 14 }, { stiffness: 280, damping: 60 }]) {
       const machine = rise(options)
       const frames = samples(machine)
       const kept = keptOf(ok(Appear.keyframes({ key: `AP2 ${JSON.stringify(options)}`, tag: "div", machine: () => machine })))
       expect(worstMiss(frames, kept, "y"), "0.1 px").toBeLessThanOrEqual(0.1)
       expect(worstMiss(frames, kept, "opacity"), "0.002").toBeLessThanOrEqual(0.002)
-      expect(kept.length * 3, `${kept.length} of ${frames.length}`).toBeLessThan(frames.length)
+      expect(kept.length, `${kept.length} of ${frames.length}`).toBeLessThan(30)
     }
     // A length key is judged in px as a translate is, and a scale at 0.001.
     const along = (key: string) => ok(Appear.keyframes({ key: `AP2 ${key}`, tag: "div", machine: () => Machine.springValues({ [key]: 0 }, {}, { [key]: 120 }) })).times

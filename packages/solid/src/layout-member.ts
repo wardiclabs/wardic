@@ -24,7 +24,7 @@ import { type MotionTransition, motionOf, transitionForKey } from "./retarget-le
 import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.ts"
 
 /** The spring fields: one of them, with no `type`, makes a layout transition a spring (ADR-0009 *Amendment (#171)*). */
-const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restVelocity"] as const
+const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restSpeed"] as const
 
 /** A transition that isn't a tween: `type: "spring"`, or no `type`, as its machines take it (#243). */
 type SpringTransition = Exclude<MotionTransition, { readonly type: "tween" }>

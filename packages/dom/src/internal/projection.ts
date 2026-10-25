@@ -434,7 +434,19 @@ export const DEFAULT_DRAG_TRANSITION: DragTransition = {
  * A flight's transition, resolved at its start: a spring's options (its delay among them), or a
  * tween's timing, with the tween's own defaults where its transition gives none (#107).
  */
-type FlightTiming = { readonly kind: "spring"; readonly options: Spring.Resolved } | ({ readonly kind: "tween" } & Machine.ResolvedTween)
+type FlightTiming =
+  | { readonly kind: "spring"; readonly options: Spring.Resolved; readonly rest: Spring.Rest }
+  | ({ readonly kind: "tween" } & Machine.ResolvedTween)
+
+/**
+ * Motion's layout progress spans 0 → 1000 (`create-projection-node.ts`'s `animationTarget`), this
+ * one 0 → 1 (#344): a layout spring rests as Motion's does over 1000, its own `restDelta` and
+ * `restSpeed` read in those units, both divided by it here.
+ */
+const MOTION_PROGRESS = 1000
+
+/** A layout spring's options and its thresholds over Motion's progress (#344). */
+const springTiming = (options: Spring.Resolved): FlightTiming => ({ kind: "spring", options, rest: Spring.restFor(options, MOTION_PROGRESS, MOTION_PROGRESS) })
 
 /**
  * A layout animation's progress, 0 → 1 (ADR-0009 *Amendment (#171)*), on the transition resolved at its
@@ -469,13 +481,13 @@ interface Settling {
 const timingOf = (transition: LayoutTransition): FlightTiming =>
   Match.value(transition).pipe(
     Match.discriminatorsExhaustive("type")({
-      spring: (spring): FlightTiming => ({ kind: "spring", options: Spring.resolve(spring) }),
+      spring: (spring): FlightTiming => springTiming(Spring.resolve(spring)),
       tween: (tween): FlightTiming => ({ kind: "tween", ...Machine.resolveTween(tween) }),
     }),
   )
 
 /** A flight already landed: what reduced motion starts (ADR-0029), at 1 with no delay, settling on its first step. */
-const LANDED: FlightTiming = { kind: "spring", options: Spring.resolve({}) }
+const LANDED: FlightTiming = springTiming(Spring.resolve({}))
 
 /** A flight at 1 on {@link LANDED}: it ends on its first step, the node on its new box. */
 const landedFlight = (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false })
@@ -3761,7 +3773,7 @@ export const makeProjectionSystem = (
     flight.elapsed += dt
     const timing = flight.timing
     if (timing.kind === "spring") {
-      const r = Spring.step(UndefinedOr.getOrThrow(flight.spring), dt, 1, timing.options)
+      const r = Spring.step(UndefinedOr.getOrThrow(flight.spring), dt, 1, timing.options, timing.rest)
       flight.spring = r.state
       flight.position = r.state.position
       return r.done

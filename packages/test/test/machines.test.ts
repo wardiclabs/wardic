@@ -152,13 +152,17 @@ const springValuesOracle = (
   })
 
 describe("springValues against one spring per key (#111)", () => {
+  // Tight thresholds, so a case runs on past the stalls (frames 6 and 7): Motion's (#344) land
+  // most of these right after them. The last case keeps the defaults: each key's own, by its distance.
+  const TIGHT = { restDelta: 0.01, restSpeed: 0.01 } as const
   const cases = [
     [
       "four keys, from a velocity, through both stalls",
       { x: 120, y: -40, scale: 1.2, opacity: 1 },
-      {},
+      TIGHT,
       { x: 0, y: 0, scale: 1, opacity: 0 },
       { x: 300 },
+      10,
     ],
     [
       "options' from and velocity as the keys' defaults, a mass and a delay",
@@ -166,17 +170,19 @@ describe("springValues against one spring per key (#111)", () => {
       { stiffness: 300, damping: 18, mass: 1.5, from: -20, velocity: 40, delay: 0.1 },
       { y: 10 },
       {},
+      10,
     ],
-    ["a key at its target from the start, stepped on with the others", { x: 10, y: 0 }, {}, { x: 0, y: 0 }, {}],
+    ["a key at its target from the start, stepped on with the others", { x: 10, y: 0 }, TIGHT, { x: 0, y: 0 }, {}, 10],
+    ["Motion's thresholds by each key's own distance (#344): a pixel key beside an opacity", { x: 300, opacity: 1 }, {}, { x: 0, opacity: 0 }, {}, 5],
   ] as const
-  for (const [name, target, options, from, velocity] of cases) {
+  for (const [name, target, options, from, velocity, atLeast] of cases) {
     it.effect(name, () =>
       Effect.gen(function* () {
         const [s, m] = yield* sideBySide(
           Machine.toStream(springValuesOracle(target, options, from, velocity)),
           Machine.toStream(Machine.springValues(target, options, from, velocity)),
         )
-        expectSame(s, m, 10)
+        expectSame(s, m, atLeast)
         expect(settledLast(s)).toBe(true)
       }))
   }
@@ -194,7 +200,8 @@ describe("the combinators over springValues' rewritten Frame (#111)", () => {
     from: Record<string, number>,
     velocity: Record<string, number>,
   ) => Machine.Machine<Frame.MultiPhysics>
-  const a = (build: Build) => build({ x: 100, y: -40 }, { stiffness: 260, damping: 20 }, { x: 0, y: 0 }, { x: 200 })
+  // Tight thresholds, so it runs on past the stalls (#344's land it right after them).
+  const a = (build: Build) => build({ x: 100, y: -40 }, { stiffness: 260, damping: 20, restDelta: 0.01, restSpeed: 0.01 }, { x: 0, y: 0 }, { x: 200 })
   const b = (build: Build) => build({ x: -30, y: 0 }, {}, { x: 100, y: -40 }, {})
   const cases: ReadonlyArray<readonly [string, (build: Build) => Machine.Machine<Frame.Frame<unknown>>]> = [
     ["concat: the seam's re-stamp", (build) => Machine.concat(a(build), b(build))],

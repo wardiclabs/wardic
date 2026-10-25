@@ -24,6 +24,7 @@ import { afterEach, beforeEach, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as internalProjection from "../src/internal/projection.ts"
 import * as Option from "effect/Option"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 type FrameCallback = (t: number) => void
 
@@ -389,5 +390,40 @@ describe("the Measure pass (ADR-0018)", () => {
     await nextTask(20)
     expect(s.flushes()).toBe(0)
     expect(s.log.filter((l) => l.kind === "write")).toHaveLength(0)
+  })
+})
+
+describe("a layout spring's rest (#344, ADR-0050)", () => {
+  /** A 600 px layout move on `transition`, stepped at 60 Hz: each frame's translate, until it lands. */
+  const run = async (transition: Record<string, unknown>): Promise<{ readonly steps: ReadonlyArray<number>; readonly landing: number }> => {
+    const s = makeSink()
+    const e = makeEngine(s.sink)
+    keepClockWarm(e.runtime)
+    await endOfTask()
+    fireFrame()
+    fireFrame()
+    const element = makeBox(0)
+    const handle = e.system.register({ id: "n", element, transition: () => Option.some(transition as never) })
+    await endOfTask()
+    element.style.left = "600px"
+    handle.notify()
+    await endOfTask()
+    const from = s.log.length
+    for (let i = 0; i < 600; i++) fireFrame()
+    const steps = writesFor(s.log.slice(from), "n").map((w) => w.translateX ?? 0)
+    e.dispose()
+    return { steps, landing: steps.findIndex((_, i) => steps.slice(i).every((y) => y === 0)) }
+  }
+
+  it("LS1: a 600 px move's last step before it lands is within 0.3 px (Motion's 0.05%), for a bouncy spring too", async () => {
+    // Measured: on the 0 → 1 progress's own 0.01 / 0.01, the last steps were 0.58 px (170 / 26),
+    // 4.26 px (400 / 10: a visible snap) and 0.57 px (300 / 20) out; now 0.11, 0.15 and 0.04, a
+    // few frames later each (53, 95 and 50 against 44, 57 and 38), as Motion's land.
+    for (const transition of [{ type: "spring" }, { type: "spring", stiffness: 400, damping: 10 }, { type: "spring", stiffness: 300, damping: 20 }]) {
+      const r = await run(transition)
+      expect(r.landing, "it landed").toBeGreaterThan(10)
+      const before = UndefinedOr.getOrThrow(r.steps[r.landing - 1])
+      expect(Math.abs(before), `${JSON.stringify(transition)}: the last step before the landing, ${before} px`).toBeLessThan(0.3)
+    }
   })
 })

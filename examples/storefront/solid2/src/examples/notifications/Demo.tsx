@@ -8,8 +8,10 @@ import { dismissNotice, restoreNotices } from "~/server/store.ts"
 type Side = "left" | "right"
 
 // A card rests in place, or has flown off to a side: from the throw, at its speed, and settled as
-// soon as it's out of sight, so "Undo" comes up as it goes.
-const flyOut = { x: { type: "spring", stiffness: 300, damping: 35, restDelta: 1, restVelocity: 20 }, opacity: { type: "tween", duration: 0.2 } } as const
+// soon as it's out of sight, so "Undo" comes up as it goes. Faded out by 0.2 s and past the edge, it
+// can rest coarser than a spring's default (Motion's, 0.5 px and 2 px/s): "Undo" about 500 ms after
+// the release, against 650.
+const flyOut = { x: { type: "spring", stiffness: 300, damping: 35, restDelta: 1, restSpeed: 20 }, opacity: { type: "tween", duration: 0.2 } } as const
 const sides = { shown: { x: 0, opacity: 1 }, left: { x: -420, opacity: 0, transition: flyOut }, right: { x: 420, opacity: 0, transition: flyOut } } as const
 const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } } as const
 
