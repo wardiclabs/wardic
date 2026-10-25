@@ -9,10 +9,11 @@
  * with the resolved form, which reads plain fields.
  */
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import * as Easing from "../Easing.ts"
 import type { DecayOptions, TweenOptions } from "../Machine.ts"
 import * as Scalar from "../Scalar.ts"
-import { cachedResolver, field, Fn, NonNegative, Positive } from "./options.ts"
+import { cachedResolver, field, Fn, NonNegative, optionalField, Positive } from "./options.ts"
 
 /** A step's result: the next state, the value to emit, and whether motion has settled. */
 export interface StepResult<S, V> {
@@ -63,28 +64,45 @@ export interface ResolvedTween {
   readonly duration: number
   /** The duration as given (0 for an instant tween): its span's, and what `keyframes` splits. */
   readonly seconds: number
-  readonly easing: Easing.Easing
+  /** Its `ease`, resolved to the curve (#360). */
+  readonly ease: Easing.Easing
 }
+
+/** An `ease` (#360, ADR-0052): one of Motion's names, a bézier's four numbers, or a function. */
+export const EaseDefinition = Schema.Union([
+  Schema.Literals(Easing.NAMES_LIST),
+  Schema.Tuple([Schema.Finite, Schema.Finite, Schema.Finite, Schema.Finite]),
+  Fn<Easing.Easing>("an easing function"),
+])
+
+/**
+ * Wardic's old name for `ease` (#360): a bag still giving it is rejected, naming `ease`. A transition
+ * hoisted into a constant gets past TypeScript's check for a key its type doesn't have, and would
+ * otherwise lose its easing without a word.
+ */
+export const NoEasing = Schema.declare((_given: unknown): _given is never => false, { expected: "`ease`: Wardic's `easing` is `ease` now, as Motion's (#360)" })
 
 /** A tween's fields as a Schema (#66): `animate`'s bag adds its repeat modifiers to them. */
 export const TweenFields = {
   delay: field(NonNegative, 0),
   duration: field(NonNegative, DEFAULT_DURATION),
-  easing: field(Fn<Easing.Easing>("an easing function"), Easing.linear),
+  ease: field(EaseDefinition, Easing.linear as Easing.Definition),
+  easing: optionalField(NoEasing),
 }
 
-/** A decoded tween's fields, resolved: its duration clamped for division, as given beside it. */
-export const resolvedTweenOf = (decoded: { readonly delay: number; readonly duration: number; readonly easing: Easing.Easing }): ResolvedTween => ({
+/** A decoded tween's fields, resolved: its duration clamped for division, as given beside it, its `ease` to its curve. */
+export const resolvedTweenOf = (decoded: { readonly delay: number; readonly duration: number; readonly ease: Easing.Definition }): ResolvedTween => ({
   delay: decoded.delay,
   duration: durationOf(decoded.duration),
   seconds: decoded.duration,
-  easing: decoded.easing,
+  ease: Easing.resolve(decoded.ease),
 })
 
 /**
- * Fill in a tween's defaults: 0.3 s, no delay, linear easing. Decoded once a bag (#66): a negative
- * or non-finite duration or delay, or an easing that isn't a function, throws its `SchemaError`.
- * Public as `Machine.resolveTween`, Tier 3, for dom's layout tween.
+ * Fill in a tween's defaults: 0.3 s, no delay, linear. Decoded once a bag (#66): a negative or
+ * non-finite duration or delay, an `ease` that's none of Motion's names, four numbers or a function,
+ * or a leftover `easing` (#360), throws its `SchemaError`. Public as `Machine.resolveTween`, Tier 3,
+ * for dom's layout tween.
  */
 export const resolveTween: (options: TweenOptions) => ResolvedTween = cachedResolver(TweenFields, resolvedTweenOf)
 
@@ -101,7 +119,7 @@ export const stepTween = (
   const elapsed = state.elapsed + dt
   const active = Math.max(0, elapsed - tween.delay)
   const t = Scalar.clamp(active / tween.duration, 0, 1)
-  const eased = tween.easing(t)
+  const eased = tween.ease(t)
   return { state: { elapsed }, value: Scalar.lerp(from, to, eased), done: elapsed >= tween.delay + tween.duration }
 }
 
@@ -153,22 +171,25 @@ export const runAt = (t: number, from: number, to: number, run: ResolvedRun): Sa
   }
   const s = Math.min(within / duration, 1)
   const done = t >= total
-  if (pass % 2 === 1 && run.reverses) return { value: Scalar.lerp(from, to, run.tween.easing(1 - s)), done }
-  if (pass % 2 === 1 && run.mirrors) return { value: Scalar.lerp(to, from, run.tween.easing(s)), done }
-  return { value: Scalar.lerp(from, to, run.tween.easing(s)), done }
+  if (pass % 2 === 1 && run.reverses) return { value: Scalar.lerp(from, to, run.tween.ease(1 - s)), done }
+  if (pass % 2 === 1 && run.mirrors) return { value: Scalar.lerp(to, from, run.tween.ease(s)), done }
+  return { value: Scalar.lerp(from, to, run.tween.ease(s)), done }
 }
 
 /**
  * Where keyframes through `stops` (two or more) are `t` seconds into `total`, each Segment `segment`
- * seconds long (at least `Number.EPSILON`) and eased whole: Motion's keyframes, evenly spaced. One
- * time across every Segment, so the next starts the moment one ends (#226). Per frame (ADR-0025).
+ * seconds long (at least `Number.EPSILON`) and eased whole, on its own easing from `eases` (one per
+ * Segment, wrapping round when there are fewer, as Motion's `getEasingForSegment`; #360): Motion's
+ * keyframes, evenly spaced. One time across every Segment, so the next starts the moment one ends
+ * (#226). Per frame (ADR-0025).
  */
-export const keyframesAt = (t: number, stops: ReadonlyArray<number>, segment: number, total: number, easing: Easing.Easing): Sample => {
+export const keyframesAt = (t: number, stops: ReadonlyArray<number>, segment: number, total: number, eases: ReadonlyArray<Easing.Easing>): Sample => {
   const last = stops.length - 1
   const time = Math.min(t, total)
   const i = Math.min(Math.floor(time / segment), last - 1)
   const s = Math.min(Math.max((time - i * segment) / segment, 0), 1)
-  return { value: Scalar.lerp(stops[i], stops[i + 1], easing(s)), done: t >= total }
+  const ease = eases[i % eases.length]
+  return { value: Scalar.lerp(stops[i], stops[i + 1], ease(s)), done: t >= total }
 }
 
 // --- Decay -------------------------------------------------------------------

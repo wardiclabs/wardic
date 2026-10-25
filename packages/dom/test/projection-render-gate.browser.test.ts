@@ -32,7 +32,7 @@ afterEach(() => {
 })
 
 /** A 0.3 s linear tween: 18 frames. */
-const TWEEN: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.3, easing: Easing.linear }
+const TWEEN: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.3, ease: Easing.linear }
 
 describe("the render gate (#27)", () => {
   it("RG1: a layout child riding a parent that only translates is written at most once over the flight; the parent every frame", async () => {

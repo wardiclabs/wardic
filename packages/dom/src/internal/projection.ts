@@ -59,7 +59,6 @@
  * `measure.ts` is the port's surface, and #16 maps what this file still does inline.
  */
 import * as Box from "@wardic/core/Box"
-import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Inertia from "@wardic/core/Inertia"
@@ -407,8 +406,9 @@ const anchorPointOf = (box: Box.Box, anchor: Point.Point): Point.Point => ({
 
 /**
  * A layout animation's transition (ADR-0009 *Amendment (#171)*): a spring, its fields and its
- * `delay`; or a tween, its `duration`, `easing` and `delay`. A repeat means nothing for a flight that
- * lands once. A tween with no `duration` or `easing` takes the tween's own defaults, 0.3 s and linear.
+ * `delay`; or a tween, its `duration`, `ease` (#360) and `delay`. A repeat means nothing for a flight
+ * that lands once. A tween with no `duration` or `ease` takes the tween's own defaults, 0.3 s and
+ * linear (a binding fills Motion's `easeOut` first, ADR-0051).
  */
 export type LayoutTransition = ({ readonly type: "spring" } & Machine.SpringOptions) | ({ readonly type: "tween" } & Machine.TweenOptions)
 
@@ -417,7 +417,7 @@ export type LayoutTransition = ({ readonly type: "spring" } & Machine.SpringOpti
  * `defaultLayoutTransition`): a 0.45 s tween, eased `cubic-bezier(0.4, 0, 0.1, 1)`, so a layout
  * animation lands on time.
  */
-export const DEFAULT_LAYOUT_TRANSITION: LayoutTransition = { type: "tween", duration: 0.45, easing: Easing.cubicBezier(0.4, 0, 0.1, 1) }
+export const DEFAULT_LAYOUT_TRANSITION: LayoutTransition = { type: "tween", duration: 0.45, ease: [0.4, 0, 0.1, 1] }
 
 /**
  * A drag's release (ADR-0016, *Amendment (#140)*, Motion's `dragTransition`): the inertia a node's
@@ -3809,7 +3809,7 @@ export const makeProjectionSystem = (
     const active = flight.elapsed - timing.delay
     if (active < 0) return false
     const t = Math.min(1, active / timing.duration)
-    flight.position = timing.easing(t)
+    flight.position = timing.ease(t)
     return t >= 1
   }
 

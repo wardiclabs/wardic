@@ -84,13 +84,13 @@ render(() => <WardicProvider env={env}><App /></WardicProvider>, document.getEle
 ### Basic animation with `createWard`
 
 ```tsx
-import { createWard, easeOutCubic } from "@wardic/solid"
+import { createWard } from "@wardic/solid"
 
 function Hero() {
   const ward = createWard({
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.3, easing: easeOutCubic },
+    transition: { duration: 0.3, ease: "easeOut" },
   })
 
   return <div {...ward()}>Hero content</div>
@@ -144,7 +144,8 @@ Transitions follow Motion's rules (ADR-0051):
 - **No `type`**: a tween's fields make a tween, so `{ duration: 0.5 }` is a 0.5 s tween. One difference: a spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restSpeed`) makes a spring, where Motion would quietly tween `{ stiffness: 300 }`.
 - **Missing fields are Motion's**: `{ type: "spring" }` is 100 / 10 / 1 and bounces, and a tween with no easing eases out.
 - **`repeat` with no `type`** makes a tween, since Wardic's springs don't repeat. Motion would repeat a transform's default spring.
-- **Not here yet**: a tween's easing is `easing`, a function (`easeOutCubic`, `cubicBezier(…)`), not Motion's `ease` names (#360). Springs set by `bounce` or `visualDuration` aren't here either (#359).
+- **`ease` is Motion's** (#360): one of Motion's names (`"easeOut"`, `"backIn"`, `"anticipate"`…), a cubic bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or a function. The functions are exported by Motion's names too (`import { easeOut, cubicBezier, steps } from "@wardic/solid"`). The Penner set (`easeOutCubic`…) and `Easing.spring` are in `@wardic/core/Easing`. `createTransform` takes `ease` as Motion's `useTransform` does: one for every stretch, or one each. Wardic's old `easing` is an error, naming `ease`.
+- **Not here yet**: springs set by `bounce` or `visualDuration` (#359).
 
 Each Environment picks its own defaults: `DomLive` has Motion's, and the Test Environment runs every key on one 170 / 26 spring.
 

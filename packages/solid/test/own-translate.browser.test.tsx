@@ -30,7 +30,7 @@ afterEach(async () => {
   cleanup()
 })
 
-const LINEAR: WardicTransition = { type: "tween", duration: 0.25, easing: Easing.linear }
+const LINEAR: WardicTransition = { type: "tween", duration: 0.25, ease: Easing.linear }
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
 
 /** An element's painted translateX. */
@@ -135,7 +135,7 @@ describe("a layout element's own translate (#363)", () => {
             layout
             layoutDependency={moved()}
             animate={{ x: 20 }}
-            transition={{ ...LINEAR, layout: { type: "tween", duration: 0.3, easing: Easing.linear } }}
+            transition={{ ...LINEAR, layout: { type: "tween", duration: 0.3, ease: Easing.linear } }}
             style={{ ...BOX, position: "absolute", top: "0px", left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }) }}
           />
         </div>

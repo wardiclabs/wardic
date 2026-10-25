@@ -13,7 +13,6 @@
  * @module
  */
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
-import * as Easing from "@wardic/core/Easing"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
@@ -28,7 +27,7 @@ const SCALE_TO_ZERO: DefaultTransition.Transition = { type: "spring", stiffness:
 const SCALE: DefaultTransition.Transition = { type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }
 
 /** Every other key's: Motion's `ease`. */
-const EASE: DefaultTransition.Transition = { type: "tween", duration: 0.3, easing: Easing.cubicBezier(0.25, 0.1, 0.35, 1) }
+const EASE: DefaultTransition.Transition = { type: "tween", duration: 0.3, ease: [0.25, 0.1, 0.35, 1] }
 
 /** A transform's: a scale's, by its target, or the rest's. */
 const transformFor = (key: string, target: number | string): DefaultTransition.Transition =>

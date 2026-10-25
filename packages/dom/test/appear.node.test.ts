@@ -146,7 +146,7 @@ describe("the sampler (#48, ADR-0044)", () => {
     expect(linear.times).toHaveLength(2)
     // 30 frames: the 31st step, where the steps' sum crosses 0.5 s and the tween settles, is trimmed.
     expect(linear.duration).toBeCloseTo(0.5, 12)
-    const eased = tweenValues({ x: 0 }, { x: 300 }, { duration: 0.5, easing: (t) => 1 - (1 - t) ** 3 })
+    const eased = tweenValues({ x: 0 }, { x: 300 }, { duration: 0.5, ease: (t) => 1 - (1 - t) ** 3 })
     const kept = keptOf(ok(Appear.keyframes({ key: "AP4 eased", tag: "div", machine: () => eased })))
     expect(kept.length).toBeGreaterThan(5)
     expect(worstMiss(samples(eased), kept, "x")).toBeLessThanOrEqual(0.1)
@@ -272,8 +272,8 @@ describe("a jump in the rule (#48, ADR-0044)", () => {
     expect(stops[jump - 1]!.x, "held at the first run's end").toBe(60)
     // Halfway between two 60 Hz frames: half a frame after the last one before it.
     expect((stops[jump - 1]!.at - stops[jump - 2]!.at) / frame).toBeCloseTo(0.5, 2)
-    // A steps() easing: flat between its jumps, each a step.
-    const stepped = ok(Appear.keyframes({ key: "AP13 steps", tag: "div", machine: () => tweenValues({ x: 0 }, { x: 40 }, { duration: 0.4, easing: Easing.steps(4) }) }))
+    // A steps() ease: flat between its jumps, each a step.
+    const stepped = ok(Appear.keyframes({ key: "AP13 steps", tag: "div", machine: () => tweenValues({ x: 0 }, { x: 40 }, { duration: 0.4, ease: Easing.steps(4) }) }))
     expect(stepsOnly(stopsOf(stepped.css), 0.2, 100 / Math.round(stepped.duration * 60)), stepped.css).toBe(true)
   })
 })
@@ -290,7 +290,7 @@ describe("SVG attributes (#245)", () => {
     expect(paint.css).toMatch(/100%\{opacity:1;stroke-width:4;stroke:rgba?\(0, 0, 255/)
     expect(paint.supports).toEqual([])
     // The stroke dash a pathLength draws, at 0.001 of the path; its fixed pathLength="1" isn't written.
-    const draw = tweenValues({ pathLength: 0 }, { pathLength: 1 }, { duration: 0.8, easing: Easing.easeOutCubic })
+    const draw = tweenValues({ pathLength: 0 }, { pathLength: 1 }, { duration: 0.8, ease: Easing.easeOutCubic })
     const line = ok(Appear.keyframes({ key: "AP14 path", tag: "path", machine: () => draw }))
     expect(line.css).toContain("0%{stroke-dasharray:0 1;stroke-dashoffset:0}")
     expect(line.css).toContain("100%{stroke-dasharray:1 1;stroke-dashoffset:0}")

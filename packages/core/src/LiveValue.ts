@@ -31,6 +31,7 @@ import { Atom, AtomRegistry } from "effect/reactivity"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as FrameLoop from "./FrameLoop.ts"
+import * as Easing from "./Easing.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
@@ -41,7 +42,24 @@ import * as Supersede from "./Supersede.ts"
 export interface TransformOptions {
   /** Hold the first and last output outside the input's range. Default `true`, as Motion's is. */
   readonly clamp?: boolean
+  /**
+   * How each stretch of the input range eases (#360), as Motion's `useTransform`'s `ease`: one
+   * Easing definition for every stretch, or an array with one per stretch, linear for any it's
+   * short of. Default linear.
+   */
+  readonly ease?: Easing.Definition | ReadonlyArray<Easing.Definition>
 }
+
+/** Stretch `i`'s easing (#360): the one for every stretch, or its own from a list, linear past the list's end, as Motion's. */
+const easeOfStretch = (ease: Easing.Definition | ReadonlyArray<Easing.Definition> | undefined, i: number): Easing.Easing =>
+  UndefinedOr.match(ease, {
+    onUndefined: () => Easing.linear,
+    onDefined: (given) =>
+      Bool.match(Bool.and(Array.isArray(given), Bool.not(Easing.isBezier(given))), {
+        onTrue: () => UndefinedOr.match((given as ReadonlyArray<Easing.Definition>)[i], { onUndefined: () => Easing.linear, onDefined: Easing.resolve }),
+        onFalse: () => Easing.resolve(given as Easing.Definition),
+      }),
+  })
 
 /** One stretch of a `transform`'s range: its input span and its outputs' blend. */
 interface Stretch<O> {
@@ -68,8 +86,13 @@ export const interpolate = <O extends number | string>(
     }
     const registry = yield* InterpolatorRegistry.InterpolatorRegistry
     const pairs = Arr.zip(Arr.zip(input, Arr.drop(input, 1)), Arr.zip(output, Arr.drop(output, 1)))
-    const resolved = yield* Effect.forEach(pairs, ([[from, to], [a, b]]) =>
-      Effect.map(registry.resolve(a, b), (blend): Stretch<O> => ({ from, span: to - from, blend: blend as (t: number) => O })))
+    const resolved = yield* Effect.forEach(pairs, ([[from, to], [a, b]], i) =>
+      Effect.map(registry.resolve(a, b), (blend): Stretch<O> => {
+        // Each stretch's easing, resolved once, here: linear leaves its blend as it is.
+        const ease = easeOfStretch(options.ease, i)
+        const mix = blend as (t: number) => O
+        return { from, span: to - from, blend: Bool.match(ease === Easing.linear, { onTrue: () => mix, onFalse: () => (t: number): O => mix(ease(t)) }) }
+      }))
     // Two stops or more, checked above: one stretch or more.
     const stretches = resolved as unknown as Arr.NonEmptyReadonlyArray<Stretch<O>>
     const clamp = options.clamp !== false

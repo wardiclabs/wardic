@@ -4,7 +4,8 @@
 //
 // - LT1: with no transition, a FLIP lands on Motion's curve at 0.45 s, never stepping back. Before
 //   #171 every layout animation was a 170/26 spring, its tail creeping for frames past that.
-// - LT2: a tween's duration, easing and delay: held at its origin through the delay, then on its curve.
+// - LT2: a tween's duration, `ease` and delay: held at its origin through the delay, then on its curve;
+//   LT2b (#360): an `ease` named as Motion names it, or given as a bézier's four numbers.
 // - LT3: an interrupt restarts a fresh full tween from where the node is drawn (Motion's).
 // - LT4: reduced motion lands at once, its delay dropped (ADR-0029).
 // - LT5: a release's Release offset runs on its drag transition, whatever its layout transition
@@ -73,14 +74,23 @@ describe("a layout animation's transition (#171)", () => {
     m.e.dispose()
   })
 
-  it("LT2: a tween's duration, easing and delay: held through the delay, then on its curve", async () => {
-    const m = await mount({ type: "tween", duration: 0.2, easing: Easing.linear, delay: 0.1 })
+  it("LT2: a tween's duration, ease and delay: held through the delay, then on its curve", async () => {
+    const m = await mount({ type: "tween", duration: 0.2, ease: Easing.linear, delay: 0.1 })
     await m.moveTo(200)
     const xs = m.run(30)
     for (const [i, x] of xs.slice(0, 6).entries()) expect(x, `frame ${i + 1}: held at its origin through 0.1 s`).toBeCloseTo(-200, 6)
     // Frame 12 has run 0.2 s: 0.1 s of its 0.2 s, half way.
     expect(1 - Math.abs(xs[11]!) / 200, "half way, linearly").toBeCloseTo(0.5, 4)
     expect(landsAt(xs), "lands at 0.3 s").toBe(17)
+    m.e.dispose()
+  })
+
+  for (const ease of ["easeIn", [0.42, 0, 1, 1]] as const) it(`LT2b: an ease given as ${JSON.stringify(ease)}: on Motion's easeIn (#360)`, async () => {
+    const m = await mount({ type: "tween", duration: 0.2, ease })
+    await m.moveTo(200)
+    const xs = m.run(20)
+    // Frame 6 has run 0.1 s of its 0.2 s: half way in time, easeIn(0.5) of the way.
+    expect(1 - Math.abs(xs[5]!) / 200).toBeCloseTo(Easing.easeIn(0.5), 4)
     m.e.dispose()
   })
 

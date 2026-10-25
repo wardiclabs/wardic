@@ -20,7 +20,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 const quarter = [0.25, 0.25, 0.25, 0.25]
 const run = (from: Values.Values, to: Values.Values, registry?: Layer.Layer<InterpolatorRegistry.InterpolatorRegistry>) => {
   const frames = Stream.runCollect(
-    Machine.animateValues(from, to, { duration: 1, easing: Easing.linear }).pipe(Effect.map(Machine.toStream), Stream.unwrap),
+    Machine.animateValues(from, to, { duration: 1, ease: Easing.linear }).pipe(Effect.map(Machine.toStream), Stream.unwrap),
   )
   const withRegistry = UndefinedOr.match(registry, { onUndefined: () => frames, onDefined: (layer) => Effect.provide(frames, layer) })
   return withRegistry.pipe(

@@ -43,7 +43,7 @@ afterEach(() => {
 })
 
 /** A 0.1 s linear tween: frame k has run k/60 s, so it lands at frame 6. */
-const TWEEN: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.1, easing: Easing.linear }
+const TWEEN: ProjectionSystem.LayoutTransition = { type: "tween", duration: 0.1, ease: Easing.linear }
 
 /** What each node's callbacks were called with, in order: `start n0`, `complete n0`, `settled`. */
 const calls: Array<string> = []
@@ -449,7 +449,7 @@ describe("a drag's release coming to rest (#273, Motion's onDragTransitionEnd)",
     const sk = makeSink()
     const e = makeEngine(sk.sink)
     const a = absolute(stage(STAGE), 0)
-    const SLOW: ProjectionSystem.LayoutTransition = { type: "tween", duration: 2, easing: Easing.linear }
+    const SLOW: ProjectionSystem.LayoutTransition = { type: "tween", duration: 2, ease: Easing.linear }
     const [h] = await mount(e, [a], () => ({ transition: () => Option.some(SLOW), onReleaseEnd: () => Option.some(() => calls.push("released")) }))
     dragOut(h!, 80)
     await endOfTask()

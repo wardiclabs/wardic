@@ -41,7 +41,7 @@ it.effect("applyTo drives every frame through project then commit, with the fina
     // Act — run applyTo, providing the recording Renderer, a deterministic Clock, and
     // the live InterpolatorRegistry that `animateValues` needs.
     yield* Renderer.applyTo(
-      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: Easing.linear }).pipe(
+      Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, ease: Easing.linear }).pipe(
         Effect.map(Machine.toStream),
         Stream.unwrap,
       ),
@@ -80,7 +80,7 @@ it.effect("applyTo emits exactly one annotated `wardic.applyTo: subscribe` debug
   return Effect.gen(function* () {
     // Act — run applyTo over the same four-frame setup with the capturing logger installed.
     // The stream first: `stream.pipe(Renderer.applyTo(target))` (ADR-0028, decision 12).
-    yield* Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, easing: Easing.linear }).pipe(
+    yield* Machine.animateValues({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, { duration: 1, ease: Easing.linear }).pipe(
       Effect.map(Machine.toStream),
       Stream.unwrap,
       Renderer.applyTo({ node: "el" }),

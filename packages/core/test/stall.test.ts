@@ -23,18 +23,18 @@ const EASE_OUT = Easing.cubicBezier(0, 0, 0.58, 1)
 const RELEASE = { power: 0.8, timeConstant: 0.75, bounceStiffness: 200, bounceDamping: 40, restDelta: 1, restSpeed: 10, min: 0, max: 0 }
 
 const consumers: ReadonlyArray<readonly [string, () => Run]> = [
-  ["tween 1 s", () => Machine.tween(0, 100, { duration: 1, easing: EASE_OUT })],
-  ["tween 1 s after a 0.2 s delay", () => Machine.tween(0, 100, { duration: 1, delay: 0.2, easing: EASE_OUT })],
+  ["tween 1 s", () => Machine.tween(0, 100, { duration: 1, ease: EASE_OUT })],
+  ["tween 1 s after a 0.2 s delay", () => Machine.tween(0, 100, { duration: 1, delay: 0.2, ease: EASE_OUT })],
   ["spring 170 / 26 / 1", () => Machine.spring(100, { restDelta: 0.01, restSpeed: 0.01 })],
   ["chase toward a still target", () => Machine.chase(() => 100, { restDelta: 0.01, restSpeed: 0.01 })],
   ["decay from 1,000 px/s", () => Machine.decay(0, 1000)],
   ["inertia: a release back to its slot", () => Machine.inertia(80, 0, RELEASE)],
   ["inertia: a free fling at 1,000 px/s", () => Machine.inertia(0, 1000, { power: 0.8, timeConstant: 0.75, restDelta: 1, restSpeed: 10 })],
-  ["keyframes 0 / 60 / 100 over 1 s", () => Machine.keyframes([0, 60, 100], { duration: 1, easing: EASE_OUT })],
-  ["animate 0.12 s, repeat 3, mirror", () => Machine.animate(0, 100, { duration: 0.12, repeat: 3, repeatType: "mirror", easing: EASE_OUT })],
+  ["keyframes 0 / 60 / 100 over 1 s", () => Machine.keyframes([0, 60, 100], { duration: 1, ease: EASE_OUT })],
+  ["animate 0.12 s, repeat 3, mirror", () => Machine.animate(0, 100, { duration: 0.12, repeat: 3, repeatType: "mirror", ease: EASE_OUT })],
   [
     "animate 0.16 s, repeat Infinity, reverse, a 0.05 s repeatDelay",
-    () => Machine.animate(0, 100, { duration: 0.16, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse", repeatDelay: 0.05, easing: EASE_OUT }),
+    () => Machine.animate(0, 100, { duration: 0.16, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse", repeatDelay: 0.05, ease: EASE_OUT }),
   ],
 ]
 
@@ -93,17 +93,17 @@ describe("against Motion 13.3.0, at the wall time a 200 ms stall after 100 ms la
   // Newton steps against Motion's subdivision), and the spring is integrated in 1/240 s substeps
   // where Motion's is closed-form. The inertias are the same closed form.
   const rows: ReadonlyArray<readonly [string, () => Run, number, number]> = [
-    ["tween 1 s", () => Machine.tween(0, 100, { duration: 1, easing: EASE_OUT }), 44.55308442993555, 0.05],
-    ["tween 1 s after a 0.2 s delay", () => Machine.tween(0, 100, { duration: 1, delay: 0.2, easing: EASE_OUT }), 16.03898913890589, 0.05],
+    ["tween 1 s", () => Machine.tween(0, 100, { duration: 1, ease: EASE_OUT }), 44.55308442993555, 0.05],
+    ["tween 1 s after a 0.2 s delay", () => Machine.tween(0, 100, { duration: 1, delay: 0.2, ease: EASE_OUT }), 16.03898913890589, 0.05],
     ["spring 170 / 26 / 1", () => Machine.spring(100, { restDelta: 0.01, restSpeed: 0.01 }), 90.28975432882734, 0.06],
     ["inertia: a release back to its slot", () => Machine.inertia(80, 0, RELEASE), 16.657462269063462, 1e-9],
     ["inertia: a free fling at 1,000 px/s", () => Machine.inertia(0, 1000, { power: 0.8, timeConstant: 0.75, restDelta: 1, restSpeed: 10 }), 263.74396317148853, 1e-9],
     // The sequences (#226), each across a Segment's end: `.tmp/226/motion-rows.ts`, `JSAnimation.sample`.
-    ["keyframes 0 / 60 / 100 over 1 s", () => Machine.keyframes([0, 60, 100], { duration: 1, easing: EASE_OUT }), 47.1100746531738, 0.05],
-    ["animate 0.12 s, repeat 3, mirror", () => Machine.animate(0, 100, { duration: 0.12, repeat: 3, repeatType: "mirror", easing: EASE_OUT }), 68.46233151445631, 0.05],
+    ["keyframes 0 / 60 / 100 over 1 s", () => Machine.keyframes([0, 60, 100], { duration: 1, ease: EASE_OUT }), 47.1100746531738, 0.05],
+    ["animate 0.12 s, repeat 3, mirror", () => Machine.animate(0, 100, { duration: 0.12, repeat: 3, repeatType: "mirror", ease: EASE_OUT }), 68.46233151445631, 0.05],
     [
       "animate 0.16 s, repeat Infinity, reverse, a 0.05 s repeatDelay",
-      () => Machine.animate(0, 100, { duration: 0.16, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse", repeatDelay: 0.05, easing: EASE_OUT }),
+      () => Machine.animate(0, 100, { duration: 0.16, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse", repeatDelay: 0.05, ease: EASE_OUT }),
       61.516176428995095,
       0.05,
     ],

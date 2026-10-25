@@ -80,20 +80,25 @@ describe("Easing.spring: its bag is a spring's, decoded when it's called (#225)"
   })
 })
 
-describe("TweenOptions: a non-negative, finite duration and delay, an easing function", () => {
+describe("TweenOptions: a non-negative, finite duration and delay, an Easing definition (#360)", () => {
   rejects(Machine.resolveTween, [
     ["duration", { duration: -1 }],
     ["duration", { duration: Number.NaN }],
     ["duration", { duration: Number.POSITIVE_INFINITY }],
     ["delay", { delay: -1 }],
-    ["easing", { easing: "linear" }],
+    ["ease", { ease: "wobble" }],
+    ["ease", { ease: [0.25, 0.1, 0.35] }],
+    ["ease", { ease: [0.25, 0.1, Number.NaN, 1] }],
+    // Wardic's old name, rejected naming the new one, so a hoisted bag can't lose its easing silently.
+    ["`ease`", { easing: Easing.linear }],
   ])
+  accepts(Machine.resolveTween, [{ ease: "easeOut" }, { ease: "anticipate" }, { ease: [0.25, 0.1, 0.35, 1] }, { ease: Easing.easeOutCubic }])
   rejects((bag) => Machine.tween(0, 1, bag), [["duration", { duration: -1 }]])
   rejects((bag) => Machine.keyframes([0, 1, 0], bag), [["delay", { delay: Number.NaN }]])
 
   it("fills in its defaults: 0.3 s, no delay, linear; a zero duration still divides, and keeps its 0", () => {
-    expect(Machine.resolveTween({})).toEqual({ delay: 0, duration: 0.3, seconds: 0.3, easing: Easing.linear })
-    expect(Machine.resolveTween({ duration: 0 })).toEqual({ delay: 0, duration: Number.EPSILON, seconds: 0, easing: Easing.linear })
+    expect(Machine.resolveTween({})).toEqual({ delay: 0, duration: 0.3, seconds: 0.3, ease: Easing.linear })
+    expect(Machine.resolveTween({ duration: 0 })).toEqual({ delay: 0, duration: Number.EPSILON, seconds: 0, ease: Easing.linear })
   })
 })
 

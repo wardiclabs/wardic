@@ -252,8 +252,6 @@ const NOT_DEFINING: ReadonlySet<string> = new Set(["delay", "respectReducedMotio
 /** Motion's spring defaults (`springDefaults`): what a spring transition leaves out (ADR-0051). */
 const MOTION_SPRING = { stiffness: 100, damping: 10, mass: 1 } as const
 
-/** Motion's `easeOut`, a tween's easing when it gives none (`animateMotionValue`'s, ADR-0051). */
-export const EASE_OUT: Easing.Easing = Easing.cubicBezier(0, 0, 0.58, 1)
 
 /** A transition that defines nothing: its keys run on their Default transitions. */
 const NOT_DEFINED: unique symbol = Symbol("wardic.notDefined")
@@ -277,7 +275,7 @@ const madeRun = (given: WardicTransition): Run | typeof NOT_DEFINED => {
   if (Bool.not(Arr.some(Rec.keys(fields), isDefining))) return NOT_DEFINED
   return Bool.match(isSpring(fields), {
     onTrue: (): Run => ({ ...MOTION_SPRING, ...fields, type: "spring" }) as Run,
-    onFalse: (): Run => ({ easing: EASE_OUT, ...fields, type: "tween" }) as Run,
+    onFalse: (): Run => ({ ease: Easing.easeOut, ...fields, type: "tween" }) as Run,
   })
 }
 

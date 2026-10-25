@@ -130,9 +130,9 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
         <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1, color: "red" }} />
         <wardic.div initial={{ height: "0px" }} animate={{ height: "auto" }} />
         <wardic.div initial={{ color: "red" }} animate={{ color: "var(--brand)" }} />
-        <wardic.div {...rise} transition={{ type: "tween", easing: anonymous }} />
+        <wardic.div {...rise} transition={{ type: "tween", ease: anonymous }} />
         <wardic.div {...rise} style={own} />
-        <wardic.div {...rise} transition={{ type: "tween", easing: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
+        <wardic.div {...rise} transition={{ type: "tween", ease: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
         <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
         {/* eslint-disable-next-line solid/style-prop -- a string style is what this element checks */}
         <wardic.div {...rise} style="color: red; animation: spin 1s infinite" />
@@ -254,8 +254,8 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   })
 
   it("AR11: a spec's key: the same whatever its keys' order; none for an easing with no name", () => {
-    const at = (from: Record<string, number>, to: Record<string, number>, easing: (t: number) => number = Easing.linear) =>
-      keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, easing }, reduced: false, layout: false })
+    const at = (from: Record<string, number>, to: Record<string, number>, ease: (t: number) => number = Easing.linear) =>
+      keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, ease }, reduced: false, layout: false })
     expect(at({ opacity: 0, y: 20 }, { opacity: 1, y: 0 })).toEqual(at({ y: 20, opacity: 0 }, { y: 0, opacity: 1 }))
     expect(Option.isSome(at({ x: 0 }, { x: 1 }, Easing.easeOutCubic))).toBe(true)
     expect(Option.isNone(at({ x: 0 }, { x: 1 }, (t) => t * t))).toBe(true)
@@ -484,7 +484,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   it("AR17: a transition's entries time each key in the rule (#301)", () => {
     const linear = Easing.linear
     const html = page(() => (
-      <wardic.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1, easing: linear, opacity: { type: "tween", duration: 0.2, easing: linear } }} />
+      <wardic.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1, ease: linear, opacity: { type: "tween", duration: 0.2, ease: linear } }} />
     ))
     const css = headCss(html)
     const animation = timing(css, propertyOf(tagsOf(html).find((t) => t.name === "div")?.style.animation)).normal

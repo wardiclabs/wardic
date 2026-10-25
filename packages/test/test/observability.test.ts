@@ -92,7 +92,7 @@ it.effect("applyTo emits the `wardic.applyTo: subscribe` debug log and routes fr
 
     // Act — drive a 4-frame tween into a no-op target, capturing both calls and logs.
     yield* Renderer.applyTo(
-      Machine.animateValues({ x: 0 }, { x: 10 }, { duration: 1, easing: Easing.linear }).pipe(
+      Machine.animateValues({ x: 0 }, { x: 10 }, { duration: 1, ease: Easing.linear }).pipe(
         Effect.map(Machine.toStream),
         Stream.unwrap,
       ),

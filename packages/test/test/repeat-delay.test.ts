@@ -118,10 +118,10 @@ describe("repeatDelay holds after each run but the last (#91)", () => {
 
 describe("the Frames are Motion's, at 1/16 s ticks", () => {
   const cases = [
-    ["repeat 2", { duration: 0.25, repeatDelay: 0.125, repeat: 2, repeatType: "loop", delay: 0, easing: linear }],
-    ["repeat 3, reverse", { duration: 0.25, repeatDelay: 0.125, repeat: 3, repeatType: "reverse", delay: 0, easing: linear }],
-    ["repeat Infinity, mirror, a delay", { duration: 0.5, repeatDelay: 0.25, repeat: Infinity, repeatType: "mirror", delay: 0.125, easing: linear }],
-    ["a gap longer than a run, reverse", { duration: 0.125, repeatDelay: 0.375, repeat: 2, repeatType: "reverse", delay: 0, easing: linear }],
+    ["repeat 2", { duration: 0.25, repeatDelay: 0.125, repeat: 2, repeatType: "loop", delay: 0, ease: linear }],
+    ["repeat 3, reverse", { duration: 0.25, repeatDelay: 0.125, repeat: 3, repeatType: "reverse", delay: 0, ease: linear }],
+    ["repeat Infinity, mirror, a delay", { duration: 0.5, repeatDelay: 0.25, repeat: Infinity, repeatType: "mirror", delay: 0.125, ease: linear }],
+    ["a gap longer than a run, reverse", { duration: 0.125, repeatDelay: 0.375, repeat: 2, repeatType: "reverse", delay: 0, ease: linear }],
   ] as const satisfies ReadonlyArray<readonly [string, RunOptions]>
   for (const [name, options] of cases) {
     it.effect(name, () =>

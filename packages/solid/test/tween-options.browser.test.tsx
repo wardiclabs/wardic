@@ -38,8 +38,8 @@ describe("a tween transition with no duration keeps its other options (#107)", (
     expect(opacityOf(m.box)).toBe(1)
   })
 
-  it("easing: a step-end easing holds the start until the end", async () => {
-    const m = await mountFade({ type: "tween", easing: (t: number) => Math.floor(t) })
+  it("ease: a step-end easing holds the start until the end", async () => {
+    const m = await mountFade({ type: "tween", ease: (t: number) => Math.floor(t) })
     m.go()
     await wait(150)
     expect(opacityOf(m.box), "held at 150 ms of 300").toBe(0)

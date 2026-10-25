@@ -37,13 +37,14 @@ import * as Stream from "effect/Stream"
 import type { Covariant } from "effect/Types"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Clock from "./Clock.ts"
-import type * as Easing from "./Easing.ts"
+import * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import { cachedResolver, field, NonNegative } from "./internal/options.ts"
 import {
   durationOf,
+  EaseDefinition,
   initDecay,
   initTween,
   keyframesAt,
@@ -150,13 +151,24 @@ export const MAX_DT = 0.5
 export interface TweenOptions {
   /** Duration in seconds. Default 0.3 s: a missing duration leaves the other options as they are (#107). */
   readonly duration?: number
-  /** Easing function; defaults to linear. */
-  readonly easing?: Easing.Easing
+  /**
+   * How it eases (#360, ADR-0052), as Motion's `ease`: one of Motion's names (`"easeOut"`), a
+   * cubic bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or a function. Default linear.
+   */
+  readonly ease?: Easing.Definition
   /**
    * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `repeatType`, or across
    * `keyframes`' stops, it holds once, before the first segment (#77): `Machine.delay`.
    */
   readonly delay?: number
+}
+
+/**
+ * `keyframes`' options: a tween's, with an `ease` per Segment if it likes, as Motion's keyframes
+ * take an array of easings, one per Segment, wrapping round when there are fewer (#360).
+ */
+export interface KeyframesOptions extends Omit<TweenOptions, "ease"> {
+  readonly ease?: Easing.Definition | ReadonlyArray<Easing.Definition>
 }
 
 /**
@@ -1095,6 +1107,30 @@ export const animate = (from: number, to: number, options: AnimateOptions = NO_O
   )
 }
 
+/** `keyframes`' bag resolved: its tween's fields, and an easing per Segment. */
+interface ResolvedKeyframes {
+  readonly tween: ResolvedTween
+  readonly eases: Arr.NonEmptyReadonlyArray<Easing.Easing>
+}
+
+/** One `ease` or several (#360): a list is an array whose first item isn't a number, which a bézier's is. */
+const EaseOrList = Schema.Union([EaseDefinition, Schema.NonEmptyArray(EaseDefinition)])
+
+/**
+ * `keyframes`' bag as a Schema (#66): a tween's fields, its `ease` one Definition or one per Segment
+ * (#360), decoded once a bag.
+ */
+const resolveKeyframes: (options: KeyframesOptions) => ResolvedKeyframes = cachedResolver(
+  { ...TweenFields, ease: field(EaseOrList, Easing.linear as Easing.Definition) },
+  (decoded): ResolvedKeyframes => {
+    const list: Arr.NonEmptyReadonlyArray<Easing.Definition> = Bool.match(Bool.and(Array.isArray(decoded.ease), Bool.not(Easing.isBezier(decoded.ease))), {
+      onTrue: () => decoded.ease as Arr.NonEmptyReadonlyArray<Easing.Definition>,
+      onFalse: (): Arr.NonEmptyReadonlyArray<Easing.Definition> => [decoded.ease as Easing.Definition],
+    })
+    return { tween: resolvedTweenOf({ ...decoded, ease: list[0] }), eases: Arr.map(list, Easing.resolve) }
+  },
+)
+
 /**
  * Animate through a sequence of stops, splitting `duration` evenly across the Segments between
  * them, each eased whole (Motion's keyframes, evenly spaced). One leaf over one frame time (#226):
@@ -1102,8 +1138,8 @@ export const animate = (from: number, to: number, options: AnimateOptions = NO_O
  * none, holds still for `duration`. `delay` holds once, before the first Segment (#77). Its own
  * span, `wardic.keyframes`.
  */
-export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): Machine<Frame.Frame<number>> => {
-  const resolved = resolveTween(options)
+export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOptions): Machine<Frame.Frame<number>> => {
+  const { tween: resolved, eases } = resolveKeyframes(options)
   const total = resolved.seconds
   const count = Math.max(1, stops.length - 1)
   const segment = durationOf(total / count)
@@ -1122,7 +1158,7 @@ export const keyframes = (stops: ReadonlyArray<number>, options: TweenOptions): 
           // Per frame (ADR-0025): one time, `dt` clamped (#78); the stops copied when it was built.
           return (dt): Frame.Frame<number> => {
             elapsed += Math.min(dt, MAX_DT)
-            return keyframesAt(elapsed, at, segment, total, resolved.easing)
+            return keyframesAt(elapsed, at, segment, total, eases)
           }
         },
       }),

@@ -145,3 +145,24 @@ export {
   type ReorderItemOf,
   reorderItem,
 } from "./reorder.tsx"
+
+/**
+ * Motion's easing functions, by Motion's names (#360, ADR-0052), so a port's imports carry over:
+ * `import { easeOut, cubicBezier } from "@wardic/solid"`. An `ease` also takes the names as
+ * strings (`ease: "easeOut"`) and a bézier's four numbers. The Penner set and `Easing.spring` are
+ * in `@wardic/core/Easing`.
+ */
+export {
+  anticipate,
+  backIn,
+  backInOut,
+  backOut,
+  circIn,
+  circInOut,
+  circOut,
+  cubicBezier,
+  easeIn,
+  easeInOut,
+  easeOut,
+  steps,
+} from "@wardic/core/Easing"

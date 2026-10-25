@@ -60,7 +60,7 @@ const mountSlides = (presenceCustom: boolean) => {
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ type: "tween", duration: 0.6, easing: Easing.linear }}
+              transition={{ type: "tween", duration: 0.6, ease: Easing.linear }}
             />
           )}
         </Show>
@@ -123,7 +123,7 @@ describe("exits by name and custom on Solid 1 (#277)", () => {
   })
 
   it("PC4: an exit runs on the element's transition", async () => {
-    const linear: WardicTransition = { type: "tween", duration: 0.6, easing: Easing.linear }
+    const linear: WardicTransition = { type: "tween", duration: 0.6, ease: Easing.linear }
     const one = mountOne(() => <wardic.div data-one initial={false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={linear} />)
     await frames(3)
     const el = one.node()

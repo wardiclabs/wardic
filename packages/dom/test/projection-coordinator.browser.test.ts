@@ -582,7 +582,7 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
       Option.some({
         type: "tween",
         duration: 1,
-        easing: (t) => {
+        ease: (t) => {
           if (failing) throw new Error("easing failed")
           return t
         },

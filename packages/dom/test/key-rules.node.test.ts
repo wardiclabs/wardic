@@ -43,7 +43,7 @@ const framesOf = <F extends Frame.Frame<Values.Values>>(
 
 /** The values one key takes over a 1 s linear tween, frame by frame. */
 const run = (from: Values.Values, to: Values.Values, ticks: ReadonlyArray<number> = quarter, delay?: number) =>
-  framesOf(Machine.animateValues(from, to, { duration: 1, easing: Easing.linear, ...UndefinedOr.match(delay, { onUndefined: () => ({}), onDefined: (delay) => ({ delay }) }) }), ticks)
+  framesOf(Machine.animateValues(from, to, { duration: 1, ease: Easing.linear, ...UndefinedOr.match(delay, { onUndefined: () => ({}), onDefined: (delay) => ({ delay }) }) }), ticks)
 const of = (frames: ReadonlyArray<Frame.Frame<Values.Values>>, key: string) => frames.map((f) => f.value[key])
 const keyOf = (to: Values.Values): string => Object.keys(to)[0]!
 /** One key's values over the tween: at 0.25, 0.5, 0.75 and its last frame. */

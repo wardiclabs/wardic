@@ -11,13 +11,13 @@
 // - LTS5 (#357, ADR-0051): with no `type`, a tween's field makes a tween, eased out as Motion's;
 //   `{ type: "spring" }` is Motion's 100 / 10, which overshoots (core's 170 / 26 didn't).
 import { cleanup, render } from "@solidjs/testing-library"
+import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
-import { EASE_OUT } from "../src/retarget-legs.ts"
 import { raf } from "./browser-helpers.ts"
 
 afterEach(cleanup)
@@ -127,6 +127,6 @@ it("LTS5: no type and a tween's field: a tween eased out; { type: \"spring\" }: 
   const start = startOf(samples, 0)
   const early = samples.find((s) => s.t - start >= 75)!
   const x = (early.t - start) / 600
-  expect(early.lefts[0]! / 200, `at ${x.toFixed(3)} of the way in`).toBeGreaterThan(EASE_OUT(x) - 0.06)
+  expect(early.lefts[0]! / 200, `at ${x.toFixed(3)} of the way in`).toBeGreaterThan(Easing.easeOut(x) - 0.06)
   expect(Math.max(...samples.map((s) => s.lefts[1]!)), "Motion's bouncy spring, past its slot").toBeGreaterThan(215)
 })
