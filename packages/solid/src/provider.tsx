@@ -12,9 +12,13 @@
  * fibers on consumer unmount.
  */
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
+import type * as Recognizer from "@wardic/core/Recognizer"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Scope from "effect/Scope"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Latch from "effect/Latch"
@@ -25,6 +29,7 @@ import { batch, createContext, onCleanup, onMount, untrack, useContext } from "s
 import type { JSX } from "solid-js"
 import { useAssets } from "solid-js/web"
 import * as Appear from "@wardic/dom/Appear"
+import * as Report from "@wardic/dom/Report"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { type ServerAppear, serverAppear } from "./appear.ts"
@@ -276,6 +281,31 @@ export function runScoped<A, E>(
     runtime.runFork(Fiber.interrupt(fiber))
   })
   return fiber
+}
+
+/**
+ * Runs a gesture watch (#318, ADR-0055) in a Scope of its own, closed when the current owner is
+ * disposed: subscribed at once, with no fiber. A throw from its handler is logged at Error and
+ * reported to the Environment's `ErrorReporter`s, as a fiber's failure is (ADR-0030, decision 4),
+ * and the watch goes on. A server render starts nothing; while hydrating it starts at mount (the
+ * Hydration hold, ADR-0021 decisions 8 and 9). Must be called within a Solid owner.
+ */
+export function runWatch(
+  runtime: WardicRuntime,
+  watch: (onDefect: Recognizer.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+): void {
+  if (isServer) return
+  const scope = Scope.makeUnsafe()
+  const onDefect = (cause: Cause.Cause<never>): void => {
+    runtime.runFork(Report.failure("wardic.runWatch: a gesture handler failed", cause))
+  }
+  const start = (): void => {
+    runtime.runSync(watch(onDefect).pipe(Scope.provide(scope)))
+  }
+  Bool.match(isHydrating(), { onTrue: () => onMount(start), onFalse: start })
+  onCleanup(() => {
+    runtime.runSync(Scope.close(scope, Exit.void))
+  })
 }
 
 /**

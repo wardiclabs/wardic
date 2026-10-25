@@ -55,7 +55,7 @@ A mount of 1,000 elements falls from 132 ms to 28 ms, a mid-flight Retarget from
      - `Stream.withSpan(name, { captureStackTrace: false })`;
      - no `Effect.fn`: `Effect.gen` inside `withSpan` instead (`Renderer.applyTo`, the loop's `make`).
    - **What's lost:** only a file and line that always pointed at Wardic's own `withSpan` call (`at wardic.springValues (…/frameLoop.ts:377:14)`), never the app's code. A defect still prints `at <span>`.
-   - **Held by lint:** `eslint.config.js` (`SPANS`) rejects `Effect.fn` and a `withSpan` without `captureStackTrace`, in core's, dom's and solid's source. TypeScript rejects the option anywhere Effect doesn't read it.
+   - **Held by lint:** `eslint.config.js` (`SPANS`) rejects `Effect.fn` and a `withSpan` without `captureStackTrace`, in core's, dom's and solid's source, and since #318 a `withSpanScoped` without it. TypeScript rejects the option anywhere Effect doesn't read it.
    - Rejected: only the per-element spans, which leaves two conventions for one thing; keeping the stack.
 3. **A run keeps its span, opened without a stack frame** (Q3).
    - **How:** the run's body runs under `Effect.useSpan(name, { attributes }, (span) => Effect.provideService(body, Tracer.ParentSpan, span))`, not `withSpan`.

@@ -46,6 +46,7 @@
  */
 import type * as Drag from "@wardic/core/Drag"
 import * as Recognizer from "@wardic/core/Recognizer"
+import * as Report from "@wardic/dom/Report"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -54,12 +55,14 @@ import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Scope from "effect/Scope"
 import { constFalse, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom } from "effect/reactivity"
 import { isServer, type JSX, useHead } from "@solidjs/web"
@@ -806,13 +809,15 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   })
 
 
-  // The mounted element: registered with the gate, its layout node, its spine built over it, and the
-  // fibers of its recognizers and drag track.
+  // The mounted element: registered with the gate, its layout node, its spine built over it, its
+  // drag track's fiber, and the Scope its gesture watches run in (#318), made at its first watch: a
+  // ward with no gesture makes and closes none.
   interface Mounted {
     readonly element: HTMLElement
     readonly spine: ElementSpine
     readonly layout: ProjectionSystem.NodeHandle | undefined
     readonly fibers: Array<Fiber.Fiber<unknown, unknown>>
+    scope: Scope.Closeable | undefined
     hover: boolean
     press: boolean
     pan: boolean
@@ -824,9 +829,18 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const runFor = (m: { readonly fibers: Array<Fiber.Fiber<unknown, unknown>> }, effect: Effect.Effect<void, unknown, WardicServices>): void => {
     m.fibers.push(runtime.runFork(reported(effect)))
   }
-  /** A recognizer's values into `on`. */
-  const recognized = <A,>(stream: Stream.Stream<A, never, WardicServices>, on: (value: A) => void): Effect.Effect<void> =>
-    Stream.runForEach(stream, (value) => Effect.sync(() => on(value))) as Effect.Effect<void>
+  /**
+   * Run a gesture watch in the mount's Scope (#318, ADR-0055): subscribed now, with no fiber of its own,
+   * until the unmount closes the Scope.
+   */
+  const watchFor = (m: Mounted, watch: Effect.Effect<void, never, Scope.Scope | WardicServices>): void => {
+    if (Predicate.isUndefined(m.scope)) m.scope = Scope.makeUnsafe()
+    runtime.runSync(watch.pipe(Scope.provide(m.scope)))
+  }
+  /** A handler's throw, reported as a fiber's failure is (ADR-0030, decision 4); the watch goes on. */
+  const onDefect = (cause: Cause.Cause<never>): void => {
+    runtime.runFork(Report.failure("wardic.ward: a gesture handler failed", cause))
+  }
   /**
    * Start the hover, press and pan recognizers its config or a `next` now wants, each once a mount:
    * each hover or press transition sets its gesture layer, and every event is told to the lifecycle
@@ -835,44 +849,53 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const startRecognizers = (m: Mounted): void => {
     if (Bool.and(Bool.or(untrack(wantsHover), lifecycle.wantsHover), Bool.not(m.hover))) {
       m.hover = true
-      runFor(
+      watchFor(
         m,
-        recognized(Recognizer.hoverEvents(m.element), (transition) => {
-          setGesture(m.element, "hovered", transition.active)
-          lifecycle.hovered(transition)
+        Recognizer.watchHover(m.element, {
+          on: (transition) => {
+            setGesture(m.element, "hovered", transition.active)
+            lifecycle.hovered(transition)
+          },
+          onDefect,
         }),
       )
     }
     if (Bool.and(Bool.or(untrack(wantsPress), lifecycle.wantsPress), Bool.not(m.press))) {
       m.press = true
-      runFor(
+      watchFor(
         m,
-        recognized(Recognizer.pressEvents(m.element), (press) => {
-          setGesture(m.element, "pressed", press.phase === "start")
-          lifecycle.pressed(press)
+        Recognizer.watchPress(m.element, {
+          on: (press) => {
+            setGesture(m.element, "pressed", press.phase === "start")
+            lifecycle.pressed(press)
+          },
+          onDefect,
         }),
       )
     }
     // A pan sets no layer: only a `next` wants it (#273).
     if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
       m.pan = true
-      runFor(m, recognized(Recognizer.pan(m.element), (sample) => lifecycle.panned(sample)))
+      watchFor(m, Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample), onDefect }))
     }
     // In view as its `viewport` says, read when it starts (#273).
     if (Bool.and(Bool.or(untrack(wantsInView), lifecycle.wantsInView), Bool.not(m.inView))) {
       m.inView = true
-      runFor(
+      watchFor(
         m,
-        recognized(Recognizer.inViewEvents(m.element, inViewOptionsOf(untrack(cfg).viewport)), (transition) => {
-          setGesture(m.element, "inView", transition.active)
-          lifecycle.viewed(transition)
+        Recognizer.watchInView(m.element, inViewOptionsOf(untrack(cfg).viewport), {
+          on: (transition) => {
+            setGesture(m.element, "inView", transition.active)
+            lifecycle.viewed(transition)
+          },
+          onDefect,
         }),
       )
     }
     // Focused as the browser shows it (`:focus-visible`, #273).
     if (Bool.and(untrack(wantsFocus), Bool.not(m.focus))) {
       m.focus = true
-      runFor(m, recognized(Recognizer.focus(m.element, { visible: true }), (focused) => setGesture(m.element, "focused", focused)))
+      watchFor(m, Recognizer.watchFocus(m.element, { visible: true }, { on: (focused) => setGesture(m.element, "focused", focused), onDefect }))
     }
   }
   let mounted: Mounted | undefined
@@ -1053,6 +1076,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       spine,
       layout,
       fibers,
+      scope: undefined,
       hover: false,
       press: false,
       pan: false,
@@ -1063,6 +1087,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         UndefinedOr.map(mountedHook, (end) => end())
         spine.dispose()
         Arr.forEach(fibers, (fiber) => runtime.runFork(Fiber.interrupt(fiber)))
+        // Its gesture watches' listeners go, and their spans end.
+        UndefinedOr.map(m.scope, (scope) => runtime.runSync(Scope.close(scope, Exit.void)))
         // The group lets go of the node before it's disposed.
         UndefinedOr.map(handedOver, (release) => release())
         UndefinedOr.map(layout, (node) => node.dispose())

@@ -39,12 +39,10 @@ import * as Svg from "@wardic/dom/Svg"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
 import { constUndefined, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom } from "effect/reactivity"
 import {
@@ -59,7 +57,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js"
-import { fromAtom, streamToSignal } from "./bridge.ts"
+import { fromAtom, watchToSignal } from "./bridge.ts"
 import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
@@ -74,7 +72,7 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { runScoped, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { runWatch, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
@@ -558,33 +556,45 @@ export function runSpine(opts: RunSpineOptions): void {
       // (runScoped). Until started, a layer reads false.
       const started = createWhenWanted(cfg, WANTS, {
         hover: () =>
-          streamToSignal(
-            Recognizer.hoverEvents(element).pipe(
-              Stream.tap((transition) => Effect.sync(() => gesturesOf().hovered(transition))),
-              Stream.map((transition) => transition.active),
-            ),
+          watchToSignal<boolean>(
+            ({ on, onDefect }) =>
+              Recognizer.watchHover(element, {
+                on: (transition) => {
+                  gesturesOf().hovered(transition)
+                  on(transition.active)
+                },
+                onDefect,
+              }),
             false,
           ),
         press: () =>
-          streamToSignal(
-            Recognizer.pressEvents(element).pipe(
-              Stream.tap((press) => Effect.sync(() => gesturesOf().pressed(press))),
-              Stream.map((press) => press.phase === "start"),
-            ),
+          watchToSignal<boolean>(
+            ({ on, onDefect }) =>
+              Recognizer.watchPress(element, {
+                on: (press) => {
+                  gesturesOf().pressed(press)
+                  on(press.phase === "start")
+                },
+                onDefect,
+              }),
             false,
           ),
         // In view as its `viewport` says, read when it starts; each transition told to the viewport callbacks.
         inView: () =>
-          streamToSignal(
-            Recognizer.inViewEvents(element, inViewOptionsOf(untrack(cfg).viewport)).pipe(
-              Stream.tap((transition) => Effect.sync(() => gesturesOf().viewed(transition))),
-              Stream.map((transition) => transition.active),
-            ),
+          watchToSignal<boolean>(
+            ({ on, onDefect }) =>
+              Recognizer.watchInView(element, inViewOptionsOf(untrack(cfg).viewport), {
+                on: (transition) => {
+                  gesturesOf().viewed(transition)
+                  on(transition.active)
+                },
+                onDefect,
+              }),
             false,
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
-        focus: () => streamToSignal(Recognizer.focus(element, { visible: true }), false),
-        pan: () => runScoped(runtime, Stream.runForEach(Recognizer.pan(element), (sample) => Effect.sync(() => gesturesOf().panned(sample)))),
+        focus: () => watchToSignal<boolean>((handlers) => Recognizer.watchFocus(element, { visible: true }, handlers), false),
+        pan: () => runWatch(runtime, (onDefect) => Recognizer.watchPan(element, { on: (sample) => gesturesOf().panned(sample), onDefect })),
       })
 
       // The Override stack (`resolutionOf`). The memo DEPENDS on cfg() (read inside), so a

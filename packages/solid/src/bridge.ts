@@ -16,12 +16,14 @@
  * Both MUST be called within a Solid owner (component body / `createRoot`) —
  * they register `onCleanup` and read the runtime from context.
  */
+import type * as Recognizer from "@wardic/core/Recognizer"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
+import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { AtomRegistry, type Atom } from "effect/reactivity"
 import { type Accessor, createSignal, from, onCleanup, onMount } from "solid-js"
-import { runScoped, useWardicRuntime } from "./provider.tsx"
+import { runScoped, runWatch, useWardicRuntime } from "./provider.tsx"
 import type { WardicServices } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 
@@ -50,6 +52,20 @@ export const streamToSignal = <A>(
     runtime,
     Stream.runForEach(stream, (v) => Effect.sync(() => set(() => v))),
   )
+  return get
+}
+
+/**
+ * A gesture watch's values as a Solid `Accessor` (#318, ADR-0055): `initial` until the first, the
+ * watch run with {@link runWatch} (a Scope of its own, closed with the owner; a handler's throw
+ * reported). Must be called within a Solid owner under a `WardicProvider`.
+ */
+export const watchToSignal = <A>(
+  watchOf: (handlers: Recognizer.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+  initial: A,
+): Accessor<A> => {
+  const [get, set] = createSignal(initial)
+  runWatch(useWardicRuntime(), (onDefect) => watchOf({ on: (value) => set(() => value), onDefect }))
   return get
 }
 
