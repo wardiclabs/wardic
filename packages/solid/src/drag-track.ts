@@ -43,6 +43,7 @@
  */
 import * as Drag from "@wardic/core/Drag"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
 import * as Recognizer from "@wardic/core/Recognizer"
@@ -701,7 +702,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
           onDefined: (projection) => Effect.sync(() => projection.resumeRelease()),
         })
       })
-      const presses = input.pointer(element).pipe(Stream.filter(Predicate.or(isGrab, isPressEnd)))
+      const presses = InputFeed.toStream(input.pointer(element)).pipe(Stream.filter(Predicate.or(isGrab, isPressEnd)))
       const onPress = (event: InputSource.PointerLikeEvent): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
         Bool.match(isGrab(event), { onTrue: () => onGrab, onFalse: () => onPressEnd })
 

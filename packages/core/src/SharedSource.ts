@@ -1,16 +1,15 @@
 /**
  * The `SharedSource` module: how an Environment meets CONTEXT.md's **Shared source** contract
- * (#37, ADR-0041 *Amendment (#37)*). Every Stream an Environment hands out is hot and ref-counted:
- * subscribers share one underlying source (one listener-set per target, one observer, one
- * page-wide feed), established on first subscribe and torn down when the last unsubscribes. A
- * consumer attaching `hover`, `press` and `drag` to one target gets one listener-set, not three.
+ * for the Streams it hands out (#37, ADR-0041 *Amendment (#37)*): each is hot and ref-counted, its
+ * subscribers sharing one underlying source (one observer per target, one page-wide feed),
+ * established on first subscribe and torn down when the last unsubscribes. An Environment's
+ * **Input feeds** are shared by `InputFeed.byTarget` instead, with no `PubSub` or fiber (#318).
  *
  * Two constructors, both built on the same primitive (a `PubSub` fed by a `forkScoped` pump that
  * drains the cold source), wrapped in Effect's reference-counted resource caches:
  *
  * - {@link byTarget} keys on the target (`RcMap`): one entry per distinct target, the cold `lookup`
- *   running once per target while a subscriber holds it. An Environment's
- *   `InputSource.pointer`/`keyboard`/`focus` and `Probe.observeResize`/`observeIntersection`.
+ *   running once per target while a subscriber holds it. An Environment's `Probe.observeResize`.
  * - {@link make} is the keyless case (`RcRef`): one shared source for the whole Environment, a
  *   page-wide feed.
  *
@@ -106,11 +105,11 @@ const idleOf = (options: Options = {}): { readonly idleTimeToLive?: Duration.Inp
  * subscriber for that target unsubscribes (after `idleTimeToLive`, if given).
  *
  * @example
- * // `movesOf(target)`: an Environment's cold Stream of a target's pointer moves
- * const pointer = yield* SharedSource.byTarget((target) => Effect.succeed(movesOf(target)))
- * // both share one listener-set on `target`:
- * Stream.runForEach(pointer(target), onHover)
- * Stream.runForEach(pointer(target), onPress)
+ * // `resizesOf(target)`: an Environment's cold Stream of a target's sizes
+ * const resize = yield* SharedSource.byTarget((target) => Effect.succeed(resizesOf(target)))
+ * // both share one observer on `target`:
+ * Stream.runForEach(resize(target), onLayout)
+ * Stream.runForEach(resize(target), onScroll)
  */
 export const byTarget = <A>(
   lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,

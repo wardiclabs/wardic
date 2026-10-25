@@ -1,3 +1,4 @@
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -56,7 +57,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
 
       el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1, pointerId: 2 }))
       el.dispatchEvent(new PointerEvent("pointermove", { clientX: 7, clientY: 8, buttons: 1, pointerId: 2 }))
@@ -75,7 +76,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
 
       el.dispatchEvent(new PointerEvent("pointerenter"))
       el.dispatchEvent(new PointerEvent("pointerleave"))
@@ -89,7 +90,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
-      const sub = yield* subscribeIn(input.focus(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.focus(el)))
 
       el.dispatchEvent(new FocusEvent("focus"))
       el.dispatchEvent(new FocusEvent("blur"))
@@ -105,7 +106,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
       const child = document.createElement("input")
       el.appendChild(child)
       document.body.appendChild(el)
-      const sub = yield* subscribeIn(input.keyboard(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.keyboard(el)))
 
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", code: "ArrowUp", repeat: false, bubbles: true }))
       child.dispatchEvent(new KeyboardEvent("keyup", { key: "b", code: "KeyB", repeat: true, bubbles: true }))
@@ -128,7 +129,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
       const child = document.createElement("span")
       el.appendChild(child)
       document.body.appendChild(el)
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       const pointer = (type: string, at: EventTarget): void => {
         at.dispatchEvent(new PointerEvent(type, { pointerId: 1, isPrimary: true, buttons: Match.value(type).pipe(Match.when("pointerdown", () => 1), Match.orElse(() => 0)), bubbles: true }))
       }
@@ -163,7 +164,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
       document.addEventListener("keydown", onDocument)
       const seen: Array<{ key: InputSource.Key; handled: boolean }> = []
       const fiber = yield* Effect.forkChild(
-        Stream.runForEach(input.keyboard(el), (e) =>
+        Stream.runForEach(InputFeed.toStream(input.keyboard(el)), (e) =>
           Effect.sync(() => {
             seen.push({ key: e.key, handled: e.handled })
             if (e.key === "space") e.handle()
@@ -196,8 +197,8 @@ layer(InputDomLive)("InputDomLive", (it) => {
       const el = document.createElement("div")
       const spy = spyTarget(el)
 
-      const a = yield* subscribeIn(input.pointer(el))
-      const b = yield* subscribeIn(input.pointer(el))
+      const a = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
+      const b = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
 
       // One listener-set: 6 pointer event types attached exactly once, shared by
       // both subscribers (not 12). No removals yet.
@@ -271,7 +272,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
       document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 300, buttons: 1 }))
       document.body.dispatchEvent(pointerEvent("pointerup", { clientX: 310 }))
@@ -286,7 +287,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
       el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, buttons: 1 }))
       el.dispatchEvent(pointerEvent("pointerup", { clientX: 5 }))
@@ -299,7 +300,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
       document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 200, buttons: 1 }))
       const events = yield* sub.collect(2)
@@ -312,7 +313,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       const input = yield* InputSource.InputSource
       for (const ending of ["pointerup", "pointercancel", "pointermove"] as const) {
         const el = yield* attachedTarget
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
         document.body.dispatchEvent(pointerEvent(ending, { clientX: 100, buttons: 0 }))
         document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 200, buttons: 0 }))
@@ -329,7 +330,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       const el = yield* attachedTarget
       const spy = spyWindowPointer()
       try {
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         expect(spy.adds(), "none at subscribe").toBe(0)
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
         yield* sub.collect(1)
@@ -349,7 +350,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       const el = yield* attachedTarget
       const spy = spyWindowPointer()
       try {
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 1 }))
         el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 2, isPrimary: false }))
         yield* sub.collect(2)
@@ -372,7 +373,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { pointerType: "pen", isPrimary: false, button: 2, buttons: 2 }))
       el.dispatchEvent(pointerEvent("pointerup", { pointerType: "pen", isPrimary: false, button: 2, buttons: 0 }))
       const events = yield* sub.collect(2)
@@ -387,7 +388,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1, pointerId: 1 }))
       document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 70, buttons: 1, pointerId: 3 }))
       document.body.dispatchEvent(pointerEvent("pointerup", { pointerId: 3 }))
@@ -400,7 +401,7 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = yield* attachedTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 0, buttons: 1 }))
       document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 40, buttons: 1 }))
       // The release is lost; the same pointer presses elsewhere on the page.
@@ -420,8 +421,8 @@ layer(InputDomLive)("InputDomLive: Held pointer", (it) => {
       const target = spyTarget(el)
       const page = spyWindowPointer()
       try {
-        const a = yield* subscribeIn(input.pointer(el))
-        const b = yield* subscribeIn(input.pointer(el))
+        const a = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
+        const b = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1 }))
         document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 90, buttons: 1 }))
         expect((yield* a.collect(2)).map((e) => e.type)).toEqual(["down", "move"])
@@ -495,7 +496,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       const spy = spyWindowScroll()
       try {
         const { el } = yield* scrolledTarget
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointermove", { buttons: 0 }))
         yield* sub.collect(1)
         expect(spy.adds()).toBe(0)
@@ -509,7 +510,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const { container, el } = yield* scrolledTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
       el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
       container.scrollTop += 60
@@ -528,7 +529,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       document.body.append(tall)
       try {
         const { el } = yield* scrolledTarget
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
         el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
         window.scrollBy(0, 60)
@@ -547,7 +548,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       const input = yield* InputSource.InputSource
       const { el } = yield* scrolledTarget
       const other = yield* scrolledTarget
-      const sub = yield* subscribeIn(input.pointer(el))
+      const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
       el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
       el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
       other.container.scrollTop += 60
@@ -562,7 +563,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       const spy = spyWindowScroll()
       try {
         const { el } = yield* scrolledTarget
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { buttons: 1 }))
         expect(spy.adds(), "one capture-phase listener for element scrolls, one for the window's own").toBe(2)
         expect(spy.removes()).toBe(0)
@@ -592,7 +593,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         panelContent.append(el)
         panel.append(panelContent)
         anchor.after(panel)
-        const sub = yield* subscribeIn(input.pointer(el))
+        const sub = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
         el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
         container.scrollTop += 60
@@ -615,8 +616,8 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
       const spy = spyWindowScroll()
       try {
         const { container, el } = yield* scrolledTarget
-        const a = yield* subscribeIn(input.pointer(el))
-        const b = yield* subscribeIn(input.pointer(el))
+        const a = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
+        const b = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         el.dispatchEvent(pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
         el.dispatchEvent(pointerEvent("pointermove", { clientX: 5, clientY: 6, buttons: 1 }))
         expect(spy.adds()).toBe(2)

@@ -3,16 +3,16 @@
  * events onto the engine's environment-agnostic Like-event shapes
  * (`PointerLikeEvent`/`KeyboardLikeEvent`/`FocusLikeEvent`).
  *
- * Every accessor is built on the shared-source helpers (CONTEXT.md's **Shared
- * source** contract): per-target streams go through core's `SharedSource.byTarget`
- * (one listener-set per element, ref-counted). A consumer attaching `hover` + `press`
- * + `drag` to one element therefore shares a single pointer listener-set, not three.
+ * Every accessor is an **Input feed** (#318), shared per target by core's `InputFeed.byTarget`
+ * (CONTEXT.md's **Shared source** contract: one listener-set per element, ref-counted, with no
+ * `PubSub` or fiber). A consumer attaching `hover` + `press` + `drag` to one element therefore
+ * shares a single pointer listener-set, not three.
  *
  * `keyboard(target)` (ADR-0037) listens on the target's window, in the bubble phase, for
  * the keys at the target or inside it: there it runs after the page's own handlers (the
  * element's, and Solid's delegated ones on the document), so `handled` (`defaultPrevented`) says
  * whether one took the key, and a consumer can still `handle()` it (`preventDefault()`). Its events
- * reach their consumers inside the dispatch (ADR-0032): each one is offered and the queue flushed.
+ * reach their consumers inside the dispatch (ADR-0032).
  * Keys are in core's names (`keyOf`), not the browser's.
  *
  * `pointer(target)` also carries every **Held pointer**'s events (ADR-0019): core's
@@ -32,18 +32,13 @@
  * bubble), one for the window's own. Nothing listens for scroll at rest. The feed also
  * keeps each held target's total shift, for the auto-scroller ({@link heldScrollShift}).
  *
- * `Layer.effect` runs `make` in the layer's own scope (it `Exclude`s `Scope`
- * from the requirements, effect 4's scoped-layer idiom — there is no separate
- * `Layer.scoped`), which the helpers' `RcMap`/`RcRef` need: the ref-counting
- * caches live for the layer's lifetime.
- *
- * Observability (CONTEXT.md observability convention): core's `SharedSource`
- * already carries a `wardic.sharedSource.*` span + a debug-log on subscribe; the
- * per-event mapping path is deliberately unlogged — it is the hot path.
+ * Observability (CONTEXT.md observability convention): a consumer (a recognizer) carries the
+ * subscribe span and log; the per-event mapping path is deliberately unlogged — it is the hot
+ * path.
  */
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
-import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -52,8 +47,6 @@ import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Queue from "effect/Queue"
-import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { scrollersOf } from "./measure.ts"
 import { requireGlobal } from "./require-global.ts"
@@ -287,63 +280,54 @@ const throughTarget = (ev: Event, target: unknown): boolean => ev.composedPath()
 
 /**
  * The keys at `target` or inside it (ADR-0037): `keydown`/`keyup` on its window, in the bubble
- * phase, so after the page's own handlers. Each one is offered and the queue flushed, so a waiting
- * consumer handles it inside the dispatch (ADR-0032), where its `handle()` still counts.
+ * phase, so after the page's own handlers. An **Input feed** (#318): each key reaches its consumer
+ * inside the dispatch (ADR-0032), where its `handle()` still counts.
  */
-const keyboardOf = (target: unknown): Stream.Stream<InputSource.KeyboardLikeEvent> =>
-  Stream.callback<InputSource.KeyboardLikeEvent>((queue) =>
-    Effect.acquireRelease(
-      Effect.sync(() => {
-        const win = windowOf(target)
-        const listener = (ev: Event): void => {
-          if (!throughTarget(ev, target)) return
-          Queue.offerUnsafe(queue, toKeyboard(keyTypeOf(ev), ev as KeyboardEvent, target))
-          Queue.flushUnsafe(queue)
-        }
-        win.addEventListener("keydown", listener)
-        win.addEventListener("keyup", listener)
-        return (): void => {
-          win.removeEventListener("keydown", listener)
-          win.removeEventListener("keyup", listener)
-        }
-      }),
-      (stop) => Effect.sync(stop),
-    ))
+const keyboardOf = (target: unknown): InputFeed.InputFeed<InputSource.KeyboardLikeEvent> => (emit) => {
+  const win = windowOf(target)
+  const listener = (ev: Event): void => {
+    if (!throughTarget(ev, target)) return
+    emit(toKeyboard(keyTypeOf(ev), ev as KeyboardEvent, target))
+  }
+  win.addEventListener("keydown", listener)
+  win.addEventListener("keyup", listener)
+  return (): void => {
+    win.removeEventListener("keydown", listener)
+    win.removeEventListener("keyup", listener)
+  }
+}
+
+/** `target`'s focus and blur, as an **Input feed** (#318). */
+const focusOf = (target: unknown): InputFeed.InputFeed<InputSource.FocusLikeEvent> => (emit) => {
+  const el = target as EventTarget
+  const onFocus = (ev: Event): void => emit(toFocus("focus")(ev as FocusEvent))
+  const onBlur = (ev: Event): void => emit(toFocus("blur")(ev as FocusEvent))
+  el.addEventListener("focus", onFocus)
+  el.addEventListener("blur", onBlur)
+  return (): void => {
+    el.removeEventListener("focus", onFocus)
+    el.removeEventListener("blur", onBlur)
+  }
+}
 
 /**
- * One `fromEventListener` per DOM event type, mapped to a Like-event, except
- * `pointer`, whose target, page-wide and scroll feeds go through core's
- * `InputSource.heldPointer` (one ordered callback). The shared helpers want `Effect<Stream<A>, never, Scope>`;
- * these are plain `Stream`s, so each `lookup` simply succeeds with the stream.
+ * The DOM's **Input feeds** (#318): each shared per target by core's `InputFeed.byTarget`, so a
+ * target's hover, press and drag start one listener-set, not three. `pointer`'s target, page-wide
+ * and scroll feeds go through core's `InputSource.heldPointer` (one ordered emit).
  */
 const make = Effect.gen(function* () {
-  // Client-only (ADR-0021, decision 7): every stream below is built on a live document.
+  // Client-only (ADR-0021, decision 7): every feed below is built on a live document.
   yield* requireGlobal("InputDomLive", "document")
 
-  const pointer = yield* SharedSource.byTarget((target) =>
-    Effect.succeed(
-      InputSource.heldPointer({
-        target: feedOf(target as EventTarget, POINTER_EVENTS),
-        global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
-        scroll: scrollFeedOf(target),
-      }),
-    )
+  const pointer = InputFeed.byTarget((target) =>
+    InputSource.heldPointer({
+      target: feedOf(target as EventTarget, POINTER_EVENTS),
+      global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
+      scroll: scrollFeedOf(target),
+    })
   )
-
-  const focus = yield* SharedSource.byTarget((target) =>
-    Effect.succeed(
-      Stream.merge(
-        Stream.fromEventListener<FocusEvent>(target as Stream.EventListener<FocusEvent>, "focus").pipe(
-          Stream.map(toFocus("focus")),
-        ),
-        Stream.fromEventListener<FocusEvent>(target as Stream.EventListener<FocusEvent>, "blur").pipe(
-          Stream.map(toFocus("blur")),
-        ),
-      ),
-    )
-  )
-
-  const keyboard = yield* SharedSource.byTarget((target) => Effect.succeed(keyboardOf(target)))
+  const focus = InputFeed.byTarget(focusOf)
+  const keyboard = InputFeed.byTarget(keyboardOf)
 
   return InputSource.InputSource.of({
     pointer,

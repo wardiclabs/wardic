@@ -15,6 +15,7 @@ import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
 import type * as Drag from "./Drag.ts"
 import * as DragActivity from "./DragActivity.ts"
+import * as InputFeed from "./InputFeed.ts"
 import * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
 import * as Probe from "./Probe.ts"
@@ -187,7 +188,7 @@ export const hoverEvents = (target: unknown): Stream.Stream<Transition, never, I
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const activity = yield* DragActivity.DragActivity
-      return { events: input.pointer(target), fold: hoverFold(activity) }
+      return { events: InputFeed.toStream(input.pointer(target)), fold: hoverFold(activity) }
     }),
     transitionOf,
   )
@@ -273,7 +274,7 @@ export const pressEvents = (target: unknown): Stream.Stream<PressEvent, never, I
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const activity = yield* DragActivity.DragActivity
-      return { events: input.pointer(target), fold: pressFold(activity) }
+      return { events: InputFeed.toStream(input.pointer(target)), fold: pressFold(activity) }
     }),
     pressEventOf,
   )
@@ -314,7 +315,7 @@ export const focus = (target: unknown, options: { readonly visible?: boolean } =
     "wardic.focus",
     { visibleOnly },
     Effect.map(InputSource.InputSource, (i) => ({
-      events: i.focus(target),
+      events: InputFeed.toStream(i.focus(target)),
       fold: booleanFold((e: InputSource.FocusLikeEvent) => Bool.and(e.type === "focus", Bool.or(Bool.not(visibleOnly), e.visible !== false))),
     })),
   )
@@ -348,7 +349,7 @@ export const inView = (target: unknown, options: InViewOptions = {}): Stream.Str
     "wardic.inView",
     {},
     Effect.map(Probe.Probe, (p) => ({
-      events: p.observeIntersection(target, intersectionOf(options)),
+      events: InputFeed.toStream(p.observeIntersection(target, intersectionOf(options))),
       fold: booleanFold(intersecting),
     })),
   )
@@ -374,7 +375,7 @@ export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stre
     "wardic.inView",
     {},
     Effect.map(Probe.Probe, (p) => ({
-      events: p.observeIntersection(target, intersectionOf(options)),
+      events: InputFeed.toStream(p.observeIntersection(target, intersectionOf(options))),
       fold: booleanFold(intersecting),
     })),
     (_next, intersection: Probe.Intersection, active): ViewTransition => ({ active, raw: intersection.raw }),
@@ -802,7 +803,7 @@ export const drag = (
           Match.exhaustive,
         )
 
-      return input.pointer(target).pipe(
+      return InputFeed.toStream(input.pointer(target)).pipe(
         Stream.mapAccum(() => initState, Bool.match(lock, { onTrue: () => lockedStep, onFalse: () => step })),
         Stream.filterMapEffect(admit),
         Stream.ensuring(Effect.sync(release)),
@@ -877,7 +878,7 @@ export const pan = (target: unknown): Stream.Stream<PanSample, never, InputSourc
         }
         if (sample.phase === "end") release()
       }
-      return input.pointer(target).pipe(
+      return InputFeed.toStream(input.pointer(target)).pipe(
         Stream.mapAccum(() => initState, panStep),
         Stream.tap((sample) => Effect.sync(() => counted(sample))),
         Stream.ensuring(Effect.sync(release)),

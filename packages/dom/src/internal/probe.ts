@@ -15,13 +15,14 @@
  * Per CONTEXT.md's **Shared source** contract, `observeResize` goes through core's
  * `SharedSource.byTarget`: one `ResizeObserver` per target, ref-counted — the observer is
  * constructed and `observe()`d on the first subscriber and `disconnect()`ed when the last
- * unsubscribes. `observeIntersection` makes one `IntersectionObserver` per subscription, since
- * each may ask its own root, margin and amount (#273, Motion's `viewport`).
+ * unsubscribes. `observeIntersection` is an **Input feed** (#318) making one `IntersectionObserver`
+ * per subscriber, since each may ask its own root, margin and amount (#273, Motion's `viewport`).
  *
  * Observability (CONTEXT.md observability convention): core's `SharedSource` already
  * carries a `wardic.sharedSource.*` span + a debug-log on subscribe; the hot
  * `measure`/viewport-write paths stay quiet.
  */
+import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Probe from "@wardic/core/Probe"
 import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
@@ -124,20 +125,18 @@ const make = Effect.gen(function* () {
   )
 
   // --- observeIntersection ------------------------------------------------
-  // One IntersectionObserver per subscription, against its options (#273, Motion's `viewport`): the
-  // root (the viewport when none), the margin (`rootMargin`) and the amount (`threshold`). Each report
-  // carries the entry.
-  const observeIntersection = (target: unknown, options: Probe.IntersectionOptions = {}): Stream.Stream<Probe.Intersection> =>
-    Stream.callback<Probe.Intersection>((queue) =>
-      Effect.gen(function* () {
-        const io = new IntersectionObserver(
-          (entries) => Arr.forEach(entries, (entry) => Queue.offerUnsafe(queue, { intersecting: entry.isIntersecting, raw: entry })),
-          observerInit(options),
-        )
-        io.observe(target as Element)
-        yield* Effect.addFinalizer(() => Effect.sync(() => io.disconnect()))
-      })
-    )
+  // An Input feed (#318) with one IntersectionObserver per subscriber, against its options (#273,
+  // Motion's `viewport`): the root (the viewport when none), the margin (`rootMargin`) and the amount
+  // (`threshold`). Each report carries the entry.
+  const observeIntersection =
+    (target: unknown, options: Probe.IntersectionOptions = {}): InputFeed.InputFeed<Probe.Intersection> => (emit) => {
+      const io = new IntersectionObserver(
+        (entries) => Arr.forEach(entries, (entry) => emit({ intersecting: entry.isIntersecting, raw: entry })),
+        observerInit(options),
+      )
+      io.observe(target as Element)
+      return () => io.disconnect()
+    }
 
   return Probe.Probe.of({
     // Hot path — intentionally unlogged/un-spanned.

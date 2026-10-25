@@ -25,6 +25,7 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
@@ -252,10 +253,13 @@ const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderCo
       const input = yield* InputSource.InputSource
       yield* Effect.all(
         [
-          Stream.runForEach(input.keyboard(el), (event) => Effect.sync(() => driver.onKey(event))),
-          Stream.runForEach(Stream.filter(input.focus(el), (event) => event.type === "blur"), () => Effect.sync(driver.onBlur)),
+          Stream.runForEach(InputFeed.toStream(input.keyboard(el)), (event) => Effect.sync(() => driver.onKey(event))),
+          // A blur is judged after this task's own work, one scheduler hop on (#318): a reorder can blur the node it
+          // moves and puts focus back after (the driver's `keepFocus`). The focus feed hears it inside the move; its
+          // old Stream (`fromEventListener`) resumed this consumer a hop later, which this keeps.
+          Stream.runForEach(Stream.filter(InputFeed.toStream(input.focus(el)), (event) => event.type === "blur"), () => Effect.andThen(Effect.yieldNow, Effect.sync(driver.onBlur))),
           Stream.runForEach(
-            Stream.filter(input.pointer(el), (event) => Bool.and(event.type === "down", InputSource.isPrimaryPointer(event))),
+            Stream.filter(InputFeed.toStream(input.pointer(el)), (event) => Bool.and(event.type === "down", InputSource.isPrimaryPointer(event))),
             () => Effect.sync(driver.onPress),
           ),
         ],

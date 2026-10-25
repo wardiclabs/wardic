@@ -1,9 +1,10 @@
 import * as Probe from "@wardic/core/Probe"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/reactivity"
+import * as Feeds from "./feeds.ts"
 
 const ZERO_BOUNDS: Probe.Bounds = { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
 const VIEWPORT = { width: 1024, height: 768 }
@@ -21,23 +22,23 @@ export interface TestProbeOptions {
   /** Every container's scroll, as `scroll` gives it (#234): a page that doesn't scroll when left out. */
   readonly scroll?: Probe.Scroll
   /**
-   * Script of intersection (in-view) booleans replayed by `observeIntersection`.
-   * Mirrors the InputSource test harness: omitted (or empty) means the stream
-   * emits nothing, preserving back-compat with the silent default.
+   * Script of intersection (in-view) booleans replayed by `observeIntersection`, an **Input feed**
+   * that ends after it (#318). Mirrors the InputSource test harness: omitted (or empty) means it
+   * emits nothing and ends.
    */
   readonly intersection?: ReadonlyArray<boolean>
 }
 
 /**
  * A static Probe: fixed bounds/viewport. `observeIntersection` replays the
- * optional `intersection` script via `Stream.fromIterable` (empty by default, so
- * it emits nothing); `observeResize` stays empty.
+ * optional `intersection` script to each subscriber (empty by default, so it
+ * emits nothing); `observeResize` stays empty.
  */
 export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> => {
   const { intersection = [], scroll = STILL_SCROLL } = options
   return Layer.succeed(Probe.Probe, {
     ...fixed(options, Atom.make(scroll)),
-    observeIntersection: () => Stream.fromIterable(intersection).pipe(Stream.map(toIntersection)),
+    observeIntersection: () => Feeds.script(Arr.map(intersection, toIntersection)),
   })
 }
 
@@ -57,9 +58,9 @@ const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion
  * A push-based Probe for tests that need to interleave intersection
  * (in-view/out-of-view) transitions with other effects on their own schedule —
  * mirroring {@link TestInput.pushable}. `observeIntersection(target)` subscribes
- * to a broadcast `PubSub`, so every subscriber sees the same transitions and only
+ * to a hub (#318), so every subscriber sees the same transitions and only
  * events pushed *after* a subscription is live reach it. `pushIntersection`
- * doesn't yield: a waiting subscriber handles the transition inside the publish,
+ * doesn't yield: a subscriber handles the transition inside the push,
  * as `TestInput.pushable`'s do (ADR-0032). `pushScroll` sets the scroll every container reads,
  * through the Environment's registry, as a scroll event would (#234).
  * measure/viewport/prefersReducedMotion/observeResize behave as in {@link layer}.
@@ -69,14 +70,13 @@ export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
   readonly pushIntersection: (inView: boolean) => Effect.Effect<void>
   readonly pushScroll: (scroll: Probe.Scroll) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>
 }> =>
-  Effect.gen(function* () {
-    const pubsub = yield* PubSub.unbounded<boolean>()
+  Effect.sync(() => {
+    const intersections = Feeds.hub<Probe.Intersection>()
     const { scroll = STILL_SCROLL } = options
     const scrollAtom = Atom.make(scroll)
     return {
-      layer: Layer.succeed(Probe.Probe, { ...fixed(options, scrollAtom), observeIntersection: () => Stream.fromPubSub(pubsub).pipe(Stream.map(toIntersection)) }),
-      pushIntersection: (inView: boolean) =>
-        PubSub.publish(pubsub, inView).pipe(Effect.asVoid),
+      layer: Layer.succeed(Probe.Probe, { ...fixed(options, scrollAtom), observeIntersection: () => intersections.feed }),
+      pushIntersection: (inView: boolean) => intersections.push(toIntersection(inView)),
       pushScroll: (next: Probe.Scroll) => AtomRegistry.AtomRegistry.use((registry) => Effect.sync(() => registry.set(scrollAtom, next))),
     }
   })

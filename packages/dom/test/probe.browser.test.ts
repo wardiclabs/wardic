@@ -4,6 +4,7 @@
 // noted: "real-browser-verified"). Here Chromium gives REAL geometry and REAL
 // observer emissions, so we assert them directly. Real async (the observers fire
 // on their own schedule) is awaited with Effect.sleep rather than a yieldNow drain.
+import * as InputFeed from "@wardic/core/InputFeed"
 import * as Probe from "@wardic/core/Probe"
 import { expect, it as it_, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -157,7 +158,7 @@ it_.live("ProbeDomLive > observeIntersection emits the REAL intersection state, 
       try {
         const received = yield* Ref.make<ReadonlyArray<boolean>>([])
         const fiber = yield* Effect.forkChild(
-          Stream.runForEach(probe.observeIntersection(el), (v) => Ref.update(received, (xs) => [...xs, v.intersecting])),
+          Stream.runForEach(InputFeed.toStream(probe.observeIntersection(el)), (v) => Ref.update(received, (xs) => [...xs, v.intersecting])),
         )
 
         // IntersectionObserver fires an initial async callback after observe.
