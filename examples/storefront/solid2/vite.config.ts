@@ -5,10 +5,11 @@ import { defineConfig } from "vite"
 
 // The storefront showcase on Solid 2 (#296): the plugin's start mode, generating both entries from
 // src/App.tsx and src/Document.tsx, streaming server rendering, and server components (the plugin's
-// spelling: `serverFunctions: { components: true }`). The middleware gives each visitor their cookie.
+// spelling: `serverFunctions: { components: true }`). The middleware gives each visitor their cookie;
+// the client setup holds hydration when a page's `?hydrate=` asks (#388).
 export default defineConfig({
   plugins: [
-    solid({ start: { middleware: "./src/middleware.ts" }, ssr: true, serverFunctions: { components: true }, extensions: [".jsx", ".tsx"] }),
+    solid({ start: { middleware: "./src/middleware.ts", clientSetup: "./src/client-setup.ts" }, ssr: true, serverFunctions: { components: true }, extensions: [".jsx", ".tsx"] }),
     fileRoutes({ types: true }),
   ],
   resolve: {

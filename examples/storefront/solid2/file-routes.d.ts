@@ -105,6 +105,12 @@ declare module "virtual:file-routes" {
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-tabs")>;
       $$route?: undefined;
+    },
+    {
+      path: "/server/before-hydration";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/server/before-hydration")>;
+      $$route?: undefined;
     }
   ];
   export default routes;
@@ -204,6 +210,14 @@ declare module "virtual:file-routes" {
       id: "/gestures/notifications";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/gestures/notifications")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/server/before-hydration";
+      id: "/server/before-hydration";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/server/before-hydration")>;
       $$route?: undefined;
       children?: undefined;
     }

@@ -22,6 +22,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Layout | Order history in a scrolling panel | a re-sort through `animateLayout`, inside a scrolled panel |
 | Gestures | Notifications you swipe away | `drag="x"` with `dragSnapToOrigin`, a throw that flies on, an undo window, `<AnimatePresence mode="popLayout">` (Solid 2: one `action` around `next("settled")`) |
 | Gestures | A wishlist you rearrange by hand | `Reorder.Group` / `Reorder.Item` (Solid 1: each visitor's, saved with `onReorderEnd`; Solid 2: one list everyone shares, live across windows through `live()`) |
+| Server rendering | A banner that arrives before the JavaScript | `initial` / `animate` with a stagger, played from the first paint by the server's CSS (Appear animations), taken over by the JavaScript where the CSS has got to |
 
 ## Run it
 
@@ -37,6 +38,8 @@ The header's switches:
 - **Reduce motion** sets the provider's `reducedMotion` to `"always"`, so you can see what every demo does under it.
 - **The theme** cycles system, light and dark.
 - **⚙ (the store)** sets the delay on each request (300 ms to start with), or makes the next request fail, so loading states and rollbacks show when you want them.
+
+Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow network would, or `?hydrate=off`, to never hydrate, as with JavaScript off: what plays before the JavaScript then shows on its own. Solid 1's `src/entry-client.tsx` waits before it mounts; Solid 2's `src/client-setup.ts` is the plugin's `start.clientSetup`, which its generated entry awaits before `hydrate()`. (Solid 2's start mode takes an authored client entry only with an authored server entry beside it.)
 
 ## The store
 
