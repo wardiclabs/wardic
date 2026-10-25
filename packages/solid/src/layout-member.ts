@@ -77,6 +77,8 @@ export interface UseLayoutMemberOptions {
   readonly layoutMode?: () => Projection.LayoutMode
   /** The element's own scale, read at each handover and each frame it follows (ADR-0010 *Amendment (#8)*). */
   readonly ownScale?: () => Point.Point
+  /** The element's own translate, in page pixels, read where its own scale is (#363). */
+  readonly ownTranslate?: () => Point.Point
   /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
   readonly ownRotate?: () => number
   readonly ownOpacity?: () => number
@@ -97,7 +99,7 @@ export interface UseLayoutMemberOptions {
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, raiseWhileDragged, transition } = opts
+  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, transition } = opts
   return {
     id,
     element,
@@ -113,6 +115,7 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     ...UndefinedOr.match(dragTransition, { onUndefined: () => ({}), onDefined: (release) => ({ dragTransition: () => Option.some(release()) }) }),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
     ...UndefinedOr.match(ownScale, { onUndefined: () => ({}), onDefined: (scale) => ({ ownScale: scale }) }),
+    ...UndefinedOr.match(ownTranslate, { onUndefined: () => ({}), onDefined: (translate) => ({ ownTranslate: translate }) }),
     ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
     ...UndefinedOr.match(onLayoutAnimationStart, {
@@ -193,6 +196,8 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     layoutMode: () => layoutModeOf(config().layout),
     // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
     ownScale: () => DomRenderer.ownScaleOf(snapshot.values),
+    // And its own translate, which the renderer adds to its projection's (#363).
+    ownTranslate: () => DomRenderer.ownTranslateOf(snapshot.values),
     // And its own rotate and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*).
     ownRotate: () => DomRenderer.ownRotateOf(snapshot.values),
     ownOpacity: () => DomRenderer.ownOpacityOf(snapshot.values),

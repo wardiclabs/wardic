@@ -54,7 +54,7 @@ export interface MountAnimation {
   readonly reduced: boolean
   /**
    * Whether it's a layout node (#245): drawn through its projection at rest, as the client draws
-   * it, its own `x` and `y` left out (ADR-0016). Part of its rule's name (`Appear.Spec.projected`).
+   * it, its own translate on top (#363). Part of its rule's name (`Appear.Spec.projected`).
    */
   readonly layout: boolean
 }

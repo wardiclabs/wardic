@@ -495,7 +495,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
   })
 
   it("AH11: a layout card drawn as a layout node from first paint, handed off, its next layout change from its true box (#245)", async () => {
-    const card = tween({ opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1 }, { easing: EASE_OUT, duration: 1.2 })
+    const card = tween({ opacity: 0, scale: 0.5, y: 30 }, { opacity: 1, scale: 1, y: 0 }, { easing: EASE_OUT, duration: 1.2 })
     // The layout change, once the entrance has ended: the spacer above grows by 60 px.
     const grow = { afterMs: 1900, act: () => (globalThis as { __a7grow?: () => void }).__a7grow?.() }
     // The client's debug logs, for its Handoff's check.
@@ -505,17 +505,18 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     )
     cleanups.push(() => setAppearEnv(DomLive))
     const r = await run("A7", A7, { hydrateAfter: 350, forMs: 2700, then: grow })
-    // The client starts it from the server's Starting style, no translate, and its spec is the server's.
-    expect(r.hydratedStyle.card, "the Starting style hydration keeps").toBe("scale(0.5, 0.5)")
+    // The client starts it from the server's Starting style, its own y on its projection at rest (#363),
+    // and its spec is the server's.
+    expect(r.hydratedStyle.card, "the Starting style hydration keeps").toBe("translate3d(0px, 30px, 0px) scale(0.5, 0.5)")
     expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
-    // Its own y is never drawn: a layout node's translate is its projection's (ADR-0016).
+    // Its own y is drawn, on its projection's translate, before and after the Handoff (#363).
     const before = r.frames.filter((f) => !f.hydrated && f.drawn.card!.css)
     expect(before.some((f) => f.drawn.card!.scale > 0.55 && f.drawn.card!.scale < 0.95), "it moved before hydration").toBe(true)
     const start = r.startOf.card!
     const entrance = { ...r, frames: r.frames.filter((f) => f.at - start < 1700) }
     expect(followsMachine(entrance, "card", (s) => {
       const v = machineAt(card, s)
-      return { opacity: v.opacity as number, y: 0 }
+      return { opacity: v.opacity as number, y: v.y as number }
     })).toBeGreaterThan(30)
     // Its scale, through the Handoff to rest.
     for (const f of r.frames.filter((frame) => frame.at >= start && frame.at - start < 1500)) {

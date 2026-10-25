@@ -952,7 +952,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Where it starts when its child takes over from a leaver (#286): asked before its layout node
     // registers, which moves from the leaver's box, and before its first Retarget.
     const taken = presenceSeedOf(presence, el)
-    // Its one projection node (ADR-0009, ADR-0010), whose own `x`/`y` the projection then owns (ADR-0016).
+    // Its one projection node (ADR-0009, ADR-0010), its own `x`/`y` drawn on top of it (#363).
     // Its layout animations' starts and landings, and its drag's release at rest, go to the lifecycle,
     // for `next("layoutStart")`, `next("layoutComplete")` and `next("dragTransitionEnd")` (#257, #273):
     // Solid 2 has no props for them.

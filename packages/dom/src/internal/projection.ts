@@ -363,23 +363,33 @@ const scaleAboutCentre = (box: Box.Box, sx: number, sy: number): Box.Box => {
   return { x: { min: cx - hw, max: cx + hw }, y: { min: cy - hh, max: cy + hh } }
 }
 
-/**
- * Where `node` is drawn when its projection puts it at `box` (ADR-0010 *Amendment (#8)*): its own
- * scale on top, about the box's centre, as the renderer draws it.
- */
-const drawnOf = (node: NodeState, box: Box.Box): Box.Box => {
-  const own = node.ownScale()
-  return scaleAboutCentre(box, own.x, own.y)
+/** `box` moved by `dx` and `dy` (#363). Plain calls: per frame. */
+const translateBox = (box: Box.Box, dx: number, dy: number): Box.Box => {
+  if (dx === 0 && dy === 0) return box
+  return { x: { min: box.x.min + dx, max: box.x.max + dx }, y: { min: box.y.min + dy, max: box.y.max + dy } }
 }
 
 /**
- * Where `node`'s projection has to put it to be drawn at `box` (ADR-0010 *Amendment (#8)*): the
- * inverse of {@link drawnOf}, its own scale divided out about the box's centre. An axis at no own
- * scale keeps `box` as it is.
+ * Where `node` is drawn when its projection puts it at `box` (ADR-0010 *Amendment (#8)*, #363): its
+ * own scale on top, about the box's centre, and its own translate, as the renderer draws them
+ * (Motion's `transformBox(targetWithTransforms, latestValues)`). Scaling about a box's own centre
+ * and moving it commute, so the order doesn't matter.
+ */
+const drawnOf = (node: NodeState, box: Box.Box): Box.Box => {
+  const own = node.ownScale()
+  const moved = node.ownTranslate()
+  return translateBox(scaleAboutCentre(box, own.x, own.y), moved.x, moved.y)
+}
+
+/**
+ * Where `node`'s projection has to put it to be drawn at `box` (ADR-0010 *Amendment (#8)*, #363):
+ * the inverse of {@link drawnOf}, its own translate taken back and its own scale divided out about
+ * the box's centre. An axis at no own scale and no own translate keeps `box` as it is.
  */
 const undrawnFor = (node: NodeState, box: Box.Box): Box.Box => {
   const own = node.ownScale()
-  return scaleAboutCentre(box, invertScale(own.x), invertScale(own.y))
+  const moved = node.ownTranslate()
+  return scaleAboutCentre(translateBox(box, -moved.x, -moved.y), invertScale(own.x), invertScale(own.y))
 }
 
 /** Whether `d` moves nothing: no translate, unit scale on both axes. */
@@ -790,6 +800,12 @@ export interface RegisterNodeOptions {
    */
   readonly ownScale?: () => Point.Point
   /**
+   * The element's own translate (#363): its `x` plus `translateX` and `y` plus `translateY`, in
+   * page pixels, which the renderer adds to its projection's (`ownTranslateOf`). Read where its own
+   * scale is. Default `{ x: 0, y: 0 }`.
+   */
+  readonly ownTranslate?: () => Point.Point
+  /**
    * The element's own `rotate` in degrees (ADR-0010 *Amendment (#166)*), which the renderer weaves
    * into its projection (`ownRotateOf`): what a handover blends a twin's rotation into, read each
    * frame of one. Default 0.
@@ -855,8 +871,8 @@ export interface RegisterNodeOptions {
 
 /**
  * The drag seam (ADR-0016): a draggable LAYOUT node drives its drag through the
- * projection target, not a raw `x`/`y` transform (the renderer ignores a layout
- * node's own `x`/`y` — the projection owns translate). The binding's drag track
+ * projection target, not a raw `x`/`y` transform: the node's own `x`/`y` are its
+ * animations', drawn on top (#363). The binding's drag track
  * calls these so the dragged element follows the pointer and FLIPs to its slot on
  * release. A subset of {@link ProjectionNodeHandle}.
  */
@@ -1025,6 +1041,8 @@ interface NodeState {
   readonly layoutMode: () => Projection.LayoutMode
   /** The element's own scale per axis, drawn on top of its projection (ADR-0010 *Amendment (#8)*). */
   readonly ownScale: () => Point.Point
+  /** The element's own translate, in page pixels, drawn on top of its projection (#363). */
+  readonly ownTranslate: () => Point.Point
   /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
   readonly ownRotate: () => number
   readonly ownOpacity: () => number
@@ -1280,6 +1298,9 @@ const ALWAYS_BOTH = (): Projection.LayoutMode => true
 /** No own scale: a node the binding gives none, or a leaving one, which the renderer draws without its own values. */
 const UNIT_SCALE: Point.Point = { x: 1, y: 1 }
 const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
+/** No own translate: a node the binding gives none, or a leaving one (#363). */
+const NO_TRANSLATE: Point.Point = { x: 0, y: 0 }
+const NO_OWN_TRANSLATE = (): Point.Point => NO_TRANSLATE
 /** No own rotation or opacity of its own: a node the binding gives none, or a leaving one (*Amendment (#166)*). */
 const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
@@ -2192,10 +2213,13 @@ export const makeProjectionSystem = (
     const leadBox = lead.layoutBox
     if (Predicate.isNotUndefined(leadBox) && Projection.animatesPositionOnly(node.layoutMode(), box, leadBox)) target = Projection.withSizeOf(target, box)
     // Drawn where its Lead is drawn (ADR-0010 *Amendment (#8)*, Motion's `lead.latestValues`): at
-    // the Lead's own scale, its own divided out, so the two overlap exactly.
+    // the Lead's own scale and translate, its own divided out and taken back (#363), so the two
+    // overlap exactly.
     const leadOwn = lead.ownScale()
     const own = node.ownScale()
-    target = scaleAboutCentre(target, leadOwn.x * invertScale(own.x), leadOwn.y * invertScale(own.y))
+    const leadMoved = lead.ownTranslate()
+    const moved = node.ownTranslate()
+    target = translateBox(scaleAboutCentre(target, leadOwn.x * invertScale(own.x), leadOwn.y * invertScale(own.y)), leadMoved.x - moved.x, leadMoved.y - moved.y)
     const delta = Projection.calcBoxDelta(layoutCorrected, target)
     node.lastTarget = target
     node.lastDelta = delta
@@ -2448,22 +2472,26 @@ export const makeProjectionSystem = (
   const paintChainOf = (node: NodeState, reads: ReadonlyMap<Element, AncestorRead>, documentScroll: Point.Point): ReadonlyArray<PaintLink> | undefined =>
     chainFrom(node.element.parentElement, reads, scrollOffset(node, documentScroll), documentScroll)
 
-  /** `acc`, then a projection node's own scale (#8), drawn about its box's centre, in the twin's frame. Per frame. */
-  const composeOwnScale = (acc: PaintAcc, node: NodeState, offset: Point.Point): void => {
+  /**
+   * `acc`, then a projection node's own scale (#8), drawn about its box's centre, and its own
+   * translate (#363), in the twin's frame. Per frame.
+   */
+  const composeOwnTransform = (acc: PaintAcc, node: NodeState, offset: Point.Point): void => {
     const box = boxOf(node)
     if (Predicate.isUndefined(box)) return
     const own = node.ownScale()
-    composeAbout(acc, (box.x.min + box.x.max) / 2 + offset.x, (box.y.min + box.y.max) / 2 + offset.y, 0, 0, own.x, own.y)
+    const moved = node.ownTranslate()
+    composeAbout(acc, (box.x.min + box.x.max) / 2 + offset.x, (box.y.min + box.y.max) / 2 + offset.y, moved.x, moved.y, own.x, own.y)
   }
 
   /**
    * `acc`, then what one link does now (ADR-0012, *Amendment (#137)*): an element's translate and
    * scale from the values Wardic last wrote, when they draw it and can be mapped, else its transform
-   * at the pass; a node's own scale. Per frame.
+   * at the pass; a node's own scale and translate. Per frame.
    */
   const composeLink = (acc: PaintAcc, link: PaintLink): void => {
     if (link.kind === "node") {
-      composeOwnScale(acc, link.node, link.offset)
+      composeOwnTransform(acc, link.node, link.offset)
       return
     }
     const read = elementValues.get(link.element)
@@ -4155,6 +4183,7 @@ export const makeProjectionSystem = (
     respectReducedMotion: () => true,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
+    ownTranslate: NO_OWN_TRANSLATE,
     ownRotate: NO_OWN_ROTATE,
     ownOpacity: NO_OWN_OPACITY,
     blend: undefined,
@@ -4574,6 +4603,7 @@ export const makeProjectionSystem = (
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
+      ownTranslate: UndefinedOr.match(opts.ownTranslate, { onUndefined: () => NO_OWN_TRANSLATE, onDefined: identity }),
       ownRotate: UndefinedOr.match(opts.ownRotate, { onUndefined: () => NO_OWN_ROTATE, onDefined: identity }),
       ownOpacity: UndefinedOr.match(opts.ownOpacity, { onUndefined: () => NO_OWN_OPACITY, onDefined: identity }),
       blend: undefined,

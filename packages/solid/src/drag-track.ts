@@ -135,8 +135,8 @@ export interface DragTrackOptions {
   readonly config: DragTrackConfig
   /**
    * When the element is a projection node (ADR-0016), the drag feeds the projection
-   * instead of writing raw `x`/`y` (which the renderer ignores for a projected
-   * element): grab → `dragStart`, each sample → `dragMove(offset)`, release →
+   * instead of writing raw `x`/`y`, which stay the element's own, drawn on top (#363):
+   * grab → `dragStart`, each sample → `dragMove(offset)`, release →
    * `dragEnd(velocity)` (its Release offset — the free tail is skipped), a press →
    * `stopRelease`, a press that ends with no drag → `resumeRelease`. Absent ⇒ free drag.
    */
@@ -279,10 +279,10 @@ const numberOrZero: (value: unknown) => number = Match.type<unknown>().pipe(
  * strips the translate keys from its target while `dragging()` is true).
  */
 const directSet = (opts: DragTrackOptions, p: Point.Point): void => {
-  // Projection node (ADR-0016): feed the live pointer offset to the projection —
-  // the renderer ignores a projected element's raw x/y, so writing them is moot.
-  // The snapshot x/y stays 0 (projection owns position), so `base` stays 0 and
-  // `position` is the pure pointer offset, which IS the dragDelta.
+  // Projection node (ADR-0016): feed the live pointer offset to the projection, whose
+  // target moves the node; its own x/y are its animations', drawn on top (#363), so
+  // the drag leaves them be. `base` stays 0 and `position` is the pure pointer offset,
+  // which IS the dragDelta.
   if (Predicate.isNotUndefined(opts.projection)) {
     opts.projection.dragMove({ x: p.x, y: p.y })
     return
@@ -343,16 +343,23 @@ const reportSample = (opts: DragTrackOptions, sample: Drag.Sample): void =>
   UndefinedOr.match(opts.onSample, { onUndefined: constVoid, onDefined: (onSample) => onSample(sample) })
 
 /**
+ * Where a drag starts from (ADR-0004, ADR-0016): wherever a plain element rests (the snapshot's
+ * x/y); a projection node's slot, the origin, since its drag offset moves its projection target
+ * from its slot, and its own x/y are drawn on top of that (#363).
+ */
+const startOf = (opts: DragTrackOptions): Point.Point =>
+  UndefinedOr.match(opts.projection, { onUndefined: () => snapshotPos(opts.snapshot), onDefined: () => ORIGIN })
+
+/**
  * Follow the pointer for a "start" or "move" sample: absolute position = base + drag
- * offset, kept within the constraints. A "start" rebases to wherever the element currently
- * rests (the snapshot's x/y); for a projection node the snapshot x/y stays 0 (the projection owns position),
- * so `base` stays the origin, and the "start" begins the projection's drag first, so
- * `dragStart` runs before the first `dragMove`.
+ * offset, kept within the constraints. A "start" rebases to where the drag starts from
+ * ({@link startOf}); for a projection node, the origin, and the "start" begins the
+ * projection's drag first, so `dragStart` runs before the first `dragMove`.
  */
 const follow = (sample: Drag.Sample, state: TrackState, opts: DragTrackOptions): void => {
   const st = MutableRef.get(state)
   const starts = sample.phase === "start"
-  const base = Bool.match(starts, { onTrue: () => snapshotPos(opts.snapshot), onFalse: () => st.base })
+  const base = Bool.match(starts, { onTrue: () => startOf(opts), onFalse: () => st.base })
   // The axes the gesture moves on, as the recognizer read them at its start: a `<Reorder>` item's
   // group decides them per gesture (D5), a direction lock at its lock (#273).
   const axis = Bool.match(starts, { onTrue: () => sample.axis, onFalse: () => st.axis })

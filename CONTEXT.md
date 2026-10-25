@@ -267,6 +267,10 @@ _Avoid_: active/inactive, primary/secondary.
 A **Projection**'s scale counter-scales an element's *geometry* via the transform, but distorts non-geometric CSS — `border-radius`, `box-shadow`. A **Scale corrector** reads the authored value and emits, each frame, a CSS string that — once the transform scales it — renders as the authored value (a px radius becomes `radius / scale`; a percentage is self-correcting and passes through). The corrected value is computed upstream (in the projection, which has the per-frame scale) and written as an ordinary style key, so the Renderer stays pure. An extensible per-CSS-key registry holds the correctors.
 _Avoid_: counter-scale (reserve for the geometric transform), inverse scale.
 
+**Own transform**:
+A **Projection node**'s own `x`, `y`, `translate*`, `z`, scales, `rotate` and skews: what its animations and style set, drawn on top of its projection, as Motion draws a layout element's latest values (#363). Its children ride it through CSS, and a twin, a handover or a restart starts from where it's drawn with it.
+_Avoid_: own value (that's a key's value before Wardic writes it), projection transform.
+
 **Layout sub-root** (`layoutRoot`):
 A **Projection node** marked a stable reference frame for its subtree: it never FLIPs its own layout (self-snaps to its new box), bounds the search for a relative parent (its descendants find none above it), and is a **persistent relative anchor** (its descendants always project relative to it). Every ancestor's projection still counts in its descendants' boxes, as CSS composes them. Used to isolate a layout subtree from an ancestor's projection: under an ancestor's layout animation it paints at its new box from the first frame, while an ancestor's transforms (a drag, a **Release offset**) still carry it, as Motion's `layoutRoot` does.
 _Avoid_: layout boundary (reserve "sub-root"), projection root (the synthetic viewport node is *the* root).

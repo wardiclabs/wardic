@@ -50,7 +50,7 @@ export interface Spec {
   readonly infinite?: boolean | undefined
   /**
    * A layout node (ADR-0009, #245): drawn through its projection at rest, as the client draws it,
-   * its own `x` and `y` left out (the projection owns translate, ADR-0016).
+   * its own translate on top (#363).
    */
   readonly projected?: boolean | undefined
 }
@@ -367,13 +367,6 @@ interface Declarations {
   readonly supports: ReadonlyArray<string>
 }
 
-/** The transform keys a projection at rest doesn't draw: a layout node's own translate (ADR-0016). */
-const UNDRAWN_AT_REST: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY", "translateZ"])
-
-/** A Frame's values as a spec draws them: a layout node's without its own translate, which the sampler doesn't judge. */
-const drawnValues = (values: Values.Values, projected: boolean): Values.Values =>
-  Bool.match(projected, { onTrue: () => Rec.filter(values, (_, key) => Bool.not(UNDRAWN_AT_REST.has(key))), onFalse: () => values })
-
 /**
  * One Frame's declarations, or why it can't be one: a key SVG draws only as an attribute, or unsafe
  * text. An svg-inner element's attributes are drawn as their CSS properties where they have one; a
@@ -418,8 +411,7 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
     onSome: (frames) => {
       const last = frames.length - 1
       const projected = spec.projected === true
-      // A layout node's own translate isn't drawn: it isn't judged, though the spec settles with it.
-      const { kept, end, jumps } = thin(Arr.map(frames, (frame) => drawnValues(frame, projected)), spec.tag)
+      const { kept, end, jumps } = thin(frames, spec.tag)
       const name = nameOf(spec)
       /** A kept stop's Frame: the end drawn as the settled Frame. */
       const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values

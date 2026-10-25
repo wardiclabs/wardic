@@ -7,6 +7,7 @@ export {
   RendererDomLive as layer,
   project,
   ownScaleOf,
+  ownTranslateOf,
   ownRotateOf,
   ownOpacityOf,
 } from "./internal/renderer.ts"

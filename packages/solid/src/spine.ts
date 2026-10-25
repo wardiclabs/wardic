@@ -231,7 +231,7 @@ const dragMovesOf: (axis: boolean | "x" | "y") => ReadonlyArray<string> = Match.
 /** Whether a start link's value takes its target's shape: both numbers, or both strings. */
 const isSameKind = (value: number | string, like: number | string): boolean => Predicate.isNumber(value) === Predicate.isNumber(like)
 
-/** The keys a drag direct-sets (ADR-0004) and a projection owns (ADR-0016). */
+/** The keys a drag direct-sets (ADR-0004). */
 const TRANSLATE_KEYS: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY"])
 const TRANSLATE_KEY_LIST: ReadonlyArray<string> = Arr.fromIterable(TRANSLATE_KEYS)
 
@@ -1205,10 +1205,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // ones returning to their Base value until that return settles (ADR-0022). Both are
   // the spine's: a Retarget mid-return carries them again, so a return is never
   // frozen half-way, and a key that settled has left them, so a Retarget of the same
-  // target (a `when` gate reopening, ADR-0007) leaves it be. The translate keys never
-  // return on a projected element (the projection owns them, ADR-0016). On a drag
-  // element, the keys the drag moves leave the return while it runs, so they stay where
-  // it dropped them (C9) until a layer sets them again.
+  // target (a `when` gate reopening, ADR-0007) leaves it be. On a drag element, the keys
+  // the drag moves leave the return while it runs, so they stay where it dropped them (C9)
+  // until a layer sets them again; a projected element's drag moves none, its projection
+  // target does (ADR-0016), and its own translate returns as any key does (#363).
   const driven = new Map<string, number | string>()
   let returning = new Map<string, BaseValue.BaseSource>()
   const dragMoves: ReadonlyArray<string> = Bool.match(projected, {
@@ -1420,7 +1420,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // (ADR-0022); with none, it stays where it is (as before #47).
     const t: Values.Values = { ...resolved }
     Arr.forEach(Rec.keys(resolved), (key) => {
-      if (Bool.not(projected && TRANSLATE_KEYS.has(key))) driven.set(key, resolved[key])
+      driven.set(key, resolved[key])
     })
     if (held) Arr.forEach(dragMoves, (key) => driven.delete(key))
     returning = new Map()
@@ -1866,14 +1866,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   }
 
   // A child back under its key (#286): its values and velocities from where the leaver is drawn, a
-  // projected element's translate keys left to its projection (ADR-0016). Drawn at the end of the
-  // task, so nothing paints the element at its `initial` first: not in the mount effect it's called
-  // in, where the first commit's Starting-style switch would flush Solid 2 inside an effect.
+  // projected element's own translate among them (#363). Drawn at the end of the task, so nothing
+  // paints the element at its `initial` first: not in the mount effect it's called in, where the
+  // first commit's Starting-style switch would flush Solid 2 inside an effect.
   const seed = (from: PresenceSeed): void => {
-    const values = Bool.match(projected, {
-      onTrue: () => Rec.filter(from.values, (_, key) => Bool.not(TRANSLATE_KEYS.has(key))),
-      onFalse: () => from.values,
-    })
+    const values = from.values
     Object.assign(snapshot.values, values)
     snapshot.velocities = { ...snapshot.velocities, ...from.velocities }
     if (Predicate.isNotUndefined(presence)) Object.assign(presence.snapshot.current, values)
@@ -2113,8 +2110,8 @@ export const isLayoutNode = (c: WardConfig): boolean =>
 
 /**
  * The values a layout node's Starting style is drawn from (#245, ADR-0044 *Amendment (#245)*):
- * through its projection at rest, as its first commit draws it, its own `x` and `y` left out (the
- * projection owns translate, ADR-0016). Any other element's, as they are.
+ * through its projection at rest, as its first commit draws it, its own translate on top (#363).
+ * Any other element's, as they are.
  */
 export const drawnAtRest = (values: Values.Values, layout: boolean): Readonly<Record<string, unknown>> =>
   Bool.match(layout, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })
