@@ -1,5 +1,6 @@
 import * as Announcer from "@wardic/core/Announcer"
 import type * as Clock from "@wardic/core/Clock"
+import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
@@ -43,6 +44,7 @@ export const testLayer = (
   | InputSource.InputSource
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
+  | DefaultTransition.DefaultTransition
   | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 > =>
@@ -57,6 +59,8 @@ export const testLayer = (
         InterpolatorRegistry.layer,
         // The transforms only: the Test Environment names no box keys (ADR-0036).
         ReducedMotion.transformsOnly,
+        // No opinion on a key's Default transition: every key on one spring (ADR-0051).
+        DefaultTransition.oneSpring,
         // No assistive technology to reach headless (ADR-0037).
         Announcer.silent,
         AtomRegistry.layer,

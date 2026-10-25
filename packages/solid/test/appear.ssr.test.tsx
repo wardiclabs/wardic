@@ -13,8 +13,10 @@
 //   `staggerDirection`, as the client works it out.
 // - AR6: `when`: a child starts once its parent settles; a parent once its last child does; a start
 //   that depends on an element with no rule has none.
-// - AR7: a forever-repeating tween: an `infinite` cycle, its own delay in `animation-delay`.
+// - AR7: a forever-repeating tween: an `infinite` cycle, its own delay in `animation-delay`; one with
+//   no `type` is a tween too (ADR-0051).
 // - AR8: the markup's hydration keys are the same with or without it.
+// - AR18 (#357): with no transition, a key samples the DOM's Default transition: an opacity's 0.3 s ease.
 // - AR9: a render with no `</head>` drops the style, and its elements keep their Starting style.
 // - AR10: a component wrap passes its `animation` through `style`.
 // - AR11: a spec's key doesn't hang on its keys' order; an easing with no name gives none.
@@ -211,6 +213,16 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const div = tagsOf(html).find((t) => t.name === "div")
     const animation = timing(headCss(html), propertyOf(div?.style.animation)).normal
     expect(animation).toMatch(/ 2s linear 0\.3s infinite forwards$/)
+    // No `type`: a repeat makes it a tween (ADR-0051), so it repeats for ever too.
+    const untyped = page(() => <wardic.div initial={{ rotate: 0 }} animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, delay: 0.3 }} />)
+    const spin = tagsOf(untyped).find((t) => t.name === "div")
+    expect(timing(headCss(untyped), propertyOf(spin?.style.animation)).normal).toMatch(/ 2s linear 0\.3s infinite forwards$/)
+  })
+
+  it("AR18: with no transition, each key samples the DOM's Default transition (ADR-0051)", () => {
+    const html = page(() => <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} />)
+    const animation = timing(headCss(html), propertyOf(tagsOf(html).find((t) => t.name === "div")?.style.animation)).normal
+    expect(animation, "an opacity's 0.3 s ease, as the client runs it").toMatch(/ 0\.3s linear 0s 1 forwards$/)
   })
 
   it("AR8: the markup's hydration keys are the same with or without it", () => {

@@ -8,6 +8,7 @@
  */
 import type * as Announcer from "@wardic/core/Announcer"
 import type * as Clock from "@wardic/core/Clock"
+import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -48,6 +49,7 @@ export type WardicServices =
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
+  | DefaultTransition.DefaultTransition
   | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 
@@ -56,6 +58,9 @@ export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
 
 /** A server render's Positional keys: it builds no runtime, and reduced motion never applies there. */
 export const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
+
+/** A server render's Default transition: it runs no animation (its Appear animations read the DOM's, #48). */
+export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING }
 
 /**
  * The value a `WardicProvider` carries down the tree: the single Effect runtime
@@ -70,6 +75,8 @@ export interface WardicContextValue {
   readonly reducedMotion: () => boolean
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
+  /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
+  readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** A server render's Appear animations (#48, ADR-0044); none on the client, or with `appear={false}`. */
   readonly appear?: ServerAppear | undefined
 }
@@ -80,6 +87,7 @@ interface Built {
   readonly projection: ProjectionSystem.Shape
   readonly reducedMotion: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
+  readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
 }
 
 /**
@@ -114,11 +122,14 @@ export const clientContext = (
     // Which keys reduced motion Snaps: the Environment's Positional keys (ADR-0036), read once, as
     // the Probe is.
     const positionalKeys = runtime.runSync(ReducedMotion.PositionalKeys)
+    // What a key with no transition of its own runs on: the Environment's Default transition
+    // (ADR-0051), read once too.
+    const defaultTransition = runtime.runSync(DefaultTransition.DefaultTransition)
     // The box-based projection system (ADR-0009), provider-owned like the gate: the projection nodes,
     // the coordinator (a run on the Frame loop), and `layoutId` matching end to end, so `layoutId`
     // works with no `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
     const projection = runtime.runSync(ProjectionSystem.ProjectionSystem)
-    built = { gate, projection, reducedMotion: applies, positionalKeys }
+    built = { gate, projection, reducedMotion: applies, positionalKeys, defaultTransition }
     return built
   }
   const runtime = ManagedRuntime.make(
@@ -141,6 +152,9 @@ export const clientContext = (
     get positionalKeys() {
       return build().positionalKeys
     },
+    get defaultTransition() {
+      return build().defaultTransition
+    },
   }
 }
 
@@ -156,6 +170,7 @@ export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined):
   projection: undefined,
   reducedMotion: () => false,
   positionalKeys: SERVER_POSITIONAL_KEYS,
+  defaultTransition: SERVER_DEFAULT_TRANSITION,
   appear,
 })
 

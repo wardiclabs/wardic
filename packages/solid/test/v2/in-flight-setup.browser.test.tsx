@@ -45,7 +45,8 @@ describe("a ward's setup reads its config's in-flight values (#335)", () => {
     flush()
     const detail = host.querySelector("[data-detail]")
     expect(detail, "mounted").not.toBeNull()
-    await until(() => Math.abs(opacityOf(detail) - 0.5) < 0.01, 2000)
+    // Landed, not near: an eased-out tween (#357) spends its last frames within 0.01 of it.
+    await until(() => Math.abs(opacityOf(detail) - 0.5) < 0.001, 2000)
     expect(opacityOf(detail), "animated to the item's opacity").toBeCloseTo(0.5, 2)
     setItem(undefined)
     flush()

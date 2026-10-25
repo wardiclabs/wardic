@@ -42,7 +42,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
 import { exitCompleteEvents, makePresence, type PresenceMode, propagateTo } from "./presence-controller.ts"
-import { useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { useWardicDefaultTransition, useWardicProjection, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
 
@@ -108,6 +108,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const runtime = useWardicRuntime()
   const reducedMotion = useWardicReducedMotion()
   const positionalKeys = useWardicPositionalKeys()
+  const defaultTransition = useWardicDefaultTransition()
   // A server render has no exit to drive and no runtime to log on: the same component
   // boundaries, with a context that registers nothing (ADR-0021).
   if (isServer) return serverPresence(props)
@@ -121,6 +122,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     projection: useWardicProjection(),
     reducedMotion,
     positionalKeys,
+    defaultTransition,
     initial: () => props.initial,
     // Motion's `onExitComplete` (#257).
     events: exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),

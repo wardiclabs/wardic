@@ -132,8 +132,12 @@ export interface WardicReducedMotion {
 
 /**
  * Transition config: a primitive selector plus the matching primitive's
- * options. `type` defaults to `"spring"`; `"tween"` routes every key through
- * `animateValues` (duration-based, no velocity). Both arms also carry the
+ * options. Without a `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`,
+ * `restDelta`, `restSpeed`) makes it a spring and anything else a tween, so `{ duration: 0.5 }` is a
+ * 0.5 s tween; one with only orchestration, `delay` or the reduced-motion opt-out leaves each key on
+ * its Environment's Default transition, Motion's by value in the DOM (ADR-0051). A spring's missing
+ * fields are Motion's 100 / 10 / 1, a tween's easing Motion's `easeOut`. `"tween"` routes every key
+ * through `animateValues` (duration-based, no velocity). Both arms also carry the
  * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, and
  * {@link WardicTransitionEntries}: a value's own transition (#301).
  * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
@@ -147,7 +151,7 @@ export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
  */
 export type WardicTransitionWith<E> =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & E)
-  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & E)
+  | ({ readonly type?: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & E)
 
 /**
  * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
@@ -157,7 +161,7 @@ export type WardicTransitionWith<E> =
  */
 export type WardicValueTransition =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicInherit)
-  | ({ readonly type: "tween" } & Machine.AnimateOptions & WardicReducedMotion & WardicInherit)
+  | ({ readonly type?: "tween" } & Machine.AnimateOptions & WardicReducedMotion & WardicInherit)
 
 /** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
 export interface WardicInherit {

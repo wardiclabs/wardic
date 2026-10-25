@@ -37,13 +37,16 @@ const CSS = `
   .cs-dot{position:absolute;top:150px;left:0;width:20px;height:20px}
 `
 
+/** Core's 170 / 26 spring, the one these step sizes are for (an x's Default transition is stiffer since #357). */
+const SPRING = { type: "spring", stiffness: 170, damping: 26 } as const
+
 /** A layout box that jumps 200px right when `moved()` flips, plus an optional background spring. */
 const FlipStage = (props: { env: WardicEnv; moved: () => boolean; drive?: () => number }) => (
   <WardicProvider env={props.env}>
     <style>{CSS}</style>
     <div class="cs-stage">
-      {/* The default spring, pinned (ADR-0009 *Amendment (#171)*): its step sizes tell one first step from a doubled one. */}
-      <wardic.div data-box class="cs-box" classList={{ moved: props.moved() }} layout transition={{ type: "spring" }} layoutDependency={props.moved()} />
+      {/* Core's 170 / 26 spring, pinned (ADR-0009 *Amendment (#171)*, ADR-0051): its step sizes tell one first step from a doubled one. */}
+      <wardic.div data-box class="cs-box" classList={{ moved: props.moved() }} layout transition={SPRING} layoutDependency={props.moved()} />
       {props.drive !== undefined && (
         // A soft spring toward a far target keeps the Clock ticking for seconds.
         <wardic.div class="cs-dot" animate={{ x: props.drive() }} transition={{ stiffness: 4, damping: 1 }} />
@@ -54,7 +57,7 @@ const FlipStage = (props: { env: WardicEnv; moved: () => boolean; drive?: () => 
 
 /**
  * The first painted frame has already moved one step: more than 1px, and less than
- * 5% of the 200px move. One nominal step of the default spring from rest is about
+ * 5% of the 200px move. One nominal step of {@link SPRING} from rest is about
  * 2.5% (5.1px); two, a step taken before the frame and painted over by the frame's own,
  * are about 7.8% (15.7px), the doubled first step ADR-0033 measured. The origin itself
  * is never painted.
@@ -123,7 +126,7 @@ it("Cold start: a createWard spring set from a task moves on the 1st painted fra
     <WardicProvider env={DomLive}>
       <style>{CSS}</style>
       <div class="cs-stage">
-        <wardic.div data-dot class="cs-dot" animate={{ x: Bool.match(go(), { onTrue: () => 200, onFalse: () => 0 }) }} />
+        <wardic.div data-dot class="cs-dot" animate={{ x: Bool.match(go(), { onTrue: () => 200, onFalse: () => 0 }) }} transition={SPRING} />
       </div>
     </WardicProvider>
   ))
@@ -143,7 +146,7 @@ it("warm start: a createWard spring set from a task while another spring runs mo
     <WardicProvider env={DomLive}>
       <style>{CSS}</style>
       <div class="cs-stage">
-        <wardic.div data-dot class="cs-dot" animate={{ x: Bool.match(go(), { onTrue: () => 200, onFalse: () => 0 }) }} />
+        <wardic.div data-dot class="cs-dot" animate={{ x: Bool.match(go(), { onTrue: () => 200, onFalse: () => 0 }) }} transition={SPRING} />
         <wardic.div class="cs-dot" style={{ top: "180px" }} animate={{ x: drive() }} transition={{ stiffness: 4, damping: 1 }} />
       </div>
     </WardicProvider>

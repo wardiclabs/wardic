@@ -1,6 +1,7 @@
 // Appear animation fixtures (#48, ADR-0044): rendered on the server in Node by the hydrate
 // project's `serverRenderPage` command, and hydrated in Chromium by appear.hydrate.browser.test.tsx.
 // Each element to watch carries `data-k`.
+import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { createResource, createSignal, For, type JSX, Suspense } from "solid-js"
@@ -65,7 +66,7 @@ export const A5 = (): JSX.Element =>
       style={{ width: "20px", height: "20px" }}
       initial={{ rotate: 0 }}
       animate={{ rotate: 360 }}
-      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY }}
+      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY, easing: Easing.linear }}
     />
   ))
 

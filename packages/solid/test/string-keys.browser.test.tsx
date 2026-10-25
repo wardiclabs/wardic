@@ -30,6 +30,12 @@ afterEach(async () => {
   cleanup()
 })
 
+/**
+ * The spring these tests follow, core's 170 / 26: with no transition, each key runs on its Default
+ * transition since #357 (ADR-0051), so an x beside a colour would no longer share one.
+ */
+const SPRING: WardicTransition = { type: "spring", stiffness: 170, damping: 26 }
+
 const BOX: JSX.CSSProperties = { position: "absolute", left: "120px", top: "120px", width: "100px", height: "100px" }
 const PARK = { x: 5, y: 5 }
 const BLUE = [0, 0, 255] as const
@@ -83,8 +89,8 @@ describe("a string key follows its transition (#56, ADR-0024)", () => {
     return el
   }
 
-  it("SK1: under the default spring, a colour shares an x's progress on every painted frame", async () => {
-    await expectSharedProgress(colourBesideX(), xProgress)
+  it("SK1: under a spring, a colour shares an x's progress on every painted frame", async () => {
+    await expectSharedProgress(colourBesideX(SPRING), xProgress)
   })
 
   it("SK2: under a tween, a colour shares an x's progress on every painted frame", async () => {
@@ -92,7 +98,7 @@ describe("a string key follows its transition (#56, ADR-0024)", () => {
   })
 
   it("SK3: a spring's delay holds the colour as it holds the x", async () => {
-    await expectSharedProgress(colourBesideX({ delay: 0.2 }), xProgress)
+    await expectSharedProgress(colourBesideX({ ...SPRING, delay: 0.2 }), xProgress)
   })
 
   it("SK4: a length string animates from its own value, with an overflow switched on the first frame", async () => {
@@ -116,7 +122,7 @@ describe("a colour from a class, under a gesture (#56; Motion's C8)", () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} class="sk-blue" style={BOX} whileHover={{ "background-color": "rgb(255, 0, 0)" }} />
+        <wardic.div ref={(n: HTMLElement) => (el = n)} class="sk-blue" style={BOX} whileHover={{ "background-color": "rgb(255, 0, 0)" }} transition={SPRING} />
       </WardicProvider>
     ))
     return el
@@ -177,7 +183,7 @@ describe("the commit sinks (#56)", () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <WCard ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ x: 0, "background-color": "#000" }} animate={{ x: 100, "background-color": "#fff" }} />
+        <WCard ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ x: 0, "background-color": "#000" }} animate={{ x: 100, "background-color": "#fff" }} transition={SPRING} />
       </WardicProvider>
     ))
     await expectSharedProgress(el, xProgress)
@@ -187,7 +193,7 @@ describe("the commit sinks (#56)", () => {
     let el!: HTMLElement
     render(() => (
       <WardicProvider env={DomLive}>
-        <div ref={(n) => (el = n)} style={BOX} use:wardic={{ initial: { x: 0, "background-color": "#000" }, animate: { x: 100, "background-color": "#fff" } }} />
+        <div ref={(n) => (el = n)} style={BOX} use:wardic={{ initial: { x: 0, "background-color": "#000" }, animate: { x: 100, "background-color": "#fff" }, transition: SPRING }} />
       </WardicProvider>
     ))
     await expectSharedProgress(el, xProgress)
@@ -231,7 +237,7 @@ describe("the presence exit (#56)", () => {
       <WardicProvider env={DomLive}>
         <AnimatePresence>
           <Show when={visible()}>
-            <wardic.div data-exit class="sk-blue" style={BOX} whileHover={{ "background-color": "rgb(255, 0, 0)" }} exit={{ "background-color": "rgb(0, 255, 0)" }} />
+            <wardic.div data-exit class="sk-blue" style={BOX} whileHover={{ "background-color": "rgb(255, 0, 0)" }} exit={{ "background-color": "rgb(0, 255, 0)" }} transition={SPRING} />
           </Show>
         </AnimatePresence>
       </WardicProvider>

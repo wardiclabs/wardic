@@ -23,6 +23,7 @@
 // - PV6: the reduced-motion opt-out is the whole transition's; an entry can set its own.
 // - PV7: a stagger's transition, made anew each Retarget with its entries, is reused while their
 //   fields are the same (#66's decode cache keys on the object).
+import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -35,6 +36,9 @@ import { delayedBy, type Follows, type Leg, legsOf, transitionForKey } from "../
 import { makeReuse } from "../src/spine.ts"
 
 const positionalKeys = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* ReducedMotion.PositionalKeys }), ReducedMotion.transformsOnly))
+
+/** The Test Environment's Default transition: every key on one spring, core's (ADR-0051). */
+const defaults = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* DefaultTransition.DefaultTransition }), DefaultTransition.oneSpring))
 
 /** A Retarget as the tests give it: the builder's arguments, by name. */
 interface Retarget {
@@ -56,7 +60,7 @@ const legsFor = (over: Partial<Retarget>): ReadonlyArray<Leg> => {
     velocities: {},
     ...over,
   }
-  return legsOf(r.from, r.to, r.transition, r.reducedMotion, positionalKeys, r.velocities, r.follow)
+  return legsOf(r.from, r.to, r.transition, r.reducedMotion, positionalKeys, defaults, r.velocities, r.follow)
 }
 
 /** A leg's machine, built (a Blend's with the DOM's Interpolators). */

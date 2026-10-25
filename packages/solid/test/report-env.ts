@@ -5,6 +5,7 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as DomClock from "@wardic/dom/DomClock"
+import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
 import * as DomInput from "@wardic/dom/DomInput"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as DomProbe from "@wardic/dom/DomProbe"
@@ -53,6 +54,7 @@ export const envWith = (options: { readonly logs: Array<Logged>; readonly report
     DomInput.layer,
     DomProbe.layer,
     DomPositionalKeys.layer,
+    DomDefaultTransition.layer,
     DomAnnouncer.layer,
   )
   const environment = FrameLoop.layer.pipe(Layer.provideMerge(services), Layer.provideMerge(AtomRegistry.layer))

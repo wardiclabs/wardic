@@ -15,6 +15,7 @@
  * @module
  */
 import * as BaseValue from "@wardic/core/BaseValue"
+import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -548,6 +549,7 @@ const splitLegsOf = (
   reuse: (transition: WardicTransition) => WardicTransition,
   reduce: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  defaultTransition: DefaultTransition.DefaultTransition["Service"],
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
 ): SplitLegs => {
@@ -561,7 +563,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, velocities, followed)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, defaultTransition, velocities, followed)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -1124,6 +1126,8 @@ export interface ElementSpineOptions {
   readonly reducedMotion: () => boolean
   /** Which keys reduced motion Snaps (ADR-0036). */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
+  /** What a key with no transition of its own runs on (ADR-0051). */
+  readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   readonly start: Start
   readonly snapshot: Snapshot
   readonly reuse: (transition: WardicTransition) => WardicTransition
@@ -1184,7 +1188,7 @@ export interface ElementSpine {
  * Scope's close. The same shape as the projection system's end-of-task holds.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -1652,9 +1656,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // A key that stays starts none, and no keys make no leg (#325).
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
-    if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, snapshot.velocities, follow)
+    if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow)
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, snapshot.velocities, follow)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow)
       retargetLegs = split.legs
       legGroups = split.tags
     }

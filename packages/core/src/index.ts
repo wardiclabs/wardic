@@ -7,16 +7,18 @@
  * Each Primitive is a machine (`Machine`), run as a `Stream` over the Clock's ticks
  * (`Machine.toStream`) or on the Frame loop (`Machine.run`): see ADR-0001, ADR-0027 and
  * ADR-0028 in `docs/adr/`. The services (`Clock`, `RefreshFrameSource`, `Renderer`,
- * `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`) are each `X.X`, with the shared
- * constructors the Environments build on (`Clock.layer`, `Clock.fromRefreshFrames`,
- * `InputSource.heldPointer`, `InterpolatorRegistry.layer`, `FrameLoop.layer`). Design decisions
- * and the project glossary live in `CONTEXT.md` and `docs/adr/`.
+ * `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`, `DefaultTransition`) are each `X.X`,
+ * with the shared constructors the Environments build on (`Clock.layer`, `Clock.fromRefreshFrames`,
+ * `InputSource.heldPointer`, `InterpolatorRegistry.layer`, `FrameLoop.layer`,
+ * `DefaultTransition.oneSpring`). Design decisions and the project glossary live in `CONTEXT.md`
+ * and `docs/adr/`.
  */
 export * as Announcer from "./Announcer.ts"
 export * as AutoScroll from "./AutoScroll.ts"
 export * as BaseValue from "./BaseValue.ts"
 export * as Box from "./Box.ts"
 export * as Clock from "./Clock.ts"
+export * as DefaultTransition from "./DefaultTransition.ts"
 export * as Drag from "./Drag.ts"
 export * as DragActivity from "./DragActivity.ts"
 export * as Easing from "./Easing.ts"

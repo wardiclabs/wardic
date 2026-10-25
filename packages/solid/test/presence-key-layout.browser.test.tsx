@@ -13,6 +13,7 @@
 // - KL7: on a scrolled page, from where the leaver painted all the same (the Root frame).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
+import * as Easing from "@wardic/core/Easing"
 import { AnimatePresence, type PresenceMode, wardic, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX, Show } from "solid-js"
@@ -21,8 +22,9 @@ import { afterPaint, paintedFrames, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
-const SLOW = { type: "tween", duration: 0.6 } as const
-const CROSSFADE = { type: "tween", duration: 1.2 } as const
+// Linear, as these tests were written for: a tween with no easing eases out since #357 (ADR-0051).
+const SLOW = { type: "tween", duration: 0.6, easing: Easing.linear } as const
+const CROSSFADE = { type: "tween", duration: 1.2, easing: Easing.linear } as const
 const ROW = { display: "block", height: "30px", margin: "0", padding: "0" } as const
 
 /** The end of the task: a take-over's values are drawn there, before any paint. */

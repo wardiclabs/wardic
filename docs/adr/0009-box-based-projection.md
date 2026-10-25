@@ -165,13 +165,13 @@ The difference showed:
 Grilled 2026-10-14:
 1. **The default is Motion's tween** (Q1): 0.45 s, eased `cubic-bezier(0.4, 0, 0.1, 1)` (`DEFAULT_LAYOUT_TRANSITION`). A spring is one prop away.
    - Rejected: keeping the 170/26 spring as a divergence, and a spring tuned to settle near 0.45 s, which still has a tail and matches neither library.
-2. **A tween's `duration`, `easing` and `delay` drive it, and a spring's fields and its `delay`** (Q2). A repeat modifier is ignored: a flight lands once. Reduced motion takes no delay. A tween with no `duration` or `easing` takes the tween's own defaults, 0.3 s and linear.
+2. **A tween's `duration`, `easing` and `delay` drive it, and a spring's fields and its `delay`** (Q2). A repeat modifier is ignored: a flight lands once. Reduced motion takes no delay. A tween with no `duration` or `easing` takes the tween's own defaults, 0.3 s and linear. *Since ADR-0051, a tween with no `easing` eases out and a spring takes Motion's 100 / 10 / 1 for the fields it leaves out (Amendment (#357) below).*
 3. **Motion's `layout` key is honored** (Q3): `transition.layout`, else the whole `transition`, else the default. `WardicTransition` gains `layout?: WardicTransition`; no other per-key transitions, so no `default` key. *Since #301 (ADR-0049) every value has its entry, and a layout animation runs on `layout`, else `default`, else the whole `transition`, as Motion's `getValueTransition` reads it.*
 4. **The Release offset stays a spring** (Q4, ADR-0016): the layout transition's when it's a spring, else the spring defaults, so a release keeps its velocity. The slot FLIP under it takes the tween. #140's `dragTransition` would give it its own. *Since ADR-0016's Amendment (#140) it runs on the drag transition, whatever the layout transition.*
 5. **A restart is a fresh full tween from where the node is drawn** (Q5, ADR-0013 *Amendment (#146)*), at velocity 0 and with its delay again, as Motion's.
    - Rejected: keeping the first schedule, which rushes a late retarget; and switching to a velocity-seeded spring mid-flight.
 6. **The engine owns the default** (Q6). `register` takes `transition: () => LayoutTransition | undefined` in place of `springOptions`; `undefined` is the default, so every binding gets Motion's without repeating it. The flight is a spring's state or a tween's time, resolved at its (re)start, as Motion's options are; a spring's `delay` is `Spring.step`'s own.
-7. **A layout transition with no `type` and no spring field is the default tween with the fields given** (Q10): `transition={{ delay: 0.2 }}` delays the 0.45 s tween. A spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restVelocity`) or `type: "spring"` makes it a spring. Value animations keep "no `type` is a spring".
+7. **A layout transition with no `type` and no spring field is the default tween with the fields given** (Q10): `transition={{ delay: 0.2 }}` delays the 0.45 s tween. A spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restVelocity`) or `type: "spring"` makes it a spring. Value animations keep "no `type` is a spring". *Since ADR-0051 a value's transition follows this rule too, and a layout one that gives a tween's field is a tween on Motion's fields (Amendment (#357) below).*
    - Rejected: "no `type` is a spring" for layout too, which would turn a delay into a spring; and Motion's literal result, its generic 0.3 s tween.
 
 The crossfade (ADR-0010 *Amendment (#5)*) and the blend (*Amendment (#166)*) read the flight's progress, which for a tween is its eased value, as Motion's `mixValues` reads it.
@@ -247,3 +247,14 @@ Inside the coordinator's tick, the engine doesn't write a node's value again whe
 ## Note (#344, 2026-10-24): a layout spring rests as Motion's 0 → 1000 progress does
 
 A layout animation's progress runs 0 → 1 here and 0 → 1000 in Motion (`create-projection-node.ts`'s `animationTarget`). A spring on it rested within 0.01 of 1 and 0.01 per second: a bouncy one (400 / 10) stopped 4.26 px short of a 600 px move and snapped, a damped one under a pixel. Its thresholds are now Motion's for a move of 1000, divided by 1000 (0.05% of the move and 0.2%/s), and a layout transition's own `restDelta` and `restSpeed` are read in Motion's 0–1000 units (ADR-0050, decision 2).
+
+## Amendment (#357, 2026-10-25): a layout transition runs as a value's does
+
+ADR-0051 gave a value's transition this amendment's rule 7, and Motion's fields for those a typed one leaves out. A layout transition goes through the same resolution (`runOf` in `retarget-legs.ts`), so:
+- **one that defines no transition** (none, a `delay` alone, the reduced-motion opt-out) is still Motion's 0.45 s layout tween with that delay, as rule 7 had it;
+- **one with no `type` that gives a tween's field** is a tween on Motion's fields: `{ duration: 0.6 }` is a 0.6 s tween eased out, as Motion's (its typeless layout transition is a keyframes tween on `animateMotionValue`'s `easeOut`). It was a type error before, so rule 7 only ever met a `delay`;
+- **a spring that leaves fields out takes Motion's** 100 / 10 / 1 (`springDefaults`): `{ type: "spring" }` overshoots its slot, where core's 170 / 26 didn't;
+- **a typed tween with no `easing` eases out,** Motion's `easeOut`, where decision 2 had linear.
+
+Pinned by LTS5 (`layout-transition.browser.test.tsx`).
+

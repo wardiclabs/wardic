@@ -4,9 +4,11 @@
  * Snapshot, its fibers). The spine runs each leg into its sinks; a server render samples a mount's
  * legs into an Appear animation's rule, so the two can't drift.
  *
- * - **A tween** (`type: "tween"`) runs every key, numbers and strings, in one `animateValues` leg.
- * - **A spring** (the default) runs the numbers in one `springValues` leg, carrying velocity, and the
- *   strings in one `springBlend` leg on the same spring (ADR-0024, D5).
+ * - **Which transition** (ADR-0051, #357): a key runs on the transition it resolves to (#301), as
+ *   Motion's: with none defined there, on its Environment's Default transition for it ({@link runOf}).
+ * - **A tween** runs every key, numbers and strings, in one `animateValues` leg.
+ * - **A spring** runs the numbers in one `springValues` leg, carrying velocity, and the strings in
+ *   one `springBlend` leg on the same spring (ADR-0024, D5).
  * - **Reduced motion** (ADR-0029): when it applies, the positional keys snap in a leg of their own,
  *   after the delay their transition gives, to where their leg would have ended.
  * - **A return to a moving Live value** (#130, ADR-0043 decision 6) runs a leg of its own per key,
@@ -16,6 +18,8 @@
  * machine is built when it's called, inside the leg's own fiber, so a transition core rejects
  * fails that leg alone (#66).
  */
+import * as DefaultTransition from "@wardic/core/DefaultTransition"
+import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
@@ -25,7 +29,7 @@ import * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { constTrue, identity, type LazyArg } from "effect/Function"
+import { identity, type LazyArg } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -224,8 +228,81 @@ export const delayedBy = (given: WardicTransition | undefined, extra: number): W
 const delayIn = (transition: WardicTransition | undefined): number =>
   UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: (t) => UndefinedOr.match(t.delay, { onUndefined: () => 0, onDefined: identity }) })
 
-/** No transition: a spring with its defaults, one object, so core decodes it once (#66). */
-const NO_TRANSITION: Machine.SpringOptions = {}
+// --- A transition as its legs run it (ADR-0051, #357) -----------------------------------------
+
+/**
+ * A transition as its legs run it: a spring or a tween, Motion's fields filled in (ADR-0051), with
+ * its reduced-motion opt-out.
+ */
+export type Run = DefaultTransition.Transition & { readonly respectReducedMotion?: boolean }
+
+/**
+ * The spring fields: one of them, with no `type`, makes a transition a spring, a value's or a layout
+ * animation's (ADR-0009 *Amendment (#171)*, ADR-0051).
+ */
+export const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restSpeed"] as const
+
+/**
+ * The fields that don't define a transition, beside the orchestration's ({@link motionOf}): Motion's
+ * `isTransitionDefined` (at 16c6122) skips `delay`; Wardic's reduced-motion opt-out and a target's
+ * `inherit` aren't a transition's either. `repeat` and its fields do define one, a tween (ADR-0051).
+ */
+const NOT_DEFINING: ReadonlySet<string> = new Set(["delay", "respectReducedMotion", "inherit"])
+
+/** Motion's spring defaults (`springDefaults`): what a spring transition leaves out (ADR-0051). */
+const MOTION_SPRING = { stiffness: 100, damping: 10, mass: 1 } as const
+
+/** Motion's `easeOut`, a tween's easing when it gives none (`animateMotionValue`'s, ADR-0051). */
+export const EASE_OUT: Easing.Easing = Easing.cubicBezier(0, 0, 0.58, 1)
+
+/** A transition that defines nothing: its keys run on their Default transitions. */
+const NOT_DEFINED: unique symbol = Symbol("wardic.notDefined")
+
+/** Each transition as its legs run it, by the transition: one object each, so core's decode cache hits (#66). */
+const RUNS = new WeakMap<object, Run | typeof NOT_DEFINED>()
+
+/** A field a transition gives: set, and not an entry (#301). */
+const isGiven = (value: unknown): boolean => Bool.and(Predicate.isNotUndefined(value), Bool.not(isEntry(value)))
+
+/** Whether a field defines a transition. */
+const isDefining = (key: string): boolean => Bool.not(NOT_DEFINING.has(key))
+
+/** Whether a transition's fields make it a spring: `type: "spring"`, or no `type` and a spring field. */
+const isSpring = (fields: Readonly<Record<string, unknown>>): boolean =>
+  Bool.or(fields.type === "spring", Bool.and(Predicate.isUndefined(fields.type), Arr.some(SPRING_FIELDS, (key) => Object.hasOwn(fields, key))))
+
+/** {@link runOf}'s work, once a transition: its given fields, and what they make. */
+const madeRun = (given: WardicTransition): Run | typeof NOT_DEFINED => {
+  const fields = Rec.filter(UndefinedOr.getOrThrow(motionOf(given)) as Readonly<Record<string, unknown>>, isGiven)
+  if (Bool.not(Arr.some(Rec.keys(fields), isDefining))) return NOT_DEFINED
+  return Bool.match(isSpring(fields), {
+    onTrue: (): Run => ({ ...MOTION_SPRING, ...fields, type: "spring" }) as Run,
+    onFalse: (): Run => ({ easing: EASE_OUT, ...fields, type: "tween" }) as Run,
+  })
+}
+
+/**
+ * A transition as its legs run it (ADR-0051, #357), or `undefined` when it isn't defined: none, or
+ * one with only orchestration, `delay` and the reduced-motion opt-out (Motion's
+ * `isTransitionDefined`). A defined one:
+ * - is a spring when it says so, or gives no `type` and a spring field ({@link SPRING_FIELDS});
+ *   anything else is a tween, as a layout animation's is (ADR-0009 *Amendment (#171)*): `{ duration:
+ *   0.5 }` a 0.5 s tween, as Motion's, where `{ stiffness: 300 }` stays a spring;
+ * - takes Motion's fields for those it leaves out: a spring's 100 / 10 / 1, a tween's `easeOut`
+ *   (a tween's 0.3 s is core's too).
+ *
+ * Worked out once per transition object. A field set to `undefined` gives nothing.
+ */
+export const runOf = (given: WardicTransition | undefined): Run | undefined => {
+  if (Predicate.isUndefined(given)) return undefined
+  let run = RUNS.get(given)
+  if (Predicate.isUndefined(run)) {
+    run = madeRun(given)
+    RUNS.set(given, run)
+  }
+  if (run === NOT_DEFINED) return undefined
+  return run
+}
 
 /** No keys: a Retarget with no following return. */
 const NO_KEYS: ReadonlyArray<string> = []
@@ -243,6 +320,7 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  *   fields are left out ({@link motionOf})
  * @param reducedMotion whether reduced motion is on (the provider's, ADR-0029); a transition can still opt out
  * @param positionalKeys which keys are positional: the Environment's (ADR-0036)
+ * @param defaults what a key with no transition defined runs on: the Environment's (ADR-0051)
  * @param velocities each key's velocity now: a spring starts from it
  * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
  */
@@ -252,14 +330,15 @@ export const legsOf = (
   given: WardicTransition | undefined,
   reducedMotion: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  defaults: DefaultTransition.DefaultTransition["Service"],
   velocities: Readonly<Record<string, number>>,
   follow?: Follows | undefined,
 ): ReadonlyArray<Leg> => {
   // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
   const entries = entriesOf(given)
-  if (Predicate.isUndefined(entries)) return legsWith(from, to, given, reducedMotion, positionalKeys, velocities, follow)
+  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, positionalKeys, defaults, velocities, follow)
   // With no value's entry (`layout` and `default` alone), every key runs on one transition.
-  if (Bool.not(entries.byValue)) return legsWith(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, velocities, follow)
+  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, defaults, velocities, follow)
   const byTransition = new Map<WardicTransition, Record<string, number | string>>()
   Arr.forEach(Rec.keys(to), (key) => {
     const runsOn = forKey(entries, key)
@@ -270,25 +349,75 @@ export const legsOf = (
     }
     byTransition.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsWith(from, keys, runsOn, reducedMotion, positionalKeys, velocities, follow))
+  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, positionalKeys, defaults, velocities, follow))
 }
 
-/** {@link legsOf} on one transition. */
-const legsWith = (
+/** No legs: a Retarget with no key. */
+const NO_LEGS: ReadonlyArray<Leg> = []
+
+/**
+ * {@link legsOf} on one transition: as it runs, or, when it defines none, each key on its Default
+ * transition (ADR-0051), the keys that share one on one leg's worth.
+ */
+const legsOn = (
   from: Values.Values,
   to: Values.Values,
   given: WardicTransition | undefined,
   reducedMotion: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  defaults: DefaultTransition.DefaultTransition["Service"],
   velocities: Readonly<Record<string, number>>,
-  follow?: Follows | undefined,
+  follow: Follows | undefined,
 ): ReadonlyArray<Leg> => {
-  const transition = motionOf(given)
-  const useTween = Predicate.isNotUndefined(transition) && transition.type === "tween"
+  const run = runOf(given)
+  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, positionalKeys, velocities, follow)
+  const keys = Rec.keys(to)
+  if (keys.length === 0) return NO_LEGS
+  // Nearly always one Default transition for every key (a fade, a move): no grouping.
+  const first = defaults.transitionFor(UndefinedOr.getOrThrow(keys[0]), to[UndefinedOr.getOrThrow(keys[0])] as number | string)
+  if (Arr.every(keys, (key) => defaults.transitionFor(key, to[key] as number | string) === first)) {
+    return legsWith(from, to, carried(first, given), reducedMotion, positionalKeys, velocities, follow)
+  }
+  const byDefault = new Map<DefaultTransition.Transition, Record<string, number | string>>()
+  Arr.forEach(keys, (key) => {
+    const runsOn = defaults.transitionFor(key, to[key] as number | string)
+    const grouped = byDefault.get(runsOn)
+    if (Predicate.isNotUndefined(grouped)) {
+      grouped[key] = to[key] as number | string
+      return
+    }
+    byDefault.set(runsOn, { [key]: to[key] as number | string })
+  })
+  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, positionalKeys, velocities, follow))
+}
+
+/**
+ * A Default transition with what the transition that defines none still says: its `delay` (a
+ * stagger's among it, ADR-0007) and its reduced-motion opt-out. The Default transition itself when
+ * it says neither, as nearly every element's (it has no transition).
+ */
+const carried = (runsOn: DefaultTransition.Transition, given: WardicTransition | undefined): Run => {
+  if (Predicate.isUndefined(given)) return runsOn
+  const { delay, respectReducedMotion } = given
+  if (Bool.and(Predicate.isUndefined(delay), Predicate.isUndefined(respectReducedMotion))) return runsOn
+  return { ...runsOn, ...Rec.filter({ delay, respectReducedMotion }, Predicate.isNotUndefined) } as Run
+}
+
+/** {@link legsOf} on one transition as it runs. */
+const legsWith = (
+  from: Values.Values,
+  to: Values.Values,
+  transition: Run,
+  reducedMotion: boolean,
+  positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  velocities: Readonly<Record<string, number>>,
+  follow: Follows | undefined,
+): ReadonlyArray<Leg> => {
+  const useTween = transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
   // through the delay it would hold, and the rest animate as they would. A transition opts out with
   // `respectReducedMotion: false`.
-  const respects = UndefinedOr.match(transition, { onUndefined: constTrue, onDefined: (tr) => tr.respectReducedMotion !== false })
+  const respects = transition.respectReducedMotion !== false
   const { positional, rest } = Bool.match(Bool.and(respects, reducedMotion), {
     onTrue: () => ReducedMotion.split(to, positionalKeys),
     onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: to }),
@@ -330,7 +459,7 @@ const legsWith = (
   }
   // Spring (default): numeric keys via springValues (velocity-carrying Retarget); any string/colour
   // keys via springBlend, the same spring on a 0→100 progress (ADR-0024, D5).
-  const springOpts = UndefinedOr.match(transition, { onUndefined: () => NO_TRANSITION, onDefined: identity }) as Machine.SpringOptions
+  const springOpts = transition as Machine.SpringOptions
   const { numbers: numeric, strings } = Values.split(fixed)
   // A spring settles at its target: the snap lands there.
   if (snapping) legs.push(snapLeg(from, positional, positional, () => Spring.resolve(springOpts).delay))

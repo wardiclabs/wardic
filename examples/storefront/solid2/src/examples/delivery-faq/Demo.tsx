@@ -27,7 +27,9 @@ const answer = {
   exit: { opacity: 0, transition: { type: "tween", duration: 0.1 } },
 } as const
 
-// The chevron turns over as its answer opens.
+// The chevron turns over as its answer opens, on a short tween: a rotate's default is a lively
+// spring that swings past and back, which a chevron shouldn't (ADR-0051). With no `type`, a
+// `duration` makes a tween, eased out.
 const chevron = { shut: { rotate: 0 }, open: { rotate: 180 } } as const
 
 export default function DeliveryFaq() {
@@ -50,7 +52,8 @@ export default function DeliveryFaq() {
           <wardic.li class="faq-item" layout>
             <wardic.button class="faq-question" layout="position" aria-expanded={String(open() === index()) as "true" | "false"} onClick={() => toggle(index())}>
               <span>{item.question}</span>
-              <wardic.span class="chevron" variants={chevron} animate={stateOf(index())} aria-hidden="true">
+              {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
+              <wardic.span class="chevron" variants={chevron} initial={false} animate={stateOf(index())} transition={{ duration: 0.2 }} aria-hidden="true">
                 ⌄
               </wardic.span>
             </wardic.button>

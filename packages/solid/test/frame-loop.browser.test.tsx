@@ -16,6 +16,7 @@ import * as Supersede from "@wardic/core/Supersede"
 import type * as Values from "@wardic/core/Values"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as DomClock from "@wardic/dom/DomClock"
+import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
 import * as DomInput from "@wardic/dom/DomInput"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as DomProbe from "@wardic/dom/DomProbe"
@@ -71,6 +72,7 @@ const envWith = (options: {
     DomInput.layer,
     DomProbe.layer,
     DomPositionalKeys.layer,
+    DomDefaultTransition.layer,
     DomAnnouncer.layer,
   )
   const frameLoop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync(loop)).pipe(Layer.provide(FrameLoop.layer))
@@ -185,6 +187,11 @@ const dragTo = (el: HTMLElement, x: number): Promise<void> =>
 
 const BLACK = "rgb(0, 0, 0)"
 const WHITE = "rgb(255, 255, 255)"
+/**
+ * A spring: its numbers and its strings on two legs, as these tests count them. With no transition,
+ * an opacity and a colour share one tween leg, their Default transition since #357 (ADR-0051).
+ */
+const SPRING = { type: "spring", stiffness: 170, damping: 26 } as const
 
 describe("the binding's runs share the Frame loop's one Clock.ticks subscription", () => {
   it("100 mounted elements, each with a numeric and a string leg, make one subscriber", async () => {
@@ -193,7 +200,7 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
       <WardicProvider env={envWith({ clock: counted.wrap })}>
         <For each={Array.from({ length: 100 }, (_, i) => i)}>
           {() => (
-            <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }}>
+            <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }} transition={SPRING}>
               n
             </wardic.div>
           )}
@@ -223,7 +230,7 @@ describe("the binding's runs share the Frame loop's one Clock.ticks subscription
         </wardic.div>
         <AnimatePresence>
           <Show when={visible()}>
-            <wardic.div data-presence initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, "background-color": BLACK }}>
+            <wardic.div data-presence initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, "background-color": BLACK }} transition={SPRING}>
               x
             </wardic.div>
           </Show>
@@ -330,7 +337,7 @@ describe("a loop failure fails every leg on it instead of hanging it (ADR-0027, 
       <WardicProvider env={envWith({ clock: dying, logs })}>
         <For each={[0, 1, 2]}>
           {() => (
-            <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={target()}>
+            <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={target()} transition={SPRING}>
               n
             </wardic.div>
           )}
@@ -384,10 +391,10 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
     const logs: Array<Logged> = []
     const { container } = render(() => (
       <WardicProvider env={envWith({ registry: breaking, logs })}>
-        <wardic.div data-broken initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": BROKEN }}>
+        <wardic.div data-broken initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": BROKEN }} transition={SPRING}>
           a
         </wardic.div>
-        <wardic.div data-whole initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }}>
+        <wardic.div data-whole initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }} transition={SPRING}>
           b
         </wardic.div>
       </WardicProvider>
@@ -406,10 +413,10 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
     const logs: Array<Logged> = []
     const { container } = render(() => (
       <WardicProvider env={envWith({ registry: breaking, logs })}>
-        <wardic.div data-broken initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": BROKEN }}>
+        <wardic.div data-broken initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": BROKEN }} transition={SPRING}>
           a
         </wardic.div>
-        <wardic.div data-whole initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }}>
+        <wardic.div data-whole initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }} transition={SPRING}>
           b
         </wardic.div>
       </WardicProvider>
@@ -428,7 +435,7 @@ describe("a failed leg is logged (ADR-0027, decision 7)", () => {
     const [opacity, setOpacity] = createSignal(1)
     const { container } = render(() => (
       <WardicProvider env={envWith({ logs })}>
-        <wardic.div data-r initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: opacity(), "background-color": WHITE }}>
+        <wardic.div data-r initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: opacity(), "background-color": WHITE }} transition={SPRING}>
           r
         </wardic.div>
       </WardicProvider>
@@ -452,7 +459,7 @@ describe("a Retarget ends the spine's legs before it starts its own, and an unmo
     const [opacity, setOpacity] = createSignal(1)
     const { container } = render(() => (
       <WardicProvider env={envWith({ loop: counted.wrap, logs })}>
-        <wardic.div data-r initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: opacity(), "background-color": WHITE }}>
+        <wardic.div data-r initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: opacity(), "background-color": WHITE }} transition={SPRING}>
           r
         </wardic.div>
       </WardicProvider>
@@ -494,7 +501,7 @@ describe("a Retarget ends the spine's legs before it starts its own, and an unmo
         <Show when={shown()}>
           <For each={Array.from({ length: 10 }, (_, i) => i)}>
             {() => (
-              <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }}>
+              <wardic.div data-n initial={{ opacity: 0, "background-color": BLACK }} animate={{ opacity: 1, "background-color": WHITE }} transition={SPRING}>
                 n
               </wardic.div>
             )}
