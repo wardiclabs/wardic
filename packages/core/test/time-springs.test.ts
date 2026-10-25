@@ -4,10 +4,8 @@
 // - TB1: each form solves to Motion's physics: the spring's exact path from Wardic's stiffness,
 //   damping and mass is framer-motion 13.4.0's at 100 to 400 ms, to 1e-6; a duration spring runs
 //   for its duration, a visual-duration spring to rest.
-// - TB2: a machine on each form follows Motion's path, within what its 240 Hz steps miss of the exact
-//   one (up to 2.3 px of 100 here, at 100 ms; a physics spring's miss as much, 1.6 px for Motion's
-//   100 / 10); a duration spring lands on its target the frame its duration ends, a visual-duration
-//   one at rest.
+// - TB2: a machine on each form follows Motion's path, to 1e-6 (it steps in closed form, #370); a
+//   duration spring lands on its target the frame its duration ends, a visual-duration one at rest.
 // - TB3: precedence and limits: a stiffness, damping or mass wins (core's defaults for the rest), a
 //   visual duration over a duration; a bounce alone is a 0.8 s spring, a visual duration alone a
 //   bounce of 0 (Wardic's, #359 Q3: Motion's ignores it); a duration within 0.01 to 10 s, a damping
@@ -78,7 +76,7 @@ describe("time-based springs (#359)", () => {
     for (const { label, options, at, doneMs } of MOTION) {
       // One 1/240 s step a frame: the path at 100 ms is the 24th frame.
       const fine = valuesOf(Machine.spring(100, options), 1 / 240)
-      for (const [i, motion] of at.entries()) expect(Math.abs(fine[24 * (i + 1) - 1]! - motion), `${label} at ${(i + 1) * 100} ms`).toBeLessThan(2.5)
+      for (const [i, motion] of at.entries()) expect(fine[24 * (i + 1) - 1], `${label} at ${(i + 1) * 100} ms`).toBeCloseTo(motion, 6)
       const values = valuesOf(Machine.spring(100, options), F)
       expect(values.at(-1), `${label} lands on its target`).toBe(100)
       if (Spring.endsOnTime(Spring.resolve(options))) {
@@ -154,9 +152,9 @@ describe("time-based springs (#359)", () => {
   it("TB6: Easing.spring on a duration spring runs to that duration, ending on 1, and is named with it", () => {
     const options = { duration: 0.5, bounce: 0.25 }
     const curve = Easing.spring(options)
-    // A fifth of the way: Motion's spring at 100 ms of 500, within what its steps miss (TB2).
-    expect(Math.abs(curve(0.2) * 100 - 65.7827638857)).toBeLessThan(2.5)
-    expect(Math.abs(curve(0.6) * 100 - 102.14284182)).toBeLessThan(2.5)
+    // A fifth of the way: Motion's spring at 100 ms of 500, a sample on the exact path (#370).
+    expect(curve(0.2) * 100).toBeCloseTo(65.7827638857, 6)
+    expect(curve(0.6) * 100).toBeCloseTo(102.14284182, 6)
     // The machine's own path, sample for sample.
     const machine = valuesOf(Machine.spring(1, options), 1 / 240)
     expect(curve(0.2)).toBeCloseTo(machine[23]!, 9)
@@ -166,6 +164,9 @@ describe("time-based springs (#359)", () => {
     expect(curve(1 - 1e-9)).toBeCloseTo(1, 6)
     const { stiffness, damping } = Spring.resolve(options)
     expect(Option.getOrUndefined(Easing.nameOf(curve))).toBe(`spring(${stiffness},${damping},1,0.5)`)
+    // A duration that isn't a whole number of 1/240 s steps: 74 steps of 0.31 / 74 s, ending on it.
+    const odd = Spring.resolve({ duration: 0.31, bounce: 0.25 })
+    expect(Easing.spring({ duration: 0.31, bounce: 0.25 })(0.5), "half way: 37 of its 74 steps").toBeCloseTo(exactAt(odd, 0.155) / 100, 9)
     expect(Option.getOrUndefined(Easing.nameOf(Easing.spring({ stiffness: 300 })))).toBe("spring(300,26,1)")
   })
 })

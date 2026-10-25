@@ -260,7 +260,9 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     await wait(rule.duration * 1000 + 150)
     await raf()
     const animation = found(element)
-    expect(Appear.elapsedOf(animation)).toBeGreaterThan(rule.duration)
+    // A finished animation holds at its end, as its CSS writes it: to 1e-4 s, so a hair either side
+    // of the rule's own (17 frames' 0.28333 s is written 0.2833s; #370's exact spring rests there).
+    expect(Appear.elapsedOf(animation)).toBeGreaterThan(rule.duration - 1e-4)
     expect(drawn(element)).toEqual({ y: 0, opacity: 1 })
   })
 

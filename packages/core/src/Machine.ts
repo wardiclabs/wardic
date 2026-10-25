@@ -133,8 +133,8 @@ export const isMachine = (u: unknown): u is Machine<Frame.Frame<unknown>> => Pre
  *   layout animation lands where wall time puts it, as Motion's time-based animations do: every
  *   jank short of a tab switch or a debugger pause.
  * - **A longer one (a hidden tab) advances it 500 ms,** and the animation plays out the rest, where
- *   Motion's jumps to its end. It bounds the spring's cost too: it's integrated in 1/240 s substeps,
- *   so a minute away would be 14,400 a spring on return.
+ *   Motion's jumps to its end. It once bounded the spring's cost too, integrated in 1/240 s substeps;
+ *   since #370 a spring steps in closed form, one step whatever the `dt`.
  *
  * A sequence's seams drop the rest of a tick, a stall's included (#226).
  */
@@ -995,12 +995,13 @@ export const springValues = (
       const frame = { value: recordOf(positions), velocity: recordOf(velocities), done: false }
       const frameValue = frame.value
       const frameVelocity = frame.velocity
-      const { stiffness, damping, mass, delay } = spring
+      const delay = spring.delay
       // Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), then a
       // counted loop over the keys with plain reads, nothing allocated, the run's records and the
-      // spring's fields read as this closure's locals. Each key steps by `Spring.step`'s
-      // integration, written out in place: called per key, `Spring.step` returns a new state and
-      // result. One spring per key gives the same Frames (machines.test.ts).
+      // spring's fields read as this closure's locals. Each key steps by `Spring.step`'s exact
+      // step (#370), written out in place: called per key, `Spring.step` returns a new state and
+      // result. The keys share one matrix, worked out once a frame. One spring per key gives the
+      // same Frames (machines.test.ts).
       const step = (dt: number): Frame.MultiPhysics => {
         const clamped = Math.min(dt, MAX_DT)
         let done = true
@@ -1009,19 +1010,13 @@ export const springValues = (
           const time = elapsed[i] + clamped
           let position = positions[i]
           let speed = velocities[i]
-          // Only the part of this tick past the delay is integrated.
+          // Only the part of this tick past the delay moves it.
           const simDt = Math.max(0, Math.min(clamped, time - delay))
           if (simDt > 0) {
-            // `Spring.step`'s 1/240 s substep, as a literal, which V8 folds: dividing by a module
-            // constant ran Node's `springValues/loop` about 3% slower (ADR-0030, *Implementation in #111*).
-            const substeps = Math.max(1, Math.ceil(simDt / (1 / 240)))
-            const h = simDt / substeps
-            for (let s = 0; s < substeps; s++) {
-              const springForce = -stiffness * (position - goal)
-              const dampingForce = -damping * speed
-              speed += ((springForce + dampingForce) / mass) * h
-              position += speed * h
-            }
+            const m = Spring.matrixFor(spring, simDt)
+            const d = position - goal
+            position = goal + m.dd * d + m.dv * speed
+            speed = m.vd * d + m.vv * speed
           }
           const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[i] && Math.abs(position - goal) <= restDeltas[i]
           if (settled) {

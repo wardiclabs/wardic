@@ -105,3 +105,7 @@ ADR-0033 decides it.
 6. **Recorded here (Q3),** with `MAX_DT`'s comment and the README's *Coming from Motion* line. #226 (seams) is the follow-up.
 
 **Gates:** typecheck, lint, unit (1058), browser (1017), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #66's (drive16 54 of 54, drive-held 0 off, drive7 6 clean · held 0, drive17 identical, drive14k on its slot, late reads 0 frames behind). No `bench:core` run: the one per-frame change is `stepDecay`'s (one division more a step), and no workload runs a decay.
+
+## Note (#370, 2026-10-25): the spring's cost no longer needs the cap
+
+Springs step in Motion's closed form now (ADR-0054): one exact step whatever the `dt`. So *Amendment (#23)*'s decision 1 loses one of its reasons, that a minute in a hidden tab would be 14,400 substeps a spring. `MAX_DT` stays 0.5 s for the others: an animation that resumes rather than jumps, and wall time's other costs (the projection's progress spring, **Frame time**). #370 left it as it was.
