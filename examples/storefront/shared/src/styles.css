@@ -1153,11 +1153,11 @@ button.product-card:hover .photo {
   cursor: pointer;
 }
 
+/* A flex box around the icon, so no line box adds space below it: it turns about its own centre. */
 .chevron {
-  display: inline-block;
+  display: flex;
+  flex: none;
   color: var(--muted);
-  font-size: 1.2rem;
-  line-height: 1;
 }
 
 .faq-answer {

@@ -54,7 +54,10 @@ export default function DeliveryFaq() {
               <span>{item.question}</span>
               {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
               <wardic.span class="chevron" variants={chevron} initial={false} animate={stateOf(index())} transition={{ duration: 0.2 }} aria-hidden="true">
-                ⌄
+                {/* Drawn centred in its box, so it turns about itself: a text "⌄" sits low in its line and swung up as it turned. */}
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
               </wardic.span>
             </wardic.button>
             {/* popLayout: a closing answer leaves the flow at once, so its card shrinks while it fades. */}
