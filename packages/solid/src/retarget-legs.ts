@@ -238,9 +238,16 @@ export type Run = DefaultTransition.Transition & { readonly respectReducedMotion
 
 /**
  * The spring fields: one of them, with no `type`, makes a transition a spring, a value's or a layout
- * animation's (ADR-0009 *Amendment (#171)*, ADR-0051).
+ * animation's (ADR-0009 *Amendment (#171)*, ADR-0051); a time-based spring's `bounce` and
+ * `visualDuration` among them (#359), where a `duration` alone is a tween's.
  */
-export const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restSpeed"] as const
+export const SPRING_FIELDS = ["stiffness", "damping", "mass", "velocity", "restDelta", "restSpeed", "bounce", "visualDuration"] as const
+
+/** A spring's physics fields: one of them wins over its time (#359, Motion's `physicsKeys`). */
+const PHYSICS_FIELDS = ["stiffness", "damping", "mass"] as const
+
+/** A time-based spring's fields (#359): with no physics field, core solves its physics from them. */
+const TIME_FIELDS = ["duration", "bounce", "visualDuration"] as const
 
 /**
  * The fields that don't define a transition, beside the orchestration's ({@link motionOf}): Motion's
@@ -265,16 +272,29 @@ const isGiven = (value: unknown): boolean => Bool.and(Predicate.isNotUndefined(v
 /** Whether a field defines a transition. */
 const isDefining = (key: string): boolean => Bool.not(NOT_DEFINING.has(key))
 
+/** Whether a transition gives any of `keys`. */
+const givesAny = (fields: Readonly<Record<string, unknown>>, keys: ReadonlyArray<string>): boolean => Arr.some(keys, (key) => Object.hasOwn(fields, key))
+
 /** Whether a transition's fields make it a spring: `type: "spring"`, or no `type` and a spring field. */
 const isSpring = (fields: Readonly<Record<string, unknown>>): boolean =>
-  Bool.or(fields.type === "spring", Bool.and(Predicate.isUndefined(fields.type), Arr.some(SPRING_FIELDS, (key) => Object.hasOwn(fields, key))))
+  Bool.or(fields.type === "spring", Bool.and(Predicate.isUndefined(fields.type), givesAny(fields, SPRING_FIELDS)))
+
+/**
+ * Whether a spring transition is set by time (#359): a time field and no physics field. Its physics
+ * are core's to solve, so it takes none of Motion's defaults, which would win over its time.
+ */
+const isTimed = (fields: Readonly<Record<string, unknown>>): boolean => Bool.and(givesAny(fields, TIME_FIELDS), Bool.not(givesAny(fields, PHYSICS_FIELDS)))
 
 /** {@link runOf}'s work, once a transition: its given fields, and what they make. */
 const madeRun = (given: WardicTransition): Run | typeof NOT_DEFINED => {
   const fields = Rec.filter(UndefinedOr.getOrThrow(motionOf(given)) as Readonly<Record<string, unknown>>, isGiven)
   if (Bool.not(Arr.some(Rec.keys(fields), isDefining))) return NOT_DEFINED
   return Bool.match(isSpring(fields), {
-    onTrue: (): Run => ({ ...MOTION_SPRING, ...fields, type: "spring" }) as Run,
+    onTrue: (): Run =>
+      Bool.match(isTimed(fields), {
+        onTrue: (): Run => ({ ...fields, type: "spring" }) as Run,
+        onFalse: (): Run => ({ ...MOTION_SPRING, ...fields, type: "spring" }) as Run,
+      }),
     onFalse: (): Run => ({ ease: Easing.easeOut, ...fields, type: "tween" }) as Run,
   })
 }
@@ -287,7 +307,8 @@ const madeRun = (given: WardicTransition): Run | typeof NOT_DEFINED => {
  *   anything else is a tween, as a layout animation's is (ADR-0009 *Amendment (#171)*): `{ duration:
  *   0.5 }` a 0.5 s tween, as Motion's, where `{ stiffness: 300 }` stays a spring;
  * - takes Motion's fields for those it leaves out: a spring's 100 / 10 / 1, a tween's `easeOut`
- *   (a tween's 0.3 s is core's too).
+ *   (a tween's 0.3 s is core's too). A spring set by time, a `duration`, `bounce` or
+ *   `visualDuration` and no stiffness, damping or mass (#359), takes no physics: core solves them.
  *
  * Worked out once per transition object. A field set to `undefined` gives nothing.
  */

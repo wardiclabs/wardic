@@ -446,6 +446,8 @@ export const DEFAULT_DRAG_TRANSITION: DragTransition = {
  */
 type FlightTiming =
   | { readonly kind: "spring"; readonly options: Spring.Resolved; readonly rest: Spring.Rest }
+  /** A spring that ends at its duration (#359): no rest thresholds, it lands on time. */
+  | { readonly kind: "timedSpring"; readonly options: Spring.Resolved }
   | ({ readonly kind: "tween" } & Machine.ResolvedTween)
 
 /**
@@ -455,8 +457,15 @@ type FlightTiming =
  */
 const MOTION_PROGRESS = 1000
 
-/** A layout spring's options and its thresholds over Motion's progress (#344). */
-const springTiming = (options: Spring.Resolved): FlightTiming => ({ kind: "spring", options, rest: Spring.restFor(options, MOTION_PROGRESS, MOTION_PROGRESS) })
+/**
+ * A layout spring's options and its thresholds over Motion's progress (#344); a spring that ends at
+ * its duration (#359) steps by `Spring.stepTimed`, with none.
+ */
+const springTiming = (options: Spring.Resolved): FlightTiming =>
+  Bool.match(Spring.endsOnTime(options), {
+    onTrue: (): FlightTiming => ({ kind: "timedSpring", options }),
+    onFalse: (): FlightTiming => ({ kind: "spring", options, rest: Spring.restFor(options, MOTION_PROGRESS, MOTION_PROGRESS) }),
+  })
 
 /**
  * A layout animation's progress, 0 → 1 (ADR-0009 *Amendment (#171)*), on the transition resolved at its
@@ -3792,8 +3801,9 @@ export const makeProjectionSystem = (
 
   /**
    * Step `node`'s layout animation, if one runs; whether it is at rest (ADR-0009 *Amendment (#171)*):
-   * a spring stepped toward 1 (`Spring.step` holds its delay), or a tween's eased progress by its
-   * time, held at 0 through its delay. Per frame: statement `if`s, written in place.
+   * a spring stepped toward 1 (`Spring.step` holds its delay; `Spring.stepTimed` for one that ends
+   * at its duration, #359), or a tween's eased progress by its time, held at 0 through its delay. Per
+   * frame: statement `if`s, written in place.
    */
   const stepFlight = (node: NodeState, dt: number): boolean => {
     const flight = node.flight
@@ -3802,6 +3812,12 @@ export const makeProjectionSystem = (
     const timing = flight.timing
     if (timing.kind === "spring") {
       const r = Spring.step(UndefinedOr.getOrThrow(flight.spring), dt, 1, timing.options, timing.rest)
+      flight.spring = r.state
+      flight.position = r.state.position
+      return r.done
+    }
+    if (timing.kind === "timedSpring") {
+      const r = Spring.stepTimed(UndefinedOr.getOrThrow(flight.spring), dt, 1, timing.options)
       flight.spring = r.state
       flight.position = r.state.position
       return r.done

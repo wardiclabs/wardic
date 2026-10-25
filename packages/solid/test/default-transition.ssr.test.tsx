@@ -19,6 +19,9 @@
 // - DT7: an Environment with no opinion (core's `oneSpring`): every key on core's 170 / 26, numbers
 //   and strings on two legs, as before #357.
 // - DT8: a transition's run is worked out once per object; one that defines none has none.
+// - DT9 (#359): a spring set by time: `bounce` or `visualDuration` with no `type` makes a spring, where
+//   a `duration` alone stays a tween; with no stiffness, damping or mass it takes none of Motion's,
+//   so core solves its physics; with one, Motion's fill the rest and win over its time.
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
@@ -200,5 +203,30 @@ describe("the Default transition (#357, ADR-0051)", () => {
     expect(runOf(undefined)).toBeUndefined()
     expect(runOf({ delay: 0.2, respectReducedMotion: false })).toBeUndefined()
     expect(runOf({ type: "spring" })).toEqual({ type: "spring", stiffness: 100, damping: 10, mass: 1 })
+  })
+
+  it("DT9: a spring set by time takes no physics of Motion's; a bounce or a visual duration makes a spring (#359)", () => {
+    const one = { from: { x: 0, backgroundColor: "#000" }, to: { x: 100, backgroundColor: "#fff" } }
+    const pickX = (legs: ReadonlyArray<Leg>) => legs[0]!
+    // No type: a bounce or a visual duration makes a spring, solved by core; a duration alone a tween.
+    for (const transition of [{ bounce: 0.25 }, { duration: 0.5, bounce: 0.2 }, { visualDuration: 0.4 }, { visualDuration: 0.4, bounce: 0.5 }] as ReadonlyArray<WardicTransition>) {
+      expect(runOf(transition), JSON.stringify(transition)).toEqual({ ...transition, type: "spring" })
+      const legs = legsFor(transition, one)
+      expect(shapeOf(legs), JSON.stringify(transition)).toEqual(["Numbers x", "Blend backgroundColor"])
+      expectRunsAs(pickX(legs), Machine.springValues({ x: 100 }, transition as Machine.SpringOptions, { x: 0 }) as Run, JSON.stringify(transition))
+    }
+    expect(runOf({ duration: 0.5 })?.type).toBe("tween")
+    // Typed: a duration alone is a duration spring, Motion's bounce of 0.3; it lands at 0.5 s.
+    const timed = legsFor({ type: "spring", duration: 0.5 }, one)
+    expect(runOf({ type: "spring", duration: 0.5 })).toEqual({ type: "spring", duration: 0.5 })
+    const xs = valuesOf(machineOf(pickX(timed))).map((v) => v.x as number)
+    expect(xs.length, "the first frame at 0.5 s or past (30 frames of 1/60 s sum a hair short)").toBe(31)
+    expect(xs.at(-1)).toBe(100)
+    expect(Math.max(...xs), "Motion's bounce of 0.3: past 100").toBeGreaterThan(100)
+    // Its strings blend on the same spring, landing with it.
+    expect(valuesOf(machineOf(timed[1]!)).length).toBe(31)
+    // A physics field: Motion's fill the rest, and they win over its time.
+    expect(runOf({ type: "spring", duration: 0.5, stiffness: 300 })).toEqual({ type: "spring", duration: 0.5, stiffness: 300, damping: 10, mass: 1 })
+    expectRunsAs(pickX(legsFor({ bounce: 0.25, damping: 20 }, one)), Machine.springValues({ x: 100 }, { stiffness: 100, damping: 20, mass: 1 }, { x: 0 }) as Run, "100 / 20 / 1, its bounce ignored")
   })
 })

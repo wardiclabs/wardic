@@ -4,6 +4,9 @@
  * a progress spring per node per frame with it; everything else runs a spring as a machine
  * (`Machine.spring`, `Machine.springValues`). It's on the per-frame path (ADR-0025).
  */
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -41,6 +44,11 @@ export interface Resolved {
   /** The rest threshold for the speed, per second, if given: else by distance ({@link restFor}). */
   readonly restSpeed: number | undefined
   readonly delay: number
+  /**
+   * How long it runs after its delay, in seconds: a `duration` spring's (#359), which ends at it,
+   * landing on its target; `Infinity` for one that ends at rest, every other.
+   */
+  readonly duration: number
 }
 
 /** A leg's rest thresholds (#344): at rest within `delta` of its target and `speed` per second. */
@@ -55,26 +63,158 @@ export interface Rest {
  * checked here.
  */
 const Options = {
-  stiffness: field(Positive, 170),
-  damping: field(NonNegative, 26),
-  mass: field(Positive, 1),
+  stiffness: optionalField(Positive),
+  damping: optionalField(NonNegative),
+  mass: optionalField(Positive),
   restDelta: optionalField(Positive),
   restSpeed: optionalField(Positive),
   delay: field(NonNegative, 0),
   from: optionalField(Schema.Finite),
   velocity: optionalField(Schema.Finite),
+  // A time-based spring's (#359, Motion's `DurationSpringOptions`), in seconds.
+  duration: optionalField(NonNegative),
+  bounce: optionalField(Schema.Finite),
+  visualDuration: optionalField(Positive),
 }
+
+/** A spring's physics: its stiffness, damping and mass, and how long it runs after its delay. */
+interface Physics {
+  readonly stiffness: number
+  readonly damping: number
+  readonly mass: number
+  readonly duration: number
+}
+
+/** A spring bag's fields, decoded. */
+interface Decoded {
+  readonly stiffness: number | undefined
+  readonly damping: number | undefined
+  readonly mass: number | undefined
+  readonly duration: number | undefined
+  readonly bounce: number | undefined
+  readonly visualDuration: number | undefined
+}
+
+// Motion's limits on a time-based spring (#359; `motion-dom`'s `spring.ts`, `springDefaults`, at
+// 16c6122): a duration of 0.01 to 10 s, a damping ratio of 0.05 to 1, and its defaults, a duration of
+// 0.8 s and a bounce of 0.3 when the other is given.
+const MIN_DURATION = 0.01
+const MAX_DURATION = 10
+const MIN_RATIO = 0.05
+const MAX_RATIO = 1
+const DEFAULT_DURATION = 0.8
+const DEFAULT_BOUNCE = 0.3
+
+/** `n` within `[min, max]`. */
+const within = (n: number, min: number, max: number): number => Math.min(Math.max(n, min), max)
+
+/** A damping ratio from a `bounce`, as Motion's: `1 − bounce`, within 0.05 to 1. */
+const ratioOf = (bounce: number): number => within(1 - bounce, MIN_RATIO, MAX_RATIO)
+
+/** Motion's `findSpring` near 0: what its envelope solves for. */
+const SAFE_MIN = 0.001
+
+/** Newton's iterations Motion's `approximateRoot` takes: 12, its first guess among them. */
+const ROOT_ITERATIONS = Arr.range(1, 11)
+
+/**
+ * The stiffness and damping (mass 1) of a spring that settles in `duration` seconds with `bounce`:
+ * Motion's `findSpring`, ported (`motion-dom`'s `spring.ts`, at 16c6122), at velocity 0, as Motion
+ * solves it, so an inherited velocity can't throw its parameters off. Newton's method from Motion's
+ * first guess, 12 iterations; one that fails (NaN) falls back to Motion's 100 / 10.
+ */
+const solveDuration = (duration: number, bounce: number): { readonly stiffness: number; readonly damping: number } => {
+  const ratio = ratioOf(bounce)
+  const seconds = within(duration, MIN_DURATION, MAX_DURATION)
+  // The envelope's root, and its derivative: an underdamped spring's, or a critically damped one's.
+  const { envelope, derivative } = Bool.match(ratio < 1, {
+    onTrue: () => {
+      const envelope = (freq: number): number => {
+        const decay = freq * ratio
+        return SAFE_MIN - (decay / (freq * Math.sqrt(1 - ratio * ratio))) * Math.exp(-decay * seconds)
+      }
+      return {
+        envelope,
+        derivative: (freq: number): number => {
+          const decay = freq * ratio
+          const e = ratio * ratio * freq * freq * seconds
+          const g = freq * freq * Math.sqrt(1 - ratio * ratio)
+          const factor = Bool.match(-envelope(freq) + SAFE_MIN > 0, { onTrue: () => -1, onFalse: () => 1 })
+          return (factor * (-e * Math.exp(-decay * seconds))) / g
+        },
+      }
+    },
+    onFalse: () => ({
+      envelope: (freq: number): number => -SAFE_MIN + Math.exp(-freq * seconds) * (freq * seconds + 1),
+      derivative: (freq: number): number => Math.exp(-freq * seconds) * (-freq * (seconds * seconds)),
+    }),
+  })
+  const freq = Arr.reduce(ROOT_ITERATIONS, 5 / seconds, (guess) => guess - envelope(guess) / derivative(guess))
+  return Bool.match(Number.isNaN(freq), {
+    onTrue: () => ({ stiffness: 100, damping: 10 }),
+    onFalse: () => ({ stiffness: freq * freq, damping: ratio * 2 * freq }),
+  })
+}
+
+/** Whether a bag gives any of a spring's physics, which wins over its time (#359, Motion's `physicsKeys`). */
+const givesPhysics = (d: Decoded): boolean => Arr.some([d.stiffness, d.damping, d.mass], Predicate.isNotUndefined)
+
+/** A spring's physics from its bag (#359), by Motion's precedence. Built once, at module load. */
+const physicsOf: (d: Decoded) => Physics = Match.type<Decoded>().pipe(
+  // Its own physics: core's defaults for what it leaves out; it ends at rest.
+  Match.when(givesPhysics, (d): Physics => ({
+    stiffness: UndefinedOr.match(d.stiffness, { onUndefined: () => 170, onDefined: (n) => n }),
+    damping: UndefinedOr.match(d.damping, { onUndefined: () => 26, onDefined: (n) => n }),
+    mass: UndefinedOr.match(d.mass, { onUndefined: () => 1, onDefined: (n) => n }),
+    duration: Infinity,
+  })),
+  // A visual duration (Motion's closed form, `bounce` 0 when it gives none, #359 Q3): most of its
+  // move done by then, at rest after, keeping the velocity it's handed.
+  Match.when(
+    (d) => Predicate.isNotUndefined(d.visualDuration),
+    (d): Physics => {
+      const root = (2 * Math.PI) / (UndefinedOr.getOrThrow(d.visualDuration) * 1.2)
+      const stiffness = root * root
+      const bounce = UndefinedOr.match(d.bounce, { onUndefined: () => 0, onDefined: (n) => n })
+      return { stiffness, damping: 2 * ratioOf(bounce) * Math.sqrt(stiffness), mass: 1, duration: Infinity }
+    },
+  ),
+  // A duration, or a bounce, solved (Motion's `findSpring`): it ends at its duration.
+  Match.when(
+    (d) => Bool.or(Predicate.isNotUndefined(d.duration), Predicate.isNotUndefined(d.bounce)),
+    (d): Physics => {
+      const duration = UndefinedOr.match(d.duration, { onUndefined: () => DEFAULT_DURATION, onDefined: (n) => n })
+      const solved = solveDuration(duration, UndefinedOr.match(d.bounce, { onUndefined: () => DEFAULT_BOUNCE, onDefined: (n) => n }))
+      return { ...solved, mass: 1, duration: within(duration, MIN_DURATION, MAX_DURATION) }
+    },
+  ),
+  Match.orElse((): Physics => ({ stiffness: 170, damping: 26, mass: 1, duration: Infinity })),
+)
 
 /**
  * Fill in a spring's defaults: 170 / 26 / 1, no delay, and its rest thresholds as given (else a
- * leg's, by its distance: {@link restFor}). Decoded once a bag (#66): a value no spring can take (a
- * stiffness or mass at or below 0, a negative damping, NaN, Infinity) throws its `SchemaError`,
- * naming the field.
+ * leg's, by its distance: {@link restFor}). A spring set by time (#359, a **Time-based spring**, as
+ * Motion's) is solved to its physics instead: a `duration` (with a `bounce`, default 0.3, or a
+ * `bounce` alone, a duration of 0.8 s) by Motion's `findSpring`, ending at that duration; a
+ * `visualDuration` (with a `bounce`, default 0) by Motion's closed form, ending at rest. A
+ * `stiffness`, `damping` or `mass` given beside wins over them. Decoded once a bag (#66): a value no
+ * spring can take (a stiffness or mass at or below 0, a negative damping or duration, NaN,
+ * Infinity) throws its `SchemaError`, naming the field.
  */
-export const resolve: (options: SpringOptions) => Resolved = cachedResolver(
-  Options,
-  ({ stiffness, damping, mass, restDelta, restSpeed, delay }): Resolved => ({ stiffness, damping, mass, restDelta, restSpeed, delay }),
-)
+export const resolve: (options: SpringOptions) => Resolved = cachedResolver(Options, (decoded): Resolved => {
+  const physics = physicsOf(decoded)
+  // One literal, not a spread of `physics`: a spread's object read slower on the per-frame path
+  // (JavaScriptCore, a chase ~20% a frame, #359).
+  return {
+    stiffness: physics.stiffness,
+    damping: physics.damping,
+    mass: physics.mass,
+    restDelta: decoded.restDelta,
+    restSpeed: decoded.restSpeed,
+    delay: decoded.delay,
+    duration: physics.duration,
+  }
+})
 
 /**
  * Motion's default rest thresholds (#344, `motion-dom` `spring.ts`'s `springDefaults` at
@@ -117,6 +257,12 @@ const thresholdOf = (given: number | undefined, distance: number, granular: numb
 
 /** A missing `from` or `velocity`: 0. */
 const ZERO = { onUndefined: () => 0, onDefined: (n: number) => n }
+
+/**
+ * Whether a spring ends at its duration (#359): a `duration` spring, which starts from rest whatever
+ * velocity it's handed, as Motion's does, so it lands on time. It steps by {@link stepTimed}.
+ */
+export const endsOnTime = (spring: Resolved): boolean => spring.duration !== Infinity
 
 /**
  * A spring at rest at `options.from` (default 0), moving at `options.velocity` (default 0). Read
@@ -166,4 +312,20 @@ export const step = (state: State, dt: number, target: number, spring: Resolved,
     velocity = 0
   }
   return { state: { position, velocity, elapsed }, value: position, velocity, done: settled }
+}
+
+/** Rest thresholds no spring meets: a spring that ends at its duration never ends at rest (#359). */
+const NEVER_AT_REST: Rest = { delta: -1, speed: -1 }
+
+/**
+ * One frame of a spring that ends at its duration (#359, {@link endsOnTime}) toward `target`: a
+ * {@link step} that never rests, landing exactly on `target` once its duration has run after its
+ * delay. Its own function, around `step`, so `step`, which every other spring takes per frame, stays
+ * as it was: a read of the duration in it cost a chase ~20% a frame on Bun (#359).
+ */
+export const stepTimed = (state: State, dt: number, target: number, spring: Resolved): PhysicsStepResult<State> => {
+  const result = step(state, dt, target, spring, NEVER_AT_REST)
+  const elapsed = result.state.elapsed
+  if (elapsed - spring.delay < spring.duration) return result
+  return { state: { position: target, velocity: 0, elapsed }, value: target, velocity: 0, done: true }
 }

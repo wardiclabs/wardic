@@ -152,7 +152,8 @@ export const steps = (count: number, position: StepPosition = "end"): Easing => 
 }
 
 /**
- * Options shaping a {@link spring} curve: its `stiffness`, `damping` and `mass`. The bag is a spring's
+ * Options shaping a {@link spring} curve: its `stiffness`, `damping` and `mass`, or its time (#359,
+ * `Machine.SpringOptions`'s `duration`, `bounce` and `visualDuration`). The bag is a spring's
  * (`Spring.resolve` decodes it, #225), so a spring's other fields may come with it, and are checked,
  * but don't shape the curve.
  */
@@ -160,6 +161,12 @@ export interface SpringOptions {
   readonly stiffness?: number
   readonly damping?: number
   readonly mass?: number
+  /** A time-based spring's duration, in seconds (#359): its curve runs to it, ending on 1. */
+  readonly duration?: number
+  /** A time-based spring's bounce (#359). */
+  readonly bounce?: number
+  /** A time-based spring's visual duration, in seconds (#359): its curve runs to rest. */
+  readonly visualDuration?: number
 }
 
 /** No options: the spring's defaults, one bag, so its decode is cached (#66). */
@@ -185,18 +192,24 @@ interface SpringSim {
  * Its bag is decoded as every spring bag is (`Spring.resolve`, #225, ADR-0025 *Amendment (#225)*), when
  * it's called: a value no spring can take (a stiffness or mass at or below 0, a negative damping, NaN,
  * Infinity) throws its `SchemaError`, naming the field. Only `stiffness`, `damping` and `mass` shape
- * the curve; it bakes its own rest thresholds and step.
+ * the curve, or a time-based spring's `duration`, `bounce` and `visualDuration` (#359): a `duration`
+ * spring's curve is its run to that duration, landing on 1 there, as its machine does. It bakes its
+ * own rest thresholds and step.
  */
 export const spring = (options: SpringOptions = NO_SPRING): Easing => {
-  const { stiffness, damping, mass } = Spring.resolve(options)
-  const dt = 1 / 240
+  const { stiffness, damping, mass, duration } = Spring.resolve(options)
   const restDelta = 1e-4
   const restSpeed = 1e-4
-  const maxTime = 10
+  // A time-based spring's curve is its run to its duration (#359), on steps of about 1/240 s that end
+  // on it; every other's runs to rest, on 1/240 s steps, within 10 s.
+  const timed = duration !== Infinity
+  const dt = Bool.match(timed, { onTrue: () => duration / Math.max(1, Math.round(duration * 240)), onFalse: () => 1 / 240 })
+  // Half a step short, so a sum of steps a hair under the end doesn't take one more.
+  const lastStart = Math.min(duration, 10) - dt / 2
 
-  /** One step of the unit spring, or `None` once it has come to rest or run out of time. */
+  /** One step of the unit spring, or `None` once it has come to rest (one that ends at rest) or run out of time. */
   const advance = (sim: SpringSim): Option.Option<readonly [number, SpringSim]> =>
-    Option.liftPredicate(sim, (s) => Bool.and(!s.rested, s.elapsed < maxTime)).pipe(
+    Option.liftPredicate(sim, (s) => Bool.and(Bool.or(timed, !s.rested), s.elapsed < lastStart)).pipe(
       Option.map((s) => {
         const force = -stiffness * (s.position - 1)
         const dampingForce = -damping * s.velocity
@@ -206,7 +219,9 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
         return [position, { position, velocity, elapsed: s.elapsed + dt, rested }] as const
       }),
     )
-  const samples = Arr.prepend(Arr.unfold({ position: 0, velocity: 0, elapsed: 0, rested: false }, advance), 0)
+  const simulated = Arr.prepend(Arr.unfold({ position: 0, velocity: 0, elapsed: 0, rested: false }, advance), 0)
+  // A time-based spring lands on 1 at its duration, its last sample, as its machine does.
+  const samples = Bool.match(timed, { onTrue: () => Arr.append(Arr.dropRight(simulated, 1), 1), onFalse: () => simulated })
 
   const lastIndex = samples.length - 1
   // Per frame (ADR-0025): early returns, and indexes in range by construction.
@@ -219,7 +234,7 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
     const frac = idx - lo
     const from = samples[lo]
     return from + (samples[hi] - from) * frac
-  }, `spring(${stiffness},${damping},${mass})`)
+  }, Bool.match(timed, { onTrue: () => `spring(${stiffness},${damping},${mass},${duration})`, onFalse: () => `spring(${stiffness},${damping},${mass})` }))
 }
 
 // --- Names (#48, ADR-0044) --------------------------------------------------------------------

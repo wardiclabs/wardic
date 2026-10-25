@@ -133,10 +133,13 @@ export interface WardicReducedMotion {
 /**
  * Transition config: a primitive selector plus the matching primitive's
  * options. Without a `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`,
- * `restDelta`, `restSpeed`) makes it a spring and anything else a tween, so `{ duration: 0.5 }` is a
- * 0.5 s tween; one with only orchestration, `delay` or the reduced-motion opt-out leaves each key on
- * its Environment's Default transition, Motion's by value in the DOM (ADR-0051). A spring's missing
- * fields are Motion's 100 / 10 / 1, a tween's easing Motion's `easeOut`. `"tween"` routes every key
+ * `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes it a spring and anything else a tween,
+ * so `{ duration: 0.5 }` is a 0.5 s tween and `{ duration: 0.5, bounce: 0.2 }` a spring; one with only
+ * orchestration, `delay` or the reduced-motion opt-out leaves each key on its Environment's Default
+ * transition, Motion's by value in the DOM (ADR-0051). A spring's missing fields are Motion's 100 /
+ * 10 / 1, a tween's easing Motion's `easeOut`. A spring set by time (#359: a `duration`, `bounce` or
+ * `visualDuration`, and no stiffness, damping or mass) is solved to its physics instead, as Motion's
+ * (`Machine.SpringOptions`). `"tween"` routes every key
  * through `animateValues` (duration-based, no velocity). Both arms also carry the
  * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, and
  * {@link WardicTransitionEntries}: a value's own transition (#301).

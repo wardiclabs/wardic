@@ -32,7 +32,7 @@ const accepts = (build: (bag: never) => unknown, bags: ReadonlyArray<Record<stri
   })
 }
 
-describe("SpringOptions: positive stiffness, mass and rest thresholds, non-negative damping and delay, finite", () => {
+describe("SpringOptions: positive stiffness, mass, rest thresholds and visual duration, non-negative damping, delay and duration, finite", () => {
   rejects(Spring.resolve, [
     ["stiffness", { stiffness: 0 }],
     ["stiffness", { stiffness: -170 }],
@@ -48,14 +48,20 @@ describe("SpringOptions: positive stiffness, mass and rest thresholds, non-negat
     ["delay", { delay: Number.POSITIVE_INFINITY }],
     ["from", { from: Number.NaN }],
     ["velocity", { velocity: Number.NEGATIVE_INFINITY }],
+    // A time-based spring's (#359): a duration Motion clamps from 0.01 s, any finite bounce.
+    ["duration", { duration: -0.5 }],
+    ["duration", { duration: Number.POSITIVE_INFINITY }],
+    ["bounce", { bounce: Number.NaN }],
+    ["visualDuration", { visualDuration: 0 }],
   ])
-  accepts(Spring.resolve, [{ damping: 0 }, { delay: 0 }, { from: -40, velocity: -900 }, { stiffness: undefined }])
+  accepts(Spring.resolve, [{ damping: 0 }, { delay: 0 }, { from: -40, velocity: -900 }, { stiffness: undefined }, { duration: 0 }, { bounce: 1.5 }, { bounce: -1, visualDuration: 0.3 }])
   rejects((bag) => Machine.spring(1, bag), [["stiffness", { stiffness: 0 }]])
   rejects((bag) => Machine.springValues({ x: 1 }, bag), [["mass", { mass: -1 }]])
   rejects((bag) => Machine.chase(() => 1, bag), [["damping", { damping: -1 }]])
 
   it("fills in its defaults: 170 / 26 / 1, no delay, rest thresholds as given (else by distance, #344); `undefined` is missing", () => {
-    const defaults = { stiffness: 170, damping: 26, mass: 1, restDelta: undefined, restSpeed: undefined, delay: 0 }
+    // Ends at rest: no duration (#359).
+    const defaults = { stiffness: 170, damping: 26, mass: 1, restDelta: undefined, restSpeed: undefined, delay: 0, duration: Number.POSITIVE_INFINITY }
     expect(Spring.resolve({})).toEqual(defaults)
     // A JS caller's: `exactOptionalPropertyTypes` keeps it out of TypeScript.
     expect(Spring.resolve({ stiffness: undefined, delay: undefined } as unknown as Machine.SpringOptions)).toEqual(defaults)

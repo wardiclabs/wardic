@@ -11,6 +11,8 @@
 // - LT5: a release's Release offset runs on its drag transition, whatever its layout transition
 //   (ADR-0016 *Amendment (#140)*), and on its own drag transition when it has one.
 // - LT6: a spring's delay holds it too.
+// - LT7 (#359): a spring set by time: a duration spring lands at its duration, passing its target on
+//   the way with a bounce; a visual-duration spring lands at rest, later.
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
@@ -164,5 +166,22 @@ describe("a layout animation's transition (#171)", () => {
     for (const [i, x] of xs.slice(0, 6).entries()) expect(x, `frame ${i + 1}: held at its origin through 0.1 s`).toBeCloseTo(-200, 6)
     expect(xs[8]!, "then on its way").toBeGreaterThan(-200)
     m.e.dispose()
+  })
+
+  it("LT7: a duration spring lands at its duration, bouncing; a visual-duration one at rest (#359)", async () => {
+    const timed = await mount({ type: "spring", duration: 0.5, bounce: 0.25 })
+    await timed.moveTo(200)
+    const xs = timed.run(60)
+    // Frame k has run k/60 s: 0.5 s is frame 30 (index 29).
+    expect(landsAt(xs), "lands at 0.5 s").toBe(29)
+    expect(xs[28], "still moving the frame before").not.toBe(0)
+    expect(Math.max(...xs.slice(0, 29)), "past its new box on the way").toBeGreaterThan(1)
+    timed.e.dispose()
+    const visual = await mount({ type: "spring", visualDuration: 0.5, bounce: 0.25 })
+    await visual.moveTo(200)
+    const vs = visual.run(120)
+    expect(landsAt(vs), "at rest, after its visual duration").toBeGreaterThan(30)
+    expect(vs.slice(landsAt(vs)).every((x) => x === 0), "and stays").toBe(true)
+    visual.e.dispose()
   })
 })
