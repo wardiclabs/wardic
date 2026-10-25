@@ -12,7 +12,7 @@
  * fibers on consumer unmount.
  */
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
-import type * as Recognizer from "@wardic/core/Recognizer"
+import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -292,7 +292,7 @@ export function runScoped<A, E>(
  */
 export function runWatch(
   runtime: WardicRuntime,
-  watch: (onDefect: Recognizer.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+  watch: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
 ): void {
   if (isServer) return
   const scope = Scope.makeUnsafe()

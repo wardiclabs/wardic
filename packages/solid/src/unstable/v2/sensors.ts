@@ -9,29 +9,28 @@
  * ```
  *
  * Each wraps a core recognizer (ADR-0006): attached, it runs on the provider's runtime until the
- * sensor's owner is disposed or it's given another element. Hover, press, focus and in view are
- * watches (#318, ADR-0055), in a Scope with no fiber; a drag is a Stream on a fiber. Its value starts at its rest (`false`,
+ * sensor's owner is disposed or it's given another element. Each is a watch (#318, #379, ADR-0055),
+ * in a Scope of its own with no fiber. Its value starts at its rest (`false`,
  * or `null` for a drag) and stays there on a server, where no ref is called. `createReducedMotion`
  * takes no element: it follows the Probe's preference.
  *
  * @module
  */
 import type * as Drag from "@wardic/core/Drag"
+import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/dom/Report"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import * as Predicate from "effect/Predicate"
-import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
-import { type CreateDragOptions, dragSamples } from "../../drag-samples.ts"
-import { reported, type WardicServices } from "../../runtime.ts"
+import { type CreateDragOptions, watchDragSamples } from "../../drag-samples.ts"
+import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.ts"
 import { useWardicRuntime } from "./provider.tsx"
 
@@ -48,42 +47,13 @@ export interface Sensor<A> {
 /** Whether a sensor's call is Solid applying it as a ref. */
 const isElement = (value: unknown): value is Element => Predicate.hasProperty(value, "nodeType")
 
-/** A sensor of `streamOf`'s values, at `initial` until its first. Call within an owner. */
-const sensorOf = <A>(streamOf: (target: Element) => Stream.Stream<A, never, WardicServices>, initial: A): Sensor<A> => {
-  // A server never calls a ref: the sensor rests where it starts.
-  if (isServer) return ((): A => initial) as Sensor<A>
-  const runtime = useWardicRuntime()
-  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
-  // The element it's attached to, and the recognizer's fiber there.
-  let attached: { readonly element: Element; readonly fiber: Fiber.Fiber<void, never> } | undefined
-  const detach = (): void => {
-    UndefinedOr.map(attached, ({ fiber }) => runtime.runFork(Fiber.interrupt(fiber)))
-    attached = undefined
-  }
-  onCleanup(detach)
-  const attach = (element: Element): void => {
-    if (Predicate.isNotUndefined(attached) && attached.element === element) return
-    detach()
-    const fiber = runtime.runFork(reported(Stream.runForEach(streamOf(element), (next) => Effect.sync(() => setValue(() => next)))))
-    attached = { element, fiber }
-  }
-  // eslint-disable-next-line solid/reactivity -- the sensor: a ref Solid calls with its element, and an accessor its caller reads where it tracks
-  return ((element?: unknown): A | undefined => {
-    if (isElement(element)) {
-      attach(element)
-      return undefined
-    }
-    return value()
-  }) as Sensor<A>
-}
-
 /**
  * A sensor of a watch's values (#318, ADR-0055), at `initial` until its first: attached, the watch
  * runs in a Scope of its own, closed when the sensor is given another element or its owner is
  * disposed. Call within an owner.
  */
 const watchSensorOf = <A>(
-  watchOf: (target: Element, handlers: Recognizer.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+  watchOf: (target: Element, handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
   initial: A,
 ): Sensor<A> => {
   // A server never calls a ref: the sensor rests where it starts.
@@ -136,12 +106,12 @@ export const createInView = (options?: { readonly once?: boolean }): Sensor<bool
   )
 
 /**
- * The latest sample of a drag gesture on the element, `null` before the first: the core `drag`
- * recognizer with `options`' axis, claim and bounds. Like an element's own drag, it holds the
+ * The latest sample of a drag gesture on the element, `null` before the first: the core drag watch
+ * (#379) with `options`' axis, claim and bounds. Like an element's own drag, it holds the
  * element's **Drag claim** while a gesture is on, unless `claim: false`.
  */
 export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> =>
-  sensorOf<Drag.Sample | null>((target) => dragSamples(target, options), null)
+  watchSensorOf<Drag.Sample | null>((target, handlers) => watchDragSamples(target, { ...options }, handlers), null)
 
 /**
  * Whether the user prefers reduced motion, from the Probe's preference. A server renders `false`,

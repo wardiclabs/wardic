@@ -185,11 +185,35 @@ export const keepPlace = (position: Point.Point, axis: Axis, from: Bounds, to: B
 })
 
 /**
+ * `sample` with its `offset` constrained to a static numeric region, per axis, with optional
+ * `elastic` rubber-band resistance past the bounds (`elastic` defaults to `0`, a hard clamp). An
+ * omitted axis range passes that axis through; `delta` and `velocity` are left as they are, as
+ * {@link withinBounds} leaves them. `dual`, the sample first: for a watch's samples (#379), one
+ * at a time, where {@link withinBounds} shapes a Stream's.
+ */
+export const within: {
+  (bounds: Bounds, options?: { readonly elastic?: number }): (sample: Sample) => Sample
+  (sample: Sample, bounds: Bounds, options?: { readonly elastic?: number }): Sample
+} = dual(
+  (args) => Predicate.hasProperty(args[0], "phase"),
+  (sample: Sample, bounds: Bounds, options: { readonly elastic?: number } = {}): Sample => {
+    const elastic = Option.getOrElse(Option.fromNullishOr(options.elastic), () => 0)
+    return {
+      ...sample,
+      offset: {
+        x: constrain(sample.offset.x, bounds.x, elastic),
+        y: constrain(sample.offset.y, bounds.y, elastic),
+      },
+    }
+  },
+)
+
+/**
  * Constrain a drag's `offset` to a static numeric region, per axis, with
  * optional `elastic` rubber-band resistance past the bounds (`elastic` defaults
  * to `0` — a hard clamp). An omitted axis range passes that axis through.
  *
- * Pure and stateless: a `Stream.map`, `dual`, the stream first, that preserves the source
+ * Pure and stateless: a `Stream.map` of {@link within}, `dual`, the stream first, that preserves the source
  * stream's `E`/`R` (Probe-free per ADR-0004 — this is the numeric form, not the
  * element-relative one).
  *
@@ -218,14 +242,5 @@ export const withinBounds: {
     stream: Stream.Stream<Sample, E, R>,
     bounds: Bounds,
     options: { readonly elastic?: number } = {},
-  ): Stream.Stream<Sample, E, R> => {
-    const elastic = Option.getOrElse(Option.fromNullishOr(options.elastic), () => 0)
-    return Stream.map(stream, (sample) => ({
-      ...sample,
-      offset: {
-        x: constrain(sample.offset.x, bounds.x, elastic),
-        y: constrain(sample.offset.y, bounds.y, elastic),
-      },
-    }))
-  },
+  ): Stream.Stream<Sample, E, R> => Stream.map(stream, (sample) => within(sample, bounds, options)),
 )

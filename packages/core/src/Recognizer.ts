@@ -9,7 +9,6 @@
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import { constant, constFalse, constVoid, type LazyArg } from "effect/Function"
 import * as Match from "effect/Match"
@@ -17,10 +16,8 @@ import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
-import * as Result from "effect/Result"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "./Drag.ts"
 import * as DragActivity from "./DragActivity.ts"
 import * as InputFeed from "./InputFeed.ts"
@@ -44,80 +41,21 @@ interface Fold<S, Ev> {
 // --- Watches: a recognizer as an Effect-scoped callback (#318, ADR-0055) ----------------------
 
 /**
- * Where a watch hands a throw from its fold or its handler (#318, ADR-0055): core reports nothing
- * (ADR-0030, decision 4), so a binding passes its own, and the watch goes on with the next event.
- * With none, the throw goes up the platform's dispatch.
- */
-export type OnDefect = (cause: Cause.Cause<never>) => void
-
-/**
- * A watch's handlers (#318): `on`, each value, inside the event's dispatch; `onDefect`, a throw from
- * the fold or `on` (else it goes up the dispatch); `onEnd`, the feed ran out (a test's script).
- */
-export interface Handlers<A> {
-  readonly on: (value: A) => void
-  readonly onDefect?: OnDefect | undefined
-  readonly onEnd?: (() => void) | undefined
-}
-
-/** `handle`, a throw from it handed to `onDefect` when there is one. */
-const guarded = <Ev>(handle: (event: Ev) => void, onDefect: OnDefect | undefined): ((event: Ev) => void) =>
-  UndefinedOr.match(onDefect, {
-    onUndefined: () => handle,
-    onDefined: (defect) => (event: Ev): void => {
-      try {
-        handle(event)
-      } catch (error) {
-        defect(Cause.die(error))
-      }
-    },
-  })
-
-/**
- * A watch's run (#318): `feed` subscribed while the Scope is open, each event handled inside its
- * dispatch by a handler `makeHandle` makes for this subscription, with no fiber and no Stream, and
- * `handlers.onEnd` told if the feed runs out. Its
- * span lasts as long (`Effect.withSpanScoped`), and its log is at the start, as a Stream
- * recognizer's were at subscribe. A handler returns whether to go on: `false` stops the
- * subscription (`once`), even from inside the feed's start.
+ * A watch's run (#318): `feed` watched while the Scope is open (`InputFeed.watchWith`), each event
+ * handled inside its dispatch by a handler `makeHandle` makes for this subscription, with no fiber and
+ * no Stream. Its span lasts as long (`Effect.withSpanScoped`), and its log is at the start, as a
+ * Stream recognizer's were at subscribe. A handler returns whether to go on: `false` stops the
+ * subscription (`once`).
  */
 const watchFeed = <Ev>(
   span: string,
   attributes: Record<string, unknown>,
   feed: InputFeed.InputFeed<Ev>,
   makeHandle: () => (event: Ev) => boolean,
-  handlers: Pick<Handlers<never>, "onDefect" | "onEnd">,
+  handlers: Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd">,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.logDebug(`${span}: watch`).pipe(
-    Effect.andThen(
-      Effect.acquireRelease(
-        Effect.sync(() => {
-          const handle = makeHandle()
-          const done = MutableRef.make(false)
-          const stopFeed = MutableRef.make(constVoid)
-          const finish = (): void => {
-            if (MutableRef.get(done)) return
-            MutableRef.set(done, true)
-            MutableRef.get(stopFeed)()
-          }
-          const stop = feed(
-            guarded((event: Ev) => {
-              if (MutableRef.get(done)) return
-              if (Bool.not(handle(event))) finish()
-            }, handlers.onDefect),
-            () => {
-              if (MutableRef.get(done)) return
-              UndefinedOr.map(handlers.onEnd, (onEnd) => onEnd())
-            },
-          )
-          // Finished while the feed started (a script that ran out at once): stopped now.
-          Bool.match(MutableRef.get(done), { onTrue: stop, onFalse: () => MutableRef.set(stopFeed, stop) })
-          return finish
-        }),
-        (finish) => Effect.sync(finish),
-      ),
-    ),
-    Effect.asVoid,
+    Effect.andThen(InputFeed.watchWith(feed, makeHandle, handlers)),
     Effect.annotateLogs(attributes),
     Effect.withSpanScoped(span, { attributes, captureStackTrace: false }),
   )
@@ -167,7 +105,7 @@ const statesOf =
  * Stream ended when the feed runs out, or after the first value `done` says ends it (`once`).
  */
 const streamOf = <A, R>(
-  watch: (handlers: Handlers<A>) => Effect.Effect<void, never, Scope.Scope | R>,
+  watch: (handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | R>,
   done: (value: A) => boolean = constFalse,
 ): Stream.Stream<A, never, Exclude<R, Scope.Scope>> =>
   Stream.callback<A, never, R>((queue) =>
@@ -272,7 +210,7 @@ export const hoverEvents = (target: unknown): Stream.Stream<Transition, never, I
  * subscription to the target's pointer feed. A throw from `on` goes to `handlers.onDefect`. Tier 2,
  * for bindings.
  */
-export const watchHover = (target: unknown, handlers: Handlers<Transition>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
+export const watchHover = (target: unknown, handlers: InputFeed.Handlers<Transition>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
   Effect.gen(function* () {
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
@@ -361,7 +299,7 @@ export const pressEvents = (target: unknown): Stream.Stream<PressEvent, never, I
  * Watch presses on `target` (#318, ADR-0055): `handlers.on` told each start and end, {@link pressEvents}',
  * inside the pointer event's dispatch, while the Scope is open, as {@link watchHover}. Tier 2.
  */
-export const watchPress = (target: unknown, handlers: Handlers<PressEvent>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
+export const watchPress = (target: unknown, handlers: InputFeed.Handlers<PressEvent>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
   Effect.gen(function* () {
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
@@ -413,7 +351,7 @@ export interface FocusOptions {
 export const watchFocus = (
   target: unknown,
   options: FocusOptions,
-  handlers: Handlers<boolean>,
+  handlers: InputFeed.Handlers<boolean>,
 ): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const visibleOnly = options.visible === true
   return Effect.flatMap(InputSource.InputSource, (input) =>
@@ -486,7 +424,7 @@ export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stre
 export const watchInView = (
   target: unknown,
   options: InViewOptions,
-  handlers: Handlers<ViewTransition>,
+  handlers: InputFeed.Handlers<ViewTransition>,
 ): Effect.Effect<void, never, Scope.Scope | Probe.Probe> =>
   Effect.flatMap(Probe.Probe, (probe) =>
     watchFeed(
@@ -828,102 +766,114 @@ const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
   )
 
 /**
- * Recognize a drag gesture on `target`, emitting a `Drag.Sample` stream, kept to its `axis`.
- *
- * Built like the scalar primitives (`scalar.ts`/`chase.ts`): a `Stream.unwrap`
- * over an `Effect.gen` that resolves `InputSource`, logs subscribe (annotated),
- * and folds the pointer stream with `Stream.mapAccum`. The whole stream runs in
- * a `wardic.drag` span; per-sample folding stays silent (hot path).
+ * Recognize a drag gesture on `target`, emitting a `Drag.Sample` stream, kept to its `axis`: a Stream
+ * over {@link watchDrag} (#379), whose rules it has. Each sample is offered and flushed inside its
+ * pointer event's dispatch (ADR-0032), and the Stream ends when the input does (a test's script).
+ */
+export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<Drag.Sample, never, InputSource.InputSource> =>
+  streamOf<Drag.Sample, InputSource.InputSource>((handlers) => watchDrag(target, options, handlers))
+
+/**
+ * Watch drags on `target` (#379, ADR-0055): `handlers.on` told each of a gesture's samples, kept to its
+ * `axis`, inside its pointer event's dispatch, while the Scope is open. No fiber and no Stream: a
+ * scoped subscription to the target's pointer feed, folded as {@link pan}'s is. Tier 2, for bindings.
  *
  * At its `"start"` the drag reads its axis and takes its target's **Drag claim** on it, which
  * also counts it in the runtime's **Drag activity**, so a hover or press elsewhere can't start
- * while it is on (ADR-0019). Every subscription on one target shares the claim. When another
- * target holds an axis it needs, the gesture is refused: it emits nothing until its end, as a tap
- * emits nothing, and doesn't retry. Of nested draggables the innermost claims first: a pointer's
+ * while it is on (ADR-0019). Every watch on one target shares the claim. When another
+ * target holds an axis it needs, the gesture is refused: it tells nothing until its end, as a tap
+ * tells nothing, and doesn't retry. Of nested draggables the innermost claims first: a pointer's
  * moves reach the targets it went down on innermost first, and each is handled inside its event
- * (ADR-0032). With `claim: false` the drag only counts in the Drag activity. Either is released at
- * the gesture's `"end"`, or when the stream is interrupted mid-gesture (ADR-0019, *Amendment
- * (#29)*). A Stale gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its
- * rule.
+ * (ADR-0032). With `claim: false` the drag only counts in the Drag activity. Either is taken before
+ * `handlers.on` hears the `"start"`, and given back at the gesture's `"end"`, before it hears that,
+ * or when the Scope closes mid-gesture (ADR-0019, *Amendment (#29)*), so a throw from `on` can't keep
+ * it. A Stale gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its rule.
  *
  * Velocity is the pointer's per axis over the gesture's last 100 ms (Motion's `getVelocity`,
  * `Velocity.trailing`), on every sample; the `"end"` sample counts the release point too
  * (ADR-0004, *Amendment (#139)*). It's read from event `timeStamp`s, so the recognizer needs
  * no `Clock` — only `InputSource`.
  */
-export const drag = (
+export const watchDrag = (
   target: unknown,
-  { axis = "xy", claim = true, lock = false }: DragOptions = {},
-): Stream.Stream<Drag.Sample, never, InputSource.InputSource> => {
+  { axis = "xy", claim = true, lock = false }: DragOptions,
+  handlers: InputFeed.Handlers<Drag.Sample>,
+): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   const axisAt = axisAtOf(axis)
-  return Stream.unwrap(
-    Effect.gen(function* () {
-      const input = yield* InputSource.InputSource
-      const activity = yield* DragActivity.DragActivity
-      yield* Effect.logDebug("wardic.drag: subscribe").pipe(Effect.annotateLogs(attributes))
-      // This subscription's gesture: its release (of its claim, or its count) while it holds one,
-      // its axis, and whether it was refused, from its "start" to its "end".
-      const held = MutableRef.make(Option.none<() => void>())
-      const gestureAxis = MutableRef.make<Drag.Axis>("xy")
-      const refused = MutableRef.make(false)
-      const release = (): void =>
-        Option.match(MutableRef.getAndSet(held, Option.none()), { onNone: constVoid, onSome: (releaseIt) => releaseIt() })
+  const fold = Bool.match(lock, { onTrue: () => lockedStep, onFalse: () => step })
+  const on = handlers.on
+  return Effect.gen(function* () {
+    const input = yield* InputSource.InputSource
+    const activity = yield* DragActivity.DragActivity
+    // The context, to log a Stale gesture's end inside its event.
+    const log = Effect.runSyncWith(yield* Effect.context<never>())
+    // This watch's gesture: its release (of its claim, or its count) while it holds one, its axis,
+    // and whether it was refused, from its "start" to its "end".
+    const held = MutableRef.make(Option.none<() => void>())
+    const gestureAxis = MutableRef.make<Drag.Axis>("xy")
+    const refused = MutableRef.make(false)
+    const release = (): void =>
+      Option.match(MutableRef.getAndSet(held, Option.none()), { onNone: constVoid, onSome: (releaseIt) => releaseIt() })
 
-      /**
-       * A gesture's start: its axis read (a direction-locked one's, its lock, if the drag moves on it),
-       * then its claim taken, or refused. Whether it was taken.
-       */
-      const begin = (sample: Drag.Sample): boolean => {
-        release()
-        const taken = Option.flatMap(Bool.match(lock, { onTrue: () => lockedAxis(axisAt(), sample.offset), onFalse: () => Option.some(axisAt()) }), (gesture) => {
-          MutableRef.set(gestureAxis, gesture)
-          return Bool.match(claim, {
-            onTrue: () => activity.claim(target, gesture),
-            onFalse: () => Option.some(activity.count()),
-          })
+    /**
+     * A gesture's start: its axis read (a direction-locked one's, its lock, if the drag moves on it),
+     * then its claim taken, or refused. Whether it was taken.
+     */
+    const begin = (sample: Drag.Sample): boolean => {
+      release()
+      const taken = Option.flatMap(Bool.match(lock, { onTrue: () => lockedAxis(axisAt(), sample.offset), onFalse: () => Option.some(axisAt()) }), (gesture) => {
+        MutableRef.set(gestureAxis, gesture)
+        return Bool.match(claim, {
+          onTrue: () => activity.claim(target, gesture),
+          onFalse: () => Option.some(activity.count()),
         })
-        MutableRef.set(held, taken)
-        MutableRef.set(refused, Option.isNone(taken))
-        return Option.isSome(taken)
-      }
+      })
+      MutableRef.set(held, taken)
+      MutableRef.set(refused, Option.isNone(taken))
+      return Option.isSome(taken)
+    }
 
-      const kept = (sample: Drag.Sample): Result.Result<Drag.Sample, Drag.Sample> =>
-        Result.succeed(keepTo(sample, MutableRef.get(gestureAxis)))
+    /** A gesture's end: its claim given back, a Stale one logged. Whether it's told (a refused one's isn't). */
+    const end = (sample: Drag.Sample): boolean => {
+      if (MutableRef.getAndSet(refused, false)) return false
+      release()
+      Option.match(Option.fromUndefinedOr(staleEnds.get(sample)), {
+        onNone: constVoid,
+        onSome: (rule) => log(Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ ...attributes, rule }))),
+      })
+      return true
+    }
 
-      /** Each sample of a claimed gesture, kept to its axis; nothing of a refused one. */
-      const admit = (sample: Drag.Sample): Effect.Effect<Result.Result<Drag.Sample, Drag.Sample>> =>
-        Match.value(sample.phase).pipe(
-          Match.when("start", () =>
-            Effect.sync(() => Bool.match(begin(sample), { onTrue: () => kept(sample), onFalse: () => Result.fail(sample) }))),
-          Match.when("move", () =>
-            Effect.sync(() =>
-              Bool.match(MutableRef.get(refused), { onTrue: () => Result.fail(sample), onFalse: () => kept(sample) })
-            )),
-          Match.when("end", () =>
-            Bool.match(MutableRef.getAndSet(refused, false), {
-              onTrue: () => Effect.succeed(Result.fail(sample)),
-              onFalse: () =>
-                Effect.sync(release).pipe(
-                  Effect.andThen(
-                    Option.match(Option.fromUndefinedOr(staleEnds.get(sample)), {
-                      onNone: () => Effect.void,
-                      onSome: (rule) => Effect.logDebug("wardic.drag: stale gesture").pipe(Effect.annotateLogs({ rule })),
-                    }),
-                  ),
-                  Effect.andThen(Effect.sync(() => kept(sample))),
-                ),
-            })),
-          Match.exhaustive,
-        )
-
-      return InputFeed.toStream(input.pointer(target)).pipe(
-        Stream.mapAccum(() => initState, Bool.match(lock, { onTrue: () => lockedStep, onFalse: () => step })),
-        Stream.filterMapEffect(admit),
-        Stream.ensuring(Effect.sync(release)),
+    /** Each sample of a claimed gesture, kept to its axis, to `on`; nothing of a refused one. */
+    const admit = (sample: Drag.Sample): void => {
+      const told = Match.value(sample.phase).pipe(
+        Match.when("start", () => begin(sample)),
+        Match.when("move", () => Bool.not(MutableRef.get(refused))),
+        Match.when("end", () => end(sample)),
+        Match.exhaustive,
       )
-    }).pipe(Effect.annotateLogs(attributes)),
-  ).pipe(Stream.withSpan("wardic.drag", { attributes, captureStackTrace: false }))
+      if (told) on(keepTo(sample, MutableRef.get(gestureAxis)))
+    }
+
+    // Added first, so it runs last: after the feed has stopped.
+    yield* Effect.addFinalizer(() => Effect.sync(release))
+    yield* watchFeed(
+      "wardic.drag",
+      attributes,
+      input.pointer(target),
+      () => {
+        const state = MutableRef.make(initState)
+        return (event) => {
+          const [next, samples] = fold(MutableRef.get(state), event)
+          MutableRef.set(state, next)
+          Arr.forEach(samples, admit)
+          return true
+        }
+      },
+      handlers,
+    )
+  })
 }
 
 /**
@@ -981,7 +931,7 @@ export const pan = (target: unknown): Stream.Stream<PanSample, never, InputSourc
  * event's dispatch, while the Scope is open. A started pan's count in the **Drag activity** is held
  * from its `"start"` to its `"end"`, and given back when the Scope closes on one still going. Tier 2.
  */
-export const watchPan = (target: unknown, handlers: Handlers<PanSample>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
+export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   return Effect.gen(function* () {
     const input = yield* InputSource.InputSource

@@ -168,3 +168,83 @@ Two survive, both equivalent through the public API:
 | Solid 2 | 26.12 → 16.74 KB, −35.9% [−36.0% – −35.9%] | 35.42 → 16.74 KB, −52.7% | +0.3% |
 
 `bench:core` isn't run: no per-frame path changed, and its workloads take no input.
+
+## Amendment (#379, 2026-10-25): drag on watches
+
+Decision 2 kept drag's Stream pipeline. #379 measured what that cost, on Solid 2's production build, 1,000 elements:
+- **A free `drag`** kept ~18 KB more per element than a plain ward, and mounted ~34 µs slower (39.8 → 74.2 ms per 1,000). At rest it parked 5 fibers per element: the drag track's own, `Effect.all`'s two (samples and grabs), and `Effect.raceFirst`'s two (the inputs against the release).
+- **A Reorder item** kept ~11.7 KB more than a ward with `drag` and `layout`: `runItemInput`'s fiber and the three loops it forks.
+- `bench:solid`'s new page (ADR-0040, *Amendment (#379)*, PR #380) has a Reorder item keeping 45.8 KB (Solid 1) and 45.0 KB (Solid 2) per element.
+
+### Decisions (grilled 2026-10-25, #379)
+
+1. **Drag moves onto watches** (Q1).
+   - `Recognizer.watchDrag(target, options, handlers)` folds the pointer feed as `watchPan` does. It takes the **Drag claim** (or the count) before `on` hears the `"start"` and gives it back before `on` hears the `"end"`, or when the Scope closes mid-gesture.
+   - The drag track reacts in callbacks, and forks a fiber only while a release runs.
+   - Rejected: optimizing the Stream in place (it still parks fibers at rest); prototyping both first; leaving it.
+2. **Each Reorder item's key, blur and press loops move too** (Q2), in PR 3. The blur keeps its one scheduler hop (PR 2's), forked only when a blur happens.
+   - Rejected: drag only, with the Reorder loops filed separately.
+3. **A `retained-reorder` page in `bench:solid`, landed first** (Q3, PR #380).
+4. **A throw from the drag track's handling is reported, and the track goes on** (Q4), as for every watch. Rejected: ending the gesture (a reset path in core and the track); stopping the track (today's: the element never drags again until it remounts).
+
+### Built: PR 2, drag on watches
+
+- **core, `InputFeed`:**
+  - `watchWith(feed, make, handlers)`: a feed watched while a Scope is open. `make` gives the subscription's handler, which returns whether to go on (a recognizer's `once`).
+  - `watch(feed, handlers)`: the same for a feed a binding doesn't fold.
+  - `Handlers` and `OnDefect` move here from `Recognizer`. The recognizers' watches are `watchWith` with their log and span.
+- **core, `Recognizer`:**
+  - `watchDrag`, with `drag`'s rules: its axis read at each start, the direction lock, a refused gesture telling nothing, velocity, the Stale gesture's log.
+  - `drag` is a Stream over it (`streamOf`), as the other recognizers are.
+- **core, `Drag.within(sample, bounds, options)`:** one sample kept within bounds. `Drag.withinBounds` is its Stream form.
+- **solid, the drag track** (`drag-track.ts`, both bindings):
+  - **Where it runs:** in the element's watch Scope, given by `watch` (Solid 1: `runWatch`; Solid 2: the mount's Scope, made at its first watch). At rest it holds two watches (samples, then grabs, in that order) and an empty `FiberHandle`, with no fiber.
+  - **Each response** (a sample's, a grab's, a press end's) is an Effect, run by `fork` on the provider runtime. Its fiber starts at once and runs to its end inside the event. Stopping a running release interrupts a parked fiber, which Effect does in the caller's stack (`FiberImpl.interruptUnsafe` → `evaluate`).
+  - **Not `runSync`:** a release forked from a response inherits that response's scheduler. A `runSync`'s is a sync one, which resumes a fork's yields on a microtask, where the runtime's (or a host's, such as Foldkit's) is the one a fork should keep (ADR-0027 decision 6; ADR-0041 *Amendment (#208)*'s runner drops a sync one for the same reason). A release doesn't yield today: Effect resumes it from the Frame loop's callback by evaluating it directly. So the two run the same now, and the mutation that swaps them survives (below).
+  - **A response that fails** is reported (`wardic.drag: a response failed`), and the next event's runs (Q4). A release reports its own (#66).
+  - **The container's resize watch** is forked by `fork` too, for the same reason.
+- **solid, `createDrag`** (both bindings) runs on `watchDrag` (`watchDragSamples`), its samples kept within `bounds` by `Drag.within`. Solid 2's Stream sensor (`sensorOf`) is gone: every sensor is a watch.
+- **Solid 2's ward** has one lazy watch Scope per mount, shared by its gesture watches and its drag track. Its per-mount fiber list is gone.
+
+### Tests (PR 2)
+
+- **`packages/core/test/input-feed.test.ts`:**
+  - IF7: `watch` hears each event inside the emit; a throw goes to `onDefect` and it goes on; with none, the throw goes up the emit; the close stops the feed.
+  - IF8: `watchWith`: a handler's `false` stops the feed, even from inside its start; `onEnd` told once.
+- **`packages/core/test/drag-bounds.test.ts`, DB6:** `within`, elastic past an edge, delta and velocity left; `withinBounds` maps it.
+- **`packages/test/test/watches.test.ts`:**
+  - WT9: `watchDrag` tells a gesture inside the push, kept to its axis, with its claim held from before the start to before the end;
+  - WT10: a throw from `on` at the start keeps no claim, and the next gesture is told;
+  - WT11: the close gives the claim back mid-gesture;
+  - WT12: a refused gesture tells nothing; `claim: false` only counts.
+- **`packages/solid/test/drag-watch.browser.test.tsx`, DW1:** a response that fails is logged and reported once; the gesture's next move drags, and so does the next gesture.
+- **WC2, both bindings:** a draggable ward unmounted mid-press removes every listener its drag track added, the held pointer's page-wide ones too. `test/listener-counts.ts` now also wraps the test page's window, whose `addEventListener` isn't `EventTarget.prototype`'s.
+- **Unchanged in what they assert:** every drag, Reorder, sensor and gesture suite in both bindings, `drag-hops` (a browser's own scheduler) included, and the Node drag suites over scripted input.
+
+**Mutation-checked** with 15 single-point mutations (`.tmp/379/mutate-pr2.py`). 12 were killed:
+- in core:
+  - `watchDrag`'s claim kept at the close or at the end;
+  - a refused gesture's moves told;
+  - samples not kept to the axis;
+  - `watchWith`'s throw unguarded, its `false` ignored, its close keeping the feed;
+  - `within` ignoring `elastic`;
+- in the bindings:
+  - a failed response unreported;
+  - the grabs subscribed before the samples (H7, `drag-hops`: rule B on an input with no page-wide feed);
+  - Solid 2's watch Scope never closed;
+  - `createDrag`'s bounds ignored.
+
+Three survive, equivalent through today's code:
+- Solid 1's and Solid 2's responses on `runSync` in place of `fork`: a release never yields, so which scheduler it inherits doesn't show;
+- the track's watches given no `onDefect`: only a bug in core's fold could throw there, and every response catches its own.
+
+**Cost (PR 2):** `bench:solid` against main (355f631) gated, exit 0, with its control at +0.9%. No timed task moved beyond noise:
+
+| | reorder item, kept per element | hover + press | bytes |
+|---|---|---|---|
+| Solid 1 | 45.78 → 35.35 KB, −22.8% [−22.8% – −22.8%] | +0.1% | +0.4% |
+| Solid 2 | 45.00 → 34.52 KB, −23.3% [−23.3% – −23.3%] | −0.3% | −0.5% |
+
+Measured by the probes (Solid 2's production build, 1,000 elements), a free `drag` now keeps ~7.2 KB more than a plain ward, from ~18 KB. That's above Q1's 4–5 KB estimate: the rest is the drag track's own closures and their contexts, with no fiber or continuation left. Its extra mount cost is ~18 µs per element, from ~34 (56.4 against 74.2 ms per 1,000; plain 38.5).
+
+`bench:core` isn't run: no per-frame path changed (a release's frames are the same Machine runs).

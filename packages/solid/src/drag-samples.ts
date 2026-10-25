@@ -1,13 +1,15 @@
 /**
- * A `createDrag` sensor's samples (ADR-0019), Solid-free (#209): the core `drag` recognizer shaped by
- * the sensor's options, for both bindings' `createDrag`.
+ * A `createDrag` sensor's samples (ADR-0019), Solid-free (#209): the core drag watch shaped by the
+ * sensor's options, for both bindings' `createDrag` (#379).
  *
  * @module
  */
 import * as Drag from "@wardic/core/Drag"
+import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
-import type * as Stream from "effect/Stream"
+import type * as Effect from "effect/Effect"
+import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 /** The axis, claim and bounds options for {@link createDrag}. */
@@ -26,18 +28,22 @@ export interface CreateDragOptions {
 }
 
 /**
- * A drag's samples: the core `drag` recognizer on `target` with `options`' axis and claim, then `withinBounds`
- * when `bounds` is present (the off-axis is zeroed before clamping), keeping the requirement
- * set (`InputSource`) untouched.
+ * Watch a drag's samples (#379): the core drag watch on `target` with `options`' axis and claim, each
+ * sample kept within `bounds` when present (`Drag.within`, the off-axis zeroed before clamping), told
+ * to `handlers.on` inside its pointer event, for both bindings' `createDrag`.
  */
-export const dragSamples = (target: unknown, options: CreateDragOptions = {}): Stream.Stream<Drag.Sample, never, InputSource.InputSource> => {
+export const watchDragSamples = (
+  target: unknown,
+  options: CreateDragOptions,
+  handlers: InputFeed.Handlers<Drag.Sample>,
+): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const { axis = "xy", claim = true } = options
-  const recognized = Recognizer.drag(target, { axis, claim })
-  return UndefinedOr.match(options.bounds, {
-    onUndefined: () => recognized,
-    onDefined: (bounds) =>
-      recognized.pipe(
-        Drag.withinBounds(bounds, UndefinedOr.map(options.elastic, (elastic) => ({ elastic }))),
-      ),
+  const on = UndefinedOr.match(options.bounds, {
+    onUndefined: () => handlers.on,
+    onDefined: (bounds) => {
+      const kept = Drag.within(bounds, UndefinedOr.map(options.elastic, (elastic) => ({ elastic })))
+      return (sample: Drag.Sample) => handlers.on(kept(sample))
+    },
   })
+  return Recognizer.watchDrag(target, { axis, claim }, { ...handlers, on })
 }

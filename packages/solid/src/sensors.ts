@@ -2,10 +2,10 @@
  * Low-level sensor hooks (`createX`) — the thin Solid surface over core's
  * recognizers and reactive service inputs (ADR-0006).
  *
- * Each boolean/sample sensor wraps the matching core recognizer `Stream` with
- * {@link streamToSignal}, so it inherits the recognizer's `wardic.*` span and
- * the per-element fiber lifecycle (interrupted on the consuming component's
- * unmount, dropping the Shared-source ref-count). `createReducedMotion` bridges
+ * Each boolean/sample sensor runs the matching core watch with `watchToSignal`
+ * (#318, #379): the recognizer's `wardic.*` span, and a Scope of its own with no
+ * fiber, closed on the consuming component's unmount (dropping the shared feed's
+ * count). `createReducedMotion` bridges
  * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}. `createTransform` moved to
  * `live-value.ts`, with `createSpring` (#130).
  *
@@ -20,8 +20,8 @@ import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
-import { fromAtom, streamToSignal, watchToSignal } from "./bridge.ts"
-import { type CreateDragOptions, dragSamples } from "./drag-samples.ts"
+import { fromAtom, watchToSignal } from "./bridge.ts"
+import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
@@ -141,13 +141,13 @@ export const createInView = (
 
 /**
  * Latest `Drag.Sample` from a drag gesture on `target`, or `null` before the first sample.
- * Wraps the core `drag` recognizer with `options`' axis and claim, then `withinBounds` when
- * present. Like the element's own drag, it holds `target`'s **Drag claim** while a gesture
+ * Runs the core drag watch (#379) with `options`' axis and claim, each sample kept within
+ * `bounds` when present. Like the element's own drag, it holds `target`'s **Drag claim** while a gesture
  * is on, which it shares with every other drag on `target`; refused one, it gets no samples
  * for that gesture.
  */
 export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> =>
-  streamToSignal<Drag.Sample | null>(dragSamples(target, options), null)
+  watchToSignal<Drag.Sample | null>((handlers) => watchDragSamples(target, { ...options }, handlers), null)
 
 /**
  * Reactive `prefers-reduced-motion` preference as a boolean `Accessor`. Resolves
