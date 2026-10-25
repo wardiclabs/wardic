@@ -38,7 +38,7 @@ Measured by layer (`.tmp/318/zz-mem318.browser.test.tsx`):
      - a hub, one fiber per runtime running every element's fold (0.63 KB, with queued per-event Effects);
      - slimming the Stream shell alone (−2.6 KB);
      - leaving it.
-2. **Every recognizer but drag** (Q2): hover, press, focus, in view and pan, in both bindings. Drag keeps its Stream pipeline (claims, ADR-0019; axis lock; velocity; release) and gets a follow-up issue.
+2. **Every recognizer but drag** (Q2): hover, press, focus, in view and pan, in both bindings. Drag keeps its Stream pipeline (claims, ADR-0019; axis lock; velocity; release) and gets a follow-up issue, #379.
    - Rejected: drag too; hover and press only.
 3. **Environments provide Input feeds, and core builds the Streams** (Q3; CONTEXT.md's **Input feed**, and **Shared source** updated).
    - `InputSource`'s pointer, keyboard and focus, and `Probe.observeIntersection`, are feeds.
