@@ -200,6 +200,24 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     interact: ['drag:.wish[data-id="moon-vase"]:0:130'],
     watch: '.wish[data-id="tulip-bowl"]',
   },
+  {
+    id: "before-hydration",
+    area: "server",
+    title: "A banner that arrives before the JavaScript",
+    summary: "The season's banner plays its entrance from the first paint, whether the JavaScript is late or never comes.",
+    why: [
+      "A server-rendered page is on screen before its JavaScript has loaded. An entrance that waits for the JavaScript waits on the network: the banner sits blank, then starts late, or never with the JavaScript off. Wardic writes each element's entrance into the page as a CSS animation, sampled from the same spring or tween the browser would run, so the banner moves from the first paint, from the HTML and its stylesheet alone.",
+      "When the JavaScript arrives, Wardic takes each element over from where its CSS has drawn it, by the time that has passed, and carries on with the same spring: no jump, mid-flight or after the end. With no JavaScript, the CSS plays to the end and holds. There's nothing to turn on: every `initial` and `animate` on a server-rendered page gets one, variants and their stagger included.",
+      "Try it with the links under the banner. \"Hydrate 2 s late\" holds the JavaScript back, as a slow network would, and \"Don't hydrate\" never runs it, as with the JavaScript off. The line above them says when the JavaScript took over.",
+    ],
+    reducedMotion: "The photo and lines still fade in one after another, but nothing rises or settles. Before the JavaScript, the page's CSS follows your system's reduced-motion setting; the header's switch counts once the JavaScript has run.",
+    uses: ["initial", "animate", "variants", "staggerChildren", "server-rendered CSS"],
+    motion: {
+      file: "before-hydration.tsx",
+      note: "The code is the same; what the server sends isn't. Motion renders `initial` and waits for React: until the JavaScript has loaded and hydrated, the banner is at `opacity: 0`, and with the JavaScript off it stays that way. Motion's nearest is its optimised appear animations (`startOptimizedAppearAnimation`), which need an inline script of your own to start them, and do nothing without JavaScript.",
+    },
+    watch: ".season-copy h2",
+  },
 ]
 
 /** The examples of an area, in the registry's order. */
