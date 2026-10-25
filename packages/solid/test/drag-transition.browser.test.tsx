@@ -1,7 +1,8 @@
 // A drag's release on its drag transition (#140, ADR-0016 *Amendment (#140)*), Motion's: an
 // inertia on each axis the gesture moved, from the release's velocity, toward the drag's edges. With
 // real Playwright mouse input, timed by the frames' own timestamps; DT10–DT13's clicks are dispatched
-// on the box itself (#332).
+// on the box itself (#332). A test that needs the release to glide lets go with its flick's last move
+// (`fling`, #369).
 //
 // - DT1: a free flick glides on Motion's curve: its steps shrink by e^(−t / 0.75 s), and it's still
 //   on its way at 1.5 s. Before #140 a Fling was a decay that stopped in about 1.7 s, a third as far.
@@ -112,6 +113,35 @@ const flick = async (b: Box, slow: number, step: number, from = 0): Promise<Pt> 
   return add(g, slow + 4 * step, 0)
 }
 
+/** A {@link fling}'s release: where the pointer lets go, and where the box is then. */
+interface Fling {
+  readonly pointer: Pt
+  readonly released: number
+}
+
+/**
+ * A flick that lets go with its last move (#369): grab the box (`from` px right of its slot), glide
+ * `slow` px right, make 3 moves of `step` px 35 ms apart, and leave the 4th to `mouse.up`, which moves
+ * there and lets go in one command.
+ *
+ * A release's velocity is its last 100 ms's. Let go a command after the last move, as `flick`'s are,
+ * the up lagged it by 14–71 ms in the full browser suite, and past 100 ms it lets go with none: no
+ * glide. Here the up follows a real step within one round trip, whatever the load.
+ *
+ * Returns where the up lets go, and where the box is then: a step on from where it is, 1:1 (a free
+ * drag, or one inside its constraints).
+ */
+const fling = async (b: Box, slow: number, step: number, from = 0): Promise<Fling> => {
+  const g = grabOf(b, from)
+  await mouse.down(g)
+  await glide(g, add(g, slow, 0), 10, 20)
+  for (let k = 1; k <= 3; k++) {
+    await mouse.move(add(g, slow + step * k, 0))
+    await wait(35)
+  }
+  return { pointer: add(g, slow + 4 * step, 0), released: dxOf(b) + step }
+}
+
 /** Grab the box (`from` px right of its slot), glide `by` px right, and pause, so it lets go with no velocity. */
 const dragSlowly = async (b: Box, by: number, from = 0): Promise<Pt> => {
   const g = grabOf(b, from)
@@ -136,8 +166,7 @@ const at = (frames: ReadonlyArray<{ readonly frameAt: number; readonly v: number
 describe("a drag's release runs on its drag transition (#140)", () => {
   it("DT1: a free flick glides on Motion's curve, easing out over 0.75 s, still on its way at 1.5 s", async () => {
     const b = await mountBox()
-    const pointer = await flick(b, 100, 50)
-    const released = dxOf(b)
+    const { pointer, released } = await fling(b, 100, 50)
     const frames = await releaseAndSample(b, pointer, 1700)
     const first = frames.findIndex((f) => f.v > released + 0.5)
     expect(first, "it carries on").toBeGreaterThan(-1)
@@ -202,8 +231,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
 
     // A 100 ms time constant: it glides on and rests within about 0.7 s (at 100 s it'd barely move).
     const quick = await mountBox({ dragTransition: { timeConstant: 100 } })
-    const p2 = await flick(quick, 100, 50)
-    const r2 = dxOf(quick)
+    const { pointer: p2, released: r2 } = await fling(quick, 100, 50)
     const frames = await releaseAndSample(quick, p2, 1300)
     const start = frames.find((f) => f.v > r2 + 0.5)!.frameAt
     expect(at(frames, start, 900) - r2, "it glided on, px").toBeGreaterThan(30)
@@ -212,7 +240,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
 
     // modifyTarget: a 100 px grid, so it rests on a multiple of 100.
     const grid = await mountBox({ dragTransition: { timeConstant: 100, modifyTarget: (ideal) => Math.round(ideal / 100) * 100 } })
-    const p3 = await flick(grid, 100, 50)
+    const { pointer: p3 } = await fling(grid, 100, 50)
     await releaseAndSample(grid, p3, 1300)
     const rest = dxOf(grid)
     expect(rest, "glided on to the grid").toBeGreaterThan(150)
@@ -241,8 +269,7 @@ describe("a drag's release runs on its drag transition (#140)", () => {
 describe("an x drag's release (#140)", () => {
   it("DT9: runs on x alone: x glides on from its velocity to its edge, and y, outside its own bounds, is never moved", async () => {
     const b = await mountBox({ axis: "x", constraints: { left: 0, right: 300, top: 50, bottom: 100 } })
-    const pointer = await flick(b, 100, 25)
-    const released = dxOf(b)
+    const { pointer, released } = await fling(b, 100, 25)
     expect(released, "let go inside its edges").toBeLessThan(250)
     expect(dyOf(b), "y held where it was").toBeCloseTo(0, 2)
     const frames = await releaseAndSample(b, pointer, 1500)
@@ -326,7 +353,7 @@ describe("a release a click catches goes on (#279)", () => {
   it("DT12: a glide with no snap and no constraints, caught by a click, stays caught and tells nothing", async () => {
     let ends = 0
     const b = await mountBox({ onDragTransitionEnd: () => ends++ })
-    const pointer = await flick(b, 60, 40)
+    const { pointer } = await fling(b, 60, 40)
     await mouse.up(pointer)
     await wait(80)
     click(b)
