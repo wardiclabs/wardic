@@ -107,6 +107,30 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/presence/gallery";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/gallery")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/presence/quick-view";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/quick-view")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/presence/saved";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/saved")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/presence/toasts";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/toasts")>;
+      $$route?: undefined;
+    },
+    {
       path: "/server/before-hydration";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/server/before-hydration")>;
@@ -138,6 +162,30 @@ declare module "virtual:file-routes" {
       id: "/layout/browse";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/browse")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/presence/saved";
+      id: "/presence/saved";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/saved")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/presence/toasts";
+      id: "/presence/toasts";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/toasts")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/presence/gallery";
+      id: "/presence/gallery";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/gallery")>;
       $$route?: undefined;
       children?: undefined;
     },
@@ -178,6 +226,14 @@ declare module "virtual:file-routes" {
       id: "/layout/product-tabs";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-tabs")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/presence/quick-view";
+      id: "/presence/quick-view";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/presence/quick-view")>;
       $$route?: undefined;
       children?: undefined;
     },
