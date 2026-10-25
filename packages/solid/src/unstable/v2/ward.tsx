@@ -45,6 +45,7 @@
  * @module
  */
 import type * as Drag from "@wardic/core/Drag"
+import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/dom/Report"
 import * as Renderer from "@wardic/core/Renderer"
@@ -419,8 +420,11 @@ export interface WardInternals {
   readonly lifted?: Accessor<boolean> | undefined
   /** A `<Reorder>` item's base style (its `touch-action`), under the user's style, over the drag defaults. */
   readonly baseStyle?: (() => object | undefined) | undefined
-  /** Told the element at mount; what it returns is called at unmount. */
-  readonly onMount?: ((element: HTMLElement) => () => void) | undefined
+  /**
+   * Told the element at mount, and how to run a watch in its watch Scope (#379), with the ward's
+   * `onDefect`: closed at the unmount. What it returns is called at unmount.
+   */
+  readonly onMount?: ((element: HTMLElement, watch: (make: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>) => void) => () => void) | undefined
   /** Values fixed over the config's, read as its own are: a `<Reorder>` item's `layout`, its Layout mode. */
   readonly fixed?: Fixed<WardConfigValues> | undefined
   /** A `<Reorder>` item's group, which `Reorder.Item` checks a given item against (#349). */
@@ -1085,7 +1089,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       },
     }
     startRecognizers(m)
-    const mountedHook = UndefinedOr.map(internal.onMount, (onMount) => onMount(el))
+    const mountedHook = UndefinedOr.map(internal.onMount, (onMount) => onMount(el, (make) => watchIn(make(onDefect))))
     return m
   }
 

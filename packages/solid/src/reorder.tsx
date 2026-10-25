@@ -25,8 +25,6 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
-import * as InputFeed from "@wardic/core/InputFeed"
-import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -42,7 +40,6 @@ import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import {
   type Accessor,
@@ -61,7 +58,8 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { runScoped, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { runWatch, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { watchItemInput } from "./reorder-input.ts"
 import type { WardicRuntime } from "./runtime.ts"
 import { runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig } from "./config.ts"
@@ -242,42 +240,17 @@ type ItemGroup<V> = {
   readonly instructions: Accessor<string>
 }
 
-/**
- * Feed an item's keys, blurs and presses to its driver (ADR-0037), for as long as the owner lives:
- * its keys inside their dispatch, so the reorder's `handle()` (the page's `preventDefault`) counts.
- */
-const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderController.ItemDriver): void => {
-  runScoped(
-    runtime,
-    Effect.gen(function* () {
-      const input = yield* InputSource.InputSource
-      yield* Effect.all(
-        [
-          Stream.runForEach(InputFeed.toStream(input.keyboard(el)), (event) => Effect.sync(() => driver.onKey(event))),
-          // A blur is judged after this task's own work, one scheduler hop on (#318): a reorder can blur the node it
-          // moves and puts focus back after (the driver's `keepFocus`). The focus feed hears it inside the move; its
-          // old Stream (`fromEventListener`) resumed this consumer a hop later, which this keeps.
-          Stream.runForEach(Stream.filter(InputFeed.toStream(input.focus(el)), (event) => event.type === "blur"), () => Effect.andThen(Effect.yieldNow, Effect.sync(driver.onBlur))),
-          Stream.runForEach(
-            Stream.filter(InputFeed.toStream(input.pointer(el)), (event) => Bool.and(event.type === "down", InputSource.isPrimaryPointer(event))),
-            () => Effect.sync(driver.onPress),
-          ),
-        ],
-        { concurrency: "unbounded", discard: true },
-      )
-    }),
-  )
-}
-
 const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime): SpineInternals => {
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
   const [lifted, setLifted] = createSignal(false)
   const driver = group.controller.item(value, () => Option.fromUndefinedOr(element()), setLifted)
   // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture (and a lift).
   onCleanup(driver.dispose)
+  // Its keys, blurs and presses (ADR-0037), watched in a Scope of their own for as long as the element
+  // is this one, with no fiber at rest (#379).
   createEffect(
     on(element, (el) => {
-      if (Predicate.isNotUndefined(el)) runItemInput(runtime, el, driver)
+      if (Predicate.isNotUndefined(el)) runWatch(runtime, (onDefect) => watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect))
     }),
   )
   return {

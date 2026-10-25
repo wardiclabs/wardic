@@ -4,8 +4,12 @@
 // - WC1: every listener the watches add to the element is removed at the unmount.
 // - WC2 (#379): a draggable ward unmounted mid-press removes every listener its drag track added, on
 //   the element and, for the held pointer, on the window.
+// - WC3 (#379): a Reorder item's keys, blurs and presses, and its drag, are watches: every listener
+//   added to an item is removed at the unmount.
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { Reorder, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import * as Arr from "effect/Array"
+import { For } from "solid-js"
 import { expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
 import { countListeners } from "../listener-counts.ts"
@@ -51,6 +55,28 @@ it("WC2: a draggable ward unmounted mid-press removes every listener its drag tr
     unmount()
     expect(counts.removed(target), "every one removed from the element").toBe(counts.added(target))
     expect(counts.removed(window) - windowRemoved, "and the page-wide ones").toBeGreaterThanOrEqual(held)
+  } finally {
+    counts.stop()
+  }
+})
+
+it("WC3: every listener a Reorder item's input and drag add to it is removed at the unmount", async () => {
+  const counts = countListeners()
+  try {
+    const items = ["a", "b", "c"]
+    const els: Array<HTMLElement> = []
+    const { unmount } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Reorder.Group values={items} onReorder={() => undefined}>
+          <For each={items}>{(item) => <Reorder.Item value={item} ref={(n: HTMLElement) => els.push(n)} />}</For>
+        </Reorder.Group>
+      </WardicProvider>
+    ))
+    for (let i = 0; i < 3; i++) await raf()
+    expect(els).toHaveLength(3)
+    Arr.forEach(els, (el) => expect(counts.added(el), "its input and drag listen on it").toBeGreaterThan(0))
+    unmount()
+    Arr.forEach(els, (el) => expect(counts.removed(el), "every one removed at the unmount").toBe(counts.added(el)))
   } finally {
     counts.stop()
   }

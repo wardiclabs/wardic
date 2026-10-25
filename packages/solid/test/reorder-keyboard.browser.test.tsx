@@ -9,8 +9,8 @@
 // - KB3: the keys it uses don't scroll the page; not lifted, the arrows keep scrolling it.
 // - KB4: a key the app took (its own `preventDefault`) is left alone, and so is one from inside the
 //   item (a text field).
-// - KB5: an interruption drops the item where it is: focus leaving it, a press on it, the app
-//   changing `values`.
+// - KB5: an interruption drops the item where it is: focus leaving it, a press on it (the Primary
+//   pointer's: a right button's leaves it lifted, #379), the app changing `values`.
 // - KB6: `keyboard={false}`: no tab stop, no instructions, keys do nothing; `move()` still announces.
 // - KB7: items are tab stops with the instructions in `aria-describedby`, after the app's own ids;
 //   an app's `tabIndex` wins; a group's own wording and instructions replace the defaults.
@@ -239,10 +239,16 @@ it("KB5: focus leaving the item, a press on it, or the app changing values drops
   expect(announced()).toBe("Dropped b at position 3 of 5.")
   expect(m.values()).toEqual(["a", "c", "b", "d", "e"])
 
-  // A press on the lifted item.
+  // A press on the lifted item. A right button's down isn't the Primary pointer's: it drops nothing (#379).
   b.focus()
   await commands.realKey("press", "Space")
   await frames(2)
+  const lifted = announced()
+  const right = { button: 2, buttons: 2, pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true }
+  b.dispatchEvent(new PointerEvent("pointerdown", right))
+  b.dispatchEvent(new PointerEvent("pointerup", { ...right, buttons: 0 }))
+  await frames(2)
+  expect(announced(), "a right button's press leaves it lifted").toBe(lifted)
   const box = b.getBoundingClientRect()
   await commands.realMouse("down", box.left + 20, box.top + 20)
   await frames(3)

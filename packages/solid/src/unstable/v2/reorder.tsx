@@ -37,8 +37,6 @@
  *
  * @module
  */
-import * as InputFeed from "@wardic/core/InputFeed"
-import * as InputSource from "@wardic/core/InputSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -48,18 +46,17 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
 import { constUndefined, identity, pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { dynamic, isServer, type JSX } from "@solidjs/web"
 import { type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
-import { reported, type WardicRuntime } from "../../runtime.ts"
+import type { WardicRuntime } from "../../runtime.ts"
+import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
@@ -391,37 +388,6 @@ const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<Cor
 )
 
 /**
- * Feed an item's keys, blurs and presses to its driver (ADR-0037) until the returned stop: its keys
- * inside their dispatch, so the reorder's `handle()` (the page's `preventDefault`) counts.
- */
-const runItemInput = (runtime: WardicRuntime, el: HTMLElement, driver: ReorderController.ItemDriver): (() => void) => {
-  const fiber = runtime.runFork(
-    reported(
-      Effect.gen(function* () {
-        const input = yield* InputSource.InputSource
-        yield* Effect.all(
-          [
-            Stream.runForEach(InputFeed.toStream(input.keyboard(el)), (event) => Effect.sync(() => driver.onKey(event))),
-            // A blur is judged after this task's own work, one scheduler hop on (#318): a reorder can blur the node it
-            // moves and puts focus back after (the driver's `keepFocus`). The focus feed hears it inside the move; its
-            // old Stream (`fromEventListener`) resumed this consumer a hop later, which this keeps.
-            Stream.runForEach(Stream.filter(InputFeed.toStream(input.focus(el)), (event) => event.type === "blur"), () => Effect.andThen(Effect.yieldNow, Effect.sync(driver.onBlur))),
-            Stream.runForEach(
-              Stream.filter(InputFeed.toStream(input.pointer(el)), (event) => Bool.and(event.type === "down", InputSource.isPrimaryPointer(event))),
-              () => Effect.sync(driver.onPress),
-            ),
-          ],
-          { concurrency: "unbounded", discard: true },
-        )
-      }),
-    ),
-  )
-  return () => {
-    runtime.runFork(Fiber.interrupt(fiber))
-  }
-}
-
-/**
  * What an item adds to its spread for the keyboard reorder (ADR-0037): `tabindex="0"` while the
  * group's keyboard is on and the app gave no `tabindex`, and `aria-describedby` with the group's
  * instructions (`describedBy`, set on the client) after the app's own ids.
@@ -521,12 +487,12 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
     raiseWhileDragged: true,
     lifted,
     baseStyle: touchAction,
-    onMount: (el) => {
+    onMount: (el, watch) => {
       element = el
       setDocument(DomAnnouncer.documentOf(el))
-      const stopInput = runItemInput(runtime, el, driver)
+      // Its keys, blurs and presses (ADR-0037), watched in the ward's watch Scope, with no fiber at rest (#379).
+      watch((onDefect) => watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect))
       return () => {
-        stopInput()
         element = undefined
       }
     },
