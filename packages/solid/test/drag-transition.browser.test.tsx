@@ -1,6 +1,7 @@
 // A drag's release on its drag transition (#140, ADR-0016 *Amendment (#140)*), Motion's: an
 // inertia on each axis the gesture moved, from the release's velocity, toward the drag's edges. With
-// real Playwright mouse input, timed by the frames' own timestamps.
+// real Playwright mouse input, timed by the frames' own timestamps; DT10–DT13's clicks are dispatched
+// on the box itself (#332).
 //
 // - DT1: a free flick glides on Motion's curve: its steps shrink by e^(−t / 0.75 s), and it's still
 //   on its way at 1.5 s. Before #140 a Fling was a decay that stopped in about 1.7 s, a third as far.
@@ -284,12 +285,16 @@ describe("a <Reorder.Item>'s release runs on its drag transition (#140)", () => 
 })
 
 describe("a release a click catches goes on (#279)", () => {
-  /** A click (down and up, no move) on the box where it paints now. */
-  const click = async (b: Box): Promise<void> => {
+  /**
+   * A click (down and up, no move) on the box, at its centre where it paints now, dispatched on it
+   * (#332). Playwright's mouse presses through a round trip, while a gliding box moves on: 80 ms into
+   * DT12's glide it covers 40 px and more in one, so a press aimed at it landed behind it most runs.
+   */
+  const click = (b: Box): void => {
     const r = b.el.getBoundingClientRect()
-    const p = { x: r.left + 20, y: r.top + 40 }
-    await mouse.down(p)
-    await mouse.up(p)
+    const at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true }
+    b.el.dispatchEvent(new PointerEvent("pointerdown", { ...at, buttons: 1 }))
+    b.el.dispatchEvent(new PointerEvent("pointerup", { ...at, buttons: 0 }))
   }
 
   it("DT10: a snap back a click catches mid-flight goes on from rest, home, and tells onDragTransitionEnd once", async () => {
@@ -300,7 +305,7 @@ describe("a release a click catches goes on (#279)", () => {
     await wait(60)
     const caught = dxOf(b)
     expect(caught, "still on its way").toBeGreaterThan(20)
-    await click(b)
+    click(b)
     await wait(1200)
     expect(Math.abs(dxOf(b)), "home").toBeLessThan(0.5)
     await wait(100)
@@ -313,7 +318,7 @@ describe("a release a click catches goes on (#279)", () => {
     await mouse.up(pointer)
     await wait(60)
     expect(dxOf(b), "still past the edge").toBeGreaterThan(55)
-    await click(b)
+    click(b)
     await wait(1200)
     expect(Math.abs(dxOf(b) - 50), "on the edge").toBeLessThan(0.5)
   })
@@ -324,7 +329,9 @@ describe("a release a click catches goes on (#279)", () => {
     const pointer = await flick(b, 60, 40)
     await mouse.up(pointer)
     await wait(80)
-    await click(b)
+    click(b)
+    // Read once the press has reached the glide's frames.
+    await wait(50)
     const caught = dxOf(b)
     await wait(600)
     expect(Math.abs(dxOf(b) - caught), "where the click caught it").toBeLessThan(1)
@@ -334,7 +341,7 @@ describe("a release a click catches goes on (#279)", () => {
   it("DT13: a click at rest on a constrained element tells nothing, before a drag or after its release rests", async () => {
     let ends = 0
     const b = await mountBox({ constraints: { left: 0, right: 50 }, onDragTransitionEnd: () => ends++ })
-    await click(b)
+    click(b)
     await wait(300)
     expect(ends).toBe(0)
     expect(dxOf(b)).toBe(0)
@@ -343,7 +350,7 @@ describe("a release a click catches goes on (#279)", () => {
     await mouse.up(pointer)
     await wait(200)
     expect(ends, "the drag's release").toBe(1)
-    await click(b)
+    click(b)
     await wait(300)
     expect(ends, "and nothing for the click after").toBe(1)
   })
