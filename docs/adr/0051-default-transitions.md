@@ -31,6 +31,7 @@ Split from #344 (ADR-0050, Q4), as #357.
    - Rejected: Motion's rule with springs that repeat (new in core); Motion's rule with a spring default that runs once.
 7. **Two follow-ups filed** (Q7): #359, Motion's duration-based springs (`bounce`, `visualDuration`, `duration` on a spring); #360, Motion's `ease` field and its names.
 8. **The examples take Motion's look** (Q8). The storefront and the README keep their animations without a transition, so they show the new defaults; a transition is pinned only where the new default reads wrong, with a comment. Tests about something else get explicit transitions, so their frame counts don't depend on the default.
+   - The one pinned: the storefront FAQ's chevron (both apps). A rotate's 500 / 25 swung it to about 200° before it settled at 180°; it now flips on `{ duration: 0.2 }`, a tween eased out by Q4, and starts at its target with `initial={false}`, so the answer open on page load doesn't turn its chevron then (the user, on #362).
 
 Defaults, stated:
 - Both Solid bindings, as `retarget-legs.ts` is theirs.
