@@ -86,12 +86,12 @@ const MOTION = import.meta.glob<string>("../../../shared/motion/*.tsx", { query:
 export async function highlightedMotion(file: string) {
   const source = MOTION[`../../../shared/motion/${file}`]
   if (source === undefined) throw new Error(`No Motion snippet "${file}"`)
-  return codeToHtml(source, { lang: "tsx", themes: { light: "github-light", dark: "github-dark" }, defaultColor: false })
+  return codeToHtml(source, { lang: "tsx", themes: { light: "catppuccin-latte", dark: "nord" }, defaultColor: false })
 }
 
 /** An example's demo, highlighted for both themes: HTML the code panel shows as it is. */
 export async function highlightedSource(exampleId: string) {
   const source = SOURCES[`../examples/${exampleId}/Demo.tsx`]
   if (source === undefined) throw new Error(`No demo for "${exampleId}"`)
-  return codeToHtml(source, { lang: "tsx", themes: { light: "github-light", dark: "github-dark" }, defaultColor: false })
+  return codeToHtml(source, { lang: "tsx", themes: { light: "catppuccin-latte", dark: "nord" }, defaultColor: false })
 }

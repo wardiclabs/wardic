@@ -16,7 +16,7 @@ const MOTION = import.meta.glob<string>("../../../shared/motion/*.tsx", { query:
 export async function motionFile(file: string) {
   const source = MOTION[`../../../shared/motion/${file}`]
   if (source === undefined) throw new Error(`No Motion snippet "${file}"`)
-  const html = await codeToHtml(source, { lang: "tsx", themes: { light: "github-light", dark: "github-dark" }, defaultColor: false })
+  const html = await codeToHtml(source, { lang: "tsx", themes: { light: "catppuccin-latte", dark: "nord" }, defaultColor: false })
   return () => (
     <div class="code-file">
       <header>Motion (React): {file}</header>
@@ -28,7 +28,7 @@ export async function motionFile(file: string) {
 export async function codeFile(exampleId: string) {
   const source = SOURCES[`../examples/${exampleId}/Demo.tsx`]
   if (source === undefined) throw new Error(`No demo for "${exampleId}"`)
-  const html = await codeToHtml(source, { lang: "tsx", themes: { light: "github-light", dark: "github-dark" }, defaultColor: false })
+  const html = await codeToHtml(source, { lang: "tsx", themes: { light: "catppuccin-latte", dark: "nord" }, defaultColor: false })
   return () => (
     <div class="code-file">
       <header>examples/{exampleId}/Demo.tsx</header>

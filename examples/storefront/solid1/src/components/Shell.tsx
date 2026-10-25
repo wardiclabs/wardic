@@ -1,5 +1,6 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
+import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
 import { wardic } from "@wardic/solid"
 import { createSignal, type JSX, Show, Suspense } from "solid-js"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
@@ -8,6 +9,9 @@ import { cart, saveSettings, settings } from "~/lib/store.ts"
 const THEME_LABEL: Record<Theme, string> = { system: "Theme: system", light: "Theme: light", dark: "Theme: dark" }
 const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" }
 
+/** A header link that answers as the icon buttons do (#365). */
+const IconLink = wardic.create(A)
+
 /** The store's switches: the delay on each request, and "fail the next one". */
 function StoreSettings() {
   const [open, setOpen] = createSignal(false)
@@ -15,9 +19,11 @@ function StoreSettings() {
   const save = useAction(saveSettings)
   return (
     <div class="settings">
-      <button class="icon-button" aria-expanded={open()} aria-label="Store settings" title="Store settings" onClick={() => setOpen(!open())}>
-        ⚙
-      </button>
+      <wardic.button class="icon-button" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" aria-expanded={open()} aria-label="Store settings" title="Store settings" onClick={() => setOpen(!open())}>
+        <wardic.span class="glyph" variants={COG}>
+          ⚙
+        </wardic.span>
+      </wardic.button>
       <Show when={open()}>
         <div class="settings-panel" role="dialog" aria-label="Store settings">
           <strong>The store</strong>
@@ -61,7 +67,7 @@ function CartButton() {
     return lines.lines.reduce((sum, line) => sum + line.quantity, 0)
   }
   return (
-    <A class="icon-button cart-button" href="/layout/cart-drawer" aria-label={`Cart: ${count()} items`} title="Cart">
+    <IconLink class="icon-button cart-button" href="/layout/cart-drawer" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" aria-label={`Cart: ${count()} items`} title="Cart">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path d="M6 7h12l-1 13H7L6 7Z M9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
       </svg>
@@ -74,18 +80,20 @@ function CartButton() {
           )}
         </Show>
       </Suspense>
-    </A>
+    </IconLink>
   )
 }
 
 export function Shell(props: { readonly children: JSX.Element }) {
   const preferences = usePreferences()
+  // Each theme switch turns its icon half a turn on (#365).
+  const [switches, setSwitches] = createSignal(0)
   return (
     <>
       <header class="site-header">
         <div class="page">
           <A class="brand" href="/">
-            Kiln & Co. <small>Wardic · Solid 1</small>
+            Wardic Northlight <small>Solid 1</small>
           </A>
           <nav class="site-nav" aria-label="Main">
             <A href="/" end>
@@ -97,9 +105,24 @@ export function Shell(props: { readonly children: JSX.Element }) {
               <input type="checkbox" checked={preferences.reduceMotion()} onChange={(event) => preferences.setReduceMotion(event.currentTarget.checked)} />
               <span>Reduce motion</span>
             </label>
-            <button class="icon-button" aria-label={THEME_LABEL[preferences.theme()]} title={THEME_LABEL[preferences.theme()]} onClick={preferences.cycleTheme}>
-              {THEME_ICON[preferences.theme()]}
-            </button>
+            <wardic.button
+              class="icon-button"
+              variants={ICON}
+              initial="rest"
+              animate="rest"
+              whileHover="hover"
+              whileTap="press"
+              aria-label={THEME_LABEL[preferences.theme()]}
+              title={THEME_LABEL[preferences.theme()]}
+              onClick={() => {
+                setSwitches((n) => n + 1)
+                preferences.cycleTheme()
+              }}
+            >
+              <wardic.span class="glyph" animate={turnOf(switches())}>
+                {THEME_ICON[preferences.theme()]}
+              </wardic.span>
+            </wardic.button>
             <StoreSettings />
             <CartButton />
           </div>
@@ -108,7 +131,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
       {props.children}
       <footer class="site-footer">
         <div class="page">
-          <span>Kiln & Co. is a made-up shop: a showcase of Wardic on Solid 1.</span>
+          <span>Wardic Northlight is a made-up shop: a showcase of Wardic on Solid 1.</span>
           <span>Photos: CC0, from museums' open-access collections.</span>
         </div>
       </footer>

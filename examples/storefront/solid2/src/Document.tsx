@@ -9,7 +9,7 @@ export default function Document(props: ParentProps) {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Kiln & Co. · Wardic on Solid 2</title>
+        <title>Wardic Northlight · Solid 2</title>
         <link rel="icon" href="data:," />
         <HydrationScript />
       </head>

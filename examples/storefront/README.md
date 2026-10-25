@@ -1,4 +1,4 @@
-# Kiln & Co., the storefront showcase
+# Wardic Northlight, the storefront showcase
 
 A made-up ceramics and glass shop whose every feature is a Wardic example: the demo, a short "why", and the code, on one page per pattern (#296). It's built twice, once per binding, so each shows its own Solid's way of doing things.
 

@@ -2,6 +2,7 @@
 import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
+import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
 import { wardic } from "@wardic/solid/unstable/v2"
 import { action, createMemo, createSignal, Loading, Show } from "solid-js"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
@@ -16,9 +17,22 @@ function StoreSettings() {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="settings">
-      <button class="icon-button" aria-expanded={String(open()) as "true" | "false"} aria-label="Store settings" title="Store settings" onClick={() => setOpen(!open())}>
-        ⚙
-      </button>
+      <wardic.button
+        class="icon-button"
+        variants={ICON}
+        initial="rest"
+        animate="rest"
+        whileHover="hover"
+        whileTap="press"
+        aria-expanded={String(open()) as "true" | "false"}
+        aria-label="Store settings"
+        title="Store settings"
+        onClick={() => setOpen(!open())}
+      >
+        <wardic.span class="glyph" variants={COG}>
+          ⚙
+        </wardic.span>
+      </wardic.button>
       <Show when={open()}>
         <div class="settings-panel" role="dialog" aria-label="Store settings">
           <strong>The store</strong>
@@ -68,7 +82,7 @@ function CartButton() {
   const current = createMemo(() => cart())
   const count = () => current().lines.reduce((sum, line) => sum + line.quantity, 0)
   return (
-    <a class="icon-button cart-button" href="/layout/cart-drawer" title="Cart" aria-label="Cart">
+    <wardic.a class="icon-button cart-button" href="/layout/cart-drawer" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" title="Cart" aria-label="Cart">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path d="M6 7h12l-1 13H7L6 7Z M9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
       </svg>
@@ -81,18 +95,20 @@ function CartButton() {
           )}
         </Show>
       </Loading>
-    </a>
+    </wardic.a>
   )
 }
 
 export function Shell(props: { readonly children: JSX.Element }) {
   const preferences = usePreferences()
+  // Each theme switch turns its icon half a turn on (#365).
+  const [switches, setSwitches] = createSignal(0)
   return (
     <>
       <header class="site-header">
         <div class="page">
           <a class="brand" href="/">
-            Kiln & Co. <small>Wardic · Solid 2</small>
+            Wardic Northlight <small>Solid 2</small>
           </a>
           <nav class="site-nav" aria-label="Main">
             <a href="/" >
@@ -104,9 +120,24 @@ export function Shell(props: { readonly children: JSX.Element }) {
               <input type="checkbox" checked={preferences.reduceMotion()} onChange={(event) => preferences.setReduceMotion(event.currentTarget.checked)} />
               <span>Reduce motion</span>
             </label>
-            <button class="icon-button" aria-label={THEME_LABEL[preferences.theme()]} title={THEME_LABEL[preferences.theme()]} onClick={preferences.cycleTheme}>
-              {THEME_ICON[preferences.theme()]}
-            </button>
+            <wardic.button
+              class="icon-button"
+              variants={ICON}
+              initial="rest"
+              animate="rest"
+              whileHover="hover"
+              whileTap="press"
+              aria-label={THEME_LABEL[preferences.theme()]}
+              title={THEME_LABEL[preferences.theme()]}
+              onClick={() => {
+                setSwitches((n) => n + 1)
+                preferences.cycleTheme()
+              }}
+            >
+              <wardic.span class="glyph" animate={turnOf(switches())}>
+                {THEME_ICON[preferences.theme()]}
+              </wardic.span>
+            </wardic.button>
             <StoreSettings />
             <CartButton />
           </div>
@@ -115,7 +146,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
       {props.children}
       <footer class="site-footer">
         <div class="page">
-          <span>Kiln & Co. is a made-up shop: a showcase of Wardic on Solid 2.</span>
+          <span>Wardic Northlight is a made-up shop: a showcase of Wardic on Solid 2.</span>
           <span>Photos: CC0, from museums' open-access collections.</span>
         </div>
       </footer>
