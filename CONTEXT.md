@@ -16,6 +16,10 @@ _Avoid_: animation (too broad), tweener, machine (its code form).
 A Primitive whose motion is governed by simulated forces and therefore carries velocity — `spring`, `decay`, and `inertia`, a decay that springs back to an edge it would cross (Motion's, what a drag's release runs).
 _Avoid_: dynamic animation.
 
+**Time-based spring**:
+A spring set by how long it takes rather than by its physics, as Motion's are (#359): a `duration` (with a `bounce`) solved to a stiffness and damping, which ends at that duration; or a `visualDuration` (with a `bounce`), by which most of its move is done, which ends at rest. A `stiffness`, `damping` or `mass` given beside makes it a physics spring again.
+_Avoid_: duration spring (for both: `visualDuration`'s doesn't end at a duration), timed spring.
+
 **Definite primitive**:
 A Primitive whose motion is governed by a fixed duration and easing, with no momentum — `tween`, `keyframes`, `animate`.
 _Avoid_: timed animation.

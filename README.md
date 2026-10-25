@@ -141,11 +141,15 @@ What differs is what Wardic names itself: one element's motion binding is a **wa
 
 Transitions follow Motion's rules (ADR-0051):
 - **No transition**: each value runs on Motion's default for it. `x`, `y` and `rotate` get a 500 / 25 spring, a `scale` a stiffer one (critically damped toward 0), and everything else, opacity and colours among them, a 0.3 s ease. A transition with only `delay` or the orchestration (`staggerChildren`, `when`…) counts as none.
-- **No `type`**: a tween's fields make a tween, so `{ duration: 0.5 }` is a 0.5 s tween. One difference: a spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restSpeed`) makes a spring, where Motion would quietly tween `{ stiffness: 300 }`.
+- **No `type`**: a tween's fields make a tween, so `{ duration: 0.5 }` is a 0.5 s tween. One difference: a spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes a spring, where Motion would quietly tween `{ stiffness: 300 }`. So `{ duration: 0.5, bounce: 0.2 }` is a spring.
 - **Missing fields are Motion's**: `{ type: "spring" }` is 100 / 10 / 1 and bounces, and a tween with no easing eases out.
 - **`repeat` with no `type`** makes a tween, since Wardic's springs don't repeat. Motion would repeat a transform's default spring.
 - **`ease` is Motion's** (#360): one of Motion's names (`"easeOut"`, `"backIn"`, `"anticipate"`…), a cubic bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or a function. The functions are exported by Motion's names too (`import { easeOut, cubicBezier, steps } from "@wardic/solid"`). The Penner set (`easeOutCubic`…) and `Easing.spring` are in `@wardic/core/Easing`. `createTransform` takes `ease` as Motion's `useTransform` does: one for every stretch, or one each. Wardic's old `easing` is an error, naming `ease`.
-- **Not here yet**: springs set by `bounce` or `visualDuration` (#359).
+- **Springs set by time are Motion's** (#359, ADR-0053):
+  - `{ type: "spring", duration: 0.5, bounce: 0.25 }` is solved to the spring that settles in 0.5 s, and it lands on its target at 0.5 s. `bounce` defaults to 0.3, and a `bounce` alone is a 0.8 s spring.
+  - `{ visualDuration: 0.5, bounce: 0.25 }` does most of its move in 0.5 s, then settles at rest. `bounce` defaults to 0 here.
+  - A `stiffness`, `damping` or `mass` beside them wins, as in Motion, and Motion's fill the rest.
+  - Two differences: a `visualDuration` alone is honoured, with no bounce, where Motion ignores it; and a `visualDuration` spring keeps the velocity it's handed (a fling, an interrupted animation), where Motion drops it. A `duration` spring starts from rest, as Motion's does, so it lands on time.
 
 Each Environment picks its own defaults: `DomLive` has Motion's, and the Test Environment runs every key on one 170 / 26 spring.
 

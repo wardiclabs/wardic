@@ -204,6 +204,23 @@ export interface SpringOptions {
   readonly restSpeed?: number
   /** Delay before the animation starts, in seconds. */
   readonly delay?: number
+  /**
+   * A **Time-based spring**'s duration, in seconds (#359, Motion's): solved, with `bounce`, to a
+   * stiffness and damping, and ended at it, landing on the target, from rest. Within 0.01 to 10 s. A
+   * `stiffness`, `damping` or `mass` given beside wins over it; `visualDuration` does too.
+   */
+  readonly duration?: number
+  /**
+   * How much a time-based spring bounces (#359, Motion's): 0 none, toward 1 a lot (its damping ratio
+   * is `1 − bounce`, within 0.05 to 1). Default 0.3 with a `duration`, 0 with a `visualDuration`.
+   * Alone, a 0.8 s duration spring.
+   */
+  readonly bounce?: number
+  /**
+   * A time-based spring that has done most of its move by this time, in seconds, and ends at rest
+   * after (#359, Motion's closed form), keeping the velocity it's handed. With `bounce`, or alone.
+   */
+  readonly visualDuration?: number
 }
 
 /** Options for momentum/decay motion (fling math). */
@@ -745,7 +762,10 @@ const GRANULAR = Spring.GRANULAR
  */
 const springRun =
   (getTarget: () => number, spring: Spring.Resolved, options: SpringOptions) => (): ((dt: number) => Frame.Physics) => {
+    // A spring that ends at its duration starts from rest, whatever velocity it's handed (#359, as
+    // Motion's), so it lands on time.
     let state = Spring.init(options)
+    if (Spring.endsOnTime(spring)) state = { ...state, velocity: 0 }
     // Its rest thresholds by its distance (#344), as Motion's retarget works them out at each new
     // target: only whether the distance is granular can change them, and with both given they
     // never do. A new target is noticed before the step and handled after it (`retarget`): any
@@ -761,6 +781,22 @@ const springRun =
       goal: first,
       granular: Math.abs(first - state.position) < GRANULAR,
       spring,
+    }
+    // A spring that ends at its duration (#359) starts it again, from rest, where a new target finds
+    // it, as Motion's `FollowAnimation` does (a delay still running runs on), stepping by
+    // `Spring.stepTimed`; its rest thresholds play no part. Its own run, so the others' stay as they were.
+    if (Spring.endsOnTime(spring)) {
+      let goal = first
+      return (dt) => {
+        const target = getTarget()
+        if (target !== goal) {
+          goal = target
+          state = { position: state.position, velocity: 0, elapsed: Math.min(state.elapsed, spring.delay) }
+        }
+        const result = Spring.stepTimed(state, Math.min(dt, MAX_DT), target, spring)
+        state = result.state
+        return { value: result.value, velocity: result.velocity, done: result.done }
+      }
     }
     // Per frame (ADR-0025): the spring resolved when the machine is built, `dt` clamped (#78).
     if (Bool.and(Predicate.isNotUndefined(spring.restDelta), Predicate.isNotUndefined(spring.restSpeed))) {
@@ -965,7 +1001,7 @@ export const springValues = (
       // spring's fields read as this closure's locals. Each key steps by `Spring.step`'s
       // integration, written out in place: called per key, `Spring.step` returns a new state and
       // result. One spring per key gives the same Frames (machines.test.ts).
-      return (dt) => {
+      const step = (dt: number): Frame.MultiPhysics => {
         const clamped = Math.min(dt, MAX_DT)
         let done = true
         for (let i = 0; i < count; i++) {
@@ -1001,6 +1037,34 @@ export const springValues = (
           frameVelocity[key] = speed
         }
         frame.done = done
+        return frame
+      }
+      if (Bool.not(Spring.endsOnTime(spring))) return step
+      // A spring that ends at its duration (#359) starts each key from rest, as Motion's, never rests
+      // (thresholds no key meets), and lands every key at its duration, after its delay. Set here,
+      // around the step, so the step and the arrays every other spring builds stay as they were (a
+      // choice per array cost a run's start ~25% on Bun). Every key's time is the run's.
+      for (let i = 0; i < count; i++) {
+        velocities[i] = 0
+        restDeltas[i] = -1
+        restSpeeds[i] = -1
+        frameVelocity[keys[i]] = 0
+      }
+      const duration = spring.duration
+      let time = 0
+      return (dt) => {
+        const result = step(dt)
+        time += Math.min(dt, MAX_DT)
+        if (time - delay < duration) return result
+        for (let i = 0; i < count; i++) {
+          const goal = targets[i]
+          positions[i] = goal
+          velocities[i] = 0
+          const key = keys[i]
+          frameValue[key] = goal
+          frameVelocity[key] = 0
+        }
+        frame.done = true
         return frame
       }
     },

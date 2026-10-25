@@ -32,6 +32,7 @@
 //   its rotate and opacity, and its rule is named apart from a plain element's.
 // - AR15 (#277): a target's own transition times its Appear animation: an `animate` map's, and a
 //   dynamic variant's resolved with `custom` (its delay from the item's index, held in its rule).
+// - AR20 (#359): a spring set by time plays for its duration: a duration spring's rule ends at it.
 // - AR16 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
 //   fifth of the way through a rule the slow own fields set the length of.
 // - AR17 (#301): a value's own transition beside a forever repeat has no rule, as one CSS cycle can't
@@ -462,6 +463,30 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const stops = Array.from(rule.matchAll(/([\d.]+)%\{[^}]*opacity:([\d.]+)/g), (m) => ({ at: Number(m[1]) / 100, opacity: Number(m[2]) }))
     expect(stops.length, "sampled").toBeGreaterThan(3)
     for (const stop of stops) expect(stop.opacity, `at ${stop.at}`).toBeCloseTo(Easing.easeIn(stop.at), 2)
+  })
+
+  it("AR20: a duration spring's rule moves until its duration, on its target, and settles at it (#359)", () => {
+    const variants = { hidden: { x: 0 }, shown: { x: 100 } }
+    const spring = { type: "spring", duration: 0.8, bounce: 0.4 } as const
+    const html = page(() => (
+      <wardic.section initial="hidden" animate="shown" variants={variants} transition={{ ...spring, when: "beforeChildren" }}>
+        <wardic.p variants={variants} transition={spring} />
+      </wardic.section>
+    ))
+    const css = headCss(html)
+    const [section, p] = tagsOf(html).filter((t) => t.name === "section" || t.name === "p")
+    const animation = timing(css, propertyOf(section?.style.animation)).normal
+    // Its rule ends at the last frame it's drawn moving: past 0.7 s, by 0.8 s.
+    const seconds = Number(/ ([\d.]+)s linear/.exec(animation)?.[1])
+    expect(seconds).toBeGreaterThan(0.7)
+    expect(seconds).toBeLessThanOrEqual(0.8)
+    const name = animation.split(" ")[0]!
+    const rule = new RegExp(`@keyframes ${name}\\{(.*?)\\}\\}`).exec(css)?.[1] ?? ""
+    expect(rule.endsWith("100%{transform:translateX(100px)"), "ends on 100px").toBe(true)
+    const xs = Array.from(rule.matchAll(/translateX\(([\d.-]+)px\)/g), (m) => Number(m[1]))
+    expect(Math.max(...xs), "a bounce of 0.4: past 100 on the way").toBeGreaterThan(105)
+    // It settles at its 0.8 s (48 frames of 1/60 s), as the client's: the child starts then.
+    expect(delayOf(timing(css, propertyOf(p?.style.animation)).normal)).toBeCloseTo(0.8, 9)
   })
 
   it("AR16: a transition's entries time each key in the rule (#301)", () => {
